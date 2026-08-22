@@ -1,6 +1,6 @@
 # Structural Collapse
 
-*Current as of: this build (rock submerged in water sinks rather than
+*Current as of: 2026-08-22 (rock submerged in water sinks rather than
 hanging, and reaches the bottom as rock rather than as grit; how fast it
 sinks now depends on how big the piece is, so a slab leads and grit
 trails; so does rock left in steam or standing on debris that has since
@@ -207,4 +207,3 @@ reasoning about them. Note what the tighter settings cost: a delayed
 cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
 a mountain and it will sit there.
 
-*Current as of: this build.*

@@ -1,6 +1,6 @@
 # Explosions
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 A blast doesn't happen in a single instant — the cavity expands outward
 over a brief span of time, not all at once. Right at the center, material
@@ -28,5 +28,7 @@ the point: a blast through a wall doesn't just leave a hole, it leaves the
 structure around the hole having to hold itself up without the part that's
 now missing, so what happens next is often bigger than the crater.
 
-Once the dust and glow settle, the crater is left open and empty —
-nothing currently fills it back in.
+Once the glow fades, the crater is not left clean: part of it is
+backfilled with smoke, which rises out of the hole and pools under
+whatever roof it finds, so a blast site visibly smokes for a while after
+the event itself is over.

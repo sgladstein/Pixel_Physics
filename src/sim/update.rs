@@ -74,6 +74,9 @@ pub fn step(world: &mut World) {
     // anything notices it. Both drivers, deliberately: `CLAUDE.md`'s "two
     // drivers, and the app runs the parallel one".
     super::weather::step(world);
+    // Springs beside weather and for the same reason: water that arrives
+    // this frame is material the sweep then moves. Both drivers.
+    super::spring::step(world);
 
     // Sweeping right-to-left on alternate frames cancels the directional bias
     // that a fixed scan order would otherwise bake into every pile and flow.
@@ -1013,6 +1016,12 @@ pub(crate) fn plant_available_fraction(cell: Cell) -> f32 {
 /// which is why the harnesses read fill through here rather than off
 /// `Cell::aux` (`examples/filmstrip.rs`'s ice census does, and would have
 /// had the convention inverted if it had not).
+///
+/// Public (originally `pub(crate)` for the tests that sum fill volume)
+/// because harnesses need per-cell fill too — `examples/ascii.rs`'s
+/// river-cost drain accounts what it deletes — and an example re-deriving
+/// this two-liner is how the convention gets written backwards somewhere
+/// nobody reviews.
 pub fn liquid_fill(cell: Cell) -> u16 {
     let aux = cell.aux();
     if aux == 0 {
@@ -1020,6 +1029,31 @@ pub fn liquid_fill(cell: Cell) -> u16 {
     } else {
         aux
     }
+}
+
+/// Total fill volume of one liquid material across the world — the census
+/// helper, public so harnesses never re-derive it. **Volume, not cell
+/// count**: a `Liquid` cell holds continuous fill and near-empty cells
+/// fringe every artifact, so counting cells is the recorded metric trap
+/// (`CLAUDE.md`, "Liquids: measure column *volume*"). And it goes through
+/// `liquid_fill` above rather than reading `aux` directly, because
+/// `aux == 0` on a liquid means FULL — the single easiest convention in the
+/// engine to get backwards, and exactly the kind of place an
+/// independently-written census in an example would get it backwards.
+/// A full-world scan: for tests and harness printouts at coarse intervals,
+/// never for a per-frame decision.
+pub fn liquid_volume(world: &World, id: material::MaterialId) -> u64 {
+    let Some(b) = world.bounds() else { return 0 };
+    let mut total = 0u64;
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let cell = world.get(x, y);
+            if cell.material == id {
+                total += liquid_fill(cell) as u64;
+            }
+        }
+    }
+    total
 }
 
 /// How much further than one row a `find_lateral_descent` move may continue

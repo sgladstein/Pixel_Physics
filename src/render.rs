@@ -24,6 +24,11 @@ const VOID: [u8; 4] = [12, 12, 16, 255];
 /// `VOID` and from a night sky.
 const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 
+/// What an underground void draws as while the `F11` reveal is on. Magenta,
+/// because nothing generated or placed in this world is magenta — the same
+/// "a colour the scene cannot produce" reasoning as the debug overlays.
+const REVEAL_VOID: [u8; 4] = [232, 62, 214, 255];
+
 /// How many rows it takes to go from open daylight to full `UNDERGROUND`
 /// below a roof.
 ///
@@ -44,6 +49,75 @@ const UNDERGROUND: [u8; 4] = [31, 29, 33, 255];
 /// what `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` requires and
 /// what sank the stateful version of the skyline itself.
 const CAVE_FADE_DEPTH: i32 = 24;
+
+/// What glow-lit cave air blends toward — a pale warm off-white, deliberately
+/// *not* the crystal's own cold blue. The lining stays the coldest, brightest
+/// thing in the chamber and the air around it reads as illuminated by it
+/// rather than as more crystal; tinting the air the material's colour was the
+/// obvious first pick and made the whole vug read as one solid mass.
+const GLOW_AIR_TINT: [u8; 3] = [226, 222, 208];
+
+/// How much a full-strength glow (`field::MAX_LIGHT` on the light channel)
+/// lifts a solid cell's lit colour: `1.0 + l * GLOW_SOLID_LIFT`. At crystal's
+/// 1.8 the wall of a vug gets about ×1.4 — visibly warmed, well short of
+/// blown out — and the falloff of the diffused halo does the shaping. The
+/// same channel read that `sky` uses for daylight would double-count the sun,
+/// so this multiplies *after* `apply_light` and the depth grade instead: glow
+/// is the one light that must win against depth, since a sealed chamber is
+/// exactly where the depth ramp sits at its floor.
+const GLOW_SOLID_LIFT: f32 = 0.9;
+
+/// Rows over which solid terrain fades from full surface light to
+/// `DEPTH_LIGHT_FLOOR`. The 2026-08 world review's single most consistent
+/// graphics finding: deep rock drew at identical brightness to surface rock,
+/// so the lower half of every strip read as flat wallpaper — a finished sky
+/// over an unlit cutaway. This is the cutaway's vertical light axis.
+///
+/// Same contract as `CAVE_FADE_DEPTH` above, and it must stay that way: a
+/// pure function of `(x, y, horizon[x])` where the horizon is frozen at
+/// genesis, so it cannot disagree between a renderer that has history and a
+/// fresh one, and it cannot defeat the dirty-rect skip (nothing here varies
+/// frame to frame). Sixty-four rows is set by eye against the review strips:
+/// one viewport-height of descent reads as "getting deep" without the
+/// surface band itself visibly shading.
+const DEPTH_LIGHT_RAMP_ROWS: i32 = 64;
+
+/// Brightness of solid terrain at and below the bottom of the depth ramp.
+/// Never black — the strata banding is the one landscape feature the review
+/// called a genuine win, and it must stay legible at full depth. Composes
+/// with `sky::apply_light`'s `UNLIT_FLOOR` (0.42) rather than replacing it,
+/// which is also what softens the review's night-silhouette inversion: deep
+/// rock at night now sits at ~0.26 of palette instead of 0.42.
+const DEPTH_LIGHT_FLOOR: f32 = 0.62;
+
+/// Brightness lift for the single row sitting exactly on the frozen skyline
+/// — the "top surface catches the light" cue. One row only: the review asked
+/// for a skyline highlight, not a glowing crust.
+const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
+
+/// Half-width of the window that decides which skyline features the depth
+/// light believes in.
+///
+/// Measured against the raw per-column skyline, the depth light drew a
+/// bright vertical shaft under every narrow notch: a slot seven columns
+/// wide and thirty deep dropped its columns' skyline by thirty rows, so
+/// the rock beside its floor read as "near the surface" and lit up in a
+/// stripe against its neighbours — conspicuous on canyon terrain, whose
+/// terrace snap cuts exactly such slots (the merged data track's 1b
+/// finding). Light does not pour down a slot like that; it comes from the
+/// whole sky.
+///
+/// So the light's datum is the skyline with narrow dips clipped to their
+/// shoulders — a morphological opening: a dip narrower than
+/// `2 * DEPTH_LIGHT_SHOULDER_REACH + 1` columns is treated as still being
+/// at its shoulders' level, while anything wider (a real valley, a canyon
+/// floor, a cliff step) passes through *exactly* unchanged, which is the
+/// property that makes an opening the right tool rather than a blur: a
+/// blur would soften every cliff base in the world to fix a dozen slots.
+/// Nine columns of half-width clears the measured slot census (worst
+/// notch 7 columns) with margin, and stays well under real valley widths.
+const DEPTH_LIGHT_SHOULDER_REACH: usize = 9;
+
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -143,6 +217,46 @@ impl GrainMode {
     }
 }
 
+/// Whether solid terrain is lit by its depth below the frozen skyline.
+///
+/// A live selector for the same reason `GrainMode` is one: "does this look
+/// right" is only answerable in the running app, and the depth grade changes
+/// every screenshot of every world, so the owner judges it as an A/B against
+/// the exact strips the world review praised (the night strip especially —
+/// the ramp softens the terrain-brighter-than-sky inversion, and whether
+/// that improves or diminishes the most-praised frame in the review is an
+/// eyes-only question). `Depth` is the default because the review's graphics
+/// lens ranked the missing vertical light axis as the single largest
+/// whole-picture defect; `Off` is one `F10` away and is the pre-review look.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum TerrainLight {
+    /// Solid cells dim from full surface brightness at the skyline to
+    /// `DEPTH_LIGHT_FLOOR` over `DEPTH_LIGHT_RAMP_ROWS`, with a one-row
+    /// highlight on the skyline itself. A pure function of
+    /// `(x, y, horizon[x])` — keeps the dirty-rect skip.
+    #[default]
+    Depth,
+    /// The pre-review look: depth changes nothing about a solid cell's
+    /// light.
+    Off,
+}
+
+impl TerrainLight {
+    fn next(self) -> Self {
+        match self {
+            TerrainLight::Depth => TerrainLight::Off,
+            TerrainLight::Off => TerrainLight::Depth,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TerrainLight::Depth => "DEPTH (current)",
+            TerrainLight::Off => "FLAT",
+        }
+    }
+}
+
 /// Frames per step of `GrainMode::Animated`, chosen by the same reasoning
 /// `FLAME_FLICKER_PERIOD` records: re-rolling every frame reads as noise.
 const GRAIN_ANIMATION_PERIOD: u64 = 5;
@@ -156,6 +270,29 @@ const GRAIN_SMOOTH_PERIOD: u64 = 20;
 /// How much brighter a `FLAG_FLOWING` liquid cell draws under
 /// `GrainMode::Motion`.
 const MOTION_GRAIN_LIFT: f32 = 0.10;
+
+/// Moving water reads as foam: a `FLAG_FLOWING` liquid cell blends this
+/// far toward `FOAM_TINT`, in every grain mode.
+///
+/// The one-column spring prototype made the case by failing it: a real
+/// waterfall rendered as a barely-visible navy thread, because water's
+/// palette is dark and nothing distinguished falling water from a still
+/// pool's edge (owner: "very little water" — looking at 19,000 cells of
+/// through-flow). White water is *how humans read moving water* at any
+/// distance; the pool stays deep because its interior genuinely does not
+/// move (`FLAG_FLOWING` clears on settle), so a fall is a bright ribbon
+/// into a dark basin, which is what a waterfall looks like.
+///
+/// A pure function of the cell's own flag — no neighbour reads, so no
+/// stale pixels at touched-chunk borders, and the dirty-rect skip's
+/// pixel-identity argument holds: the flag's own transitions (move, or
+/// the settle-clear write) both dirty the chunk that owns the cell.
+const FOAM_BLEND: f32 = 0.45;
+
+/// The colour moving water blends toward: pale, slightly blue-cold —
+/// aerated water, not paint-white, so a fall still reads as water against
+/// snow or sky.
+const FOAM_TINT: [f32; 3] = [205.0, 226.0, 242.0];
 
 
 /// How far above ambient a cell needs to be for `HEAT_GLOW_RANGE` to
@@ -765,6 +902,54 @@ const MAX_ZOOM: i32 = 8;
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
+///
+/// In screens, deliberately, never in cells: what has to feel the same at
+/// every zoom is how fast the *picture* slides, and a screens-per-second rate
+/// makes screen-pixels-per-second invariant by construction rather than by
+/// three numbers being tuned to agree. `Renderer::pan` multiplies it by
+/// `visible_span`, which already knows what a screenful is at the current
+/// scale.
+///
+/// This is the **sustained** rate, reached after `PAN_RAMP_SECONDS` of holding
+/// a key; the scroll opens at `PAN_START_FRACTION` of it. `0.5` is 256 cells/s,
+/// about 2.8x the gnome's own run (`run_max` 1.5 cells/tick = 90 cells/s), and
+/// puts the 1536-cell pannable width — the world less one viewport — about six
+/// seconds end to end, or two and a half for the world's one-screen depth.
+///
+/// **`1.5` shipped here first and was rejected by playtest: "way too fast."**
+/// Keep the number, because the way it was arrived at is the useful part. The
+/// brief was *"I want to be able to scroll around when the gnome isn't
+/// deployed"* — a complaint about **needing a gnome**, not about pace. It got
+/// read as a speed requirement, justified against the seventeen seconds it
+/// takes the gnome to run the same distance, and landed at 8.5x his run. No
+/// one had asked for that. When a rate is chosen against a goal the brief does
+/// not state, it is worth checking the brief actually states it.
+///
+/// A hold-to-accelerate ramp was also rejected at the time, on the grounds
+/// that "the longest haul here is two seconds" — which was true *only because
+/// the base rate was too high*, so that argument fell with the rate it was
+/// derived from. The owner's verdict was that the scroll both overshot and was
+/// too twitchy to nudge, which is precisely the pair a ramp answers. See
+/// `PAN_START_FRACTION`.
+const PAN_SCREENS_PER_SECOND: f32 = 0.5;
+
+/// What fraction of the sustained rate the scroll opens at, before the ramp.
+///
+/// `0.4` is 102 cells/s at 1:1 — near enough the gnome's own running pace, and
+/// a tenth-of-a-second tap moves the view about ten cells. That is the answer
+/// to "too twitchy": a tap should nudge the view, not throw it.
+///
+/// The ramp is what keeps that from also making travel a chore. Opening at the
+/// sustained rate is the twitchy version; opening slow *without* a ramp turns
+/// the six-second traverse into fifteen. Neither complaint can be fixed
+/// without the other, which is why one constant could not do it.
+const PAN_START_FRACTION: f32 = 0.4;
+/// How long a held key takes to reach the full rate, ramping linearly from
+/// `PAN_START_FRACTION`. Short enough that travelling does not feel gated,
+/// long enough that a deliberate nudge stays inside the slow part.
+const PAN_RAMP_SECONDS: f32 = 0.8;
+
 /// How far a fractured cell is darkened, out of 256. Dark enough to read as
 /// a break at a glance, light enough that a scored face is still obviously
 /// rock rather than a hole.
@@ -804,32 +989,208 @@ const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
 const GNOME_TUNIC: [u8; 4] = [74, 138, 70, 255];
 const GNOME_BELT: [u8; 4] = [82, 54, 34, 255];
 const GNOME_BOOT: [u8; 4] = [108, 76, 46, 255];
-const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = {
-    // Local aliases, so the table below stays a picture you can read.
-    const H: Option<[u8; 4]> = Some(GNOME_HAT);
-    const F: Option<[u8; 4]> = Some(GNOME_FACE);
-    const W: Option<[u8; 4]> = Some(GNOME_BEARD);
-    const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
-    const L: Option<[u8; 4]> = Some(GNOME_BELT);
-    const B: Option<[u8; 4]> = Some(GNOME_BOOT);
-    const X: Option<[u8; 4]> = None;
-    [
-        [X, X, X, H, X, X, X],
-        [X, X, H, H, H, X, X],
-        [X, H, H, H, H, H, X],
-        [H, H, H, H, H, H, H],
-        [X, X, F, F, F, X, X],
-        [X, F, F, F, F, F, X],
-        [X, F, W, W, W, F, X],
-        [X, X, W, W, W, X, X],
-        [T, T, T, T, T, T, T],
-        [T, T, T, T, T, T, T],
-        [X, T, T, L, T, T, X],
-        [X, T, T, T, T, T, X],
-        [X, B, B, X, B, B, X],
-        [B, B, B, X, B, B, B],
-    ]
-};
+/// Local aliases, so the tables below stay pictures you can read.
+const H: Option<[u8; 4]> = Some(GNOME_HAT);
+const F: Option<[u8; 4]> = Some(GNOME_FACE);
+const W: Option<[u8; 4]> = Some(GNOME_BEARD);
+const T: Option<[u8; 4]> = Some(GNOME_TUNIC);
+const L: Option<[u8; 4]> = Some(GNOME_BELT);
+const B: Option<[u8; 4]> = Some(GNOME_BOOT);
+const X: Option<[u8; 4]> = None;
+
+/// Drawn facing **right**; `draw_player` mirrors the columns when he is
+/// facing left.
+///
+/// **Deliberately asymmetric, and that is the change** — the previous
+/// table was a perfect mirror of itself, so flipping it would have been a
+/// no-op and "he faces the way he is going" would have shipped as a field
+/// nobody could see. The tells are a hand out in front (row 9) and the
+/// weight forward on the leading boot (row 13): two pixels, which is all
+/// there is room for at this size and enough to read at 1x.
+const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, X],
+    [X, F, F, F, F, F, X],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, T],
+    [T, T, T, T, T, T, F],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [X, B, B, X, B, B, B],
+];
+
+/// The same figure mid-swing: the arm comes up and reaches out ahead of
+/// him, and he leans into it.
+///
+/// A destructive act that looks identical to standing still is one the
+/// player cannot tell fired (`design-philosophy.md` §0a — every event owes
+/// feedback). One frame is enough at 60 Hz to read a dig or a shake as a
+/// blow rather than as a cursor effect.
+const GNOME_SWING: [[Option<[u8; 4]>; 7]; 14] = [
+    [X, X, X, H, X, X, X],
+    [X, X, H, H, H, X, X],
+    [X, H, H, H, H, H, X],
+    [H, H, H, H, H, H, H],
+    [X, X, F, F, F, X, F],
+    [X, F, F, F, F, F, F],
+    [X, F, W, W, W, F, X],
+    [X, X, W, W, W, X, X],
+    [T, T, T, T, T, T, X],
+    [T, T, T, T, T, T, X],
+    [X, T, T, L, T, T, X],
+    [X, T, T, T, T, T, X],
+    [X, B, B, X, B, B, X],
+    [B, B, B, X, B, B, X],
+];
+
+/// Whether the gnome draws over a tree, behind it, or a mix — the owner's
+/// "sometimes walking in front of trees and sometimes behind".
+///
+/// A **selector rather than a decision**, per `CLAUDE.md`: this is a
+/// does-this-look-right question, and five grain modes behind one key once
+/// settled in minutes what no amount of argument or still images had.
+///
+/// Purely graphical. Nothing about collision, light or the simulation
+/// changes with it — a tree is walk-through either way, and this only says
+/// which of the two gets the pixel where they overlap.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum TreeDepth {
+    /// Half the trees draw over him, chosen per tree and stable for its
+    /// life. The default, because it is the effect that was asked for.
+    #[default]
+    Weave,
+    /// The previous behaviour: he draws over everything.
+    Front,
+    /// Every tree draws over him — the far end, for judging how readable a
+    /// half-hidden gnome actually is before settling on the middle.
+    Behind,
+    /// `Weave`, and the trees he passes *behind* are also dimmed, so the
+    /// two layers read as layers rather than as random occlusion.
+    Haze,
+}
+
+impl TreeDepth {
+    pub fn next(self) -> Self {
+        match self {
+            TreeDepth::Weave => TreeDepth::Haze,
+            TreeDepth::Haze => TreeDepth::Front,
+            TreeDepth::Front => TreeDepth::Behind,
+            TreeDepth::Behind => TreeDepth::Weave,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TreeDepth::Weave => "WEAVE (current)",
+            TreeDepth::Haze => "WEAVE+HAZE",
+            TreeDepth::Front => "FRONT",
+            TreeDepth::Behind => "BEHIND",
+        }
+    }
+
+    /// Whether the thing identified by `key` draws in front of him.
+    ///
+    /// **Two callers with two keys.** A tree keys on its `organism_id`, so a
+    /// stand's sides are fixed for its life. A cave formation has no
+    /// identity to key on — it is loose cells of `flowstone`, not an
+    /// organism — so it keys on its **world column**, which gives the same
+    /// two properties for free: one formation keeps one side however long
+    /// it stands, and neighbouring formations decorrelate.
+    ///
+    /// **A hash, not `id & 1`.** Organism ids are handed out sequentially,
+    /// so parity makes consecutively-planted trees alternate — a
+    /// correlation the eye picks out at once in a row of them, and worldgen
+    /// plants a stand left to right.
+    ///
+    /// A pure function of world state and nothing else, which is what keeps
+    /// `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` true: a fresh
+    /// `Renderer` and one with history agree by construction. The reverted
+    /// stateful skyline is the recorded case of getting this wrong.
+    fn in_front(self, key: u32) -> bool {
+        match self {
+            TreeDepth::Front => false,
+            TreeDepth::Behind => true,
+            TreeDepth::Weave | TreeDepth::Haze => key.wrapping_mul(2_654_435_761) >> 16 & 1 == 1,
+        }
+    }
+}
+
+/// How much of him still shows through a tree he is passing behind.
+///
+/// **Zero: a tree in front hides him.** This was 0.28, on my argument that
+/// a gnome who vanishes into a crown is a gnome you have lost and the
+/// picture stops being playable however good it looks. Overruled by the
+/// first playtest — "behind has too much transparency, the player
+/// character should be hidden" — so the concern was mine and not real, at
+/// least at this zoom. Kept as a named constant with the branch intact
+/// rather than deleted, because the owner flagged they may revisit it:
+/// restoring the ghost is this one number, and `blend` clamps alpha, so
+/// any value between is valid.
+const OCCLUDED_ALPHA: f32 = 0.0;
+
+/// Where a glow's *shape* comes from: the coarse light field alone, or the
+/// emitting cells as well.
+///
+/// A selector rather than a silent replacement, because the repo's rule for
+/// "does this look right" is to ship the choice and name the active one on
+/// screen. Unusually, the default is the **new** behaviour: this is not a
+/// matter of taste that nobody has ruled on, it is
+/// `Reports/open-bugs-handoff.md` 0c, which the owner named twice
+/// unprompted on cards that were about something else. `Field` is kept so
+/// the two can be put side by side, and costs one branch.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GlowShape {
+    /// Emitting cells splat a per-cell near field; the coarse field carries
+    /// the far falloff. See `NEAR_GLOW_RADIUS`.
+    #[default]
+    Near,
+    /// The pre-fix look: the coarse light field alone, quantised to
+    /// `FIELD_SCALE`.
+    Field,
+}
+
+impl GlowShape {
+    fn next(self) -> Self {
+        match self {
+            GlowShape::Near => GlowShape::Field,
+            GlowShape::Field => GlowShape::Near,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GlowShape::Near => "NEAR (current)",
+            GlowShape::Field => "FIELD (8-cell blocks)",
+        }
+    }
+}
+
+/// Radius, in cells, of the near-field glow term that gives a light source
+/// a *shape*.
+///
+/// The coarse light field holds one value per `FIELD_SCALE` (8) cells and
+/// -- worse -- seeds the emitter itself at that resolution, so a two-cell
+/// crystal is a filled 8x8 block before a single diffusion step runs, and
+/// `field_at_bilinear` then smears it over about sixteen. The result the
+/// owner named twice unprompted: *"the big sharp squares that look like
+/// giant white gray pixels"* and *"the rectangular lighting looks bad"*.
+/// Smoothing does not help; a vaguer sixteen-cell blob is still a
+/// sixteen-cell blob.
+///
+/// Set to cover the zone where the quantisation is visible -- the steep
+/// part of the falloff, roughly two field cells -- and no further. Beyond
+/// it the coarse field's level is low and its gradient shallow, which is
+/// where a block edge stops being legible and where the field is doing the
+/// job it is good at.
+const NEAR_GLOW_RADIUS: i32 = 14;
+
+/// How far a background tree is dimmed under `TreeDepth::Haze`.
+const HAZE_DIM: u16 = 168;
 
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
@@ -842,6 +1203,9 @@ pub struct Renderer {
     /// How a `Gas` cell is drawn against what is behind it -- see
     /// `GasMode`. `ByFill` by default, cycled by `;`.
     pub gas: GasMode,
+    /// Whether the gnome weaves through a stand or draws over it — see
+    /// `TreeDepth`. Cycled with `F10`.
+    pub tree_depth: TreeDepth,
     /// Frame counter, advanced by `draw`, read only by `GrainMode::Animated`.
     frame: u64,
     /// Screen rectangles the chunk bodies occupied on the previous `draw`.
@@ -852,12 +1216,25 @@ pub struct Renderer {
     /// smear without falling back to redrawing the whole screen -- which is
     /// what this did before, for the entire duration of every collapse.
     last_body_rects: Vec<Rect>,
-    /// Screen rect the gnome occupied on the previous `draw` — the same
-    /// smear-repaint reasoning as `last_body_rects`. Kept separately, and
-    /// compared before unioning: a gnome standing still contributes
-    /// *nothing* to the dirty region, which is what keeps a settled
-    /// world's zero-cost frames zero-cost with a character idle in them.
-    last_player_rect: Option<Rect>,
+    /// Screen rect the gnome occupied on the previous `draw`, **and how he
+    /// was posed in it** — the same smear-repaint reasoning as
+    /// `last_body_rects`. Kept separately, and compared before unioning: a
+    /// gnome standing still contributes *nothing* to the dirty region,
+    /// which is what keeps a settled world's zero-cost frames zero-cost
+    /// with a character idle in them.
+    ///
+    /// The rect alone is not enough, and the gap is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    ///
+    /// The rect alone is not enough and the difference is a real artifact:
+    /// turning on the spot, or starting a swing, changes every pixel of him
+    /// while his rectangle stays put — so a rect-keyed comparison skips the
+    /// repaint and leaves the previous pose on screen until something else
+    /// happens to dirty it.
+    last_player_pose: Option<(Rect, bool, bool)>,
     /// World coordinate displayed at the top-left pixel. Moved by
     /// [`Renderer::follow`] once there is a player to follow.
     pub camera_x: i32,
@@ -865,6 +1242,16 @@ pub struct Renderer {
     /// The camera as last painted, so a move can force a full redraw. Same
     /// role as `last_zoom_state`, and for the same reason.
     last_camera: Option<(i32, i32)>,
+    /// Sub-cell scroll carried between frames by `pan`. See that method for
+    /// why truncating it instead would make one held key feel like a
+    /// different speed at every zoom level.
+    pan_residual: (f32, f32),
+    /// Seconds the current scroll gesture has been held, for the ramp in
+    /// `pan`. Cleared by `end_pan`, so a tap is always a tap.
+    pan_held_for: f32,
+    /// The direction the current gesture is going, so reversing it can restart
+    /// the ramp rather than inherit full speed — see `pan`.
+    pan_dir: (i32, i32),
     /// Draws chunk boundaries tinted by whether the chunk will be swept next
     /// frame. This is the primary way to confirm sleeping actually works.
     pub show_chunk_overlay: bool,
@@ -936,6 +1323,33 @@ pub struct Renderer {
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
     last_zoom_state: Option<(i32, i32)>,
+    /// The look toggles as of the last draw — forces one full repaint when
+    /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
+    last_look: Option<(TerrainLight, bool, GrainMode, GlowShape)>,
+    /// Field tiles with any glowing material in them **plus their eight
+    /// neighbours** (the diffused halo crosses tile seams; gating on the
+    /// glow tile alone clipped it square at every chunk boundary), rebuilt
+    /// per draw from `FieldTile::has_glow`. The per-pixel gate that keeps
+    /// local light free for the 99% of the world that has none: a pixel
+    /// only samples the field's light channel when its chunk is in this
+    /// set, so a glow-free world pays one `is_empty()` test per pixel and
+    /// nothing else.
+    glow_tiles: std::collections::HashSet<ChunkCoord>,
+    /// Per-cell near-field glow, one buffer per chunk in `glow_tiles`,
+    /// rebuilt whenever those tiles change or are still converging. Splat
+    /// from the *emitting cells themselves* rather than read from the
+    /// field, because the field has already thrown the emitter's position
+    /// away -- see `NEAR_GLOW_RADIUS`.
+    near_glow: std::collections::HashMap<ChunkCoord, Vec<f32>>,
+    /// Which emitter tiles `near_glow` was built from, so a settled world
+    /// does not rebuild it every draw.
+    near_glow_key: Option<Vec<ChunkCoord>>,
+    /// How many times the splat has been rebuilt. Exists so a test can ask
+    /// "did it fire", which no picture and no frame timing can answer: a
+    /// halo that is rebuilt every frame looks exactly like one that is
+    /// cached, and the cost only shows up on the settled world the
+    /// dirty-rect skip exists for.
+    pub near_glow_rebuilds: u32,
     /// The sky as of this frame, recomputed once per `draw` and read by
     /// every empty pixel. Held rather than passed because `cell_colour` is
     /// the per-pixel hot path and recomputing a cosine there would be paying
@@ -992,6 +1406,29 @@ pub struct Renderer {
     /// Built from the formula in `Renderer::new` rather than written out, so
     /// the constant above stays the only place the shape is stated.
     cave_ramp: [u8; CAVE_FADE_DEPTH as usize + 1],
+    /// `F10` — whether solid terrain is lit by depth below the skyline.
+    pub terrain_light: TerrainLight,
+    /// Where a glow's shape comes from -- cycled with `'`. See `GlowShape`.
+    pub glow_shape: GlowShape,
+    /// `F11` — reveal every void inside the ground, for testing.
+    ///
+    /// Sealed chambers are invisible by design (dark cave fade against dark
+    /// deep rock, 200+ rows down), which makes "did this world get a vault,
+    /// and where" unanswerable in the app without digging blind. With this
+    /// on, materially-empty cells below the frozen skyline draw as a flat
+    /// bright marker instead of unlit rock, so every enclosed void — vault
+    /// domes, blast cavities, tunnels — reads at any zoom. A debug reveal,
+    /// not a look: full replace with a colour nothing else in the world
+    /// uses, on the same reasoning as the field overlays' fixed ramps
+    /// (a blend into the world's own palette is exactly how the canopy
+    /// overlay once read as blank).
+    pub reveal_voids: bool,
+    /// `DEPTH_LIGHT_RAMP_ROWS`'s ramp, precomputed for the same reason as
+    /// `cave_ramp` directly above: read per solid pixel, and it only ever
+    /// takes `DEPTH_LIGHT_RAMP_ROWS + 1` distinct settings. Fixed-point
+    /// brightness factor, 256 = 1.0; entry 0 is the skyline highlight and
+    /// exceeds 256 on purpose.
+    depth_light_ramp: [u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1],
     /// Where the moon was painted last frame, so its old pixels get cleaned
     /// up. Same device as `last_body_rects`.
     last_moon_rect: Option<Rect>,
@@ -1004,6 +1441,14 @@ pub struct Renderer {
     /// undercut. Reported from play, and obvious in hindsight: "empty" and
     /// "open to the sky" are not the same question.
     horizon: Vec<i32>,
+    /// The skyline as the *depth light* reads it: `horizon` with dips
+    /// narrower than the shoulder window clipped to their shoulders (see
+    /// `DEPTH_LIGHT_SHOULDER_REACH`). Rebuilt beside `horizon` from the same
+    /// frozen source, so it carries the same purity guarantee. Only the
+    /// terrain depth light reads it — sky-vs-cave (`sky_depth`) stays on the
+    /// raw skyline, because the air in a narrow notch genuinely *is* open
+    /// sky even though the rock beside it should not light up.
+    light_datum: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
 }
@@ -1014,11 +1459,15 @@ impl Renderer {
             grain: GrainMode::default(),
             bubbles: BubbleMode::default(),
             gas: GasMode::default(),
+            tree_depth: TreeDepth::default(),
             frame: 0,
             last_body_rects: Vec::new(),
-            last_player_rect: None,
+            last_player_pose: None,
             camera_x: 0,
             camera_y: 0,
+            pan_residual: (0.0, 0.0),
+            pan_held_for: 0.0,
+            pan_dir: (0, 0),
             last_camera: None,
             show_chunk_overlay: false,
             zoom: 1,
@@ -1027,6 +1476,11 @@ impl Renderer {
             organism_overlay: OrganismOverlay::Off,
             last_organism_overlay: OrganismOverlay::Off,
             last_zoom_state: None,
+            last_look: None,
+            glow_tiles: std::collections::HashSet::new(),
+            near_glow: std::collections::HashMap::new(),
+            near_glow_key: None,
+            near_glow_rebuilds: 0,
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
@@ -1046,10 +1500,47 @@ impl Renderer {
                 }
                 ramp
             },
+            terrain_light: TerrainLight::default(),
+            glow_shape: GlowShape::default(),
+            reveal_voids: false,
+            depth_light_ramp: {
+                let mut ramp = [256u16; DEPTH_LIGHT_RAMP_ROWS as usize + 1];
+                ramp[0] = (DEPTH_LIGHT_HIGHLIGHT * 256.0).round() as u16;
+                for (i, slot) in ramp.iter_mut().enumerate().skip(1) {
+                    // Smoothstepped, unlike `cave_ramp`'s square root, and
+                    // for the opposite reason: the cave fade wants most of
+                    // its drop in the first rows (a roof blocks the most),
+                    // while sunlight soaking into a hillside should leave
+                    // the surface *band* bright and ease into the dark —
+                    // a fast first-row drop here read as the whole surface
+                    // being one bright crust on a dark slab. Smoothstep is
+                    // flat at both ends: no knee at the surface, no knee
+                    // where the ramp meets the floor.
+                    let t = i as f32 / DEPTH_LIGHT_RAMP_ROWS as f32;
+                    let s = (1.0 - t) * (1.0 - t) * (3.0 - 2.0 * (1.0 - t));
+                    *slot = ((DEPTH_LIGHT_FLOOR + (1.0 - DEPTH_LIGHT_FLOOR) * s) * 256.0).round() as u16;
+                }
+                ramp
+            },
             last_moon_rect: None,
             horizon: Vec::new(),
+            light_datum: Vec::new(),
             horizon_origin: 0,
         }
+    }
+
+    /// `F10` — toggle the terrain depth light, so the review's largest
+    /// graphics change can be judged as an A/B in the running app against
+    /// the pre-review look. Same convention as `cycle_grain` below.
+    pub fn cycle_glow_shape(&mut self) {
+        self.glow_shape = self.glow_shape.next();
+        // The halo is not owned by any chunk the CA touched, so nothing else
+        // would ever repaint it.
+        self.last_look = None;
+    }
+
+    pub fn cycle_terrain_light(&mut self) {
+        self.terrain_light = self.terrain_light.next();
     }
 
     /// `G` — step through the liquid grain modes. This exists so the
@@ -1057,6 +1548,12 @@ impl Renderer {
     /// the only way a "does this look right" question gets answered, and it
     /// stays for the same reason: the look is expected to keep being
     /// iterated on rather than settled once.
+    /// Cycle the tree-depth selector. `F10`.
+    pub fn cycle_tree_depth(&mut self) -> TreeDepth {
+        self.tree_depth = self.tree_depth.next();
+        self.tree_depth
+    }
+
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
     }
@@ -1142,6 +1639,20 @@ impl Renderer {
             cam_y = target.1 - span_y / 2;
         }
 
+        self.set_camera(cam_x, cam_y, viewport, bounds);
+    }
+
+    /// Put the camera at `(x, y)`, clamped so the viewport stays inside
+    /// `bounds` and never shows the void beyond the world.
+    ///
+    /// The clamp lived inside `follow` while `follow` was the only thing that
+    /// ever moved the camera. It is not any more — `pan` writes it too — and a
+    /// clamp only one of two writers goes through is a clamp that is not
+    /// there. `camera_x`/`camera_y` being `pub` makes that a live hazard
+    /// rather than a theoretical one.
+    pub fn set_camera(&mut self, x: i32, y: i32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+        let (mut cam_x, mut cam_y) = (x, y);
         if let Some(b) = bounds {
             // `max` before `min` so a world narrower than the viewport pins to
             // its own origin rather than to a negative coordinate.
@@ -1150,6 +1661,101 @@ impl Renderer {
         }
         self.camera_x = cam_x;
         self.camera_y = cam_y;
+    }
+
+    /// Scroll the view. `dir` is -1/0/+1 per axis, `seconds` is real elapsed
+    /// time — the `WASD` map scroll with no gnome in the world, driven through
+    /// `App::pan_camera`.
+    ///
+    /// The counterpart to `follow`, for a view with nothing to follow, and
+    /// deliberately **without** a dead zone: `follow`'s exists because a
+    /// walking character would otherwise drag the camera every frame for
+    /// nothing, whereas here the delta *is* the request, and damping the input
+    /// against itself would only make the scroll feel like it was fighting
+    /// you.
+    ///
+    /// **Accelerates while held**, from `PAN_START_FRACTION` of the rate to
+    /// all of it over `PAN_RAMP_SECONDS`. A tap therefore moves the view by a
+    /// nudge and a sustained hold still crosses the world in about six
+    /// seconds — the two halves of the playtest verdict that killed the flat
+    /// 1.5 screens/s this shipped with.
+    ///
+    /// The sub-cell remainder is **carried, not truncated**. At `zoom` 8 the
+    /// viewport is 64 cells wide, so the rate above is about 1.6 cells a
+    /// frame; truncating each frame independently emits 1 and scrolls at 0.94
+    /// screens a second instead of 1.5 — visibly a different feel from the
+    /// same key at 1:1, which is the exact thing a screens-per-second rate
+    /// exists to make impossible.
+    ///
+    /// **Quantised to `zoom_out_stride`, and this one is not obvious.** A
+    /// zoomed-out view samples every `stride`-th cell (`screen_to_world` is
+    /// `camera + sx * stride` there), so a camera step that is *not* a whole
+    /// number of strides does not translate the picture at all — it resamples
+    /// the same view against a different lattice, the odd columns instead of
+    /// the even ones at stride 2, and reads as the screen hissing rather than
+    /// scrolling. Whole strides move it by exactly one screen pixel each, so
+    /// that is the unit; anything less waits in the residual until it is one.
+    ///
+    /// Diagonals are deliberately not normalised — holding two keys is
+    /// sqrt(2) faster, as in every map editor, and correcting it would make
+    /// two held keys slower than the sum of one.
+    ///
+    /// Costs a full redraw on every frame it actually moves the camera (see
+    /// `draw`'s `camera_moved`). That is the same price `follow` already pays
+    /// whenever the gnome walks, and unlike an animated grain it ends when the
+    /// key comes up — bounded by the gesture rather than permanent.
+    pub fn pan(&mut self, dir: (i32, i32), seconds: f32, viewport: (u32, u32), bounds: Option<Rect>) {
+        let (span_x, span_y) = self.visible_span(viewport);
+
+        // **Reversing restarts the ramp.** Overshooting and tapping back is
+        // exactly the correction a slow start exists to make possible, and
+        // carrying full speed into it would fling the view the other way just
+        // as hard — turning one overshoot into two. A reversal is a new
+        // gesture, so it begins like one. Reset here rather than in `main.rs`
+        // for the same reason the rate lives here: `main.rs` reports which way
+        // the keys are pointing and nothing else.
+        // A **sign flip on either axis**, not merely a different `dir`. Adding
+        // a second direction to a scroll already under way — pressing `S`
+        // while travelling right — is not a reversal and must not drop you
+        // back to walking pace mid-journey; releasing one of two is not one
+        // either. Only actually turning round is.
+        let reversed = dir.0 * self.pan_dir.0 < 0 || dir.1 * self.pan_dir.1 < 0;
+        if reversed {
+            self.pan_held_for = 0.0;
+            self.pan_residual = (0.0, 0.0);
+        }
+        self.pan_dir = dir;
+        self.pan_held_for += seconds;
+
+        // Linear from `PAN_START_FRACTION` of the rate to all of it across
+        // `PAN_RAMP_SECONDS`, then flat. Applied to the *rate*, not to the
+        // distance, so the ramp is a speed curve and the carry below stays a
+        // plain remainder.
+        let ramp = (self.pan_held_for / PAN_RAMP_SECONDS).clamp(0.0, 1.0);
+        let rate = PAN_SCREENS_PER_SECOND * (PAN_START_FRACTION + (1.0 - PAN_START_FRACTION) * ramp);
+        let travel = rate * seconds;
+        self.pan_residual.0 += dir.0 as f32 * span_x as f32 * travel;
+        self.pan_residual.1 += dir.1 as f32 * span_y as f32 * travel;
+
+        // Truncation toward zero, so the leftover keeps the sign of the
+        // direction being travelled and is carried rather than rounded away.
+        // (This used to be justified by reversals not having to unwind a debt
+        // first; they no longer can, because a reversal clears the residual
+        // outright above.)
+        let step = self.zoom_out_stride.max(1);
+        let dx = self.pan_residual.0 as i32 / step * step;
+        let dy = self.pan_residual.1 as i32 / step * step;
+        self.pan_residual.0 -= dx as f32;
+        self.pan_residual.1 -= dy as f32;
+        self.set_camera(self.camera_x + dx, self.camera_y + dy, viewport, bounds);
+    }
+
+    /// Drop any carried sub-cell scroll, so a fresh gesture starts clean
+    /// rather than inheriting a fraction of a cell from the last one.
+    pub fn end_pan(&mut self) {
+        self.pan_residual = (0.0, 0.0);
+        self.pan_held_for = 0.0;
+        self.pan_dir = (0, 0);
     }
 
     /// reads as a single "more/less zoom" control, not two separate ones a
@@ -1351,8 +1957,81 @@ impl Renderer {
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
+        // The two whole-look toggles (`F10` depth light, `F11` void reveal)
+        // recolour cells that are already painted and settled, so flipping
+        // either must repaint everything once or the screen shows a patchwork
+        // of both looks until the next full frame. Same device as
+        // `last_organism_overlay` — and it closes a real gap: the depth
+        // light shipped without it and coasted on `sky_changed` firing most
+        // frames, which is a coincidence, not a contract.
+        // Grain is in the tuple for the same reason: switching between two
+        // *static* grain modes recolours settled water that nothing will
+        // repaint, so `G` over a still pond looked like a dead key — the
+        // owner reported exactly that. (The animated modes force full
+        // frames on their own; the static-to-static switches were the gap.)
+        let look = (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape);
+        let look_changed = self.last_look != Some(look);
+        self.last_look = Some(look);
+
+        // Which field tiles hold a glowing material this frame, plus their
+        // neighbours — the diffused halo crosses tile seams, and gating on
+        // the glow tile alone clipped the halo square at every chunk
+        // boundary. Rebuilt per draw from `has_glow`, which
+        // `field::rebuild_blocked` maintains for free inside the scan it
+        // already does; for the overwhelmingly common world with no glow
+        // anywhere this loop finds nothing and `cell_colour` pays a single
+        // `is_empty()` per pixel.
+        //
+        // `glow_unsettled` is the halo's version of `sky_changed`: while the
+        // light channel is still converging around a new (or newly mined-out)
+        // glow source, the halo brightens cells in chunks the CA never
+        // touched, so no dirty rect will ever repaint them. Once the tile
+        // settles the halo is static and the skip gets its work back.
+        self.glow_tiles.clear();
+        let mut glow_unsettled = false;
+        let mut emitter_tiles: Vec<ChunkCoord> = Vec::new();
+        for (&coord, tile) in world.fields_ref() {
+            if tile.has_glow {
+                glow_unsettled |= !tile.settled();
+                emitter_tiles.push(coord);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        self.glow_tiles.insert(ChunkCoord::new(coord.x + dx, coord.y + dy));
+                    }
+                }
+            }
+        }
+        // Sorted before anything reads it: `fields_ref()` is a `HashMap`, and
+        // the repo's rule is that no observable output depends on its
+        // iteration order. The splat itself accumulates with `max`, which is
+        // order-independent, so this is belt and braces -- but the next
+        // person to reach for a sum there gets determinism for free instead
+        // of a bug that only shows up as a one-bit pixel difference.
+        emitter_tiles.sort_unstable_by_key(|c| (c.x, c.y));
+        // **Rebuilt only when it can have changed**, which matters more than
+        // it looks: a settled world with a geode in it is precisely the state
+        // the dirty-rect skip exists for, and rebuilding the splat every
+        // draw would burn a chunk scan plus a disc per emitter on frames
+        // that repaint nothing -- the same shape as the animated grain that
+        // measured free in motion and cost ~10 ms on a settled world.
+        //
+        // The trigger is the **world**, not the light field. Keying it on
+        // `glow_unsettled` was the first attempt and rebuilt on every single
+        // draw, because the day/night cycle keeps the light channel moving
+        // for good: a tile with any sky in it is never settled, and the
+        // cache never hit once (measured: 9 rebuilds in 9 draws). The splat
+        // reads `Material::glow` off cells and nothing else, so what can
+        // invalidate it is a cell changing -- a crystal mined out, a new one
+        // exposed -- which is exactly what `touched` reports.
+        let emitters_touched = emitter_tiles.iter().any(|c| touched.contains(c));
+        if emitters_touched || force_full || self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
+            self.rebuild_near_glow(world, &emitter_tiles);
+            self.near_glow_key = Some(emitter_tiles);
+        }
 
         let full = force_full
+            || look_changed
+            || glow_unsettled
             || scale_changed
             || camera_moved
             || sky_changed
@@ -1387,9 +2066,10 @@ impl Renderer {
         // frames (particles in flight, say) with the player moving would
         // leave the dirty path comparing against a rect from before the
         // run — and the sprite's last full-frame position would smear.
-        let player_rect = world.player.as_ref().and_then(|p| {
+        let player_pose = world.player.as_ref().and_then(|p| {
             let (x0, y0, x1, y1) = p.bounds();
             self.world_rect_to_screen_rect(Rect::new(x0, y0, x1, y1), width, height)
+                .map(|r| (r, p.facing_left, p.action > 0))
         });
 
         let recomputed = if full {
@@ -1400,7 +2080,7 @@ impl Renderer {
                 let colour = self.cell_colour(world, wx, wy);
                 pixel.copy_from_slice(&colour);
             }
-            self.last_player_rect = player_rect;
+            self.last_player_pose = player_pose;
             (width as usize) * (height as usize)
         } else {
             let mut dirty: Option<Rect> = None;
@@ -1425,14 +2105,14 @@ impl Renderer {
             // rect actually changed. An idle character repaints on top of
             // identical pixels for free; a moving one owes both where it
             // is and the smear where it was.
-            if player_rect != self.last_player_rect {
-                for r in player_rect.iter().chain(self.last_player_rect.iter()) {
+            if player_pose != self.last_player_pose {
+                for (r, _, _) in player_pose.iter().chain(self.last_player_pose.iter()) {
                     dirty = Some(match dirty {
                         Some(d) => d.union(*r),
                         None => *r,
                     });
                 }
-                self.last_player_rect = player_rect;
+                self.last_player_pose = player_pose;
             }
             // The moon, where it is now and where it was. A disc crossing
             // the sky is a moving sprite as far as the dirty region is
@@ -1759,15 +2439,90 @@ impl Renderer {
         let Some(player) = &world.player else { return };
         let (ox, oy) = player.rect_origin();
         let block = self.zoom.max(1);
-        for (dy, row) in GNOME_SPRITE.iter().enumerate() {
+        let table = if player.action > 0 { &GNOME_SWING } else { &GNOME_SPRITE };
+        // **One side per formation, decided once, not one side per column.**
+        //
+        // The first version keyed the scenery branch below on `wx` -- the
+        // world column -- because a formation had no id to key on and a
+        // stalactite was one cell wide, where per-column and per-formation
+        // are the same thing. They are not the same thing the moment a
+        // formation is three cells wide: `in_front`'s hash is deliberately
+        // decorrelated between adjacent keys, so a run of columns never
+        // agrees. Measured over 4000 columns, the fraction of a w-wide
+        // formation that lands wholly on one side of him:
+        //
+        //   w=1 100%   w=2 48%   w=3 0%   w=5 0%   w=8 0%   w=12 0%
+        //
+        // **Zero, from width three up.** Every formation the round-6 respec
+        // makes (3-8 cells at the base, tapering) would have sliced him into
+        // vertical stripes -- half his columns drawn, half not -- and the
+        // one-pixel speleothems that hid it are exactly the bug the respec
+        // was fixing. A constant that was only ever right because something
+        // else was broken.
+        //
+        // So the key is the leftmost scenery column his box overlaps, found
+        // in one pass before the sprite loop: he is wholly in front of, or
+        // wholly behind, whatever he is standing in. Two formations he
+        // straddles put him on one side for both, which is right -- the
+        // question the picture asks is where *he* is, not where each stone
+        // is. Costs one extra `World::get` per sprite cell in the worst
+        // case (98), on the same rectangle the loop already walks, and it
+        // stays a pure function of world state so the dirty-rect skip's
+        // pixel-identity still holds.
+        let scenery_key = {
+            let (w, h) = (table[0].len() as i32, table.len() as i32);
+            (ox..ox + w)
+                .find(|&wx| {
+                    (oy..oy + h).any(|wy| world.materials.get(world.get(wx, wy).material).scenery)
+                })
+                .unwrap_or(ox)
+        };
+        for (dy, row) in table.iter().enumerate() {
             for (dx, colour) in row.iter().enumerate() {
                 let Some(colour) = colour else { continue };
-                let Some((sx, sy)) = self.world_to_screen(ox + dx as i32, oy + dy as i32) else {
+                // Mirrored on the *sprite* column, so the world rectangle
+                // he occupies is unchanged whichever way he faces.
+                let column = if player.facing_left { row.len() - 1 - dx } else { dx };
+                let (wx, wy) = (ox + column as i32, oy + dy as i32);
+                let Some((sx, sy)) = self.world_to_screen(wx, wy) else {
                     continue;
                 };
+                // Is a tree standing between him and the camera here?
+                //
+                // Done inside this loop rather than as a `draw_foreground`
+                // pass after it, and the cost is the argument: this loop
+                // already resolves a world coordinate per sprite pixel, so
+                // occluding here is at most 98 `World::get` calls a frame
+                // (7x14). A separate pass would have to re-run `cell_colour`
+                // over every candidate position to repaint trees *over* the
+                // sprite -- 163,840 at 512x320 -- for the same picture.
+                let cell = world.get(wx, wy);
+                let material = world.materials.get(cell.material);
+                // A tree or a cave formation standing between him and the
+                // camera. Both are walk-through, so both must be able to
+                // pass in front of him -- a stalagmite he strolls through
+                // *and* is always drawn over reads as a decal on the
+                // foreground, which is worse than either extreme.
+                let occluded = if material.scenery {
+                    self.tree_depth.in_front(scenery_key as u32)
+                } else {
+                    cell.organism_id() != 0
+                        && material.climbable
+                        && self.tree_depth.in_front(cell.organism_id() as u32)
+                };
+                // Nothing is drawn where a tree covers him: the world's
+                // own pixels, already painted by the cell pass, are what
+                // shows. `OCCLUDED_ALPHA` above records the ghost this
+                // replaced and how to get it back.
+                if occluded && OCCLUDED_ALPHA <= 0.0 {
+                    continue;
+                }
                 for by in 0..block {
                     for bx in 0..block {
-                        put(frame, width, height, sx + bx, sy + by, *colour);
+                        match occluded {
+                            true => blend(frame, width, height, sx + bx, sy + by, *colour, OCCLUDED_ALPHA),
+                            false => put(frame, width, height, sx + bx, sy + by, *colour),
+                        }
                     }
                 }
             }
@@ -1819,6 +2574,7 @@ impl Renderer {
             self.horizon.clear();
             self.horizon.extend_from_slice(world.sky_surface());
             self.horizon_origin = b.min_x;
+            self.rebuild_light_datum();
             return;
         }
         // Fallback, for a world nothing has ever stepped. That is a handful
@@ -1846,6 +2602,60 @@ impl Renderer {
             })
             .collect();
         self.horizon_origin = b.min_x;
+        self.rebuild_light_datum();
+    }
+
+    /// `light_datum` from `horizon`: a grayscale morphological opening —
+    /// min-filter then max-filter, both over the shoulder window — which
+    /// clips any dip narrower than the window to its shoulders' level and
+    /// passes everything wider through exactly unchanged (see
+    /// `DEPTH_LIGHT_SHOULDER_REACH` for why an opening and not a blur).
+    ///
+    /// Naive windowed filters, not sliding-window minima: the window is 19
+    /// wide and the skyline 2048 columns, so this is ~80k comparisons per
+    /// rebuild against a draw that touches every pixel — the same budget
+    /// argument `rebuild_horizon`'s own memcpy note makes. Columns that have
+    /// never held ground (`i32::MAX`) stay `MAX` in the datum, so they keep
+    /// reading as bottomless sky rather than borrowing a neighbour's depth.
+    fn rebuild_light_datum(&mut self) {
+        let n = self.horizon.len();
+        self.light_datum.clear();
+        self.light_datum.resize(n, i32::MAX);
+        if n == 0 {
+            return;
+        }
+        let r = DEPTH_LIGHT_SHOULDER_REACH;
+        // Erode: highest ground (smallest y) in each window.
+        let eroded: Vec<i32> = (0..n)
+            .map(|i| (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| self.horizon[j]).min().unwrap_or(i32::MAX))
+            .collect();
+        // Dilate back: lowest of the eroded values in each window. Together
+        // the two passes are an opening, `datum[i] <= horizon[i]` always —
+        // the datum only ever *raises* ground toward its shoulders, never
+        // sinks it, so no column can get brighter than the raw skyline gave
+        // it.
+        for (i, slot) in self.light_datum.iter_mut().enumerate() {
+            if self.horizon[i] == i32::MAX {
+                continue;
+            }
+            let d = (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| eroded[j]).max().unwrap_or(i32::MAX);
+            *slot = d.min(self.horizon[i]);
+        }
+    }
+
+    /// `y` relative to this column's *light* datum — the notch-clipped
+    /// skyline. Same sign convention as `sky_depth`; only the terrain depth
+    /// light reads this one.
+    fn light_depth(&self, x: i32, y: i32) -> i32 {
+        let i = x - self.horizon_origin;
+        if i < 0 || i as usize >= self.light_datum.len() {
+            return -1;
+        }
+        let floor = *self.light_datum.get(i as usize).unwrap_or(&i32::MAX);
+        if floor == i32::MAX {
+            return -1;
+        }
+        y - floor
     }
 
     /// Whether this position is open to the sky, rather than a void inside
@@ -1879,7 +2689,16 @@ impl Renderer {
     /// second one: a `Vec` index (`sky_depth`), an array index into
     /// `cave_ramp` and three mixes, with no `World::get` anywhere -- which
     /// is what the fake-AO experiment could not say for itself.
-    fn background_at(&self, x: i32, y: i32) -> [u8; 4] {
+    /// The colour behind a cell: sky above the frozen skyline, faded cave
+    /// dark below it, and the void reveal when `F11` is on.
+    ///
+    /// Takes `world` for the glow lookup alone. Two copies of this existed
+    /// when the water-cycle branch met master -- an extracted one here and
+    /// an inline one in `cell_colour` -- and they had already drifted by a
+    /// `reveal_voids` branch and the glow tint. That is how a translucent
+    /// cloud ends up composited over a background nobody is drawing, so
+    /// there is one copy now and both callers take it.
+    fn background_at(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
         // Sky, not a flat background. Empty space inside the world is
         // *air*, and drawing it black made every world read as a cutaway
         // diagram rather than a place -- the strongest remaining tell,
@@ -1895,6 +2714,12 @@ impl Renderer {
         if depth < 0 {
             return daylight;
         }
+        if self.reveal_voids {
+            // `F11`: every enclosed void marked, however deep -- see the
+            // field doc. Flat, not depth-faded: the point is that a vault
+            // 280 rows down reads exactly as loudly as a shallow tunnel.
+            return REVEAL_VOID;
+        }
         // Inside the ground: unlit rock, not daylight. Constant rather than
         // following the sky, because a cave is dark at noon as well -- and
         // deliberately distinct from the `VOID` outside the world, which is
@@ -1906,12 +2731,24 @@ impl Renderer {
         // a cave mouth a cutout rather than an opening.
         let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
         let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
-        [
+        let mut air = [
             mix(daylight[0], UNDERGROUND[0]),
             mix(daylight[1], UNDERGROUND[1]),
             mix(daylight[2], UNDERGROUND[2]),
             255,
-        ]
+        ];
+        // Glow-lit cave air: the void near a glowing lining blends toward
+        // `GLOW_AIR_TINT` by the local light level, so a breached chamber
+        // holds a soft pool of warm light instead of the flat dark every
+        // other cavity gets. On top of the cave fade, not instead of it --
+        // the fade is the darkness this light is seen against.
+        let glow = self.glow_at(world, x, y);
+        if glow > 0.0 {
+            for (c, tint) in air.iter_mut().zip(GLOW_AIR_TINT) {
+                *c = (*c as f32 + (tint as f32 - *c as f32) * glow).round() as u8;
+            }
+        }
+        air
     }
 
     fn sky_depth(&self, x: i32, y: i32) -> i32 {
@@ -1924,6 +2761,107 @@ impl Renderer {
             return -1;
         }
         y - floor
+    }
+
+    /// Local (glow) light at a world position, `0.0..=1.0` of
+    /// `field::MAX_LIGHT` — and `0.0` after a single set-emptiness check for
+    /// the overwhelming majority of pixels no glow tile covers, which is what
+    /// keeps this affordable inside the per-pixel colour path. The bilinear
+    /// field read happens only inside `glow_tiles` (a glowing tile and its
+    /// ring of neighbours), and those exist only in worlds that generated a
+    /// geode.
+    ///
+    /// The light channel also carries daylight and fire, but `glow_tiles`
+    /// gates this read to the deep tiles around a glowing material, where the
+    /// standing level is the seeded glow floor plus its diffused halo — the
+    /// quantity this exists to draw.
+    fn glow_at(&self, world: &World, x: i32, y: i32) -> f32 {
+        if self.glow_tiles.is_empty() || !self.glow_tiles.contains(&ChunkCoord::containing(x, y)) {
+            return 0.0;
+        }
+        let coarse =
+            (world.field_at_bilinear(x as f32, y as f32).light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+        // **The near term only sharpens light that is already there.** It is
+        // splatted as plain discs and knows nothing about rock, so on its own
+        // it would shine a crystal through a wall. The coarse field does
+        // respect blocking, so gating on it keeps that property and confines
+        // the near term to exactly the region whose *shape* is wrong -- the
+        // blocky lit rectangle -- rather than letting it invent lit ground of
+        // its own. `max`, not a sum: the near term is the same light seen at
+        // a resolution the field cannot hold, not a second lamp.
+        if coarse <= 0.0 || self.glow_shape == GlowShape::Field {
+            return coarse;
+        }
+        coarse.max(self.near_glow_at(x, y))
+    }
+
+    fn near_glow_at(&self, x: i32, y: i32) -> f32 {
+        let coord = ChunkCoord::containing(x, y);
+        let Some(buf) = self.near_glow.get(&coord) else { return 0.0 };
+        let (lx, ly) = (x - coord.x * CHUNK_SIZE, y - coord.y * CHUNK_SIZE);
+        buf[(ly * CHUNK_SIZE + lx) as usize]
+    }
+
+    /// Splat every glowing *cell* into a per-chunk, per-cell buffer.
+    ///
+    /// Rebuilt from the world rather than read from the light field because
+    /// the field cannot answer the question: `set_glow_local` writes one
+    /// value per `FIELD_SCALE`x`FIELD_SCALE` block, so by the time light is
+    /// in the field a two-cell crystal has already become an eight-cell
+    /// square. This is the "short-range term computed from the emitting
+    /// cells themselves" that `Reports/open-bugs-handoff.md` 0c asks for,
+    /// with the coarse field left carrying the far falloff.
+    ///
+    /// Cost is paid per rebuild, not per pixel: scanning a glowing chunk is
+    /// `CHUNK_SIZE^2` cell reads and each emitter writes one disc, against a
+    /// single array index in `near_glow_at`. Rebuilds happen only when the
+    /// glow tiles change or are still converging -- the same condition that
+    /// already forces a full redraw -- so a settled world with a geode in it
+    /// pays nothing per frame.
+    fn rebuild_near_glow(&mut self, world: &World, emitter_tiles: &[ChunkCoord]) {
+        self.near_glow.clear();
+        if emitter_tiles.is_empty() {
+            return;
+        }
+        self.near_glow_rebuilds += 1;
+        let area = (CHUNK_SIZE * CHUNK_SIZE) as usize;
+        for &tile in emitter_tiles {
+            for ly in 0..CHUNK_SIZE {
+                for lx in 0..CHUNK_SIZE {
+                    let (wx, wy) = (tile.x * CHUNK_SIZE + lx, tile.y * CHUNK_SIZE + ly);
+                    if !world.in_bounds(wx, wy) {
+                        continue;
+                    }
+                    let glow = world.materials.get(world.get(wx, wy).material).glow;
+                    if glow <= 0.0 {
+                        continue;
+                    }
+                    for dy in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
+                        for dx in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
+                            let d2 = (dx * dx + dy * dy) as f32;
+                            let r = NEAR_GLOW_RADIUS as f32;
+                            if d2 > r * r {
+                                continue;
+                            }
+                            // Squared linear falloff: full at the emitter,
+                            // zero at the radius, with the knee near the
+                            // source where the eye reads a light's shape.
+                            let t = 1.0 - d2.sqrt() / r;
+                            let v = t * t;
+                            let (nx, ny) = (wx + dx, wy + dy);
+                            let coord = ChunkCoord::containing(nx, ny);
+                            if !self.glow_tiles.contains(&coord) {
+                                continue;
+                            }
+                            let buf = self.near_glow.entry(coord).or_insert_with(|| vec![0.0; area]);
+                            let (bx, by) = (nx - coord.x * CHUNK_SIZE, ny - coord.y * CHUNK_SIZE);
+                            let slot = &mut buf[(by * CHUNK_SIZE + bx) as usize];
+                            *slot = slot.max(v);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
@@ -1960,6 +2898,22 @@ impl Renderer {
         // Darkening rather than tinting blue: damp soil is the same soil,
         // and a blue cast reads as a different material rather than as the
         // same one being wet.
+        // A tree he passes *behind* is dimmed, so the stand reads as two
+        // layers rather than as random occlusion. `Haze` only — the plain
+        // `Weave` leaves every tree its own colour, and which of the two
+        // looks right is the question the selector exists to answer.
+        //
+        // Gated on `organism_id` first, which is a field of the `Cell`
+        // already in hand, so a world with no organisms in it pays one
+        // compare per non-empty pixel and nothing else.
+        if self.tree_depth == TreeDepth::Haze && cell.organism_id() != 0 && !self.tree_depth.in_front(cell.organism_id() as u32) {
+            base = [
+                (base[0] as u16 * HAZE_DIM / 256) as u8,
+                (base[1] as u16 * HAZE_DIM / 256) as u8,
+                (base[2] as u16 * HAZE_DIM / 256) as u8,
+                base[3],
+            ];
+        }
         let saturation = crate::sim::update::soil_moisture(cell);
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
@@ -1994,7 +2948,7 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            base = self.background_at(x, y);
+            base = self.background_at(world, x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -2031,6 +2985,16 @@ impl Renderer {
             let strength = (1.0 - dimming) + dimming * fill.clamp(0.0, 1.0);
             for c in &mut rgb {
                 *c = (*c as f32 * strength).round() as u8;
+            }
+        }
+
+        // Foam: moving water blends toward pale — see `FOAM_BLEND`. Before
+        // the grain so the jitter textures the foam too, after the fill
+        // dimming so a thin flying sheet is pale *and* faint rather than
+        // opaque white.
+        if world.materials.kind(cell.material) == material::MaterialKind::Liquid && cell.flowing() {
+            for (c, foam) in rgb.iter_mut().zip(FOAM_TINT) {
+                *c = (*c as f32 + (foam - *c as f32) * FOAM_BLEND).round() as u8;
             }
         }
 
@@ -2160,12 +3124,55 @@ impl Renderer {
                 }
                 _ => GAS_ALPHA,
             };
-            let behind = self.background_at(x, y);
+            let behind = self.background_at(world, x, y);
             for (c, b) in rgb.iter_mut().zip(behind) {
                 *c = (*c as f32 * alpha + b as f32 * (1.0 - alpha)).round().clamp(0.0, 255.0) as u8;
             }
         }
-        let rgb = rgb;
+        // Depth grade after the sky light, so the two compose: deep rock at
+        // night is `UNLIT_FLOOR x DEPTH_LIGHT_FLOOR` of its palette, which
+        // is what pulls the night cross-section back under the night sky's
+        // brightness. Solid-only in effect, not by a kind test: everything
+        // *above* the frozen skyline (trees, standing water in a hollow, a
+        // placed block, the sky itself) has negative depth and is untouched,
+        // and what sits below it is the ground this exists to shade. Water
+        // and air inside the ground already have their own treatments (fill
+        // dimming, the cave fade) and take the same grade on top, which is
+        // deliberate — a flooded cave is deep first and wet second.
+        let rgb = match self.terrain_light {
+            TerrainLight::Off => rgb,
+            TerrainLight::Depth => {
+                let depth = self.light_depth(x, y);
+                if depth < 0 {
+                    rgb
+                } else {
+                    let f = self.depth_light_ramp[depth.min(DEPTH_LIGHT_RAMP_ROWS) as usize] as u32;
+                    [
+                        ((rgb[0] as u32 * f) / 256).min(255) as u8,
+                        ((rgb[1] as u32 * f) / 256).min(255) as u8,
+                        ((rgb[2] as u32 * f) / 256).min(255) as u8,
+                    ]
+                }
+            }
+        };
+        // Local light, after the sky and the depth grade deliberately: glow
+        // is the one light that must win against depth, because a sealed
+        // chamber sits exactly where the depth ramp is at its floor. A
+        // multiplicative lift keeps the material's own hue — the wall of a
+        // vug is brighter stone, not tinted crystal — and the diffused halo
+        // in the field does the spatial falloff, so a wall two blocks from
+        // the lining catches less than the cell it hangs over.
+        let glow = self.glow_at(world, x, y);
+        let rgb = if glow > 0.0 {
+            let f = 1.0 + glow * GLOW_SOLID_LIFT;
+            [
+                (rgb[0] as f32 * f).min(255.0).round() as u8,
+                (rgb[1] as f32 * f).min(255.0).round() as u8,
+                (rgb[2] as f32 * f).min(255.0).round() as u8,
+            ]
+        } else {
+            rgb
+        };
         let tinted = self.apply_field_overlay(world, x, y, [rgb[0], rgb[1], rgb[2], 255]);
         // Applied *after* the field overlay, deliberately: the two can be on
         // at once (light and canopy density together is the pairing that
@@ -2808,6 +3815,104 @@ mod tests {
         assert!(!r.under_sky(64, 110), "rock under the lake bed is underground");
     }
 
+    /// The terrain depth light (2026-08 world review): rock dims with depth
+    /// below the frozen skyline, the skyline row is lifted, and anything
+    /// sitting *above* the skyline — here a pond — is untouched by the mode,
+    /// so the grade cannot leak into water, trees, or the sky. The weakest
+    /// assertion that fails if the mechanism is deleted entirely; the look
+    /// itself is judged from `viewshot light=depth|flat` strips and `F10`.
+    #[test]
+    fn terrain_depth_light_dims_rock_with_depth_and_spares_whats_above_the_skyline() {
+        // Same shape as `sky::tests::brightness`, which is not visible from
+        // here.
+        fn brightness(c: [u8; 4]) -> u32 {
+            c[0] as u32 + c[1] as u32 + c[2] as u32
+        }
+        let mut world = World::new(Rect::new(0, 0, 191, 255));
+        for x in 0..192 {
+            for y in 64..256 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A pond standing on the ground: water is not ground, so the frozen
+        // skyline is the rock at y=64 and the water above it has negative
+        // depth.
+        for x in 40..90 {
+            for y in 58..64 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        // A narrow notch (5 columns, well under the shoulder window) and a
+        // wide valley (42 columns, well over it), both dropping the skyline
+        // 32 rows. The light datum must clip the notch to its shoulders and
+        // leave the valley alone — the property that kills the bright
+        // shafts the raw skyline drew under canyon slots.
+        for x in 110..115 {
+            for y in 64..96 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 140..182 {
+            for y in 64..96 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        r.terrain_light = TerrainLight::Depth;
+        let surface = brightness(r.cell_colour(&world, 10, 64));
+        let shallow = brightness(r.cell_colour(&world, 10, 65));
+        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
+        let water_depth = r.cell_colour(&world, 64, 60);
+
+        r.terrain_light = TerrainLight::Off;
+        let shallow_flat = brightness(r.cell_colour(&world, 10, 65));
+        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
+        let surface_flat = brightness(r.cell_colour(&world, 10, 64));
+        let water_flat = r.cell_colour(&world, 64, 60);
+
+        assert!(
+            deep < shallow,
+            "rock {DEPTH_LIGHT_RAMP_ROWS} rows down ({deep}) must draw dimmer than rock one row down ({shallow})"
+        );
+        assert!(deep < deep_flat, "the grade must actually dim deep rock ({deep} vs flat {deep_flat})");
+        assert!(
+            surface > surface_flat,
+            "the skyline row is lifted ({surface} vs flat {surface_flat}), not merely spared"
+        );
+        // The jitter grain is position-keyed and identical across modes, so
+        // exact equality is the right assertion, not a tolerance.
+        assert_eq!(water_depth, water_flat, "water above the skyline must not take the grade");
+        assert!(
+            (shallow as i32 - shallow_flat as i32).abs() <= 2,
+            "one row below the skyline is inside the smoothstep's flat start and must be visually untouched ({shallow} vs {shallow_flat})"
+        );
+        assert!(
+            deep > brightness(UNDERGROUND),
+            "deep rock stays legible — dimmer is not dark ({deep} vs underground {})",
+            brightness(UNDERGROUND)
+        );
+
+        r.terrain_light = TerrainLight::Depth;
+        // One row under the notch floor: raw skyline says depth 1, the
+        // clipped datum says 33 — it must draw as deep rock, not as a
+        // bright shaft. Same row under the wide valley floor: genuinely
+        // depth 1, stays bright. Grain differs by position, so the
+        // comparison needs the ramp's spread (~2.4x at these depths), not
+        // equality.
+        let notch_rock = brightness(r.cell_colour(&world, 112, 97));
+        let valley_rock = brightness(r.cell_colour(&world, 160, 97));
+        assert!(
+            notch_rock < valley_rock * 3 / 4,
+            "rock beside a narrow notch floor must not light up as if at the surface ({notch_rock} vs valley {valley_rock})"
+        );
+        // The notch's *air* is still open sky — the datum is the light's
+        // business only.
+        assert!(r.under_sky(112, 80), "a narrow notch's air is still sky, not cave");
+    }
+
     /// Reported from play: "the effect where light is blocked below plants
     /// or really anything is way too intense", with a picture of a tree.
     ///
@@ -2976,6 +4081,10 @@ mod tests {
         let mut world = World::new(Rect::new(0, 0, 63, 63));
         world.set(30, 30, Cell::new(material::SAND, 0));
         let mut renderer = Renderer::new();
+        // A lone cell is its own column's skyline, so the terrain depth
+        // light would lift it; this test is about palette + grain, so the
+        // selector is pinned flat.
+        renderer.terrain_light = TerrainLight::Off;
         let particles = ParticleSystem::new();
 
         // A 128-wide framebuffer over a 64-wide world: the right half is void.
@@ -2999,6 +4108,84 @@ mod tests {
         // Row 0, column 100 — past the right edge of the 64-wide world.
         let outside = 100 * 4;
         assert_eq!(&frame[outside..outside + 4], &VOID);
+    }
+
+    #[test]
+    fn glow_lights_the_cave_air_around_a_crystal_lining() {
+        // The paired-cavity scene from `field::glow_tests`, read back
+        // through the renderer: two identical sealed cavities deep under
+        // stone, one floored with crystal. Every pixel difference between
+        // matching positions is the glow — the cave fade, the sky and the
+        // depth grade all cancel.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        let crystal = world.materials.id_of("crystal").expect("crystal ships in the registry");
+        for y in 100..256 {
+            for x in 0..256 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for (x0, lined) in [(96, true), (192, false)] {
+            for y in 180..200 {
+                for x in x0..x0 + 24 {
+                    world.set(x, y, Cell::EMPTY);
+                }
+            }
+            if lined {
+                for y in 200..203 {
+                    for x in x0 + 4..x0 + 20 {
+                        world.set(x, y, Cell::new(crystal, 0));
+                    }
+                }
+            }
+        }
+        for _ in 0..300 {
+            crate::sim::field::step(&mut world);
+        }
+
+        let mut renderer = Renderer::new();
+        let particles = ParticleSystem::new();
+        let (w, h) = (256u32, 256u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+
+        let px = |x: usize, y: usize| -> [u8; 4] {
+            let i = (y * w as usize + x) * 4;
+            frame[i..i + 4].try_into().unwrap()
+        };
+        let brightness = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
+
+        // Cave air a block above the lining, against the same spot in the
+        // unlined cavity. Both are deep enough for the full cave fade, so
+        // without the glow they render identically.
+        let lit_air = brightness(px(104, 195));
+        let dark_air = brightness(px(200, 195));
+        assert!(
+            lit_air > dark_air,
+            "cave air over the lining should draw brighter than the unlined cavity's: lit {lit_air}, dark {dark_air}"
+        );
+
+        // The stone under the lining catches the lift too, against the same
+        // stone under the dark cavity — glow lands on the walls, not only
+        // the air. Summed over a patch rather than one pixel: every cell
+        // carries its own ±12% position-keyed grain (`JITTER_STRENGTH`),
+        // which is zero-mean over a patch, while the glow lift is
+        // systematic. One pixel against one pixel would be a deterministic
+        // coin flip between grain draws.
+        let patch = |x0: usize| -> u32 {
+            let mut total = 0;
+            for y in 204..207 {
+                for x in x0..x0 + 16 {
+                    total += brightness(px(x, y));
+                }
+            }
+            total
+        };
+        let lit_wall = patch(100);
+        let dark_wall = patch(196);
+        assert!(
+            lit_wall > dark_wall,
+            "stone under the lining should draw brighter than stone under the dark cavity: lit {lit_wall}, dark {dark_wall}"
+        );
     }
 
     #[test]
@@ -3744,6 +4931,10 @@ mod tests {
         let temperature = AMBIENT_TEMPERATURE + HEAT_GLOW_RANGE as i16; // heat_ratio == 1.0 exactly
         world.set(10, 0, Cell::new(material::STONE, 0).with_temperature(temperature));
         let mut renderer = Renderer::new();
+        // The lone hot cell is its column's skyline, so the terrain depth
+        // light would lift it and break the hand-reconstructed prediction;
+        // this test is about the fire tint, so the selector is pinned flat.
+        renderer.terrain_light = TerrainLight::Off;
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
@@ -3986,6 +5177,271 @@ mod tests {
     // --- §11: dirty-rect render skip -----------------------------------
 
     #[test]
+    fn weave_puts_the_gnome_behind_some_trees_and_in_front_of_others() {
+        // The owner's ask, as a property: "sometimes walking in front of
+        // trees and sometimes behind". Both answers have to occur, and a
+        // given tree has to keep its answer.
+        let mut front = 0;
+        let mut behind = 0;
+        for id in 1..200u16 {
+            match TreeDepth::Weave.in_front(id as u32) {
+                true => behind += 1,
+                false => front += 1,
+            }
+            assert_eq!(
+                TreeDepth::Weave.in_front(id as u32),
+                TreeDepth::Weave.in_front(id as u32),
+                "a tree must not change which side of him it is on"
+            );
+        }
+        assert!(front > 60 && behind > 60, "expected a real mix, got {front} in front and {behind} behind");
+    }
+
+    #[test]
+    fn consecutively_planted_trees_do_not_simply_alternate() {
+        // Why this is a hash and not `id & 1`. Organism ids are handed out
+        // sequentially and worldgen plants a stand left to right, so parity
+        // would lay down front-back-front-back across the screen — a
+        // correlation the eye picks out at once.
+        let runs = (2..60u16).filter(|&id| TreeDepth::Weave.in_front(id as u32) == TreeDepth::Weave.in_front((id - 1) as u32)).count();
+        assert!(runs > 8, "only {runs} of 58 neighbouring pairs matched, which is parity in disguise");
+    }
+
+    #[test]
+    fn a_tree_in_front_of_the_gnome_shows_through_him() {
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        // Find an organism whose hash puts it in front of him.
+        let organism = (0..64)
+            .map(|_| world.push_organism(species))
+            .find(|&id| TreeDepth::Weave.in_front(id as u32))
+            .expect("some organism id hashes to the front");
+        for y in 20..50 {
+            for x in 28..40 {
+                world.set(x, y, Cell::new(wood, 0).with_organism_id(organism));
+            }
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut over = Renderer::new();
+        over.tree_depth = TreeDepth::Front;
+        let mut a = vec![0u8; (uw * uh * 4) as usize];
+        over.draw(&world, &particles, &HashSet::new(), &mut a, (uw, uh), true);
+
+        let mut through = Renderer::new();
+        through.tree_depth = TreeDepth::Weave;
+        let mut b = vec![0u8; (uw * uh * 4) as usize];
+        through.draw(&world, &particles, &HashSet::new(), &mut b, (uw, uh), true);
+
+        assert_ne!(a, b, "a tree in front of him should not draw the same as one behind him");
+    }
+
+    /// A formation wider than one cell must put him on **one** side of it.
+    ///
+    /// The guard for the bug the round-6 formation respec would have
+    /// shipped: the scenery depth key was the world column, and
+    /// `in_front`'s hash decorrelates adjacent keys by design, so from
+    /// width three up a formation never agreed with itself -- 0% of 4000
+    /// sampled columns, at widths 3, 5, 8 and 12 alike. He rendered as
+    /// vertical stripes, half his columns drawn over the stone and half
+    /// hidden behind it.
+    ///
+    /// Written to fail for the **replacement** artifact too, not only the
+    /// original: it asserts a uniform decision across his whole width at
+    /// every plausible formation width, so a key that is per-formation but
+    /// unstable (a run-start recomputed per row, say, which would slice him
+    /// horizontally instead) fails it as surely as the per-column one did.
+    #[test]
+    fn a_wide_formation_puts_the_gnome_wholly_in_front_or_wholly_behind() {
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let flowstone = {
+            let world = World::new(Rect::new(0, 0, 1, 1));
+            world.materials.id_of("flowstone").expect("flowstone is compiled in")
+        };
+        let mut occluding = 0;
+        for formation_w in [2i32, 3, 5, 8, 12] {
+            // Sweep the formation across him so the test cannot pass by
+            // landing on one lucky alignment: which columns the hash would
+            // have disagreed on depends on where the formation sits.
+            for left in 24..40 {
+                let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+                for x in 0..w {
+                    world.set(x, h - 1, Cell::new(material::STONE, 0));
+                }
+                for y in 20..50 {
+                    for x in left..left + formation_w {
+                        world.set(x, y, Cell::new(flowstone, 0));
+                    }
+                }
+                world.end_step();
+                world.player = Some(Player::at(32, 32));
+
+                // Rendered through the real `draw`, not through a copy of
+                // the key arithmetic -- a test that re-derives the key
+                // passes on the buggy renderer too, which is the whole
+                // failure this file keeps a comment about.
+                //
+                // `Front` never occludes and `Behind` always does, so those
+                // two frames *are* the only two uniform outcomes. "Wholly
+                // one side" is then exactly "the weave frame is one of
+                // them", asserted over every pixel.
+                let (uw, uh) = (w as u32, h as u32);
+                let particles = ParticleSystem::new();
+                let frame = |depth: TreeDepth| {
+                    let mut r = Renderer::new();
+                    r.tree_depth = depth;
+                    let mut buf = vec![0u8; (uw * uh * 4) as usize];
+                    r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+                    buf
+                };
+                let (over, under, weave) =
+                    (frame(TreeDepth::Front), frame(TreeDepth::Behind), frame(TreeDepth::Weave));
+                // Most sweep positions put the formation clear of him, and
+                // those prove nothing either way. Counted rather than
+                // assumed: a renderer that stopped occluding altogether
+                // would satisfy every case below and is caught by the
+                // count at the end instead. (`CLAUDE.md`: "did it fire at
+                // all" needs a counter, not a picture.)
+                if over == under {
+                    continue;
+                }
+                occluding += 1;
+                assert!(
+                    weave == over || weave == under,
+                    "width {formation_w} at x={left}: he is in front of some of the formation and \
+                     behind the rest -- the weave frame matches neither extreme"
+                );
+            }
+        }
+        assert!(
+            occluding >= 40,
+            "only {occluding} of the swept positions actually put a formation over him; \
+             the sweep is not exercising the thing it claims to guard"
+        );
+    }
+
+    /// The near-field glow splat is built once, not once a frame.
+    ///
+    /// A counter, not a picture and not a timing, because neither can see
+    /// this: a halo rebuilt every frame draws identically to a cached one,
+    /// and the cost lands on a *settled* world -- the exact state the
+    /// dirty-rect skip exists to make free, and the state `ascii`'s
+    /// worst-frame line is least likely to catch because nothing is moving.
+    /// The animated-grain lesson in `CLAUDE.md`: measure a cost against the
+    /// state the optimisation exists for.
+    #[test]
+    fn a_settled_glow_does_not_rebuild_its_halo_every_frame() {
+        let (w, h) = (128i32, 128i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let spar = world.materials.id_of("spar").expect("spar is compiled in");
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        for y in 60..64 {
+            for x in 60..64 {
+                world.set(x, y, Cell::new(spar, 0));
+            }
+        }
+        world.end_step();
+        // Let the light field converge, or every draw below is legitimately
+        // a rebuild and the test proves nothing.
+        for _ in 0..400 {
+            crate::sim::update::step(&mut world);
+            crate::sim::field::step(&mut world);
+        }
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        let mut buf = vec![0u8; (uw * uh * 4) as usize];
+        r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        let first = r.near_glow_rebuilds;
+        assert!(first > 0, "vacuous: the scene never built a halo at all");
+
+        for _ in 0..8 {
+            r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), false);
+        }
+        assert_eq!(
+            r.near_glow_rebuilds, first,
+            "the halo was rebuilt on a settled world with nothing changed"
+        );
+    }
+
+    #[test]
+    fn an_idle_gnome_costs_a_settled_world_nothing() {
+        // The other half of the pose key. It was widened from a rect to
+        // (rect, facing, swinging) so that turning repaints — and the thing
+        // that must not break in the process is the reason it is compared
+        // at all: a character standing still in a settled world adds
+        // nothing to the dirty region, which is what keeps zero-cost frames
+        // zero-cost with him in them.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        world.player = Some(Player::at(32, 32));
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let recomputed = renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+        assert_eq!(recomputed, 0, "an idle gnome should recompute no pixels at all");
+    }
+
+    #[test]
+    fn turning_on_the_spot_repaints_him() {
+        // The dirty-rect trap the pose key exists for. He does not move, so
+        // his screen rectangle is identical frame to frame -- but every
+        // pixel of him is mirrored, and a rect-keyed comparison would skip
+        // the repaint and leave him facing the old way until something else
+        // happened to dirty that region.
+        use crate::sim::player::Player;
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        let mut player = Player::at(32, 32);
+        player.facing_left = false;
+        world.player = Some(player);
+
+        let (uw, uh) = (w as u32, h as u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (uw * uh * 4) as usize];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        let facing_right = frame.clone();
+
+        // Nothing in the world changes but the direction he faces.
+        world.player.as_mut().unwrap().facing_left = true;
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+
+        assert_ne!(frame, facing_right, "he turned round and nothing on screen changed");
+
+        // And the incremental result must match a full redraw exactly.
+        let mut fresh = Renderer::new();
+        let mut reference = vec![0u8; (uw * uh * 4) as usize];
+        fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
+        assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
+    }
+
+    #[test]
     fn dirty_rect_skip_is_pixel_identical_to_a_full_redraw() {
         use crate::sim::update;
         let (w, h) = (128i32, 64i32);
@@ -4149,6 +5605,313 @@ mod tests {
         let touched = world.take_touched_chunks();
         let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
         assert_eq!(recomputed, (w * h) as usize, "a zoom change invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn panning_between_draws_forces_one_more_full_redraw() {
+        // `camera_moved` has fed the `full` predicate since the camera could
+        // move at all, and nothing asserted it until the map scroll made it a
+        // path taken every frame someone is looking around. Sibling of
+        // `changing_zoom_between_draws_forces_one_more_full_redraw`, and for
+        // the identical reason: every pixel in the buffer now shows a
+        // different world cell. Without it the regression is a frozen, smeared
+        // world scrolling past the handful of chunks that happened to be
+        // dirty — which is precisely what `draw`'s own comment says this
+        // guards.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        world.end_step();
+        let (w, h) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+
+        // Half a second of held key, mid-world so the clamp is not what
+        // decides the answer.
+        renderer.set_camera(64, 64, (w, h), world.bounds());
+        let settled = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &settled, &mut frame, (w, h), true);
+        let before = renderer.camera_x;
+        for _ in 0..30 {
+            renderer.pan((1, 0), 1.0 / 60.0, (w, h), world.bounds());
+        }
+        assert_ne!(renderer.camera_x, before, "half a second of pan moved nothing, so the redraw claim below is vacuous");
+
+        let touched = world.take_touched_chunks();
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+        assert_eq!(recomputed, (w * h) as usize, "a camera move invalidates the whole buffer, settled or not");
+    }
+
+    #[test]
+    fn a_pan_cannot_escape_the_world_at_any_scale() {
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+
+        // Scroll until the camera is genuinely stuck, rather than for a fixed
+        // duration. **A fixed duration silently stopped guarding anything when
+        // the rate came down**: 300 frames covered 7.5 screens at the old 1.5
+        // screens/s and covers about 2.4 at the new one — less than the 3
+        // screens of travel at 1:1, and far less than the 31 screens at zoom
+        // 8, which needs a full minute of held key to cross. The bounds
+        // assertions would all still have passed, on a camera that never once
+        // reached an edge. That is the vacuity trap `CLAUDE.md` keeps
+        // recording, and this shape is immune to it: it ends when the clamp
+        // stops the camera, whatever the rate.
+        //
+        // "Stuck" is a whole second of no movement, not one still frame: the
+        // sub-cell carry means a legitimately-moving camera sits out
+        // individual frames whenever its per-frame share is under a cell,
+        // which at zoom 8 is most of them.
+        fn scroll_to_the_edge(r: &mut Renderer, dir: (i32, i32), viewport: (u32, u32), world: Rect) {
+            let (mut still, mut frames) = (0, 0);
+            while still < 60 {
+                let was = (r.camera_x, r.camera_y);
+                r.pan(dir, 1.0 / 60.0, viewport, Some(world));
+                still = if (r.camera_x, r.camera_y) == was { still + 1 } else { 0 };
+                frames += 1;
+                assert!(frames < 100_000, "the camera never settled against the world edge going {dir:?}");
+            }
+        }
+
+        // Stride 4 is left out on purpose: its x span is the whole 2048-cell
+        // world, so there is exactly one legal camera and every claim below is
+        // true by construction rather than by the clamp.
+        for (zoom, stride) in [(1, 1), (2, 1), (8, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            let (span_x, span_y) = r.visible_span(viewport);
+            let scale = format!("zoom {zoom} stride {stride}");
+
+            // Hard into the bottom-right corner, then the top-left one.
+            // Asserted as the *exact* clamp limit, not merely "inside the
+            // world" — that is what proves the clamp stopped it rather than
+            // the scroll happening to run out.
+            scroll_to_the_edge(&mut r, (1, 1), viewport, world);
+            assert_eq!(
+                (r.camera_x, r.camera_y),
+                (world.max_x - span_x + 1, world.max_y - span_y + 1),
+                "{scale}: scrolling down-right did not pin at the far corner"
+            );
+
+            scroll_to_the_edge(&mut r, (-1, -1), viewport, world);
+            assert_eq!(
+                (r.camera_x, r.camera_y),
+                (world.min_x, world.min_y),
+                "{scale}: scrolling up-left did not pin at the origin"
+            );
+
+            // And the far corner really was somewhere else, so the pair above
+            // is not two readings of a camera that never moved.
+            assert!(span_x < world.max_x + 1, "{scale}: the viewport spans the whole world; nothing to travel");
+        }
+    }
+
+    #[test]
+    fn a_pan_moves_the_cell_under_a_pixel_by_exactly_the_camera_delta() {
+        // The property a player actually sees: the picture *translates*.
+        // Asserted through `screen_to_world`, because that is the mapping
+        // every pixel of `draw` is painted through — a pan that moved
+        // `camera_x` and disagreed with it would scroll the world past a
+        // cursor that lands somewhere else entirely.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        for (zoom, stride) in [(1, 1), (2, 1), (4, 1), (1, 2)] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.zoom_out_stride = stride;
+            // Mid-world, away from every clamp — and away from the origin,
+            // where world and screen coordinates are the same numbers and
+            // this would hold for the wrong reason.
+            r.set_camera(700, 200, viewport, Some(world));
+            let probe = (137, 91);
+            let before = r.screen_to_world(probe.0, probe.1);
+            let cam_before = r.camera_x;
+            for _ in 0..30 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let moved = r.camera_x - cam_before;
+            assert!(moved > 0, "zoom {zoom} stride {stride}: half a second of pan moved nothing");
+            assert_eq!(
+                r.screen_to_world(probe.0, probe.1),
+                (before.0 + moved, before.1),
+                "zoom {zoom} stride {stride}: the view did not translate by the camera delta"
+            );
+        }
+    }
+
+    #[test]
+    fn a_pan_at_a_stride_steps_whole_strides_only() {
+        // A camera step that is not a whole number of strides re-samples the
+        // view against a different lattice instead of translating it, and the
+        // screen hisses rather than scrolling. Only catchable as an assertion
+        // about the *step*: both cases move `camera_x`, so any before/after
+        // comparison of the camera alone passes either way.
+        //
+        // **Unbounded on purpose**, which is the isolation this needs rather
+        // than a shortcut. The clamp in `set_camera` lands the camera wherever
+        // the world's edge is, which is not on the stride lattice in general —
+        // at stride 3 on a 2048-cell world the far stop is x=512, and 512 is
+        // not a multiple of 3. That is a *single* frame's lattice shift as the
+        // camera pins, not the repeated per-frame alternation this is about,
+        // and once pinned the view is static and cannot hiss at all. Including
+        // it would make the test fail for a reason it is not named for; the
+        // clamp is `a_pan_cannot_escape_the_world_at_any_scale`'s subject.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 3;
+        let mut last = r.camera_x;
+        let mut moves = 0;
+        for _ in 0..120 {
+            r.pan((1, 0), 1.0 / 60.0, viewport, None);
+            let step = r.camera_x - last;
+            assert_eq!(step % 3, 0, "camera stepped {step} at stride 3, which does not translate the picture");
+            if step != 0 {
+                moves += 1;
+            }
+            last = r.camera_x;
+        }
+        assert!(moves > 0, "two seconds of pan produced no camera step at all");
+    }
+
+    /// Scroll one direction for `secs` and report how far the camera moved.
+    /// Mid-world and unbounded, so the clamp never truncates a measurement.
+    fn scrolled(r: &mut Renderer, dir: (i32, i32), secs: f32, viewport: (u32, u32)) -> i32 {
+        let before = r.camera_x;
+        for _ in 0..(secs * 60.0) as i32 {
+            r.pan(dir, 1.0 / 60.0, viewport, None);
+        }
+        r.camera_x - before
+    }
+
+    #[test]
+    fn a_held_scroll_accelerates() {
+        // Half the playtest verdict on the flat 1.5 screens/s: it was both too
+        // fast to aim and, once slowed, would have been too slow to travel.
+        // Only a ramp answers both, so it needs a test that a ramp is actually
+        // happening rather than a rate that merely got smaller.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        let first = scrolled(&mut r, (1, 0), 1.0, viewport);
+        let second = scrolled(&mut r, (1, 0), 1.0, viewport);
+        assert!(
+            second > first,
+            "a held scroll must speed up: first second {first} cells, second {second}"
+        );
+
+        // And a tap is always a tap: `end_pan` puts the next gesture back at
+        // the start of the ramp, so two taps in a row cover the same ground.
+        // Without this the test passes against a ramp that never resets, which
+        // would make the second nudge of any correction twice the first.
+        let mut r = Renderer::new();
+        let tap_a = scrolled(&mut r, (1, 0), 0.2, viewport);
+        r.end_pan();
+        let tap_b = scrolled(&mut r, (1, 0), 0.2, viewport);
+        assert_eq!(tap_a, tap_b, "two separate taps must move the same distance");
+        assert!(tap_a > 0, "a 200 ms tap moved nothing at all");
+    }
+
+    #[test]
+    fn reversing_direction_restarts_the_ramp() {
+        // The overshoot correction. At full speed after a long hold, a tap
+        // back the other way has to be a nudge — inheriting the ramp would
+        // turn one overshoot into two, which is the twitchiness complaint
+        // reappearing at the moment it matters most.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        scrolled(&mut r, (1, 0), 3.0, viewport); // wound fully up
+        let back = scrolled(&mut r, (-1, 0), 0.2, viewport).abs();
+
+        let mut fresh = Renderer::new();
+        let cold = scrolled(&mut fresh, (-1, 0), 0.2, viewport).abs();
+        assert_eq!(back, cold, "a reversal after a long hold must nudge like a fresh tap: {back} vs {cold}");
+
+        // But **adding** an axis is not reversing. Pressing `S` while already
+        // travelling right must not drop the scroll back to walking pace in
+        // the middle of a journey — only turning round does that. Guarded
+        // because the obvious spelling of the rule (`dir != last_dir`) gets
+        // this wrong, and gets it wrong invisibly: it still scrolls, just
+        // sluggishly, every time you adjust your heading.
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        scrolled(&mut r, (1, 0), 3.0, viewport); // wound fully up
+        let after_adding_an_axis = scrolled(&mut r, (1, 1), 0.2, viewport);
+        let mut still_straight = Renderer::new();
+        scrolled(&mut still_straight, (1, 0), 3.0, viewport);
+        let uninterrupted = scrolled(&mut still_straight, (1, 0), 0.2, viewport);
+        assert_eq!(
+            after_adding_an_axis, uninterrupted,
+            "adding a second direction restarted the ramp: {after_adding_an_axis} vs {uninterrupted}"
+        );
+    }
+
+    #[test]
+    fn a_sustained_scroll_crosses_the_world_in_about_six_seconds() {
+        // The figure the owner actually chose, and the one that was wrong
+        // before — so it is the one that earns a guard. Held to the real
+        // world's proportions rather than an abstract rate: 1536 cells of
+        // pannable width at 1:1, which is what "across the world" means here.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        let mut r = Renderer::new();
+        let mut frames = 0;
+        while r.camera_x < world.max_x - 512 + 1 {
+            r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            frames += 1;
+            assert!(frames < 60 * 60, "the scroll never crossed the world at all");
+        }
+        let secs = frames as f32 / 60.0;
+        // Wide enough that retuning the ramp's shape does not trip it, tight
+        // enough that the rejected 2.0 s and a sluggish 12 s both fail.
+        assert!(
+            (4.5..8.0).contains(&secs),
+            "a held scroll crossed the world in {secs:.1}s; the target is about six"
+        );
+    }
+
+    #[test]
+    fn the_pan_covers_the_same_fraction_of_a_screen_at_every_zoom() {
+        // The whole reason the rate is in screens rather than cells. Compared
+        // as a fraction of a viewport, which is the quantity the eye judges;
+        // the cell counts differ by 8x across these and are not the claim.
+        //
+        // This is also the residual-carry test in disguise: drop the carry and
+        // the tightest zoom falls well short of the others, because its
+        // per-frame share is the one small enough to round away.
+        //
+        // Asserted **against the other zooms, not against a constant.** It
+        // used to compare one second of scroll to `PAN_SCREENS_PER_SECOND`,
+        // which stopped being the distance covered the moment the rate ramped
+        // — and the invariant this test is named for never mentioned the rate
+        // at all. Pinning the absolute figure is
+        // `a_sustained_scroll_crosses_the_world_in_about_six_seconds`'s job.
+        let world = Rect::new(0, 0, 2047, 639);
+        let viewport = (512u32, 320u32);
+        let mut travelled = Vec::new();
+        for zoom in [1, 2, 4, 8] {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.set_camera(700, 200, viewport, Some(world));
+            let before = r.camera_x;
+            for _ in 0..60 {
+                r.pan((1, 0), 1.0 / 60.0, viewport, Some(world));
+            }
+            let (span_x, _) = r.visible_span(viewport);
+            travelled.push((zoom, (r.camera_x - before) as f32 / span_x as f32));
+        }
+        // Non-zero first, or "all equal" is satisfied by a pan that never
+        // moves anything.
+        for (zoom, screens) in &travelled {
+            assert!(*screens > 0.05, "zoom {zoom} barely moved: {screens:.3} screens in a second");
+        }
+        let (_, reference) = travelled[0];
+        for (zoom, screens) in &travelled {
+            assert!(
+                (screens - reference).abs() < 0.03,
+                "zoom {zoom} covered {screens:.3} of a screen against zoom 1's {reference:.3}: {travelled:?}"
+            );
+        }
     }
 
     #[test]

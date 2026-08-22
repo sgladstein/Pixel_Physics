@@ -14,12 +14,59 @@
     display: "Stone",
     kind: Solid,
     density: 2.5,
+    // **Four families of four tones**, indexed as `family * 4 + tone`.
+    //
+    // Worldgen picks the family from the region's `Character` and bakes it
+    // into `Cell::shade` at genesis (`worldgen::passes::palette_family`), so
+    // crossing an escarpment crosses into differently-coloured country at no
+    // frame cost -- the byte is written once and `render.rs` reads it, never
+    // recomputes it. The tone *within* a family stays the sedimentary band
+    // index, so a bed is still followable across the world; what the region
+    // changes is the family, not the banding.
+    //
+    // Family 0 is byte-for-byte the palette this file shipped with before
+    // families existed, and `base_colors` below keeps every *random* shade
+    // pick inside it. That is not tidiness: the brush and ash decay pick a
+    // shade at random, and without the cap a painted wall comes out as
+    // confetti of grey, sandstone and cap-rock.
+    //
+    // The four families, and the tone order inside each (mid, dark, light,
+    // darkest) matching family 0's original order:
+    //
+    //   0  neutral grey      the reference rock, and what the brush lays
+    //   1  cool damp grey    wet country -- darker, blue-shifted
+    //   2  warm sandstone    dry country -- warmer and paler
+    //   3  pale cap-rock     resistant beds -- the palest, low saturation
+    //
+    // Spread deliberately across brightness as well as hue. The original
+    // four span only 110..138 and the file's own note records that a
+    // weighting which kept most bands eight apart made the banding vanish
+    // from the render entirely; a family shift that stayed inside that same
+    // 28-point window would vanish the same way.
     colors: [
+        // 0: neutral grey
         (128, 128, 132),
         (118, 118, 124),
         (138, 136, 140),
         (110, 112, 118),
+        // 1: cool damp grey
+        (108, 112, 122),
+        (99, 103, 113),
+        (117, 121, 130),
+        (92, 97, 108),
+        // 2: warm sandstone
+        (168, 146, 112),
+        (156, 135, 103),
+        (182, 160, 124),
+        (146, 126, 96),
+        // 3: pale cap-rock
+        (178, 176, 169),
+        (166, 164, 158),
+        (192, 190, 183),
+        (154, 153, 147),
     ],
+    // Random picks (brush, decay) stay in family 0. See the note above.
+    base_colors: 4,
     max_unsupported_span: 16,
 
     // Stone is a **product** of a reaction now (lava quenched by water), and

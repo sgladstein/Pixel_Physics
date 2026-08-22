@@ -1,0 +1,35 @@
+// What a crystal lining becomes once it is broken: angular, bright grit.
+//
+// Exists so that mining a geode produces something that still reads as
+// crystal on the ground. Stone breaking into grey rubble and crystal breaking
+// into the same grey rubble would throw away the one moment of colour the
+// vault pass is built to deliver -- the debris is most of what the player
+// actually sees after the strike, not the intact lining.
+(
+    name: "shard",
+    display: "Crystal Shard",
+    kind: Powder,
+    // Angular and interlocking, like gravel rather than sand: a heap of
+    // shards should stand steeply and barely spread. Matched to gravel's 45
+    // deliberately, so a pile of shards and a pile of scree behave
+    // identically and only the colour differs.
+    friction_angle: 45.0,
+    density: 2.0,
+    // Compacted and sharp: roots refuse it for the same reason they refuse
+    // gravel, and the number is gravel's for the same reason its angle is.
+    penetration_resistance: 3.5,
+    // Crystal's four tones, dropped in brightness and slightly desaturated.
+    //
+    // Broken glass is duller than the intact face it came from -- a fracture
+    // surface scatters where a crystal face reflects -- and the drop is also
+    // what stops a heap of shards out-shining the lining it fell from. Still
+    // far brighter than gravel's 92..140, so shards on a cave floor read as
+    // crystal debris rather than as scree.
+    colors: [
+        (170, 190, 202),
+        (190, 208, 218),
+        (150, 170, 184),
+        (204, 220, 230),
+    ],
+    base_colors: 4,
+)

@@ -1,7 +1,8 @@
 /target
 **/*.rs.bk
-# Per-session git worktrees (see CLAUDE.md, "Working alongside another
-# session"). Live working state belonging to whichever session made them --
-# never commit one: sweeping another session's in-progress tree into a
-# commit is the exact `git add -A` disaster the gotchas list records.
-/.claude/worktrees/
+__pycache__/
+# Session-local agent state: worktrees (see CLAUDE.md "Working alongside
+# another session"), workflow scripts, and per-machine permission settings.
+# None of it is project content, and a worktree swept into a commit would
+# carry another session's in-progress tree with it.
+/.claude/

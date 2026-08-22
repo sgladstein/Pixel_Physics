@@ -1,0 +1,1051 @@
+<!doctype html>
+<meta charset="utf-8">
+<link rel="icon" href="data:,">
+<title>Pixel Physics — review queue</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  /* Deliberately dark: the artifacts are dark pixel scenes, and a white page
+     around them shifts how the owner reads contrast in the image itself. */
+  :root {
+    --bg: #14161a; --panel: #1b1e24; --panel-2: #22262e; --line: #2e3440;
+    --ink: #dde3ec; --dim: #8b95a5; --accent: #6fb2ff; --warn: #ffb454;
+    --good: #7ad07a; --bad: #ff7b72;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 14px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; }
+  a { color: var(--accent); }
+  button { font: inherit; color: inherit; background: var(--panel-2);
+           border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px;
+           cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #10131a; border-color: var(--accent); }
+  textarea, input[type=text] { width: 100%; background: var(--bg); color: var(--ink);
+           border: 1px solid var(--line); border-radius: 6px; padding: 8px; font: inherit;
+           resize: vertical; }
+  textarea:focus, input:focus { outline: none; border-color: var(--accent); }
+
+  #shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+  #rail { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 12px;
+          position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+  #rail h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
+             color: var(--dim); margin: 0 0 12px; }
+  .rail-group { margin-bottom: 20px; }
+  .rail-item { display: flex; justify-content: space-between; gap: 8px; width: 100%;
+               text-align: left; margin-bottom: 4px; background: none; border: 1px solid transparent; }
+  .rail-item.on { background: var(--panel-2); border-color: var(--line); color: var(--accent); }
+  .count { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .count.hot { color: var(--warn); }
+
+  #feed { padding: 20px 24px 160px; max-width: 1400px; }
+  #empty { color: var(--dim); padding: 60px 0; text-align: center; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+          padding: 16px 18px; margin-bottom: 18px; scroll-margin-top: 16px; }
+  .card.active { border-color: var(--accent); }
+  .card.answered { opacity: .62; }
+  .card.answered:hover { opacity: 1; }
+  .card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .card-head h2 { font-size: 16px; margin: 0; flex: 1 1 260px; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 999px; border: 1px solid var(--line);
+         color: var(--dim); white-space: nowrap; }
+  .tag.blocking { color: var(--warn); border-color: var(--warn); }
+  .tag.answered { color: var(--good); border-color: var(--good); }
+  .question { margin: 10px 0 0; font-size: 15px; color: #fff; }
+  .context { margin: 8px 0 0; color: var(--dim); font-size: 13px; }
+  .context code { background: var(--panel-2); padding: 1px 4px; border-radius: 3px; }
+  .origin { font-size: 12px; color: var(--dim); margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+  .panes { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 14px; align-items: flex-start; }
+  .pane { flex: 1 1 320px; min-width: 280px; background: var(--panel-2);
+          border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  .pane.picked { border-color: var(--good); }
+  .pane-label { display: flex; justify-content: space-between; align-items: center;
+                gap: 8px; margin-bottom: 8px; font-weight: 600; }
+  .imgwrap { overflow: auto; background: #0b0d10; border-radius: 6px;
+             line-height: 0; max-height: 70vh; text-align: center; }
+  .imgbox { position: relative; display: inline-block; line-height: 0; }
+  /* Non-negotiable for this project: a smoothed upscale of a pixel simulation
+     is a different artifact than the one that was rendered, and the owner
+     would be judging the browser's interpolation. */
+  .imgwrap img { image-rendering: pixelated; image-rendering: crisp-edges;
+                 display: block; cursor: crosshair; }
+  .pin { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+         border-radius: 50%; background: var(--warn); color: #10131a; font-size: 11px;
+         font-weight: 700; line-height: 18px; text-align: center; pointer-events: none;
+         box-shadow: 0 0 0 2px #10131a; }
+  .caption { color: var(--dim); font-size: 13px; margin-top: 8px; }
+
+  /* The repo's own rule: a discrete "did it fire at all" count has to be read
+     next to the picture, because two different mechanisms look identical at
+     the zoom a contact sheet is judged at. So meta is not collapsible. */
+  .meta { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+  .meta table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .meta td { padding: 2px 0; color: var(--dim); }
+  .meta td.v { text-align: right; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  .scrub { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+  .scrub input[type=range] { flex: 1; accent-color: var(--accent); }
+  .scrub .frameno { font-variant-numeric: tabular-nums; color: var(--dim); min-width: 74px;
+                    text-align: right; font-size: 12px; }
+
+  .ask { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px;
+         display: flex; flex-direction: column; gap: 10px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row .lbl { color: var(--dim); font-size: 12px; min-width: 68px; }
+  .annots { font-size: 12px; color: var(--dim); }
+  .annots li { margin-bottom: 2px; }
+  .verdict { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px;
+             font-size: 13px; }
+  .verdict .k { color: var(--dim); }
+  .hint { color: var(--dim); font-size: 12px; }
+  kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 0 5px; font-size: 11px; font-family: ui-monospace, monospace; }
+  .syncbox { margin-top: 14px; font-size: 12px; color: var(--dim);
+             border-top: 1px solid var(--line); padding-top: 10px; }
+  .syncbox.bad { color: var(--bad); }
+  .syncbox .err { display: block; margin-top: 4px; word-break: break-word;
+                  font-family: ui-monospace, monospace; font-size: 11px; }
+  /* Full-screen viewer. A quarter of posted media is wider than the card pane
+     at 1:1 -- one real card is 3076x80, which `fit` renders about 33px tall --
+     so the card is for triage and this is for actually looking. */
+  #lightbox { position: fixed; inset: 0; background: #05070a; z-index: 50;
+              display: none; cursor: grab; overflow: hidden; }
+  #lightbox.on { display: block; }
+  #lightbox.dragging { cursor: grabbing; }
+  #lightbox img { position: absolute; transform-origin: 0 0;
+                  image-rendering: pixelated; image-rendering: crisp-edges;
+                  user-select: none; -webkit-user-drag: none; }
+  /* right padding keeps the hints clear of the Close button, which sits on top
+     of this bar and was cutting the last of them off. */
+  #lb-bar { position: absolute; left: 0; right: 0; top: 0; padding: 10px 100px 10px 14px;
+            display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+            background: linear-gradient(#05070ae6, #05070a00); pointer-events: none;
+            font-size: 13px; color: var(--dim); }
+  #lb-bar strong { color: var(--ink); }
+  #lb-bar .keys { margin-left: auto; }
+  #lb-close { position: absolute; top: 8px; right: 12px; z-index: 2; }
+  #lightbox .pin { position: absolute; }
+  #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+           background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
+           padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+</style>
+
+<div id="shell">
+  <div id="rail">
+    <h1>Queue</h1>
+    <div class="rail-group" id="statuses"></div>
+    <h1>Boards</h1>
+    <div class="rail-group" id="boards"></div>
+    <h1>Keys</h1>
+    <div class="hint">
+      <kbd>j</kbd>/<kbd>k</kbd> move<br>
+      <kbd>1</kbd>…<kbd>4</kbd> pick pane<br>
+      <kbd>r</kbd> then <kbd>1</kbd>–<kbd>5</kbd> rate<br>
+      <kbd>space</kbd> play frames<br>
+      <kbd>z</kbd> zoom<br>
+      <kbd>f</kbd> full screen<br>
+      <kbd>Ctrl+Enter</kbd> submit<br>
+      <kbd>e</kbd> archive
+    </div>
+    <div class="hint" id="rootpath" style="margin-top:18px; word-break:break-all"></div>
+    <div class="syncbox" id="syncbox"></div>
+  </div>
+  <div id="feed"></div>
+</div>
+<div id="toast"></div>
+<div id="lightbox">
+  <img id="lb-img" alt="">
+  <div id="lb-bar">
+    <strong id="lb-title"></strong>
+    <span id="lb-zoom"></span>
+    <span class="keys">drag to pan · wheel or <kbd>+</kbd><kbd>-</kbd> zoom ·
+      <kbd>0</kbd> whole image · <kbd>1</kbd> 1:1 · click to pin ·
+      <kbd>Esc</kbd> close</span>
+  </div>
+  <button id="lb-close">Close</button>
+</div>
+
+<script>
+"use strict";
+
+const state = {
+  cards: [], boards: [], counts: {}, rev: null,
+  board: null, status: "open", active: 0, sync: null,
+  drafts: new Map(),   // card id -> {choice, rating, comment, annotations}
+  view: new Map(),     // card id -> {frame, playing, zoom, timer, rating_arm}
+};
+
+// ---------------------------------------------------------------- utilities
+
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+// Just enough markdown for the context field. A full parser is not worth the
+// bytes here -- context is a few lines an agent wrote, not a document.
+function md(src) {
+  const lines = esc(src).split("\n");
+  let out = "", list = false;
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
+    if (bullet) {
+      if (!list) { out += "<ul>"; list = true; }
+      out += "<li>" + inline(bullet[1]) + "</li>";
+      continue;
+    }
+    if (list) { out += "</ul>"; list = false; }
+    out += line ? "<p>" + inline(line) + "</p>" : "";
+  }
+  if (list) out += "</ul>";
+  return out;
+}
+const inline = s => s
+  .replace(/`([^`]+)`/g, "<code>$1</code>")
+  .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), 1600);
+}
+
+function draft(id) {
+  if (!state.drafts.has(id))
+    state.drafts.set(id, { choice: null, rating: null, comment: "", annotations: [] });
+  return state.drafts.get(id);
+}
+function view(id) {
+  if (!state.view.has(id))
+    state.view.set(id, { frame: 0, playing: false, zoom: "fit", timer: null, ratingArm: false });
+  const v = state.view.get(id);
+  const card = state.cards.find(c => c.id === id);
+  if (card && v.zoom === "fit" && !v.zoomTouched && card.items.some(it => it.focus))
+    v.zoom = "focus";
+  return state.view.get(id);
+}
+
+// A blind A/B must present the same order every time it is drawn, or a poll
+// re-render would reshuffle the panes under the owner's cursor mid-judgement.
+// Deriving the order from the card id makes it stable and needs no storage.
+function blindOrder(card) {
+  const n = card.items.length;
+  const idx = card.items.map((_, i) => i);
+  let h = 0;
+  for (const ch of card.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  for (let i = n - 1; i > 0; i--) {
+    h = (h * 1103515245 + 12345) >>> 0;
+    const j = h % (i + 1);
+    [idx[i], idx[j]] = [idx[j], idx[i]];
+  }
+  return idx;
+}
+
+const isBlind = card => card.blind && card.status === "open";
+const isAnimated = item => item.files.length === 1 && /\.gif$/i.test(item.files[0]);
+
+// Zoom must state the factor it is actually showing. A control that read
+// "1x" while displaying a 7x upscale of a 96px scene is the debug-readout
+// failure this repo has already paid for twice: the number is right there and
+// it is wrong, so nobody rechecks it. "fit" therefore reports the integer
+// factor it picked, and every other step is exact.
+const ZOOMS = ["fit", 1, 2, 4, 8];
+
+// "focus" is the region the agent actually wants judged; the image around it is
+// margin they rendered deliberately so a too-tight crop costs a scroll rather
+// than a re-render. It leads the cycle, and `fit` -- which already shows the
+// whole image -- becomes the zoom-out step. Cards with no focus keep exactly
+// the old cycle, so nothing existing changes behaviour.
+const zoomsFor = card =>
+  card.items.some(it => it.focus) ? ["focus", ...ZOOMS] : ZOOMS;
+
+function focusRect(item, natW, natH) {
+  const f = item.focus;
+  if (!f) return null;
+  if (f === "center") {
+    // The middle half by area: exactly the region of interest when the agent
+    // rendered at double it. Floored so the rect stays whole pixels.
+    const w = Math.max(1, Math.floor(natW / 2)), h = Math.max(1, Math.floor(natH / 2));
+    return [Math.floor((natW - w) / 2), Math.floor((natH - h) / 2), w, h];
+  }
+  if (!Array.isArray(f) || f.length !== 4) return null;
+  // Clamp rather than trust: a card may predate the post-time bounds check, or
+  // have been hand-written.
+  const w = Math.min(f[2], natW), h = Math.min(f[3], natH);
+  return [Math.min(f[0], natW - w), Math.min(f[1], natH - h), w, h];
+}
+
+function fitFactor(natW, boxW) {
+  if (!natW || !boxW) return 1;
+  // A contact sheet wider than the pane gets scaled down -- seeing the whole
+  // sheet beats pixel-exactness for the "where is it" pass, and `z` steps to
+  // an exact factor for the "what is it" pass.
+  if (natW > boxW) return boxW / natW;
+  return Math.max(1, Math.min(8, Math.floor(boxW / natW)));
+}
+
+const fmtFactor = f => (f >= 1 ? String(Math.round(f * 100) / 100) : f.toFixed(2)) + "\u00d7";
+
+function applyZoom(card) {
+  const v = view(card.id);
+  const el = document.querySelector(`#card-${CSS.escape(card.id)}`);
+  if (!el) return;
+  el.querySelectorAll(".imgwrap").forEach(wrap => {
+    const img = wrap.querySelector("img");
+    if (!img) return;
+    const apply = () => {
+      const natW = img.naturalWidth;
+      if (!natW) return;
+      const natH = img.naturalHeight;
+      // Measure the *pane*, never the wrap: focus mode constrains the wrap's
+      // width to the focus region, so sizing from the wrap feeds its own output
+      // back in and collapses to 1x on the next pass. The pane's width is set
+      // by the card layout and is unaffected by anything done here.
+      const host = wrap.parentElement;
+      const paneW = host ? host.clientWidth - 20 : wrap.clientWidth - 2;
+      const item = card.items[Number(img.dataset.item)];
+      const fr = v.zoom === "focus" ? focusRect(item, natW, natH) : null;
+      const btn = el.querySelector('button[data-act="zoom"]');
+
+      if (fr) {
+        // Make the wrap exactly the focus viewport and scroll the rect into it.
+        // Using the scroll container rather than clipping means the margin is
+        // still reachable by dragging, without leaving focus mode.
+        const factor = Math.max(1, Math.min(8, Math.floor(paneW / fr[2])));
+        img.style.width = Math.max(1, Math.round(natW * factor)) + "px";
+        // Constrain the viewport to the declared region in BOTH axes. Without
+        // the width cap the pane stays as wide as the card, so the label said
+        // "128x80" while about 161 source pixels were on screen -- the same
+        // class of lie the zoom factor itself used to tell.
+        wrap.style.maxWidth = Math.round(fr[2] * factor) + "px";
+        wrap.style.margin = "0 auto";
+        wrap.style.height = Math.round(fr[3] * factor) + "px";
+        wrap.scrollLeft = Math.round(fr[0] * factor)
+                          - Math.max(0, (paneW - fr[2] * factor) / 2);
+        wrap.scrollTop = Math.round(fr[1] * factor);
+        if (btn) {
+          btn.textContent = "Focus " + fmtFactor(factor) + " \u00b7 "
+            + fr[2] + "\u00d7" + fr[3] + " of " + natW + "\u00d7" + natH;
+        }
+      } else {
+        wrap.style.height = "";
+        wrap.style.maxWidth = "";
+        wrap.style.margin = "";
+        const factor = v.zoom === "fit" ? fitFactor(natW, paneW)
+                     : v.zoom === "focus" ? fitFactor(natW, paneW)  // no rect: behave as fit
+                     : v.zoom;
+        img.style.width = Math.max(1, Math.round(natW * factor)) + "px";
+        if (btn) {
+          btn.textContent = (v.zoom === "fit" ? "Zoom fit " + fmtFactor(factor)
+                                              : "Zoom " + fmtFactor(factor))
+                            + " \u00b7 " + natW + "\u00d7" + natH;
+        }
+      }
+      drawPins(card);
+    };
+    if (img.complete && img.naturalWidth) apply();
+    else img.addEventListener("load", apply, { once: true });
+
+    // The first pass runs before the card has finished laying out, so the pane
+    // it measures is not the pane the owner ends up looking at. That showed as
+    // a label reading "Focus 6x" beside a pane wide enough for 8x -- the factor
+    // was computed at a transient width and never revisited. Re-apply when the
+    // pane's *width* changes; guarding on width specifically matters because
+    // focus mode sets the wrap's height, and reacting to that would loop.
+    const host = wrap.parentElement;
+    if (host && !wrap._ro) {
+      wrap._lastW = Math.round(host.clientWidth);
+      wrap._ro = new ResizeObserver(entries => {
+        const w = Math.round(entries[0].contentRect.width);
+        if (w === wrap._lastW) return;
+        wrap._lastW = w;
+        apply();
+      });
+      wrap._ro.observe(host);   // the pane, not the wrap -- see above
+    }
+  });
+}
+
+function cycleZoom(card, v) {
+  v.zoomTouched = true;   // stop the focus default reasserting itself
+  const modes = zoomsFor(card);
+  const i = modes.indexOf(v.zoom);
+  v.zoom = modes[(i + 1) % modes.length];
+}
+const frameCount = card => Math.max(...card.items.map(it => it.files.length));
+
+// ---------------------------------------------------------------- fetching
+
+async function load() {
+  const qs = new URLSearchParams();
+  if (state.board) qs.set("board", state.board);
+  if (state.status) qs.set("status", state.status);
+  const res = await fetch("/api/cards?" + qs.toString());
+  const data = await res.json();
+  state.cards = data.cards;
+  state.boards = data.boards;
+  state.counts = data.counts;
+  state.rev = data.rev;
+  state.sync = "sync" in data ? data.sync : { unsupported: true };
+  document.getElementById("rootpath").textContent = data.root;
+  // Blocking cards first: a session is actually parked on those.
+  state.cards.sort((a, b) =>
+    (b.blocking === true) - (a.blocking === true) || (a.id < b.id ? 1 : -1));
+  if (state.active >= state.cards.length) state.active = Math.max(0, state.cards.length - 1);
+  render();
+}
+
+// Poll a cheap revision token rather than the whole queue, so a card another
+// agent posts appears while the owner is looking at the page.
+async function poll() {
+  try {
+    const info = await (await fetch("/api/rev")).json();
+    state.sync = "sync" in info ? info.sync : { unsupported: true };
+    if (info.rev !== state.rev) await load(); else renderSync();
+  } catch (_) { /* server restarted mid-session; next tick retries */ }
+}
+setInterval(poll, 2000);
+
+// ---------------------------------------------------------------- rendering
+
+function render() {
+  renderRail();
+  renderSync();
+  renderFeed();
+}
+
+// A transport that has quietly stopped looks exactly like nobody having posted
+// anything, so it gets said out loud rather than inferred from an empty queue.
+function renderSync() {
+  const el = document.getElementById("syncbox");
+  if (!el) return;
+  const s = state.sync;
+  if (!s) { el.className = "syncbox"; el.textContent = ""; return; }
+  if (s.unsupported) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>This server is out of date.</strong> It predates "
+      + "remote sync, so cards from other machines cannot arrive. Restart it: "
+      + "<code>python3 scripts/review.py serve</code>";
+    return;
+  }
+  if (s.skipped) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>Not syncing.</strong><span class=\"err\">"
+      + esc(s.skipped) + "</span>";
+    return;
+  }
+  if (s.last_error) {
+    el.className = "syncbox bad";
+    el.innerHTML = "<strong>Sync is failing.</strong> Cards posted from other "
+      + "machines are probably missing.<span class=\"err\">"
+      + esc(s.last_error) + "</span>";
+  } else if (s.last_ok) {
+    el.className = "syncbox";
+    el.textContent = "synced " + ago(s.last_ok);
+  } else {
+    el.className = "syncbox";
+    el.textContent = "no remote sync yet — local cards only";
+  }
+}
+
+function ago(iso) {
+  const secs = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
+  if (secs < 90) return Math.round(secs) + "s ago";
+  if (secs < 5400) return Math.round(secs / 60) + " min ago";
+  return Math.round(secs / 3600) + " h ago";
+}
+
+function renderRail() {
+  const statuses = [["open", "Open"], ["answered", "Answered"], ["archived", "Archived"],
+                    ["", "All"]];
+  document.getElementById("statuses").innerHTML = statuses.map(([key, label]) => {
+    const n = key ? (state.counts[key] || 0)
+                  : Object.values(state.counts).reduce((a, b) => a + b, 0);
+    return `<button class="rail-item ${state.status === key ? "on" : ""}"
+              data-status="${key}"><span>${label}</span>
+              <span class="count ${key === "open" && n ? "hot" : ""}">${n}</span></button>`;
+  }).join("");
+
+  const all = `<button class="rail-item ${state.board === null ? "on" : ""}" data-board="">
+      <span>all boards</span></button>`;
+  document.getElementById("boards").innerHTML = all + state.boards.map(b =>
+    `<button class="rail-item ${state.board === b.board ? "on" : ""}"
+       data-board="${esc(b.board)}"><span>${esc(b.board)}</span>
+       <span class="count ${b.open ? "hot" : ""}">${b.open}</span></button>`).join("");
+}
+
+function renderFeed() {
+  const feed = document.getElementById("feed");
+  if (!state.cards.length) {
+    const s = state.sync || {};
+    const unsure = s.unsupported || s.skipped || s.last_error || !s.last_ok;
+    const why = s.unsupported
+        ? "This server predates remote sync — restart it to pick up cards from other machines."
+        : s.skipped ? "Sync is off (" + esc(s.skipped) + "), so only local cards appear."
+        : s.last_error ? "Sync is failing, so cards from other machines are not arriving."
+        : "Sync has not completed a pass yet. If this persists, run "
+          + "<code>python3 scripts/review.py sync</code> to see the error.";
+    feed.innerHTML = `<div id="empty">${unsure
+        ? `Nothing queued <em>that this machine can see</em>.<br><br>
+           <span class="hint">${why}</span>`
+        : `Nothing queued here.<br><br>
+           <span class="hint">Agents post with
+           <code>python3 scripts/review.py post …</code></span>`}</div>`;
+    return;
+  }
+  feed.innerHTML = state.cards.map((c, i) => renderCard(c, i)).join("");
+  state.cards.forEach(c => { applyZoom(c); syncFrames(c); });
+}
+
+function renderCard(card, index) {
+  const v = view(card.id);
+  const d = draft(card.id);
+  const order = isBlind(card) ? blindOrder(card) : card.items.map((_, i) => i);
+  const answered = card.status !== "open";
+  const frames = frameCount(card) > 1;
+
+  const tags = [
+    card.blocking && card.status === "open"
+      ? `<span class="tag blocking">agent waiting</span>` : "",
+    `<span class="tag">${esc(card.board)}</span>`,
+    `<span class="tag">${esc(card.kind)}</span>`,
+    isBlind(card) ? `<span class="tag">blind</span>` : "",
+    answered ? `<span class="tag answered">${esc(card.status)}</span>` : "",
+  ].join("");
+
+  const origin = card.origin || {};
+  return `
+  <div class="card ${index === state.active ? "active" : ""} ${answered ? "answered" : ""}"
+       id="card-${card.id}" data-index="${index}">
+    <div class="card-head"><h2>${esc(card.title)}</h2>${tags}</div>
+    <p class="question">${esc(card.question)}</p>
+    ${card.context_md ? `<div class="context">${md(card.context_md)}</div>` : ""}
+    <div class="origin">${esc(origin.branch || "?")} · ${esc(origin.commit || "?")}
+      · ${esc(card.created)}</div>
+
+    <div class="panes">
+      ${order.map((realIdx, slot) => renderPane(card, realIdx, slot, d, v)).join("")}
+    </div>
+
+    ${frames ? renderScrub(card, v) : ""}
+    ${answered ? renderVerdict(card) : renderAsk(card, d, order)}
+  </div>`;
+}
+
+function renderPane(card, realIdx, slot, d, v) {
+  const item = card.items[realIdx];
+  const label = isBlind(card) ? `Option ${String.fromCharCode(65 + slot)}` : item.label;
+  const frame = Math.min(v.frame, item.files.length - 1);
+  const meta = Object.entries(item.meta || {});
+  return `
+  <div class="pane ${d.choice === realIdx ? "picked" : ""}" data-card="${card.id}"
+       data-item="${realIdx}" data-slot="${slot}">
+    ${label || item.files.length > 1 || isAnimated(item) ? `<div class="pane-label"><span>${esc(label)}</span>
+      <span class="hint">${item.files.length > 1 ? item.files.length + " frames"
+                            : isAnimated(item) ? "animated" : ""}</span>
+    </div>` : ""}
+    <div class="imgwrap" data-card="${card.id}" data-item="${realIdx}">
+      <div class="imgbox"><img src="/media/${esc(item.files[frame])}"
+           data-card="${card.id}" data-item="${realIdx}" alt="${esc(label)}"></div>
+    </div>
+    ${item.caption ? `<div class="caption">${esc(item.caption)}</div>` : ""}
+    ${meta.length ? `<div class="meta"><table>${meta.map(([k, val]) =>
+        `<tr><td>${esc(k)}</td><td class="v">${esc(val)}</td></tr>`).join("")}</table></div>` : ""}
+  </div>`;
+}
+
+function renderScrub(card, v) {
+  const n = frameCount(card);
+  return `
+  <div class="scrub" data-card="${card.id}">
+    <button data-act="play" data-card="${card.id}">${v.playing ? "❚❚" : "▶"}</button>
+    <input type="range" min="0" max="${n - 1}" value="${Math.min(v.frame, n - 1)}"
+           data-act="frame">
+    <span class="frameno">${Math.min(v.frame, n - 1) + 1} / ${n}</span>
+  </div>`;
+}
+
+function renderAsk(card, d, order) {
+  const ask = card.ask || {};
+  const choiceRow = ask.choice && card.items.length > 1 ? `
+    <div class="row"><span class="lbl">Better</span>
+      ${order.map((realIdx, slot) => `<button data-act="choice" data-card="${card.id}"
+        data-item="${realIdx}" class="${d.choice === realIdx ? "on" : ""}">
+        ${slot + 1} · ${esc(isBlind(card) ? "Option " + String.fromCharCode(65 + slot)
+                     : (card.items[realIdx].label || "item " + (realIdx + 1)))}</button>`).join("")}
+      <button data-act="choice" data-card="${card.id}" data-item="-1"
+        class="${d.choice === -1 ? "on" : ""}">neither</button>
+    </div>` : "";
+
+  const ratingRow = ask.rating ? `
+    <div class="row"><span class="lbl">Rating</span>
+      ${[1, 2, 3, 4, 5].map(n => `<button data-act="rating" data-card="${card.id}"
+        data-rating="${n}" class="${d.rating === n ? "on" : ""}">${n}</button>`).join("")}
+      <span class="hint">1 = wrong · 5 = ship it</span>
+    </div>` : "";
+
+  const pins = d.annotations.length ? `
+    <div class="annots"><strong>Pins</strong><ul>${d.annotations.map((a, i) =>
+      `<li>${i + 1}. ${esc(card.items[a.item] ? card.items[a.item].label : "?")}
+       @ ${(a.x * 100).toFixed(0)}%,${(a.y * 100).toFixed(0)}% — ${esc(a.note)}</li>`).join("")}
+     </ul><button data-act="clearpins" data-card="${card.id}">clear pins</button></div>` : "";
+
+  return `
+  <div class="ask">
+    ${choiceRow}${ratingRow}${pins}
+    ${ask.comment ? `<textarea rows="3" data-act="comment" data-card="${card.id}"
+        placeholder="What you actually saw. Click an image to open it full screen, then click there to pin the pixel you mean."
+        >${esc(d.comment)}</textarea>` : ""}
+    <div class="row">
+      <button data-act="submit" data-card="${card.id}">Submit</button>
+      <button data-act="archive" data-card="${card.id}">Archive without answering</button>
+      <button data-act="zoom" data-card="${card.id}">Zoom</button>
+      <button data-act="expand" data-card="${card.id}">Full screen</button>
+      <span class="hint">${isBlind(card)
+        ? "Labels are hidden until you submit." : ""}</span>
+    </div>
+  </div>`;
+}
+
+function renderVerdict(card) {
+  const r = card.response || {};
+  const pins = (r.annotations || []).map((a, i) =>
+    `<li>${i + 1}. ${esc(card.items[a.item] ? card.items[a.item].label : "?")} — ${esc(a.note)}</li>`
+  ).join("");
+  return `
+  <div class="verdict">
+    <div><span class="k">chose</span> ${esc(r.choice_label || (r.choice === -1 ? "neither" : "—"))}
+      · <span class="k">rating</span> ${esc(r.rating ?? "—")}
+      · <span class="k">at</span> ${esc(r.answered_at || "—")}</div>
+    ${r.comment ? `<p>${esc(r.comment)}</p>` : ""}
+    ${pins ? `<ul class="annots">${pins}</ul>` : ""}
+    <button data-act="reopen" data-card="${card.id}">Reopen</button>
+    <button data-act="zoom" data-card="${card.id}">Zoom</button>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- pins
+
+function drawPins(card) {
+  const d = draft(card.id);
+  const source = card.status === "open" ? d.annotations : ((card.response || {}).annotations || []);
+  document.querySelectorAll(`#card-${CSS.escape(card.id)} .imgwrap`).forEach(wrap => {
+    const box = wrap.querySelector(".imgbox");
+    const img = wrap.querySelector("img");
+    if (!box || !img) return;
+    box.querySelectorAll(".pin").forEach(p => p.remove());
+    const itemIdx = Number(wrap.dataset.item);
+    source.forEach((a, i) => {
+      if (a.item !== itemIdx) return;
+      const pin = document.createElement("div");
+      pin.className = "pin";
+      pin.textContent = i + 1;
+      pin.style.left = (a.x * img.clientWidth) + "px";
+      pin.style.top = (a.y * img.clientHeight) + "px";
+      box.appendChild(pin);
+    });
+  });
+}
+
+// ---------------------------------------------------------------- frames
+
+function syncFrames(card) {
+  const v = view(card.id);
+  const n = frameCount(card);
+  if (n <= 1) return;
+  // Preload once per card so scrubbing does not stutter on first pass. Media
+  // is served immutable, so this costs one fetch per frame for the session.
+  if (!v.preloaded) {
+    v.preloaded = true;
+    card.items.forEach(it => it.files.forEach(f => { new Image().src = "/media/" + f; }));
+  }
+  const el = document.querySelector(`#card-${CSS.escape(card.id)}`);
+  if (!el) return;
+  el.querySelectorAll(".imgwrap img").forEach(img => {
+    const item = card.items[Number(img.dataset.item)];
+    img.src = "/media/" + item.files[Math.min(v.frame, item.files.length - 1)];
+  });
+  const range = el.querySelector('input[data-act="frame"]');
+  if (range) range.value = Math.min(v.frame, n - 1);
+  const label = el.querySelector(".frameno");
+  if (label) label.textContent = (Math.min(v.frame, n - 1) + 1) + " / " + n;
+  drawPins(card);
+}
+
+function togglePlay(card) {
+  const v = view(card.id);
+  const n = frameCount(card);
+  if (n <= 1) return;
+  if (v.timer) { clearInterval(v.timer); v.timer = null; v.playing = false; }
+  else {
+    v.playing = true;
+    v.timer = setInterval(() => { v.frame = (v.frame + 1) % n; syncFrames(card); }, 90);
+  }
+  const btn = document.querySelector(`#card-${CSS.escape(card.id)} button[data-act="play"]`);
+  if (btn) btn.textContent = v.playing ? "❚❚" : "▶";
+}
+
+// ---------------------------------------------------------------- lightbox
+
+// Integer rungs only at 1x and above: this is a pixel simulation, and a
+// fractional upscale shows uneven pixel sizes even under image-rendering:
+// pixelated. `fit` is the one allowed fractional factor, because seeing all of
+// a 38:1 strip at once is worth it.
+const LB_RUNGS = [1, 2, 3, 4, 6, 8, 12, 16];
+const lb = { card: null, item: 0, factor: "fit", x: 0, y: 0, drag: null, moved: 0 };
+
+const lbEl = () => document.getElementById("lightbox");
+const lbImg = () => document.getElementById("lb-img");
+
+function lbFit() {
+  const img = lbImg();
+  if (!img.naturalWidth) return 1;
+  return Math.min((window.innerWidth - 40) / img.naturalWidth,
+                  (window.innerHeight - 80) / img.naturalHeight);
+}
+
+const lbFactor = () => lb.factor === "fit" ? lbFit() : lb.factor;
+
+// Contain is the wrong opening move for an extreme aspect ratio: a real 3076x80
+// card contains at 0.44x, which renders an 80px strip 35px tall -- one pixel
+// better than the card it was opened from. When containing would shrink the
+// image, open at the factor that fills the *constrained* axis instead and let
+// it pan along the long one. That is what makes a 38:1 strip readable.
+function lbDefaultFactor() {
+  const img = lbImg();
+  if (!img.naturalWidth) return "fit";
+  const contain = lbFit();
+  const cover = Math.max((window.innerWidth - 40) / img.naturalWidth,
+                         (window.innerHeight - 80) / img.naturalHeight);
+  const rung = f => {
+    const under = LB_RUNGS.filter(r => r <= f + 1e-6);
+    return under.length ? under[under.length - 1] : null;
+  };
+  if (contain >= 1) return rung(contain) || "fit";
+  const c = rung(Math.min(cover, 8));
+  return c || "fit";
+}
+
+// Never let the image be dragged out of sight. When it is larger than the
+// viewport the edges stop at the viewport edges, which also makes arrow-panning
+// land exactly at an end instead of sailing past it.
+function lbClamp() {
+  const img = lbImg(), f = lbFactor();
+  const w = img.naturalWidth * f, h = img.naturalHeight * f;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  lb.x = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, lb.x));
+  lb.y = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, lb.y));
+}
+
+function openLightbox(card, itemIdx) {
+  const item = card.items[itemIdx];
+  const v = view(card.id);
+  const file = item.files[Math.min(v.frame, item.files.length - 1)];
+  lb.card = card; lb.item = itemIdx; lb.factor = "fit"; lb.x = 0; lb.y = 0;
+  const img = lbImg();
+  img.onload = () => { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); };
+  img.src = "/media/" + file;
+  document.getElementById("lb-title").textContent =
+    (isBlind(card) ? "Option " + String.fromCharCode(65 + itemIdx)
+                   : (item.label || card.title)) +
+    (item.files.length > 1 ? "  (frame " + (Math.min(v.frame, item.files.length - 1) + 1)
+                             + "/" + item.files.length + ")" : "");
+  lbEl().classList.add("on");
+  document.body.style.overflow = "hidden";
+  if (img.complete && img.naturalWidth) { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); }
+}
+
+function closeLightbox() {
+  lbEl().classList.remove("on");
+  document.body.style.overflow = "";
+  lb.card = null;
+}
+
+function lbCentre() {
+  const img = lbImg(), f = lbFactor();
+  lb.x = (window.innerWidth - img.naturalWidth * f) / 2;
+  lb.y = (window.innerHeight - img.naturalHeight * f) / 2;
+}
+
+function lbApply() {
+  lbClamp();
+  const img = lbImg(), f = lbFactor();
+  img.style.width = Math.max(1, Math.round(img.naturalWidth * f)) + "px";
+  img.style.left = Math.round(lb.x) + "px";
+  img.style.top = Math.round(lb.y) + "px";
+  document.getElementById("lb-zoom").textContent =
+    img.naturalWidth + "\u00d7" + img.naturalHeight + "  \u00b7  "
+    + (lb.factor === "fit" ? "fit " : "") + fmtFactor(f);
+  lbDrawPins();
+}
+
+// Zoom about a screen point, so the pixel under the cursor stays put.
+function lbZoomTo(next, cx, cy) {
+  const before = lbFactor();
+  lb.factor = next;
+  const after = lbFactor();
+  const k = after / before;
+  lb.x = cx - (cx - lb.x) * k;
+  lb.y = cy - (cy - lb.y) * k;
+  lbApply();
+}
+
+function lbStep(dir, cx, cy) {
+  const cur = lbFactor();
+  if (dir > 0) {
+    const next = LB_RUNGS.find(r => r > cur + 1e-6);
+    if (next) lbZoomTo(next, cx, cy);
+  } else {
+    const under = LB_RUNGS.filter(r => r < cur - 1e-6);
+    const fit = lbFit();
+    if (under.length && under[under.length - 1] > fit) lbZoomTo(under[under.length - 1], cx, cy);
+    else lbZoomTo("fit", cx, cy);
+  }
+}
+
+function lbDrawPins() {
+  const el = lbEl();
+  el.querySelectorAll(".pin").forEach(p => p.remove());
+  if (!lb.card) return;
+  const src = lb.card.status === "open" ? draft(lb.card.id).annotations
+                                        : ((lb.card.response || {}).annotations || []);
+  const img = lbImg(), f = lbFactor();
+  src.forEach((a, i) => {
+    if (a.item !== lb.item) return;
+    const pin = document.createElement("div");
+    pin.className = "pin";
+    pin.textContent = i + 1;
+    pin.style.left = (lb.x + a.x * img.naturalWidth * f) + "px";
+    pin.style.top = (lb.y + a.y * img.naturalHeight * f) + "px";
+    el.appendChild(pin);
+  });
+}
+
+lbEl().addEventListener("wheel", ev => {
+  ev.preventDefault();
+  lbStep(ev.deltaY < 0 ? 1 : -1, ev.clientX, ev.clientY);
+}, { passive: false });
+
+lbEl().addEventListener("mousedown", ev => {
+  if (ev.target.id === "lb-close") return;
+  lb.drag = { x: ev.clientX, y: ev.clientY, ox: lb.x, oy: lb.y };
+  lb.moved = 0;
+  lbEl().classList.add("dragging");
+});
+
+window.addEventListener("mousemove", ev => {
+  if (!lb.drag) return;
+  const dx = ev.clientX - lb.drag.x, dy = ev.clientY - lb.drag.y;
+  lb.moved = Math.max(lb.moved, Math.abs(dx) + Math.abs(dy));
+  lb.x = lb.drag.ox + dx; lb.y = lb.drag.oy + dy;
+  lbApply();
+});
+
+window.addEventListener("mouseup", ev => {
+  if (!lb.drag) return;
+  const wasDrag = lb.moved > 4;
+  lb.drag = null;
+  lbEl().classList.remove("dragging");
+  if (wasDrag || !lb.card) return;
+  // A click that did not drag: on the image it drops a pin -- at whatever zoom
+  // you are at, which is the point of pinning here rather than on the card.
+  // Anywhere else it closes, the usual lightbox convention.
+  if (ev.target.id !== "lb-img") { closeLightbox(); return; }
+  if (lb.card.status !== "open") return;
+  const img = lbImg(), f = lbFactor();
+  const x = (ev.clientX - lb.x) / (img.naturalWidth * f);
+  const y = (ev.clientY - lb.y) / (img.naturalHeight * f);
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  const note = prompt("Note for this spot:");
+  if (note === null || !note.trim()) return;
+  draft(lb.card.id).annotations.push({ item: lb.item, x, y, note: note.trim() });
+  lbDrawPins();
+  renderFeed();
+});
+
+document.getElementById("lb-close").addEventListener("click", closeLightbox);
+
+window.addEventListener("resize", () => { if (lb.card) lbApply(); });
+
+// ---------------------------------------------------------------- actions
+
+const cardById = id => state.cards.find(c => c.id === id);
+
+async function submit(card) {
+  const d = draft(card.id);
+  const body = {
+    choice: d.choice, rating: d.rating, comment: d.comment,
+    annotations: d.annotations,
+    blind_order: isBlind(card) ? blindOrder(card) : null,
+  };
+  const res = await fetch(`/api/cards/${encodeURIComponent(card.id)}/response`,
+    { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) return toast("failed: " + (data.error || res.status));
+  state.drafts.delete(card.id);
+  toast(card.blind && data.response.choice_label
+    ? "You picked: " + data.response.choice_label
+    : "Answer recorded");
+  await load();
+}
+
+async function setStatus(card, status) {
+  await fetch(`/api/cards/${encodeURIComponent(card.id)}/status`,
+    { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }) });
+  await load();
+}
+
+document.addEventListener("click", async ev => {
+  const rail = ev.target.closest(".rail-item");
+  if (rail) {
+    if ("status" in rail.dataset) state.status = rail.dataset.status;
+    else state.board = rail.dataset.board || null;
+    state.active = 0;
+    return load();
+  }
+
+  const btn = ev.target.closest("button[data-act]");
+  if (btn) {
+    // Fall back to the enclosing card-scoped element. Requiring every control
+    // to repeat data-card meant one forgotten attribute produced a dead button
+    // and no error: `play` sits inside <div class="scrub" data-card=...> and
+    // never carried its own, so it did nothing at all until now.
+    const card = cardById(btn.dataset.card
+                          || btn.closest("[data-card]")?.dataset.card);
+    if (!card) {
+      console.warn("review: control %o could not be traced to a card — it will "
+                   + "do nothing. Give it data-card, or nest it inside an "
+                   + "element that has one.", btn.dataset.act);
+      return;
+    }
+    const d = draft(card.id), v = view(card.id);
+    switch (btn.dataset.act) {
+      case "choice": {
+        const idx = Number(btn.dataset.item);
+        d.choice = d.choice === idx ? null : idx;
+        return renderFeed();
+      }
+      case "rating": {
+        const n = Number(btn.dataset.rating);
+        d.rating = d.rating === n ? null : n;
+        return renderFeed();
+      }
+      case "clearpins": d.annotations = []; return renderFeed();
+      case "submit": return submit(card);
+      case "archive": return setStatus(card, "archived");
+      case "reopen": return setStatus(card, "open");
+      case "zoom": cycleZoom(card, v); return renderFeed();
+      case "expand": return openLightbox(card, 0);
+      case "play": return togglePlay(card);
+    }
+  }
+
+  // Clicking an image opens it full screen. Pinning moved in there: a quarter
+  // of posted media is wider than the pane at 1:1, so the card is too small to
+  // pin accurately on, and the lightbox lets you zoom to the exact pixel first.
+  const img = ev.target.closest(".imgwrap img");
+  if (img) {
+    const card = cardById(img.dataset.card);
+    if (card) openLightbox(card, Number(img.dataset.item));
+    return;
+  }
+});
+
+document.addEventListener("input", ev => {
+  const el = ev.target;
+  if (el.dataset.act === "comment") {
+    draft(el.dataset.card).comment = el.value;   // kept out of the DOM so a
+    return;                                      // poll re-render cannot lose it
+  }
+  if (el.dataset.act === "frame") {
+    const card = cardById(el.closest(".scrub").dataset.card);
+    if (!card) return;
+    const v = view(card.id);
+    if (v.timer) togglePlay(card);
+    v.frame = Number(el.value);
+    syncFrames(card);
+  }
+});
+
+// ---------------------------------------------------------------- keyboard
+
+document.addEventListener("keydown", ev => {
+  // The lightbox owns the keyboard while it is open, or `z`, `j` and the digits
+  // would be quietly re-arranging the queue behind it.
+  if (lb.card) {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    if (ev.key === "Escape") { closeLightbox(); return; }
+    if (ev.key === "+" || ev.key === "=") { lbStep(1, cx, cy); return; }
+    if (ev.key === "-" || ev.key === "_") { lbStep(-1, cx, cy); return; }
+    if (ev.key === "0") { lb.factor = "fit"; lbCentre(); lbApply(); return; }
+    if (ev.key === "9") { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); return; }
+    if (ev.key === "1") { lbZoomTo(1, cx, cy); return; }
+    const pan = ev.shiftKey ? 400 : 120;
+    if (ev.key === "ArrowLeft")  { lb.x += pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowRight") { lb.x -= pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowUp")    { lb.y += pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowDown")  { lb.y -= pan; lbApply(); ev.preventDefault(); return; }
+    return;
+  }
+  const typing = /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName);
+  if (typing && !(ev.key === "Enter" && (ev.ctrlKey || ev.metaKey))) return;
+  const card = state.cards[state.active];
+
+  if (ev.key === "j" || ev.key === "ArrowDown") { move(1); ev.preventDefault(); return; }
+  if (ev.key === "k" || ev.key === "ArrowUp") { move(-1); ev.preventDefault(); return; }
+  if (!card) return;
+  const d = draft(card.id), v = view(card.id);
+
+  if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); return submit(card); }
+  if (ev.key === " ") { ev.preventDefault(); return togglePlay(card); }
+  if (ev.key === "z") { cycleZoom(card, v); return renderFeed(); }
+  if (ev.key === "f") { openLightbox(card, 0); return; }
+  if (ev.key === "e") return setStatus(card, "archived");
+  if (ev.key === "r") { v.ratingArm = true; return toast("rate 1–5"); }
+  if (/^[1-5]$/.test(ev.key)) {
+    const n = Number(ev.key);
+    // A digit means "pick pane n" by default, because that is the common
+    // action; `r` first switches it to a rating, so the two never collide.
+    if (v.ratingArm) { v.ratingArm = false; d.rating = n; }
+    else {
+      const order = isBlind(card) ? blindOrder(card) : card.items.map((_, i) => i);
+      if (n <= order.length) d.choice = order[n - 1];
+    }
+    return renderFeed();
+  }
+  if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+    const n = frameCount(card);
+    if (n <= 1) return;
+    if (v.timer) togglePlay(card);
+    v.frame = (v.frame + (ev.key === "ArrowRight" ? 1 : n - 1)) % n;
+    ev.preventDefault();
+    return syncFrames(card);
+  }
+});
+
+function move(delta) {
+  if (!state.cards.length) return;
+  state.active = Math.max(0, Math.min(state.cards.length - 1, state.active + delta));
+  renderFeed();
+  const el = document.querySelector(".card.active");
+  if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+// A card id in the fragment (what `review.py post` prints) focuses that card.
+window.addEventListener("resize", () => state.cards.forEach(applyZoom));
+window.addEventListener("hashchange", focusHash);
+function focusHash() {
+  const id = location.hash.slice(1);
+  if (!id) return;
+  const i = state.cards.findIndex(c => c.id === id);
+  if (i >= 0) { state.active = i; renderFeed();
+    document.getElementById("card-" + id)?.scrollIntoView({ block: "start" }); }
+}
+
+load().then(focusHash);
+</script>

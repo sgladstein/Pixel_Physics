@@ -1348,6 +1348,106 @@ mod tests {
         );
     }
 
+    /// **How fast a fire front crosses each surface.** WP-B3's acceptance
+    /// item 4: grass is supposed to be the fastest fuel in the world, and
+    /// the reason it earns a material of its own is that it carries a fire
+    /// across open ground that would otherwise stop it.
+    ///
+    /// Three arms, identical geometry, identical ignition, same frame
+    /// budget -- a paired comparison in which the only variable is what the
+    /// strip is made of. Hand-placed strips rather than grown plants on
+    /// purpose: the question here is the *material's* fire behaviour, and a
+    /// grown stand would vary in density, moisture and connectivity all at
+    /// once. How it looks with real plants is a filmstrip's job.
+    ///
+    /// Dry, deliberately. `try_ignite` damps effective flammability by
+    /// field moisture, so a strip laid on damp ground measures the water
+    /// table as much as the fuel. Soil cells here are created dry
+    /// (`aux == 0` on a `Powder` means dry -- the opposite of the liquid
+    /// convention) and there is no water in the scene.
+    #[test]
+    fn a_fire_front_crosses_grass_faster_than_foliage_and_not_at_all_over_soil() {
+        const X0: i32 = 10;
+        const X1: i32 = 180;
+        const ROW: i32 = 60;
+
+        /// Frames for the front to reach the far end, or `CAP` if it
+        /// never does. **Time-to-cross, not distance-at-a-fixed-time**: at
+        /// any budget long enough for the slowest fuel to finish, every
+        /// flammable arm reads 100% consumed and the arms stop being
+        /// distinguishable. Speed needs a clock.
+        fn cross(material_name: &str) -> usize {
+            const CAP: usize = 6_000;
+            // **Its own world, not this module's 64x64 `test_world`.** The
+            // first version used it and every arm reported the full 170
+            // cells, soil included: the strip lay entirely outside the
+            // world, every `get` returned `EMPTY`, and "not the original
+            // material" was trivially true everywhere. Four identical
+            // numbers is the tell that the scene, not the mechanism, is
+            // what is being measured.
+            let mut w = World::new(Rect::new(0, 0, 199, 119));
+            let Some(id) = w.materials.id_of(material_name) else { return CAP };
+            for x in X0..=X1 {
+                w.set(x, ROW + 1, Cell::new(material::STONE, 0));
+                w.set(x, ROW, Cell::new(id, 0));
+            }
+            // Light the left end. `ignite_circle` ignores flammability, so
+            // every arm starts genuinely alight -- soil included, which is
+            // the point: it gets the same head start and still carries the
+            // fire nowhere.
+            w.ignite_circle(X0 + 1, ROW, 2);
+            for frame in 0..CAP {
+                // **`update::step` opens and closes the frame itself.** An
+                // earlier version wrapped it in its own `begin_step`/
+                // `end_step` pair, which double-manages the dirty-rect
+                // promotion: chunks were marked settled while cells were
+                // still burning, the sweep stopped visiting them, and every
+                // burn timer froze mid-burn. The symptom was a strip with
+                // sixteen cells alight and not one burned out after 4,000
+                // frames -- fire that spreads but never finishes, which
+                // looks like a burnout bug and is a harness bug.
+                crate::sim::update::step(&mut w);
+                crate::sim::field::step(&mut w);
+                // Burnt = became something else *and* is still there, or is
+                // alight. Deliberately not "differs from the original":
+                // powder strips shed a grain off each open end, which left
+                // an `EMPTY` at the far end and read as a front that had
+                // crossed instantly -- soil scored a full crossing that way.
+                let reached = (X0..=X1)
+                    .filter(|&x| {
+                        let c = w.get(x, ROW);
+                        c.is_burning() || (c.material != id && c.material != material::EMPTY)
+                    })
+                    .max()
+                    .unwrap_or(X0);
+                if reached >= X1 - 2 {
+                    return frame;
+                }
+            }
+            CAP
+        }
+
+        let span = (X1 - X0) as f32;
+        let grass = cross("grassblade");
+        let litter = cross("litter");
+        let foliage = cross("leaf");
+        let soil = cross("soil");
+        for (name, frames) in [("grass", grass), ("litter", litter), ("foliage", foliage), ("soil", soil)] {
+            if frames >= 6_000 {
+                println!("{name:>8}: never crossed");
+            } else {
+                println!("{name:>8}: {frames} frames  ({:.2} cells/frame)", span / frames as f32);
+            }
+        }
+
+        assert_eq!(soil, 6_000, "a fire crossed bare soil in {soil} frames; soil is not a fuel and must stop a front dead");
+        assert!(grass < 6_000, "the grass front never crossed -- either it did not spread at all or the scene is wet");
+        assert!(
+            grass < foliage,
+            "grass crossed in {grass} frames against foliage's {foliage}: grass is supposed to be the faster surface fuel, which is the reason it is its own material"
+        );
+    }
+
     #[test]
     fn a_reaction_transforms_both_cells() {
         // No shipped material has a reaction yet (that needs a real "lava"

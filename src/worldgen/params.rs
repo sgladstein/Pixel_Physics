@@ -58,10 +58,46 @@ pub struct WorldgenParams {
     /// How completely terracing replaces the smooth surface where it
     /// applies, 0..1.
     pub terrace_strength: f32,
+    /// How ragged a terrace riser is, as a fraction of `terrace_step`.
+    /// **`0.0` is the pre-review behaviour**, kept reachable so the change
+    /// can be judged by eye rather than argued about.
+    ///
+    /// A riser is a single-column jump of `terrace_step * mask` rows — up to
+    /// 34 on `canyon` — and `detail_amplitude` is 2.5 to 3.0, which is
+    /// nowhere near enough to break a face that tall. So every bluff in the
+    /// world had dead-plumb one-column sides. This adds a second, much
+    /// larger detail term applied **only near a riser**: it fades in as the
+    /// snap residual approaches the half-band where the jump happens, so
+    /// benches stay flat and only the faces get column-scale variation.
+    ///
+    /// Scaled by `terrace_step` rather than being an absolute size, because
+    /// what has to be broken up is the riser, and a riser is that tall by
+    /// definition.
+    pub riser_roughness: f32,
     /// Wavelength of the mask deciding *where* terracing applies. Terracing
     /// everywhere reads as a rendering artifact; terracing in patches reads
     /// as geology.
     pub mask_wavelength: f32,
+    /// Regional slope at which the terrace snap starts to yield, and the
+    /// slope by which it has yielded completely.
+    ///
+    /// **Where the ground is already steep, terracing must give way.** A
+    /// riser is a single-column jump of `terrace_step * mask` rows whatever
+    /// the ground under it is doing, so on an escarpment the snap stacks its
+    /// own face on top of a face the relief already supplies: `canyon` seed 7
+    /// put three risers of 27, 34 and 33 rows six columns apart, which is a
+    /// ladder rather than a staircase. Attenuating by the *pre-terrace*
+    /// regional slope leaves benches on gentle ground at full strength — a
+    /// bluff standing out of quiet country is the landform this is for — and
+    /// stops the snap contributing anything where the relief is already
+    /// doing the work.
+    ///
+    /// Measured on the pre-terrace elevation over a +-8 column central
+    /// difference, so it reads the escarpment and not the detail term.
+    /// `terrace_slope_hi <= terrace_slope_lo` disables the attenuation and
+    /// restores the pre-round-2 surface exactly.
+    pub terrace_slope_lo: f32,
+    pub terrace_slope_hi: f32,
 
     // ---- layers ----
     /// Nominal soil blanket thickness on flat ground.
@@ -123,6 +159,24 @@ pub struct WorldgenParams {
     pub dune_amplitude: f32,
     /// Spacing of those crests.
     pub dune_wavelength: f32,
+    /// How much each individual dune varies from that amplitude and that
+    /// spacing, `0`..`1`. **`0.0` is the pre-review behaviour**, kept
+    /// reachable rather than deleted so the change can be A/B'd by eye
+    /// instead of argued about (the repo's runtime-selector convention).
+    ///
+    /// The phase term was `x / wavelength + 0.6 * fbm`, and the linear part
+    /// dominates it so completely that the whole desert came out as one
+    /// wavelength repeated ~30 times across the world — a mechanical
+    /// sawtooth comb, which the world review put fourth in what it costs the
+    /// picture. This draws each dune's own amplitude and its own slip-face
+    /// fraction from noise keyed on the *dune index*, so crests differ in
+    /// height and sit at different distances apart.
+    ///
+    /// Every dune's slip face is still clamped to what sand can stand on,
+    /// now against its **own** amplitude and its own fall fraction rather
+    /// than the preset's — see `column::Terrain::dunes`, where getting that
+    /// wrong once already produced a desert of bare grey spikes.
+    pub dune_variation: f32,
     /// Extra cells the water table drops in fully arid country, on top of
     /// `table_offset`. This is what stops a desert having ponds in it.
     pub aridity_table_drop: f32,
@@ -134,6 +188,84 @@ pub struct WorldgenParams {
     /// character — see `region.rs` for why this is the difference between
     /// "different numbers" and "a different world".
     pub region_variation: f32,
+
+    // ---- vaults ----
+    /// Expected number of sealed chambers per world. Zero disables the pass
+    /// entirely and leaves the world byte-identical.
+    ///
+    /// Fractional on purpose, and read as "roughly this many *draws*": the
+    /// whole number is guaranteed and the remainder is one coin flip, the
+    /// same shape `pockets` uses for its per-region count. A draw is not a
+    /// system -- the depth band, the envelope fit and the seal all reject --
+    /// and the default prices that in: at 1.6 (two draws at most, so a
+    /// system stays a 0-2-per-world event) 32 of 40 preset x seed worlds
+    /// carry a system and exactly one carries two, measured at the shipped
+    /// size. The round-2 value of 0.6 left systems in barely a third of
+    /// worlds once the round-3 envelope grew the rejection surface; the
+    /// measured curve is chaotic in the seed (1.5 placed 20 of 40, 1.6
+    /// placed 32), so re-tune against the placement probe, not by
+    /// arithmetic on the fraction.
+    pub vault_density: f32,
+    /// How far below the local genesis surface a chamber must sit, in rows.
+    ///
+    /// Concealment comes free from the viewport rather than from any render
+    /// work: a chamber this far down is simply never on screen until someone
+    /// digs to it. **Note this interacts with world height** -- at the
+    /// 512x320 test size the band between this depth and the bedrock margin
+    /// is empty, so no vault can be placed at all. See the round-2 finding;
+    /// it is the reason the vault tests build at the shipped size or lower
+    /// this number explicitly.
+    pub vault_min_depth: i32,
+    /// How far above the bedrock band a chamber must stop, in rows.
+    pub vault_bedrock_margin: i32,
+    /// How far the slow 2-D field is allowed to displace a palette-family
+    /// probability, in absolute probability.
+    ///
+    /// `0.0` restores the per-column threshold round 1 shipped (the aridity
+    /// ramp widths changed with it, so it is not quite byte-identical -- see
+    /// the round-2 finding), and a preset with `region_variation <= 0.0`
+    /// never reaches this code at all. Behind a param because "does this read
+    /// as country or as stipple" is a by-eye question, and the repo's
+    /// convention for those is a runtime selector rather than an argument.
+    pub palette_field: f32,
+
+    // ---- residual landforms ----
+    /// Expected residual sites (tors, stacks, pinnacles) per 256-column
+    /// region, before the region's own `Character::formation` multiplies
+    /// it up or down. Zero disables the pass entirely and leaves the world
+    /// byte-identical -- the same contract `pocket_density` and
+    /// `vault_density` make.
+    ///
+    /// Round 6 Track B, B2 (`Reports/worldgen-implementation-tasks-round6-
+    /// formations.md`). B1 measured that plan-space erosion never produces
+    /// a residual-scale candidate on its own -- max prominence at reach 15
+    /// across a full erosion run peaked at 8.34 (canyon) / 5.00 (rolling),
+    /// never once crossing into the 12-120 cell band a residual occupies --
+    /// so this is authored placement, not a rate this pass tunes toward.
+    pub residual_density: f32,
+
+    // ---- history ----
+    /// How much simulated history the terrain has been through, `0` none.
+    ///
+    /// The iteration budget for plan-space erosion (`erosion.rs`,
+    /// `Reports/worldgen-erosion-design.md`): young worlds are sharp —
+    /// plumb-ish terraces, thin talus, no valley fill — and old worlds are
+    /// subdued and heaped. This is the `age` axis `worldgen-design.md` §6
+    /// reserves in `worldgen(seed, coord, age)`, landed first for erosion;
+    /// ecological age joins it there later. It is **not** a live process:
+    /// nothing erodes at runtime.
+    ///
+    /// **`0.0` is the pre-erosion world, exactly** -- at zero the erosion
+    /// pass returns before touching a column. That *was* the default for
+    /// every preset (`Reports/worldgen-erosion-design.md`'s "Status,
+    /// 2026-08"), kept there deliberately while the mechanism was tuned by
+    /// eye at explicit ages against the sweep baselines. Round-4 task 4
+    /// flips it on: `rolling` (and so `WorldgenParams::default`, which
+    /// `rolling` is asserted equal to) ships `0.8`, and the 16-seed sweep
+    /// was re-baselined in the same task to match. `flat` -- the structural
+    /// test bed -- stays `0.0` explicitly in `assets/worldgen.ron`, since it
+    /// must not inherit whatever `rolling`'s age becomes.
+    pub world_age: f32,
 
     // ---- life ----
     /// Per-column moss probability scale. Zero disables plant scatter.
@@ -165,7 +297,10 @@ impl Default for WorldgenParams {
             warp_wavelength: 130.0,
             terrace_step: 26.0,
             terrace_strength: 0.9,
+            riser_roughness: 0.45,
             mask_wavelength: 150.0,
+            terrace_slope_lo: 0.6,
+            terrace_slope_hi: 2.0,
             soil_depth: 26.0,
             soil_slope_cutoff: 0.8,
             bedrock_band: 4.0,
@@ -183,8 +318,15 @@ impl Default for WorldgenParams {
             aridity: 0.35,
             dune_amplitude: 14.0,
             dune_wavelength: 46.0,
+            dune_variation: 0.7,
             aridity_table_drop: 90.0,
             region_variation: 0.75,
+            palette_field: 0.30,
+            residual_density: 1.4,
+            vault_density: 1.6,
+            vault_min_depth: 200,
+            vault_bedrock_margin: 16,
+            world_age: 0.8,
             moss_density: 0.10,
             tree_density: 0.26,
             life_cluster_wavelength: 70.0,

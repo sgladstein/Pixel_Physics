@@ -17,10 +17,36 @@
     // universal, and material::SOIL_SATURATED for the scale (0 means dry,
     // the opposite of a Liquid's fill).
     water_capacity: 1000,
+    // Three families of four tones, `family * 4 + tone`, keyed by the
+    // region's aridity at genesis (`worldgen::passes::palette_family`).
+    // Family 0 is exactly what this file shipped before families existed and
+    // is where every *random* shade pick stays -- see `base_colors`, and see
+    // `stone.ron` for the full reasoning.
+    //
+    // `passes::soil_shade` walks the tones as 2 -> 0 -> 1 -> 3, dark organic
+    // topsoil down to paler mineral subsoil, and each family keeps that same
+    // internal order so the profile reads the same wherever it is.
+    //
+    //   0  the reference loam
+    //   1  wet -- darker and richer, the wetland/basin soil
+    //   2  dry -- paler and dustier, kept well short of sand so a dry
+    //      hillside still reads as soil and not as a sand sheet
     colors: [
+        // 0: reference loam
         (64, 46, 34),
         (74, 54, 40),
         (56, 40, 30),
         (82, 60, 44),
+        // 1: wet, dark and rich
+        (52, 36, 24),
+        (60, 43, 29),
+        (44, 30, 20),
+        (68, 49, 33),
+        // 2: dry, pale and dusty
+        (96, 80, 62),
+        (108, 91, 71),
+        (84, 70, 54),
+        (118, 100, 78),
     ],
+    base_colors: 4,
 )

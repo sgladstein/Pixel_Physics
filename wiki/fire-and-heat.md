@@ -1,6 +1,6 @@
 # Fire & Heat
 
-*Current as of: this build (boiling costs the heat it takes; a quench
+*Current as of: 2026-08-22 (boiling costs the heat it takes; a quench
 crust breaks up into slabs rather than grit; warm water shows bubbles, in
 small or large, and its surface spits).*
 
@@ -10,6 +10,15 @@ depends on the material — oil catches almost as often as a coin flip,
 while deadwood and a corpse catch less readily. Wet material resists
 catching fire strongly; soak something enough and a nearby flame mostly
 stops being able to ignite it.
+
+The living world is where fire really lives, and it has a clear ladder.
+**Leaves catch easiest of anything in the world** — a canopy is tinder,
+and a forest fire is mostly a leaf fire spreading — followed by the small
+living things: ants, worms and seeds catch about as readily as oil,
+beetles and moss a little less. **Living wood is reluctant** — a healthy
+trunk resists what its own canopy cannot — and the rootwood below ground
+barely catches at all, which is why a burned forest keeps its roots.
+Creatures that catch fire burn like anything else and die into a corpse.
 
 Once something is burning, it glows visibly with heat for as long as its
 burn lasts, then goes out and leaves behind a real, burnt residue — ash —
@@ -24,6 +33,11 @@ they never catch, never melt, and never transform from heat alone. Ash
 itself won't reburn. Stone doesn't burn or melt either, but it does now
 carry heat: put something hot against a rock face and the warmth spreads
 into it and then away, rather than stopping dead at the surface.
+
+Snow and ice do melt, but from ordinary warmth rather than from fire: snow
+thaws to meltwater just above freezing, and a frozen pond's crust gives way
+over the following seconds once the cold spell lifts — see
+[Weather](weather.md).
 
 Water is the exception, as of the water-cycle work: heat it enough and it
 boils. A pool with a burning slick floating on it churns at the surface

@@ -1,11 +1,18 @@
 # Liquids & Gases
 
-*Current as of: this build (steam joins the weather; rock sinks in water;
+*Current as of: 2026-08-22 (steam joins the weather; rock sinks in water;
 a boulder entering a pool throws a crown; smoke and steam are see-through).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
+
+**Moving water runs white.** Water in motion — falling, pouring, spreading,
+splashing — draws pale and foamy, and goes back to its deep still colour
+the moment it comes to rest. So a fall reads as a bright ribbon into a
+dark pool, a draining basin churns pale at the outlet, and you can tell at
+a glance which part of a body of water is doing something and which part
+is simply sitting there.
 
 Drop something heavy into a pool and it **splashes**: a handful of loose
 sand or gravel arriving at open water throws droplets up and outward, which
@@ -82,8 +89,19 @@ is that a pond boiled hard in the open **visibly drops**, and only fills
 back up when weather brings it back.
 
 **Ice** is water's other phase, and it comes from the other direction:
-weather, not heat. A hard snowfall freezes standing water into a floating
-crust that carries snow and bears weight, and the crust turns back into
-water within seconds of the front passing — see
+weather, not heat. A cold enough night freezes standing water into a
+floating crust that carries snow and bears weight, thickening downward
+over a minute or two while the water underneath stays water; it holds as
+long as the cold does, and gives way over the following seconds once the
+spell lifts — see
 [Weather](weather.md#cold-snaps-freeze-standing-water). It is the only
 solid in the world that floats, and the only one that will not last a day.
+
+**Smoke** is the world's other gas, alongside steam. Unlike a liquid or
+a powder, it rises rather than falls, drifting upward through open space
+and pooling against a ceiling once it hits one, spreading out as it goes
+rather than staying in a tight column. It can be placed like any other
+material, and the world produces it on its own too: an explosion
+backfills part of its crater with smoke, so a blast site hazes and
+drifts for a while rather than sitting clean — see
+[Explosions](explosions.md).

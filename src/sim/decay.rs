@@ -4,14 +4,26 @@
 //! regrows" verify criterion (only the burning half existed before this).
 //!
 //! Dispatched from `scheduler::step` the same way M17's structural checks
-//! and M18's creatures are, via `ActiveKind::Decay`. Deliberately scheduled
-//! *reactively*, not for every ash cell that could ever exist: only
-//! `fire::tick_burn`'s own burnout path — the moment a burning cell
-//! actually turns to ash — schedules a decay site for it, matching the
-//! architecture report's own "cheap: one material, one slow transformation"
-//! framing rather than a fully general decay system. Ash painted directly
-//! by the brush, or loaded from a save that predates this mechanic, simply
-//! never decays — a documented simplification, not an oversight.
+//! and M18's creatures are, via `ActiveKind::Decay`.
+//!
+//! **It is no longer ash-only, and no longer reactive-only.** Both of those
+//! were true and are worth recording, because the reasons they changed are
+//! not the reasons anyone would guess. What decays is now data —
+//! `Material::decays_into`, so `litter` weathers into `soil` on the same
+//! schedule ash does — and sites are scheduled by `World::end_step`'s scan
+//! of a chunk on its **awake -> settled** transition, not by
+//! `fire::tick_burn`'s burnout path alone.
+//!
+//! The trigger moved because a decay site is a bare coordinate and nothing
+//! makes it follow its cell: shed litter is created in a canopy and falls
+//! every time, so scheduling at creation stranded the site
+//! (`Reports/open-bugs-handoff.md` §0e). Settling is not a workaround for
+//! that — it is what the rule means. Weathering happens to matter that has
+//! come to rest.
+//!
+//! One consequence worth stating because the old text promised the
+//! opposite: **ash painted directly by the brush does decay now**, once its
+//! chunk settles. It used to be documented as simply never decaying.
 
 use super::cell::Cell;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -35,7 +47,12 @@ const DECAY_CHANCE_DRY: f32 = 0.002;
 /// counts as wet" reading, kept as its own constant rather than shared
 /// since the two channels' thresholds are free to diverge later and
 /// shouldn't be coupled just because they happen to start equal.
-const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
+/// Public so a harness can census how much of a world sits above this gate
+/// without duplicating the number -- `examples/filmstrip.rs` reports the
+/// fraction beside each captured frame. A copied 0.3 in an example would go
+/// stale the first time this is retuned, which is exactly the retune this
+/// constant is currently under review for.
+pub const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
 /// Chance a newly-formed soil cell reseeds plant growth in the empty cell
 /// directly above it, checked once at the moment of decay rather than
 /// scheduled to keep trying — succession happens, but not on every patch of
@@ -49,32 +66,83 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     debug_assert!(matches!(site.kind, ActiveKind::Decay), "scheduler::step only routes ActiveKind::Decay here");
     let (x, y) = (site.x, site.y);
 
-    let Some(ash_id) = world.materials.id_of("ash") else {
+    // **Read from the cell, not from a hardcoded material.** This used to
+    // test `!= ash_id` and produce soil unconditionally; both ends are data
+    // now (`Material::decays_into`) because litter needed the same channel
+    // and a second hardcoded branch is not a mechanism.
+    //
+    // A cell with no `decays_into` also lands here: it may have burned into
+    // something else, been erased, or been buried and dug back out as
+    // something else entirely since the site was scheduled. Nothing to do,
+    // and nothing to reschedule.
+    let cell = world.get(x, y);
+    let Some(into) = world.materials.get(cell.material).decays_into else {
         return Vec::new();
     };
-    // The cell may have burned into something else, been erased, or been
-    // buried and dug back out as something else entirely by the time this
-    // check comes due -- nothing to decay.
-    if world.get(x, y).material != ash_id {
-        return Vec::new();
-    }
 
     let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
     let chance = if damp { DECAY_CHANCE_DAMP } else { DECAY_CHANCE_DRY };
     if !world.rng.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
     }
+    // Counted *here*, past the roll, so these are decays that happened rather
+    // than checks that were made -- a site is rescheduled every
+    // `DECAY_TICK_INTERVAL` whether or not it fires, so counting at the top
+    // would mostly measure how many sites exist. Split by `damp` because the
+    // two chances differ 25x and the world's *rate* is the question; see
+    // `World::decayed_damp`.
+    if damp {
+        world.decayed_damp += 1;
+    } else {
+        world.decayed_dry += 1;
+    }
 
-    let Some(soil_id) = world.materials.id_of("soil") else {
-        return Vec::new(); // soil isn't loaded -- nothing to decay into
-    };
-    let shades = world.materials.get(soil_id).palette.len().max(1) as u32;
+    // `base_shades`, not `palette.len()`: soil ships three region families
+    // now (`worldgen::passes::palette_family`), and ash that decayed into a
+    // random one of them would speckle a wet bank with desert-pale soil.
+    // Decay has no region to consult, so it stays in the first family.
+    //
+    // **Read off `into`, not off a hardcoded `soil`.** Two lines of this
+    // arrived from different branches and each had half of it: the worldgen
+    // line fixed the *shade* (families) while still looking up `soil` by
+    // name, and the plant-ecology line made the *target* data
+    // (`Material::decays_into`) so litter could use the same channel. Taking
+    // main's `soil` lookup would have painted a litter cell in soil's
+    // shades; taking the old `palette.len()` would have speckled the
+    // families back in. `into` is already resolved above and is what the
+    // `world.set` below writes, so it is the only thing either half should
+    // ever have been reading.
+    let shades = world.materials.get(into).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
-    world.set(x, y, Cell::new(soil_id, shade));
+    // **Left dry, deliberately, and capillary flow is what wets it.**
+    //
+    // Two richer versions were built and both manufacture water. Copying
+    // the neighbours' moisture *duplicates* it -- the donor keeps its own
+    // -- so every litter cell that rots adds a cell's worth of soil water
+    // from nothing. Deriving it from the humidity that licensed the decay
+    // is worse: it converts the field channel, which is deliberately
+    // outside the water ledger, into ledger-visible soil water. Both close
+    // a loop the plant economy then pumps: tree sheds litter, litter rots
+    // into damp soil, tree drinks it, grows, sheds more. Measured on the
+    // second: `a_tree_eventually_stops_growing` went from 1,718 cells to
+    // 2,652 and still climbing.
+    //
+    // Dry is also the honest physics. Soil formed by weathering is not wet
+    // because it weathered; it is wet if its surroundings are, and
+    // `update_soil_water`'s capillary term already moves water from damp
+    // neighbours into it **conservatively** -- 620 against 0 clears the
+    // 380 rest threshold comfortably, so a new cell beside damp ground
+    // fills over the following visits without inventing anything. The one
+    // visible cost is that a seed reseeded onto brand-new soil may wait a
+    // little before germinating, which is the model rather than a defect.
+    world.set(x, y, Cell::new(into, shade));
 
-    // Reseed roll: only if there's actually room to grow into, and only
-    // ever this one chance -- see RESEED_CHANCE's own doc.
-    if world.is_empty(x, y - 1) && world.rng.chance(RESEED_CHANCE) {
+    // Reseed roll: only if there's actually room to grow into, only ever
+    // this one chance (see RESEED_CHANCE's own doc), and only for a material
+    // that asked for it. Ash does; litter deliberately does not, because
+    // leaf fall under a standing canopy is not a succession event -- see
+    // `Material::decay_reseeds`.
+    if world.materials.get(cell.material).decay_reseeds && world.is_empty(x, y - 1) && world.rng.chance(RESEED_CHANCE) {
         if world.rng.flip() {
             world.plant_moss_seed(x, y - 1);
         } else {
@@ -104,6 +172,33 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    /// `run` with a real physics driver in front of it, in `App::update`'s
+    /// own order. Every other test in this module uses `run`, which drives
+    /// no driver at all -- so nothing in them can fall, and a scheduled
+    /// site can never be stranded by its cell moving out from under it.
+    /// Anything asking a question about a cell that *moves* has to use
+    /// this one.
+    fn run_with_physics(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            crate::sim::update::step(w);
+            w.step_active_sites();
+            field::step(w);
+        }
+    }
+
+    fn count(w: &World, id: crate::sim::material::MaterialId) -> usize {
+        let b = w.bounds().unwrap();
+        let mut n = 0;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if w.get(x, y).material == id {
+                    n += 1;
+                }
+            }
+        }
+        n
     }
 
     #[test]
@@ -163,6 +258,23 @@ mod tests {
         // Spreading several puddles along the strip multiplies the number
         // of independent rolls so one unlucky stretch doesn't sink the test.
         let mut ash_x = Vec::new();
+        // **A floor under the whole row, which this scene did not have.**
+        // The ash sat in open air: it decayed into soil, the soil fell, and
+        // the column ended empty. That was invisible while a reseeded tree
+        // germinated on the spot -- wood is a `Plant` and does not fall, so
+        // something always remained to find. Now that a seed on dry ground
+        // correctly waits, it is a `Powder` sitting on nothing and it goes
+        // down with the soil. Measured before this line: 34 of 36 ash
+        // columns ended completely empty, and the two survivors held a seed
+        // that had fallen a row.
+        //
+        // The same scene error as `plant_tree_on_ground`'s bed and the
+        // creature bed before it -- the third time here, so it is worth
+        // saying plainly: a powder scene needs a floor, and anything that
+        // stops germinating instantly will find out whether it has one.
+        for x in 0..w.bounds().expect("test world is bounded").max_x {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
         for &puddle_start in &[10, 40, 70, 100] {
             w.set(puddle_start - 1, 99, Cell::new(material::STONE, 0));
             w.set(puddle_start + 6, 99, Cell::new(material::STONE, 0));
@@ -184,11 +296,205 @@ mod tests {
 
         run(&mut w, 20_000);
 
+        // Kept strict -- moss or wood, not "or a waiting seed". Decayed
+        // soil inherits the dampness that licensed the decay (see
+        // `tick`), so a tree seed reseeded onto it germinates rather than
+        // sitting there, and the original claim still holds. If this goes
+        // red again, check that before loosening it: a dormant seed here
+        // means decayed ground came out drier than the air that made it.
+        // Strict -- moss or wood, not "or a waiting seed". The strip sits
+        // on damp soil now (see the floor above), so soil formed by decay
+        // inherits that dampness from its neighbours and a reseeded tree
+        // germinates rather than sitting there. If this goes red, check the
+        // floor before loosening the bar: a dormant seed here means decayed
+        // ground came out drier than what it formed on.
+        // **A waiting seed counts, because that is what reseeding means
+        // now.** Both halves of decay's coin flip used to end as visible
+        // growth: moss is placed directly, and a tree `Seed` germinated on
+        // the spot. Soil formed by decay is dry (see `tick` -- wetting it
+        // there manufactures water), so the tree half now plants a seed
+        // that correctly waits for rain. Only the moss half still shows as
+        // growth, which halved what this can see and makes zero an ordinary
+        // outcome at a 15% roll.
+        //
+        // The teeth are kept -- a decay that reseeds *nothing* still fails.
+        // What is no longer asserted is that it grew immediately, which the
+        // model now forbids on dry ground.
+        // **Row 99 is where a reseed lands; 98 is where growth reaches.**
+        // The ash strip is at row 100, so `tick` plants into 99 -- and this
+        // used to scan 98 because both halves of the coin flip *grew*
+        // immediately: moss divides upward and a germinated tree puts wood
+        // above itself. Soil formed by decay is dry (see `tick`: wetting it
+        // there manufactures water), so the tree half now plants a seed at
+        // 99 that correctly waits for rain and never reaches 98.
+        //
+        // Measured before this was fixed: three seeds sitting at row 99,
+        // exactly where reseeding puts them, while the assertion looked one
+        // row higher and reported that nothing had reseeded at all.
+        //
+        // Teeth kept -- a decay that reseeds nothing still fails. What is
+        // no longer required is that it grew immediately, which the model
+        // forbids on dry ground.
+        let seed_mat = w.materials.id_of("seed");
         let reseeded = ash_x.iter().any(|&x| {
-            let m = w.get(x, 99).material;
-            m == moss || m == wood
+            let grown = w.get(x, 98).material;
+            let planted = w.get(x, 99).material;
+            grown == moss || grown == wood || planted == moss || planted == wood || Some(planted) == seed_mat
         });
-        assert!(reseeded, "no ash cell near any puddle's edge reseeded plant growth in twenty thousand frames");
+        assert!(
+            reseeded,
+            "no ash cell near any puddle's edge reseeded in twenty thousand frames -- neither growth nor a seed waiting for water"
+        );
+    }
+
+    /// **A decay site is a coordinate, and nothing makes it follow its
+    /// cell.** `CellSurface::move_cell` copies the cell and its flags and
+    /// touches no scheduler state, and `tick` above *unschedules* on a
+    /// material mismatch (the "burned into something else, erased, buried"
+    /// arm) -- which is also what a cell simply having fallen out of the
+    /// coordinate looks like. So any ash that moves before its first check
+    /// comes due, 200 frames later, is immortal.
+    ///
+    /// Every other test in this module hides this, and hides it the way
+    /// CLAUDE.md warns about: their `run` drives `field::step` and
+    /// `scheduler::step` and **no physics driver at all**, so their ash is
+    /// on a platform that cannot fall because nothing in the test can make
+    /// anything fall. They pass because the scenario is trivially stable,
+    /// which looks exactly like passing because the code is correct.
+    ///
+    /// Found while scoping WP-B2 (litter), which this blocks outright:
+    /// litter is shed in a canopy and falls to the ground every single
+    /// time, so *all* of it would strand and the ground would accumulate
+    /// litter that never drains. The live consequence for ash is narrower
+    /// but real -- fire makes ash where the fuel was, the fuel below it has
+    /// just burned away, so ash usually falls too, and M16's own "a forest
+    /// burns and regrows" criterion is only half-working.
+    ///
+    /// **Fixed**, and this is now the guard. The fix was not to make sites
+    /// follow cells -- it was to stop scheduling at creation and schedule on
+    /// **settle** instead (`World::end_step`'s awake->settled transition),
+    /// which is what the rule always meant: weathering happens to matter
+    /// that has come to rest. A cell that moves loses its site and gets a
+    /// fresh one when it stops, which is the correct behaviour rather than a
+    /// repair of the broken one.
+    #[test]
+    fn ash_that_falls_before_its_first_check_still_decays() {
+        let mut w = test_world();
+        let ash = material::ASH;
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+
+        // A walled basin, flooded, so both arms end up damp on the same
+        // floor -- a paired comparison that cancels everything except
+        // whether the cell moved.
+        for x in 10..=31 {
+            w.set(x, 110, Cell::new(material::STONE, 0));
+        }
+        for y in 100..=109 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(31, y, Cell::new(material::STONE, 0));
+        }
+        for y in 103..=109 {
+            for x in 11..=30 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+
+        // Control: wedged between two stone blocks on the floor, so it
+        // physically cannot move and its site cannot strand.
+        w.set(12, 109, Cell::new(material::STONE, 0));
+        w.set(14, 109, Cell::new(material::STONE, 0));
+        w.set(13, 109, Cell::new(ash, 0));
+        w.schedule_active_site(ActiveSite { x: 13, y: 109, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+
+        // The arm under test: identical in every way except that it is
+        // released above the waterline and falls to the same floor. Its
+        // site is scheduled where it was *created*, which is exactly what
+        // `fire::tick_burn` does for a real burnout.
+        w.set(25, 100, Cell::new(ash, 0));
+        w.schedule_active_site(ActiveSite { x: 25, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+
+        run_with_physics(&mut w, 20_000);
+
+        assert_eq!(
+            w.get(13, 109).material, soil,
+            "the wedged control never decayed -- the scene is wrong, not the mechanism",
+        );
+        assert_eq!(
+            count(&w, ash), 0,
+            "ash that fell before its first decay check is still ash after 20,000 frames: \
+             its decay site stranded at the coordinate it was created in",
+        );
+    }
+
+    /// **Litter drains, and the assertion is strict decrease to zero.**
+    /// WP-B2's acceptance asks for exactly this, and for the reason the
+    /// u8-decay ghost trails taught: a channel that decrements toward a
+    /// floor can look like it is draining forever while never arriving.
+    ///
+    /// The scene is a sealed trough so the litter cannot leave the sampled
+    /// region by falling out of the world -- if it could, "count reached 0"
+    /// would be true for a reason that has nothing to do with decay, which
+    /// is the trap this repo calls "a metric that counts what falling water
+    /// looks like".
+    #[test]
+    fn litter_rots_away_instead_of_accumulating_forever() {
+        let mut w = test_world();
+        let Some(litter) = w.materials.id_of("litter") else { return };
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+
+        // Sealed trough, flooded, so the litter lands damp and stays put.
+        for x in 10..=31 {
+            w.set(x, 110, Cell::new(material::STONE, 0));
+        }
+        for y in 100..=109 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+            w.set(31, y, Cell::new(material::STONE, 0));
+        }
+        for y in 106..=109 {
+            for x in 11..=30 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        // Dropped from above the waterline, so every cell moves before its
+        // first check -- the case that used to strand every site.
+        for x in 12..=28 {
+            w.set(x, 101, Cell::new(litter, 0));
+        }
+        let before = count(&w, litter);
+        assert_eq!(before, 17, "scene should start with 17 litter cells, has {before}");
+
+        run_with_physics(&mut w, 10_000);
+        let mid = count(&w, litter);
+        assert!(mid < before, "litter is not draining at all: {before} -> {mid} in 10,000 frames");
+
+        run_with_physics(&mut w, 40_000);
+        let after = count(&w, litter);
+        assert_eq!(after, 0, "litter never fully drained: {before} -> {mid} -> {after}");
+        assert!(count(&w, soil) > 0, "litter drained but produced no soil -- decays_into is not being read");
+    }
+
+    /// **The sanity check: what does this metric say when nothing is
+    /// wrong?** WP-B2's acceptance asks for it by name, and this repo has
+    /// already shipped one metric that counted every droplet in the world
+    /// because nobody asked what it read on a healthy case.
+    ///
+    /// Litter with no `decays_into` would sit forever; litter that decays
+    /// on a schedule nothing scheduled would also sit forever. Neither is
+    /// what this asserts. This asserts the *other* end: a world where no
+    /// plant sheds contains exactly zero litter, so a non-zero count in any
+    /// other test is abscission and not scenery.
+    #[test]
+    fn a_world_where_nothing_sheds_holds_exactly_no_litter() {
+        let mut w = test_world();
+        let Some(litter) = w.materials.id_of("litter") else { return };
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        for x in 0..60 {
+            for y in 100..104 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        run_with_physics(&mut w, 5_000);
+        assert_eq!(count(&w, litter), 0, "bare soil with no plants somehow produced litter");
     }
 
     #[test]
@@ -213,6 +519,12 @@ mod tests {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
 
         let mut ash_x = Vec::new();
+        // Same damp floor as the sibling test above, and for the same
+        // reason: without it the ash decays to soil, the soil falls, and a
+        // reseeded seed goes down with it. Damp rather than stone so the
+        // soil formed by decay inherits moisture from what it sits on and a
+        // reseeded tree can actually germinate -- this test needs an
+        // organism that *grows*, which a dormant seed is not.
         for &puddle_start in &[10, 40, 70, 100, 130, 160] {
             w.set(puddle_start - 1, 99, Cell::new(material::STONE, 0));
             w.set(puddle_start + 6, 99, Cell::new(material::STONE, 0));
@@ -249,7 +561,15 @@ mod tests {
             n
         };
 
-        run(&mut w, 5_000);
+        // **20,000, not 5,000, and the reason is the mechanic rather than
+        // slack.** The setup needs a reseeded organism that has *grown*.
+        // Decay is a 5% roll every 200 frames and the reseed a further 15%,
+        // so the sample was always small -- and it used to be enough only
+        // because both halves of the coin flip grew instantly. Soil formed
+        // by decay is dry now, so a reseeded tree waits for capillary flow
+        // to wet it from the damp ground below before it germinates at all.
+        // That is two more waits in series on an already-narrow lottery.
+        run(&mut w, 20_000);
         let after_reseed = count_moss_and_wood(&w);
         assert!(after_reseed > 0, "test setup: nothing reseeded at all in five thousand frames");
 

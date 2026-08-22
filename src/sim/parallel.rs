@@ -102,6 +102,9 @@ pub fn step(world: &mut World) {
     // anything notices it. Both drivers, deliberately: `CLAUDE.md`'s "two
     // drivers, and the app runs the parallel one".
     super::weather::step(world);
+    // Springs beside weather, same reasoning, both drivers. Serial, before
+    // the checkerboard passes — the write-safety proof is not in play.
+    super::spring::step(world);
     let rightward = world.frame.is_multiple_of(2);
 
     // Snapshotted once, up front — see the module doc's note on why this

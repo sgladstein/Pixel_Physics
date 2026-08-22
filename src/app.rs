@@ -61,9 +61,22 @@ const INITIAL_SEED: u64 = 0x5EED;
 /// edited while the app was running — neither is worth failing over when
 /// there is a working world one branch away.
 fn build_world_with(world: &mut World, presets: &WorldgenPresets, preset: &str, seed: u64) {
+    build_world_reporting(world, presets, preset, seed, &mut |_, _| {});
+}
+
+/// [`build_world_with`], announcing each generation stage as it starts.
+fn build_world_reporting(
+    world: &mut World,
+    presets: &WorldgenPresets,
+    preset: &str,
+    seed: u64,
+    progress: worldgen::Progress,
+) {
     match presets.get(preset) {
-        Some(params) => worldgen::generate(world, worldgen::Spec::Generated { params, seed }),
-        None => worldgen::generate(world, worldgen::Spec::Legacy),
+        Some(params) => {
+            worldgen::generate_reporting(world, worldgen::Spec::Generated { params, seed }, progress)
+        }
+        None => worldgen::generate_reporting(world, worldgen::Spec::Legacy, progress),
     }
 }
 
@@ -176,9 +189,17 @@ pub struct App {
     /// rule is the failure mode of the whole genre; a mode can be named in
     /// the brush label and announced when it changes.
     pub tool: Tool,
-    /// Where a drag-out gesture started, in screen space, while the button
-    /// is still held. `None` for the freehand brush, which paints as it
-    /// goes rather than on release.
+    /// Where a drag-out gesture started, as a **world** cell, while the
+    /// button is still held. `None` for the freehand brush, which paints as
+    /// it goes rather than on release.
+    ///
+    /// This said "in screen space" long after `begin_drag` had been changed
+    /// to store a world cell, and the stale line is very probably why
+    /// `draw_hud` drew the preview rectangle from a world coordinate against
+    /// a screen one. World space is the deliberate choice, for the reason
+    /// `begin_drag` gives: a drag held across a camera move would otherwise
+    /// re-anchor to a different cell than the one under the cursor when the
+    /// button went down.
     pub drag_from: Option<(i32, i32)>,
     /// `N` — the stress overlay. Off by default: it repaints the world
     /// every frame it is up, which is the cost the dirty-rect skip exists
@@ -297,7 +318,32 @@ fn dirty_asset_count() -> Option<usize> {
 }
 
 impl App {
+    /// A fully built world, generated on this thread.
     pub fn new() -> Self {
+        Self::build(true, &mut |_, _| {})
+    }
+
+    /// A fully built world, announcing each generation stage as it starts —
+    /// what the loading screen in `main.rs` runs on a worker thread.
+    pub fn new_reporting(progress: worldgen::Progress) -> Self {
+        Self::build(true, progress)
+    }
+
+    /// Everything except the world, which is left empty.
+    ///
+    /// The placeholder the window has something to hold while the real one is
+    /// generated elsewhere. Cheap — the expensive half of startup is
+    /// generation and the structural distance field, and this does neither.
+    /// Deliberately a whole `App` rather than an `Option<App>` in the
+    /// handler: the frame loop touches `self.app` in 85 places, and making
+    /// every one of them fallible to express a state that lasts a few
+    /// seconds at startup would be the tail wagging the dog. The real one
+    /// replaces this wholesale when the worker finishes.
+    pub fn new_pending() -> Self {
+        Self::build(false, &mut |_, _| {})
+    }
+
+    fn build(generate: bool, progress: worldgen::Progress) -> Self {
         let mut world = World::new(Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1));
 
         // Load over the compiled-in set, so edits made before launch apply and
@@ -323,7 +369,9 @@ impl App {
         }
         let worldgen_preset = worldgen_presets.default_name();
         let worldgen_seed = INITIAL_SEED;
-        build_world_with(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed);
+        if generate {
+            build_world_reporting(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed, progress);
+        }
 
         let paintable = world.materials.paintable();
         // Start on sand: the material that most obviously shows whether the
@@ -446,6 +494,13 @@ impl App {
     /// fields it owns, and says so: the two are the coarse and fine
     /// halves of the same job, and silently keeping a hand-swept value
     /// while announcing a preset name would make the label a lie.
+    /// Cycle whether the gnome weaves through a stand of trees or draws
+    /// over it. `,`.
+    pub fn cycle_tree_depth(&mut self) {
+        let mode = self.renderer.cycle_tree_depth();
+        self.show_toast(format!("TREE DEPTH: {}", mode.label()));
+    }
+
     pub fn cycle_movement_feel(&mut self) {
         self.movement_feel = (self.movement_feel + 1) % player::MOVEMENT_FEELS.len();
         let feel = &player::MOVEMENT_FEELS[self.movement_feel];
@@ -665,7 +720,10 @@ impl App {
     }
 
     /// Put `text` on screen for `TOAST_FRAMES`. See `App::toast`.
-    fn show_toast(&mut self, text: impl Into<String>) {
+    /// `pub` because the binary is a separate crate from the library, and
+    /// `main.rs`'s loading screen reports how long generation took through
+    /// the same channel every other transient notice uses.
+    pub fn show_toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), self.world.frame + TOAST_FRAMES));
     }
 
@@ -1024,6 +1082,10 @@ impl App {
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
+        /// The shake ring. Green rather than a second yellow, because the
+        /// point is that two verbs live on one button and you can tell
+        /// which you are about to use before you press it.
+        const GREEN: [u8; 4] = [130, 240, 140, 255];
 
         // Brush label -- always on, bottom-left, the data `status()` above
         // already computes just shown persistently instead of only in the
@@ -1043,6 +1105,24 @@ impl App {
             Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
             Tool::Dig => "GNOME DIG - LMB CUT, RMB ERASE, Z FOR THE BRUSH".to_string(),
         };
+        // With no gnome, `WASD` scrolls (`pan_camera`) and the view is a
+        // thing you move — so say where it is. Two jobs in one readout:
+        // the cue that the view moves at all, and the *number*, which is
+        // what makes a sighting nameable ("at VIEW 1600,400 there is a
+        // seam") instead of "somewhere off to the right".
+        //
+        // Safe to draw as changing text for free, which is not obvious:
+        // HUD text has no tracked footprint, so a readout that changes
+        // needs the terrain under it repainted or the old digits stay
+        // burned in over a settled world. The only thing that changes this
+        // one is a pan, and a pan moves the camera, which forces the full
+        // redraw that erases it (`Renderer::draw`'s `camera_moved`). It
+        // costs nothing on a settled world for the same reason: nothing
+        // moves it, so it never needs erasing.
+        let label = match &self.world.player {
+            Some(_) => label,
+            None => format!("{label}   VIEW {},{}", self.renderer.camera_x, self.renderer.camera_y),
+        };
         hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
         // Directly above the persistent brush label, so a mode change reads
         // as a line about the brush rather than as an unrelated notice
@@ -1059,7 +1139,17 @@ impl App {
 
         // The shape being dragged out, so the player can see what they are
         // about to commit before they release.
-        if let (Some(from), Some(to)) = (self.drag_from, cursor) {
+        // `drag_from` is a **world** cell (see `begin_drag`) and `cursor` is a
+        // screen pixel, so the anchor has to come back through the camera
+        // before the two can be compared. Wrong ever since the camera existed,
+        // and invisible until now: with no gnome the camera sat at the origin
+        // at zoom 1, where the two spaces are the same numbers and this drew
+        // in the right place for the wrong reason. Scrolling with no gnome is
+        // what makes it reachable, which is why it surfaced here. `None` at
+        // `zoom_out_stride > 1` means the anchor falls between sampled columns
+        // and simply has no pixel this frame.
+        let anchor = self.drag_from.and_then(|w| self.renderer.world_to_screen(w.0, w.1));
+        if let (Some(from), Some(to)) = (anchor, cursor) {
             match self.tool {
                 Tool::Rect | Tool::Room => {
                     let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
@@ -1103,11 +1193,22 @@ impl App {
             // `player::bite_point`, the same function `dig` aims with, so
             // the marker cannot drift from the cut. Sized to
             // `dig_radius`, so the ring also says how big a bite is.
+            // Two verbs on one button, so the ring has to say which. A cut
+            // is a yellow disc the size of the bite; a shake is a green
+            // ring at the plant, sized to nothing in particular because
+            // what it shakes is the plant, not a radius.
+            let mut shaking = false;
             let dig_marker = match (self.tool, &self.world.player) {
                 (Tool::Dig, Some(p)) => {
                     let aim = self.renderer.screen_to_world(sx, sy);
-                    let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
-                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, self.player_tuning.dig_radius as i32))
+                    let (at, radius) = match player::shake_target(&self.world, p, aim, &self.player_tuning) {
+                        Some(at) => {
+                            shaking = true;
+                            (at, 3)
+                        }
+                        None => (player::bite_point(&self.world, p, aim, &self.player_tuning), self.player_tuning.dig_radius as i32),
+                    };
+                    self.renderer.world_to_screen(at.0, at.1).map(|s| (s, radius))
                 }
                 _ => None,
             };
@@ -1121,7 +1222,11 @@ impl App {
             } else {
                 (radius / self.renderer.zoom_out_stride.max(1)).max(1)
             };
-            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
+            let ring = match (dig_marker.is_some(), shaking) {
+                (_, true) => GREEN,
+                (true, false) => YELLOW,
+                (false, false) => WHITE,
+            };
             render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
 
             if self.show_hover_inspector {
@@ -1462,16 +1567,21 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 25] {
+    fn help_lines() -> [&'static str; 32] {
         [
             "LEFT CLICK PAINT    RIGHT CLICK ERASE",
             "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
             "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
+            "F6 NEW WORLD    F7 NEXT PRESET    F8 PREVIOUS SEED",
             "",
             "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
+            "  WITH NO GNOME: A D W S SCROLL THE MAP INSTEAD",
             "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
             "  IN WATER: W STROKE UP    S SWIM DOWN",
+            "  IN A TREE: HOLD SHIFT TO HOLD ON, THEN W UP / S DOWN",
+            "  LMB ON A TREE (GREEN RING) SHAKES IT INSTEAD OF CUTTING",
             "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
+            ", TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
             "C STRIKE ROCK    H DIG (PRECISE CUT)",
             "F IGNITE    P BURST    X EXPLODE",
             "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
@@ -1482,6 +1592,8 @@ impl App {
             "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
             "F1 CHUNK OVERLAY    G WATER GRAIN",
             "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
+            "; DEPTH LIGHT ON/OFF    0 REVEAL CAVES  (ALSO F10/F11)",
+            "' GLOW SHAPE: NEAR/FIELD",
             "",
             "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
             "             ENTER PIN AND CLOSE, S SAVE)",
@@ -1600,7 +1712,26 @@ impl App {
         // reason that function's own comment gives: one gate on the
         // operation, three call sites.
         if !erase && self.tool == Tool::Dig && self.world.player.is_some() {
-            player::dig(&mut self.world, to, &self.player_tuning);
+            // One button, and what it does is decided by what he is
+            // pointing at: rock is cut, a living plant is shaken. Same
+            // reasoning as the tool gate itself -- adding a second key for
+            // the second verb, on a keyboard with nothing left on it,
+            // would make the verb invisible in exactly the way proximity
+            // gating did. The ring says which one you will get before you
+            // click.
+            let shake_at = self
+                .world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(&self.world, p, to, &self.player_tuning));
+            match shake_at {
+                Some(at) => {
+                    player::shake(&mut self.world, at, &self.player_tuning);
+                }
+                None => {
+                    player::dig(&mut self.world, to, &self.player_tuning);
+                }
+            }
             return;
         }
         let m = if erase {
@@ -1619,6 +1750,36 @@ impl App {
     /// after the camera has moved.
     pub fn to_world(&self, screen: (i32, i32)) -> (i32, i32) {
         self.renderer.screen_to_world(screen.0, screen.1)
+    }
+
+    /// Scroll the view — `WASD` with no gnome in the world. `dir` is -1/0/+1
+    /// per axis and `seconds` is real elapsed time; `main.rs` turns held keys
+    /// into both. The world keeps simulating underneath, since scrolling is a
+    /// view change and `Space` is still the way to stop time.
+    ///
+    /// **Both gates live here, not at the call site**, for the reason
+    /// `main.rs`'s `paint_now` already records about its own: a gate on the
+    /// operation cannot be missed by a second caller added later, and a
+    /// gate at one of two call sites will be.
+    ///
+    /// - A gnome owns the camera *and* those four keys while he exists, so
+    ///   this is inert the moment one is summoned and `Renderer::follow`
+    ///   takes the view back. That is the whole reason the feature needs no
+    ///   mode toggle: the two readings of `WASD` are mutually exclusive by
+    ///   construction rather than by a flag somebody has to keep in sync.
+    /// - The tunables panel owns `S` while it is open (it saves), so
+    ///   scrolling stands aside rather than doing both at once.
+    ///
+    /// Returns whether the view was free to move, so the caller can end a
+    /// gesture that is being ignored rather than let its carried sub-cell
+    /// remainder sit behind a closed gate — see `main.rs`'s `pan`.
+    pub fn pan_camera(&mut self, dir: (i32, i32), seconds: f32) -> bool {
+        if self.world.player.is_some() || self.show_tunables {
+            return false;
+        }
+        let bounds = self.world.bounds();
+        self.renderer.pan(dir, seconds, (WIDTH, HEIGHT), bounds);
+        true
     }
 
     /// Force-ignite the brush area at a screen position. See
@@ -1740,6 +1901,13 @@ impl App {
                 self.tool = Tool::Brush;
             }
             self.message = Some("gnome dismissed".into());
+            // A **toast**, not just `message`: dismissing him hands the camera
+            // back, so `WASD` changes meaning underneath you, and that is
+            // exactly the kind of mode change that is invisible unless it is
+            // announced where someone is looking. `message` reaches the window
+            // title bar and the tunables panel footer only — its own doc says
+            // so, and neither is where anyone's eyes are when they press `U`.
+            self.show_toast("GNOME DISMISSED - WASD NOW SCROLLS THE VIEW");
             return;
         }
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
@@ -1785,7 +1953,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -1817,6 +1985,27 @@ impl App {
             } else {
                 format!(" — gas {}", self.renderer.gas.label())
             },
+            // Same rule again for the terrain depth light (`F10`), with the
+            // roles flipped: the depth grade is the default, so the label
+            // appears when someone has switched *back* to the flat look and
+            // needs the screenshot to say so.
+            if self.renderer.terrain_light == render::TerrainLight::default() {
+                String::new()
+            } else {
+                format!(" — light {}", self.renderer.terrain_light.label())
+            },
+            // And the glow shape (`'`), same flipped rule as the depth light:
+            // the near-field term is the default, so the label appears only
+            // when someone has switched back to the 8-cell blocks to compare.
+            if self.renderer.glow_shape == render::GlowShape::default() {
+                String::new()
+            } else {
+                format!(" — glow {}", self.renderer.glow_shape.label())
+            },
+            // The void reveal (`F11`) is a debug X-ray, so a screenshot with
+            // it on must say so — magenta caves in a shared image with no
+            // label would read as a rendering bug.
+            if self.renderer.reveal_voids { " — VOIDS REVEALED" } else { "" },
             // Same rule as grain: silent until someone is actually
             // comparing, then named, because the whole value of a
             // selector is being able to report which one you liked.
@@ -1834,6 +2023,14 @@ impl App {
                 String::new()
             } else {
                 format!(" — spoil {}", player::SPOIL_MODES[self.spoil_mode].name)
+            },
+            // Same rule again: silent at the default, named the moment it
+            // is not, so a screenshot of a stand can be reported as having
+            // been taken in a particular mode.
+            if self.renderer.tree_depth == render::TreeDepth::default() {
+                String::new()
+            } else {
+                format!(" — trees {}", self.renderer.tree_depth.label())
             },
             // Same "only once turned on" rule as spoil: silent at the
             // default, named on screen the moment it is not, because a
@@ -2029,6 +2226,62 @@ mod tests {
         assert_ne!(app.tool, Tool::Dig, "Z must get the player out of the dig tool");
     }
 
+    /// A click on a living plant must reach the *shake*, through the
+    /// function the mouse actually calls.
+    ///
+    /// Written because the shake shipped without it. Every test of that
+    /// verb called `player::shake_target`/`player::shake` directly, which
+    /// is precisely the hole the test above records for the dig — "a test
+    /// called `player::dig` directly and so proved nothing about the path
+    /// a player actually uses" — reproduced one verb later.
+    ///
+    /// The discriminator is **dislodged material**, because it is the one
+    /// effect only a shake has and the only one with no RNG in it. Shed
+    /// leaves are a weighted roll and seed needs a grown tree; a dig
+    /// cannot touch organism cells at all, so "the wood is still there"
+    /// would pass whichever verb fired.
+    #[test]
+    fn a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting() {
+        let mut app = App::new();
+        let stone = id(&app, "stone");
+        let wood = id(&app, "wood");
+        let sand = id(&app, "sand");
+        for y in 40..70 {
+            for x in 0..120 {
+                app.world.set(x, y, Cell::EMPTY);
+            }
+        }
+        for x in 0..120 {
+            app.world.set(x, 70, Cell::new(stone, 0).with_attached(true));
+        }
+        // A living trunk within `shake_reach`, with open air either side of
+        // it so the dislodge has somewhere to drop from.
+        let species = app.world.species.id_of("tree").expect("tree is compiled in");
+        let organism = app.world.push_organism(species);
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        for y in 55..70 {
+            app.world.set(40, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        }
+        // One grain resting on the top of it.
+        app.world.set(40, 54, Cell::new(sand, 0));
+
+        app.summon_player(30, 64);
+        assert_eq!(app.tool, Tool::Dig, "summoning must arrive in the dig tool");
+
+        app.paint_stroke((60, 64), (60, 64), false);
+
+        assert_ne!(
+            app.world.get(40, 54).material,
+            sand,
+            "the grain resting on the trunk should have been shaken off it"
+        );
+        assert_eq!(
+            app.world.get(40, 60).material,
+            wood,
+            "and the trunk itself is not something a click may cut or paint over"
+        );
+    }
+
     /// The help panel is the only place several keys are documented, and
     /// it drifts silently: the line describing the gnome's dig outlived
     /// the mechanism it described by two commits, still telling players
@@ -2043,13 +2296,60 @@ mod tests {
     fn the_help_panel_names_the_keys_the_gnome_actually_uses() {
         let help = App::help_lines().join("
 ");
-        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG"] {
+        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG", "SCROLL THE MAP"] {
             assert!(help.contains(key), "help panel no longer mentions {key:?}");
         }
         assert!(
             !help.contains("CLICK NEAR THE GNOME"),
             "the proximity-gated dig is gone; the help must not still describe it"
         );
+    }
+
+    #[test]
+    fn the_view_is_the_players_only_while_no_gnome_is_summoned() {
+        // The whole design in one assertion: the two readings of `WASD` are
+        // mutually exclusive by construction, not by two call sites both
+        // remembering. It has to be by construction — `App::draw` re-centres
+        // on a gnome every frame, so a pan that *did* work while one existed
+        // would be visibly yanked back on the next frame, and a control that
+        // fights back is worse than one that is not there.
+        let mut app = App::new();
+        let before = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(app.pan_camera((1, 0), 0.5), "no gnome: the view must be free to move");
+        assert_ne!(
+            (app.renderer.camera_x, app.renderer.camera_y), before,
+            "no gnome: WASD must scroll the view"
+        );
+
+        app.summon_player(100, 100);
+        // Load-bearing: `summon_player` can leave `player` as `None`, and
+        // without this the half below passes because nothing was summoned —
+        // the "check the scene still contains the situation you think it
+        // does" trap.
+        assert!(app.world.player.is_some(), "the summon must have landed or the rest of this proves nothing");
+        let his = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(!app.pan_camera((1, 0), 0.5), "with a gnome, the view is his");
+        assert_eq!(
+            (app.renderer.camera_x, app.renderer.camera_y), his,
+            "with a gnome, a pan must not move the camera"
+        );
+    }
+
+    #[test]
+    fn the_tunables_panel_keeps_its_own_keys_while_it_is_open() {
+        // `S` saves a tunable while the panel is open. Without this gate it
+        // would both save and scroll on the same keypress.
+        let mut app = App::new();
+        app.show_tunables = true;
+        let before = (app.renderer.camera_x, app.renderer.camera_y);
+        assert!(!app.pan_camera((0, 1), 0.5), "the panel owns S while it is open");
+        assert_eq!((app.renderer.camera_x, app.renderer.camera_y), before, "the panel is open; the view must hold still");
+
+        // And gives them back on close -- otherwise this passes against a
+        // `pan_camera` that never works at all.
+        app.show_tunables = false;
+        assert!(app.pan_camera((0, 1), 0.5), "closing the panel must hand the keys back");
+        assert_ne!((app.renderer.camera_x, app.renderer.camera_y), before, "closing the panel must hand the view back");
     }
 
     #[test]
@@ -2613,5 +2913,70 @@ mod tests {
             0,
             "world never settled after painting"
         );
+    }
+}
+
+#[cfg(test)]
+mod loading_path {
+    use super::*;
+
+    /// `App` can cross a thread boundary.
+    ///
+    /// Not a curiosity: `main.rs` generates the world on a worker and moves
+    /// the finished `App` back, so an `Rc` or a raw pointer added to any
+    /// field would break the loading screen. The failure would be a compile
+    /// error in the binary rather than the library, which is a long way from
+    /// the field that caused it — this puts it next to the cause.
+    #[test]
+    fn app_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<App>();
+    }
+
+    /// Generating with a progress callback builds the *same world* as
+    /// generating without one.
+    ///
+    /// The loading screen would be worth nothing if it quietly produced a
+    /// different world from the one every test and every seed screenshot is
+    /// taken against, and `PLAN.md` requires same-build determinism. Compared
+    /// by checksum over every cell rather than by spot checks, for the reason
+    /// the round-7 field work kept relearning: a world that is subtly
+    /// different but still plausible passes every property assertion.
+    #[test]
+    fn reporting_progress_does_not_change_the_world() {
+        fn checksum(app: &App) -> u64 {
+            let mut acc: u64 = 0xcbf2_9ce4_8422_2325;
+            let bounds = app.world.bounds().expect("the app world has bounds");
+            for y in bounds.min_y..=bounds.max_y {
+                for x in bounds.min_x..=bounds.max_x {
+                    let c = app.world.get(x, y);
+                    for byte in [c.material.0 as u64, c.aux() as u64, c.shade as u64] {
+                        acc ^= byte;
+                        acc = acc.wrapping_mul(0x100_0000_01b3);
+                    }
+                }
+            }
+            acc
+        }
+
+        let quiet = App::new();
+        let mut stages: Vec<&'static str> = Vec::new();
+        let reported = App::new_reporting(&mut |_, name| stages.push(name));
+
+        assert!(!stages.is_empty(), "vacuous: nothing reported a stage");
+        assert_eq!(checksum(&quiet), checksum(&reported), "the reported build produced a different world");
+    }
+
+    /// The placeholder is empty, and cheap because it is.
+    #[test]
+    fn a_pending_app_has_not_generated_anything() {
+        let pending = App::new_pending();
+        let bounds = pending.world.bounds().expect("the app world has bounds");
+        let solid = (bounds.min_y..=bounds.max_y)
+            .step_by(16)
+            .flat_map(|y| (bounds.min_x..=bounds.max_x).step_by(16).map(move |x| (x, y)))
+            .filter(|&(x, y)| pending.world.get(x, y).material != crate::sim::material::EMPTY)
+            .count();
+        assert_eq!(solid, 0, "the placeholder world already has {solid} cells in it");
     }
 }

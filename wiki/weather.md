@@ -1,6 +1,6 @@
 # Weather
 
-*Current as of: this build (the water bank — rain now comes out of what
+*Current as of: 2026-08-22 (the water bank — rain now comes out of what
 evaporated, and damp ground gives its water back to the sky — plus drying
 that follows the sun; and cold is now something the air does rather than
 something only snowfall does, so a pond ices over across a minute or two

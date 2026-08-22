@@ -2585,9 +2585,39 @@ mod tests {
         // mixing it in makes the test measure foraging.
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // **Floored, and that is the second half of the same repair.** The
+        // bed spans y=150..160 of a 0..199 world with nothing under it, and
+        // soil is a `Powder` -- so it avalanched ~40 rows to the world
+        // floor and the seed rode down with it. The test passed anyway once
+        // the bed was dampened, which is the trap: it passed *despite* the
+        // scene rather than because of it, and the next change here would
+        // have inherited a bed that does not stay where it is put.
+        //
+        // Floor **and** walls, matching `plant::tests::plant_tree_on_ground`
+        // -- a floor alone still lets an open-sided bed spill off its own
+        // edges, which that helper's comment records as having cost time
+        // twice already.
         for x in 0..200 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        for y in 150..161 {
+            w.set(0, y, Cell::new(material::STONE, 0));
+            w.set(199, y, Cell::new(material::STONE, 0));
+        }
+        for x in 1..199 {
             for y in 150..160 {
-                w.set(x, y, Cell::new(soil, 0));
+                // **Damp, not bone dry, and that is a merge repair rather
+                // than a tuning.** This scene was written when a plant ran
+                // on one currency, so `Cell::new(soil, 0)` -- `aux == 0` is
+                // *dry* on a `Powder` -- still grew a tree. Water is a real
+                // second currency now (`plant::absorb_water`, which arrived
+                // with the plant line and did not exist here), and a root
+                // in dry soil has no income at all: the tree grew wood and
+                // never a leaf, so the `find` below failed on a scene
+                // error rather than on the thing this test is named for.
+                // Matches `plant::tests::plant_tree_on_ground`, which has
+                // always dampened its bed for the same reason.
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
             }
         }
         w.plant_tree(100, 149);

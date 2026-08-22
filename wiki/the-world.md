@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -38,6 +38,15 @@ instead of soil, shapes itself into dunes, has its water table far below the
 surface, and grows very little; a wet one is deep-soiled, green, and likely to
 hold standing water. Both can occur in the same world.
 
+**Each region colours its own country.** Dry country runs to warm, pale
+sandstone and dusty ground; wet country to cooler, darker rock and rich
+loam; a particularly hard region bleaches toward pale cap-rock. The change
+arrives along a wandering boundary — bays and headlands, the odd island of
+one country stranded inside the other — rather than as a painted line, and
+a cut face keeps its region's colour all the way down — so crossing an escarpment changes what the rock *is*, not just
+how high it stands. Nothing you place by hand picks up these regional
+casts; built stone is the same familiar grey everywhere.
+
 Every world is laid out differently. What is guaranteed is not a particular
 shape but a particular amount of *relief*: the regions of a world always
 differ enough in height to give you high ground and low ground. Where they
@@ -51,15 +60,48 @@ form, smaller hills sit on top of that, and finer roughness on top of those.
 **Bluffs and benches** appear in patches: flat steps cut into a hillside with
 steeper faces between them. They are not scattered arbitrarily — they follow
 the rock layering, so a bench forms where a band of rock reaches the surface,
-and its edge lines up with the banding visible in the face below it.
+and its edge lines up with the banding visible in the face below it. The
+faces themselves are broken rather than plumb: a tall riser comes down in
+ragged column-scale steps, not one sheer wall.
 
-**Overhangs** form at the top of some cliffs: a lip of rock that juts out over
-the drop, with open air beneath it. It is holding itself up in the ordinary
+**Overhangs** form at the top of cliffs: a lip of rock that juts out over
+the drop, with open air beneath it. The bigger the face, the further its lip
+reaches and the thicker it is — the great escarpments between regions carry
+them as well as the small bluffs. A lip is holding itself up in the ordinary
 way, not by special dispensation — hit it hard enough and it will come down
 like anything else.
 
 **Scree** heaps at the foot of cliffs: loose gravel, sloped the way shed rock
-naturally piles. It is real loose material, so digging into it makes it run.
+naturally piles, and there is more of it under a taller face — a great
+escarpment sheds a real apron, a terrace step only a scatter. It is real
+loose material, so digging into it makes it run.
+
+**The land is weathered.** Every world has been through a stretch of
+simulated history before you arrive: soft rock has cut back where hard
+bands stand proud, crests are rounded, valley floors carry washed-in fill,
+and the shed rock of ages mantles the slopes as gravel over the soil. How
+weathered varies by landscape — canyon country is the most worked-over,
+deserts wear slowly. Where a hard cap shed heavily, a rounded **boulder**
+of pale resistant stone sits on the surface where it came to rest, seated
+into the ground rather than perched on it, and standing well over head
+height — an event, not a decoration, and it holds itself up (or fails to)
+like any other rock.
+
+**Rock stands at your own scale.** Weathering wears the country down
+evenly; what it leaves behind is the hard parts. So some rock does not wear
+away: **tors, stacks and pinnacles** stand where the band they were cut
+from resisted while everything around them retreated. They run from
+knee-height lumps to monuments several times the gnome's height, with the
+small ones far commoner than the large — you will pass a dozen boulders for
+every spire. Their shape is inherited from the rock that made them: a
+resistant band gives blocky, square-shouldered stone, a softer one gives
+rounded whalebacks.
+
+**And which kind of rock country you are in changes as you walk.** One
+stretch is strewn with boulders, the next carries two or three monuments
+over otherwise bare ground, another is smoothed down to nothing much at
+all. This is a property of the region, not a single world-wide setting, so
+a long walk crosses several kinds of country rather than more of one.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
@@ -82,8 +124,53 @@ layer can be followed from one cliff face to another across the world. Every
 cut you make, every tunnel and every blast crater exposes it, so the inside of
 a hill looks like rock rather than like fill.
 
-**Buried pockets** of sand and gravel sit sealed inside the rock. You will not
-see them from outside; you find them by digging, and they pour once opened.
+**Buried pockets** of sand and gravel sit sealed inside the rock — long, thin
+lenses that lie *along* the rock's layering rather than cutting across it,
+richer where the country is sedimentary and near the surface, rare down
+toward bedrock. You will not see them from outside; you find them by digging,
+and they pour once opened. Buried gravel reads as its own brown against the
+stone, where scree at the surface stays rock-grey.
+
+**Sealed caves** hide far below the surface — much deeper than any
+pocket, in the quiet rock a couple of hundred rows down. Most worlds hold
+one system, some none, sometimes two, and nothing on the surface marks
+where.
+
+**No two are the same size.** Most are modest — a few rooms and the
+passages between them, the work of a few minutes. A rare one is enormous,
+several times that across and deep enough that its far end is a separate
+expedition, with chambers to match: a big cave is a big cave all through,
+not a small one with more rooms in it. You cannot tell which you have
+found until you are inside. Dig deep enough in the right place and the wall breaks into a real
+cave: rooms joined by narrower passages, stretched along the same rock
+banding you can see in every cut face, with stone pillars holding the
+galleries apart. The floors are rubble — gravel banked into uneven mounds,
+not tile — and stalactites hang from the high ceilings with stalagmites
+rising to meet them, a pale fringe of flowstone with the occasional pair
+almost touching. A few formations are of **spar**, which glows.
+
+**You walk through the formations.** A stalactite, a stalagmite or a full
+floor-to-ceiling column is scenery, not wall: the gnome passes through it
+the same way he passes through a tree, and passes in front of some and
+behind others, so a decorated gallery reads as deep rather than as a
+thicket. They are still rock — point the pick at one and it breaks like
+anything else, and what comes off it falls. The cave you can see into is
+the cave you can walk into. Each system has its own
+water: some are dry throughout, some pond in their lowest rooms, and some
+are flooded through most of their galleries — one system can hold both a
+drowned wing and a dry one, which is the picture worth digging for.
+
+The **geode** survives as the rare jewel variant: a single hollow ringed
+with pale crystal, its lining now uneven — thick here, thin there — rather
+than a drawn ring. **Crystal glows.** A geode, or a spar formation deep
+in a cave, casts its own soft light — the game's only local light source
+so far — so the air around it holds a pale warm pool, the rock catches the
+spill, and the find stays gently lit at any hour. The pool is round and
+centred on the stone that makes it, and a small crystal makes a small one:
+what you are looking at is a light with a shape, not a lit rectangle. (If
+you want to see what that replaced, `'` switches between the two.) Mine the crystal out and
+the dark comes back. Caves are rare on purpose: finding one is meant to be
+an event.
 
 **Bedrock** lines the bottom of the world. It is the thing everything else is
 ultimately anchored to.
@@ -148,7 +235,8 @@ genuinely different places.
   than in occasional patches.
 - **Canyon** — deep relief and big vertical faces, thin soil, tall scree.
 - **Wetland** — low, gentle, deep-soiled ground.
-- **Arid** — desert: a sand sheet with dune crests, low relief, the water
+- **Arid** — desert: a sand sheet whose dune crests come big and small at
+  varying spacing, the way a real field does, low relief, the water
   table far below the surface, and almost nothing growing. Occasionally a
   less dry region sneaks in, which reads as an oasis.
 - **Legacy** — the old hand-built practice terrain: a flat floor and three
@@ -156,18 +244,23 @@ genuinely different places.
 
 ## What is not here yet
 
-Rivers, springs, rain and evaporation — water currently sits where it was
-generated and does not cycle. Caves, and plant cover that arrives with the
-world rather than being planted by hand. Worlds are also still a fixed
-size — a large one, but bounded — rather than continuing indefinitely as
-you travel.
+Rivers and springs — the water machinery exists (rain falls, puddles dry,
+moving water runs white), but no world generates a spring or a flowing
+course, and what evaporates does not come back as rain somewhere else.
+(Rain, evaporation and starting plant cover all exist now — see
+[Weather](weather.md) for the first two; an earlier version of this list
+predated them, and a later one still listed caves, which generated worlds
+have had since round 5.) Worlds are also still a fixed size — a large one,
+but bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
 A world is several screens across and about twice a screen deep, so most of
 it is somewhere you have to go rather than somewhere you can see. What is
 on screen is a **view** of it, not the whole of it: walk to the edge of
-the picture and the view travels with you.
+the picture and the view travels with you — and with nobody in the world,
+you can scroll it around yourself with `A`, `D`, `W` and `S`, which is much
+the faster way to see what a seed actually generated.
 
 Landscape is composed to a fixed scale rather than stretched to fit, so a
 bigger world is *more places*, not the same places drawn larger. Roughly

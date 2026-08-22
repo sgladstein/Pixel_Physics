@@ -349,6 +349,20 @@ pub struct MaterialDef {
     /// than silently leaking out of it.
     #[serde(default)]
     pub water_capacity: u16,
+    /// Light this material emits into the field's light channel, in the
+    /// channel's own units (`field::MAX_LIGHT` is 4.0, noon under open
+    /// sky). `0.0` — the default, and every material but crystal today —
+    /// emits nothing.
+    ///
+    /// **The game's first local light source**, decided by the owner for
+    /// the sealed-chamber discovery moment (2026-08: "discovered chambers
+    /// justify building the game's first true local light source").
+    /// Emission is a *static floor* recomputed in `field::rebuild_blocked`'s
+    /// existing per-block scan, so a glowing block converges and sleeps
+    /// like any other authored floor — a torch later is this same field on
+    /// another material, no new mechanism.
+    #[serde(default)]
+    pub glow: f32,
     /// Whether standing cells of this `Liquid` dry up into the air above
     /// them — `evaporation.rs`.
     ///
@@ -373,7 +387,93 @@ pub struct MaterialDef {
     /// the neighbour already resolves to is a `Vec` index instead.
     #[serde(default)]
     pub reinforces_powder: bool,
+    /// Whether the character walks *through* this material rather than into
+    /// it, and can climb it — living foliage and stems, which read as
+    /// scenery to move past the way a tree does in a 3D game.
+    ///
+    /// **Only ever true of a cell that belongs to a living organism**; the
+    /// dispatch site (`player::footing`) tests `Cell::organism_id() != 0`
+    /// alongside this. Material alone cannot separate a grown tree from a
+    /// `wood` wall someone painted, and both must stay possible — so the
+    /// flag says *what kind of stuff this is* and the organism id says
+    /// *whether this particular cell is alive*. `CLAUDE.md`'s "when a rule
+    /// must tell apart two things that can look identical, state the
+    /// difference as data", which four support models learned the long way.
+    ///
+    /// A flag rather than a `kind` test for the same reason
+    /// `reinforces_powder` is one: `MaterialKind::Plant` is every plant,
+    /// and a thorn hedge or a cactus has to be able to say "I stop you"
+    /// without a code change. Read off the `Material` the predicate already
+    /// resolves — a `Vec` index, not a string hash.
+    ///
+    /// Deliberately a *player* property. Nothing in the CA sweep, the light
+    /// field, or the structural search reads it: powder still rests on a
+    /// branch, a canopy still casts shade, and a trunk still holds itself
+    /// up.
+    #[serde(default)]
+    pub climbable: bool,
+    /// Whether the character walks *through* this material without climbing
+    /// it — cave formations, and anything else that is scenery rather than
+    /// architecture.
+    ///
+    /// **`climbable`'s sibling, deliberately not the same flag.** That one
+    /// is ANDed with `Cell::organism_id() != 0`, because a grown tree and a
+    /// `wood` wall someone painted are the same material and must behave
+    /// differently. A speleothem has no such twin: it is its own material
+    /// (`flowstone`, `spar`), written by worldgen and nothing else, so the
+    /// material alone is a complete answer and no per-cell gate is needed.
+    /// Giving one an `organism_id` to reuse `climbable` would be actively
+    /// wrong — that routes it into `organism_structural_tick`, the
+    /// amputating path `Reports/felling-blockers.md` documents.
+    ///
+    /// Separate from `climbable` rather than folded into it because `grip`
+    /// tests `Footing::Climb` exactly, and a gnome hauling himself up a
+    /// stalagmite is not what "you walk past it" means.
+    ///
+    /// A **player** property, like `climbable`: nothing in the CA sweep,
+    /// the light field, the structural search or the mining path reads it.
+    /// A formation is still solid to powder, still anchors its ceiling, and
+    /// is still dug out with the pick — mining gates on `organism_id`
+    /// (`rigid::mine_swept`), which is zero here, so breakability comes for
+    /// free rather than needing a second mechanism.
+    #[serde(default)]
+    pub scenery: bool,
+    /// How much of a falling character's downward speed this material takes
+    /// off per tick, at full immersion. 0 (the default) catches nothing.
+    ///
+    /// Foliage, not wood: dropping into a crown should be *caught* by it,
+    /// and sliding past a bare trunk should not be. On the material rather
+    /// than as one number in `player::Tuning` for the ordinary reason
+    /// (`design-philosophy.md` §2a) — a bush, a hay bale or a snowdrift
+    /// each want their own value, and none of them wants a code change to
+    /// say so. Hot-reloadable with `F5` like every other material number.
+    ///
+    /// Graded by *how much of him* is in it rather than applied as a flag:
+    /// clipping the top of a crown barely registers, going through the
+    /// middle of one arrests him. The same shape as the wade, and for the
+    /// same reason recorded there — a binary version reads as a debuff,
+    /// not as a depth.
+    #[serde(default)]
+    pub fall_drag: f32,
     pub colors: Vec<[u8; 3]>,
+    /// How many leading entries of `colors` a *random* shade may pick from.
+    /// `0` (the default) means all of them, which is what every material
+    /// that has only one family wants.
+    ///
+    /// Worldgen bakes a region's rock/soil family into `Cell::shade` at
+    /// genesis (`worldgen::passes::palette_family`), so `stone`, `soil` and
+    /// `sand` ship several four-tone families in one `colors` list and the
+    /// *family* is chosen by the generator, never at random. Anything that
+    /// just wants "a tone of this material" -- the brush, ash decaying into
+    /// soil -- has to stay inside the first family, or painting a wall of
+    /// stone comes out as confetti of grey, sandstone and bleached cap-rock.
+    ///
+    /// This is the constant that had to be re-derived when the palettes
+    /// widened: `palette.len()` used to mean both "how many entries" and
+    /// "how many a random pick may use", and widening split those two
+    /// meanings apart.
+    #[serde(default)]
+    pub base_colors: usize,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
     //
@@ -485,6 +585,27 @@ pub struct MaterialDef {
     /// about why the transformation happened.
     #[serde(default)]
     pub burns_into: String,
+    /// **What this material slowly weathers into where it lies**, on
+    /// `decay.rs`'s moisture-gated schedule. Ash -> soil is the original and
+    /// was hardcoded; litter -> soil is why it became data.
+    ///
+    /// Distinct from all three transformations above, and the difference is
+    /// the *trigger*: `melts_into` is ambient temperature, `boils_into` is
+    /// ambient temperature, `burns_into` is a combustion timer completing.
+    /// This one is **time plus damp, on matter that has come to rest** --
+    /// weathering, not an event. Unset means it does not happen.
+    #[serde(default)]
+    pub decays_into: String,
+    /// Whether a cell formed by *this* material's decay gets one roll at
+    /// reseeding plant growth in the empty cell above it.
+    ///
+    /// Ash sets it: "a forest burns and regrows" is M16's own verify
+    /// criterion and the reseed is half of it. Litter deliberately does not
+    /// -- leaf fall under a standing canopy is not a succession event, and
+    /// having every shed leaf roll for a new tree would carpet the world.
+    /// Default `false`, so a new decaying material has to ask.
+    #[serde(default)]
+    pub decay_reseeds: bool,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -511,6 +632,32 @@ pub struct MaterialDef {
     /// reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
+    /// **How far an organism-owned cell may reach out along its own load
+    /// path before it breaks in bending.** `u16::MAX` (the default) opts
+    /// the material out of the rule entirely.
+    ///
+    /// Deliberately *not* `max_unsupported_span`, though it began as that
+    /// field, because the two paths measure different quantities and
+    /// sharing one number made them contradict each other:
+    ///
+    /// - On the inert path, `max_unsupported_span` is reinterpreted as a
+    ///   **capacity**, `(span as i64).pow(2) / 2` (`load::capacity`). Wood's
+    ///   8 means a capacity of 32.
+    /// - On the organism path it is compared against
+    ///   `OrganismCell::support`, the cell's weighted **reach** from its
+    ///   plant's anchors, measured by `plant::anchor_support`.
+    ///
+    /// Those numbers are not on the same scale, and the measurement says so.
+    /// A healthy 8-tree stand at 30,000 frames reads support p50 17, p90 36,
+    /// p99 51, **max 77** -- so any organism value low enough to be a
+    /// sensible capacity destroys the stand (span 8 took it from 31,731
+    /// cells to 500), and any value high enough for real branches makes
+    /// hand-painted wood nearly unbreakable on the inert path.
+    ///
+    /// Set from that measurement with headroom, per `CLAUDE.md`: never from
+    /// an aspiration, and never sitting on the measured value.
+    #[serde(default = "default_never_u16")]
+    pub max_cantilever_reach: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -835,13 +982,29 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::glow` — light emitted into the field, 0 for all
+    /// but the glowing materials.
+    pub glow: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
+    /// See `MaterialDef::climbable`.
+    pub climbable: bool,
+    /// See `MaterialDef::scenery`.
+    pub scenery: bool,
+    /// See `MaterialDef::fall_drag`.
+    pub fall_drag: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
+    ///
+    /// May hold several four-tone *families* -- see [`Self::base_shades`] and
+    /// `MaterialDef::base_colors`. `render.rs` indexes it with
+    /// `shade % palette.len()`, so the family is simply higher entries.
     pub palette: Vec<[u8; 4]>,
+    /// How many leading `palette` entries a random shade may pick from.
+    /// See `MaterialDef::base_colors`; never zero.
+    pub base_shades: usize,
 
     pub flammability: f32,
     pub ignition_temperature: f32,
@@ -863,6 +1026,8 @@ pub struct Material {
     pub floats: bool,
     /// See `MaterialDef::condenses_into_sky`.
     pub condenses_into_sky: bool,
+    /// See `MaterialDef::max_cantilever_reach`.
+    pub max_cantilever_reach: u16,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -884,6 +1049,7 @@ pub struct Material {
     cools_into_name: String,
     burns_into_name: String,
     breaks_into_name: String,
+    decays_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -896,6 +1062,13 @@ pub struct Material {
     pub cools_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
     pub breaks_into: Option<MaterialId>,
+    /// See `MaterialDef::decays_into`. `Some` is also the **gate `decay.rs`
+    /// tests to decide whether a cell is worth scheduling at all**, so it is
+    /// what keeps the settle scan proportional to decayable matter rather
+    /// than to world size.
+    pub decays_into: Option<MaterialId>,
+    /// See `MaterialDef::decay_reseeds`.
+    pub decay_reseeds: bool,
     pub reactions: Vec<Reaction>,
 }
 
@@ -1110,13 +1283,26 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            glow: def.glow,
             evaporates: def.evaporates,
             reinforces_powder: def.reinforces_powder,
+            climbable: def.climbable,
+            scenery: def.scenery,
+            fall_drag: def.fall_drag,
             palette: def
                 .colors
                 .iter()
                 .map(|c| [c[0], c[1], c[2], 255])
                 .collect(),
+            // Clamped to the palette rather than trusted: a `base_colors`
+            // larger than the list would let a random pick run off the end
+            // of the first family and into the next one, which is the exact
+            // failure the field exists to prevent.
+            base_shades: if def.base_colors == 0 {
+                def.colors.len().max(1)
+            } else {
+                def.base_colors.clamp(1, def.colors.len().max(1))
+            },
 
             flammability: def.flammability,
             ignition_temperature: def.ignition_temperature,
@@ -1131,6 +1317,7 @@ impl From<MaterialDef> for Material {
             max_unsupported_span: def.max_unsupported_span,
             floats: def.floats,
             condenses_into_sky: def.condenses_into_sky,
+            max_cantilever_reach: def.max_cantilever_reach,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1161,6 +1348,8 @@ impl From<MaterialDef> for Material {
             boils_into_name: def.boils_into,
             cools_into_name: def.cools_into,
             burns_into_name: def.burns_into,
+            decays_into_name: def.decays_into,
+            decay_reseeds: def.decay_reseeds,
             breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
@@ -1168,6 +1357,7 @@ impl From<MaterialDef> for Material {
             boils_into: None,
             cools_into: None,
             burns_into: None,
+            decays_into: None,
             breaks_into: None,
             reactions: Vec::new(),
         }
@@ -1235,7 +1425,55 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
-    // Appended, never inserted -- see the comments above. The water-cycle
+    // Appended, per the rule stated three times above: never inserted among
+    // the others, because the well-known constants (`STONE` through `SMOKE`,
+    // and `RUBBLE = 15`) are positions in this array and inserting anywhere
+    // but the end renumbers every material after the insertion point at
+    // runtime rather than in a test.
+    //
+    // The round-2 vault pass's pair. `crystal` before `shard` because that is
+    // the order they are written in -- a lining, and what the lining breaks
+    // into -- and neither has a pinned constant, so nothing depends on which
+    // of the two comes first beyond keeping this list readable.
+    include_str!("../../assets/materials/crystal.ron"),
+    include_str!("../../assets/materials/shard.ron"),
+    include_str!("../../assets/materials/flowstone.ron"),
+    include_str!("../../assets/materials/spar.ron"),
+    // **The plant-ecology set, appended after the round-2 vault pair** for
+    // the reason the note above already settles: the tiebreak is which side
+    // was already trunk. `crystal`/`shard`/`flowstone`/`spar` were on main
+    // while these were on a branch, so they keep the lower slots and these
+    // take the ones after. Nothing in either group has a pinned convenience
+    // constant.
+    //
+    // **An entry's id is its position in this list plus two**, because
+    // `EMPTY` (0) and `BEDROCK` (1) are compiled in rather than parsed and
+    // so are not in it. Worth stating once: counting the `include_str!`
+    // lines and reading the count as an id is off by one in exactly the
+    // way a merge note here was, and the two pinned constants further up
+    // are the check that catches it -- `STONE` is the first entry and is
+    // 2, `RUBBLE` is the fourteenth and is 15.
+    //
+    // Embedded although **nothing writes it yet** -- the three abscission
+    // sites that should are blocked on the decay strand (`litter.ron`'s own
+    // closing note, and `decay::tests::
+    // ash_that_falls_before_its_first_check_still_decays`). Listed here
+    // rather than left out because a material that is not in this list does
+    // not exist to any headless harness (the P-7 lesson: only the app's F5
+    // reload reads the directory), so leaving it out would mean the switch-
+    // over lands *and* silently does nothing.
+    include_str!("../../assets/materials/litter.ron"),
+    // Herbaceous tissue, above and below ground -- WP-B3. `grassroot`
+    // carries `reinforces_powder`, which is the one consequence grass
+    // brings that no other plant here does.
+    include_str!("../../assets/materials/grassblade.ron"),
+    include_str!("../../assets/materials/grassroot.ron"),
+    // Appended after the block above, by the same trunk-first tiebreak it
+    // states: these were on a branch while those were on master, so they
+    // keep the lower slots and these take the ones after. Nothing here is
+    // addressed by number -- every site goes through `id_of(..)`.
+    //
+    // The water-cycle
     // milestone's three arrivals, in the order their branches merged: the
     // gas phase, the heat verb, the freezing half. Lava and ice landed on
     // concurrent branches that each appended here; both kept, lava first --
@@ -1295,9 +1533,14 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             reinforces_powder: false,
+            climbable: false,
+            scenery: false,
+            fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,
@@ -1312,10 +1555,13 @@ impl MaterialRegistry {
             intrinsic_temperature: f32::INFINITY,
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             floats: false,
             condenses_into_sky: false,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
@@ -1336,9 +1582,14 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             reinforces_powder: false,
+            climbable: false,
+            scenery: false,
+            fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,
@@ -1353,6 +1604,8 @@ impl MaterialRegistry {
             intrinsic_temperature: f32::INFINITY,
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
@@ -1360,6 +1613,7 @@ impl MaterialRegistry {
             max_unsupported_span: u16::MAX,
             floats: false,
             condenses_into_sky: false,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
@@ -1460,6 +1714,7 @@ impl MaterialRegistry {
             material.cools_into = resolve_if_set(&material.cools_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
+            material.decays_into = resolve_if_set(&material.decays_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

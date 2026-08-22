@@ -105,12 +105,28 @@ pub enum ActiveKind {
     ///
     /// `x`/`y` on the containing `ActiveSite` is the creature's **head**.
     Creature { organism: u16 },
-    /// Architecture §5f: an `ash` cell due to re-check whether it's damp
-    /// enough to decay into `soil`. Only scheduled reactively, by `fire.rs`
-    /// at the moment a burnout actually produces ash — not for every ash
-    /// cell that could ever exist (hand-painted ash, say), matching the
-    /// report's own "cheap: one material, one slow transformation" framing.
-    /// See `decay.rs`.
+    /// Architecture §5f: a cell of a **decayable** material due to re-check
+    /// whether it is damp enough to decay into whatever its
+    /// `Material::decays_into` names — `ash` into `soil`, `litter` into
+    /// `soil`.
+    ///
+    /// **No longer reactive-only, and the reason is worth having here.**
+    /// This used to be scheduled solely by `fire.rs` at the moment a
+    /// burnout produced ash, explicitly *not* for every ash cell that could
+    /// ever exist (hand-painted ash, say). That stopped being true when
+    /// litter arrived: a shed leaf is created in a canopy and *falls*, and
+    /// a decay site is a bare coordinate that nothing makes follow its
+    /// cell, so scheduling at creation stranded the site every time
+    /// (`Reports/open-bugs-handoff.md` §0e). `World::end_step` now scans a
+    /// chunk on its **awake -> settled** transition and schedules a site
+    /// for every decayable cell in it, which is both the cheap point and
+    /// the correct one — weathering happens to matter that has come to
+    /// rest. Hand-painted ash therefore does decay now, once it settles.
+    ///
+    /// Deduped through `World::pending_decay_sites`, because a drift that
+    /// is disturbed and re-settles repeatedly would otherwise stack sites
+    /// and make the effective rate a function of how often the ground was
+    /// walked on. See `decay.rs`.
     Decay,
     /// An exposed liquid surface cell due to check whether it evaporates —
     /// `evaporation.rs`, which has the whole story. Scheduled by the CA

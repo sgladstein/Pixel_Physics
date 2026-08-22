@@ -16,6 +16,7 @@ use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
@@ -194,6 +195,16 @@ pub struct World {
     /// rather than `App` so the renderer (which takes `&World`) can draw
     /// it and so the sim step stays a pure function of (world, input).
     pub player: Option<crate::sim::player::Player>,
+    /// Where water crosses the plane of the world — see `spring.rs`'s
+    /// module doc for the design and the off-plane-flux decision it
+    /// implements. Plain `Vec`s in insertion order, the `chunk_bodies`
+    /// determinism reasoning; registered via `add_spring`/`add_drain`
+    /// (worldgen's placement pass later, harnesses and `viewshot` today).
+    pub springs: Vec<crate::sim::spring::Spring>,
+    pub drains: Vec<(i32, i32)>,
+    /// Spring/drain flow accounting — the counter that gets printed next
+    /// to every waterfall image.
+    pub spring_ledger: crate::sim::spring::SpringLedger,
     /// M16: growing plant tips (and M17/M18's structural checks and
     /// creature ticks), due soonest at the top -- a min-heap keyed on
     /// `ActiveSite::next_frame`, see `scheduler::step`'s own doc for why
@@ -273,6 +284,20 @@ pub struct World {
     /// streaming will want this keyed per chunk column instead, alongside
     /// everything else that is currently sized to a resident world.
     sky_surface: Vec<i32>,
+    /// The same dedup idea as `pending_structural_checks`, for
+    /// `ActiveKind::Decay`, and it exists for a different reason worth
+    /// stating: decay sites are scheduled by `World::end_step`'s settle
+    /// scan, which fires **every time a chunk goes from awake to settled**.
+    /// A litter drift that is disturbed and re-settles ten times would
+    /// otherwise stack ten sites on each of its cells, and since each site
+    /// independently rolls `DECAY_CHANCE_*`, the effective decay rate would
+    /// become a function of how often the ground was walked on. That is not
+    /// a performance problem, it is a correctness one -- the rate has to be
+    /// a property of the material, not of the chunk's history.
+    ///
+    /// `Decay` carries no state beyond position, so `(x, y)` is an
+    /// unambiguous key, exactly as for a structural check.
+    pending_decay_sites: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -360,6 +385,35 @@ pub struct World {
     /// allocating on their own schedule this is the number that says
     /// whether the assumption still holds at play rates.
     pub organism_generation_wraps: u32,
+    /// **Seeds that waited for water and then germinated** — the counter
+    /// for the dormancy mechanic, because a picture cannot show it and no
+    /// existing readout separates the cases.
+    ///
+    /// `plant_probe` prints "seeds or seedlings", which lumps a seed
+    /// patiently waiting on dry ground together with a seedling starving
+    /// after germinating on it — the exact two states this mechanic exists
+    /// to tell apart, and the failure it was built to end. A stand can look
+    /// identical either way.
+    ///
+    /// Counts only germinations that were *deferred at least once*: a seed
+    /// that lands on damp ground and sprouts immediately is the old
+    /// behaviour and is not evidence of anything.
+    pub seeds_germinated_after_waiting: u32,
+
+    /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
+    /// field humidity was on when the roll was made.
+    ///
+    /// Split rather than totalled, because the question these were added for
+    /// is not "how much rotted" but **"which rate is the world running on"**.
+    /// The two chances differ 25x (`decay::DECAY_CHANCE_DAMP` 0.05 against
+    /// `DECAY_CHANCE_DRY` 0.002), so a total conflates a little damp ground
+    /// with a lot of dry ground and cannot tell them apart -- which is the
+    /// distinction the worldgen soil baseline moved, and the reason anyone is
+    /// looking. A picture cannot show it either: rotted litter and unrotted
+    /// litter are the same few pixels at contact-sheet zoom.
+    pub decayed_damp: u32,
+    /// Counterpart to `decayed_damp`; see it for why these are separate.
+    pub decayed_dry: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -708,10 +762,14 @@ impl World {
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
             player: None,
+            springs: Vec::new(),
+            drains: Vec::new(),
+            spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
+            pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -723,6 +781,9 @@ impl World {
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
+            seeds_germinated_after_waiting: 0,
+            decayed_damp: 0,
+            decayed_dry: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -823,6 +884,21 @@ impl World {
     /// `EnergyLedger`'s invariant.
     pub fn live_creature_energy(&self) -> f64 {
         self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
+    }
+
+    /// Read-only view of one organism's whole-plant state, for probes.
+    ///
+    /// **A plain alias for `organism`, and only still here because it has
+    /// callers.** It was added on the plant line to get around `organism`
+    /// being `pub(crate)`, which an example crate could not see; the
+    /// creature line made `organism` itself `pub` for its own reasons, so
+    /// the workaround outlived the problem and the two met at the merge.
+    /// Kept rather than removed because ten call sites across `plant.rs`
+    /// and `examples/plant_probe.rs` read it and renaming them is churn,
+    /// not reconciliation — but prefer `organism` in new code, and fold
+    /// this away whenever those sites are next touched anyway.
+    pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
+        self.organism(organism_id)
     }
 
     /// Every live organism's encoded id.
@@ -943,9 +1019,19 @@ impl World {
         }
         // See `pending_evaporation`'s own doc — this one is load-bearing for
         // the *rate*, not only for the frame cost.
+        //
+        // `insert` returns false when the position was already present, so
+        // each of these both tests and marks in one go -- the structural arm
+        // above needs two calls only because its index is also read
+        // elsewhere. Two arms rather than one keyed on kind, because the
+        // two sets are independent and the structural path's behaviour must
+        // stay untouched.
         if matches!(site.kind, scheduler::ActiveKind::Evaporate { .. })
             && !self.pending_evaporation.insert((site.x, site.y))
         {
+            return;
+        }
+        if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
         self.active_sites.push(Reverse(site));
@@ -1044,6 +1130,9 @@ impl World {
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
         }
+        if let scheduler::ActiveKind::Decay = site.kind {
+            self.pending_decay_sites.remove(&(site.x, site.y));
+        }
         Some(site)
     }
 
@@ -1076,6 +1165,13 @@ impl World {
     /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
+            water: 0.0,
+            water_status: 1.0,
+            water_uptake: 0.0,
+            water_demand: 0.0,
+            water_uptake_acc: 0.0,
+            water_desiccation: 0.0,
+            endowment: 0.0,
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
@@ -1093,6 +1189,19 @@ impl World {
             since_nest: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
+            shoot_top_y: None,
+            sympodial_forks: 0,
+            plagiotropic_steps: 0,
+            foliage_band: 0,
+            bark_band: 0,
+            inherited: false,
+            generation: 0,
+            seeds_set: 0,
+            alleles: [0; organism::DISCRETE_LOCI],
+            deferred_germination: false,
+            rigid_steps: 0,
+            lateral_departures: 0,
+            departure_angle_sum: 0.0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
@@ -1185,6 +1294,11 @@ impl World {
     /// *reuse*, so bumping here as well would advance it twice per
     /// life-cycle and burn the 4-bit space at double rate. One bump per
     /// reuse, in exactly one place.
+    ///
+    /// **`plant::step_organisms` is the second caller**, releasing plant
+    /// organisms whose cell list has gone empty — the one liveness
+    /// definition that cannot orphan a standing cell, since a cell still
+    /// referring to the organism is exactly what makes the list non-empty.
     pub(crate) fn free_organism(&mut self, organism_id: u16) {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
@@ -1198,6 +1312,18 @@ impl World {
         }
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+    }
+
+    /// How many organism slots are currently allocated, and how many of
+    /// those are live — the high-water reading the 4,095 ceiling is judged
+    /// against.
+    ///
+    /// The live half is `live_organism_count` rather than a second copy of
+    /// the same filter: the two accessors arrived independently on the two
+    /// merged lines, and one of them counting differently from the other
+    /// later is exactly the kind of drift nobody would think to check.
+    pub fn organism_slot_usage(&self) -> (usize, usize) {
+        (self.organisms.len(), self.live_organism_count())
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -1621,6 +1747,14 @@ impl World {
                     // is there, instead of the solve falling back to every
                     // resident chunk.
                     tile.set_settled(false);
+                    // An impulse can land in open air with no CA cell
+                    // changing anywhere near it -- `weather::gust` does
+                    // exactly that -- so nothing else would tell the field
+                    // that this tile's momentum channels are live again.
+                    // Without this the solver's zero-momentum fast path
+                    // would skip the very pass that is meant to disperse
+                    // the impulse, and the gust would sit there.
+                    tile.disturb_momentum();
                 }
             }
         }
@@ -1628,7 +1762,16 @@ impl World {
 
     // --- crate-internal seams used only by `field::step` -------------------
 
-    pub(crate) fn fields_settled(&self) -> bool {
+    /// Whether every field tile reached its channel epsilons on the last
+    /// solve — the field's own "nothing is changing any more".
+    ///
+    /// `pub` rather than `pub(crate)` so a harness can wait for a world to go
+    /// genuinely quiet instead of stepping a fixed number of frames and
+    /// hoping. `examples/scale_probe.rs` needs exactly that: the field takes
+    /// thousands of frames to converge after generation, and a settled-cost
+    /// figure taken before then is measuring the transient. Read-only, so it
+    /// widens nothing.
+    pub fn fields_settled(&self) -> bool {
         self.fields_settled
     }
 
@@ -1675,11 +1818,16 @@ impl World {
     /// a disturbance that never disperses and one that disperses slowly are
     /// indistinguishable by pressure and perfectly distinct by this.
     /// See `weather::tests::a_gust_disperses`, which exists because of it.
-    /// Test-only: nothing in the engine branches on the *count*, only on
-    /// `fields_settled()`, and exposing it more widely would invite someone
-    /// to build a per-frame decision on a full scan of the tile map.
-    #[cfg(test)]
-    pub(crate) fn unsettled_field_tiles(&self) -> usize {
+    /// Diagnostic-only: nothing in the engine branches on the *count*, only
+    /// on `fields_settled()`, and nothing may start to — this is a full scan
+    /// of the tile map and a per-frame decision built on it would be the
+    /// exact cost class the field's own sleeping exists to avoid. Public
+    /// (rather than the `#[cfg(test)]` it started as) for one consumer: the
+    /// river-cost harness in `examples/ascii.rs` prints it at coarse
+    /// intervals, because "how many field tiles does a held disturbance
+    /// keep awake" is the number that gates the 2026-08 world review's
+    /// rivers track (`Reports/world-review-2026-08.md` §4).
+    pub fn unsettled_field_tiles(&self) -> usize {
         self.fields.values().filter(|t| !t.settled()).count()
     }
 
@@ -1702,8 +1850,12 @@ impl World {
         &self.fields
     }
 
-    pub(crate) fn replace_fields(&mut self, new_fields: HashMap<ChunkCoord, FieldTile>) {
-        self.fields = new_fields;
+    /// Overwrite just the given tiles, leaving every other tile in place —
+    /// `field::step`'s subset merge: solved tiles land, sleeping tiles are
+    /// never cloned or touched. See the `next`-building comment in
+    /// `field::step` for the design and the revert it supersedes.
+    pub(crate) fn merge_fields(&mut self, solved: HashMap<ChunkCoord, FieldTile>) {
+        self.fields.extend(solved);
     }
 
 
@@ -1801,6 +1953,81 @@ impl World {
 
     /// Writes outside the world are silently dropped — the caller is usually a
     /// movement rule that already checked, or a brush clipped by the edge.
+    /// Fill a vertical run in one column, resolving the chunk and the
+    /// material's sweep properties once per chunk-row instead of once per
+    /// cell.
+    ///
+    /// **A worldgen seam, and it exists because generation writes the whole
+    /// world through `set`.** `stone_massif` alone writes 19.7 M cells at
+    /// 8192x2560 and measured **4302 ms** doing it -- 69% of the entire pass
+    /// table -- at ~219 ns a cell. Almost none of that is the write: it is
+    /// `set` paying, per cell, a `ChunkCoord::containing`, a `HashMap` entry
+    /// lookup, two `materials` lookups (`sweep_reach` and `kind`), and
+    /// `touch_neighbours`, for a run of cells that share a column, a chunk
+    /// and a material.
+    ///
+    /// Every one of those is loop-invariant over a run. This hoists them:
+    /// the chunk is resolved once per 64-row segment, the material once for
+    /// the whole run.
+    ///
+    /// **It is not a bypass of the write seam's bookkeeping.** `set`'s
+    /// `managed()` demotion and organism reindexing are still done, per
+    /// cell, against the old value -- see `set` for why hooking the write
+    /// rather than enumerating callers is load-bearing. What is skipped is
+    /// only the repeated *lookup* of things that cannot change within a run.
+    /// `every_cell_of_a_filled_run_matches_set` pins the equivalence, and
+    /// `scale_probe`'s `WORLD_HASH=1` mode checks it end to end on a
+    /// generated world.
+    ///
+    /// All cells in the run must share `material`; debug builds assert it,
+    /// since a caller that varied it would silently get the first cell's
+    /// sweep reach applied to the rest.
+    pub fn fill_run(&mut self, x: i32, y0: i32, y1: i32, material: MaterialId, mut make: impl FnMut(i32) -> Cell) -> usize {
+        let Some(bounds) = self.bounds else { return 0 };
+        if x < bounds.min_x || x > bounds.max_x {
+            return 0;
+        }
+        let (lo, hi) = (y0.max(bounds.min_y), y1.min(bounds.max_y));
+        if lo > hi {
+            return 0;
+        }
+        let reach = self.materials.get(material).sweep_reach();
+        let is_liquid = self.materials.kind(material) == MaterialKind::Liquid;
+        let mut written = 0;
+        let mut y = lo;
+        while y <= hi {
+            let coord = ChunkCoord::containing(x, y);
+            // The last row of this chunk, or the end of the run.
+            let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
+            let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+            let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
+            for cy in y..=seg_end {
+                let cell = make(cy);
+                debug_assert_eq!(cell.material, material, "fill_run cells must share a material");
+                let old = chunk.get_world(x, cy);
+                chunk.set_world(x, cy, cell, reach, is_liquid);
+                written += 1;
+                if old.managed() || old.organism_id() != 0 || cell.organism_id() != 0 {
+                    pending.push((cy, old, cell));
+                }
+            }
+            // Deferred out of the borrow above, and rare: on generated
+            // terrain nothing being overwritten is managed or organism-owned,
+            // so this is normally empty.
+            for (cy, old, cell) in pending {
+                if old.managed() {
+                    self.demote_body_at(x, cy);
+                }
+                self.reindex_organism_cell(x, cy, old.organism_id(), cell.organism_id());
+            }
+            for cy in y..=seg_end {
+                self.touch_neighbours(x, cy, coord);
+            }
+            y = seg_end + 1;
+        }
+        written
+    }
+
     pub fn set(&mut self, x: i32, y: i32, cell: Cell) {
         let old = self.write_cell(x, y, cell);
         // Disturbance detection at the one write seam every caller already
@@ -1924,6 +2151,23 @@ impl World {
     pub fn organism_cell_mut(&mut self, x: i32, y: i32) -> Option<&mut organism::OrganismCell> {
         let id = self.get(x, y).organism_id();
         self.organism_mut(id)?.cells.get_mut(&(x, y))
+    }
+
+    /// The **water stock** of the organism owning this cell, and its
+    /// stomatal term — see `OrganismState::water` for why the balance is
+    /// held per organism rather than per cell.
+    pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+    }
+
+    /// The open-stomata shortfall of the organism owning this cell — what
+    /// drought shedding reads. Deliberately not `water_status`: see
+    /// `OrganismState::water_desiccation` for why prudence must not read
+    /// as thirst.
+    pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or(0.0, |s| s.water_desiccation)
     }
 
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
@@ -2171,7 +2415,17 @@ impl World {
         material: MaterialId,
         density: f32,
     ) {
-        let shades = self.materials.get(material).palette.len().max(1) as u32;
+        // Two numbers, not one, since the palettes grew families.
+        //
+        // `entries` is the modulus `render::cell_colour` applies; `base` is
+        // how many of them a *random* pick may use. They were the same
+        // number until worldgen started baking a region's rock family into
+        // the shade (`worldgen::passes::palette_family`), and collapsing
+        // them again paints stone as confetti of grey, sandstone and
+        // bleached cap-rock -- the brush must only ever lay down the first
+        // family.
+        let entries = self.materials.get(material).palette.len().max(1) as u32;
+        let base = self.materials.get(material).base_shades.max(1) as u32;
         let r = radius.max(0);
         let r2 = (r * r) as f32;
         let mut touched_structure = false;
@@ -2207,7 +2461,13 @@ impl World {
                 // one piece of per-cell entropy that survives a move, and
                 // therefore the only thing `render::GrainMode::Cell` can
                 // key grain on so the texture travels with the material.
-                let shade = (self.rng.below(shades) + shades * self.rng.below(256 / shades.max(1))) as u8;
+                //
+                // The entry is drawn from `base` and the stride is
+                // `entries`: `shade % entries` then lands inside the first
+                // family for every draw, which keeps this identical to what
+                // it always did for the single-family materials and stops
+                // the multi-family ones being painted at random.
+                let shade = (self.rng.below(base) + entries * self.rng.below(256 / entries.max(1))) as u8;
                 // Background rock has to *join* background rock.
                 //
                 // `Cell::attached` means "backed by mass the slice cannot
@@ -2338,6 +2598,30 @@ impl World {
         self.chunks.len()
     }
 
+    /// Register a spring weeping across `span` columns. Refuses past the
+    /// flow budget (`spring::MAX_TOTAL_SPAN`, summed over every spring) or
+    /// a single span past `spring::MAX_SPAN` — the budget is enforced
+    /// here, at registration, loudly, rather than by silently skipping
+    /// springs at step time (a cap bounds work; it must not quietly gate
+    /// whether a registered thing happens).
+    pub fn add_spring(&mut self, x: i32, y: i32, span: i32) -> bool {
+        if !(1..=crate::sim::spring::MAX_SPAN).contains(&span) {
+            return false;
+        }
+        let flowing: i32 = self.springs.iter().map(|s| s.span).sum();
+        if flowing + span > crate::sim::spring::MAX_TOTAL_SPAN {
+            return false;
+        }
+        self.springs.push(crate::sim::spring::Spring { x, y, span });
+        true
+    }
+
+    /// Register a drain cell — the spring's inverse; no budget, since a
+    /// drain only ever removes work.
+    pub fn add_drain(&mut self, x: i32, y: i32) {
+        self.drains.push((x, y));
+    }
+
     /// Number of chunks that will be swept next step. Drives the debug overlay
     /// and is the headline number for whether sleeping is working.
     pub fn active_chunk_count(&self) -> usize {
@@ -2449,6 +2733,22 @@ impl World {
         // cost near-zero once everything sleeps.
         let materials = &self.materials;
         let touched = &mut self.touched_chunks;
+        // **Where decayable matter gets its decay site**, collected here and
+        // scheduled after the loop (the loop holds `self.chunks` mutably, so
+        // it cannot call `schedule_active_site`).
+        //
+        // A decay site is a bare coordinate and nothing makes it follow its
+        // cell -- `move_cell` touches no scheduler state -- so scheduling one
+        // when the cell is *created* strands it the moment the cell falls,
+        // which for shed litter is every time. Scheduling on **settle**
+        // instead is not a workaround for that; it is what the rule actually
+        // means. Weathering happens to matter that has come to rest, so the
+        // awake->settled transition is exactly the event, and a cell that
+        // moves afterwards simply gets a fresh site when it settles again.
+        // Bounded (one chunk), rare (chunks settle once and stay settled),
+        // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
+        // §0 for the four candidates this was chosen over.
+        let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -2478,7 +2778,24 @@ impl World {
             if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
                 chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
+                // Rides the scan `recompute_reach` is already doing, on the
+                // same transition and for the same reason it was chosen:
+                // this is the one point that is both cheap and safe.
+                let bounds = chunk.coord.bounds();
+                for y in bounds.min_y..=bounds.max_y {
+                    for x in bounds.min_x..=bounds.max_x {
+                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
+                            settled_decayables.push((x, y));
+                        }
+                    }
+                }
             }
+        }
+        // Deduped inside `schedule_active_site`, which is what stops a drift
+        // that settles repeatedly stacking sites and turning the decay rate
+        // into a function of how often the ground was disturbed.
+        for (x, y) in settled_decayables {
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
         }
     }
 
