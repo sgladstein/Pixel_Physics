@@ -3479,6 +3479,30 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
             p.boiled, p.condensed, p.froze, p.melted, p.reacted
         );
+        // **How often evaporation found the air already saturated**, which no
+        // image can show: a surface that is drying slowly and one that is
+        // switched off outright look the same in every frame, and the second
+        // is a mechanism not running. `evaporation::DrynessCounts` has the
+        // full story; the short version is that a block of saturated soil is
+        // pinned at double the humidity that stops evaporation dead, and
+        // `dryness` samples the block *above* a surface, so how much of the
+        // world this reaches is a question about relief.
+        //
+        // Water and soil separately, because a wide calm lake reading zero is
+        // the designed behaviour and damp ground reading zero may not be.
+        let d = world.dryness_counts;
+        if d.water_checks + d.soil_checks > 0 {
+            let pct = |share: Option<f64>| share.map_or("-".to_string(), |s| format!("{:.0}%", s * 100.0));
+            println!(
+                "    evaporation becalmed: soil {}/{} ({}), water {}/{} ({})",
+                d.soil_becalmed,
+                d.soil_checks,
+                pct(d.soil_becalmed_share()),
+                d.water_becalmed,
+                d.water_checks,
+                pct(d.water_becalmed_share()),
+            );
+        }
         // Same reasoning one line up, for splashes: a droplet in flight is
         // one pixel and lands within a few frames, so `particles` on the
         // tile line above is very often 0 even on a frame that threw a

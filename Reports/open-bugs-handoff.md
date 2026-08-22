@@ -309,6 +309,77 @@ really does ice a surface over faster, so it is not obvious this is wrong.
 Measured across the step: freezing goes +40 cells in one window to +246 in
 the next.
 
+### 1m. Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is already here
+
+**Raised by the plant merge agent, verified, measured, and deliberately not
+fixed** — the fix is a design call and the branch was in wrap-up.
+
+Their claim, all three parts confirmed against source:
+
+- `field::rebuild_blocked` grades a soil cell as `soil_moisture /
+  water_capacity` and takes the **max over the whole 8x8 block**
+  (`field.rs`, `moisture_level.max(held)`).
+- `field::apply_moisture_sources` then forces the block to `MAX_MOISTURE *
+  level`, and `MAX_MOISTURE` is 4.0.
+- `evaporation::dryness` samples the block **one above** the surface
+  (`y - FIELD_SCALE`, and `field_moisture_at` reads the containing block
+  with no interpolation) and returns zero at or above `HUMID_STOP` = 2.0.
+
+So any evaporating surface whose block-above contains soil at more than
+half saturation evaporates **nothing at all**, rather than slowly.
+
+**The correction to their handoff: this is not a plant-branch
+consequence.** `soil.ron` already carries `water_capacity: 1000`, and
+worldgen's existing `soil_moisture` pass already seeds soil *saturated*
+where it touches liquid or sits at or below the water table. Saturated is
+1000, so those blocks are pinned at 4.0 — double the stop, not the 2.28
+their flat baseline would give. Their change widens the affected area from
+the wetted perimeter of a pond to everywhere there is soil; it does not
+create the effect.
+
+**Measured** with the new `evaporation::DrynessCounts`, `scene=worldgen`,
+3,600 frames, becalmed checks over total checks:
+
+| preset | seed | soil | water |
+|---|---|---|---|
+| rolling | 1 | 0/0 | 1701/11738 (14%) |
+| rolling | 7 | **31/53 (58%)** | 2024/16073 (13%) |
+| rolling | 2900 | 0/0 | 19977/20242 (**99%**) |
+| wetland | 1 | 0/0 | 4276/12981 (33%) |
+| wetland | 7 | 0/0 | 7176/22792 (31%) |
+| wetland | 2900 | 0/0 | 17351/17813 (**97%**) |
+
+Three readings, in order of how much they matter:
+
+1. **The soil path is essentially unexercised: zero checks in five of six
+   runs.** `is_damp_soil_surface` needs damp soil *with air above it*, and
+   worldgen wets soil near water and below the table — both below the
+   surface. So the shadow cannot bite yet. It is the plant branch's flat
+   baseline, which damps surface soil everywhere, that will make this path
+   run at all — and the one run that did exercise it was becalmed **58% of
+   the time**.
+2. **Seed 2900 is a 99% outlier on both presets** against 13-33%
+   elsewhere. Outcomes here are chaotic in the seed, so any guard over this
+   has to gate an order statistic over a sweep, never one seed.
+3. **The counter cannot yet attribute the cause**, and 2900 is why: air
+   over a world in a long wet or cold spell is *legitimately* humid, and
+   seed 2900 is the coldsnap seed. Do not read that 99% as the soil
+   shadow. Splitting "saturated because of the soil below" from "saturated
+   because it is raining" needs the source recorded in
+   `apply_moisture_sources`, which is the next step if this is pursued.
+
+Also worth noting: `the_worlds_water_is_flat_over_soil_too` passes today
+and would pass just as well if soil evaporation never ran, because a
+conservation test is satisfied by nothing moving — the shape `CLAUDE.md`
+records for infiltration's dead gate. Given reading 1, it may already be
+passing vacuously. Break soil evaporation deliberately and see.
+
+Two candidate fixes, which trade differently and neither of which is
+tuning: raising `HUMID_STOP` lifts a calm lake off exactly zero, which
+that constant's doc says is the one reading that must stay zero; sampling
+the surface cell's own block instead of the one above changes what the
+number means everywhere, water included.
+
 ### 1b. `diffuse_heat` does not conserve heat, and a hot cell is an amplifier
 
 **Found while braking a boil-off, measured, and deliberately not fixed** —

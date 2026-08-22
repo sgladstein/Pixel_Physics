@@ -448,7 +448,7 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
     let reschedule =
         ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: 0 }, next_frame: world.frame + CHECK_INTERVAL };
 
-    let rate = dryness(world, x, y) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
+    let rate = dryness_counted(world, x, y, true) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
     let loss = (SOIL_DRY_PER_CHECK as f32 * rate) as u16;
     if loss == 0 {
         // Sheltered or saturated air. Still on the schedule, for the reason
@@ -478,6 +478,83 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
 /// pins its own block to saturation by definition, so the block a puddle
 /// sits in and the block a lake sits in read identically and carry no signal
 /// at all.
+/// Cumulative "did it fire at all" counters for evaporation, in
+/// `fire::PhaseCounts`'s style and for a sharper reason than usual.
+///
+/// # A rate of zero and a mechanism that never ran look identical
+///
+/// `dryness` returns exactly zero whenever the humidity one block up is at
+/// or over `HUMID_STOP`, and that is *designed* -- a calm lake is meant to
+/// read as sheltered outright. But the same reading is produced by damp
+/// ground, and nobody had checked how often.
+///
+/// A block's moisture is forced to `MAX_MOISTURE * level` by
+/// `field::apply_moisture_sources`, and `field::rebuild_blocked` grades soil
+/// as `soil_moisture / water_capacity`, taking the **max over the whole 8x8
+/// block**. `soil.ron` has a capacity of 1000 and worldgen's `soil_moisture`
+/// pass seeds soil **saturated** wherever it touches liquid or sits at or
+/// below the water table -- so those blocks are pinned at 4.0, double the
+/// stop, and any evaporating surface that reads one is switched off rather
+/// than slowed.
+///
+/// Which surfaces read one is geometry: `dryness` samples the block one
+/// above, spanning the eight rows 1 to 8 cells higher, so a column near the
+/// top of its field block needs only a single cell of neighbouring relief to
+/// be reading soil instead of air. Flat ground is unaffected; how much else
+/// is, is what this counts. Split by surface kind because the water case is
+/// intended and the soil case may not be.
+///
+/// Raised with the finding from the plant branch, whose flat per-preset soil
+/// baseline widens the affected area from the wetted perimeter of a pond to
+/// everywhere there is soil. The effect is not theirs -- it is already here
+/// -- which is why it is measurable now.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DrynessCounts {
+    /// Calls from a water or ice surface (`tick`).
+    pub water_checks: u32,
+    /// Of those, ones that read saturated air and so evaporated nothing.
+    pub water_becalmed: u32,
+    /// Calls from a damp soil surface (`tick_soil`).
+    pub soil_checks: u32,
+    /// Of those, ones that read saturated air.
+    pub soil_becalmed: u32,
+}
+
+impl DrynessCounts {
+    fn record(&mut self, soil: bool, dryness: f32) {
+        let (checks, becalmed) = if soil {
+            (&mut self.soil_checks, &mut self.soil_becalmed)
+        } else {
+            (&mut self.water_checks, &mut self.water_becalmed)
+        };
+        *checks += 1;
+        if dryness <= 0.0 {
+            *becalmed += 1;
+        }
+    }
+
+    /// The share of soil surface checks that evaporated nothing because the
+    /// air above them read saturated, or `None` if none were made.
+    pub fn soil_becalmed_share(&self) -> Option<f64> {
+        (self.soil_checks > 0).then(|| self.soil_becalmed as f64 / self.soil_checks as f64)
+    }
+
+    /// The same for water and ice surfaces, where a wide calm lake reading
+    /// zero is the intended behaviour rather than a finding.
+    pub fn water_becalmed_share(&self) -> Option<f64> {
+        (self.water_checks > 0).then(|| self.water_becalmed as f64 / self.water_checks as f64)
+    }
+}
+
+/// `dryness`, recording the reading. The counting wrapper rather than the
+/// function itself, so the pure form stays callable from tests without
+/// needing a `&mut World`.
+fn dryness_counted(world: &mut World, x: i32, y: i32, soil: bool) -> f32 {
+    let d = dryness(world, x, y);
+    world.dryness_counts.record(soil, d);
+    d
+}
+
 fn dryness(world: &World, x: i32, y: i32) -> f32 {
     let humidity = world.field_moisture_at(x, y - FIELD_SCALE);
     // **The square root is shaping, and is stated as tuning rather than as
@@ -691,7 +768,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // is what makes a lake safe in a gale and a puddle safe in a downpour —
     // and `warmth` is deliberately *not* one of those, because it is floored
     // above zero (see it) so that cold is a brake and never a stop.
-    let rate = dryness(world, x, y) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
+    let rate = dryness_counted(world, x, y, false) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
     let loss = (FILL_PER_CHECK as f32 * rate) as u16;
     if loss == 0 {
         // Sheltered. Deliberately still on the schedule — see the module

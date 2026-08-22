@@ -414,6 +414,9 @@ pub struct World {
     /// steam plume and painted smoke are indistinguishable in a contact
     /// sheet. Read by `examples/filmstrip.rs` beside the image.
     pub phase_changes: crate::sim::fire::PhaseCounts,
+    /// How often evaporation found the air above a surface already
+    /// saturated, split by surface kind -- see `evaporation::DrynessCounts`.
+    pub dryness_counts: crate::sim::evaporation::DrynessCounts,
     /// **The atmosphere's water, in liquid-water cell-equivalents** — the
     /// credit half of the outer water cycle, and the one number that closes
     /// it.
@@ -741,6 +744,7 @@ impl World {
             // saw rain until something had dried up first, which is not a
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
+            dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
