@@ -2534,6 +2534,16 @@ fn dump_materials(world: &World, args: &Args) {
 /// 8-connected, matching the neighbourhood `load::detached_piece` floods
 /// over: a cluster here is meant to be the piece the model would have
 /// considered, so a diagonal join must not split it into two.
+/// Largest cluster the hanging census asks cell by cell.
+///
+/// Censusing a cluster of `k` unattached cells costs `k^2`, because
+/// `load::evaluate` floods the connected region for each one. 512 is set
+/// from what the scenes actually contain: the largest hanging piece
+/// `lavapour` has ever produced is 18 cells, and a whole `roomcut` collapse
+/// is in the hundreds -- so nothing that has ever shown this artifact is
+/// sampled, and `scene=capped`'s deliberate 15,840-cell monolith is.
+const HANGING_CENSUS_FULL: usize = 512;
+
 fn describe_hanging(world: &World, cells: &[(i32, i32)]) -> Vec<String> {
     use pixel_physics::sim::material;
     let set: HashSet<(i32, i32)> = cells.iter().copied().collect();
@@ -2730,9 +2740,13 @@ fn report_loads(world: &World, args: &Args) {
         return;
     }
     let mut worst: Option<((i32, i32), pixel_physics::sim::load::Load)> = None;
+    // Shared cache, for the reason the hanging census records: a whole-world
+    // sweep of the uncached form is quadratic in the size of the piece.
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    let mut budget = u32::MAX;
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
-            let Some(l) = pixel_physics::sim::load::evaluate(world, x, y) else { continue };
+            let Some(l) = pixel_physics::sim::load::evaluate_with_cache(world, x, y, &mut cache, &mut budget) else { continue };
             if worst.is_none_or(|(_, w)| l.stress() > w.stress()) {
                 worst = Some(((x, y), l));
             }
@@ -3283,20 +3297,88 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // ambiguity off the image ("attached rock stuck in the middle of
         // the water, unless you just didn\'t wait long enough") and a
         // number that cannot distinguish them cannot answer them either.
+        //
+        // **Clustered first, and every cell of a cluster asked unless the
+        // cluster is enormous.** `load::evaluate` answers by flooding the
+        // connected region a cell belongs to, so a cluster of `k` cells
+        // costs `k^2` to census cell by cell. `scene=capped` stands
+        // **15,840** unattached cells up on purpose and this pass never
+        // finished a single tile -- which read in the acceptance log as the
+        // suite stalling with no clue which case did it. A shared
+        // `load::Cache` alone did not fix it.
+        //
+        // Asking only each cluster's *foot* does fix it and is **too
+        // blind**, which is worth recording because it is the obvious
+        // move: the model's verdict is not uniform over a piece (a cell
+        // beyond `max_unsupported_span` from the anchor is unsupported
+        // while the foot standing on it is not), so `scene=lavapour`'s
+        // first tile read **19 against 49**. The census exists to catch
+        // exactly the cells that reading throws away.
+        //
+        // So the cap bounds *work*, never whether the census happens
+        // (`CLAUDE.md`): every cluster up to `HANGING_CENSUS_FULL` is
+        // asked cell by cell, exactly as before, and a larger one is asked
+        // at its lowest-then-leftmost cell and **says so in the output**.
+        // Nothing in any scene that has ever shown this artifact comes
+        // close to the cap -- the largest piece in `lavapour` is 18 cells.
+        let unattached: HashSet<(i32, i32)> = (0..HEIGHT)
+            .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let cell = world.get(x, y);
+                !cell.attached() && cell.organism_id() == 0 && world.materials.kind(cell.material) == MaterialKind::Solid
+            })
+            .collect();
         let mut hanging_cells: Vec<(i32, i32)> = Vec::new();
+        let mut load_cache = pixel_physics::sim::load::Cache::default();
+        let mut load_budget = u32::MAX;
+        let mut seen: HashSet<(i32, i32)> = HashSet::new();
+        let mut sampled_clusters: Vec<usize> = Vec::new();
+        // Iterated over the sorted grid rather than the `HashSet`, so the
+        // clusters (and therefore the printed order) do not depend on hash
+        // iteration order.
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
-                let cell = world.get(x, y);
-                if cell.attached() || cell.organism_id() != 0 {
+                if !unattached.contains(&(x, y)) || !seen.insert((x, y)) {
                     continue;
                 }
-                if world.materials.kind(cell.material) != MaterialKind::Solid {
+                let mut stack = vec![(x, y)];
+                let mut members = Vec::new();
+                while let Some((cx, cy)) = stack.pop() {
+                    members.push((cx, cy));
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let n = (cx + dx, cy + dy);
+                            if unattached.contains(&n) && seen.insert(n) {
+                                stack.push(n);
+                            }
+                        }
+                    }
+                }
+                if members.len() <= HANGING_CENSUS_FULL {
+                    for &(mx, my) in &members {
+                        if pixel_physics::sim::load::evaluate_with_cache(&world, mx, my, &mut load_cache, &mut load_budget)
+                            .is_some_and(|l| !l.supported)
+                        {
+                            hanging_cells.push((mx, my));
+                        }
+                    }
                     continue;
                 }
-                if pixel_physics::sim::load::evaluate(&world, x, y).is_some_and(|l| !l.supported) {
-                    hanging_cells.push((x, y));
+                sampled_clusters.push(members.len());
+                let foot = members.iter().copied().min_by_key(|&(mx, my)| (-my, mx)).expect("a cluster has a cell");
+                if pixel_physics::sim::load::evaluate_with_cache(&world, foot.0, foot.1, &mut load_cache, &mut load_budget)
+                    .is_some_and(|l| !l.supported)
+                {
+                    hanging_cells.extend(members);
                 }
             }
+        }
+        hanging_cells.sort_unstable();
+        if !sampled_clusters.is_empty() {
+            println!(
+                "    hanging census: {} cluster(s) over {HANGING_CENSUS_FULL} cells asked at the foot only, sizes {sampled_clusters:?}",
+                sampled_clusters.len()
+            );
         }
         let hanging = hanging_cells.len() as u32;
         if hanging > 0 {
