@@ -389,6 +389,80 @@ can dampen by hand. **When a merge introduces a new currency, every place
 that creates the substrate it is drawn from becomes a scene that may no
 longer supply it** — including the procedural ones.
 
+**THE OWNER HAS DECIDED THE DIRECTION, 2026-08-22, and it inverts the fix.**
+Stated directly:
+
+> plants should only grow where it's wet. rain and weather should allow that
+> to happen everywhere. maybe some plants slow down where and when it's
+> drier. if it's not wet at the time the seeds should sit there and wait
+> until it is rain and then the soil gets wet and then they germinate. we
+> could always build a scene that is ideal for plant growth and stable for
+> comparisons
+
+So **dry ground refusing plants is correct and must be kept.** Do not
+baseline all soil wet — that was considered and rejected. The defect is not
+that the ground is dry; it is that **seeds germinate anyway and then
+starve** instead of waiting.
+
+**The good news, verified: the dormancy machinery already exists and
+works.** `Behavior::Germinate`'s not-ready path sets `found_candidate =
+true` and reschedules with `stale_ticks` reset, and `is_frontier` includes
+`Seed`, so the retirement branches are unreachable and
+`ORGANISM_STALE_LIMIT` never applies. **A seed already waits forever.** The
+only thing wrong is what the predicate reads: `world.field_at(x,y).moisture`
+— the field channel at the seed's own cell, which the in-code comment
+correctly measured as useless. The repair is to read the **soil the seed is
+resting on**, via `update::plant_available_fraction` on the already-fetched
+`below` cell (`pub(crate)`, already called from `plant.rs` in three places).
+Suggested threshold 0.25 — strictly above 0.0, well under field capacity,
+and under every existing test bed. The RON field wants renaming: its unit
+changes from the field's 0..4 scale to a 0..1 fraction.
+
+**Three traps, each verified in code, each of which would let the mechanic
+be built exactly right and still not work:**
+
+1. **`update::soil_moisture` has no material check**, and on a `Liquid`
+   `aux` is *fill*, where 0 means FULL on the same 1000 scale as
+   `SOIL_SATURATED`. A seed floats (density 0.6 against water's 1.0) and
+   `resting` accepts any non-empty cell, so a seed on full water would read
+   **bone dry** and one on half-drained water would read well-watered. Gate
+   on `water_capacity > 0` first, as `plant.rs` and `update.rs` already do
+   elsewhere.
+2. **Rain cannot wet the soil under a resting seed.** `weather::step`'s soak
+   loop starts at the topmost non-empty cell of the column and `break`s at
+   the first cell with `water_capacity == 0` — **and the resting seed is
+   that cell**, since `seed.ron` declares no capacity. Zero soak reaches its
+   own column; only lateral capillary flow can, and that does nothing until
+   the gradient exceeds 380. **This is the same defect as F1** (litter and
+   grassblade block soak for the identical reason), which makes it a class
+   rather than two bugs: *anything that rests on soil and declares no
+   `water_capacity` shadows the ground beneath it from rain.*
+3. **The failing scene cannot rain at all.** `weather::step` runs only from
+   the CA drivers, and `ascii`'s forage scene grows its six trees in a
+   2,400-frame warmup that calls only `step_active_sites` + `step_fields`.
+   No CA in that window means no rain, no infiltration and no capillary
+   flow, so those seeds cannot germinate there under **any** wait-for-rain
+   predicate. The scene needs fixing alongside the mechanic.
+
+**What "rain wets everywhere" needs to become true.** Measured: soil aux has
+three sources and exactly one sink (root uptake) — there is **no
+soil-to-air drying at all**. So wet is an absorbing state, and without a
+drying sink "slow down where and when it's drier" is a transient that never
+returns, and the grassfire steer (§G, *"moisture vs dryness should play a
+role"*) would have nothing to vary. A drying sink is the missing half of
+the owner's model.
+
+**And a knob that already exists for "only where it's wet".** `aridity` is
+per-column, varies smoothly within a world, ships per preset (wetland 0.08
+→ arid 0.92), and is **already read three lines below the soil-moisture
+pass** to decide where trees get planted. An aridity-scaled soil baseline
+would make the same number decide both *where a tree is planted* and
+*whether it can drink* — which closes this bug class structurally rather
+than by picking a constant. Note the collision it must resolve in the same
+change: the "damp" gates for moss, decay and fire trigger at soil `aux >
+75`, while plants get nothing below 180, so any baseline that feeds a root
+already reads damp to everything else (decay 25x, moss up to 175x).
+
 **Not fixed here, deliberately.** The candidate fixes are a worldgen change
 (wet soil more widely, or by climate rather than by distance-to-water), a
 plant-economy change (let a root draw from something other than adjacent
