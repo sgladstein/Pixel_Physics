@@ -470,6 +470,80 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
+### W. The water-cycle branch and this one are two halves of one mechanic — **SEQUENCING DECIDED, 2026-08-22**
+
+`origin/claude/water-phase-changes-ki6g8c` (tip `dcbdf7f`) is not adjacent
+work. It builds **the half of the owner's model this branch records as
+missing**: soil-to-air drying, with `SOIL_DRY_FLOOR =
+material::SOIL_WILTING_POINT` and the rationale *"drying to zero would be
+claiming that sunshine can do what a plant cannot"* — plus a **conserved
+atmosphere** (`World::atmospheric_bank`, `spend_atmosphere`,
+`storm_supply`). Their floor and this branch's zero-point are the same
+number, reached independently.
+
+**Land THIS branch first. The reason is not convenience.** Every constant
+the water branch shipped — its `SOIL_SOAK_PER_DROP`, `STORM_RESERVE`,
+`SOIL_DRY_PER_CHECK`, and its measured 0.76 supply equilibrium — was
+measured in a world whose plants **had no `absorb_water`**, because that is
+what trunk looked like when they forked. If water lands first, this branch
+silently invalidates all of it. If this lands first, those constants get
+re-derived against the consumer that actually exists. Note also that their
+conservation tests run on **plantless** worlds, so they will pass while the
+invariant is false in play.
+
+Two further reasons: this branch is 0 behind trunk and can land now, while
+theirs owes a 160-commit rebase regardless — and 11 of the 15 files a
+dry-run merge conflicts on are *main-vs-water*, not plant-vs-water. And
+sequential merges onto trunk beat a direct cross-merge, which would force
+one person to resolve main-vs-water and plant-vs-water at once with no CI
+midpoint.
+
+**The good news, and it is substantial.** Because the drying floor is
+exactly the plant zero-point, the pair is a **two-sided attractor**: bare
+soil parks at exactly 180, and one rain strike (+10 at full intensity) puts
+it at 190, which is immediately 2.3% plant-available. Once-wet soil then
+oscillates just above the wilting point — a trickle after every shower,
+nothing between. That is "some plants slow down where and when it is drier"
+delivered as a **dimmer rather than a kill switch**, almost for free.
+
+**Four things the merge must handle, in rough priority:**
+
+1. **A resting seed shadows its own soil from BOTH rain and drying.** Their
+   `is_damp_soil_surface` requires the cell above to be empty; their soak
+   loop breaks at the first cell with no `water_capacity` — and a seed is
+   that cell in its own column. So the planned "germinate when the soil
+   below is wet" predicate would make a seed on dry ground **wait forever
+   by construction**: rain physically cannot reach the one cell it polls.
+   Fix before that predicate lands — give `seed.ron` a small
+   `water_capacity`, or let the soak pass through a one-cell zero-capacity
+   occupant. Same class as F1.
+2. **`FLAG_MANAGED` goes live in production.** `Cell::is_empty` is
+   byte-identical on both branches; what changes is that `rigid.rs` now
+   reserves a promoted body's footprint with `Cell::EMPTY.with_managed(true)`.
+   This branch's plant code was written under the explicit assumption that
+   nothing promotes in production, so two deliberate raw-`EMPTY` checks
+   become real: `growable()` lets roots grow **into** a floating body's
+   reservation (and rigid has no demotion path), and Germinate's `resting`
+   test reads a managed cell as "nothing holding this up", so a seed landing
+   on one never germinates and never falls.
+3. **Plant consumption is a one-way exit from the conserved cycle.** Soil
+   and bank balance 1:1, but root uptake moves water into a pool the ledger
+   cannot see, `transpire` vents to a non-conserved channel, and
+   `absorb_water`'s Liquid arm destroys whole cells (F3). So the sky thins
+   as the forest grows — *the forest that rain built drinks the sky dry*,
+   over tens of thousands of frames. The cheap fix is to credit
+   transpiration back to the bank.
+4. **`transpire` has no wilting floor.** Bare soil can never go below 180;
+   *rooted* soil can, all the way to 0, because transpiration subtracts
+   without the check `absorb_water` makes. Expect dead halos around
+   water-stressed stands that only bank-charged rain can heal.
+
+**One thing the merge does NOT change:** the blocking ascii failure above.
+That scene structurally cannot rain (its warmup runs no CA), so it is zero
+leaves before and zero leaves after. The 10x soak cut does not touch it —
+but it does make the intended fix roughly ten times more expensive: crossing
+the wilting point from bone-dry goes from ~2 strikes to ~18.
+
 ### A. The slot-1 root spread has collapsed, and the first two explanations were both wrong — **OPEN, 2026-08-22**
 
 **Found by the merge that brought the plant lines onto `main`, not by a
