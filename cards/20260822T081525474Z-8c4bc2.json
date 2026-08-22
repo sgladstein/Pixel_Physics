@@ -1,0 +1,61 @@
+{
+  "id": "20260822T081525474Z-8c4bc2",
+  "created": "2026-08-22T08:15:25Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-integration",
+    "branch": "plant-integration",
+    "commit": "0e6306d",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-integration"
+  },
+  "title": "The stand, before and after the plant lines met the trunk",
+  "question": "Do these read as separate trees, or as one continuous hedge? And do the root systems below ground read as individual plants or as one mat? If one is wrong, say which and what is wrong about it.",
+  "context_md": "**Both panes are the same scene, same seed, same frame (21,600 -- noon, and dry at capture so neither pane shows rain).** `scene=grove`, 8 trees in a 512-wide world, cropped to the left half. The only difference is which branch built it.\n\nThis is the merge of `plant-substrate-v2` (genome/roots) and `plant-ecology-design` (litter/decay/grass) onto a trunk that had moved 111 commits underneath both -- picking up creatures, weather, evaporation and a rewritten field solver. **Every previous plant verdict you gave was on a world with none of those**, which is why this is worth one look.\n\n**What I measured before rendering** (paired `plant_probe`, 8 plants, 12,000 frames, one run each side): total plant size is **unchanged** -- 3441 cells against 3435 -- so this is not about growing more. What moved is underground: roots are 24% fewer, the largest root system lost 61%, and the spread between individuals collapsed. Per-side numbers are under each image.\n\n**My reading, which is exactly what I want overturned if it is wrong:** one of these has gone from a row of distinguishable trees to a continuous canopy slab, and its roots from discrete clusters to a surface mat. If that is right it matters, because `Reports/tree-architecture-research.md` exists because \"canopies merge into a slab\" was chased as a plant bug for two sessions once already.\n\nBlind, because I have a stake in the answer. One test is currently red on the merged side for a related reason (`Reports/open-bugs-handoff.md` A) and its cause is still open -- **two explanations have already been proposed and measured false** -- so please judge the picture rather than my story about it.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260822T081525474Z-8c4bc2/000-card1_substrate.png"
+      ],
+      "caption": "same scene, same seed, same frame",
+      "meta": {
+        "plant cells (mean)": 3441,
+        "root cells (mean)": 288,
+        "root cells (max)": 745,
+        "root share of plant": "7.9%",
+        "water uptake/tick": 16.5,
+        "stomatal term (mean)": 0.9,
+        "seeds set": 19
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260822T081525474Z-8c4bc2/001-card1_merged.png"
+      ],
+      "caption": "same scene, same seed, same frame",
+      "meta": {
+        "plant cells (mean)": 3435,
+        "root cells (mean)": 220,
+        "root cells (max)": 287,
+        "root share of plant": "5.9%",
+        "water uptake/tick": 27.4,
+        "stomatal term (mean)": 0.96,
+        "seeds set": 13
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
