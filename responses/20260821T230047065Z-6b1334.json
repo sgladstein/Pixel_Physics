@@ -1,0 +1,30 @@
+{
+  "card_id": "20260821T230047065Z-6b1334",
+  "answered_at": "2026-08-22T00:11:40Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "The ground collapse in 2 looks great. I don't like 3, not much happening. 4 isn't good either. water should splash upward, maybe this is out of your scope though. We have another worktree working on spash when things fall in the water, I wonder if that could help code water exploding outward. 5, 7, and 10 are my favorites, but they all have these thick lines that appear later in the blast that I don't like. I like the cracks continuing to spread after the blast but there are other random movements and small random collapses that keep happening that are not as good.",
+  "annotations": [
+    {
+      "item": 4,
+      "x": 0.6552162849872774,
+      "y": 0.7508236190409677,
+      "note": "I don't like the thick lines that show up here later in the blast"
+    },
+    {
+      "item": 5,
+      "x": 0.8206249237060547,
+      "y": 0.5092857088361468,
+      "note": "I don't like the thick lines that show up here later in the blast"
+    },
+    {
+      "item": 9,
+      "x": 0.31323149004055345,
+      "y": 0.49955806525273705,
+      "note": "I don't like the thick lines that show up here"
+    }
+  ],
+  "archived": false,
+  "blind_was": null
+}
