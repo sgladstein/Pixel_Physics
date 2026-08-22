@@ -32,6 +32,7 @@ use pixel_physics::render::Renderer;
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::player::{PLAYER_HEIGHT, PLAYER_WIDTH};
 use pixel_physics::sim::world::World;
 use pixel_physics::worldgen::WorldgenParams;
 
@@ -85,6 +86,18 @@ struct Args {
     /// have gone without `strip`, so `strip=1` is a like-for-like re-render
     /// of a sheet that has already been judged.
     at: Option<i32>,
+    /// Stand the gnome on the ground in every tile, for scale.
+    ///
+    /// Asked for directly in the Phase 2 review: *"Sometimes it might be
+    /// helpful to have the gnome in the test pictures."* He is 7x14, and
+    /// nothing else in a landscape render carries a known size -- a 40-row
+    /// tor and a 400-row massif are the same picture at different zooms
+    /// without him.
+    ///
+    /// Placed **per tile**, not once: a sheet's tiles are different places,
+    /// so a single world position would put him in one tile and leave the
+    /// rest unscaled.
+    gnome: bool,
     /// Pixels of separator drawn between tiles of a *non-contiguous* sheet.
     ///
     /// Defaults to on, and to off under `strip` -- a strip is continuous by
@@ -124,6 +137,7 @@ fn main() {
         stride: 1,
         strip: false,
         at: None,
+        gnome: false,
         gutter: None,
         out: "target/filmstrips/viewshot.png".to_string(),
     };
@@ -250,6 +264,7 @@ fn main() {
             // sheet is a picture of a landscape rather than of several. See
             // `Args::strip` for the review round this cost.
             "strip" => a.strip = v != "0",
+            "gnome" => a.gnome = v != "0",
             "at" => a.at = Some(v.parse().expect("at=WORLD_X")),
             "gutter" => a.gutter = Some(v.parse().expect("gutter=PIXELS")),
             // `gif=1` writes one frame per simulated frame of the scroll
@@ -844,6 +859,48 @@ fn main() {
         }
         let (cam_x, cam_y) = (renderer.camera_x, renderer.camera_y);
         shot_cameras.push(cam_x);
+
+        // **The gnome, standing on the ground at the middle of this tile.**
+        //
+        // `Player::at` takes a *centre*, not a corner, so feet-on-ground is
+        // `surface - PLAYER_HEIGHT / 2`: that puts `rect_origin().1` at
+        // `surface - PLAYER_HEIGHT` and his bottom row at `surface - 1`, one
+        // above the first solid cell. Getting this off by a half-height is
+        // how a scale reference ends up buried to the waist or hovering, and
+        // either reads as a rendering bug rather than as a ruler -- so it is
+        // asserted below rather than eyeballed.
+        if a.gnome {
+            let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+            let gx = (cam_x + span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
+            // **The highest ground under any column he occupies, not the
+            // ground under his middle.** He is 7 cells wide and the ground is
+            // not level; the first version of this read `surface` at `gx`
+            // alone and the standing assertion below caught him buried to the
+            // chest on the very first render, because a neighbouring column
+            // was four rows higher. `CLAUDE.md`'s "which object does this
+            // rule evaluate" -- a cell, or a 7-wide box? A box.
+            //
+            // Standing on the highest column and overhanging the lower ones
+            // is what standing on uneven ground looks like, and `footing`
+            // below still confirms rock under at least one foot.
+            let half = PLAYER_WIDTH / 2;
+            let ground_at = |x: i32| {
+                (0..WORLD_HEIGHT as i32)
+                    .find(|&y| world.get(x, y).material != material::EMPTY)
+                    .unwrap_or(WORLD_HEIGHT as i32 / 2)
+            };
+            let surface = ((gx - half).max(0)..=(gx + half).min(WORLD_WIDTH as i32 - 1))
+                .map(ground_at)
+                .min()
+                .unwrap_or_else(|| ground_at(gx));
+            world.player = Some(pixel_physics::sim::player::Player::at(gx, surface - PLAYER_HEIGHT / 2));
+            let (x0, y0, x1, y1) = world.player.as_ref().expect("just placed").bounds();
+            let clear = (y0..=y1).all(|y| (x0..=x1).all(|x| world.get(x, y).material == material::EMPTY));
+            let footing = (x0..=x1).any(|x| world.get(x, y1 + 1).material != material::EMPTY);
+            println!("    gnome at ({gx}, {surface}): {} rows x {} cols, standing on rock: {footing}, not buried: {clear}", y1 - y0 + 1, x1 - x0 + 1);
+            assert!(clear, "the gnome is buried at ({gx}, {surface}) -- he is a ruler, and a buried ruler is a bug report");
+            assert!(footing, "the gnome is floating at ({gx}, {surface}) -- nothing solid under his feet");
+        }
         // Clamped hard against an edge is legitimate at the ends of the
         // world and a bug in the middle, so print the camera rather than
         // asserting: the reader can see which case this is.
