@@ -1,0 +1,43 @@
+{
+  "id": "20260822T102902639Z-f1f392",
+  "created": "2026-08-22T10:29:02Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "dcbdf7f",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Everything from one break now sinks together",
+  "question": "Does the descent read right now — one group going down at one pace, rather than some of it arriving while the rest is still at the surface?",
+  "context_md": "*\"Much better. But it falls at slightly odd rates. There is a first group of chunks that drop too fast and then the rest that come together with the grit later.\"*\n\nReproduced exactly, and the cause turned out to be that **nothing had ever slowed a body down in water.** A piece kept the speed it built up in the air and went on building more all the way to the bottom.\n\n| | before | now |\n|---|---|---|\n| fastest a piece ever went | **6.00 cells a frame** — the engine's own speed cap | 2.58, and that is the moment of entry |\n| its speed over the descent | 0.14 to 6.00, all over the place | a steady ~1.8 |\n| what is left of the slab | 422 of 600 cells still stone | 421 |\n\nThe surprise is *where* the 6.00 happens: twenty rows of falling through air only gets a piece to 1.4. The other thirty rows of acceleration are **underwater**. That is your first group — pieces that went in fast and kept going.\n\nWater pushes back now, in two ways: **buoyancy**, so a piece only feels the weight it has over the water it displaces (heavy rock sinks faster than light, and something barely denser than water barely sinks at all), and a **terminal speed** it cannot exceed.\n\n**A speed limit rather than a drag, and I tried it the other way first.** Proper drag is the nicer model and gives the same even descent — and it costs rock, because it slows the *whole* fall rather than only its fast end, so pieces arrive later and one at a time onto a pile that is already there, and get broken up again. Drag leaves **341 of 600 cells as stone**; the speed limit leaves **420**; doing nothing leaves 450 and shows the fault. The limit buys the look for almost nothing.\n\n**It is worth more on lava than on rock.** The quenched crust in a lava pour goes from **91 cells of surviving stone to 378** — four times as much — which is the other half of what you said about chunks turning to dust.\n\nBoth clips are the same drop at true speed.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T102902639Z-f1f392/000-card_fall_before.gif"
+      ],
+      "caption": "Pieces on the floor while others are still at the surface. Fastest: 6.00 cells a frame.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T102902639Z-f1f392/001-card_fall_after.gif"
+      ],
+      "caption": "One group, one pace. Fastest: 2.58, at the moment of entry.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
