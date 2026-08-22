@@ -245,6 +245,70 @@ than as a ledge, it does not look worth the frame cost: the renderer has no
 dirty-rect equivalent, and distinguishing a comb tooth from a droplet needs
 the run length, i.e. a neighbour scan on every liquid pixel every frame.
 
+### 1l. Boiling never puts a bubble *in* the water
+
+**Reported from play, measured, and deliberately not fixed** — it is a
+mechanism rather than a constant, and the session it surfaced in was
+wrapping up.
+
+Reported about a heat source under a pool: *"I see bubbles form at the
+bottom, rise to the top and pop, causing surface bubbles"*, and separately
+that the drawn bubbles *"still read as animations instead of real
+physics"*. Both are the same complaint and both are right.
+
+`examples/filmstrip.rs`'s plume census now counts **steam with water
+directly above it** — a bubble, by definition. Nothing counted it before,
+and nothing could have seen this: a plume standing over a pond and a pond
+full of rising bubbles give the same `steam` total, and at the zoom a
+contact sheet is read at they look the same too.
+
+Six tiles each, at `start=100 every=150`:
+
+| scene | submerged steam | steam cells at peak |
+|---|---|---|
+| `lavapour` | **0** for the whole run | 104 |
+| `lavadrop` | 0, 3, 0, 0, 0 | 496 |
+| `simmer` | 5 on the first tile, then 0 | 11 |
+
+So the engine essentially never puts gas inside a liquid. Boiling happens
+where the hot face meets the water and the steam leaves upward from
+there; nothing forms at a floor and travels up through a column of water.
+
+**This is why the drawn bubbles read as animation: they are.** `render.rs`
+computes them from position, frame and cell temperature, with no writes
+back into the world — keyed to water that genuinely is near boiling, but a
+mark on the screen. They have been standing in for a mechanism that does
+not exist, which is a defensible thing to do only while everyone knows it.
+
+Where to start, and what to check first:
+
+- Find out *why* a boil at the bottom of a pool does not leave a steam
+  cell in the water. Two candidates, and they want different fixes: either
+  `fire.rs` will not boil a cell that has no free face (so only the
+  interface ever converts), or the gas-through-liquid swap moves the new
+  steam to the surface within the frame it is created. The census above
+  cannot tell these apart; a counter at the conversion site can.
+- **Check `steam.ron`'s `cooling_point` of 45 before blaming the boil.** A
+  bubble rising through a pool at 120 degrees is thermally stable, so
+  condensation is not what is removing them — the earlier reading that it
+  was is recorded as wrong in this session's transcript.
+- Ask the size question before building: at roughly 1.8 cm to the cell, a
+  real boiling bubble is **sub-cell**, so a physical bubble in this engine
+  is always at least an order of magnitude too big. That does not make the
+  mechanism wrong — a stream of one-cell bubbles leaving a hot floor is
+  exactly what the report asks for — but it does mean the drawn overlay
+  probably survives alongside it rather than being replaced by it.
+
+Related and still open: the coverage step in a freezing pond (*"it seems
+to slowly grow and then jumps to fully frozen"*). Ruled out as the
+day/night lighting alias in the contact sheet, which was a real harness
+bug but not this. Ruled out as ice thickening, which now follows Stefan's
+law. What is left is **lateral** spread across bare water under snowfall,
+where a landing flake chills nine columns at once — and a snowy night
+really does ice a surface over faster, so it is not obvious this is wrong.
+Measured across the step: freezing goes +40 cells in one window to +246 in
+the next.
+
 ### 1b. `diffuse_heat` does not conserve heat, and a hot cell is an amplifier
 
 **Found while braking a boil-off, measured, and deliberately not fixed** —
