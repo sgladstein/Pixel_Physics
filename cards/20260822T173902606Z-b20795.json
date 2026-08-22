@@ -1,0 +1,43 @@
+{
+  "id": "20260822T173902606Z-b20795",
+  "created": "2026-08-22T17:39:02Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "68c1fee",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Half of that was the sunset, and half is a real bug",
+  "question": "With the light held still, does the first half still read as different ice from the second — or was it the nightfall?",
+  "context_md": "*\"I am curious what is happening between frame 5 and 6 in your whole arc image. It seems to slowly grow and then jumps to fully frozen and you can see a different ice morphology between the first and second half.\"*\n\nTwo things are stacked in that, and one of them was my contact sheet lying to you.\n\n**The morphology change is largely the time of day.** Every pixel is tinted and dimmed by the day/night cycle before it is drawn, a day is 3,600 frames, and I sampled eight tiles every 2,700 — every three-quarters of a day. So the tiles walk around the clock. Reading the phases back out of the run: tiles 1, 4 and 7 are **night**, 3, 5 and 8 are **noon**, 2 is dawn and **6 is dusk**. Your step from 5 to 6 is noon to sunset. The second half looks like different ice partly because it is the same ice at nightfall.\n\nWorse, the harness had been *printing* the phase under every tile the whole time — \"+4.54 banked over the 2700 frames ending at sunset\". I never read it against the picture.\n\nContact sheets now draw every tile under the same light when they span a day or more. The control that it is a render change and not a physics one: the ice census across the eight tiles is bit-identical either way. And the acceptance case had it worse than the arc did — it sampled every 1,800 frames, exactly *half* a day, so it alternated noon and midnight forever.\n\n**The coverage jump is real, and it is a bug I have not fixed yet.** Between those tiles, freezing goes from **+40 cells in one window to +246** in the next. What changes is that snow starts lying. In the engine, falling snow chills the water under it three cells deep across nine columns; a clear cold sky only reaches one cell deep. So snowfall *accelerates* freezing.\n\nReal snow does the exact opposite — it has about a tenth of ice's conductivity and is the best insulator in the scene, so a snow blanket should **slow** ice growth, not multiply it by five. That inversion is your step. Fixing it is the next thing on this branch, along with making the sheet thicken by Stefan's law (thickness goes as the square root of time, because ice insulates the water beneath it) instead of stopping at an arbitrary cap.\n\nBoth sheets below are the same eight frames of the same run. Only the lighting differs.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as you saw it",
+      "files": [
+        "20260822T173902606Z-b20795/000-arc_aliased.png"
+      ],
+      "caption": "Tiles land at sunset, noon, sunrise, midnight in rotation. Tile 6 is dusk.",
+      "meta": {}
+    },
+    {
+      "label": "same frames, one light",
+      "files": [
+        "20260822T173902606Z-b20795/001-arc_pinned.png"
+      ],
+      "caption": "Every tile drawn at noon. Identical simulation -- the ice census matches to the cell.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
