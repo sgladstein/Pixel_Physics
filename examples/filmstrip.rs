@@ -1227,6 +1227,21 @@ struct Args {
     /// the owner's own statement of what this has to do. A fraction rather
     /// than an absolute so one bar covers every bore size and length.
     min_cave: Option<i64>,
+    /// `max_cave=P` -- exit non-zero unless the roofed void has fallen to at
+    /// most P percent of what was there at the cut. The mirror of
+    /// `min_cave`, and the gate for "this roof came **down**".
+    ///
+    /// It exists because the thing it replaces was an *event* count.
+    /// `roomcut` was gated on `min_overloaded=5`, and a change to how a
+    /// failing region is shaped merged what had been dozens of separate
+    /// failures into one large paced one -- same roof, same rubble, one
+    /// event instead of thirty-seven. The bar duly went red on a scene whose
+    /// outcome had not got worse. That is the second time an event-count bar
+    /// in this file has caught a mode shift rather than a behaviour change;
+    /// see case 6's own note about `strike`. **Measure what the scene is
+    /// about** -- and what `roomcut` is about is whether the ceiling is
+    /// still up.
+    max_cave: Option<i64>,
     /// `step=N` -- how far apart consecutive `tunnel=` bites are placed.
     /// Defaults to `dig`, i.e. each bite overlaps the last by half.
     ///
@@ -1378,6 +1393,7 @@ fn parse() -> Args {
         depth: None,
         step: None,
         min_cave: None,
+        max_cave: None,
         confine: true,
         arch: true,
         chain_reach: None,
@@ -1459,6 +1475,7 @@ fn parse() -> Args {
             "depth" => a.depth = Some(v.parse().expect("depth")),
             "step" => a.step = Some(v.parse().expect("step")),
             "min_cave" => a.min_cave = Some(v.parse().expect("min_cave")),
+            "max_cave" => a.max_cave = Some(v.parse().expect("max_cave")),
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");
@@ -2054,6 +2071,14 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
         let kept = if cave_before == 0 { 0 } else { now * 100 / cave_before };
         if kept < pct {
             println!("  FAIL: the cave did not survive -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted {pct}%");
+            ok = false;
+        }
+    }
+    if let Some(pct) = args.max_cave {
+        let now = roofed_void(world);
+        let kept = if cave_before == 0 { 100 } else { now * 100 / cave_before };
+        if kept > pct {
+            println!("  FAIL: the roof is still up -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted at most {pct}%");
             ok = false;
         }
     }
