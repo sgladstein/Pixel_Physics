@@ -196,8 +196,21 @@ src/worldgen/  M10's worldgen half: a playable 2D slice cut from coarse 3D
                width), column.rs (per-column shaping), passes.rs (the pass
                pipeline), erosion.rs (plan-space erosion, which is what
                makes the mesas and benches), residual.rs (tors and stacks),
-               spring.rs (spring placement), legacy.rs (the old hand-built
-               practice terrain)
+               legacy.rs (the old hand-built practice terrain).
+               **No spring or river placement lives here** -- see the note
+               under `src/sim/spring.rs` below
+src/sim/spring.rs
+               springs and drains -- water entering and leaving the 2D
+               slice. **The mechanism only; nothing places one.** A
+               generated world has ponds and rain and no flowing water at
+               all, because the worldgen placement pass this was built for
+               was never written: every caller of `World::add_spring` is
+               either a unit test or `examples/viewshot.rs spring=`. The
+               module's own header says so ("Worldgen's placement pass will
+               push into the same list; until it lands, the harnesses ...
+               register springs by hand"), and this map previously listed
+               it under `src/worldgen/` as "spring placement", which is
+               where the belief that worlds have rivers came from.
 src/render.rs  cells to pixels; dirty-region skipping, overlays, grain
 src/sky.rs     the sky: day/night gradient, dawn and dusk, stars, the moon,
                storm dimming -- and the ground lit by time of day
