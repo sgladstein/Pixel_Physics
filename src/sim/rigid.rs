@@ -1319,6 +1319,23 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
         }
     }
 
+    // **Water pushes back.** Until this, nothing did: a body kept the
+    // `GRAVITY` it had accumulated in the air all the way to the bottom of
+    // a pond, and the only thing that ever took speed off it was hitting
+    // something. Reported from play, on the very drop the piece-integrity
+    // fix was meant to improve: *"it falls at slightly odd rates. There is
+    // a first group of chunks that drop too fast and then the rest that
+    // come together with the grit later."*
+    //
+    // Measured on `scene=rockdrop`: pieces reach **6.00 cells/frame** in
+    // the twenty rows of air -- the `MAX_SPEED_PER_AXIS` clamp -- and go
+    // into the water still carrying it, while the rubble they came from
+    // sinks under one. That is the two groups.
+    if let Some(fluid) = surrounding_liquid(world, body) {
+        let density = world.materials.density(fluid);
+        drag_through_liquid(body, shape_of(world, body), density);
+    }
+
     body.vx = body.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
     body.vy = body.vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
     body.peak_speed = body.peak_speed.max((body.vx * body.vx + body.vy * body.vy).sqrt());
@@ -1335,7 +1352,7 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     // runs per substep and again for the rotation probe. Both are O(cells)
     // and neither can change while the body is in flight -- a quarter turn
     // permutes the offsets and does not add or remove one.
-    let shape = BodyShape { density: mean_density(world, body), floats: body_floats(world, body), reach: body_extent(body) + 1 };
+    let shape = shape_of(world, body);
     // Taken before the substep loop, because a collision damps `vy` by
     // `COLLISION_RETENTION` on the way through -- the same reason
     // `peak_speed` is recorded rather than read at landing.
@@ -1415,6 +1432,99 @@ fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
         }
     }
 }
+
+/// The body's density, buoyancy and reach, as one value — computed once per
+/// `advance` and lent to everything in it. All three are O(cells) and none
+/// can change while the body is in flight.
+fn shape_of(world: &World, body: &ChunkBody) -> BodyShape {
+    BodyShape { density: mean_density(world, body), floats: body_floats(world, body), reach: body_extent(body) + 1 }
+}
+
+/// The liquid a body is *inside*, if it is inside one.
+///
+/// Sampled one cell above the top of its own bounding box, at the middle
+/// column: that is outside the footprint (so it is never the body's own
+/// reservation), and it turns to liquid exactly when the body has gone a
+/// row under the surface — which is what "submerged" means for this. One
+/// `World::get` per body per frame.
+fn surrounding_liquid(world: &World, body: &ChunkBody) -> Option<MaterialId> {
+    let (mut x0, mut y0, mut x1) = (i32::MAX, i32::MAX, i32::MIN);
+    for cell in &body.cells {
+        let (x, y) = body.cell_position(cell);
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+    }
+    if x1 < x0 {
+        return None;
+    }
+    let probe = ((x0 + x1) / 2, y0 - 1);
+    if !world.in_bounds(probe.0, probe.1) {
+        return None;
+    }
+    let material = world.get(probe.0, probe.1).material;
+    (world.materials.kind(material) == MaterialKind::Liquid).then_some(material)
+}
+
+/// Buoyancy and a terminal speed, for one frame of sinking.
+///
+/// Two terms, and they answer different halves of the report:
+///
+/// - **Buoyancy** takes back the share of `GRAVITY` the displaced water
+///   carries, so rock sinks slower than it falls and something barely
+///   denser than water barely sinks at all. It is the density ratio and
+///   nothing tuned.
+/// - **A terminal speed**, because buoyancy alone does not stop a body
+///   *accelerating* — it only halves the rate. `scene=rockdrop`'s pieces
+///   reached `MAX_SPEED_PER_AXIS` **inside the pond**, not in the air above
+///   it: 6.00 cells/frame at the bottom of a thirty-row descent.
+///
+/// **A clamp rather than a drag term, and that was measured before it was
+/// chosen.** Quadratic drag (`v * |v|`) is the physically nicer model and
+/// produces the same uniform descent — and it costs rock, because it slows
+/// the *whole* descent rather than only its fast end, so pieces arrive
+/// later, one at a time, onto a pile that is already there, and get
+/// re-judged and re-broken. Paired on `scene=rockdrop`: quadratic drag at
+/// the coefficient that gives the tightest descent leaves **341 of 600
+/// cells as stone**, the clamp leaves **420**, and the do-nothing control
+/// leaves 450 while showing the artifact. The clamp buys the look for
+/// almost nothing.
+fn drag_through_liquid(body: &mut ChunkBody, shape: BodyShape, fluid_density: f32) {
+    let carried = (fluid_density / shape.density.max(f32::EPSILON)).min(1.0);
+    body.vy -= GRAVITY * carried;
+    // Scaled by the square root of the density excess and normalised so a
+    // body twice the density of the fluid sinks at exactly `SINK_SPEED` --
+    // the shape a real terminal velocity has, so heavy things sink faster
+    // than light ones without a second constant. Floored, so something
+    // nearly neutral still creeps down instead of hanging.
+    let excess = (1.0 - carried).max(0.0);
+    let terminal = (SINK_SPEED * (excess / 0.5).sqrt()).max(NEUTRAL_SINK_SPEED);
+    body.vy = body.vy.min(terminal);
+    body.vx = body.vx.clamp(-terminal, terminal);
+}
+
+/// Terminal sink speed in a liquid, in cells per frame, for a body **twice
+/// the density** of what it is sinking through.
+///
+/// Reported from play, on the drop the piece-integrity fix had just
+/// improved: *"it falls at slightly odd rates. There is a first group of
+/// chunks that drop too fast and then the rest that come together with the
+/// grit later."* Exactly reproduced -- at 1.6 stone settles at **1.84
+/// cells/frame** and holds it for the whole descent, against a spread of
+/// 0.14 to **6.00** with nothing here at all, and the contact sheet showed
+/// pieces on the pond floor while others were still at the surface.
+///
+/// Set from what the same rock's rubble does, because that is the
+/// complaint: chunks and grit arriving at different times reads as two
+/// different physics whatever either one is doing on its own. Slower was
+/// measured and is worse on the other axis -- at a terminal of 0.8 the
+/// pieces arrive one at a time onto a growing pile and 287 of 600 cells end
+/// as rubble against 180.
+const SINK_SPEED: f32 = 1.6;
+
+/// The floor under `SINK_SPEED`'s density scaling: a body only just denser
+/// than the liquid still goes down, slowly, rather than hanging in it.
+const NEUTRAL_SINK_SPEED: f32 = 0.1;
 
 /// How fast a body has to be falling before it throws a crown, in cells per
 /// frame.
@@ -2201,6 +2311,67 @@ mod tests {
             rows.len(),
             rows.iter().min(),
             rows.iter().max()
+        );
+    }
+
+    /// **A piece sinking through water holds one speed**, instead of
+    /// accelerating to the engine's own speed cap on the way down.
+    ///
+    /// Reported from play, on the drop the piece-integrity fix had just
+    /// improved: *"it falls at slightly odd rates. There is a first group
+    /// of chunks that drop too fast and then the rest that come together
+    /// with the grit later."* Measured on `scene=rockdrop` with nothing
+    /// holding a body back: **6.00 cells/frame** -- `MAX_SPEED_PER_AXIS`,
+    /// reached *inside* the pond rather than in the air above it -- and a
+    /// contact sheet with pieces on the floor while others were still at
+    /// the surface.
+    ///
+    /// Asserted as a **ceiling on the whole descent**, not as an average:
+    /// the complaint is about the fast end, and a mean over a group that
+    /// includes the slow ones would hide it. Buoyancy alone does not fix
+    /// it -- measured at **5.27 cells/frame** with buoyancy alone against 5.60
+    /// with nothing at all -- so the guard has to be a speed rather than a
+    /// rate, and both of those were red-checked against it.
+    #[test]
+    fn a_piece_sinking_through_water_does_not_run_away() {
+        let mut w = pond_world(80);
+        // **Walled**, for the reason
+        // `a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not`
+        // records: the bare pond spreads to the world edges and drops seven
+        // rows, so "the surface" is not where the fixture says it is -- and
+        // a body four rows below row 80 is then still in open air. Measured
+        // without the walls: 4.85 cells/frame "underwater", all of it above
+        // the actual water.
+        for y in 0..124 {
+            w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let cells: Vec<BodyCell> =
+            (0..6).flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 })).collect();
+        // Dropped from high enough to be moving fast when it arrives, which
+        // is the case that showed the artifact.
+        w.chunk_bodies.push(ChunkBody::falling(cells, 60.0, 20.0, 2.0));
+        let mut fastest_wet = 0.0f32;
+        for _ in 0..600 {
+            crate::sim::parallel::step(&mut w);
+            step_chunk_bodies(&mut w);
+            for b in &w.chunk_bodies {
+                // Only while it is actually in the water: the fall through
+                // air above the pond is not what this is about, and gating
+                // on it is what keeps the test from passing merely because
+                // the body never got up to speed.
+                if b.y > 84.0 {
+                    fastest_wet = fastest_wet.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+                }
+            }
+        }
+        assert!(fastest_wet > 0.0, "test setup: the body never reached the water, so this asserts nothing");
+        // `SINK_SPEED` puts stone's terminal at about 1.8; the bar is
+        // double that, comfortably under the 6.00 the artifact reached and
+        // well clear of the transient a body carries in with it.
+        assert!(
+            fastest_wet < 3.6,
+            "a piece reached {fastest_wet:.2} cells/frame underwater; it is accelerating through the pond rather than sinking"
         );
     }
 

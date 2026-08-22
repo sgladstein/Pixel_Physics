@@ -3134,6 +3134,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // visibly threw rock is exactly the confusion this harness exists to
     // prevent.
     let mut peak_bodies = 0usize;
+    // **How fast the fastest piece ever went, and when the first and last
+    // of them came to rest.** Reported from play as *"a first group of
+    // chunks that drop too fast and then the rest that come together with
+    // the grit later"* -- which is two quantities, a peak speed and an
+    // arrival spread, and the per-tile sample cannot give either: it sees
+    // whichever bodies happen to be alive at that instant.
+    let mut peak_speed = 0.0f32;
+    let (mut first_rest, mut last_rest) = (None::<usize>, 0usize);
+    let mut was_flying = false;
     // The bank at the previous tile, so the census can print a *rate* beside
     // the standing total. `None` on the first tile, which prints +0.00 rather
     // than a delta against a number that does not exist.
@@ -3156,6 +3165,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             // in made all seven scenes report the same ~70-110 ms and hid
             // the differences between them entirely.
             peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            for b in &world.chunk_bodies {
+                peak_speed = peak_speed.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+            }
+            let flying = !world.chunk_bodies.is_empty();
+            if was_flying && !flying {
+                first_rest.get_or_insert(step_no);
+                last_rest = step_no;
+            }
+            was_flying = flying;
             if ms > worst_ms && step_no > 0 {
                 worst_ms = ms;
                 worst_frame = step_no;
@@ -3216,6 +3234,24 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             world.chunk_bodies.len(),
             world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
         );
+        // **How fast the pieces are actually going**, which the count
+        // above cannot say and which play asked about: *"it falls at
+        // slightly odd rates -- a first group of chunks that drop too fast
+        // and then the rest that come together with the grit later."*
+        // Printed as a spread, because the complaint is about the spread:
+        // one number would be the average of the two groups and describe
+        // neither.
+        if !world.chunk_bodies.is_empty() {
+            let mut speeds: Vec<f32> =
+                world.chunk_bodies.iter().map(|b| (b.vx * b.vx + b.vy * b.vy).sqrt()).collect();
+            speeds.sort_by(|a, b| a.partial_cmp(b).expect("no NaN speeds"));
+            println!(
+                "    body speed: slowest {:.2}, median {:.2}, fastest {:.2} cells/frame",
+                speeds[0],
+                speeds[speeds.len() / 2],
+                speeds[speeds.len() - 1]
+            );
+        }
         // Which failure fired, cumulatively. An overloaded piece and a
         // piece that was never held look identical falling, so the image
         // cannot say which mechanism produced what is on screen -- and
@@ -3722,6 +3758,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // frame rather than per tile, because a body's whole life can fall
         // between two captures.
         println!("peak chunk bodies in flight at once: {peak_bodies}");
+    }
+    if peak_speed > 0.0 {
+        println!(
+            "fastest piece: {peak_speed:.2} cells/frame; everything came to rest between frames {} and {last_rest}",
+            first_rest.map_or("-".to_string(), |f| f.to_string())
+        );
         println!("worst full-screen draw: {worst_draw_ms:.2} ms");
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
             .expect("writing the contact sheet");

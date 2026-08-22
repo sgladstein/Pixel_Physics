@@ -81,6 +81,12 @@ was broken up again, over and over. Now the deeper the water, the longer
 the fall; it does not cost the piece anything. A pile of rock on a pond
 floor is jagged.
 
+**And it sinks at a pace rather than accelerating.** Water pushes back:
+a piece slows as it goes under, settles to a steady sink, and heavier rock
+goes down faster than lighter. What that buys is that everything from one
+break arrives *together* — no piece outruns the grit it came off, and none
+reaches the bottom while the rest are still at the surface.
+
 **And ground that goes away is noticed.** A piece can be held up by nothing
 but the loose material beneath it, and loose material moves: the gravel
 washes out, the debris sinks, the sand pours away downhill. When that
