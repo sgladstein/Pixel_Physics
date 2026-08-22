@@ -1,0 +1,45 @@
+{
+  "id": "20260822T011221397Z-f3511a",
+  "created": "2026-08-22T01:12:21Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/creatures",
+    "branch": "creatures-m18",
+    "commit": "6f9683b",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\creatures"
+  },
+  "title": "Leaf litter: the wood drops food on its own floor",
+  "question": "Same forest, same trees, same frame (11,000). A is what ships today; B is the identical run with abscission writing nothing, as it did before. Does the litter mat read as leaf litter, and is it the right amount? It roughly doubles a colony's food supply and costs 45% of mean frame time -- I would rather you set the amount than have me tune it to a number.",
+  "context_md": "COUNTERS, because a floor with food on it looks the same whichever mechanism put it there: litter cells 11,478 total / 1,227 within three rows of the surface; at shade_death 0.0 both read exactly 0, so the counter is honest. Deliveries 238 -> 313 (+31%) in a paired ascii run whose control reproduces the pre-S4 numbers exactly. Mean frame 1.875 -> 2.714 ms (+45%), worst 38.8 -> 85.5. Colony-band food energy 600 -> ~58,000, which is about 50-65 ant-lifetimes for 52 ants -- food stops being scarce, and that invalidates the band creature_space was calibrated against. THE PALE CREAM LAYER IN BOTH IMAGES IS ROOTS, not litter; litter is the olive-yellow mat just under the canopy in A. Known gap: litter does not rot yet -- decay checks are keyed to a position and litter falls away from where it was shed, so it accumulates over a long game. The fix needs a scheduler change and I have not made it unasked.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "litter (shipped)",
+      "files": [
+        "20260822T011221397Z-f3511a/000-s4-floor-litter.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "no litter (before)",
+      "files": [
+        "20260822T011221397Z-f3511a/001-s4-floor-control.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
