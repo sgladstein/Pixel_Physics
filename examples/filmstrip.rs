@@ -2189,6 +2189,7 @@ fn parse() -> Args {
         fall: 90,
         pond: 60,
     };
+    let mut named_gif = false;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -2204,7 +2205,10 @@ fn parse() -> Args {
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
-            "out" => a.out = v.into(),
+            "out" => {
+                named_gif = v.ends_with(".gif");
+                a.out = v.into();
+            }
             "gif" => a.gif = v != "false",
             "grain" => {
                 a.grain = match v {
@@ -2320,6 +2324,21 @@ fn parse() -> Args {
             }
             other => panic!("unknown argument {other:?}"),
         }
+    }
+    // **A file named `.gif` gets a GIF.**
+    //
+    // `gif` defaults off, so omitting it while asking for `out=clip.gif`
+    // wrote a contact sheet -- a PNG -- into a file with a `.gif` name, and
+    // nothing anywhere complained. It cost a review round: a 110-tile sheet
+    // 1,264 by 13,392 went out as an animation and came back as *"this is
+    // not an animated gif, it is a panel of a bunch of static images"*.
+    //
+    // Inferred rather than rejected, because the filename is an unambiguous
+    // statement of intent and an error here would only be read after the
+    // same mistake. Announced, so it is never a silent reinterpretation.
+    if named_gif && !a.gif {
+        println!("gif: out is named .gif, so writing an animation ({} frames at true speed)", a.count);
+        a.gif = true;
     }
     a
 }
@@ -2692,11 +2711,21 @@ fn dump_materials(world: &World, args: &Args) {
 /// and a sheet under one still counts. Snow is skipped rather than counted
 /// either way: it falls *onto* the water and is not what freezing over
 /// means.
-fn frozen_surface(world: &World) -> (usize, usize) {
+fn frozen_surface(world: &World) -> (usize, usize, f64, usize) {
     use pixel_physics::sim::material;
     let (mut frozen, mut total) = (0usize, 0usize);
+    let (mut thickness_sum, mut thickest) = (0usize, 0usize);
     for x in 0..WIDTH {
         let (mut top, mut depth) = (None, 0usize);
+        // The unbroken run of ice from the first freezable cell down --
+        // **the quantity Stefan's law is about**, and the one thing this
+        // census could not say. Coverage answers "has it closed over"; a
+        // sheet that has closed can still be one cell thick or nine, and
+        // the whole shape of real ice growth is thickness against time
+        // (it goes as the square root, because ice insulates the water
+        // under it). Nothing printed it, so nothing could see the curve.
+        let mut run = 0usize;
+        let mut counting = false;
         for y in 0..HEIGHT {
             let cell = world.get(x, y);
             let m = world.materials.get(cell.material);
@@ -2720,6 +2749,14 @@ fn frozen_surface(world: &World) -> (usize, usize) {
                 let freezable = is_ice || pixel_physics::sim::update::liquid_fill(cell) >= m.freeze_min_fill;
                 if top.is_none() && freezable {
                     top = Some(is_ice);
+                    counting = is_ice;
+                }
+                if counting {
+                    if is_ice {
+                        run += 1;
+                    } else {
+                        counting = false;
+                    }
                 }
             }
         }
@@ -2729,10 +2766,15 @@ fn frozen_surface(world: &World) -> (usize, usize) {
         // percentage stopped being about the pond it was asked about.
         if depth >= POND_MIN_DEPTH {
             total += 1;
-            frozen += usize::from(top == Some(true));
+            if top == Some(true) {
+                frozen += 1;
+                thickness_sum += run;
+                thickest = thickest.max(run);
+            }
         }
     }
-    (frozen, total)
+    let mean = if frozen > 0 { thickness_sum as f64 / frozen as f64 } else { 0.0 };
+    (frozen, total, mean, thickest)
 }
 
 /// How deep a column of water has to be before the `ice:` readout counts it
@@ -3042,7 +3084,7 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
         }
     }
     if let Some((min_cols, max_cells)) = args.ice {
-        let (frozen_cols, total_cols) = frozen_surface(world);
+        let (frozen_cols, total_cols, _, _) = frozen_surface(world);
         let ice_cells = water_census(world).1;
         if frozen_cols < min_cols {
             println!("  FAIL: expected at least {min_cols} of {total_cols} water columns frozen at the surface, got {frozen_cols}");
@@ -3769,7 +3811,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             //   change in standing ice. A healthy front is near 1.0 --
             //   almost every freeze sticks. A slush is unbounded, because
             //   the numerator keeps counting and the denominator is zero.
-            let (surface_frozen, surface_total) = frozen_surface(&world);
+            let (surface_frozen, surface_total, mean_thick, thickest) = frozen_surface(&world);
             let (froze, melted) = (world.phase_changes.froze, world.phase_changes.melted);
             let churn = match last_ice {
                 Some((pf, pm, pi)) => {
@@ -3785,6 +3827,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                     "    ice: {surface_frozen} of {surface_total} water columns frozen at the surface ({:.0}%){churn}",
                     100.0 * surface_frozen as f64 / surface_total as f64
                 );
+                if surface_frozen > 0 {
+                    println!("    sheet: {mean_thick:.1} cells thick on average, {thickest} at the thickest");
+                }
             }
             let standing = pixel_physics::sim::weather::water_equivalents(&world);
             println!(
