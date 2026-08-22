@@ -2082,6 +2082,7 @@ fn parse() -> Args {
                 a.bubbles = match v {
                     "off" => BubbleMode::Off,
                     "rising" => BubbleMode::Rising,
+                    "large" => BubbleMode::Large,
                     "columns" => BubbleMode::Columns,
                     "surface" => BubbleMode::Surface,
                     other => panic!("unknown bubbles {other:?}"),
