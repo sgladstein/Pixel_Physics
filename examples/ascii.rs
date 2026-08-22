@@ -1364,7 +1364,27 @@ fn forage_loop_scene() {
     }
     // Let the stand actually grow before the ants arrive; a seedling has no
     // leaves to eat.
+    //
+    // **Drives the CA too, and that is a repair rather than a tidy-up.**
+    // This loop used to call only `step_active_sites` + `step_fields`, which
+    // is every phase a growing plant needs *except* the one that runs the
+    // weather: `weather::step` is the first thing both CA drivers do
+    // (`update.rs`, `parallel.rs`). So the 2,400 frames this stand grows in
+    // were rainless by construction -- and so were infiltration and
+    // capillary flow, which are also CA-dispatched.
+    //
+    // That did not matter while a plant ran on one currency. It matters now
+    // that a root drinks soil moisture, because this scene builds its world
+    // from `worldgen`, which leaves soil away from water at `aux == 0` --
+    // and a warmup that cannot rain is a warmup that can never wet it. Six
+    // trees grew **zero** leaves here, which is this scene's own food
+    // supply, and the ants starved (`Reports/open-bugs-handoff.md`, the
+    // blocking entry).
+    //
+    // Matches `run` below, minus the timing instrumentation and pheromones
+    // -- there are no creatures yet at this point to leave a trail.
     for _ in 0..2400 {
+        parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
     }

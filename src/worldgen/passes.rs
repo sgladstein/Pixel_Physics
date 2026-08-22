@@ -3158,12 +3158,39 @@ pub fn soil_moisture(ctx: &Ctx, world: &mut World) -> usize {
             if capacity == 0 {
                 continue;
             }
+            // **The climate baseline is a FLOOR under every arm, not a
+            // replacement for the far one**, and getting that wrong was a
+            // real defect caught in review before it landed.
+            //
+            // The arms below are a *capillary fringe*: wettest in the water,
+            // drying with distance. Written as a fourth arm, the baseline
+            // competed with them instead of underwriting them -- and since
+            // the `match` takes the first matching arm, a cell two cells
+            // from a pond got the fringe's 240 while a cell fifty columns
+            // away got the climate's 570. **A dry ring around every pond,
+            // with damper ground beyond it**: non-monotonic and backwards.
+            // On `rolling` that is a tree at the water's edge reading 0.14
+            // plant-available against 0.65 out in the field.
+            //
+            // As a floor it composes correctly, and gives the intended
+            // behaviour for free: in wet country the profile flattens
+            // (1000, 620, 570, 570) because damp ground is damp everywhere,
+            // and in dry country the fringe still reads (1000, 620, 240,
+            // 50). The gradient stays visible exactly where the climate is
+            // dry, which is where it means something.
+            let baseline = {
+                let wet = 1.0 - ctx.terrain.character(x as i32).aridity;
+                let want = material::SOIL_FIELD_CAPACITY as f32 * wet;
+                (capacity as f32 * (want / material::SOIL_SATURATED as f32)) as u16
+            };
             let target = match d[idx(x, y)] {
                 dist if dist <= 0 => capacity,
                 1 => (capacity as f32 * fringe_fraction[0]) as u16,
                 2 => (capacity as f32 * fringe_fraction[1]) as u16,
-                _ => continue,
-            };
+                // Beyond the fringe the climate is all there is.
+                _ => 0,
+            }
+            .max(baseline);
             if crate::sim::update::soil_moisture(cell) < target {
                 world.set(x as i32, y as i32, cell.with_aux(target));
                 n += 1;

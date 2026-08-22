@@ -470,6 +470,189 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
+### Z. The stand still reads as one mass — **JUDGED 2026-08-22. Two verdicts, and a metric that lied.**
+
+Two cards, both answered by the owner, and together they settle a question
+this session got wrong twice in opposite directions.
+
+**Card 1 — the merged stand judged against the absolute standard** (one
+stand, frame 28,800 at noon, "how many separate trees can you count? eight
+were planted"):
+
+> **"No. Everything has merged together into a big mass. I cannot identify
+> individual trees."**
+
+**Card 2 — a blind A/B, merged against `plant-substrate-v2` alone:**
+
+> *"In A everything has merged together, In B two of the trees have merged
+> and 2 are more seperate. Big improvement but not a full solve"* — with
+> the merged stand confirmed as the better side.
+
+**Both are true and they are not in conflict: the merge improved a bad
+situation that is still bad.** The delta is positive; the absolute is a
+fail. That is precisely why `tree-architecture-research.md` §7d says to
+judge against a clear bole and a foliage crown rather than against the
+previous frame — and this session demonstrated the trap in both directions,
+first raising a false alarm from an A/B and then retracting too far from
+the owner's "not wildly different".
+
+**The metric lesson, which is the reusable part.** The absolute-standard
+card reported *"crown shyness is working"* on the strength of one number:
+the **widest unbroken run of plant cells above ground was 39 cells against
+a 56-cell founder spacing**, i.e. no row is continuous across two crowns.
+That number was correct and the conclusion drawn from it was wrong. Crowns
+interleave with one- and two-cell gaps: every row breaks, and the eye still
+reads one mass. **A contiguous-run metric measures whether crowns *touch*;
+it cannot measure whether they are *distinguishable*.** Anyone reaching for
+it again should know it has been believed once and overturned by looking.
+
+What would actually measure the claim is unsolved here. Candidates worth
+trying before trusting any of them: count connected components of foliage
+at the field's resolution rather than the cell's; or measure the width of
+the *sky gaps* between founders rather than the runs of plant; or simply
+accept that this one is judged by eye and post the card.
+
+**Still open**, and now with an owner verdict behind it rather than a
+suspicion: the stand does not read as separate trees. The bole findings in
+§Y (bottom crown band 60 where a clear-boled tree reads 0, foliage centre
+58, foliage share 27% and falling with age) are the measured shape behind
+it.
+
+### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, BLOCKING, 2026-08-22**
+
+`scripts/acceptance.sh`'s `wood` case fails on the merged branch:
+
+```
+gnome: at (43, 189), wading, travelled 34 cells, 36/98 cells behind foliage
+FAIL: expected the gnome to cover at least 200 cells, he covered 34
+```
+
+**Attribution, because it took a controlled look.** `wood` is a case
+**`main` added** — the suite had 16 cases at the first integration and 17
+now, and `scene=wood` is absent from `9d3176c`'s `acceptance.sh` and present
+in `origin/main`'s. It came in with the second integration and fails with
+the plant lines merged. It is **not** caused by the Phase 1 worldgen work:
+`scene=wood` builds from `common::PlantScene`, which is hand-built at
+`SOIL_FIELD_CAPACITY` and never calls worldgen. Verified deterministic —
+two runs, identical to the cell.
+
+**A reporting error of mine, corrected here.** I reported acceptance as
+green after the second integration. It was not: I read `tail -2` of a file
+the suite was still writing and never saw the verdict line. The case has
+been failing since `f424f98` with these exact numbers.
+
+**Not "trees are walls" — that was checked and is false.** `Footing::Climb`
+and `Material::climbable`/`fall_drag` are present and identical in
+`origin/main` and here, so living plants are already walk-through and
+climbable. The gnome-tree work is in.
+
+**It is litter, and the split is measured.** Disabling `shed_to_litter`
+(shed leaves vanish, as they did before the ecology line) and re-running:
+
+| | travelled | reached |
+|---|---|---|
+| as shipped | **34** | x = 43 |
+| litter disabled | **152** | x = 161 |
+| bar | 200 | |
+
+So **litter accounts for 118 of the 166-cell shortfall.** He reports
+`wading` in both runs — that state means *overlapping loose powder*, not
+water, and `wade_slowdown` cuts his horizontal speed for every cell of it.
+The forest floor is now deep enough in shed leaves to bog him down. Note
+`wade_rows = 4` is the point where wading stops and *stuck* begins, so this
+has a cliff in it, not just a slope.
+
+**A residual 48 cells is not litter**, and is the likelier home of the
+shape argument below: even with litter off he reaches 152 against a bar of
+200. `PlantScene` plants its first founder at **x = 56**, so the as-shipped
+gnome stops **thirteen cells short of the first trunk** — blocked by
+ground-level spread rather than by the trunk itself.
+
+That is the same defect the absolute-standard review measured from the
+other end. Judged against a clear bole and a foliage crown, the merged
+stand scored **bottom crown band = 60** where a clear-boled tree reads
+**0** — foliage running all the way to the ground — and a foliage centre of
+58, which is a mound rather than a crown. **A tree with a clear bole leaves
+a gap at ground level to walk under. A tree whose foliage reaches the
+ground is a hedge.** The shape measurement and the gameplay failure are one
+fact, and this case is what it costs.
+
+Worth noting the case's own comment records the same class from the other
+direction: it exists because a gnome *"travelled 0 cells and spent the run
+BURIED, having been entombed by a crown that grew over the spot he was
+standing on."*
+
+**OWNER'S CALL, 2026-08-22: not the plant merge's to fix.** *"If the gnome
+is just sinking a little into powders we can either remove that effect or
+the player can jump out. Either way it doesn't seem like your
+responsibility to fix."* So this is handed to whoever owns the player: the
+options named are dropping the wading slowdown for shallow powder, or
+giving the gnome a way out of it. Note the plant side is not blameless —
+it is the ecology line's litter he is wading in — but the *response* lives
+in `player.rs`, and `wade_rows`/`wade_slowdown` are its knobs.
+
+**Two things that are true at once, and worth keeping for whoever takes
+it.** The bar
+(`min_travelled=200`) was calibrated on `main`'s trees, which are a
+different shape — so it is partly the water-branch problem in miniature, a
+constant measured against a world that no longer exists. But *"the gnome
+gets through a wood"* is a gameplay property, not a calibration detail, and
+if he cannot, that is a regression whoever set the number. **Not fixed
+here**: the fix is the missing bole, which is the tree-architecture
+programme, not a merge repair.
+
+### X. A desert with no desert plants — **DESIGN DIRECTION, 2026-08-22. Do not "fix" this by watering deserts.**
+
+The worldgen soil baseline now scales `0 -> SOIL_FIELD_CAPACITY` by
+`1 - aridity`, so an arid column lands near **50** against a wilting point
+of **180** — plant-available water of **exactly zero**. Arid country is
+genuinely dead, and for the tree that is correct: a tree should not grow in
+a desert.
+
+**But the owner's stated direction is that there should be different plants
+for different biomes, including plants that can live in a desert** — and
+as the engine stands **that is impossible by construction**, which is the
+part worth writing down:
+
+- `material::SOIL_WILTING_POINT` is a **single global constant**
+  (`material.rs:67`), and
+- `update::plant_available_fraction(cell)` takes only a `Cell`
+  (`update.rs:991`) — **there is no species in scope**, so every plant in
+  the world has the identical drought floor.
+
+**State this precisely, because the loose version is wrong.** Species *can*
+already differ in how they **cope** with shortage: `stomatal_reserve` sets
+how early an individual closes its stomata and hoards, `drought_death` sets
+how readily it sheds, and storage scales with root mass
+(`water_capacity_of`). What no species can differ in is how much water it
+can **get** from a given soil — that is the wilting point, and it is one
+number for the whole world.
+
+So a would-be desert plant can be given a huge reserve and no shedding, and
+it will extract **not one extra drop** from dry ground; it will simply die
+more slowly on the same zero income. And extraction is exactly the trait
+that makes a xerophyte one: a cactus's trick is reaching water others
+cannot, not enduring having none. In real biology the permanent wilting
+point is species-specific — that is most of what being a desert plant
+*means* — so this constant is modelling as universal a thing that should be
+a trait.
+
+**The change is small and well-shaped, which is why it is worth recording
+rather than doing hastily.** One function signature gains a floor
+parameter, three call sites in `plant.rs` pass it (all three already have
+organism/species context: `absorb_water` at `:384`, and the two
+root-scoring sites at `:3068` and `:3605`), and species files gain a
+drought-tolerance field. `life_scatter` already thins placement by
+`aridity`, so worldgen already knows which biome it is in — it just has
+only `tree` and moss to place.
+
+**The aridity baseline is the prerequisite for this, not an obstacle to
+it.** Before it, soil was either bone dry or wet: a binary with no gradient
+to adapt *along*. There is now a continuum from ~50 in arid country to ~570
+in wetland, which is exactly what makes a lower wilting point worth having
+— it buys a species somewhere to live that a tree cannot. **The dead desert
+is the niche, not the bug.**
+
 ### W. The water-cycle branch and this one are two halves of one mechanic — **SEQUENCING DECIDED, 2026-08-22**
 
 `origin/claude/water-phase-changes-ki6g8c` (tip `dcbdf7f`) is not adjacent

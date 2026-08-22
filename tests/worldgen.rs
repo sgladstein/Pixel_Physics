@@ -277,6 +277,115 @@ fn every_solid_is_anchored_and_no_liquid_carries_a_stale_fill() {
 }
 
 #[test]
+fn soil_moisture_never_rises_with_distance_from_water() {
+    // **The guard for the climate baseline, and it is written to fail for
+    // the replacement rather than the original.**
+    //
+    // `soil_moisture` is a capillary fringe -- wettest in the water, drying
+    // outward -- with a climate baseline underneath it. The first draft of
+    // that baseline was a fourth `match` arm rather than a floor, and
+    // because the `match` takes the first matching arm, a cell two cells
+    // from a pond kept the fringe's 240 while a cell fifty columns away got
+    // the climate's 570. A **dry ring around every pond, with damper ground
+    // beyond it** -- backwards, and invisible to every test that existed:
+    // the pass still wrote, still varied by preset, still looked like a
+    // plausible world.
+    //
+    // What catches it is the *shape*, not the magnitude: moisture must
+    // never be higher further from water than nearer to it. That is true of
+    // the fringe alone (the original) and of the fringe over a floor (the
+    // replacement), and false only of the two competing.
+    //
+    // Sampled along the surface rather than over the whole grid, because
+    // the claim is about lateral distance from water and a vertical column
+    // has its own profile (drainage, the water table) that is not this.
+    let presets = presets();
+    for name in ["wetland", "rolling", "canyon", "terraced", "arid", "flat"] {
+        let Some(params) = presets.get(name) else { continue };
+        for seed in SEEDS {
+            let world = build(params, seed);
+            let Some(bounds) = world.bounds() else { continue };
+
+            // Per column: does it hold water, and what is the moisture of
+            // its topmost water-holding cell.
+            let mut wet_col: Vec<bool> = Vec::new();
+            let mut top_moisture: Vec<Option<u16>> = Vec::new();
+            for x in bounds.min_x..=bounds.max_x {
+                let mut holds_water = false;
+                let mut m0 = None;
+                for y in bounds.min_y..=bounds.max_y {
+                    let cell = world.get(x, y);
+                    let m = world.materials.get(cell.material);
+                    if m.kind == material::MaterialKind::Liquid {
+                        holds_water = true;
+                    }
+                    if m0.is_none() && m.water_capacity > 0 {
+                        m0 = Some(pixel_physics::sim::update::soil_moisture(cell));
+                    }
+                }
+                wet_col.push(holds_water);
+                top_moisture.push(m0);
+            }
+            if !wet_col.iter().any(|&w| w) {
+                continue; // no water in this world; nothing to be near or far from
+            }
+
+            // **Lateral distance to the nearest water-bearing column**, which
+            // is the axis the fringe is built on. Bucketing by "does my own
+            // column hold water" is NOT enough and was the first version of
+            // this guard: the inverted ring sits two cells out, which is
+            // still a column without water, so the ring and the far field
+            // landed in one bucket and cancelled.
+            let n = wet_col.len();
+            let mut dist = vec![i32::MAX; n];
+            let mut run = i32::MAX;
+            for i in 0..n {
+                if wet_col[i] { run = 0 } else if run != i32::MAX { run += 1 }
+                dist[i] = run;
+            }
+            run = i32::MAX;
+            for i in (0..n).rev() {
+                if wet_col[i] { run = 0 } else if run != i32::MAX { run += 1 }
+                dist[i] = dist[i].min(run);
+            }
+
+            // **Compared inside a local window, not across the world.**
+            // The climate baseline is per column and `aridity` varies
+            // laterally, so a global near-vs-far comparison measures
+            // "is dry country far from ponds" rather than "is the fringe
+            // monotonic" -- the first version of this guard failed on that
+            // and it was the guard that was wrong, not the pass. Aridity
+            // moves smoothly over hundreds of columns, so within +/-25 the
+            // climate term is effectively constant and any difference left
+            // is the fringe.
+            let mean = |v: &[u64]| -> Option<u64> { (!v.is_empty()).then(|| v.iter().sum::<u64>() / v.len() as u64) };
+            for (w, &is_wet) in wet_col.iter().enumerate() {
+                if !is_wet {
+                    continue;
+                }
+                let take = |lo: i32, hi: i32| -> Vec<u64> {
+                    (0..n)
+                        .filter(|&i| {
+                            let off = (i as i32 - w as i32).abs();
+                            off >= lo && off <= hi && dist[i] >= lo && dist[i] <= hi
+                        })
+                        .filter_map(|i| top_moisture[i].map(|m| m as u64))
+                        .collect()
+                };
+                // 1..=3 is just outside the water (the fringe reaches 2);
+                // 12..=25 is past it but still in the same climate.
+                let (Some(near), Some(far)) = (mean(&take(1, 3)), mean(&take(12, 25))) else { continue };
+                assert!(
+                    near >= far,
+                    "{name} seed {seed}, pond at x={w}: soil 1-3 cells out is DRIER ({near}) than soil 12-25 cells out ({far}).                      The capillary fringe is inverted -- a dry ring around the pond with damper ground beyond it.                      Most likely the climate baseline is competing with the distance arms instead of flooring them."
+                );
+            }
+        }
+    }
+
+}
+
+#[test]
 fn every_pass_writes_something() {
     // The counter that a picture cannot replace. A pass that silently never
     // fires leaves terrain that still looks plausible — this engine has
