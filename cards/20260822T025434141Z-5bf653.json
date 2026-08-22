@@ -1,0 +1,52 @@
+{
+  "id": "20260822T025434141Z-5bf653",
+  "created": "2026-08-22T02:54:34Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "2e1043e",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Leaf litter, wider crop (re-shot)",
+  "question": "Now that you can see the whole stand: is there a leaf-litter layer on that floor that reads as its own thing, or does it still just look like soil?",
+  "context_md": "Re-shot after your *\"too hard to tell from the tight crop\"* — same world, same noon frame, whole width instead of a 140-cell close-up.\n\n**What to look for:** litter is the medium brown in the rows just above the ground line. The pale tan branching *below* the line is tree roots, not litter.\n\n**My own read, for what it is worth: I still cannot cleanly separate them**, and I think that is the answer — I authored litter's browns close to soil's on purpose so the layer would read as texture rather than a second canopy lying down, and that looks like the wrong call.\n\nThe mechanism is definitely there: **12,056 pending decay sites against 105 before the change**, converging, i.e. a standing forest floor at equilibrium between leaf fall and decay. If it does not read, the fix is the palette.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Whole stand at noon",
+      "files": [
+        "20260822T025434141Z-5bf653/000-wpb2-litter-wide.png"
+      ],
+      "caption": "full width, 2x. Ground line mid-frame; pale tan below it is roots",
+      "meta": {
+        "pending decay sites": 12056,
+        "sites before litter": 105,
+        "worst frame (ms)": 240.6,
+        "baseline worst frame (ms)": 257.74
+      },
+      "focus": null
+    },
+    {
+      "label": "The tight crop you saw before",
+      "files": [
+        "20260822T025434141Z-5bf653/001-wpb2-litter-noon.png"
+      ],
+      "caption": "140 cells at 6x -- included only so the two are comparable",
+      "meta": {
+        "crop width (cells)": 140
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
