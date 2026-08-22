@@ -1,0 +1,79 @@
+{
+  "id": "20260822T194132088Z-f3902c",
+  "created": "2026-08-22T19:41:32Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-integration",
+    "branch": "plant-integration",
+    "commit": "237783f",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-integration"
+  },
+  "title": "Four biomes, after the worldgen soil baseline",
+  "question": "(1) Read as a climate gradient -- does wetland-to-rolling-to-canyon-to-arid look like four biomes, or like one biome with the plant count turned down? (2) Is arid dead in a way that reads as desert, or in a way that reads as broken? (3) Rolling shows individual trees where wetland reads as one continuous mass -- is wetland too dense, or is that what a wetland should look like?",
+  "context_md": "**What changed, and why you are seeing it.** The plant merge made water a real\nsecond currency: a plant draws from soil `aux`, and that scales photosynthesis.\n`origin/main` had no such draw at all. The consequence was the blocker this\nbranch opened with -- worldgen wetted soil only near water, so **six trees on\ngenerated terrain grew zero leaves**. The fix was a climate baseline in the\nworldgen moisture pass, derived from the per-column `aridity` that already\ndecides where trees get planted.\n\n**These are the same four presets, same seed, same frame (10,800 -- a multiple\nof the 3,600-frame day, so all four are at noon and none is mid-rain).** Nothing\nhere is hand-placed: every plant grew from the generator's own scattered seeds.\n\n**Paired against a control run with the baseline switched off** (same build,\nsame seed, one line disabled), which is what the world did before:\n\n| preset | living tissue, before -> after | decay events |\n|---|---|---|\n| wetland | 4,950 -> 24,160 | 113 -> 554 |\n| rolling | **12 -> 14,166** | 0 -> 260 |\n| canyon | **7 -> 6,064** | 0 -> 58 |\n| arid | 0 -> 0 | 0 -> 0 |\n\nThe two small numbers are the finding. Rolling's control total of **12** living\ncells is exactly its `life_scatter` count of 12, and canyon's **7** is exactly\nits 7 -- meaning every seed the generator scattered was still sitting there as a\nseed, ungerminated, for the whole run. Those biomes were not sparse before. They\nwere **inert**.\n\n**What I got wrong on the way here, since it changes what you should look for.**\nI predicted this would flood the whole map with \"damp\" readings and set moss and\ndecay running hot everywhere (moss spreads 175x faster on damp ground, decay\n25x). Measured, that is not the story: only **2-7%** of standing litter sits\nabove the damp gate, because litter lies in the air block *above* the soil and\nthe field samples it there. Wetland was also already damp before the change --\nthe old pass seeded from the water table, not just from ponds. So the change is\nmuch less about *dampness* than I claimed, and almost entirely about **plants\nexisting at all**.\n\n**Arid is bare on purpose, but not for the reason I first said.** It is not that\nits baseline falls under a threshold -- it is that any column drier than\n`SAND_ARIDITY` carries sand rather than soil, and sand holds no water at all. So\narid grows nothing by construction, which is the desert-species gap you have\nalready logged rather than a tuning question.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "wetland",
+      "files": [
+        "20260822T194132088Z-f3902c/000-wetland.png"
+      ],
+      "caption": "frame 10,800 (noon), seed 1, same crop for all four",
+      "meta": {
+        "living plant tissue": "24160 cells",
+        "standing litter": "4756 cells",
+        "decay events": "554 (401 damp / 153 dry)"
+      },
+      "focus": null
+    },
+    {
+      "label": "rolling",
+      "files": [
+        "20260822T194132088Z-f3902c/001-rolling.png"
+      ],
+      "caption": "frame 10,800 (noon), seed 1, same crop for all four",
+      "meta": {
+        "living plant tissue": "14166 cells",
+        "standing litter": "2017 cells",
+        "decay events": "260 (198 damp / 62 dry)"
+      },
+      "focus": null
+    },
+    {
+      "label": "canyon",
+      "files": [
+        "20260822T194132088Z-f3902c/002-canyon.png"
+      ],
+      "caption": "frame 10,800 (noon), seed 1, same crop for all four",
+      "meta": {
+        "living plant tissue": "6064 cells",
+        "standing litter": "593 cells",
+        "decay events": "58 (42 damp / 16 dry)"
+      },
+      "focus": null
+    },
+    {
+      "label": "arid",
+      "files": [
+        "20260822T194132088Z-f3902c/003-arid.png"
+      ],
+      "caption": "frame 10,800 (noon), seed 1, same crop for all four",
+      "meta": {
+        "living plant tissue": "0 cells",
+        "standing litter": "0 cells",
+        "decay events": "0 (0 damp / 0 dry)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
