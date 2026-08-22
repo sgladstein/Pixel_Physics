@@ -76,6 +76,20 @@ struct Pass {
     /// Columns of context this pass reads beyond the ones it writes. `0` is a
     /// pure per-column pass; [`GLOBAL`] means it reads the world.
     margin: i32,
+    /// Roughly what share of generation this pass is, in parts per thousand
+    /// of the whole — **for the loading bar only**.
+    ///
+    /// Measured at 8192x2560 with `PASS_TIMING=1`, where three stages are 98%
+    /// of the wall time: `stone_massif` 3882 ms, `compute_world_distances`
+    /// 2665, `soil_moisture` 888, and everything else together 250. A bar
+    /// driven by the *count* of stages would therefore sit still through
+    /// half the wait and then leap, which is the thing a progress bar exists
+    /// not to do.
+    ///
+    /// Being somewhat wrong here is cosmetic and nothing reads it but the
+    /// bar, so it does not need re-deriving every time a pass changes — only
+    /// when one of the big three moves.
+    weight: u16,
     /// Returns how many cells it wrote.
     ///
     /// Reporting the count is not bookkeeping: a picture cannot show whether
@@ -90,9 +104,9 @@ struct Pass {
 
 /// Generation stages, in order. Later passes overwrite earlier ones.
 const PASSES: &[Pass] = &[
-    Pass { name: "stone_massif", margin: 0, run: passes::stone_massif },
-    Pass { name: "bedrock_floor", margin: 0, run: passes::bedrock_floor },
-    Pass { name: "soil_blanket", margin: 2, run: passes::soil_blanket },
+    Pass { name: "stone_massif", margin: 0, weight: 514, run: passes::stone_massif },
+    Pass { name: "bedrock_floor", margin: 0, weight: 1, run: passes::bedrock_floor },
+    Pass { name: "soil_blanket", margin: 2, weight: 4, run: passes::soil_blanket },
     // The two formation passes read further than they write, and by a lot.
     // Both numbers were re-derived when cliff detection gained its
     // escarpment scale, and one of them was already wrong before that:
@@ -106,9 +120,9 @@ const PASSES: &[Pass] = &[
     //   brows: RUN_FAR (20) of detection + MAX_BROW_REACH (20) of writing
     //   talus: RUN_FAR (20) + MAX_FALL (120) walking to the foot
     //          + 2 * MAX_TALUS_PEAK (60) of apron
-    Pass { name: "brows", margin: 40, run: passes::brows },
-    Pass { name: "talus", margin: 200, run: passes::talus },
-    Pass { name: "pockets", margin: 0, run: passes::pockets },
+    Pass { name: "brows", margin: 40, weight: 1, run: passes::brows },
+    Pass { name: "talus", margin: 200, weight: 1, run: passes::talus },
+    Pass { name: "pockets", margin: 0, weight: 6, run: passes::pockets },
     // Residual landforms -- tors, stacks, pinnacles authored directly
     // (`residual.rs`; B1 measured plan-space erosion never offers one to
     // protect, `Reports/worldgen-implementation-tasks-round6-formations.md`
@@ -121,13 +135,13 @@ const PASSES: &[Pass] = &[
     // and before `boulders` (so a boulder's own collect-verify-write sees a
     // residual that already claimed a site as solid stone and correctly
     // declines to overlap it, rather than the two colliding).
-    Pass { name: "residuals", margin: 80, run: residual::residuals },
+    Pass { name: "residuals", margin: 80, weight: 1, run: residual::residuals },
     // Boulder sockets from erosion's shed markers. Zero margin: a marker at
     // `x` seats a cluster whose footprint is at most a handful of columns
     // either side of `x`, well inside a single column's worth of slack, and
     // the marker itself is plan-space data already computed for the whole
     // world rather than something this pass has to look sideways for.
-    Pass { name: "boulders", margin: 0, run: passes::boulders },
+    Pass { name: "boulders", margin: 0, weight: 1, run: passes::boulders },
     // Finite, and derived rather than guessed: a cave system is placed at a
     // column and reaches at most `MAX_CAVE_HALF_W` either side of it, plus
     // `VAULT_RIND` of stone that must be checked; the geode vug's
@@ -143,17 +157,17 @@ const PASSES: &[Pass] = &[
     // is what catches it now, and it asserts against the constants rather
     // than against a literal so raising the cap fails the test instead of
     // the world.
-    Pass { name: "vaults", margin: 224, run: passes::vaults },
+    Pass { name: "vaults", margin: 224, weight: 1, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
     // They are the first honest `GLOBAL` entries in this table and the debt
     // the coarse map is for.
-    Pass { name: "ponds", margin: GLOBAL, run: passes::ponds },
-    Pass { name: "soil_moisture", margin: GLOBAL, run: passes::soil_moisture },
-    Pass { name: "moisture_init", margin: GLOBAL, run: passes::moisture_init },
+    Pass { name: "ponds", margin: GLOBAL, weight: 1, run: passes::ponds },
+    Pass { name: "soil_moisture", margin: GLOBAL, weight: 118, run: passes::soil_moisture },
+    Pass { name: "moisture_init", margin: GLOBAL, weight: 2, run: passes::moisture_init },
     // Last, so it can see the finished ground -- including whether a column
     // ended up under water.
-    Pass { name: "life_scatter", margin: 0, run: passes::life_scatter },
+    Pass { name: "life_scatter", margin: 0, weight: 1, run: passes::life_scatter },
 ];
 
 /// Everything the passes share: the decided columns, and the material ids
@@ -252,7 +266,32 @@ impl<'a> Ctx<'a> {
 /// it here means every solid has a real distance from frame one, exactly as
 /// the hand-authored terrain always has.
 pub fn generate(world: &mut World, spec: Spec) {
-    generate_only(world, spec);
+    generate_reporting(world, spec, &mut |_, _| {});
+}
+
+/// Shares of the whole for the two stages that are not rows in `PASSES`, on
+/// the same per-thousand scale as `Pass::weight` and measured the same way.
+/// The plan phase is `Ctx::new` (erosion included) at 134 ms; `structure` is
+/// `compute_world_distances` at 2665 ms, the second-largest stage there is.
+const PLAN_WEIGHT: u16 = 18;
+const STRUCTURE_WEIGHT: u16 = 353;
+
+/// Called with `(fraction_done, stage_name)` **before** each stage runs, so a
+/// caller can put a name and a bar on screen while it waits.
+///
+/// A fraction rather than a stage index, because the stages are wildly
+/// uneven — see `Pass::weight`. The plan phase and `compute_world_distances`
+/// are reported even though neither is a row in `PASSES`: between them they
+/// are over a third of the wall time, so a caller driven by the pass table
+/// alone would show nothing happening through two of the longest waits.
+pub type Progress<'a> = &'a mut dyn FnMut(f32, &'static str);
+
+/// [`generate`], announcing each stage before it starts.
+pub fn generate_reporting(world: &mut World, spec: Spec, progress: Progress) {
+    let total = f32::from(PLAN_WEIGHT + STRUCTURE_WEIGHT)
+        + PASSES.iter().map(|p| f32::from(p.weight)).sum::<f32>();
+    let _ = generate_reported_with(world, spec, &mut |done, name| progress(done as f32 / total, name));
+    progress((total - f32::from(STRUCTURE_WEIGHT)) / total, "structure");
     structural::compute_world_distances(world);
 }
 
@@ -261,6 +300,15 @@ pub fn generate(world: &mut World, spec: Spec) {
 /// The counter that goes next to the picture. A pass reporting zero has not
 /// run, whatever the render suggests.
 pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, usize)> {
+    generate_reported_with(world, spec, &mut |_, _| {})
+}
+
+/// [`generate_reported`] with a stage announcement before each pass.
+fn generate_reported_with(
+    world: &mut World,
+    spec: Spec,
+    stage: &mut dyn FnMut(u32, &'static str),
+) -> Vec<(&'static str, usize)> {
     match spec {
         Spec::Legacy => {
             legacy::build(world);
@@ -277,6 +325,8 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
             // it is not a row in `PASSES`, so it has to be timed here or it
             // is invisible to any per-pass accounting.
             let plan_started = std::time::Instant::now();
+            stage(0, "plan");
+            let mut done = u32::from(PLAN_WEIGHT);
             let ctx = Ctx::new(world, params, seed);
             let plan_ms = plan_started.elapsed().as_secs_f64() * 1000.0;
             // `PASS_TIMING=1` prints wall time per pass. Gated behind an env
@@ -288,6 +338,8 @@ pub fn generate_reported(world: &mut World, spec: Spec) -> Vec<(&'static str, us
                 .iter()
                 .map(|pass| {
                     let started = std::time::Instant::now();
+                    stage(done, pass.name);
+                    done += u32::from(pass.weight);
                     let written = (pass.run)(&ctx, world);
                     if timing {
                         println!(
@@ -426,6 +478,37 @@ pub fn pass_summary() -> Vec<(&'static str, i32)> {
 mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
+
+    /// The loading bar's input is monotonic, starts at zero and ends near
+    /// one, and no single stage is most of the bar.
+    ///
+    /// The last clause is the one worth having: `Pass::weight` is a set of
+    /// hand-entered numbers that nothing else reads, so nothing else would
+    /// ever notice them drifting away from the truth. A bar that jumps from
+    /// 5% to 95% in one step is the failure this guards, and it is invisible
+    /// to every other test in the repo.
+    #[test]
+    fn generation_reports_progress_that_moves_steadily() {
+        let (presets, _) = crate::worldgen::WorldgenPresets::load();
+        let name = presets.default_name();
+        let params = presets.get(&name).expect("the default preset resolves").clone();
+        let mut world = crate::sim::world::World::new(Rect::new(0, 0, 511, 319));
+
+        let mut seen: Vec<(f32, &'static str)> = Vec::new();
+        generate_reporting(&mut world, Spec::Generated { params: &params, seed: 1 }, &mut |f, n| {
+            seen.push((f, n))
+        });
+
+        assert_eq!(seen.len(), PASSES.len() + 2, "one report per stage, plus plan and structure");
+        assert_eq!(seen[0].0, 0.0, "the bar does not start empty: {:?}", seen[0]);
+        assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "progress went backwards: {seen:?}");
+        let last = seen.last().expect("at least one stage");
+        assert_eq!(last.1, "structure", "the last stage reported is not the structural pass");
+        assert!(last.0 > 0.5 && last.0 < 1.0, "the final stage starts at {} of the bar", last.0);
+
+        let biggest = seen.windows(2).map(|w| w[1].0 - w[0].0).fold(0.0f32, f32::max);
+        assert!(biggest < 0.6, "one stage is {:.0}% of the bar in a single jump", biggest * 100.0);
+    }
 
     #[test]
     fn only_the_water_passes_read_the_whole_world() {

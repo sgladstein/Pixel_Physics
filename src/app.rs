@@ -61,9 +61,22 @@ const INITIAL_SEED: u64 = 0x5EED;
 /// edited while the app was running — neither is worth failing over when
 /// there is a working world one branch away.
 fn build_world_with(world: &mut World, presets: &WorldgenPresets, preset: &str, seed: u64) {
+    build_world_reporting(world, presets, preset, seed, &mut |_, _| {});
+}
+
+/// [`build_world_with`], announcing each generation stage as it starts.
+fn build_world_reporting(
+    world: &mut World,
+    presets: &WorldgenPresets,
+    preset: &str,
+    seed: u64,
+    progress: worldgen::Progress,
+) {
     match presets.get(preset) {
-        Some(params) => worldgen::generate(world, worldgen::Spec::Generated { params, seed }),
-        None => worldgen::generate(world, worldgen::Spec::Legacy),
+        Some(params) => {
+            worldgen::generate_reporting(world, worldgen::Spec::Generated { params, seed }, progress)
+        }
+        None => worldgen::generate_reporting(world, worldgen::Spec::Legacy, progress),
     }
 }
 
@@ -297,7 +310,32 @@ fn dirty_asset_count() -> Option<usize> {
 }
 
 impl App {
+    /// A fully built world, generated on this thread.
     pub fn new() -> Self {
+        Self::build(true, &mut |_, _| {})
+    }
+
+    /// A fully built world, announcing each generation stage as it starts —
+    /// what the loading screen in `main.rs` runs on a worker thread.
+    pub fn new_reporting(progress: worldgen::Progress) -> Self {
+        Self::build(true, progress)
+    }
+
+    /// Everything except the world, which is left empty.
+    ///
+    /// The placeholder the window has something to hold while the real one is
+    /// generated elsewhere. Cheap — the expensive half of startup is
+    /// generation and the structural distance field, and this does neither.
+    /// Deliberately a whole `App` rather than an `Option<App>` in the
+    /// handler: the frame loop touches `self.app` in 85 places, and making
+    /// every one of them fallible to express a state that lasts a few
+    /// seconds at startup would be the tail wagging the dog. The real one
+    /// replaces this wholesale when the worker finishes.
+    pub fn new_pending() -> Self {
+        Self::build(false, &mut |_, _| {})
+    }
+
+    fn build(generate: bool, progress: worldgen::Progress) -> Self {
         let mut world = World::new(Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1));
 
         // Load over the compiled-in set, so edits made before launch apply and
@@ -323,7 +361,9 @@ impl App {
         }
         let worldgen_preset = worldgen_presets.default_name();
         let worldgen_seed = INITIAL_SEED;
-        build_world_with(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed);
+        if generate {
+            build_world_reporting(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed, progress);
+        }
 
         let paintable = world.materials.paintable();
         // Start on sand: the material that most obviously shows whether the
@@ -672,7 +712,10 @@ impl App {
     }
 
     /// Put `text` on screen for `TOAST_FRAMES`. See `App::toast`.
-    fn show_toast(&mut self, text: impl Into<String>) {
+    /// `pub` because the binary is a separate crate from the library, and
+    /// `main.rs`'s loading screen reports how long generation took through
+    /// the same channel every other transient notice uses.
+    pub fn show_toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), self.world.frame + TOAST_FRAMES));
     }
 
@@ -2729,5 +2772,70 @@ mod tests {
             0,
             "world never settled after painting"
         );
+    }
+}
+
+#[cfg(test)]
+mod loading_path {
+    use super::*;
+
+    /// `App` can cross a thread boundary.
+    ///
+    /// Not a curiosity: `main.rs` generates the world on a worker and moves
+    /// the finished `App` back, so an `Rc` or a raw pointer added to any
+    /// field would break the loading screen. The failure would be a compile
+    /// error in the binary rather than the library, which is a long way from
+    /// the field that caused it — this puts it next to the cause.
+    #[test]
+    fn app_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<App>();
+    }
+
+    /// Generating with a progress callback builds the *same world* as
+    /// generating without one.
+    ///
+    /// The loading screen would be worth nothing if it quietly produced a
+    /// different world from the one every test and every seed screenshot is
+    /// taken against, and `PLAN.md` requires same-build determinism. Compared
+    /// by checksum over every cell rather than by spot checks, for the reason
+    /// the round-7 field work kept relearning: a world that is subtly
+    /// different but still plausible passes every property assertion.
+    #[test]
+    fn reporting_progress_does_not_change_the_world() {
+        fn checksum(app: &App) -> u64 {
+            let mut acc: u64 = 0xcbf2_9ce4_8422_2325;
+            let bounds = app.world.bounds().expect("the app world has bounds");
+            for y in bounds.min_y..=bounds.max_y {
+                for x in bounds.min_x..=bounds.max_x {
+                    let c = app.world.get(x, y);
+                    for byte in [c.material.0 as u64, c.aux() as u64, c.shade as u64] {
+                        acc ^= byte;
+                        acc = acc.wrapping_mul(0x100_0000_01b3);
+                    }
+                }
+            }
+            acc
+        }
+
+        let quiet = App::new();
+        let mut stages: Vec<&'static str> = Vec::new();
+        let reported = App::new_reporting(&mut |_, name| stages.push(name));
+
+        assert!(!stages.is_empty(), "vacuous: nothing reported a stage");
+        assert_eq!(checksum(&quiet), checksum(&reported), "the reported build produced a different world");
+    }
+
+    /// The placeholder is empty, and cheap because it is.
+    #[test]
+    fn a_pending_app_has_not_generated_anything() {
+        let pending = App::new_pending();
+        let bounds = pending.world.bounds().expect("the app world has bounds");
+        let solid = (bounds.min_y..=bounds.max_y)
+            .step_by(16)
+            .flat_map(|y| (bounds.min_x..=bounds.max_x).step_by(16).map(move |x| (x, y)))
+            .filter(|&(x, y)| pending.world.get(x, y).material != crate::sim::material::EMPTY)
+            .count();
+        assert_eq!(solid, 0, "the placeholder world already has {solid} cells in it");
     }
 }
