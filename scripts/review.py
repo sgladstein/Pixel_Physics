@@ -94,6 +94,26 @@ def build_card(root: Path, spec: dict) -> dict:
         files = files or ([item["file"]] if item.get("file") else [])
         if not files:
             raise SystemExit("item %r has no files" % item.get("label"))
+        # **An animation cannot share an item.** `files` is the frame-sequence
+        # field: several entries in one item become a scrubbable strip, so a
+        # GIF sitting beside a still does not render as an animation next to a
+        # picture -- it becomes frame 0 of a two-frame sequence and the motion
+        # is gone. Silently, and the card looks right from the posting side.
+        # Refused rather than warned, and rather than quietly split: a card is
+        # fire-and-forget, so a warning on stderr is read at exactly the moment
+        # nobody is looking, and splitting would have to guess which item the
+        # label, caption and meta belong to. This costs one re-post; the
+        # alternative costs a round trip through the owner.
+        animated = [f for f in files if str(f).lower().endswith(".gif")]
+        if animated and len(files) > 1:
+            raise SystemExit(
+                "item %r puts %s in the same item as %d other file(s).\n"
+                "`files` is the frame-sequence field, so they would render as a "
+                "%d-frame strip and the animation would be lost.\n"
+                "Give the gif an item of its own -- one file per item, as many items "
+                "as you like -- or use --gif and --image, which do that for you."
+                % (item.get("label") or "(unlabelled)", animated[0], len(files) - 1, len(files))
+            )
         stored = []
         for src in files:
             stored.append(rl.copy_media(root, card_id, src, copied))
