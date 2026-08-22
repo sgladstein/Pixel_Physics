@@ -1,0 +1,55 @@
+{
+  "id": "20260822T011155757Z-f3f95a",
+  "created": "2026-08-22T01:11:55Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "d59bd7a",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Leaf litter on the forest floor: can you actually see it?",
+  "question": "Is there a visible layer of shed leaves on this forest floor, distinct from the soil under it -- or does it just read as more soil?",
+  "context_md": "WP-B2. Shed leaves now become a `litter` material instead of vanishing, and it rots back into soil where it lies.\n\n**The mechanism is definitely working** — the counter says so, and this is the case where a picture cannot: the scheduler holds **12,056 pending decay sites at frame 50,000, against 105 before the change**. Each one is a settled litter cell waiting to rot. It converges (8,424 → 11,671 → 12,056), so that is a standing forest floor at equilibrium between leaf fall and decay, not a leak.\n\n**What I am unsure about is whether any of that is visible**, and I think I got it wrong. I chose litter's browns to sit *close to soil's* so the layer would read as texture rather than as a second canopy lying down. Looking at the close-up, I now suspect that was a mistake: twelve thousand cells of it and I cannot confidently pick it out from the soil myself.\n\n**Orientation for the close-up:** the pale branching shapes are tree *roots* (`rootwood`), not litter. Litter is the medium brown, mostly in the rows just above the ground line.\n\n**Frame cost, which was the hard constraint:** paired against the pre-change commit on the same machine minutes apart, worst frame **240.60 ms vs 257.74 ms** — no regression; HEAD is slightly cheaper. Decay is scheduled when a chunk *settles*, so falling litter costs nothing extra and the dirty-rect skip is untouched.\n\nIf it does not read, the fix is litter's palette, not the mechanism.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Close-up at noon",
+      "files": [
+        "20260822T011155757Z-f3f95a/000-wpb2-litter-noon.png"
+      ],
+      "caption": "140 cells wide, 6x. Ground line near the top; pale branching = roots, not litter",
+      "meta": {
+        "pending decay sites": 12056,
+        "sites before change": 105,
+        "worst frame (ms)": 240.6,
+        "baseline worst frame (ms)": 257.74
+      },
+      "focus": null
+    },
+    {
+      "label": "Full width, three times of day",
+      "files": [
+        "20260822T011155757Z-f3f95a/001-wpb2-litter-floor.png"
+      ],
+      "caption": "frames 20,000 / 35,000 / 50,000 -- night, dawn, day (not noon-matched; the close-up above is)",
+      "meta": {
+        "sites @20k": 8424,
+        "sites @35k": 11671,
+        "sites @50k": 12056,
+        "awake chunks @50k": "2/40"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
