@@ -1,0 +1,55 @@
+{
+  "id": "20260822T165724375Z-7046bb",
+  "created": "2026-08-22T16:57:24Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "280ad9b",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Spires became a place: rock country vs barren, same world",
+  "question": "Is this the shape you meant -- most of the world with none at all, and the stretches that do have them holding several? And inside rock country, are there enough of them, or should it be denser still?",
+  "context_md": "Your verdict: *\"They should not exist at all in most biomes but some biomes should have them and they can be more regular. I didn't mean a uniform decrease in spires.\"*\n\n**Both panes are canyon, seed 7, the same world** -- only the position differs. A is world x 200-2248, B is world x 4200-6248. `residual_density` is back at 1.4 (the 0.45 thinning is reverted).\n\nWhat changed: whether a stretch of world grows spires at all is now a low-frequency **rock-country field**, roughly 1700 columns per feature, rather than a per-region draw. A region here is only 102-256 columns -- a fifth to a half of one screen -- so gating on the region made 'rock country' smaller than the view. Measured, that version was indistinguishable from the thinning you rejected: both gave canyon 0/2/4 spires per screen.\n\nTwo things I am *not* asking about and would rather fix separately: the pillars are thin and pole-like rather than chunky tors (that is the residual shape model, untouched here), and the mesas/benches in both panes are canyon's terracing, not residuals.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- inside rock country",
+      "files": [
+        "20260822T165724375Z-7046bb/000-rock-country.png"
+      ],
+      "caption": "canyon seed 7, world x 200-2248. Gnomes for scale.",
+      "meta": {
+        "rock country spans": "world x 0-2388 and 7687-8191",
+        "spires here (6-seed aggregate, inside)": 66,
+        "same columns with residuals OFF": 14,
+        "residual gain per 1000 columns": 3.104
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- barren, same world",
+      "files": [
+        "20260822T165724375Z-7046bb/001-barren.png"
+      ],
+      "caption": "canyon seed 7, world x 4200-6248. formation is exactly 0 throughout.",
+      "meta": {
+        "spires here (6-seed aggregate, outside)": 44,
+        "same columns with residuals OFF": 43,
+        "residual gain per 1000 columns": 0.031,
+        "inside:outside contrast": "100x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
