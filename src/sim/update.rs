@@ -1005,7 +1005,15 @@ pub(crate) fn plant_available_fraction(cell: Cell) -> f32 {
     ((m - wp) / (fc - wp)).clamp(0.0, 1.0)
 }
 
-pub(crate) fn liquid_fill(cell: Cell) -> u16 {
+/// How full a `Liquid` cell is, in `material::LIQUID_FULL` units.
+///
+/// **`aux == 0` on a `Liquid` means *full*, not empty** — the convention
+/// `CLAUDE.md` lists first among the gotchas, because getting it backwards
+/// manufactures water out of nothing. This is the one place that knows it,
+/// which is why the harnesses read fill through here rather than off
+/// `Cell::aux` (`examples/filmstrip.rs`'s ice census does, and would have
+/// had the convention inverted if it had not).
+pub fn liquid_fill(cell: Cell) -> u16 {
     let aux = cell.aux();
     if aux == 0 {
         material::LIQUID_FULL

@@ -112,12 +112,24 @@ const TREE_GROUND_Y: i32 = 40;
 /// `seed=` is deliberately *not* wired to this: the frame window is chosen
 /// for this seed and means nothing on another one.
 const COLDSNAP_SEED: u64 = 2900;
-const COLDSNAP_START: u64 = 24310;
-/// The frame seed 2900's snow turns to rain -- the moment the cold stops.
-/// Not read by the simulation (`weather::at` is the authority) but a run
-/// whose tiles all sit before this is a run that never showed a thaw, and
-/// that is worth being able to see in the log.
-const COLDSNAP_SNOW_ENDS: u64 = 25010;
+/// The frame `scene=coldsnap` starts at, and it is the start of a **long**
+/// cold spell rather than of a snowfall.
+///
+/// Re-found when cold stopped needing snow to fall
+/// (`weather::DRY_FROST_CHILL`). The old 24,310 sat in a spell whose usable
+/// cold ran about 700 frames -- twelve seconds -- which was fine when a
+/// pond iced over in a third of one and useless once freezing took a
+/// minute: every clip ended mid-freeze. Seed 2900's spells run to 21,570
+/// frames; `weather.rs`'s `probe_cold_spells` prints them with their start
+/// frames, so this is derived rather than hunted for. This one is 20,100
+/// frames of unbroken cold, which holds the whole arc -- freeze-over,
+/// a long hold, and a thaw -- inside one run.
+const COLDSNAP_START: u64 = 124_680;
+/// The frame seed 2900's cold spell ends. Not read by the simulation
+/// (`weather::at` is the authority) but a run whose tiles all sit before
+/// this is a run that never showed a thaw, and that is worth being able to
+/// see in the log.
+const COLDSNAP_SNOW_ENDS: u64 = 144_780;
 const COLDSNAP_SHORE_Y: i32 = 240;
 const COLDSNAP_POND_DEPTH: i32 = 20;
 
@@ -1859,6 +1871,26 @@ struct Args {
     /// material came away in. Peak concurrent bodies is the quantity that
     /// actually says "it threw pieces".
     min_bodies: Option<usize>,
+
+    /// `ice=minCols,maxCells` -- exit non-zero unless at least `minCols` of
+    /// the pond's columns are frozen at the surface **and** no more than
+    /// `maxCells` of it is ice in total.
+    ///
+    /// **Both halves, because each alone passes the artifact the other
+    /// catches.** Reported from play: *"it never really freezes"* -- which
+    /// a coverage floor answers -- and the fix for it, left unbounded,
+    /// turns a pond into a solid block, which only a ceiling on the ice
+    /// itself sees. A cell count alone cannot tell a closed sheet from a
+    /// churning slush of the same mass, and a coverage figure alone cannot
+    /// tell a sheet from a pond frozen to its bed.
+    ///
+    /// Lives here rather than in a unit test because the constant it
+    /// guards, `weather::SHEET_MAX_THICKNESS`, is invisible in a dry
+    /// fixture: it limits how far the front's sweep reaches *through* what
+    /// is already frozen, and it is a lying drift that spends that budget.
+    /// Measured with the cap removed, this scene goes 570 cells of ice to
+    /// **823**, and the water under it 507 to 158.
+    ice: Option<(usize, i64)>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -2023,6 +2055,7 @@ fn parse() -> Args {
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        ice: None,
         max_lost: None,
         dump: None,
         depth: None,
@@ -2142,6 +2175,10 @@ fn parse() -> Args {
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
+            "ice" => {
+                let (cols, cells) = v.split_once(',').expect("ice=minCols,maxCells");
+                a.ice = Some((cols.parse().expect("ice minCols"), cells.parse().expect("ice maxCells")));
+            }
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -2534,6 +2571,62 @@ fn dump_materials(world: &World, args: &Args) {
 /// 8-connected, matching the neighbourhood `load::detached_piece` floods
 /// over: a cluster here is meant to be the piece the model would have
 /// considered, so a diagonal join must not split it into two.
+/// Of the columns that hold water at all, how many have ice at the top of
+/// it — see the `ice:` readout.
+///
+/// **The topmost water-phase cell in the column, not the topmost cell**, so
+/// a drift of snow lying on a sheet does not read as an unfrozen surface
+/// and a sheet under one still counts. Snow is skipped rather than counted
+/// either way: it falls *onto* the water and is not what freezing over
+/// means.
+fn frozen_surface(world: &World) -> (usize, usize) {
+    use pixel_physics::sim::material;
+    let (mut frozen, mut total) = (0usize, 0usize);
+    for x in 0..WIDTH {
+        let (mut top, mut depth) = (None, 0usize);
+        for y in 0..HEIGHT {
+            let cell = world.get(x, y);
+            let m = world.materials.get(cell.material);
+            let is_water = cell.material == material::WATER;
+            // Ice, by the same identity test `weather::water_equivalents`
+            // uses: a solid whose melting point is below ambient and which
+            // melts back into water.
+            let is_ice = m.kind == MaterialKind::Solid && m.melts_into == Some(material::WATER);
+            if is_water || is_ice {
+                depth += 1;
+                // **A part-full cell is skipped, not counted as unfrozen.**
+                // `fire.rs` refuses to freeze a liquid below its
+                // `freeze_min_fill` on purpose -- water holds its fringe
+                // liquid to keep the freeze/thaw loop conservative -- and
+                // the top row of a settled pond is exactly that remainder.
+                // Counting it made this metric read **0 of 60 columns
+                // frozen on a pond with 900 cells of ice in it**, which
+                // would have been read as the mechanism doing nothing.
+                // `CLAUDE.md`: ask what a metric counts when nothing is
+                // wrong.
+                let freezable = is_ice || pixel_physics::sim::update::liquid_fill(cell) >= m.freeze_min_fill;
+                if top.is_none() && freezable {
+                    top = Some(is_ice);
+                }
+            }
+        }
+        // **A pond, not a puddle.** Without this the denominator jumps the
+        // moment a snowfall thaws: meltwater spreads a film over the whole
+        // world and `scene=coldsnap` went from 60 columns to 465, so the
+        // percentage stopped being about the pond it was asked about.
+        if depth >= POND_MIN_DEPTH {
+            total += 1;
+            frozen += usize::from(top == Some(true));
+        }
+    }
+    (frozen, total)
+}
+
+/// How deep a column of water has to be before the `ice:` readout counts it
+/// as part of a pond. Four: deeper than the film a thaw spreads over flat
+/// ground, far shallower than anything anyone would call a pond.
+const POND_MIN_DEPTH: usize = 4;
+
 /// Largest cluster the hanging census asks cell by cell.
 ///
 /// Censusing a cluster of `k` unattached cells costs `k^2`, because
@@ -2835,6 +2928,18 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    if let Some((min_cols, max_cells)) = args.ice {
+        let (frozen_cols, total_cols) = frozen_surface(world);
+        let ice_cells = water_census(world).1;
+        if frozen_cols < min_cols {
+            println!("  FAIL: expected at least {min_cols} of {total_cols} water columns frozen at the surface, got {frozen_cols}");
+            ok = false;
+        }
+        if ice_cells > max_cells {
+            println!("  FAIL: expected at most {max_cells} cells of ice -- a sheet, not a solid pond -- got {ice_cells}");
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_failing_cells {
         let cells = f.overloaded_cells + f.unsupported_cells;
         if cells < min {
@@ -2879,7 +2984,8 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             || args.max_failures.is_some()
             || args.max_unconfined.is_some()
             || args.max_frame_ms.is_some()
-            || args.min_bodies.is_some())
+            || args.min_bodies.is_some()
+            || args.ice.is_some())
     {
         println!("  OK: scene={} met its expectations", args.scene);
     }
@@ -3032,6 +3138,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // the standing total. `None` on the first tile, which prints +0.00 rather
     // than a delta against a number that does not exist.
     let mut last_bank: Option<f64> = None;
+    // Cross-tile state for the ice churn readout -- see the `ice:` line.
+    let mut last_ice: Option<(u32, u32, i64)> = None;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
@@ -3442,6 +3550,44 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             // quantity that must hold still across a whole storm-and-drought
             // cycle -- and a tile-by-tile printout is where a drift shows up
             // as a trend rather than as a single end-of-run number.
+            // **How much of the water's *surface* is frozen, and how much
+            // of the freezing was undone.**
+            //
+            // Reported from play: *"it never really freezes and has snow
+            // accumulate on top. The pixels seem to be constantly shifting."*
+            // Neither half of that is answerable from the counters above.
+            // `frozen` is a cell count, and a pond can hold three hundred
+            // ice cells forever as a **churning slush** that never closes
+            // into a sheet -- measured on `scene=coldsnap`: 491 freezes and
+            // 510 melts across 340 frames for a net of **minus nineteen**,
+            // with the band stuck at a quarter of the pond the whole time.
+            //
+            // So two numbers, and they answer different questions:
+            //
+            // - **coverage**: of the columns that hold any water at all,
+            //   how many have ice at the top of that water. That is the
+            //   thing a player calls "frozen over".
+            // - **churn**: freeze events since the last tile against the
+            //   change in standing ice. A healthy front is near 1.0 --
+            //   almost every freeze sticks. A slush is unbounded, because
+            //   the numerator keeps counting and the denominator is zero.
+            let (surface_frozen, surface_total) = frozen_surface(&world);
+            let (froze, melted) = (world.phase_changes.froze, world.phase_changes.melted);
+            let churn = match last_ice {
+                Some((pf, pm, pi)) => {
+                    let (df, dm, di) = (froze - pf, melted - pm, frozen - pi);
+                    let ratio = if di > 0 { format!("{:.1}", df as f64 / di as f64) } else { "no net gain".to_string() };
+                    format!(", since the last tile froze +{df}, melted +{dm}, standing {di:+} (churn {ratio})")
+                }
+                None => String::new(),
+            };
+            last_ice = Some((froze, melted, frozen));
+            if surface_total > 0 {
+                println!(
+                    "    ice: {surface_frozen} of {surface_total} water columns frozen at the surface ({:.0}%){churn}",
+                    100.0 * surface_frozen as f64 / surface_total as f64
+                );
+            }
             let standing = pixel_physics::sim::weather::water_equivalents(&world);
             println!(
                 "    water + sky: {standing:.1} standing + {:.1} banked = {:.1} cell-equivalents",

@@ -55,11 +55,42 @@ fn snapshot(world: &World) -> Vec<(i32, i32, u16)> {
         for x in 0..=BOUNDS.0 {
             let c = world.get(x, y);
             if c.material != material::EMPTY {
-                out.push((x, y, c.material.0));
+                out.push((x, y, phase_agnostic(world, c.material)));
             }
         }
     }
     out
+}
+
+/// A material id with the **water phases collapsed to one**, so that water
+/// freezing where it stands does not read as the terrain moving.
+///
+/// `generated_terrain_is_already_at_rest` diffs `(x, y, material)` sets, so
+/// a lake icing over reports every one of its surface cells as having "left
+/// its position". That is not a hypothetical: it is recorded in
+/// `weather::WATER_CHILL`'s own doc as a real failure of this test, caught
+/// once when freezing was tied too loosely to snowfall — and it came back
+/// the moment cold was allowed to act without precipitation
+/// (`DRY_FROST_CHILL`), at 690 cells on the wetland preset, seed 3.
+///
+/// The first time it was a bug. This time it is the weather doing exactly
+/// what it should on a world whose seed happens to put a cold spell over
+/// frame 0. The test's claim is about *terrain holding still*, so the fix
+/// belongs here rather than in the assertion: a cell that changed phase in
+/// place has not gone anywhere. Terrain still has to hold still, and water
+/// still has to stay where it is — only which phase it is in stops
+/// counting.
+fn phase_agnostic(world: &World, id: material::MaterialId) -> u16 {
+    let m = world.materials.get(id);
+    let is_water_phase = id == material::WATER
+        || m.melts_into == Some(material::WATER)
+        || m.cools_into == Some(material::WATER)
+        || m.boils_into == Some(material::WATER);
+    if is_water_phase {
+        material::WATER.0
+    } else {
+        id.0
+    }
 }
 
 fn world_hash(world: &World) -> u64 {

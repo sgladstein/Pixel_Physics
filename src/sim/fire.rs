@@ -69,35 +69,28 @@ const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 /// number, not a derived one — sweep it (rebuilding between points) if a
 /// front reads wrong.
 const PHASE_CHANGE_CHANCE: f32 = 0.4;
-
-/// The same per-visit roll for **melting**, and far slower, because a thaw
-/// is the one phase change a player watches over seconds rather than
-/// frames.
+/// How likely a cell above its melting point is to actually melt, per
+/// visit.
 ///
-/// # Why this is a rate and not a latent-heat brake
+/// **A thaw is slow, and this arm was instantaneous.** Melting was
+/// deliberately ungated -- *"thaw urgency is carried by the temperature
+/// gradient itself"* -- and a playtest overturned it: 362 cells of ice and
+/// 1,788 of snow went to zero of both inside ten frames, under a fifth of a
+/// second.
 ///
-/// Boiling is braked by `pay_latent_heat`, which charges the neighbourhood
-/// for the heat the change takes, and copying that for fusion is the
-/// obvious move: melting a gram of ice costs about a seventh of boiling a
-/// gram of water (334 J/g against 2,260), so 80 against
-/// `LATENT_HEAT_DEGREES`'s 540. **Built, measured, and it does not
-/// transfer.**
+/// **0.004, down from 0.015, and re-derived from a measurement rather than
+/// halved on taste.** With a pond that now freezes over across a minute or
+/// two, the thaw at 0.015 took 8 seconds; at 0.004 it takes **20**, which
+/// is the order of magnitude play asked for ("when it melts, it happens in
+/// 1 second"). 0.0015 was measured too and is worse, not better: the sheet
+/// goes 60 columns to 8 over 32 seconds and then *lingers* in scattered
+/// patches, which is the "ragged and patchy, the last of it hangs about"
+/// artifact rather than ice retreating.
 ///
-/// The reason is that the two ends of this world are not calibrated alike.
-/// A boil has lava at 1,000°C beside it and 540 is easily found. A thaw has
-/// nothing warmer than **ambient, 20°C** anywhere in it — the world relaxes
-/// *towards* 20 rather than past it — so an ice cell at a melting point of
-/// 1 can see at most 19 degrees per warm neighbour, and 80 is unreachable.
-/// Measured twice: with air excluded as a payer (as boiling excludes it,
-/// correctly, or an open pool boils for free), a pond sat at 392 frozen
-/// cells 280 frames after the snap ended; with air paying, the same 392,
-/// because four air faces come to 76 and the bill is 80.
-///
-/// A latent-heat brake on fusion wants a heat model with a cold reservoir
-/// in it, which this is not yet. Until then the honest thing is a rate that
-/// says it is a rate. Swept on `scene=coldsnap` -- see the commit that set
-/// it for the table.
-const MELT_CHANCE: f32 = 0.015;
+/// Two budgets are set from this rate and have to move with it:
+/// `a_melting_cell_yields_its_own_density_in_liquid_not_a_free_full_cell`'s
+/// 2,000-visit allowance, and `weather.rs`'s `THAW_SETTLE_BUDGET`.
+const MELT_CHANCE: f32 = 0.004;
 
 /// And the same for **freezing**, which shared `PHASE_CHANGE_CHANCE` with
 /// boiling and had no business doing so.
@@ -1549,11 +1542,14 @@ mod tests {
         // `aux 37` is a plausible relaxed anchor distance — exactly the
         // value that must not survive as a fill.
         w.set(30, 30, Cell::new(solid, 0).with_aux(37).with_temperature(AMBIENT_TEMPERATURE));
-        // 400 visits, not 3: melting is a per-visit roll at `MELT_CHANCE`
-        // now, so the mean wait is ~67 frames. The budget is set from that
-        // rate with headroom, not from an aspiration -- a thaw that takes
-        // seconds is the whole point of the change.
-        assert!(update_until_changed(&mut w, 30, 30, 400), "a solid above its melting point never melted");
+        // 2,000 visits, not 3: melting is a per-visit roll at
+        // `MELT_CHANCE` now, so the mean wait is ~250 frames. The budget is
+        // set from that rate with headroom, not from an aspiration -- a
+        // thaw that takes tens of seconds is the whole point of the change,
+        // and this budget was already re-derived once when the rate moved
+        // from 0.015 to 0.004 (400 frames stopped being enough and the test
+        // failed on the *dense* case, the third of three draws).
+        assert!(update_until_changed(&mut w, 30, 30, 2000), "a solid above its melting point never melted");
         let melted = w.get(30, 30);
         assert_eq!(melted.material, liquid);
         assert_ne!(melted.aux(), 37, "the anchor distance survived as a fill");
@@ -1565,7 +1561,7 @@ mod tests {
         // convention points the *other* way), so it is the same trap in a
         // second costume — and the arm that actually flooded a hillside.
         w.set(50, 30, Cell::new(powder, 0).with_aux(800).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 50, 30, 400), "a powder above its melting point never melted");
+        assert!(update_until_changed(&mut w, 50, 30, 2000), "a powder above its melting point never melted");
         let thawed = w.get(50, 30);
         assert_eq!(thawed.material, liquid);
         assert_eq!(thawed.aux(), 300, "snow-density powder should melt into 30% of a cell of water, not a whole one");
@@ -1574,7 +1570,7 @@ mod tests {
         // than one cell, and comes back on the 0-means-full convention
         // every other liquid-creating call site writes.
         w.set(60, 30, Cell::new(dense, 0).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 60, 30, 400), "a dense solid above its melting point never melted");
+        assert!(update_until_changed(&mut w, 60, 30, 2000), "a dense solid above its melting point never melted");
         assert_eq!(w.get(60, 30).aux(), 0, "a phase denser than its melt should clamp to one full cell (aux 0), not overflow");
 
         std::fs::remove_dir_all(&dir).ok();

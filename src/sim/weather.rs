@@ -421,6 +421,79 @@ const WATER_CHILL_DEPTH: i32 = 3;
 /// survives the gaps between drops on its own conductivity.
 const WATER_CHILL: f32 = 40.0;
 
+/// How deep into open water the front's own sweep holds cold, in cells.
+///
+/// # One is the difference between a sheet and a churning slush
+///
+/// This was **zero**, so nothing but a landing flake could ever start a
+/// freeze — the sweep stopped at open water and freeze-over crept one drop
+/// at a time, which was deliberate ("freeze-over starts somewhere rather
+/// than everywhere"). What that actually produced, once the freeze rate
+/// was slowed to something a player could watch, was a **standing
+/// equilibrium**: cold arrives in per-column pulses, a chilled cell that
+/// does not roll a freeze before its column warms back up never freezes,
+/// and an ice cell whose column has moved on melts. Measured on
+/// `scene=coldsnap`: **491 freezes and 510 melts across 340 frames for a
+/// net of minus nineteen**, forever, reported from play as *"it never
+/// really freezes... the pixels seem to be constantly shifting."*
+///
+/// With the surface held cold continuously the churn disappears outright —
+/// same scene, `melted +0` across the whole freeze and every freeze
+/// sticking (churn 1.0), reaching a closed sheet over 100% of the pond.
+///
+/// One and not three. Three chills enough water to freeze 781 cells in a
+/// single sample window, which is a pond going solid in under a second and
+/// is the artifact this work started from. Depth here sets *how much* water
+/// is eligible per sweep; `FREEZE_CHANCE` sets how fast it converts. Keep
+/// them separate: this one is not the pace knob.
+const SWEEP_LIQUID_DEPTH: i32 = 1;
+
+/// How much ice the front's own sweep will reach *through* to chill the
+/// water below, in cells — and so, in practice, how thick a sheet gets.
+///
+/// `CRUST_CHILL_DEPTH`'s doc already records that a sheet has to be
+/// bounded, and how it used to be: a drop could only chill water through a
+/// *thin* crust, so once the ice was `SNOW_CHILL_DEPTH` thick nothing below
+/// it was reached again. `SWEEP_LIQUID_DEPTH` bypassed that, because the
+/// whole-ground sweep walks through up to `CRUST_CHILL_DEPTH` of crust —
+/// and a 20-deep pond went to **833 frozen cells against 148 of liquid**,
+/// solid to within a row of its bed, over one long cold spell.
+///
+/// Nine, matching the figure that doc names, so the pond keeps water under
+/// its ice: a frozen crust a player can stand on, with a pond beneath it,
+/// rather than a block. That is the reading `wiki/weather.md` and
+/// `wiki/structural-collapse.md` both describe — ice is the one thing
+/// water holds up.
+const SHEET_MAX_THICKNESS: i32 = 9;
+
+/// Above this on the chill channel, a clear sky freezes standing water on
+/// its own.
+///
+/// # Cold without precipitation is still cold
+///
+/// `Weather::chill`'s own doc has said so since it was written — *"a clear
+/// winter night is different from a clear summer one"* — and nothing acted
+/// on it: `step` returned early whenever nothing was falling, so the only
+/// thing in the world that could freeze water was a landing flake. A pond
+/// therefore had only the **overlap** of "raining hard" and "cold" to
+/// freeze in, which on `scene=coldsnap` is about 700 frames, while the cold
+/// air mass itself lasts far longer: measured over 400 minutes of play per
+/// seed, a spell of `chill > SNOW_THRESHOLD` runs a **mean of 140 seconds,
+/// median 115, max 12 minutes**, and the world is in one about a quarter of
+/// the time (`probe_cold_spells`).
+///
+/// Asked for from play — *"the freeze is so fast, it lasts only a few
+/// seconds; this should be a different order of magnitude"* — and this is
+/// where the order of magnitude comes from. It is **not** a longer weather
+/// cycle, which was the other candidate and was measured and rejected: the
+/// cycle is already long enough, it was only the freezing that could not
+/// reach most of it. Lengthening it would have made snow rarer for nothing.
+///
+/// Set to `SNOW_THRESHOLD` exactly, so there is one bar to remember rather
+/// than two to reconcile: **it freezes when it is cold enough to snow**,
+/// whether or not anything is actually falling.
+const DRY_FROST_CHILL: f32 = SNOW_THRESHOLD;
+
 /// How deep a *crust* the front's own sweep will hold cold, in cells./// How deep a *crust* the front's own sweep will hold cold, in cells.
 ///
 /// Generous, and it needs to be, because the crust is two materials
@@ -741,10 +814,17 @@ pub fn step(world: &mut World) {
     // Wind is not gated on precipitation -- a dry gale is weather too, and
     // the wind channel is generated whether or not anything is falling.
     gust(world, w);
+    let Some(bounds) = world.bounds() else { return };
     if !w.is_precipitating() {
+        // **A clear freezing night still freezes.** See `DRY_FROST_CHILL`.
+        // Only the ground sweep, and no drops: there is nothing to deposit,
+        // nothing to wet, and nothing to charge the bank for.
+        if w.chill > DRY_FROST_CHILL {
+            let snow = world.materials.id_of("snow");
+            hold_the_ground_cold(world, w, bounds, snow);
+        }
         return;
     }
-    let Some(bounds) = world.bounds() else { return };
 
     let width = bounds.max_x - bounds.min_x + 1;
     // Fractional columns are resolved by chance rather than rounded up: at
@@ -925,7 +1005,7 @@ pub fn step(world: &mut World) {
             // not one. This is the only thing in the file that can freeze
             // water, and a drop lands in a randomly chosen column, so
             // freeze-over starts somewhere rather than everywhere.
-            hold_column_cold(world, x, surface_y, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
+            hold_column_cold(world, x, surface_y, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH, SNOW_CHILL_DEPTH);
             for dir in [-1i32, 1] {
                 let mut hint = surface_y;
                 for step in 1..=WATER_CHILL_RADIUS {
@@ -940,7 +1020,7 @@ pub fn step(world: &mut World) {
                         break;
                     };
                     hint = cy;
-                    hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
+                    hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH, SNOW_CHILL_DEPTH);
                 }
             }
             // **Snow does not lie on open water**, the same refusal the
@@ -1116,12 +1196,27 @@ pub fn water_equivalents(w: &World) -> f64 {
 /// of `(seed, frame)` like the rest of this file -- two runs of the same
 /// seed chill the same columns on the same frames.
 ///
-/// This never freezes anything: `hold_column_cold` is called with a liquid
-/// depth of 0, so it stops at open water and only the drops themselves can
-/// start a freeze-over.
+/// **It reaches one cell into open water** (`SWEEP_LIQUID_DEPTH`), which it
+/// did not use to, and that one cell is what turns a slush into a sheet.
 fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Option<material::MaterialId>) {
-    let cold = (AMBIENT_TEMPERATURE as f32 - SNOW_CHILL * w.intensity.max(0.4)) as i16;
-    let water_cold = (AMBIENT_TEMPERATURE as f32 - WATER_CHILL * w.intensity * w.chill) as i16;
+    // **How hard the front bites: the air mass is a floor, and anything
+    // falling can only add to it.**
+    //
+    // The two halves used to be separate cases -- `intensity` while
+    // something was falling, `chill` when nothing was -- and that is
+    // discontinuous in the wrong direction: a *light* snowfall inside a
+    // cold spell has `intensity * chill` near zero, so it bit less hard
+    // than the clear sky either side of it and **cancelled the frost**.
+    // Measured: a pond under six thousand frames of unbroken cold froze
+    // **zero** cells, because the spell was lightly snowing throughout.
+    // Reading it as a floor also fixes the drift: `intensity.max(0.4)`
+    // puts `cold` at 9.6 degrees, above snow's own 2-degree melting point,
+    // so a drift would rot away on the coldest night of the year.
+    let frost = if w.chill > DRY_FROST_CHILL { w.chill } else { 0.0 };
+    let bite = if w.is_precipitating() { w.intensity.max(0.4) } else { 0.0 }.max(frost);
+    let water_bite = (w.intensity * w.chill).max(frost);
+    let cold = (AMBIENT_TEMPERATURE as f32 - SNOW_CHILL * bite) as i16;
+    let water_cold = (AMBIENT_TEMPERATURE as f32 - WATER_CHILL * water_bite) as i16;
     let width = bounds.max_x - bounds.min_x + 1;
     let per_frame = (width as u64).div_ceil(CHILL_REVISIT_FRAMES) as i32;
     let band = (world.frame % CHILL_REVISIT_FRAMES) as i32;
@@ -1143,7 +1238,7 @@ fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Optio
             continue;
         };
         hint = Some(y);
-        hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, 0);
+        hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, SWEEP_LIQUID_DEPTH, SHEET_MAX_THICKNESS);
     }
 }
 
@@ -1200,6 +1295,7 @@ fn hold_column_cold(
     water_cold: i16,
     crust_depth: i32,
     liquid_depth: i32,
+    liquid_through: i32,
 ) {
     let (mut crust_chilled, mut liquid_chilled) = (0, 0);
     for d in 0..(crust_depth + liquid_depth) {
@@ -1215,7 +1311,14 @@ fn hold_column_cold(
                 m.melting_point < AMBIENT_TEMPERATURE as f32,
             )
         };
-        if freezable && liquid_chilled >= liquid_depth {
+        // **How thick a sheet can get is decided here**, by how much crust
+        // the walk is allowed to reach *through* rather than by how much
+        // liquid it chills once it arrives. Without the second clause a
+        // pond keeps freezing downward for as long as the front lasts:
+        // measured on `scene=coldsnap` at 833 frozen cells against 148 of
+        // liquid left, a 20-deep pond gone solid to within a row of its
+        // bed. See `SHEET_MAX_THICKNESS`.
+        if freezable && (liquid_chilled >= liquid_depth || crust_chilled > liquid_through) {
             break;
         }
         if !freezable && !holds_cold {
@@ -1326,6 +1429,64 @@ mod tests {
         // epochs, so anything that lasts less than a few hundred frames is
         // not a weather event in the first place.
         (from..from + WEATHER_EPOCH_FRAMES * 64).step_by(60).find(|&frame| f(at(seed, frame)))
+    }
+
+    /// Prints how long a cold spell lasts and how much of the time the
+    /// world is in one, per seed.
+    ///
+    /// A probe rather than a guard, and the number it exists to settle is a
+    /// design one: how long a pond has to freeze in. Reported from play as
+    /// *"this should be a different order of magnitude"*, and the answer
+    /// depends on a distribution rather than on one seed — outcomes here
+    /// are chaotic in the seed (`CLAUDE.md`), so a spell length read off
+    /// `scene=coldsnap`'s 2900 is a sample, not the figure.
+    ///
+    /// `chill` alone, not `kind == Snow`: cold without precipitation is
+    /// still cold and is what `hold_the_ground_cold`'s dry arm reads.
+    /// The seed `examples/filmstrip.rs`'s `scene=coldsnap` uses, printed
+    /// alongside the general population so its hand-found start frame can
+    /// be re-derived rather than guessed at.
+    const COLDSNAP_PROBE_SEED: u64 = 2900;
+
+    #[test]
+    #[ignore = "probe, not a guard"]
+    fn probe_cold_spells() {
+        const SPAN: u64 = WEATHER_EPOCH_FRAMES * 200;
+        for seed in [1, 2, 3, 4, 5, 6, 7, 8, COLDSNAP_PROBE_SEED] {
+            let (mut runs, mut run, mut cold_frames, mut start) = (Vec::new(), 0u64, 0u64, 0u64);
+            let mut spells: Vec<(u64, u64)> = Vec::new();
+            for frame in (0..SPAN).step_by(30) {
+                if at(seed, frame).chill > SNOW_THRESHOLD {
+                    if run == 0 {
+                        start = frame;
+                    }
+                    run += 30;
+                    cold_frames += 30;
+                } else if run > 0 {
+                    runs.push(run);
+                    spells.push((run, start));
+                    run = 0;
+                }
+            }
+            if run > 0 {
+                runs.push(run);
+                spells.push((run, start));
+            }
+            spells.sort_unstable();
+            spells.reverse();
+            println!("  seed {seed} longest spells (frames, start): {:?}", &spells[..spells.len().min(5)]);
+            runs.sort_unstable();
+            let mean = if runs.is_empty() { 0 } else { runs.iter().sum::<u64>() / runs.len() as u64 };
+            println!(
+                "seed {seed}: {} spells over {} min of play, {:.0}% of the time cold, spell mean {:.0} s median {:.0} s max {:.0} s",
+                runs.len(),
+                SPAN / 3600,
+                100.0 * cold_frames as f64 / SPAN as f64,
+                mean as f64 / 60.0,
+                runs.get(runs.len() / 2).copied().unwrap_or(0) as f64 / 60.0,
+                runs.last().copied().unwrap_or(0) as f64 / 60.0,
+            );
+        }
     }
 
     /// The guard this feature actually needs: a gust's disturbance must go
@@ -1733,6 +1894,20 @@ mod tests {
             .expect("the seeds used by these tests should each have a hard snowfall")
     }
 
+    /// The start of a cold spell that lasts at least `frames`.
+    ///
+    /// `a_hard_snowy_frame` finds a moment, not a spell, and a moment can
+    /// sit at the *end* of one: a test that then runs for thousands of
+    /// frames measures the thaw rather than the thing it asked about. Cold
+    /// spells here run a mean of 140 seconds and a maximum of twelve
+    /// minutes (`probe_cold_spells`), so a long one is always findable.
+    fn a_long_cold_spell(seed: u64, frames: u64) -> u64 {
+        (0..WEATHER_EPOCH_FRAMES * 64)
+            .step_by(60)
+            .find(|&from| (from..from + frames).step_by(60).all(|f| at(seed, f).chill > SNOW_THRESHOLD))
+            .expect("every seed has a cold spell of a few thousand frames somewhere")
+    }
+
     /// How much water the world holds, in cell-equivalents, in whatever
     /// phase it is in.
     ///
@@ -1813,6 +1988,111 @@ mod tests {
                 "the pond's interior should still be water, found {deep_water} of 60 columns (parallel: {parallel_driver})"
             );
         }
+    }
+
+    /// **A freeze that sticks.** Almost every freeze event must still be
+    /// ice at the end of the spell.
+    ///
+    /// Reported from play: *"it never really freezes and has snow
+    /// accumulate on top. The pixels seem to be constantly shifting."* The
+    /// cell count could not see it — a pond can hold three hundred ice
+    /// cells forever as a **churning slush** and never close into a sheet.
+    /// Measured on `scene=coldsnap` before `SWEEP_LIQUID_DEPTH`: **491
+    /// freezes and 510 melts across 340 frames for a net of minus
+    /// nineteen**, with the band stuck at a quarter of the pond.
+    ///
+    /// So the quantity is gross events per net cell, and it is ~1.0 when
+    /// the front is doing what it looks like it is doing. Two is a wide
+    /// bar: this fixture is a real front over a real pond and a little
+    /// re-freezing at the edges is not the artifact.
+    #[test]
+    fn a_freezing_pond_is_not_a_churning_slush() {
+        let seed = 2900;
+        let mut w = frozen_pond_world(seed, a_hard_snowy_frame(seed));
+        advance(&mut w, 1200, true);
+        let (_, ice, _) = water_census(&w);
+        assert!(ice > 100, "test setup: only {ice} cells froze, so there is nothing to be churning");
+        let froze = w.phase_changes.froze as f64;
+        assert!(
+            froze <= ice as f64 * 2.0,
+            "{froze} freeze events left {ice} cells of ice standing ({:.1} events per cell) -- \
+             the pond is cycling rather than freezing",
+            froze / ice as f64
+        );
+    }
+
+    /// **A clear freezing night freezes standing water**, and a clear mild
+    /// one does not.
+    ///
+    /// `Weather::chill`'s own doc has said since it was written that *"a
+    /// clear winter night is different from a clear summer one"*, and until
+    /// `DRY_FROST_CHILL` nothing acted on it: `step` returned early
+    /// whenever nothing was falling, so the only thing in the world that
+    /// could freeze water was a landing flake. A pond therefore had only
+    /// the overlap of "snowing hard" and "cold" to freeze in, which is a
+    /// small fraction of a cold spell.
+    ///
+    /// The paired negative is what makes this a test of the *cold* rather
+    /// than of the passage of time: the same pond on a clear mild frame
+    /// must stay open.
+    #[test]
+    fn a_clear_cold_night_freezes_a_pond_and_a_clear_mild_one_does_not() {
+        let seed = 2900;
+        let ice_at = |pick: fn(Weather) -> bool| {
+            let frame = first_frame_with(seed, 0, pick).expect("seed 2900 should have this kind of frame");
+            let mut w = frozen_pond_world(seed, frame);
+            advance(&mut w, 1200, true);
+            water_census(&w).1
+        };
+        let cold = ice_at(|x| !x.is_precipitating() && x.chill > DRY_FROST_CHILL + 0.05);
+        let mild = ice_at(|x| !x.is_precipitating() && x.chill < DRY_FROST_CHILL - 0.2);
+        assert!(cold > 100, "a clear freezing night made only {cold} cells of ice");
+        assert_eq!(mild, 0, "a clear mild night made {mild} cells of ice");
+    }
+
+    /// How long a spell the guard below watches, in frames.
+    ///
+    /// **Two thousand, and the number is a finding rather than a
+    /// convenience.** Under *unbroken hard* cold this fixture's 16-deep
+    /// pond does reach its bed, between 3,000 and 4,000 frames, and
+    /// saturates at 898 cells of ice — conduction through the sheet carries
+    /// the cold down after `SHEET_MAX_THICKNESS` has stopped the sweep
+    /// reaching the water directly, and bounding *that* would mean bounding
+    /// `diffuse_heat`. Left alone deliberately: a 16-deep pond under a
+    /// minute of hard freeze reaching its bed is not an artifact anyone
+    /// reported, and real weather varies.
+    const PROBE_SPELL: usize = 2000;
+
+    /// **A sheet, with a pond still under it**, thousands of frames into a
+    /// spell — which `pond_freezes_at_the_surface_in_a_cold_snap` cannot
+    /// see, because it runs 400 frames and the freeze now takes minutes.
+    ///
+    /// **This is not the guard for `SHEET_MAX_THICKNESS`**, and that was
+    /// checked rather than assumed: it passes with the cap removed, for the
+    /// reason `PROBE_SPELL` records. The cap is guarded in
+    /// `scripts/acceptance.sh`'s `coldsheet` case, on a scene where snow
+    /// lies — there it is worth 450 cells of ice against 823.
+    #[test]
+    fn a_long_cold_spell_leaves_water_under_the_ice() {
+        let seed = 2900;
+        // **The start of a long spell, not the first hard snowfall.** A
+        // hard snowfall can sit at the end of a spell, and this test then
+        // measures the thaw: `a_hard_snowy_frame` left 38 cells of ice at
+        // frame 6,000 and the setup assertion caught it.
+        let mut w = frozen_pond_world(seed, a_long_cold_spell(seed, 8000));
+        advance(&mut w, PROBE_SPELL, true);
+        let (liquid, ice, _) = water_census(&w);
+        assert!(ice > 100, "test setup: only {ice} cells froze over six thousand frames of unbroken cold");
+        // Measured 674 of water under 281 of ice at this point. The bar is
+        // two rows' worth of the pond's width, well under a third of that:
+        // a bar sitting on the measurement would flake on the spell this
+        // seed happens to find.
+        let floor = (POND.1 - POND.0 + 1) as f64 * 2.0;
+        assert!(
+            liquid > floor,
+            "after a long cold spell the pond holds {liquid:.0} cell-equivalents of water under {ice} of ice; \
+             less than {floor:.0} is a pond frozen to its bed rather than a sheet on one"
+        );
     }
 
     #[test]
@@ -1898,6 +2178,14 @@ mod tests {
         }
     }
 
+    /// How long a world gets to settle after a cold spell lifts, in frames.
+    ///
+    /// Re-derived from measurement when `MELT_CHANCE` was slowed: a sheet
+    /// now takes about 1,200 frames to go, so a 1,200-frame budget was
+    /// measuring the thaw rather than whether anything was *stuck*. Set at
+    /// four times the measured thaw.
+    const THAW_SETTLE_BUDGET: u32 = 4800;
+
     #[test]
     fn thawed_world_sleeps() {
         // **The reason snow.ron gained a `heat_conductivity` at all.** A
@@ -1921,8 +2209,14 @@ mod tests {
         advance(&mut w, 400, true);
         assert!(w.phase_changes.froze > 0, "nothing froze, so there is nothing to thaw and the test is vacuous");
 
-        w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating()).expect("seed 2900's front should end");
-        for frame in 0..1200 {
+        // **"The front passed" is not "nothing is falling" any more.**
+        // `DRY_FROST_CHILL` gave the cold air mass its own effect, so a
+        // clear frame inside a cold spell still holds the pond frozen --
+        // correctly, and this test read it as a world that could not
+        // settle. It has to wait for the *cold* to lift, not the snow.
+        w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating() && x.chill <= SNOW_THRESHOLD)
+            .expect("seed 2900's cold spell should end");
+        for frame in 0..THAW_SETTLE_BUDGET {
             parallel::step(&mut w);
             if w.active_chunk_count() == 0 {
                 println!("the world went to sleep {frame} frames after the front passed");
@@ -1930,7 +2224,7 @@ mod tests {
             }
         }
         panic!(
-            "{} chunks were still awake 1200 frames after the front passed -- something the cold touched cannot settle",
+            "{} chunks were still awake {THAW_SETTLE_BUDGET} frames after the cold lifted -- something it touched cannot settle",
             w.active_chunk_count()
         );
     }

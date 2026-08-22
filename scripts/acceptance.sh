@@ -232,6 +232,32 @@ run lavadrop scene=lavadrop         start=2 every=300 count=4 crop=196,216,120,1
 #    same ~3x margin the other cases have.
 run coldsnap scene=coldsnap start=180 every=180 count=6 crop=180,228,160,44 zoom=3 max_unconfined=0 repeat=3 max_frame_ms=$BUDGET_MS
 
+# 15. A pond freezes over, and stops.
+#
+#    The case above watches the first eighteen seconds of the spell, which
+#    is the busy part and the right place for the frame budget. It cannot
+#    see either half of what play reported, because both are about where
+#    the freeze *ends up*:
+#
+#    - "it never really freezes and has snow accumulate on top. The pixels
+#      seem to be constantly shifting" -- a pond can hold hundreds of ice
+#      cells forever as a churning slush and never close. Gated as the
+#      **coverage floor**: 50 of 60 columns frozen at the surface, measured
+#      at 60 and previously stuck at 3.
+#    - the fix for it, left unbounded, freezes the pond solid. Gated as the
+#      **ceiling on the ice itself**: 700 cells, measured at 450 with
+#      `weather::SHEET_MAX_THICKNESS` and **823** with it removed, so this
+#      is the case that guards that constant. It cannot be guarded in a
+#      unit fixture -- the cap limits how far the sweep reaches *through*
+#      what is already frozen, and it is a lying drift that spends that
+#      budget, so a dry fixture never sees it. Checked: a unit test written
+#      against it passed with the cap taken out.
+#
+#    No `max_frame_ms`: this runs 10,800 frames rather than 1,080 and its
+#    worst frame spreads 27 to 43 ms run to run, which is too wide to gate
+#    on. The short case above holds the frame budget for this scene.
+run coldsheet scene=coldsnap start=1800 every=1800 count=6 crop=180,228,160,44 zoom=2 ice=50,700 repeat=2
+
 # 6. A struck cliff throws pieces. Asserted as *bodies in flight*, not as
 #    overload failures: the mechanism here is the blow's own fracture, and
 #    an earlier bar on overload failures duly broke when an unrelated

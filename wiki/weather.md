@@ -2,8 +2,9 @@
 
 *Current as of: this build (the water bank — rain now comes out of what
 evaporated, and damp ground gives its water back to the sky — plus drying
-that follows the sun: warm afternoons take far more off a puddle than cold
-nights do; ice now forms and thaws over seconds rather than in a blink).*
+that follows the sun; and cold is now something the air does rather than
+something only snowfall does, so a pond ices over across a minute or two
+and holds).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -64,17 +65,25 @@ melted into nothing would be the wrong answer too.
 
 ## Cold snaps freeze standing water
 
-A hard snowfall does not only pile up — **it freezes what it falls on.**
-Standing water under a cold front grows a crust of ice, starting where the
-snow is actually landing and spreading along the surface from there. A
-puddle skins over almost at once. A pond takes a while — several seconds,
-watchably, in patches that widen and join rather than a surface that is
-suddenly just ice. A lake can be part frozen and part open for a long time,
-and that reads exactly as it should.
+**Cold is a property of the air, not of the snow.** When a cold spell moves
+over the world it freezes standing water whether or not anything is falling
+— a clear freezing night ices a pond just as a snowstorm does. That matters
+because a spell of genuinely cold air lasts a couple of minutes on average
+and sometimes much longer, while the snow inside it comes and goes in
+bursts, so this is what gives a freeze the time to actually happen.
+
+A pond ices over the way you would expect it to: a skin appears somewhere
+along the surface, widens, joins up, and after a minute or two the whole
+surface is closed. A puddle skins over almost at once. A big lake can be
+part frozen and part open for a long time. It does not shimmer or flicker
+on the way — once a patch has frozen it stays frozen, and the sheet only
+grows.
 
 What you get is a surface effect, not a solid block: the crust thickens
-downward a few cells and the water underneath stays water. Look closely
-and its underside is ragged, with the odd hole still open.
+downward several cells and the water underneath stays water. Look closely
+and its underside is ragged, with the odd hole still open. A shallow pond
+under an exceptionally long hard freeze will eventually reach its bed, but
+that takes minutes of unbroken cold.
 
 Ice is real footing. It floats, it carries the snow that drifts onto it,
 and you can walk and build on it — but it is *ice*, not rock. Pile enough
@@ -82,6 +91,14 @@ on a wide sheet and it gives way, and what comes away is crushed ice:
 slush, which floats for a while and then melts like everything else.
 
 And it goes when the cold goes. Ice cannot survive an ordinary day any more
+than snow can, so once the spell lifts the crust is above its melting point
+and starts giving way — but a thaw is quicker than a freeze, and takes
+something like twenty seconds to turn a sheet, the drift on top of it and
+the slush back into water. The snow on top goes first, then the ice under
+it. Then the pool is back — back to the level it was at, not higher.
+Nothing remembers that the pond was ever frozen; the cold being gone is the
+whole of it.
+
 than snow can, so once the front passes the crust is above its melting
 point and starts giving way — but a thaw is slow next to a freeze, and
 takes the better part of ten seconds to turn a sheet, the drift on top of
@@ -207,9 +224,7 @@ when the weather changes.
 Thunder — lightning flashes and forks, but the world is silent. Rain does
 not yet erode anything or fill rivers, and there are no seasons — a world's
 weather wanders but does not have a winter. A cold snap is the nearest thing
-to one, and it lasts hours rather than months. Ice forms only from standing
-water and only under falling snow: cold alone will not do it, and there is
-no black ice on a clear winter night.
+to one, and it lasts minutes rather than months.
 
 The sky's water is one pool for the whole world rather than clouds that
 drift: water that evaporates on one side of the map can fall on the other,

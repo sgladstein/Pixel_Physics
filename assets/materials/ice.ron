@@ -49,11 +49,23 @@
     // storm lifts, and a sheet that vanishes the instant the snow stops
     // reads as a bug rather than as a thaw. 0.1 gives a few seconds.
     heat_conductivity: 0.1,
-    // Below ambient on purpose -- see the header. 1.0 rather than snow's
-    // 2.0 so that a marginal cold snap leaves slush and drifts before it
-    // leaves a frozen surface, and so that the surface is the *first*
-    // thing to go when the front passes.
-    melting_point: 1.0,
+    // Below ambient on purpose -- see the header.
+    //
+    // **4.0, and this was 1.0 with the opposite reasoning written here**:
+    // "1.0 rather than snow's 2.0 so that a marginal cold snap leaves slush
+    // and drifts before it leaves a frozen surface, and so that the surface
+    // is the *first* thing to go when the front passes." A playtest
+    // overturned it -- "it never really freezes... the pixels seem to be
+    // constantly shifting" -- and the reason is that water freezes at 0 and
+    // ice at 1.0 melts is **one integer step**, which on an i16 temperature
+    // is no hysteresis at all. A cell sitting near the boundary flips back
+    // and forth on ordinary diffusion noise. Four gives the sheet a band it
+    // can sit in.
+    //
+    // It also inverts the order against snow's 2.0, deliberately: the drift
+    // now goes before the sheet under it, which is what a dusting of snow
+    // on a frozen pond actually does.
+    melting_point: 4.0,
     melts_into: "water",
     // Crushed ice is snow. Zero new mechanism for graded debris: snow
     // already floats on water (density 0.3 against 1.0), already piles at
