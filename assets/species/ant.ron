@@ -100,7 +100,20 @@
         // the forager's advantage over an immobile genome goes +0.187 ->
         // +0.247 with moss on the menu, and the fraction of ants that ever
         // feed themselves goes 0.42 -> 0.55.
-        food: ["corpse", "seed", "leaf", "moss"],
+        // **"litter" is why S4 exists, and leaving it off this list made the
+        // whole stage inert.** `adjacent_food` tests membership of this list
+        // and nothing else -- a material's `food_energy` says what a mouthful
+        // is *worth*, never whether an animal will take it. Litter shipped
+        // with `food_energy: 120.0` and a comment reading "Food, and this is
+        // the point of the material", and no ant could eat a cell of it.
+        //
+        // It went unseen because the census built to judge S4 counts
+        // `creature::food_value` over the ground, which is keyed on the
+        // material and not on any menu: it reported a forest floor rich in
+        // food that no animal in the world would touch. The delivery rise
+        // S4 measured was terrain, not feeding -- litter smooths the ground,
+        // and `blocked` fell from 7,342 to 3,292 over the same run.
+        food: ["corpse", "seed", "leaf", "moss", "litter"],
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

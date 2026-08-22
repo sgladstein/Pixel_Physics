@@ -749,6 +749,117 @@ modules alone:
 its evidence. That was true when it was written; this note is the correction,
 kept as a follow-up rather than an amend.
 
+#### S4's premise was wrong, and the correction matters more than the stage
+
+S4 was built on §13k/§13n's "ants cannot reach the canopy". **They can.**
+`step_chain`'s support rule is 8-neighbour and includes `MaterialKind::Plant`,
+with a comment saying in as many words that ants climb walls and ceilings.
+Measured (`creature::tests::how_high_does_an_ant_climb`, `#[ignore]`d, 8 ants /
+10,000 frames / 4 seeds):
+
+| | bare ground | with a tree |
+|---|---|---|
+| cells climbed above spawn | 0, 0, 0, 0 | **7, 9, 0, 11** |
+
+The bare arm is the control that makes the other column mean anything, and it
+is clean. So the barrier is **motivation, not ability**: `FoodAdjacent` sees
+one cell, and no pheromone trail leads up a tree nobody has climbed. Ants get
+7–11 cells up a 20–40 cell crown and come back down.
+
+Two earlier runs of that experiment were invalid and its own counter said so —
+`tree height 0` with climbing identical to bare ground, because this module's
+`run` steps only the scheduler, so the tree got no light and never grew. It
+uses the app's frame order now.
+
+#### The owner's constraint, and why it is one constraint and not two
+
+> "I eventually want ants digging and climbing trees. I don't specifically want
+> to code that in or have that goal override our original plans, but I also
+> don't want to go around optimizing ants sitting in one spot eating fallen
+> leaves and doing nothing else. That would be a very complex system designed
+> for no interesting behavior that is visible to the player."
+
+These are the same constraint seen from two ends, and **S4's abundance dial is
+what couples them**. S7 is "two larders and a barrier": a buried fungus larder
+that only a digger can reach. That stage only pays if the *surface* does not
+already feed a colony. Litter's rot rate is therefore not a performance knob
+with a design side effect — it is a design knob that happens to move frame
+cost. Set it by what it does to the value of leaving home, not by what it does
+to the millisecond count.
+
+It also means **digging is already in the plan** (S7), and climbing is a
+substitution rather than a new direction: a canopy larder is the same shape as
+a buried one — food behind a barrier only some genomes can cross — and §13o's
+sessile-freeloading attractor is exactly what an abundant floor invites.
+
+#### S4 shipped inert, and the instrument built to judge it is why
+
+**No ant could eat litter.** `adjacent_food` (`creature.rs:1019-1029`) tests
+membership of `def.food` and nothing else; `ant.ron`'s list read
+`["corpse", "seed", "leaf", "moss"]`. A material's `food_energy` says what a
+mouthful is *worth*, never whether an animal will take it. Litter shipped with
+`food_energy: 120.0` under a comment reading "Food, and this is the point of
+the material", and was inedible to every species in the world.
+
+**The census hid it, and the census was built for this stage.** It was
+deliberately rewritten to count `creature::food_value` over the ground rather
+than named materials, on the stated grounds that "a named column is blind by
+construction to any food invented later". That fixed one blindness and
+installed its mirror: `food_value` is keyed on the material, so the census
+reported a forest floor rich in food that no animal would touch. Every "colony
+food" figure in the S4 notes above — 480 → 58,680 → 4,560 — measured food the
+ants could not eat. The +31% and +7% delivery rises were **terrain**: litter
+smooths the ground, and `blocked` fell from 7,342 to 3,292 over the same run.
+
+The rule this breaks is `CLAUDE.md`'s own: *check that a guard's inputs
+actually vary what it guards*. The correction is that an edibility census has
+**two** inputs, the material and the menu, and reading either alone is blind.
+
+#### What S4 actually does, measured with litter on the menu
+
+| | litter off | litter, inedible | litter, edible |
+|---|---|---|---|
+| deliveries | 238 | 255 | **408** |
+| pickups | 264 | 278 | 443 |
+| **moves** | 27,390 | 28,734 | **22,756** |
+| **digs** | 171 | 270 | **64** |
+| mean frame | 1.794 ms | 1.966 ms | 2.120 ms |
+| worst frame | 32.2 ms | 34.6 ms | 28.1 ms |
+
+Deliveries +71%, and **moves −17% with digging −63%**. The colony forages less
+and delivers more, which is what a floor full of food buys. This is the owner's
+concern arriving as a number: the one visible verb ants had is being abandoned.
+
+Whether that is efficient local foraging or the beginning of a sessile colony
+**cannot currently be distinguished**, because nothing measures foraging range.
+
+#### `nest_visits` does not count trips, and no counter measures range
+
+`nest_visits` increments on any successful move made while the head is
+nest-adjacent, guarded on `since_nest > 0` — but `since_nest` is incremented
+unconditionally every tick (`creature.rs:897-899`), so that guard is false
+exactly once per lifetime. Measured on a control of one ant, a nest patch and
+no food anywhere: **moves 648, nest_visits 389**. A trip counter reads ~0 in
+that scene. Over the 52-ant run, 12,125 "visits" against 171 deliveries.
+
+So `ascii.rs:1255`'s `assert!(st.nest_visits > 0, "no ant ever reached the
+nest")` is not a sessility guard: **a colony that never leaves the nest passes
+it trivially.**
+
+Two corrections from the adversarial pass, both worth keeping:
+
+* The raw count is not the signal — a genuinely immobile colony (P-20's
+  ZERO-genome attractor) drives it to **zero**. The **ratio**
+  `nest_visits / moves` is what rises with nest-boundness: 0.600 in the control.
+* The obvious fix — record `since_nest` at the moment it is zeroed — is
+  **unsound as stated**. `since_nest` also accumulates while an ant stands
+  still *on* the nest: 136 of 142 observed resets were pure loitering. A
+  threshold sweep put T>3 ticks at 3.3x inflation (70% false trips), clean only
+  at T>=6. And `since_nest` counts **ticks** while `ant.ron`'s `tick_interval`
+  is 6, so "a few tick-intervals" is a unit ambiguity that lands on the bad end
+  as readily as the good one. Any fix needs a calibrated threshold of at least
+  one tick-interval's worth of ticks, with the unit stated.
+
 #### Three coupled calls for the owner
 
 1. **Spend the scheduler change now?** Until it lands, litter accumulates
