@@ -108,6 +108,9 @@ fn main() {
     let name = if preset.is_empty() { presets.default_name() } else { preset.clone() };
     let params = presets.get(&name).unwrap_or_else(|| panic!("unknown preset {name:?}")).clone();
 
+    let hash_every: u64 =
+        std::env::var("FIELD_HASH").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+
     let (w, h) = size;
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     worldgen::generate_only(&mut world, Spec::Generated { params: &params, seed });
@@ -139,6 +142,17 @@ fn main() {
         let t = Instant::now();
         field::step(&mut world);
         buckets[usize::from(sky_stepped)][usize::from(gusting)].add(t.elapsed().as_secs_f64() * 1000.0);
+        if hash_every > 0 && world.frame.is_multiple_of(hash_every) {
+            println!("  field hash @{:>6}: {:016x}", world.frame, field::field_hash(&world));
+        }
+    }
+
+    // `FIELD_HASH=1` turns the run into a correctness check instead of a
+    // timing one: the field's full state, printed at fixed frames, so a fast
+    // path can be held to producing the *same field*. Compare two builds line
+    // by line -- a divergence names the frame it started at.
+    if std::env::var("FIELD_HASH").is_ok() {
+        println!("  field hash @{:>6}: {:016x}", world.frame, field::field_hash(&world));
     }
 
     println!("{:>12} {:>9} {:>8} {:>9} {:>10} {:>10}", "sky", "wind", "frames", "share", "field mean", "field max");
