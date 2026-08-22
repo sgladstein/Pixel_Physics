@@ -1,0 +1,52 @@
+{
+  "id": "20260822T193630499Z-4e68c3",
+  "created": "2026-08-22T19:36:30Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "c77e311",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The fall lands in a pool now — and why it still comes from nowhere",
+  "question": "Is the pool at the foot what you meant by 'ends in a pool'? And given the source pool turned out not to be findable in the terrain (below), do you want me to carve one — or leave springs as they are and move on to caves?",
+  "context_md": "You asked two things and I could only get one.\n\n**Ends in a pool — done.** Your question was *\"how do you get it to pool at the bottom first?\"* and the answer turned out to be the drain's **height**, not its rate. A drain only takes from a cell that already holds water, so one placed above the waterline does nothing until the pool rises to it — then it takes at most one cell per frame, which is exactly what one emission column puts in. So the pool fills to the drain and stops there, and the throughput runs through it. Conservation was never fighting the pool; the outlet was just on the floor instead of at the lip. Water standing at the foot went 421 → 630 cells (this seed) and 293 → 761 on another.\n\n**Comes from a pool — I could not do it, and I think the reason is worth your ten seconds.** For a pool to spill over *a particular* cliff, that cliff's lip has to be the pool's lowest exit — no ground in between standing higher. Asking for that honestly placed **zero springs in 24 worlds**. It is not tuning: a cliff edge is a high point, so the ground behind it goes *up*. About half of all rims do have a hollow within 120 columns behind them (median 12 rows deep, 50 wide) — but always behind a wall, so a spring put in one just fills a pond that never reaches the cliff.\n\nSo the pool has to be **built, not found** — the pass would excavate a small basin behind the rim and fill it, the way ponds and caves already author what they need. That is a real change and I did not want to spend it without asking.\n\nBoth panes: canyon seed 7, world x 7280-7792 at 4x, after 500 frames.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — drains on the basin floor",
+      "files": [
+        "20260822T193630499Z-4e68c3/000-fall-before.png"
+      ],
+      "caption": "Water taken as fast as it landed: 90-98% of everything emitted.",
+      "meta": {
+        "water standing after 500 frames": 421,
+        "drained of 4.5M emitted": 4052533
+      },
+      "focus": null
+    },
+    {
+      "label": "after — drains at the pool's lip",
+      "files": [
+        "20260822T193630499Z-4e68c3/001-fall-after.png"
+      ],
+      "caption": "A pool stands 10 cells deep and only the excess leaves.",
+      "meta": {
+        "water standing after 500 frames": 630,
+        "drained of 4.5M emitted": 3843232,
+        "springs per world (canyon)": 0.8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
