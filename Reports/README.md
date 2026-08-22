@@ -11,7 +11,8 @@ commit; a session that supersedes one updates the superseded line.
 `scripts/docscheck.sh` flags any report missing from this index.
 
 Division of labour with the two working files: `open-bugs-handoff.md` owns
-*"is this broken?"*; the dead-ends index owns *"was this tried?"*.
+*"is this broken?"*; [`dead-ends.md`](dead-ends.md) owns *"was this
+tried?"*.
 
 ## Method and architecture — read these first
 
@@ -148,6 +149,10 @@ Division of labour with the two working files: `open-bugs-handoff.md` owns
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
+- [dead-ends.md](dead-ends.md) — **live index.** 542 tried-and-reverted
+  approaches, each with the condition its rejection depended on and where
+  the full record lives. Grep your area's section before proposing or
+  retrying anything in it; a revert adds its entry in the same change.
 
 ## Elsewhere in the repo
 
