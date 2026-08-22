@@ -662,6 +662,24 @@ pub struct FailureCounts {
     /// rock came apart, and swamp it on exactly the generated worlds this
     /// counter exists to judge.
     pub shattered_cells: u32,
+    /// The size of every body promoted, bucketed by doubling: `<8`
+    /// (impossible -- `MIN_BODY_CELLS` is 8, so it stays 0 and is the
+    /// sanity check on the bucketing), `8-15`, `16-31`, `32-63`, `64-127`,
+    /// `128-255`, `256+`.
+    ///
+    /// **`promoted_bodies` and `promoted_cells` cannot answer the question
+    /// this does.** Their ratio is a *mean*, and a run of forty 30-cell
+    /// blocks and a run of one 200-cell slab plus thirty-nine 25-cell ones
+    /// have nearly the same mean and are the two outcomes the ethos is
+    /// about: *"a few blocks, more cobbles, a lot of grit"* is a
+    /// **distribution**, and its absence -- everything one size, or the
+    /// all-or-nothing split -- reads as fake on sight. Reported from play
+    /// as *"could the pattern of cracks be more heterogeneous, so the
+    /// chunks that break off are different sizes"*.
+    ///
+    /// Seven `u32`s on a struct that is copied per tile, which is the
+    /// cheapest thing that can answer a distribution question at all.
+    pub promoted_sizes: [u32; 7],
 }
 
 impl FailureCounts {
@@ -698,6 +716,11 @@ impl FailureCounts {
     pub fn record_promoted(&mut self, cells: usize) {
         self.promoted_bodies = self.promoted_bodies.saturating_add(1);
         self.promoted_cells = self.promoted_cells.saturating_add(cells as u32);
+        // Bucket by doubling from 8, the smallest a body can be. `ilog2`
+        // rather than a loop, and clamped at the top so a 400-cell body
+        // (`MAX_BODY_CELLS`) lands in the last bucket rather than past it.
+        let bucket = if cells < 8 { 0 } else { (cells.ilog2() as usize - 2).min(6) };
+        self.promoted_sizes[bucket] = self.promoted_sizes[bucket].saturating_add(1);
     }
 
     /// `cells` cells converted where they stood. See `shattered_cells` for

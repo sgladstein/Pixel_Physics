@@ -140,6 +140,97 @@ pub fn domain(seed: u64, x: i32, y: i32, cell_size: f32) -> (i32, i32) {
     winner
 }
 
+/// A third salt, for the bedding-band lattice `pitch_at` quantises on.
+const BAND_SALT: u64 = 0x7A1F_38C6_D25B_9E4D;
+
+/// How wide a band of one grain is, in world cells.
+///
+/// Coarse relative to `joint_spacing` on purpose, and the value was swept
+/// rather than guessed: at 64 a radius-20 blast's halo crosses three or four
+/// bands, and every crossing is a welded seam (see `pitch_at`), which cost
+/// **22% of the promoted cells** on the nine-charge harness. At 128 the halo
+/// usually samples two grains and the same measurement came back *above*
+/// the uniform-grain baseline. 192 was worse again than 128, which is the
+/// spread `CLAUDE.md` warns about rather than a trend -- outcomes here are
+/// chaotic in the seed, so this is set from the four-seed order statistic
+/// and not from the single run that first looked good.
+const BAND_PITCH: f32 = 128.0;
+
+/// Which way a band's grain departs from the material's nominal pitch.
+/// Coarser, nominal, finer, nominal -- weighted to the middle by repetition
+/// rather than by a curve, the same trick `fragment_rungs` uses and for the
+/// same reason: the shape falls out of a uniform draw instead of being
+/// authored. Half of all band boundaries therefore have no contrast at all
+/// and pass a joint straight through.
+const BAND_STEP: [f32; 4] = [1.0, 0.0, -1.0, 0.0];
+
+/// The lattice pitch to use at `(x, y)` for a material whose nominal grain
+/// is `base`, under a banding `contrast` of `0.0` (uniform, the default)
+/// upward — **piecewise constant**, never smooth.
+///
+/// # Why bands and not a gradient
+///
+/// The obvious way to vary grain is to make the pitch a smooth function of
+/// position. It cannot be done here, and the reason is structural rather
+/// than aesthetic: the severing rule is `domain(a) != domain(b)`, an
+/// *identity* test between two adjacent cells, and its watertightness (see
+/// `a_domain_is_enclosed_by_its_own_joints`) depends on both cells having
+/// been mapped by the **same** lattice. Under a smooth pitch almost every
+/// neighbouring pair reads a slightly different lattice, every comparison is
+/// meaningless, and the web dissolves.
+///
+/// So the pitch is quantised on a coarse Worley lattice of its own. Inside a
+/// band it is one constant and the fabric behaves exactly as it always has;
+/// at a band boundary the two sides disagree and the callers' existing
+/// `other_pitch != pitch` guard — already there to stop two *materials*
+/// sharing a joint — makes the web stop. A plane where the grain changes and
+/// the jointing does not carry across it is a bedding contact, which is what
+/// rock does.
+///
+/// # Off by default, and what it actually trades
+///
+/// Reported from play: *"could the pattern of cracks be more heterogeneous,
+/// so the chunks that break off are different sizes"*. This delivers that —
+/// side by side at zoom 3 the banded halo has large blocks on one side and a
+/// fine mesh on the other where the uniform one is an even web.
+///
+/// It is **not** the default, and the reason is not that it is worse: it is
+/// that it trades one end of the distribution for the other, and which end
+/// matters is a judgement about how the game feels. Four seeds, nine
+/// charges, cells promoted:
+///
+/// ```text
+///                      seed 1   seed 3   seed 7   24301  |    max     min
+///   uniform grain      11,671   13,967   16,591   9,861  | 16,591   9,861
+///   bands, 0.4          8,996   12,364   11,076  10,565  | 12,364  10,565
+/// ```
+///
+/// **Banding narrows the spread**: it costs a quarter of the best case and
+/// lifts the worst case by 7%. `promoted min` is the *"no pieces move,
+/// ever"* guard, so that half is in the right direction — but the frame cost
+/// is not. Paired and interleaved on seed 1, twice: 37.2 / 49.0 ms uniform
+/// against 50.7 / 54.0 ms banded, consistently the same direction.
+/// `CLAUDE.md` makes frame cost a hard constraint rather than a tiebreaker,
+/// which is what keeps this off until someone has played it.
+///
+/// So it ships as a knob with current behaviour as the default, per the same
+/// file's rule for "does this look right": ship a runtime selector, name what
+/// each option costs, and let the sheet lose the argument to the hand.
+///
+/// Position-keyed and stateless like everything else here, so a second
+/// charge on the same ground finds the same grain.
+pub fn pitch_at(seed: u64, x: i32, y: i32, base: f32, contrast: f32) -> f32 {
+    // The whole mechanism costs one compare when it is off, which is what
+    // lets it sit in a per-cell scan without being paid for by everyone.
+    if contrast <= 0.0 || base <= 0.0 {
+        return base;
+    }
+    let band = domain(seed, x, y, BAND_PITCH);
+    let h = hash(seed, BAND_SALT, band.0, band.1);
+    let step = BAND_STEP[(h >> 40) as usize % BAND_STEP.len()];
+    (base * (1.0 + step * contrast.min(0.9))).max(1.0)
+}
+
 /// The activation draw for the joint between two domains, in `[0, 1)`.
 ///
 /// **Keyed on the pair of domains, not on the individual edge**, and that is

@@ -128,6 +128,11 @@ fn build(args: &Args) -> World {
             w.materials.get_mut(stone).joint_spacing = spacing.max(0.0);
         }
     }
+    if let Some(contrast) = args.joint_bands {
+        if let Some(stone) = w.materials.id_of("stone") {
+            w.materials.get_mut(stone).joint_band_contrast = contrast.clamp(0.0, 0.9);
+        }
+    }
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -1332,6 +1337,17 @@ struct Args {
     ///
     /// `0` turns jointing off entirely, which is the control.
     joint_spacing: Option<f32>,
+    /// `bands=<contrast>` -- override stone's
+    /// `Material::joint_band_contrast`: how far the grain varies from place
+    /// to place. `0` (the shipped default) is a uniform grain everywhere.
+    ///
+    /// The A/B for the owner's *"could the pattern of cracks be more
+    /// heterogeneous"*, and it is a knob rather than a decision because the
+    /// trade is a judgement: `0.4` gives a visibly varied web, narrows the
+    /// promoted-cell spread (best case down a quarter, worst case up 7%),
+    /// and costs 10-14 ms on the worst frame. See
+    /// `sim::fracture_field::pitch_at` for the four-seed table.
+    joint_bands: Option<f32>,
     /// `jreach=`, `jopen=`, `jdensity=` -- the three `explosion::Tuning`
     /// knobs of the same mechanism, for the same no-rebuild reason.
     joint_reach: Option<f32>,
@@ -1398,6 +1414,7 @@ fn parse() -> Args {
         arch: true,
         chain_reach: None,
         joint_spacing: None,
+        joint_bands: None,
         joint_reach: None,
         joint_open: None,
         joint_density: None,
@@ -1485,6 +1502,7 @@ fn parse() -> Args {
             "arch" => a.arch = v != "0" && v != "false",
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "joints" => a.joint_spacing = Some(v.parse().expect("joints=<spacing in cells>")),
+            "bands" => a.joint_bands = Some(v.parse().expect("bands=<grain contrast 0..0.9>")),
             "jreach" => a.joint_reach = Some(v.parse().expect("jreach")),
             "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
             "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
@@ -2587,6 +2605,16 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         println!(
             "    of those, actually moved: {} bodies ({} cells promoted), {} cells shattered to rubble",
             f.promoted_bodies, f.promoted_cells, f.shattered_cells
+        );
+        // ...and the *shape* of that number, which the pair above cannot
+        // give. See `FailureCounts::promoted_sizes`: a mean cannot tell a
+        // run where everything came off the same size from one with a few
+        // blocks, more cobbles and a lot of grit, and the second is what
+        // the ethos asks for.
+        let sz = f.promoted_sizes;
+        println!(
+            "    body sizes: <8:{} 8-15:{} 16-31:{} 32-63:{} 64-127:{} 128-255:{} 256+:{}",
+            sz[0], sz[1], sz[2], sz[3], sz[4], sz[5], sz[6]
         );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.

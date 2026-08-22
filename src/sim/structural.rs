@@ -1479,7 +1479,16 @@ fn joint_domain(world: &World, x: i32, y: i32) -> Option<((i32, i32), f32)> {
     if !is_body_material(world, cell.material) {
         return None;
     }
-    let pitch = world.materials.get(cell.material).joint_spacing;
+    // Banded, not the flat material constant -- see
+    // `fracture_field::pitch_at`. The crush has to read the *same* fabric
+    // the blast does or a confined failure inside a blast's near field
+    // stops re-selecting the boundaries the blast already severed, and the
+    // crush starts writing over it again instead of going silent (which is
+    // what `CRUSH_JOINT_DENSITY` matching `default_joint_density` is for).
+    let pitch = {
+        let m = world.materials.get(cell.material);
+        super::fracture_field::pitch_at(world.seed, x, y, m.joint_spacing, m.joint_band_contrast)
+    };
     if pitch <= 0.0 {
         return None;
     }

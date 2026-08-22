@@ -596,6 +596,20 @@ pub struct MaterialDef {
     #[serde(default)]
     pub joint_spacing: f32,
 
+    /// How far this material's grain varies from place to place, as a
+    /// fraction of `joint_spacing`. `0.0` (the default) is a uniform grain
+    /// everywhere, which is the behaviour that shipped before this existed.
+    ///
+    /// At `0.4` a band of rock is jointed at 1.4x the nominal pitch, another
+    /// at 0.6x, and half of them at the nominal — see
+    /// `sim::fracture_field::pitch_at`, which carries the four-seed table.
+    /// In short: it buys a visibly varied crack pattern, narrows the
+    /// promoted-cell spread (best case down a quarter, worst case up 7%),
+    /// and costs 10-14 ms on the worst frame. Off by default because of the
+    /// last of those.
+    #[serde(default)]
+    pub joint_band_contrast: f32,
+
     /// What one step of `max_unsupported_span` costs, per direction the
     /// support comes *from*: standing on the cell below, leaning on the one
     /// beside, or hanging from the one above.
@@ -777,6 +791,8 @@ pub struct Material {
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
+    /// See `MaterialDef::joint_band_contrast`. `0.0` is a uniform grain.
+    pub joint_band_contrast: f32,
     /// See `MaterialDef::support_cost_below` and its siblings.
     pub support_cost_below: u16,
     pub support_cost_beside: u16,
@@ -1040,6 +1056,7 @@ impl From<MaterialDef> for Material {
             // A negative or sub-cell pitch is meaningless, so both read as
             // "not jointed" -- the same treatment `0.0` gets by default.
             joint_spacing: if def.joint_spacing >= 1.0 { def.joint_spacing } else { 0.0 },
+            joint_band_contrast: def.joint_band_contrast.clamp(0.0, 0.9),
             // Clamped to at least 1 so a lateral or upward step always costs
             // *something*. All three at 0 would let a distance propagate
             // arbitrarily far without ever growing, silently disabling
@@ -1206,6 +1223,7 @@ impl MaterialRegistry {
             attached_span_bonus: 1,
             fragment_rungs: 5,
             joint_spacing: 0.0,
+            joint_band_contrast: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
@@ -1247,6 +1265,7 @@ impl MaterialRegistry {
             attached_span_bonus: 1,
             fragment_rungs: 5,
             joint_spacing: 0.0,
+            joint_band_contrast: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,

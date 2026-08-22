@@ -537,7 +537,34 @@ pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)], broke_a
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
 fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
-    fracture_with_impulse(world, region, None, 0, Some(broke_at))
+    // **A big collapse calves blocks; a small one chips.** This passed a
+    // flat `0` for as long as the ladder has existed, which meant a
+    // structural collapse drew fragment targets of 2..64 cells while a
+    // *blow* of the same material drew 8..256 -- so everything that came
+    // down after the event was systematically smaller than what the event
+    // itself threw, and two of the six rungs landed under `MIN_BODY_CELLS`
+    // and became grit before shape was even considered.
+    //
+    // Reported from play as the second of three complaints off the rolling
+    // world: *"could the pattern of cracks be more heterogeneous, so the
+    // chunks that break off are different sizes"*. The joint fabric is one
+    // half of that answer and this is the other, and this half is the one
+    // that was simply never wired: `size_bias` already existed, already
+    // took the right shape, and only `strike` and the blast shell were
+    // passing it anything.
+    //
+    // Sized off the region's own half-extent rather than a cell count, for
+    // the same reason `strike` sizes off the brush radius: what the ladder
+    // is asking is "how big is the thing that came apart", and a long thin
+    // shelf and a compact block of the same area do not come apart the
+    // same. Half-extent puts a collapse on exactly the scale a blow of that
+    // reach would be on, which keeps one ladder rather than inventing a
+    // second calibration.
+    let half = region
+        .iter()
+        .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
+    let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at))
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at

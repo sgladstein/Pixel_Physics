@@ -2074,7 +2074,15 @@ impl JointSeams {
                 // `Cell`: a `Vec` index on the resolved `Material`, never an
                 // `id_of("stone")` string hash in a loop. Sand, soil, gravel
                 // and snow leave this at `0.0` and are skipped here.
-                let pitch = world.materials.get(cell.material).joint_spacing;
+                // Banded, not the flat material constant: see
+                // `fracture_field::pitch_at`. Two cells in different bands
+                // read different pitches and the `other_pitch != pitch`
+                // guard below stops the web at the contact, which is the
+                // mechanism rather than a hole in it.
+                let pitch = {
+                    let m = world.materials.get(cell.material);
+                    super::fracture_field::pitch_at(world.seed, x, y, m.joint_spacing, m.joint_band_contrast)
+                };
                 if pitch <= 0.0 {
                     continue;
                 }
