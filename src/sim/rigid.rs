@@ -404,6 +404,24 @@ pub struct ChunkBody {
     /// Reading `vy` there would report that everything lands gently, which
     /// is the opposite of what a forty-cell drop should feel like.
     peak_speed: f32,
+    /// Whether this body is holding its own footprint against the world —
+    /// see `reserved`.
+    ///
+    /// **Latched on first contact with fluid, never set at promotion**, and
+    /// that gate is not an optimisation. Holding the footprint from birth
+    /// costs a dry scene nothing to *maintain* and changes its outcome:
+    /// with the space it stands in closed, a body stops shedding cells to
+    /// collisions on landing, so more of it arrives intact, so the load
+    /// model is handed a bigger connected region to judge. Measured on
+    /// `scene=strike`, which is dry: the same two failures went from 503 to
+    /// 1,372 cells and the worst frame from **20 ms to 118 ms**, against a
+    /// 60 ms budget. Nothing about that scene was reported as wrong.
+    ///
+    /// In air the reservation buys nothing anyway -- there is no fluid to
+    /// keep out -- so latching it the first time the body actually meets
+    /// liquid confines the whole mechanism to the bug it was built for and
+    /// leaves every dry scene byte-identical.
+    reserved: bool,
 }
 
 impl ChunkBody {
@@ -414,7 +432,7 @@ impl ChunkBody {
     /// way to create debris that never broke off anything.
     #[cfg(test)]
     pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
-        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0 }
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0, reserved: false }
     }
 
     /// The same, already falling. Test-only for the same reason.
@@ -688,7 +706,104 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         spin: ((ox + oy) % 3) as f32 * 0.3,
         stalled: 0,
         peak_speed: 0.0,
+        reserved: false,
     });
+    // Taken *after* the push, so the walk below reads a world in which the
+    // piece has already been lifted out and cannot find its own cells.
+    let towards_liquid = falling_towards_liquid(world, cells);
+    if towards_liquid {
+        let footprint: HashSet<(i32, i32)> = cells.iter().copied().collect();
+        claim_footprint(world, &footprint);
+        if let Some(body) = world.chunk_bodies.last_mut() {
+            body.reserved = true;
+        }
+    }
+}
+
+/// One cell of a promoted body's footprint: materially empty, and **held**
+/// so that nothing else moves into the space the body is standing in.
+///
+/// # Why a body's own footprint has to be reserved
+///
+/// A promoted body is lifted out of the grid, and for most of this engine's
+/// life the cells it left behind were written plain `Cell::EMPTY`. That is
+/// the space the body is *in*, and writing it empty tells the CA sweep,
+/// `try_move`, `particle::land` and every other body that it is free. In
+/// air nothing notices. In water it is fatal: water pours into the body's
+/// own footprint, so the body finds fluid in front of it with nowhere to go,
+/// stalls, is re-rasterized, is judged unsupported and fractures again --
+/// and again. Measured on `scene=rockdrop`, a 600-cell slab produced
+/// **2,515 cells' worth of chunks** on its way down and left `rock -600,
+/// rubble +572`: the same rock broken four times over, which is what
+/// reached play as *"chunks of rock hit the water and then start
+/// disintegrating into grit."* Only 2,834 of 10,849 displacement attempts
+/// succeeded, and a printed walk showed water standing inside the body's
+/// own footprint.
+///
+/// `FLAG_MANAGED` is exactly the reservation this needs and already exists
+/// for the liquid heightfield bodies: `Cell::is_empty` is managed-aware, so
+/// one flag closes the footprint to all of the above at once, and
+/// `demote_body_at` is a no-op for it because `body_index` only holds
+/// liquid bodies.
+///
+/// **It only works paired with `exchange_with_fluid`.** Reserving the
+/// footprint on its own was built once and lost 1,821 cell-equivalents of
+/// water, because every search that hands displaced fluid somewhere to go
+/// (`make_way_behind`'s walk, `settle`'s `nearest_free`/`surface_above`)
+/// reads `is_empty` and so can no longer see the cells the body is
+/// vacating -- which are the one place that fluid belongs. See
+/// `Reports/open-bugs-handoff.md` §1h.
+fn reserved() -> Cell {
+    Cell::EMPTY.with_managed(true)
+}
+
+/// How far below a new piece to look for the liquid it is heading into.
+///
+/// Sets how early a body takes its footprint (`ChunkBody::reserved`) — and
+/// therefore how much of its fall is protected from other pieces. Reserving
+/// only on *contact* costs `scene=rockdrop` 133 cells of the slab (242 of
+/// 600 surviving as rock against 375), because bodies shed cells into each
+/// other's unreserved footprints on the way down. Reserving *always* costs
+/// a dry scene 5.5x its worst frame — see `ChunkBody::reserved` and
+/// `Reports/open-bugs-handoff.md` §1j. Forty-eight rows is a long drop at
+/// this world's scale and still terminates fast on a dry scene, where the
+/// walk hits the ground within a few cells.
+const LIQUID_LOOKAHEAD: i32 = 48;
+
+/// Whether any column of a new piece's underside finds liquid before it
+/// finds anything else, within `LIQUID_LOOKAHEAD` rows.
+///
+/// The walk stops at the **first non-empty cell** in each column, so it is
+/// asking "what is this piece going to land in", not "is there water
+/// somewhere below". Rock over a floor with a pond under the floor reads
+/// false, which is right: it will never touch the pond.
+fn falling_towards_liquid(world: &World, cells: &[(i32, i32)]) -> bool {
+    let own: HashSet<(i32, i32)> = cells.iter().copied().collect();
+    let mut lowest: HashMap<i32, i32> = HashMap::new();
+    for &(x, y) in cells {
+        let e = lowest.entry(x).or_insert(y);
+        *e = (*e).max(y);
+    }
+    for (&x, &y) in &lowest {
+        for dy in 1..=LIQUID_LOOKAHEAD {
+            let (nx, ny) = (x, y + dy);
+            if own.contains(&(nx, ny)) {
+                continue; // still inside the piece's own outline
+            }
+            if !world.in_bounds(nx, ny) {
+                break;
+            }
+            let material = world.get(nx, ny).material;
+            if material == super::material::EMPTY {
+                continue; // open air: keep looking down this column
+            }
+            if world.materials.kind(material) == MaterialKind::Liquid {
+                return true;
+            }
+            break; // something solid first: this column lands on that
+        }
+    }
+    false
 }
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
@@ -1193,10 +1308,14 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
             // wedged in a gap would rotate straight through the wall beside
             // it, which is the one way this transform can cheat.
             let shape = BodyShape { density: mean_density(world, &probe), floats: body_floats(world, &probe), reach: body_extent(&probe) + 1 };
-            blocked_axis(world, &probe, probe.x, probe.y, shape).is_none()
+            try_step(world, &probe, probe.x, probe.y, shape).axis.is_none()
         };
         if turned {
-            body.rotate_quarter();
+            if body.reserved {
+                rotate_reserved(world, body);
+            } else {
+                body.rotate_quarter();
+            }
         }
     }
 
@@ -1224,8 +1343,23 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     let mut moved = false;
     for _ in 0..steps {
         let (next_x, next_y) = (body.x + step_x, body.y + step_y);
-        match blocked_axis(world, body, next_x, next_y, shape) {
+        let step = try_step(world, body, next_x, next_y, shape);
+        match step.axis {
             None => {
+                // **The reservation is latched here, on first contact with
+                // fluid**, and only then -- see `ChunkBody::reserved` for
+                // what holding it from birth cost a dry scene. Claimed
+                // before the exchange, so the cells the body is giving up
+                // are already materially empty when the exchange looks for
+                // somewhere to put the water.
+                if !body.reserved && !step.swaps.is_empty() {
+                    claim_footprint(world, &step.occupied);
+                    body.reserved = true;
+                }
+                if body.reserved {
+                    exchange_with_fluid(world, &step.occupied, step.motion, &step.swaps, shape.reach);
+                    restamp_footprint(world, &step.occupied, step.motion);
+                }
                 body.x = next_x;
                 body.y = next_y;
                 moved = true;
@@ -1252,6 +1386,34 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     }
     body.stalled = if moved { 0 } else { body.stalled.saturating_add(1) };
     body.stalled < STALL_FRAMES_BEFORE_SETTLING
+}
+
+/// Turn the body a quarter, taking its footprint reservation with it.
+///
+/// **A rotation is the one body transform that is not a translation**, so
+/// `restamp_footprint` — which derives the vacated and entered sets from a
+/// single integer offset — cannot describe it, and calling
+/// `rotate_quarter` directly leaks the whole pre-turn footprint. Found by
+/// looking at the artifact: `scene=rockdrop` grew wedge-shaped air pockets
+/// standing permanently inside the pond, because a reserved cell is not
+/// `is_empty` and no water would close over it. The ledger was perfectly
+/// balanced throughout — nothing was lost, so no conservation guard could
+/// have caught it, and only the picture showed it.
+fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
+    let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    body.rotate_quarter();
+    let after: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    for &(x, y) in before.difference(&after) {
+        let cell = world.get(x, y);
+        if world.in_bounds(x, y) && cell.material == material::EMPTY && cell.managed() {
+            world.set_owned(x, y, Cell::EMPTY);
+        }
+    }
+    for &(x, y) in after.difference(&before) {
+        if world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY {
+            world.set_owned(x, y, reserved());
+        }
+    }
 }
 
 /// How fast a body has to be falling before it throws a crown, in cells per
@@ -1360,7 +1522,7 @@ struct BodyShape {
     reach: i32,
 }
 
-fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, shape: BodyShape) -> Option<Axis> {
+fn try_step(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, shape: BodyShape) -> Step {
     let (ox, oy) = (next_x.round() as i32, next_y.round() as i32);
     let mut horizontal = false;
     let mut vertical = false;
@@ -1378,21 +1540,23 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, s
     // shove below putting material into the body's own path, and every
     // powder case in the engine was tuned against exactly this behaviour.
     //
-    // The liquid path needs a *different* question -- see `make_way_behind`
-    // -- and asks it against the **next** footprint instead, which is this
-    // same set offset by the body's whole-cell motion. One set, two
-    // queries: every cell moves by the same integer offset this substep, so
-    // "will the body be here after the move" is "was the body there before
-    // it", shifted. A second `HashSet` per substep is the obvious
-    // alternative and is not worth it -- `blocked_axis` runs per substep
-    // per body and the hashing above is already its largest cost.
+    // `exchange_with_fluid` and `restamp_footprint` need the **next**
+    // footprint as well, and get it from this same set offset by the
+    // body's whole-cell motion. One set, two queries: every cell moves by
+    // the same integer offset this substep, so "will the body be here
+    // after the move" is "was the body there before it", shifted. A second
+    // `HashSet` per substep is the obvious alternative and is not worth it
+    // -- `blocked_axis` runs per substep per body and the hashing above is
+    // already its largest cost.
     let occupied: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
     let motion = (ox - body.x.round() as i32, oy - body.y.round() as i32);
-    // How far a displaced fluid cell may be walked back along the body's
-    // own motion to get out of its way: the body's own extent, plus one.
-    // Bounded by the body, never by a constant -- a shove that reaches a
-    // fixed distance is exactly what failed above, and a taller body has
-    // proportionally further to move its water.
+    // Fluid the body is about to move into, gathered rather than shoved.
+    // **Two passes, and that is the point**: where the fluid goes is a
+    // property of the whole move (see `exchange_with_fluid`), so it cannot
+    // be decided one cell at a time while the move is still in question.
+    // A body that turns out to be blocked now leaves the water where it
+    // was, instead of having shoved half of it on the way to finding out.
+    let mut swaps: Vec<(i32, i32)> = Vec::new();
 
     for cell in &body.cells {
         let (tx, ty) = (ox + cell.dx, oy + cell.dy);
@@ -1400,9 +1564,7 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, s
         if (tx, ty) == (cx, cy) {
             continue; // this cell is not actually changing position this substep
         }
-        if !world.in_bounds(tx, ty)
-            || !clear_or_displaceable(world, &occupied, motion, tx, ty, (cx - tx, cy - ty), shape)
-        {
+        if !world.in_bounds(tx, ty) || !clear_or_displaceable(world, &occupied, tx, ty, shape, &mut swaps) {
             // Attribute the block to the axis this cell was moving along.
             if tx != cx {
                 horizontal = true;
@@ -1413,11 +1575,159 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, s
         }
     }
 
-    match (horizontal, vertical) {
+    let axis = match (horizontal, vertical) {
         (false, false) => None,
         (true, false) => Some(Axis::Horizontal),
         (false, true) => Some(Axis::Vertical),
         (true, true) => Some(Axis::Both),
+    };
+    Step { axis, occupied, motion, swaps }
+}
+
+/// What one substep's test found: whether it is blocked, and everything the
+/// commit needs if it is not.
+///
+/// Returned rather than acted on, because **where the fluid goes is a
+/// property of the whole move** and cannot be settled cell by cell while
+/// the move is still in question — see `exchange_with_fluid`. A body that
+/// turns out to be blocked now leaves the water where it was instead of
+/// having shoved half of it on the way to finding out.
+struct Step {
+    axis: Option<Axis>,
+    /// The footprint before the move. `occupied` shifted by `motion` is the
+    /// footprint after it: every cell moves by the same integer offset, so
+    /// one set answers both questions.
+    occupied: HashSet<(i32, i32)>,
+    motion: (i32, i32),
+    /// Liquid cells the body is about to enter, to be exchanged for the
+    /// cells it is about to leave.
+    swaps: Vec<(i32, i32)>,
+}
+
+/// Take the footprint the body is standing in, so nothing else moves into
+/// it — see `reserved`. Called once, on a body's first contact with fluid.
+fn claim_footprint(world: &mut World, occupied: &HashSet<(i32, i32)>) {
+    for &(x, y) in occupied {
+        if world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY {
+            world.set_owned(x, y, reserved());
+        }
+    }
+}
+
+/// Hand the fluid the body is about to displace the cells the body is
+/// about to leave, one for one.
+///
+/// # A rigid translation is an exchange, and searching for somewhere to
+/// put the water is what could not see that
+///
+/// A body moving by an integer offset vacates exactly as many cells as it
+/// enters, so the fluid in front can be **paired** with the space behind by
+/// construction rather than searched for. That is the whole fix: there is
+/// no failure mode left in which a submerged body has nowhere to put the
+/// water and therefore stops.
+///
+/// `make_way_behind` was the per-cell approximation of this and could not
+/// see the pairing -- it walked one cell straight back and gave up if that
+/// walk found nothing, which inside a pond it usually did, and it read
+/// `is_empty`, so reserving the footprint (`reserved`) blinded it
+/// completely. It is gone; this is what replaced it. Do not reintroduce a
+/// search here: the count matches exactly, and a search is how the water
+/// ends up somewhere the motion cannot account for.
+///
+/// The walk back along `-motion` is not just a way to find *a* free cell —
+/// it is what keeps the look `make_way_behind` was reaching for, *what is
+/// in front ends up behind*. A body sinking straight down lifts the water
+/// over its own top rather than teleporting it to the nearest gap.
+fn exchange_with_fluid(world: &mut World, occupied: &HashSet<(i32, i32)>, motion: (i32, i32), swaps: &[(i32, i32)], reach: i32) {
+    if swaps.is_empty() || motion == (0, 0) {
+        return;
+    }
+    // The cells the body is leaving: in the footprint now, and not in it
+    // after the move. One `HashSet` and no second allocation -- every cell
+    // moves by the same offset, so "will the body still be here" is "was
+    // the body one step back", which `occupied` already answers.
+    //
+    // **Materially empty only.** A vacating cell is normally this body's
+    // own reservation, but not always: `restamp_footprint` declines to
+    // stamp a cell that already holds something, so a cell the body walked
+    // over without clearing is still in the footprint and still holds
+    // water. Writing a swap into it deletes that water -- measured at
+    // **920 cell-equivalents** on `scene=rockdrop` before this filter, all
+    // of it inside the hundred frames of the plunge.
+    let mut vacating: HashSet<(i32, i32)> = occupied
+        .iter()
+        .copied()
+        .filter(|&(x, y)| !occupied.contains(&(x - motion.0, y - motion.1)))
+        .filter(|&(x, y)| world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY)
+        .collect();
+    for &(sx, sy) in swaps {
+        let moving = world.get(sx, sy);
+        let mut target = None;
+        let (mut px, mut py) = (sx - motion.0, sy - motion.1);
+        // Straight back through the body, to the cell on its far side that
+        // is being given up. Bounded by the body's own extent, never by a
+        // constant, for the reason `BodyShape::reach` records.
+        for _ in 0..reach {
+            if vacating.remove(&(px, py)) {
+                target = Some((px, py));
+                break;
+            }
+            if !occupied.contains(&(px, py)) {
+                break; // walked out of the body without finding one
+            }
+            px -= motion.0;
+            py -= motion.1;
+        }
+        // A ragged edge on a diagonal move can leave a cell whose own
+        // column gives nothing up. There is still a spare -- the counts
+        // match -- so take the nearest of them rather than dropping the
+        // water, which is the one outcome this whole path exists to avoid.
+        let target = target.or_else(|| {
+            let pick = vacating.iter().copied().min_by_key(|&(x, y)| (x - sx).abs() + (y - sy).abs());
+            if let Some(p) = pick {
+                vacating.remove(&p);
+            }
+            pick
+        });
+        let Some((tx, ty)) = target else { continue };
+        world.set(tx, ty, moving);
+        world.set(sx, sy, reserved());
+    }
+}
+
+/// Move the footprint reservation with the body: give back what it is
+/// leaving, hold what it is entering.
+///
+/// Only the perimeter changes, so this is O(cells) with two hash lookups
+/// each and writes only where the answer actually differs — a body in
+/// flight does not re-dirty its whole interior every substep.
+///
+/// `set_owned` rather than `set`, here and in `rotate_reserved` and
+/// `settle`'s release: `World::set` demotes the owner of any `FLAG_MANAGED`
+/// cell it overwrites, which is a `body_index` lookup on **every** write
+/// this makes, and the cell being overwritten is this body's own
+/// reservation. `set_owned` is the sanctioned bypass for exactly that, and
+/// it still goes through `write_cell`, so chunks are woken as they must be
+/// — a cleared reservation has to be seen by the sweep or no water flows
+/// into the space the body just left.
+fn restamp_footprint(world: &mut World, occupied: &HashSet<(i32, i32)>, motion: (i32, i32)) {
+    if motion == (0, 0) {
+        return;
+    }
+    for &(x, y) in occupied {
+        if !occupied.contains(&(x - motion.0, y - motion.1)) {
+            // Vacated. Give it back only if it is still *our* reservation:
+            // `exchange_with_fluid` may already have put water here, and
+            // that water is the point.
+            let cell = world.get(x, y);
+            if world.in_bounds(x, y) && cell.material == material::EMPTY && cell.managed() {
+                world.set_owned(x, y, Cell::EMPTY);
+            }
+        }
+        let (nx, ny) = (x + motion.0, y + motion.1);
+        if !occupied.contains(&(nx, ny)) && world.in_bounds(nx, ny) && world.get(nx, ny).material == material::EMPTY {
+            world.set_owned(nx, ny, reserved());
+        }
     }
 }
 
@@ -1456,30 +1766,33 @@ fn mean_density(world: &World, body: &ChunkBody) -> f32 {
 fn body_floats(world: &World, body: &ChunkBody) -> bool {
     body.cells.iter().any(|c| world.materials.get(c.material).floats)
 }
-
-/// Whether `(x, y)` is available for a body cell to occupy — either already
-/// empty, or holding loose material that could be shoved aside. Actually
-/// performs the shove when it can, which is why this takes `&mut World`.
+/// Whether the body may move into `(x, y)` — clearing whatever is there if
+/// it is loose enough to shove, or recording it for the exchange if it is
+/// fluid.
 ///
-/// `back` is the step *opposite* the body cell's own motion, and
-/// `shape.reach` how many of those steps a displaced fluid cell may be
-/// walked: together they are "the water in front goes round to the back",
-/// which is what a sinking body actually does to the fluid it passes
-/// through. The rest of `shape` decides whether it may do so at all.
+/// Powder is shoved here and now, by `displace`'s ring search, exactly as
+/// it always was: every dry scene in the engine is tuned against that
+/// behaviour, and the reported bug is water. Liquid is only *recorded* —
+/// see `exchange_with_fluid` for why it cannot be decided one cell at a
+/// time.
 fn clear_or_displaceable(
     world: &mut World,
     occupied: &HashSet<(i32, i32)>,
-    motion: (i32, i32),
     x: i32,
     y: i32,
-    back: (i32, i32),
     shape: BodyShape,
+    swaps: &mut Vec<(i32, i32)>,
 ) -> bool {
-    // A cell the body itself currently occupies is not an obstacle: bodies
-    // are lifted out of the grid on promotion, so anything found here
-    // belongs to the world, not to this body -- but a *neighbouring* body
-    // cell's destination may legitimately be this one mid-move.
-    if world.is_empty(x, y) {
+    // **The raw material test, not `is_empty`.** Anything materially empty
+    // is somewhere this body may be: air, its own reserved footprint (a
+    // different cell of this same body is standing there right now and is
+    // about to move too), and another body's reserved footprint. The last
+    // of those is deliberate rather than overlooked -- bodies have always
+    // passed through each other, and making them collide is a separate
+    // change with its own consequences for a collapse with two dozen
+    // pieces in flight. `is_empty` here would report the body's own
+    // footprint as an obstruction and stop every move it makes.
+    if world.get(x, y).material == material::EMPTY {
         return true;
     }
     let kind = world.materials.kind(world.get(x, y).material);
@@ -1499,69 +1812,15 @@ fn clear_or_displaceable(
         if shape.floats || shape.density <= world.materials.density(world.get(x, y).material) {
             return false; // it floats on this: the liquid holds it up
         }
-        // Round the back first. Only then the ring search, which is still
-        // the right answer near a free surface -- a body breaking the
-        // surface of a shallow pool throws its water sideways and up, and
-        // the nearest opening is where it goes.
-        if make_way_behind(world, occupied, motion, x, y, back, shape.reach) {
-            return true;
-        }
+        // **Never a failure.** The body vacates exactly as many cells as it
+        // enters, so there is somewhere for this by construction. The old
+        // per-cell walk gave up when it could not find a hole nearby, and
+        // inside a pond it could not: 2,834 of 10,849 attempts succeeded,
+        // and each failure stalled the body into being broken up again.
+        swaps.push((x, y));
+        return true;
     }
     displace(world, occupied, x, y)
-}
-
-/// Walk the fluid at `(x, y)` back along `back` until it finds somewhere the
-/// body is not about to be, up to `reach` steps.
-///
-/// Straight-line and along one axis, deliberately: this is the exchange a
-/// body makes with the fluid it moves through — what is in front ends up
-/// behind — and a search that wandered would put the water somewhere the
-/// motion cannot account for. Unlike `displace` it is not bounded by a
-/// constant, because the distance is a property of the body's own size.
-fn make_way_behind(
-    world: &mut World,
-    occupied: &HashSet<(i32, i32)>,
-    motion: (i32, i32),
-    x: i32,
-    y: i32,
-    back: (i32, i32),
-    reach: i32,
-) -> bool {
-    if back == (0, 0) {
-        return false;
-    }
-    let (mut nx, mut ny) = (x + back.0, y + back.1);
-    for _ in 0..reach {
-        if !world.in_bounds(nx, ny) {
-            return false;
-        }
-        // **The cells the body is *leaving* are exactly where this fluid
-        // has to go.** A body's footprint is empty in the grid (promotion
-        // lifts it out), so the only cells along this walk that are not
-        // available are the ones it is about to move into -- `occupied`
-        // shifted back by this substep's motion.
-        //
-        // Excluding the vacating cells instead is what left a submerged
-        // body with nowhere to put the water in front of it, since
-        // `displace` searches four rings for an empty cell and inside a
-        // pond there is none. Reproduced as a 40x2 stone raft dropped
-        // mid-pond -- 72 cells still standing after 600 frames with 41
-        // repeat failures -- against the identical raft on a *three-row*
-        // pond, where open air is inside the ring shove's reach, sinking to
-        // the floor in one failure. The failure counters said the
-        // structural model was working perfectly in both; only the paired
-        // control named it.
-        let will_occupy = occupied.contains(&(nx - motion.0, ny - motion.1));
-        if !will_occupy && world.is_empty(nx, ny) {
-            let moving = world.get(x, y);
-            world.set(nx, ny, moving);
-            world.set(x, y, Cell::EMPTY);
-            return true;
-        }
-        nx += back.0;
-        ny += back.1;
-    }
-    false
 }
 
 /// Shove the loose cell at `(x, y)` to the nearest empty cell that the body
@@ -1616,6 +1875,31 @@ fn settle(world: &mut World, body: &ChunkBody) {
     // up -- so a relocated cell could sit unsupported forever, which is the
     // hanging-stone report in miniature and reached the screen as a scatter
     // of stone standing in open sky over a pond.
+    // **Give the footprint back before writing into it.**
+    //
+    // Every cell of a promoted body is held as a managed-empty
+    // reservation (`reserved`), and `is_empty` is managed-aware -- so
+    // without this, every cell of a settling body fails the fast path
+    // below and goes down the displacement arms instead, hunting for
+    // somewhere to put an "occupant" that is nothing but the body's own
+    // reservation. That is not a hypothetical: it is precisely how the
+    // first attempt at reserving footprints lost **1,821 cell-equivalents
+    // of water** on `scene=rockdrop` (`Reports/open-bugs-handoff.md` §1h)
+    // -- `nearest_free` and `surface_above` handed the displaced water a
+    // footprint cell that this same loop then overwrote with stone.
+    //
+    // Only cells that are still *ours*: a body may be settling because
+    // something arrived in its way. And only when the body took a footprint
+    // at all -- one that never met fluid never held one.
+    for cell in body.cells.iter().filter(|_| body.reserved) {
+        let (x, y) = body.cell_position(cell);
+        if world.in_bounds(x, y) {
+            let held = world.get(x, y);
+            if held.material == material::EMPTY && held.managed() {
+                world.set_owned(x, y, Cell::EMPTY);
+            }
+        }
+    }
     let mut landed: Vec<(i32, i32)> = Vec::with_capacity(body.cells.len());
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
@@ -1776,15 +2060,22 @@ fn settle(world: &mut World, body: &ChunkBody) {
 /// the column is full to the top of the world.
 ///
 /// Where a displaced liquid goes when a body settles into it — see
-/// `settle`. Raw `material == EMPTY` rather than `is_empty()`, for the same
-/// reason `structural::region_has_free_face` gives: `is_empty()` is
-/// managed-aware and a promoted liquid body's container cells are not
-/// somewhere a loose water cell may be written.
+/// `settle`.
+///
+/// `is_empty()` rather than the raw material test, and the raw test was a
+/// real bug rather than a style choice: `is_empty()` is managed-aware, and
+/// a reserved cell — a promoted body's footprint (`reserved`), or a liquid
+/// heightfield body's container — is *not* somewhere a loose water cell may
+/// be written. Writing there puts the water inside a body that is about to
+/// overwrite it, which is one of the two halves of the 1,821-cell loss
+/// §1h records. (`structural::region_has_free_face` keeps the raw test on
+/// purpose and is not the same question: a reserved cell genuinely is air
+/// for the purpose of "is this region open to the sky".)
 fn surface_above(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
     let min_y = world.bounds()?.min_y;
     let mut ny = y - 1;
     while ny >= min_y {
-        if world.get(x, ny).material == crate::sim::material::EMPTY {
+        if world.is_empty(x, ny) {
             return Some((x, ny));
         }
         ny -= 1;
@@ -1910,6 +2201,185 @@ mod tests {
             rows.len(),
             rows.iter().min(),
             rows.iter().max()
+        );
+    }
+
+    /// **A piece with no water under it never takes a footprint**, and this
+    /// guard is about frame cost rather than about looks.
+    ///
+    /// Holding the footprint closes the space a body is standing in, which
+    /// on a dry scene changes the *outcome*: the body stops shedding cells
+    /// to collisions on landing, more of it arrives intact, and the load
+    /// model is handed a bigger connected region to judge — whose cost is
+    /// superlinear in region size. Measured on `scene=strike`, which has no
+    /// water in it at all: the same two failures went from 503 to 1,372
+    /// cells and the worst frame from **20 ms to 118 ms**, against a 60 ms
+    /// budget. See `LIQUID_LOOKAHEAD` and `Reports/open-bugs-handoff.md`
+    /// §1j.
+    #[test]
+    fn a_piece_with_no_water_under_it_never_takes_a_footprint() {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 124..128 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        // An unsupported slab in open air over bare bedrock.
+        for x in 50..70 {
+            for y in 60..64 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 20);
+        assert!(!w.chunk_bodies.is_empty(), "test setup: the slab should have promoted to at least one body");
+        assert!(
+            w.chunk_bodies.iter().all(|b| !b.reserved),
+            "{} of {} bodies took a footprint over dry ground",
+            w.chunk_bodies.iter().filter(|b| b.reserved).count(),
+            w.chunk_bodies.len()
+        );
+
+        // And the paired positive, so this cannot pass by the mechanism
+        // being dead: the identical slab over a pond takes one **while it
+        // is still in the air**. Sampled early on purpose -- once a body
+        // reaches the water it latches on contact anyway, so a late sample
+        // passes at `LIQUID_LOOKAHEAD` of zero and tests nothing.
+        let mut wet = pond_world(80);
+        for x in 50..70 {
+            for y in 60..64 {
+                wet.set(x, y, Cell::new(material::STONE, 0));
+                wet.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut wet, 4);
+        assert!(!wet.chunk_bodies.is_empty(), "test setup: the slab should have promoted over the pond too");
+        let (top, _) = rows_of(&wet, "water").expect("the pond is still there");
+        let lowest = wet.chunk_bodies.iter().flat_map(|b| b.cells.iter().map(|c| b.cell_position(c).1)).max().unwrap_or(0);
+        assert!(lowest < top, "test setup: the pieces should still be above the water at row {top} (lowest cell at {lowest})");
+        assert!(
+            wet.chunk_bodies.iter().any(|b| b.reserved),
+            "no body took a footprint while still {} rows above the pond; LIQUID_LOOKAHEAD is not reaching",
+            top - lowest
+        );
+    }
+
+    /// **A body's footprint is reserved while it flies, and given back
+    /// when it stops.** Nothing may be left holding space afterwards.
+    ///
+    /// The leak this exists for was found in a picture, not a number:
+    /// `rotate_quarter` moved the body and not its reservation, so
+    /// `scene=rockdrop` grew wedge-shaped **air pockets standing
+    /// permanently inside the pond** — a reserved cell is not `is_empty`,
+    /// so no water would ever close over it. The water ledger was
+    /// perfectly balanced the whole time, because nothing had been lost;
+    /// only the contact sheet showed it. Hence a guard on the *holes*
+    /// rather than on the volume.
+    #[test]
+    fn a_body_leaves_no_reservation_behind_when_it_settles() {
+        let mut w = pond_world(80);
+        // Tall and narrow, so it accumulates enough speed to roll: the
+        // leak was in the rotation path and a body that never turns does
+        // not reach it.
+        for x in 60..66 {
+            for y in 40..56 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        assert!(w.chunk_bodies.is_empty(), "test setup: everything should have come to rest inside the budget");
+        let held: Vec<(i32, i32)> = (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = w.get(x, y);
+                c.material == material::EMPTY && c.managed()
+            })
+            .collect();
+        assert!(
+            held.is_empty(),
+            "{} cells are still reserved with no body over them, e.g. {:?} -- each one is a hole water can never fill",
+            held.len(),
+            &held[..held.len().min(6)]
+        );
+    }
+
+    /// **A body sinking through a pond neither eats nor makes water.**
+    ///
+    /// The bar the first attempt at footprint reservation failed: it kept
+    /// bodies whole and lost **1,821 cell-equivalents** of water on
+    /// `scene=rockdrop`, because every search that hands displaced fluid
+    /// somewhere to go reads `is_empty` and so could not see the cells the
+    /// body was vacating. `exchange_with_fluid` pairs them by construction
+    /// instead. See `Reports/open-bugs-handoff.md` §1h.
+    ///
+    /// Asserted to the **cell**, not to a percentage: this path moves whole
+    /// cells and their fill together, so there is no rounding for a
+    /// tolerance to absorb, and a loose bar here is how a slow leak hides.
+    #[test]
+    fn a_body_sinking_through_a_pond_conserves_the_water_it_displaces() {
+        let mut w = pond_world(80);
+        for x in 44..84 {
+            for y in 78..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        // After one step, so the pond has taken its own shape and the
+        // number being compared is the settled one rather than the
+        // fixture's.
+        drive(&mut w, 1);
+        // **Plus the bank, or this measures evaporation.** `water_equivalents`
+        // counts what is standing in the grid; `evaporation::tick` moves a
+        // drying surface into `World::atmospheric_bank`, which is where the
+        // weather gives it back. Reading only the first half showed a
+        // 113.7-cell "leak" on a fixture with no body in it at all.
+        let ledger = |w: &World| crate::sim::weather::water_equivalents(w) + w.atmospheric_bank;
+        let before = ledger(&w);
+        drive(&mut w, 600);
+        let after = ledger(&w);
+        assert!(w.chunk_bodies.is_empty(), "test setup: everything should have come to rest inside the budget");
+        assert!(
+            (after - before).abs() < 1.0,
+            "a raft sinking through the pond moved the ledger from {before:.1} to {after:.1} cell-equivalents"
+        );
+    }
+
+    /// **What reaches the floor is rock, not dust.**
+    ///
+    /// Reported from play twice: *"they don't look like chunks when they
+    /// fall, they are still mostly dust when they sink"*, and then *"chunks
+    /// of rock hit the water and then start disintegrating into grit
+    /// instead of tumbling down as rock chunks."*
+    ///
+    /// **A material census, not an event count**, and that distinction is
+    /// the whole reason the first version of this work was reported as
+    /// fixed when it was not: `FailureCounts` and the peak-bodies counter
+    /// both said 85% of the mass left as chunks while `scene=rockdrop`
+    /// ended `rock -600, rubble +572` -- every cell of the slab ground to
+    /// powder, the same rock broken four times over. A player watches
+    /// neither counter; he watches what is lying on the bottom.
+    #[test]
+    fn a_slab_that_sinks_arrives_as_rock_rather_than_as_powder() {
+        let mut w = pond_world(80);
+        for x in 44..84 {
+            for y in 78..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        let stone = count_of(&w, "stone");
+        let rubble = count_of(&w, "rubble");
+        // 160 cells went in. Measured **151 stone against 4 rubble** with
+        // the exchange, and **0 stone against 160 rubble** without it --
+        // run on a worktree at the parent commit rather than by ablating a
+        // line here, so the comparison is against the code that shipped.
+        // The bar is half the slab: far below what it does and far above
+        // anything the bug ever allowed, which was nothing at all.
+        assert!(
+            stone * 2 >= 160,
+            "only {stone} of 160 cells reached the floor as stone ({rubble} as rubble); the slab is being re-broken on its way down"
         );
     }
 

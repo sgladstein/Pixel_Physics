@@ -1,8 +1,9 @@
 # Structural Collapse
 
 *Current as of: this build (rock submerged in water sinks rather than
-hanging, and so does rock left in steam or standing on debris that has
-since washed away; a quench crust comes apart in slabs). Where something
+hanging, and reaches the bottom as rock rather than as grit; so does rock
+left in steam or standing on debris that has since washed away; a quench
+crust comes apart in slabs). Where something
 breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
@@ -69,6 +70,16 @@ wedged in a hole its own shape, deep inside a mountain — that has genuinely
 nowhere to move, so it cracks where it stands instead. Something buoyant is
 the other exception: an ice sheet is held up by the water under it and
 stays there.
+
+**And it arrives as rock.** A chunk that goes into water sinks as the chunk
+it was, shoving the water it meets up and over itself, and lands on the
+bottom as a piece you can still see the shape of. It used to grind itself
+to gravel on the way down — a slab would enter the pond, come apart, and
+what reached the floor was a smooth dune of powder — because a piece that
+could not push the water aside stopped, was treated as having landed, and
+was broken up again, over and over. Now the deeper the water, the longer
+the fall; it does not cost the piece anything. A pile of rock on a pond
+floor is jagged.
 
 **And ground that goes away is noticed.** A piece can be held up by nothing
 but the loose material beneath it, and loose material moves: the gravel

@@ -332,7 +332,153 @@ the run and a worst frame of 122 ms. A molten core sealed inside its own
 crust has no path to lose heat, which is arguably right and is certainly
 expensive: a large enough lava body is a permanent tax on the frame.
 
-### 1h. Falling rock grinds itself to powder in deep water — three coupled defects
+### 1h. ~~Falling rock grinds itself to powder in deep water~~ — **FIXED: the footprint is reserved and the fluid is exchanged, not searched for**
+
+Reported twice — *"they don't look like chunks when they fall, they are
+still mostly dust when they sink"*, then *"chunks of rock hit the water and
+then start disintegrating into grit instead of tumbling down as rock
+chunks."* Both are the same bug and it is closed.
+
+| `scene=rockdrop`, a 600-cell slab | before | after |
+|---|---|---|
+| what is left of the slab | `rock -600, rubble +572` | **`rock -178, rubble +127`** |
+| chunk mass minted on the way down | 2,515 cells | **885** |
+| water ledger (`water + sky`) | 32,850.6 | 32,847.5 |
+| worst frame | 26 ms | 39 ms |
+
+2,515 cells out of a 600-cell slab was four passes over the same rock. It is
+1.5 now, and 422 of the 600 are still stone when it stops.
+
+The unit fixture is starker because nothing else is going on in it: a
+160-cell raft sinking through `pond_world` arrives as **151 stone and 4
+rubble**, against **0 stone and 160 rubble** on a worktree at the parent
+commit.
+
+**The fix, and it is the shape this section already named.** A rigid body
+moving by an integer offset vacates exactly as many cells as it enters, so
+the fluid in front can be *paired* with the space behind by construction
+rather than searched for:
+
+- A body takes its footprint as `reserved()` — materially empty and
+  `FLAG_MANAGED` — so water can no longer pour into the space it is
+  standing in. **Only a body with liquid under it**
+  (`falling_towards_liquid`, within `LIQUID_LOOKAHEAD`), or one that meets
+  liquid later; see the third cost below for why that gate is not optional.
+- `exchange_with_fluid` replaces `make_way_behind`. It is not a search and
+  cannot fail: `clear_or_displaceable` records the liquid rather than
+  shoving it, and the exchange walks back along `-motion` to the cell the
+  body is giving up in that column. The look the old walk was reaching for
+  — what is in front ends up behind — is preserved, and there is no
+  displacement-failure path left to stall a body into being re-broken.
+- `restamp_footprint` moves the reservation with the body each substep, and
+  `settle` releases it *before* writing the body back — which is what
+  stops `nearest_free`/`surface_above` handing displaced water a footprint
+  cell the same loop then overwrites. That was the 1,821-cell loss.
+
+**Powder is deliberately untouched.** `displace`'s ring search still shoves
+grains exactly as before: every dry scene in the engine is tuned against
+that behaviour and the reported bug is water.
+
+**Three things this cost, all of them found by looking rather than by
+measuring:**
+
+1. **920 cell-equivalents**, from `exchange_with_fluid` writing a swap into
+   a vacating cell that already held water — `restamp_footprint` declines
+   to stamp a cell that holds something, so a cell the body walked over
+   without clearing is still in the footprint and still wet. Fixed by
+   filtering `vacating` to materially-empty cells.
+2. **Wedge-shaped air pockets standing permanently inside the pond**, from
+   `rotate_quarter` moving the body and not its reservation. A reserved
+   cell is not `is_empty`, so no water ever closes over it. **The ledger
+   was perfectly balanced throughout** — nothing was lost, so no
+   conservation guard could have caught it, and only the contact sheet
+   showed it. `rotate_reserved` now carries the reservation through a turn.
+3. **A 5.5x frame-cost regression on a scene with no water in it**, which
+   is the one worth reading twice. Holding the footprint costs a dry scene
+   nothing to *maintain* — and changes its outcome. With the space it
+   stands in closed, a body stops shedding cells to collisions on landing,
+   so more of it arrives intact, so the load model is handed a **bigger
+   connected region** to judge, and its cost is superlinear in region size.
+   On `scene=strike`: the same two failures went from 503 to 1,372 cells
+   and the worst frame from **20 ms to 118 ms**, against a 60 ms budget.
+   `PROBE_NO_LOAD=1` put 111 of those 118 ms in the load model, and
+   `MAX_LOAD_CELLS_PER_FRAME` does not bound it — 20,000 and 40,000 measure
+   the same 118 ms — so most of that work is not charged to the budget at
+   all. **That is a real defect in the budget and it is still there**; see
+   §1j.
+
+   Gating the reservation on `falling_towards_liquid` sidesteps it and
+   leaves every dry scene byte-identical (`strike` reads `rock +106, rubble
+   +27` either side, at 19 ms), which is also the honest scope: in air the
+   reservation keeps nothing out. **Gating it on *contact* instead is too
+   late** and was measured before it was accepted: bodies shed cells into
+   each other's unreserved footprints during the fall, and `rockdrop` kept
+   242 of 600 rather than 422. Hence a lookahead rather than a touch.
+
+   What remains on a water scene is bodies simply *living longer* — they
+   now sink thirty rows instead of stalling after three frames — at 26 to
+   39 ms on `rockdrop`. `set_owned` rather than `set` for the reservation
+   writes took 35.5 to 31.3 ms by skipping the `demote_body_at` lookup
+   `World::set` does on every overwrite of a managed cell.
+
+The 3 cell-equivalent difference in the scene ledger is **not** the body
+path: instrumenting `step_chunk_bodies` to print any frame in which
+`water_equivalents` moved reported nothing at all across the whole run, and
+the unit guard below holds a full sink to under one cell. It is the rest of
+the frame reacting to a different world — 422 cells of the slab now stand
+on the floor as rock rather than lying there as powder.
+
+Guards: `a_slab_that_sinks_arrives_as_rock_rather_than_as_powder` (151
+stone / 4 rubble here, 0 / 160 at the parent commit),
+`a_body_sinking_through_a_pond_conserves_the_water_it_displaces` (ledger
+**plus the bank**, or it measures evaporation — that mistake read as a
+113.7-cell leak on a fixture with no body in it),
+`a_body_leaves_no_reservation_behind_when_it_settles`, and
+`a_piece_with_no_water_under_it_never_takes_a_footprint`, which is the
+guard for cost 3 and has a paired positive so it cannot pass by the
+mechanism being dead. Each red-checked against its own fix only.
+
+### 1j. `MAX_LOAD_CELLS_PER_FRAME` does not bound the load model's frame cost
+
+Found while fixing §1h, measured, not fixed.
+
+The budget is decremented once per cell of `is_supported`'s BFS and nowhere
+else, so `chain_reaches_anchor`'s walks, `subtree_sum`, and the repeated
+`evaluate_within` along `failing_along_support_chain` are all free of it.
+On a `scene=strike` variant that handed the model a 1,372-cell region, the
+worst frame measured **118 ms at a budget of 20,000 and 118.7 ms at
+40,000** — identical, so the cap was not what stopped it — while 8,000 gave
+64.8 ms. `PROBE_NO_LOAD=1` puts 111 of the 118 ms inside the model.
+
+So the constant reads like a frame-cost bound and is not one: it bounds
+*one* of the walks. Either charge the other walks to the same budget (they
+are memoized per frame, so the accounting is cheap) or rename it to what it
+actually caps. Do not raise it as a fix for anything until that is settled —
+raising it from 12,000 to 20,000 earlier this session bought nothing on this
+scene, by the measurement above.
+
+### 1i. The rigid-body rotation probe is vacuous, and a body can turn through a wall
+
+Found while fixing §1h, not fixed with it — the fix changes how every
+tumbling piece in the engine behaves and wants its own measurement.
+
+`advance` guards a quarter-turn with *"only turn if the turned shape
+actually fits. Otherwise a body wedged in a gap would rotate straight
+through the wall beside it, which is the one way this transform can
+cheat."* The guard never fires. It builds a rotated `probe` at the body's
+own position and calls `blocked_axis(world, &probe, probe.x, probe.y, …)`,
+which skips every cell whose target equals its current position — and with
+`ox == probe.x.round()`, `tx == ox + cell.dx` *is* `cell_position(cell)`
+for every cell. The loop body never runs and the probe always returns
+`None`.
+
+To fix it, `blocked_axis` needs the **pre-turn** footprint to compare
+against rather than deriving one from a single integer offset;
+`rotate_reserved` already computes exactly that pair of sets and is the
+natural place to hang it. Expect it to change tumbling on every dry scene,
+so measure `worked`, `ligament` and `strike` before and after.
+
+### (was) 1h. Falling rock grinds itself to powder in deep water — three coupled defects
 
 Reported from play: *"they don't look like chunks when they fall, they are
 still mostly dust when they sink."* True, and every counter said otherwise.
