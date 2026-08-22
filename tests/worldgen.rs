@@ -2545,6 +2545,86 @@ fn probe_r4t4_valley_floor_retarget_diff() {
 /// Asserted against the constants rather than a literal, so raising the cap
 /// fails here -- loudly, at `cargo test` -- instead of failing in a world
 /// nobody can regenerate.
+/// The dry presets' water table really is below the world floor.
+///
+/// **Asserted against `app::WORLD_HEIGHT`, never against a literal.** The bar
+/// used to be `assert!(arid.table_offset > 320.0)` inside `worldgen::params`,
+/// and the preset shipped `400.0`: comfortable-looking headroom that had
+/// already stopped meaning anything by the time the world was 640 rows, and
+/// meant the opposite of what it said at 2560. A "below the world floor"
+/// table sat at row ~570 with two thousand rows of world under it.
+///
+/// Nothing caught it because the visible half still behaved: `ponds` found no
+/// basin, so no water appeared. But `moisture_init` writes a moisture floor
+/// for every row at or below `table_y`, so the preset whose entire job is
+/// *no water anywhere* was damp from a third of the way down -- and `flat`,
+/// the structural test bed, was answering a wet-rock question while claiming
+/// to answer a dry-rock one.
+///
+/// Lives here rather than beside the other preset tests because `worldgen`
+/// sits *below* `app` in this crate's layering and must not read it; an
+/// integration test can see both.
+#[test]
+fn the_dry_presets_keep_their_table_below_the_world_floor() {
+    let (presets, err) = WorldgenPresets::load();
+    assert!(err.is_none(), "worldgen.ron: {err:?}");
+    let floor = pixel_physics::app::WORLD_HEIGHT as f32;
+    for name in ["arid", "flat"] {
+        let p = presets.get(name).expect("preset exists");
+        // `table_offset` is measured down from `datum()` -- `sky_rows +
+        // relief_amplitude` -- so the table can only ever sit *lower* than
+        // the offset alone suggests. Asserting on the offset by itself is
+        // therefore the strict form, and the datum is printed so a failure
+        // says how much room there actually was.
+        let datum = p.sky_rows + p.relief_amplitude;
+        assert!(
+            p.table_offset > floor,
+            "{name}: table_offset {} must clear a {floor}-row world (datum {datum}); \
+             a table inside the world writes a moisture floor even where no pond forms",
+            p.table_offset
+        );
+    }
+}
+
+/// The shipped world gets the regions its per-window density asks for.
+///
+/// `region.rs` promises *regions per window*, not per world -- the property
+/// that lets the world grow without getting duller. `MAX_TOTAL_REGIONS` is a
+/// backstop against an absurd width, and at 64 it had quietly become
+/// something else: 8192 / 512 = 16 windows asking for up to 5 each is 80, so
+/// the top of the draw was clipped and those worlds shipped with regions
+/// wider than a window. A cap that bounds work must never decide whether the
+/// guarantee holds.
+///
+/// Asserted through `RegionMap::len` at the shipped width rather than against
+/// the constant, so it fails for the reason that matters: the world in front
+/// of the player, not the number in the file.
+#[test]
+fn the_shipped_world_does_not_hit_the_region_ceiling() {
+    let (presets, _) = WorldgenPresets::load();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    // One window at the same 512 `region.rs` expresses its counts against.
+    let window = 512.0_f32;
+    let mut worst = 0.0_f32;
+    for name in presets.cycle_order() {
+        let Some(p) = presets.get(&name) else { continue };
+        if p.region_variation <= 0.0 {
+            continue;
+        }
+        for seed in 0..48u64 {
+            let map = worldgen::region::RegionMap::new(seed, p, w);
+            let per_window = map.len() as f32 / (w as f32 / window);
+            worst = worst.max(per_window);
+            assert!(
+                (2.0..=5.0).contains(&per_window),
+                "{name} seed {seed} at {w} wide: {per_window:.2} regions per window, \
+                 outside 2..5 -- the ceiling is clipping the draw"
+            );
+        }
+    }
+    println!("worst regions-per-window at {w} wide: {worst:.2}");
+}
+
 #[test]
 fn a_cave_cannot_reach_past_its_declared_margin() {
     let reach = worldgen::passes::MAX_CAVE_HALF_W + worldgen::passes::VAULT_RIND;

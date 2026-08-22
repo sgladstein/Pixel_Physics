@@ -115,7 +115,19 @@ const COMPOSITION_WINDOW: f32 = 512.0;
 
 /// Ceiling on total regions, so an enormous world cannot spend its whole
 /// generation budget drawing region characters nobody will visit in one run.
-const MAX_TOTAL_REGIONS: i32 = 64;
+///
+/// **A bound on work, never a gate on the density guarantee** -- the
+/// distinction `CLAUDE.md` records from `rigid::fracture` declining to break
+/// the largest regions and so dissolving the biggest collapses into dust. At
+/// 64 it had quietly become the second kind: the 4x world is
+/// [`super::super::app::WORLD_WIDTH`] / [`COMPOSITION_WINDOW`] = 16 windows
+/// across and asks for up to `16 * MAX_REGIONS` = 80, so every draw above 64
+/// was silently widened and the per-window density this module exists to
+/// hold constant stopped holding. Sized here for a world four times wider
+/// again, so the same thing cannot happen at the next size;
+/// `the_shipped_world_does_not_hit_the_region_ceiling` is what keeps it
+/// honest rather than this comment.
+const MAX_TOTAL_REGIONS: i32 = 320;
 
 /// How far apart the highest and lowest region must sit, in units of
 /// `elev`. The composition guarantee: below this the world is a plain, and

@@ -428,11 +428,16 @@ mod tests {
     #[test]
     fn arid_preset_is_a_dry_world() {
         // The stated pivot lever: if the water table turns out not to be fun,
-        // one preset switch removes all of it. That only holds if the offset
-        // really is past any world height we would run.
+        // one preset switch removes all of it.
+        // The `table_offset > world height` half of the lever lives in
+        // `tests/worldgen.rs`'s `the_dry_presets_keep_their_table_below_the_
+        // world_floor`, not here: it has to be asserted against
+        // `app::WORLD_HEIGHT`, and `worldgen` sits *below* `app` in this
+        // crate's layering. It used to be a literal `> 320.0` in this
+        // function, which is exactly how it came to be a bar that no longer
+        // meant anything.
         let (presets, _) = WorldgenPresets::load();
         let arid = presets.get("arid").expect("arid preset exists");
-        assert!(arid.table_offset > 320.0, "arid must put the table below the world floor");
         assert_eq!(arid.moss_density, 0.0);
         assert_eq!(arid.tree_density, 0.0);
     }
