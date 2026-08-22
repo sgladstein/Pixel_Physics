@@ -470,6 +470,42 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
+### U. Water stress makes a tree BIGGER — **OPEN, 2026-08-22, backwards from real plants**
+
+Measured while trying to write a replacement guard for §V, on one bed over
+12,000 frames with only the soil moisture differing:
+
+| | nearly dry (aux 310) | field capacity (620) |
+|---|---|---|
+| total cells | **982** | 734 |
+| wood cells | **428** | 299 |
+
+**Both are the wrong way round.** Real drought reduces total biomass, and
+reduces secondary growth in particular — narrow rings in dry years is the
+entire basis of dendrochronology. What genuinely rises under water stress
+is the root:shoot **ratio**, and it rises because shoots suffer *more*, not
+because roots gain in absolute terms. Here every quantity goes up when
+water is short.
+
+An earlier note in this file waved this through as "exactly as a real plant
+raises its root:shoot ratio under drought". That was too charitable and is
+corrected here: the ratio shift is real, the absolute increase is not.
+
+**Likely mechanism, unproven.** `break_root_tips` is gated on
+`water_status < 0.95`, so water stress *triggers* root re-initiation — but
+the stress does not appear to throttle the carbon that pays for it. Scarcity
+buys extra tissue at no cost: a compensation response with the penalty
+missing. If that is right, the fix is that `water_status` should scale what
+the plant can *afford* as well as what it decides to build, and the two are
+currently decoupled.
+
+**Why it is logged rather than chased.** It surfaced inside another
+investigation and is not a merge regression — it is a property of the plant
+economy the plant lines brought, and it needs its own pass with a probe on
+carbon income under stress. Deliberately not tuned: §A is already a live
+warning about re-deriving plant constants without a seed sweep, and this
+touches the same `water_status` path.
+
 ### V. ~~A tree with no seedlings under it never stops growing~~ — **ACCEPTED AND RETIRED, 2026-08-22, by owner decision.**
 
 `a_tree_eventually_stops_growing` was passing after the worldgen work and

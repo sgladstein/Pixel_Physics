@@ -5408,13 +5408,21 @@ mod tests {
     // by the first run**, which is why there is a comment here instead of a
     // test. "A tree grows less on less water" is false as stated: measured
     // over 12,000 frames on the same bed, the thirsty arm grew **982 cells
-    // against the watered arm's 734**. That is not noise and not a bug --
-    // `break_root_tips` is gated on `water_status < 0.95`, so a
-    // water-stressed plant re-initiates root tips and invests in roots,
-    // exactly as a real plant raises its root:shoot ratio under drought.
-    // Counting wood alone inverts it a second way (299 watered against 428
-    // thirsty), because a well-watered plant spends a larger share on
-    // foliage.
+    // against the watered arm's 734**, and **428 wood cells against 299**.
+    //
+    // **That is backwards from real plants, and it is logged as a defect
+    // rather than explained away** (`Reports/open-bugs-handoff.md` U).
+    // Drought reduces total biomass and reduces secondary growth in
+    // particular -- narrow rings in dry years is the whole basis of
+    // dendrochronology. What actually rises under drought is the
+    // root:shoot *ratio*, and it rises because shoots suffer more, not
+    // because roots gain. Here every quantity goes up when water is short.
+    //
+    // The likely mechanism, unproven: `break_root_tips` is gated on
+    // `water_status < 0.95`, so water stress *triggers* root re-initiation
+    // -- but the stress does not appear to throttle the carbon that pays
+    // for it, so scarcity buys extra tissue at no cost. A compensation
+    // response with the penalty missing.
     //
     // So the honest state is: **growth here is not monotone in water**, and
     // any future guard has to say which quantity it means -- shoot mass,
