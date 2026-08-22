@@ -1,0 +1,11 @@
+{
+  "card_id": "20260822T235306955Z-ac8c28",
+  "answered_at": "2026-08-22T23:58:09Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "We can start with the fix for 1 and 3. I understand that 2 is more complicated, but I do want a better solution. The code used to not set dug stone to background and this didn't happen but it had a different issue where if you dig our a tunnel underground it looked like sky behind it or if you dug a tall skinny shaft all the way down, it looked like sunny sky all the way down. Explore how noita or terraria deal with this type of issue\\",
+  "annotations": [],
+  "archived": false,
+  "blind_was": null
+}
