@@ -3583,6 +3583,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // pours *water*, so every airborne water cell there is condensate
         // that has turned around and is on its way back down.
         let (mut steam_cells, mut steam_top, mut steam_bottom) = (0u32, i32::MAX, i32::MIN);
+        let mut submerged_steam = 0u32;
         let (mut airborne, mut air_top, mut air_bottom) = (0u32, i32::MAX, i32::MIN);
         let steam_id = world.materials.id_of("steam");
         for y in 0..HEIGHT {
@@ -3592,6 +3593,18 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                     steam_cells += 1;
                     steam_top = steam_top.min(y);
                     steam_bottom = steam_bottom.max(y);
+                    // **A bubble is submerged steam**, and nothing counted
+                    // it. Reported from play about a heat source under a
+                    // pool: *"I see bubbles form at the bottom, rise to the
+                    // top and pop"*. Whether the engine ever produces that
+                    // -- gas inside the water, on its way up -- or only ever
+                    // vents steam at the interface, is not visible in a
+                    // contact sheet and is not what `steam_cells` counts: a
+                    // plume standing over a pond and a pond full of rising
+                    // bubbles give the same total.
+                    if y > 0 && world.get(x, y - 1).material == material::WATER {
+                        submerged_steam += 1;
+                    }
                 }
                 if cell.material == material::WATER
                     && y + 1 < HEIGHT
@@ -3763,7 +3776,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         if steam_cells > 0 || airborne > 0 {
             let span = |n: u32, a: i32, b: i32| if n == 0 { "-".to_string() } else { format!("rows {a}..{b}") };
             println!(
-                "    plume: steam {steam_cells} cells ({}), airborne water {airborne} cells ({})",
+                "    plume: steam {steam_cells} cells ({}, {submerged_steam} submerged), airborne water {airborne} cells ({})",
                 span(steam_cells, steam_top, steam_bottom),
                 span(airborne, air_top, air_bottom)
             );
