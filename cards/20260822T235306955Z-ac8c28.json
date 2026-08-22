@@ -1,0 +1,90 @@
+{
+  "id": "20260822T235306955Z-ac8c28",
+  "created": "2026-08-22T23:53:06Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "da1faf0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Dark bands under overhangs, objects and digs: one mechanism, three costumes",
+  "question": "Storing the genesis void per *cell* instead of per column kills panels 1 and 3 outright, but leaves panel 2 (the open pit) still black, because those cells really were rock. Is a dug-out pit reading as cave acceptable, or must the fix cover that too?",
+  "context_md": "Answering your note on the pond card (\"a bigger issue with shadows/background\"). **It is the background baseline, not a shadow.** There is no shadow caster in the engine at all — `sky::apply_light` is a global day/night multiplier with no occlusion term, and fake AO was measured and cut.\n\nAll three panels are one mechanism: `World::sky_surface` records the topmost `Solid`/`Powder` **per column**, frozen on frame 1, and everything at or below it in that column is \"inside the ground\" forever. Two consumers read it — `background_at` fades empty cells to `UNDERGROUND` over 24 rows (sqrt ramp, saturates at full black), and `TerrainLight::Depth` grades non-empty cells (rock, soil, **and water**) down to 0.62.\n\nBecause the test is \"is there anything solid above me in this column\", it cannot tell a cave roof from a cliff brow, a hillside from a rock suspended in mid-air, or rock you removed from rock that was never there.\n\nMeasured, not inferred:\n\n- The depth grade is **not** the cause of the black. `light=flat` (F10 off) leaves the pit in panel 2 exactly as black — the empty-cell cave fade does all of it. The grade is what darkens the *water* on your pond card.\n- New probe `examples/underground_probe.rs` counts open air (flood-reachable from the sky) that the renderer draws as cave. Numbers per panel below.\n\n`Reports/dead-ends.md` §977 forbids going back to inferring this from geometry and says *\"revisit only by storing more history\"*. One bit per cell — \"was this enclosed at genesis\" — is that: a 5.8 ms flood fill once at generation, 164 KB at 2048x640, no width threshold anywhere, and it keeps every property the current rule was chosen for (a dug shaft of any width stays a tunnel, a built roof stays outdoors).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — an object suspended at genesis",
+      "files": [
+        "20260822T235306955Z-ac8c28/000-rockdrop0.png"
+      ],
+      "caption": "scene=rockdrop fall=20, frame 0. The band runs through the air, the water and the pool floor, exactly the slab's width, to the bottom of the world.",
+      "meta": {
+        "bodies in flight": 0,
+        "frame": "0 — nothing has fallen yet, so this is not the drop",
+        "band width": "exactly the slab's width, no falloff"
+      },
+      "focus": null
+    },
+    {
+      "label": "2 — mining: a 64-wide open pit, before and after",
+      "files": [
+        "20260822T235306955Z-ac8c28/001-v_quarry_zoom.png"
+      ],
+      "caption": "viewshot seed=1 quarry=64. Top 40 rows off the hill, nothing left overhead. Note the pit floor draws *brighter* than the air above it.",
+      "meta": {
+        "false-cave cells": 1207,
+        "of those at full UNDERGROUND": 436,
+        "one connected region": "x 971..1011, y 61..100",
+        "with depth light off (F10)": "unchanged — still black"
+      },
+      "focus": null
+    },
+    {
+      "label": "3a — a natural cliff brow, as drawn",
+      "files": [
+        "20260822T235306955Z-ac8c28/002-brow_plain.png"
+      ],
+      "caption": "viewshot seed=1, second tile: a hard-edged patch of darker sky hanging off the lip.",
+      "meta": {
+        "false-cave cells (seed 1, whole 2048x640 world)": 156,
+        "largest single patch": "54 cells",
+        "p90 over seeds 1-6": 408,
+        "worst seed": "408 cells (seed 2), 33 at full UNDERGROUND on seed 3"
+      },
+      "focus": [
+        480,
+        60,
+        480,
+        420
+      ]
+    },
+    {
+      "label": "3b — same frame, F11 underground X-ray",
+      "files": [
+        "20260822T235306955Z-ac8c28/003-brow_reveal.png"
+      ],
+      "caption": "Magenta is every cell the renderer calls underground. It is sitting in open sky beside the lip.",
+      "meta": {
+        "genuinely enclosed air (real caves, seed 1)": 5178,
+        "open air drawn as cave": 156
+      },
+      "focus": [
+        480,
+        60,
+        480,
+        420
+      ]
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
