@@ -1,0 +1,43 @@
+{
+  "id": "20260822T030607609Z-bb3bbf",
+  "created": "2026-08-22T03:06:07Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "ba72691",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The boulder goes in now - it was never falling at all",
+  "question": "Does the entry read right now? And the honest open question: what sinks is still mostly grit rather than slabs - how much does that bother you?",
+  "context_md": "You said: *\"It looks good. I would be curious to see bigger, but I am happy with where the splash is. The big issue is the boulder just stops and gets stuck in the middle of the water.\"*\n\nIt was worse than you saw. **The boulder never fell at all.** 522 of its 600 cells were still sitting in mid-air thirty rows above the pond at frame 400 -- the clip I sent you just ended before that was obvious. All seventeen acceptance cases were green, because not one of them drops anything into a liquid.\n\n**What was holding it up: two grains of its own debris.** A piece resting on loose material counts as supported, and I had \"fixed\" that rule earlier by asking whether a grain was walled in on all four sides. Two grains side by side defeat that outright -- each one is the other's opening. So a couple of pebbles inside the slab anchored the whole thing.\n\nThat was the third try at the same rule, so it stopped guessing from the grain's shape and asks what the grain is *standing on* instead: walk down through the loose material and see what is underneath it all. Bedrock, ground, or a deep pile bears weight. Rock that is itself falling does not.\n\n**And the suite that could not have caught this now can.** Two new cases drop rock and lava into water, gated on *where the rock ended up* rather than on how many events fired -- the old readouts both read zero through the entire bug, correctly, because the model believed the slab was supported.\n\n**The part I have not fixed, and you should know before you judge:** what sinks is still mostly grit. I added a readout for it and the answer surprised me -- 85% of the mass *does* leave as chunks, but the same rock is being broken **four times over** (600 cells of slab, 2,515 cells' worth of chunks) because a body cannot displace deep water, stops, gets re-judged and re-broken. Diagnosed in full, and the obvious fix loses 1,800 cells of water, so I wrote it up rather than shipped it. That is the next thing.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T030607609Z-bb3bbf/000-boulder_before.gif"
+      ],
+      "caption": "522 of 600 cells still in the sky at frame 400. Everything you can see stays there.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T030607609Z-bb3bbf/001-boulder_after.gif"
+      ],
+      "caption": "0 left aloft. 24 chunk bodies in flight, 46 splash droplets.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
