@@ -34,7 +34,7 @@ and 264 (0.0). Every file in its collision table exists. It has one stale
 sentence, §F1 below, and nothing else.
 
 **Cross-file link integrity is effectively perfect.** Extracting every
-`](path)` and every backticked repo path across all markdown and testing each
+markdown link target and every backticked repo path across all markdown and testing each
 for existence produced no true breaks. Every apparent one is a glob
 (`Reports/*.md`), a `file.rs:123` line reference, a relative wiki link, or a
 throwaway example the text itself annotates as deleted after use
@@ -473,7 +473,7 @@ comm -3 <(grep -oE '^  [a-z_]+\.rs' README.md | tr -d ' ' | sort -u) \
         <(ls src/sim/*.rs | xargs -n1 basename | sort -u)
 ```
 
-**Link and path integrity** — extract every `](path)` and every backticked
+**Link and path integrity** — extract every markdown link target and every backticked
 repo path from all markdown and test each for existence. It reports no true
 breaks today; it must report none after the `Reports/archive/` move, which is
 the check that catches a bad `git mv`.
