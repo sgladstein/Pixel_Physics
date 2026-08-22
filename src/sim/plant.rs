@@ -2324,7 +2324,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // explicitly leave room for calls like this.
                 found_candidate = true;
             }
-            Behavior::Germinate { light_threshold, moisture_threshold, instant } => {
+            Behavior::Germinate { light_threshold, soil_water_threshold, instant } => {
                 // **A seed germinates where it lands, never in mid-air.**
                 // Now that a seed is a `Powder` it falls, and without this
                 // it could meet its light and moisture conditions on the way
@@ -2370,7 +2370,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // prints the epiphyte count on every run, so a regression
                 // announces itself.
                 //
-                // (`moisture_threshold` looks like the designed answer and
+                // (the old `moisture_threshold` looked like the designed answer and
                 // is not: field moisture at the soil *surface*, where a
                 // good seed lands, is as near zero as it is up a tree, so
                 // every non-zero setting blocked all germination equally --
@@ -2381,11 +2381,43 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 let ready = resting
                     && (instant || {
                     let light = ambient_light_above(world, x, y);
-                    let moisture = world.field_at(x, y).moisture;
-                    light >= light_threshold && moisture >= moisture_threshold
+                    // **Reads the soil it is resting on, not the field at
+                    // its own cell** -- and the comment above records why
+                    // the old read could not work: field moisture at the
+                    // surface is as near zero as it is up a tree, so every
+                    // non-zero setting blocked germination equally.
+                    //
+                    // `plant_available_fraction` is the *same quantity a
+                    // root will drink* -- zero at or below the wilting
+                    // point, one at field capacity -- so a seed now waits
+                    // on exactly the condition that decides whether it can
+                    // live once it germinates. That is the owner's model:
+                    // a seed on dry ground sits until rain wets the soil,
+                    // rather than germinating and starving.
+                    //
+                    // **Gated on `water_capacity > 0` first, and that guard
+                    // is load-bearing.** `update::soil_moisture` reads
+                    // `aux` with no material check, and on a `Liquid` `aux`
+                    // is *fill*, where 0 means FULL on the same 1000 scale
+                    // as saturated soil. A seed floats (density 0.6 against
+                    // water's 1.0) and `resting` accepts any non-empty
+                    // cell, so without this a seed bobbing on a full pond
+                    // would read bone dry -- and one on half-drained water
+                    // would read well watered.
+                    let holds_water = world.materials.get(below.material).water_capacity > 0;
+                    let soil_water = if holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    light >= light_threshold && soil_water >= soil_water_threshold
                 });
                 if ready {
                     return germinate(world, x, y, organism_id, cell, &mut rng);
+                }
+                // **Remember that it waited**, so `germinate` can tell a
+                // seed that sat out a dry spell from one that sprouted the
+                // moment it landed. Without this the counter would say
+                // "seeds germinated", which is true of the old behaviour
+                // too and therefore evidence of nothing.
+                if let Some(state) = world.organism_mut(organism_id) {
+                    state.deferred_germination = true;
                 }
                 // Not ready yet: waiting on a condition that hasn't
                 // arrived, not a dead end -- the same "temporary
@@ -4112,6 +4144,12 @@ fn reschedule_organism(x: i32, y: i32, organism: u16, stale_ticks: u8, plastochr
 /// "one tip up, one root down, both starting at the seed's own position"
 /// shape.
 fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rng: &mut Rng) -> Vec<ActiveSite> {
+    // The did-it-fire counter for seed dormancy. Only seeds that were
+    // deferred at least once count -- see `World::
+    // seeds_germinated_after_waiting`.
+    if world.organism(organism_id).is_some_and(|st| st.deferred_germination) {
+        world.seeds_germinated_after_waiting += 1;
+    }
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child
     // creation above. A freshly germinated seed is not yet connected to any
@@ -7531,6 +7569,103 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     /// ```text
     /// cargo test --lib print_dry_window_for_the_slot_seed -- --ignored --nocapture
     /// ```
+    /// **A seed waits on dry ground, and germinates when rain arrives** —
+    /// the paired guard for the dormancy mechanic.
+    ///
+    /// Three arms, because two cannot separate the failures. Dry-only would
+    /// pass if germination were broken outright; wet-only would pass if the
+    /// gate were ignored entirely. The third arm — the same dry bed, wetted
+    /// part-way through — is the only one that shows the seed *waited and
+    /// then acted*, which is the mechanic. Same scene, same seed, same
+    /// frames; one number different.
+    ///
+    /// Written because **no existing test could catch a broken dry gate**:
+    /// every bed in this suite is built at `SOIL_FIELD_CAPACITY`, so a gate
+    /// that always returned true stayed green everywhere.
+    #[test]
+    fn a_seed_waits_for_water_and_germinates_when_it_arrives() {
+        // The wilting point exactly: plant-available water there is zero,
+        // so this is the driest ground that is still soil rather than an
+        // arbitrary small number.
+        let dry = run_seed_bed(material::SOIL_WILTING_POINT, None);
+        let wet = run_seed_bed(material::SOIL_FIELD_CAPACITY, None);
+        let rained = run_seed_bed(material::SOIL_WILTING_POINT, Some(material::SOIL_FIELD_CAPACITY));
+
+        assert!(
+            !dry.germinated,
+            "a seed on soil at the wilting point should still be waiting: plant-available water there is exactly              zero, so germinating would be the old bug -- sprout, then starve -- in a new costume"
+        );
+        assert!(
+            wet.germinated,
+            "a seed on soil at field capacity should have germinated and did not; the gate is reading something              other than the soil below it, or the threshold is above field capacity"
+        );
+        assert!(
+            rained.germinated && rained.after_waiting > 0,
+            "a seed that sat on dry ground and was then rained on should have germinated, and should be counted as              having waited first: germinated={} after_waiting={}. This is the mechanic itself, and it is the arm              that fails if dormancy is really just a slow start.",
+            rained.germinated,
+            rained.after_waiting
+        );
+    }
+
+    struct SeedBed {
+        germinated: bool,
+        after_waiting: u32,
+    }
+
+    /// One seed on a walled, floored bed at a chosen soil moisture. If
+    /// `wet_to` is set, the bed is re-wetted half way through, which is what
+    /// rain would do.
+    ///
+    /// Floored **and** walled for the reason `plant_tree_on_ground` records:
+    /// an open-sided powder bed avalanches out from under the seed, and a
+    /// seed that rode its own bed downhill is not a seed that declined to
+    /// germinate.
+    fn run_seed_bed(moisture: u16, wet_to: Option<u16>) -> SeedBed {
+        let mut w = test_world();
+        // **Seed 1, from frame 0, because that window is provably rain-free**
+        // -- `print_dry_window_for_the_slot_seed` measures 0 of frames
+        // 0..12,000 precipitating at this seed, with the first rain at
+        // 14,400. Without pinning it, `run_with_fields` drives the CA, the
+        // CA drives `weather::step`, and a shower would wet the dry arm and
+        // quietly turn this into a test of nothing.
+        w.seed = 1;
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        let lay = |w: &mut World, aux: u16| {
+            for fx in (x - HALF - 1)..=(x + HALF + 1) {
+                w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+            }
+            for dy in 1..=ROWS {
+                w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+                for fx in (x - HALF)..=(x + HALF) {
+                    let cell = w.get(fx, y + dy);
+                    if cell.material == soil || cell.material == material::EMPTY {
+                        w.set(fx, y + dy, Cell::new(soil, 0).with_aux(aux));
+                    }
+                }
+            }
+        };
+        lay(&mut w, moisture);
+        w.plant_tree(x, y);
+        let id = w.get(x, y).organism_id();
+        // `run_with_fields`, not `run`: germination gates on light as well
+        // as water, and `run` never solves the light channel -- so every
+        // arm would read dark and refuse for the wrong reason.
+        run_with_fields(&mut w, 1_000);
+        if let Some(target) = wet_to {
+            lay(&mut w, target);
+            run_with_fields(&mut w, 1_000);
+        }
+        // Germinated means the organism grew past the single seed cell it
+        // started as -- a count, not a picture, and it does not care which
+        // cell type it became.
+        let cells = w.organism(id).map_or(0, |st| st.cells.len());
+        SeedBed { germinated: cells > 1, after_waiting: w.seeds_germinated_after_waiting }
+    }
+
     #[test]
     #[ignore]
     fn print_dry_window_for_the_slot_seed() {

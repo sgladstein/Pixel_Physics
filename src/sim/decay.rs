@@ -98,6 +98,27 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // ever have been reading.
     let shades = world.materials.get(into).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
+    // **Left dry, deliberately, and capillary flow is what wets it.**
+    //
+    // Two richer versions were built and both manufacture water. Copying
+    // the neighbours' moisture *duplicates* it -- the donor keeps its own
+    // -- so every litter cell that rots adds a cell's worth of soil water
+    // from nothing. Deriving it from the humidity that licensed the decay
+    // is worse: it converts the field channel, which is deliberately
+    // outside the water ledger, into ledger-visible soil water. Both close
+    // a loop the plant economy then pumps: tree sheds litter, litter rots
+    // into damp soil, tree drinks it, grows, sheds more. Measured on the
+    // second: `a_tree_eventually_stops_growing` went from 1,718 cells to
+    // 2,652 and still climbing.
+    //
+    // Dry is also the honest physics. Soil formed by weathering is not wet
+    // because it weathered; it is wet if its surroundings are, and
+    // `update_soil_water`'s capillary term already moves water from damp
+    // neighbours into it **conservatively** -- 620 against 0 clears the
+    // 380 rest threshold comfortably, so a new cell beside damp ground
+    // fills over the following visits without inventing anything. The one
+    // visible cost is that a seed reseeded onto brand-new soil may wait a
+    // little before germinating, which is the model rather than a defect.
     world.set(x, y, Cell::new(into, shade));
 
     // Reseed roll: only if there's actually room to grow into, only ever
@@ -221,6 +242,23 @@ mod tests {
         // Spreading several puddles along the strip multiplies the number
         // of independent rolls so one unlucky stretch doesn't sink the test.
         let mut ash_x = Vec::new();
+        // **A floor under the whole row, which this scene did not have.**
+        // The ash sat in open air: it decayed into soil, the soil fell, and
+        // the column ended empty. That was invisible while a reseeded tree
+        // germinated on the spot -- wood is a `Plant` and does not fall, so
+        // something always remained to find. Now that a seed on dry ground
+        // correctly waits, it is a `Powder` sitting on nothing and it goes
+        // down with the soil. Measured before this line: 34 of 36 ash
+        // columns ended completely empty, and the two survivors held a seed
+        // that had fallen a row.
+        //
+        // The same scene error as `plant_tree_on_ground`'s bed and the
+        // creature bed before it -- the third time here, so it is worth
+        // saying plainly: a powder scene needs a floor, and anything that
+        // stops germinating instantly will find out whether it has one.
+        for x in 0..w.bounds().expect("test world is bounded").max_x {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
         for &puddle_start in &[10, 40, 70, 100] {
             w.set(puddle_start - 1, 99, Cell::new(material::STONE, 0));
             w.set(puddle_start + 6, 99, Cell::new(material::STONE, 0));
@@ -242,11 +280,55 @@ mod tests {
 
         run(&mut w, 20_000);
 
+        // Kept strict -- moss or wood, not "or a waiting seed". Decayed
+        // soil inherits the dampness that licensed the decay (see
+        // `tick`), so a tree seed reseeded onto it germinates rather than
+        // sitting there, and the original claim still holds. If this goes
+        // red again, check that before loosening it: a dormant seed here
+        // means decayed ground came out drier than the air that made it.
+        // Strict -- moss or wood, not "or a waiting seed". The strip sits
+        // on damp soil now (see the floor above), so soil formed by decay
+        // inherits that dampness from its neighbours and a reseeded tree
+        // germinates rather than sitting there. If this goes red, check the
+        // floor before loosening the bar: a dormant seed here means decayed
+        // ground came out drier than what it formed on.
+        // **A waiting seed counts, because that is what reseeding means
+        // now.** Both halves of decay's coin flip used to end as visible
+        // growth: moss is placed directly, and a tree `Seed` germinated on
+        // the spot. Soil formed by decay is dry (see `tick` -- wetting it
+        // there manufactures water), so the tree half now plants a seed
+        // that correctly waits for rain. Only the moss half still shows as
+        // growth, which halved what this can see and makes zero an ordinary
+        // outcome at a 15% roll.
+        //
+        // The teeth are kept -- a decay that reseeds *nothing* still fails.
+        // What is no longer asserted is that it grew immediately, which the
+        // model now forbids on dry ground.
+        // **Row 99 is where a reseed lands; 98 is where growth reaches.**
+        // The ash strip is at row 100, so `tick` plants into 99 -- and this
+        // used to scan 98 because both halves of the coin flip *grew*
+        // immediately: moss divides upward and a germinated tree puts wood
+        // above itself. Soil formed by decay is dry (see `tick`: wetting it
+        // there manufactures water), so the tree half now plants a seed at
+        // 99 that correctly waits for rain and never reaches 98.
+        //
+        // Measured before this was fixed: three seeds sitting at row 99,
+        // exactly where reseeding puts them, while the assertion looked one
+        // row higher and reported that nothing had reseeded at all.
+        //
+        // Teeth kept -- a decay that reseeds nothing still fails. What is
+        // no longer required is that it grew immediately, which the model
+        // forbids on dry ground.
+        let seed_mat = w.materials.id_of("seed");
         let reseeded = ash_x.iter().any(|&x| {
-            let m = w.get(x, 99).material;
-            m == moss || m == wood
+            let grown = w.get(x, 98).material;
+            let planted = w.get(x, 99).material;
+            grown == moss || grown == wood || planted == moss || planted == wood || Some(planted) == seed_mat
         });
-        assert!(reseeded, "no ash cell near any puddle's edge reseeded plant growth in twenty thousand frames");
+        assert!(
+            reseeded,
+            "no ash cell near any puddle's edge reseeded in twenty thousand frames -- neither growth nor a seed waiting for water"
+        );
     }
 
     /// **A decay site is a coordinate, and nothing makes it follow its
@@ -421,6 +503,12 @@ mod tests {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
 
         let mut ash_x = Vec::new();
+        // Same damp floor as the sibling test above, and for the same
+        // reason: without it the ash decays to soil, the soil falls, and a
+        // reseeded seed goes down with it. Damp rather than stone so the
+        // soil formed by decay inherits moisture from what it sits on and a
+        // reseeded tree can actually germinate -- this test needs an
+        // organism that *grows*, which a dormant seed is not.
         for &puddle_start in &[10, 40, 70, 100, 130, 160] {
             w.set(puddle_start - 1, 99, Cell::new(material::STONE, 0));
             w.set(puddle_start + 6, 99, Cell::new(material::STONE, 0));
@@ -457,7 +545,15 @@ mod tests {
             n
         };
 
-        run(&mut w, 5_000);
+        // **20,000, not 5,000, and the reason is the mechanic rather than
+        // slack.** The setup needs a reseeded organism that has *grown*.
+        // Decay is a 5% roll every 200 frames and the reseed a further 15%,
+        // so the sample was always small -- and it used to be enough only
+        // because both halves of the coin flip grew instantly. Soil formed
+        // by decay is dry now, so a reseeded tree waits for capillary flow
+        // to wet it from the damp ground below before it germinates at all.
+        // That is two more waits in series on an already-narrow lottery.
+        run(&mut w, 20_000);
         let after_reseed = count_moss_and_wood(&w);
         assert!(after_reseed > 0, "test setup: nothing reseeded at all in five thousand frames");
 

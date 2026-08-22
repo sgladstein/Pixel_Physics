@@ -35,7 +35,13 @@
         (Seed, [
             Germinate(
                 light_threshold: 0.1,
-                moisture_threshold: 0.0,
+                // Low, like grass: a ground-hugging plant establishes on thin damp ground rather than waiting for a wet season.
+                //
+                // Plant-available soil water in the cell below, 0..1:
+                // 0 is the permanent wilting point, 1 is field capacity.
+                // Renamed from `moisture_threshold`, whose unit was the
+                // field channel's 0..4 and which measured the wrong thing.
+                soil_water_threshold: 0.15,
                 instant: false,
             ),
         ]),

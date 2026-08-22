@@ -802,7 +802,7 @@ pub enum Behavior {
     /// avoiding germination-condition waits in every test that just needs
     /// a grown organism to exist — `organism-substrate-design.md` §1's own
     /// stated reason for this field.
-    Germinate { light_threshold: f32, moisture_threshold: f32, instant: bool },
+    Germinate { light_threshold: f32, soil_water_threshold: f32, instant: bool },
     /// Marks a cell type as counting toward `structural.rs`'s
     /// `is_body_material` check for organism-owned cells — a tag other
     /// systems read, no behavior of its own (matches `ActiveKind`'s own
@@ -1438,6 +1438,15 @@ pub struct OrganismState {
     /// authored species is the *starting point* a population diverges from
     /// rather than a fixed identity it is stuck with.
     pub alleles: [u8; DISCRETE_LOCI],
+    /// **This seed was told "not yet" at least once.** Set on the
+    /// germination path's not-ready branch and read in `germinate`, so
+    /// `World::seeds_germinated_after_waiting` counts only the seeds that
+    /// actually waited for water rather than every seed that ever sprouted.
+    ///
+    /// A bool rather than a tick count because the question is binary: did
+    /// dormancy do anything here. The count of *deferrals* would be a
+    /// property of the polling interval, not of the mechanic.
+    pub deferred_germination: bool,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of

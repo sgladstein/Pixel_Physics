@@ -470,6 +470,44 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
+### V. A tree with no seedlings under it never stops growing — **OPEN, 2026-08-22. Emergent, and possibly correct.**
+
+`a_tree_eventually_stops_growing` was passing after the worldgen work and
+fails once seeds wait for water: the subject reaches **1,718 cells and is
+still growing at 120,000 frames**, where the recorded plateau is ~565.
+Isolated by control — neutralising the germination gate alone makes it pass,
+and the run takes half as long (72 s against 146 s), which is the extra
+growth showing up as work.
+
+**The mechanism, stated as the hypothesis it is.** The bed is at field
+capacity, so the *subject* germinates either way. What changes is its
+offspring: `Behavior::Reproduce` recruits a stand indefinitely, and a
+mature tree draws the soil around it down toward the wilting point. Once it
+does, its own seedlings cannot clear the 0.25 threshold, so they sit as
+dormant seeds instead of becoming competitors — and the parent, now
+uncontested, keeps growing.
+
+**Which means the test's premise may never have been true.** Its name says
+the tree *"exhausts its resource economy"*, but if what actually bounded it
+was competition from its own offspring, it was measuring crowding and
+calling it economy. That is this file's recurring shape: a guard that passes
+for a reason other than the one it is named for.
+
+**Not tuned, deliberately.** Three things could be done and only the owner
+should pick: accept unbounded growth for a solitary well-watered tree as
+correct and retire the claim; treat self-suppression as the bug and let
+seedlings establish in a parent's shadow; or bound growth by something that
+is genuinely the tree's own economy. Note the emergent behaviour here is
+real — **a mature tree drying the soil around it and suppressing its own
+seedlings is what happens in a real stand** — so the first reading is not a
+cop-out.
+
+**Unverified:** the competition mechanism is inferred from the control plus
+the population count (22 live organisms at failure, which includes dormant
+seeds and so cannot separate "fewer competitors" from "more waiting seeds").
+The measurement that would settle it is a count of *established* offspring —
+organisms past the seed stage — in both configurations.
+
 ### Z. The stand still reads as one mass — **JUDGED 2026-08-22. Two verdicts, and a metric that lied.**
 
 Two cards, both answered by the owner, and together they settle a question

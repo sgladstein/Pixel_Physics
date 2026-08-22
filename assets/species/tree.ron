@@ -59,7 +59,13 @@
         (Seed, [
             Germinate(
                 light_threshold: 0.1,
-                moisture_threshold: 0.0,
+                // A tree is the largest commitment on this list -- it must fund a trunk before it earns anything -- so it waits for ground that will still be damp after the first dry spell.
+                //
+                // Plant-available soil water in the cell below, 0..1:
+                // 0 is the permanent wilting point, 1 is field capacity.
+                // Renamed from `moisture_threshold`, whose unit was the
+                // field channel's 0..4 and which measured the wrong thing.
+                soil_water_threshold: 0.25,
                 instant: false,
             ),
         ]),

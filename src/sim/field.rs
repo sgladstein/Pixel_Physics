@@ -187,7 +187,7 @@ pub const MAX_LIGHT: f32 = 4.0;
 /// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
 /// real quantity, just a fixed ceiling the diffusion/decay constants below
 /// are tuned against.
-const MAX_MOISTURE: f32 = 4.0;
+pub(crate) const MAX_MOISTURE: f32 = 4.0;
 
 /// One coarse cell: ambient conditions for an `FIELD_SCALE`-sided block of the
 /// CA grid.

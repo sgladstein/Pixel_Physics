@@ -381,6 +381,20 @@ pub struct World {
     /// allocating on their own schedule this is the number that says
     /// whether the assumption still holds at play rates.
     pub organism_generation_wraps: u32,
+    /// **Seeds that waited for water and then germinated** — the counter
+    /// for the dormancy mechanic, because a picture cannot show it and no
+    /// existing readout separates the cases.
+    ///
+    /// `plant_probe` prints "seeds or seedlings", which lumps a seed
+    /// patiently waiting on dry ground together with a seedling starving
+    /// after germinating on it — the exact two states this mechanic exists
+    /// to tell apart, and the failure it was built to end. A stand can look
+    /// identical either way.
+    ///
+    /// Counts only germinations that were *deferred at least once*: a seed
+    /// that lands on damp ground and sprouts immediately is the old
+    /// behaviour and is not evidence of anything.
+    pub seeds_germinated_after_waiting: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -636,6 +650,7 @@ impl World {
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
+            seeds_germinated_after_waiting: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -1036,6 +1051,7 @@ impl World {
             generation: 0,
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
+            deferred_germination: false,
             rigid_steps: 0,
             lateral_departures: 0,
             departure_angle_sum: 0.0,
