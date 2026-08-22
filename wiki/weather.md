@@ -3,7 +3,7 @@
 *Current as of: this build (the water bank — rain now comes out of what
 evaporated, and damp ground gives its water back to the sky — plus drying
 that follows the sun: warm afternoons take far more off a puddle than cold
-nights do).*
+nights do; ice now forms and thaws over seconds rather than in a blink).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -67,8 +67,9 @@ melted into nothing would be the wrong answer too.
 A hard snowfall does not only pile up — **it freezes what it falls on.**
 Standing water under a cold front grows a crust of ice, starting where the
 snow is actually landing and spreading along the surface from there. A
-puddle skins over almost at once. A pond takes a while, in patches that
-widen and join. A lake can be part frozen and part open for a long time,
+puddle skins over almost at once. A pond takes a while — several seconds,
+watchably, in patches that widen and join rather than a surface that is
+suddenly just ice. A lake can be part frozen and part open for a long time,
 and that reads exactly as it should.
 
 What you get is a surface effect, not a solid block: the crust thickens
@@ -81,10 +82,12 @@ on a wide sheet and it gives way, and what comes away is crushed ice:
 slush, which floats for a while and then melts like everything else.
 
 And it goes when the cold goes. Ice cannot survive an ordinary day any more
-than snow can, so the moment the front passes the crust is above its
-melting point, and within a few seconds the sheet, the drift on top of it
-and the slush are all water again and the pool is back — back to the level
-it was at, not higher. Nothing remembers that the pond was ever frozen; the
+than snow can, so once the front passes the crust is above its melting
+point and starts giving way — but a thaw is slow next to a freeze, and
+takes the better part of ten seconds to turn a sheet, the drift on top of
+it and the slush back into water. It goes ragged and patchy on the way, and
+the last of it lingers after the rest has gone. Then the pool is back —
+back to the level it was at, not higher. Nothing remembers that the pond was ever frozen; the
 cold being gone is the whole of it.
 
 A frozen pond is a way to cross water, and a temporary one. It is worth

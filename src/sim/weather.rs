@@ -1843,7 +1843,14 @@ mod tests {
             // moving the frame *is* the front passing, and it keeps the
             // test to a few hundred frames instead of a few thousand.
             w.frame = first_frame_with(seed, snowy, |x| !x.is_precipitating()).expect("seed 2900's front should end");
-            advance(&mut w, 300, parallel_driver);
+            // **1,500 frames for the thaw, not 300.** Melting is a per-visit
+            // roll at `fire::MELT_CHANCE` now — a mean of ~67 frames per
+            // cell, against the single visit it used to take — because a
+            // pond that thawed in a fifth of a second was reported from
+            // play. The budget is read off that rate rather than guessed:
+            // measured on `scene=coldsnap`, a 356-cell sheet is gone in
+            // about 480 frames.
+            advance(&mut w, 4000, parallel_driver);
 
             let (after, ice_left, snow_left) = water_census(&w);
             println!("pool refill (parallel: {parallel_driver}): {after:.1} against {before:.1} ({:.1}%)", after / before * 100.0);
@@ -2039,7 +2046,9 @@ mod tests {
             let (_, ice, snow) = water_census(&w);
             assert!(ice > 20 && snow > 100, "no sheet ({ice}) or no drift ({snow}) to thaw; the test would be vacuous (parallel: {parallel_driver})");
 
-            advance(&mut w, 600, parallel_driver);
+            // Same rate change as the sibling test above: 2,400 frames,
+            // and a drift of several hundred flakes is the slow half.
+            advance(&mut w, 5000, parallel_driver);
             let after = water_equivalents(&w);
             let (_, ice_left, snow_left) = water_census(&w);
             assert_eq!((ice_left, snow_left), (0, 0), "the thaw did not finish, so this is not measuring one (parallel: {parallel_driver})");

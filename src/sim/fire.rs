@@ -70,6 +70,60 @@ const THERMAL_SETTLE_EPSILON: f32 = 1.0;
 /// front reads wrong.
 const PHASE_CHANGE_CHANCE: f32 = 0.4;
 
+/// The same per-visit roll for **melting**, and far slower, because a thaw
+/// is the one phase change a player watches over seconds rather than
+/// frames.
+///
+/// # Why this is a rate and not a latent-heat brake
+///
+/// Boiling is braked by `pay_latent_heat`, which charges the neighbourhood
+/// for the heat the change takes, and copying that for fusion is the
+/// obvious move: melting a gram of ice costs about a seventh of boiling a
+/// gram of water (334 J/g against 2,260), so 80 against
+/// `LATENT_HEAT_DEGREES`'s 540. **Built, measured, and it does not
+/// transfer.**
+///
+/// The reason is that the two ends of this world are not calibrated alike.
+/// A boil has lava at 1,000°C beside it and 540 is easily found. A thaw has
+/// nothing warmer than **ambient, 20°C** anywhere in it — the world relaxes
+/// *towards* 20 rather than past it — so an ice cell at a melting point of
+/// 1 can see at most 19 degrees per warm neighbour, and 80 is unreachable.
+/// Measured twice: with air excluded as a payer (as boiling excludes it,
+/// correctly, or an open pool boils for free), a pond sat at 392 frozen
+/// cells 280 frames after the snap ended; with air paying, the same 392,
+/// because four air faces come to 76 and the bill is 80.
+///
+/// A latent-heat brake on fusion wants a heat model with a cold reservoir
+/// in it, which this is not yet. Until then the honest thing is a rate that
+/// says it is a rate. Swept on `scene=coldsnap` -- see the commit that set
+/// it for the table.
+const MELT_CHANCE: f32 = 0.015;
+
+/// And the same for **freezing**, which shared `PHASE_CHANGE_CHANCE` with
+/// boiling and had no business doing so.
+///
+/// # The weather was not the problem, which took a measurement to find out
+///
+/// Reported as *"the freeze is so fast. It lasts only a few seconds. This
+/// should be different order of magnitude"*, and the obvious reading is
+/// that cold snaps are too short. **They are not.** Sweeping
+/// `weather::at` over 400,000 frames for seed 2900, at the shipped
+/// `WEATHER_EPOCH_FRAMES`, the snow runs are **100.8 s and 87.4 s** long.
+/// `filmstrip`'s `COLDSNAP_START`/`COLDSNAP_SNOW_ENDS` window is a
+/// 700-frame *slice* of one of them, not the whole thing, which is what
+/// made the front look brief when it was the ice that was.
+///
+/// Lengthening the weather epoch tenfold was tried on that misreading and
+/// reverted: it gives a single 1,008-second snow event per 400,000 frames,
+/// i.e. one snowfall every two hours of play lasting seventeen minutes.
+/// That is not "ten times longer", it is a different game.
+///
+/// So the rate belongs here, beside `MELT_CHANCE`, and freezing stops
+/// borrowing boiling's number: a pond should ice over while you watch it,
+/// not between two glances. Swept on `scene=coldsnap` -- see the commit
+/// that set it.
+const FREEZE_CHANCE: f32 = 0.05;
+
 /// Non-burning cells at or above this temperature push heat and light into
 /// the coarse field each visit, the way `tick_burn` does for flames —
 /// molten lava and fresh quench crust radiate whether or not anything is
@@ -251,7 +305,24 @@ pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
     try_react(surface, x, y, &mut cell);
 
     let temp_off_ambient = (cell.temperature() as f32 - AMBIENT_TEMPERATURE as f32).abs();
-    let must_stay_dirty = cell.is_burning() || temp_off_ambient > THERMAL_SETTLE_EPSILON;
+    // **A cell that is mid-phase-change has to keep its own chunk awake, and
+    // being off ambient is not the same thing.** Every other threshold in
+    // this function is crossed by a cell that is hot or cold, so it dirties
+    // itself for free; melting is the exception, because ice sits *at*
+    // ambient while it thaws. Before `MELT_CHANCE` that cost nothing --
+    // melting fired on the first visit -- and with a per-visit roll it is
+    // the difference between a thaw and a permanent glacier: the chunk
+    // settles, the cell is never visited again, and the sheet stays for the
+    // rest of the run. Caught by two conservation tests that stopped
+    // finishing their thaw, at the same 80.4% refill however many frames
+    // they were given.
+    let mid_phase_change = {
+        // One `Vec` index, not two: this runs on every visited cell in the
+        // fire pass, which is the hottest thing in this file.
+        let m = surface.materials().get(cell.material);
+        m.melts_into.is_some() && cell.temperature() as f32 >= m.melting_point
+    };
+    let must_stay_dirty = cell.is_burning() || temp_off_ambient > THERMAL_SETTLE_EPSILON || mid_phase_change;
 
     // Write whenever something actually changed, or — even with no visible
     // change this exact visit (a temperature that int-rounds to the same
@@ -534,8 +605,18 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
 
     if temp >= melting_point {
         if let Some(into) = melts_into {
-            transform(surface, x, y, cell, into);
-            surface.count_phase_event(PhaseEvent::Melted);
+            // **A thaw is slow, and this arm was instantaneous.**
+            // `PHASE_CHANGE_CHANCE`'s own doc records melting as
+            // deliberately ungated -- *"thaw urgency is carried by the
+            // temperature gradient itself"* -- and a playtest overturned
+            // it. Measured on `scene=coldsnap`: 362 cells of ice and 1,788
+            // of snow went to **zero of both inside ten frames**, under a
+            // fifth of a second at 60Hz, reported as *"the freeze is so
+            // fast... when it melts, it happens in 1 second"*.
+            if surface.rng().chance(MELT_CHANCE) {
+                transform(surface, x, y, cell, into);
+                surface.count_phase_event(PhaseEvent::Melted);
+            }
         }
         return;
     }
@@ -563,7 +644,7 @@ fn try_phase_change<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut 
                 if super::update::liquid_fill(*cell) < freeze_min_fill {
                     return;
                 }
-                if surface.rng().chance(PHASE_CHANGE_CHANCE) {
+                if surface.rng().chance(FREEZE_CHANCE) {
                     transform(surface, x, y, cell, into);
                     surface.count_phase_event(PhaseEvent::Froze);
                 }
@@ -1348,7 +1429,7 @@ mod tests {
         // exactly that way.
         w.set(30, 31, Cell::EMPTY);
         w.set(30, 30, boiled.with_temperature(30));
-        assert!(update_until_changed(&mut w, 30, 30, 3), "steam at 30C never condensed");
+        assert!(update_until_changed(&mut w, 30, 30, 400), "steam at 30C never condensed");
         let condensed = w.get(30, 30);
         assert_eq!(condensed.material, material::WATER, "cooled steam should condense back to water");
         assert_eq!(condensed.aux(), 650, "condensed water should hold exactly the fill the steam carried");
@@ -1468,7 +1549,11 @@ mod tests {
         // `aux 37` is a plausible relaxed anchor distance — exactly the
         // value that must not survive as a fill.
         w.set(30, 30, Cell::new(solid, 0).with_aux(37).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 30, 30, 3), "a solid above its melting point never melted");
+        // 400 visits, not 3: melting is a per-visit roll at `MELT_CHANCE`
+        // now, so the mean wait is ~67 frames. The budget is set from that
+        // rate with headroom, not from an aspiration -- a thaw that takes
+        // seconds is the whole point of the change.
+        assert!(update_until_changed(&mut w, 30, 30, 400), "a solid above its melting point never melted");
         let melted = w.get(30, 30);
         assert_eq!(melted.material, liquid);
         assert_ne!(melted.aux(), 37, "the anchor distance survived as a fill");
@@ -1480,7 +1565,7 @@ mod tests {
         // convention points the *other* way), so it is the same trap in a
         // second costume — and the arm that actually flooded a hillside.
         w.set(50, 30, Cell::new(powder, 0).with_aux(800).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 50, 30, 3), "a powder above its melting point never melted");
+        assert!(update_until_changed(&mut w, 50, 30, 400), "a powder above its melting point never melted");
         let thawed = w.get(50, 30);
         assert_eq!(thawed.material, liquid);
         assert_eq!(thawed.aux(), 300, "snow-density powder should melt into 30% of a cell of water, not a whole one");
@@ -1489,10 +1574,87 @@ mod tests {
         // than one cell, and comes back on the 0-means-full convention
         // every other liquid-creating call site writes.
         w.set(60, 30, Cell::new(dense, 0).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 60, 30, 3), "a dense solid above its melting point never melted");
+        assert!(update_until_changed(&mut w, 60, 30, 400), "a dense solid above its melting point never melted");
         assert_eq!(w.get(60, 30).aux(), 0, "a phase denser than its melt should clamp to one full cell (aux 0), not overflow");
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// **How long a freeze and a thaw take, in frames** — which no test
+    /// asked before, and the reason a pond could ice over in a third of a
+    /// second and melt in a fifth of one while every ice test passed.
+    ///
+    /// Reported from play: *"the freeze is so fast. It lasts only a few
+    /// seconds... when it melts, it happens in 1 second."* Measured on
+    /// `scene=coldsnap` before the change: 272 cells frozen by step 20, and
+    /// 362 ice plus 1,788 snow gone inside ten frames. After: the freeze
+    /// builds over ~200 frames and the sheet is gone by ~480.
+    ///
+    /// A **median over a hundred cells**, not one cell's luck: both changes
+    /// are per-visit rolls, so a single sample is a geometric draw and would
+    /// flake in whichever direction it landed. The bands are wide on
+    /// purpose — this is guarding an order of magnitude, which is what was
+    /// reported, not a tuned value.
+    #[test]
+    fn a_freeze_and_a_thaw_take_the_time_a_player_can_see() {
+        // `hold` re-applies the temperature each frame. Without it the
+        // freeze half never finishes and the test looks like a broken
+        // mechanism: a chilled cell warms back toward ambient by diffusion
+        // within a few frames and stops being below its cooling point at
+        // all, so what is being measured is the diffusion, not the roll.
+        // The existing round-trip test re-chills for the same reason.
+        let median_visits =
+            |setup: &dyn Fn(&mut World, i32), hold: &dyn Fn(&mut World, i32), done: &dyn Fn(&World, i32) -> bool| {
+                let mut w = test_world();
+                for x in 0..40 {
+                    setup(&mut w, x);
+                }
+                let mut melted = 0;
+                for frame in 1..=4000u32 {
+                    for x in 0..40 {
+                        if !done(&w, x) {
+                            hold(&mut w, x);
+                            update(&mut w, x, 30);
+                            if done(&w, x) {
+                                melted += 1;
+                                if melted * 2 >= 40 {
+                                    return frame;
+                                }
+                            }
+                        }
+                    }
+                }
+                u32::MAX
+            };
+
+        let ice = test_world().materials.id_of("ice").expect("ice.ron should be embedded");
+        let thaw = median_visits(
+            &|w: &mut World, x: i32| w.set(x, 30, Cell::new(ice, 0).with_temperature(AMBIENT_TEMPERATURE)),
+            &|w: &mut World, x: i32| {
+                let held = w.get(x, 30).with_temperature(AMBIENT_TEMPERATURE);
+                w.set(x, 30, held);
+            },
+            &|w: &World, x: i32| w.get(x, 30).material == material::WATER,
+        );
+        assert!(
+            (20..300).contains(&thaw),
+            "half a row of ice thawed at frame {thaw}; before `MELT_CHANCE` it was 1, and a pond that \
+             vanishes in a fifth of a second is what was reported"
+        );
+
+        let freeze = median_visits(
+            &|w: &mut World, x: i32| w.set(x, 30, Cell::new(material::WATER, 0).with_temperature(-5)),
+            &|w: &mut World, x: i32| {
+                let held = w.get(x, 30).with_temperature(-5);
+                w.set(x, 30, held);
+            },
+            &|w: &World, x: i32| w.get(x, 30).material == ice,
+        );
+        assert!(
+            (4..120).contains(&freeze),
+            "half a row of water froze at frame {freeze}; a pond should ice over while you watch it, \
+             not between two glances"
+        );
     }
 
     #[test]
@@ -1538,7 +1700,11 @@ mod tests {
         assert!(froze, "a full water cell held at -5C never froze");
         assert_eq!(w.get(30, 30).material, ice);
         w.set(30, 30, w.get(30, 30).with_aux(4).with_temperature(AMBIENT_TEMPERATURE));
-        assert!(update_until_changed(&mut w, 30, 30, 3), "ice at ambient never melted");
+        // 400 visits, not 3: melting is a per-visit roll at `MELT_CHANCE`
+        // now, so the mean wait is ~67 frames. The budget is set from that
+        // rate with headroom, not from an aspiration -- a thaw that takes
+        // seconds is the whole point of the change.
+        assert!(update_until_changed(&mut w, 30, 30, 400), "ice at ambient never melted");
         let melted = w.get(30, 30);
         assert_eq!(melted.material, material::WATER);
         assert_ne!(melted.aux(), 4, "the anchor distance survived as a fill");
