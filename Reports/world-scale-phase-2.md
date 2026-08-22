@@ -224,7 +224,22 @@ change to the surface.
 
 It is also a `.ron` parameter the owner can turn with F5 in seconds and judge
 by eye, which is what this repo does with by-eye questions instead of arguing
-them. **A blind A/B is queued in the review inbox.**
+them.
+
+**Answered, and against the session's own prediction.** The blind A/B (card
+`20260822T043758278Z-018304`) came back for the *shipped* 12: *"Option B has
+the better pattern"*, and `blind_was: [1, 0]` resolves B to
+`strata_thickness` 12. So `strata_thickness` stays as shipped in every preset,
+the lenses stay with it, and the scaling argument above is recorded in
+`Reports/dead-ends.md` with the condition that would reopen it. This is the
+whole reason for blinding a card you have a stake in: the session predicted
+48 and would have shipped it.
+
+Note what the verdict does *not* cover. The card showed a **surface** strip,
+so the owner judged the surface pattern; the underground half of the argument
+-- that a 4x cave shears along bedding four times finer than the bedding was
+tuned for -- was never put in front of anyone. Phase 3 may want to ask it
+again, with a picture taken *inside* a cave.
 
 ## 6. Costs, measured on one machine in one session
 
