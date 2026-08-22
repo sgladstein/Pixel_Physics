@@ -728,6 +728,27 @@ dedupes only that kind today), or resting litter re-schedules every frame. It
 is a scheduler change with a hot-path cost, and it should be measured against
 the sand-and-water stress scene the way the soil-water opt-in was.
 
+#### Verification
+
+The full suite has since been run and is green: **597 passed, 0 failed, 5
+ignored** — 570 lib, 8 bin, 2 determinism, 17 worldgen. Two of those matter
+more than their counts suggest, and neither is covered by running the touched
+modules alone:
+
+* **`determinism.rs`, both drivers.** Determinism is a hard requirement
+  (`PLAN.md`), and S4 adds a new falling powder plus a per-material RNG draw on
+  the decay path. A serial/parallel divergence there would be a real defect
+  rather than a flake.
+* **`worldgen.rs`, 17/17**, including `generated_terrain_is_already_at_rest`
+  and `generated_terrain_stops_sweeping_almost_immediately` — precisely the
+  tests a new `Powder` can break, and they run on *generated* worlds rather
+  than hand-built scenes, which is the blindness `CLAUDE.md` warns about in
+  guards over procedural systems.
+
+`6f9683b`'s own message says the full run was interrupted and is not part of
+its evidence. That was true when it was written; this note is the correction,
+kept as a follow-up rather than an amend.
+
 #### Three coupled calls for the owner
 
 1. **Spend the scheduler change now?** Until it lands, litter accumulates
