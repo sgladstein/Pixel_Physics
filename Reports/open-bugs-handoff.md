@@ -242,6 +242,50 @@ does, and it is the blocker under felling. The fix, the cost, and the six
 paths that would trigger it are in `Reports/felling-blockers.md`.
 
 
+### 0e. Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen)
+
+Surfaced by Phase 2 moving the cave tests from 512x320 to 2048x640
+(`Reports/world-scale-phase-2.md` §3), because a 4x cave will not fit in a
+512-row world at all.
+
+**Reproduction, kept and runnable:**
+`cargo test --release --test worldgen probe_p2_does_the_lens_stress_move_
+cells_without_a_cave -- --ignored --nocapture`. It builds the lens-stress
+world -- `rolling`, `pocket_density: 20.0` against a shipped 0.6, trees and
+moss off -- at both sizes, with vaults on and off, and counts what leaves its
+position over 120 frames.
+
+**Measured**, seeds 1..5:
+
+| | 512x320 | 2048x640 |
+|---|---|---|
+| with vaults | 0 | 0, 0, 0, 0, **25** (seed 5) |
+| **no vaults** | 0 | 0, 0, 0, 0, **25** (seed 5) |
+
+**The cave is not the cause.** The same 25 cells move with
+`vault_density: 0.0` and no chamber carved anywhere in the world. They are
+gravel and water in a compact blob near the *surface* -- first three
+`(332,141) water, (341,132) gravel, (337,132) gravel` -- hundreds of columns
+and a hundred rows from where any system sits.
+
+**What has been ruled out:** the cave pass (paired control above); tree and
+moss growth (`vault_test_params` zeroes both); the size alone (0 at 512x320,
+same params). What is left is `pockets` at 33x the shipped density on a world
+eight times the area, interacting with standing water. Four of five seeds are
+clean, so it is a seed-specific placement, not a systematic one.
+
+**Not a live defect at shipped densities.** `pocket_density` ships at 0.6 and
+`generated_terrain_is_already_at_rest` asserts **zero** cells move across
+every preset and seed at that density. This is a stress reproduction escaping
+its own subject.
+
+`a_cave_system_survives_a_pocket_lens_inside_its_envelope` now asserts at-rest
+within 16 cells of the carved system rather than over the whole world, so it
+tests the thing it is named for; the probe above is what keeps the finding.
+**Do not "fix" it by lowering `pocket_density` in that test** -- 20 is what
+guarantees a lens lands inside a cave envelope, which is the entire
+reproduction.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

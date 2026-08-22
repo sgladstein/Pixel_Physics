@@ -862,8 +862,9 @@ pub struct OrganismState {
     ///    creation.
     /// 2. **12 bits is 4095 cells per organism, and that is a real
     ///    ceiling.** The twelve-tree ensemble already produces a 2,127-cell
-    ///    tree; half the budget, on a 512x320 test world that `CLAUDE.md`
-    ///    says is going to grow.
+    ///    tree; half the budget, on a 512x320 test world — at the time this
+    ///    was measured, `CLAUDE.md` said the world was going to grow, and it
+    ///    has: the shipped world is 8192x2560 now.
     /// 3. **The hot loop wants iteration, not random access, and gets it
     ///    either way.** The slot index buys O(1) cell→data from a bare
     ///    `Cell`, but the only hot consumer is `transport`, which iterates

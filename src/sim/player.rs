@@ -24,8 +24,9 @@
 use super::material::MaterialKind;
 use super::world::World;
 
-/// Character extent in cells. 7x14 on a 512x320 world puts him at about a
-/// twenty-third of the world's height — gnome-scale beside trees that are
+/// Character extent in cells. 7x14 against the 512x320 viewport (`app::WIDTH`
+/// / `HEIGHT`, unchanged since the world outgrew it) puts him at about a
+/// twenty-third of what's on screen at a time — gnome-scale beside trees that are
 /// tens of cells, and large enough to carry a silhouette with a face,
 /// arms and legs rather than three coloured bands. He fits upright
 /// through the 15-cell bore a radius-7 `rigid::mine` carves;
@@ -97,8 +98,10 @@ pub struct Tuning {
     pub gravity: f32,
     /// Horizontal acceleration per tick while a run key is held.
     pub run_accel: f32,
-    /// Horizontal speed cap, cells per tick. 1.3 crosses the 512-cell
-    /// world in ~6.5 seconds.
+    /// Horizontal speed cap, cells per tick. The default (`Tuning::default`,
+    /// 1.5, not the 1.3 an earlier version of this comment named) is 90
+    /// cells/s at the sandbox's fixed 60 Hz, which crosses the current
+    /// 8192-cell-wide world in 8192 / 90 ≈ 91 seconds end to end.
     pub run_max: f32,
     /// Subtractive slowdown per tick when grounded with no run key held —
     /// stops from full speed in ~5 ticks. Airborne motion keeps its speed,

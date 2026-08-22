@@ -32,8 +32,10 @@ use crate::sim::field;
 /// Colour steps the sky is quantised to before deciding whether a redraw is
 /// needed.
 ///
-/// Chosen by measurement, not by taste. A full redraw costs **9.29 ms** on a
-/// 512x320 world, so what matters is how many frames of a day force one:
+/// Chosen by measurement, not by taste. A full redraw costs **9.29 ms** on
+/// the 512x320 viewport (`app::WIDTH`/`HEIGHT` — a redraw's cost is bounded
+/// by pixels on screen, not by the size of the world behind them), so what
+/// matters is how many frames of a day force one:
 ///
 /// | quantum | frames per 3600 | added cost, averaged |
 /// |---|---|---|

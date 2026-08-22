@@ -49,10 +49,21 @@ fn step(world: &mut World) {
 }
 
 /// Every non-empty cell as `(x, y, material)`.
+/// Every occupied cell, **over the world's own bounds** rather than over
+/// [`BOUNDS`].
+///
+/// It read `0..=BOUNDS` until the cave tests moved to [`CAVE_BOUNDS`], at
+/// which point every at-rest and determinism claim in this file was quietly
+/// scoped to the top-left 512x320 corner of a 2048x640 world -- with the
+/// caves, which sit hundreds of rows down and anywhere across the width,
+/// almost entirely outside it. The same shape of miss `App`'s own
+/// `world_cells` records: a scan written against a constant is the whole
+/// world only while the world happens to be that size.
 fn snapshot(world: &World) -> Vec<(i32, i32, u16)> {
     let mut out = Vec::new();
-    for y in 0..=BOUNDS.1 {
-        for x in 0..=BOUNDS.0 {
+    let b = world.bounds().expect("a generated world is bounded");
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
             let c = world.get(x, y);
             if c.material != material::EMPTY {
                 out.push((x, y, c.material.0));
@@ -62,10 +73,14 @@ fn snapshot(world: &World) -> Vec<(i32, i32, u16)> {
     out
 }
 
+/// A checksum over the world's own bounds, for the same reason as
+/// [`snapshot`] above: hashing a fixed rectangle of a larger world is a
+/// determinism claim about a corner.
 fn world_hash(world: &World) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for y in 0..=BOUNDS.1 {
-        for x in 0..=BOUNDS.0 {
+    let b = world.bounds().expect("a generated world is bounded");
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
             let c = world.get(x, y);
             for byte in [c.material.0 as u64, c.shade as u64, c.aux() as u64] {
                 h ^= byte;
@@ -1469,6 +1484,34 @@ fn probe_r2t3_do_vaults_place_at_all() {
 /// no chamber can be placed at all. The shipped size is 2048x640, where it
 /// fits comfortably. See the round-2 finding -- this is also why the sweep's
 /// `vaults` row reads zero.
+/// The world the cave and vault tests build in, and why it is not [`BOUNDS`].
+///
+/// **A 4x cave needs a 4x world, and this is that fact stated once.** Phase 2
+/// took `MIN_CAVE_HALF_W`/`_H` to 220/88, and `vaults` rejects a placement
+/// outright when even the *minimum* envelope will not fit inside the depth
+/// band with its rind -- the same rule that has always declined to put a cave
+/// in a world too shallow to hold one. At 512x320 that is now every
+/// placement, so all five forced-cave tests went to *"only 0 forced-vault
+/// worlds actually placed a chamber"* in one commit. That message is the
+/// counter beside the claim doing exactly its job: without it they would have
+/// passed by never running.
+///
+/// 2048x640 is the smallest round number that clears it with real headroom --
+/// a cave needs roughly 450 columns and 400 rows before the minimum envelope
+/// fits at all -- and it is the size round 7 shipped, so nothing about these
+/// tests' subject changes. It is deliberately *not* `app::WORLD_WIDTH`: these
+/// build 13 worlds and the shipped size is 9 s and 359 MiB each.
+///
+/// The rest of the suite stays at [`BOUNDS`]; only this section pays for the
+/// larger build.
+const CAVE_BOUNDS: (i32, i32) = (2047, 639);
+
+fn build_cave_world(params: &WorldgenParams, seed: u64) -> World {
+    let mut world = World::new(Rect::new(0, 0, CAVE_BOUNDS.0, CAVE_BOUNDS.1));
+    worldgen::generate(&mut world, Spec::Generated { params, seed });
+    world
+}
+
 fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
     WorldgenParams {
         vault_density: 4.0,
@@ -1500,13 +1543,13 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
         let with = vault_test_params(base);
         let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
         for seed in SEEDS {
-            let world = build(&with, seed);
-            let control = build(&without, seed);
+            let world = build_cave_world(&with, seed);
+            let control = build_cave_world(&without, seed);
             let stone = world.materials.id_of("stone").expect("stone");
 
             let mut vault_cells = Vec::new();
-            for y in 0..=BOUNDS.1 {
-                for x in 0..=BOUNDS.0 {
+            for y in 0..=CAVE_BOUNDS.1 {
+                for x in 0..=CAVE_BOUNDS.0 {
                     if world.get(x, y).material != control.get(x, y).material
                         || world.get(x, y).shade != control.get(x, y).shade
                     {
@@ -1572,6 +1615,45 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     assert!(checked >= 8, "only {checked} forced-vault worlds actually placed a chamber");
 }
 
+/// Attribution probe for the 25 moving cells `a_cave_system_survives_a_pocket_
+/// lens_inside_its_envelope` started reporting at [`CAVE_BOUNDS`]: is it the
+/// cave, or is it `pocket_density: 20` on a world eight times the area?
+///
+/// Builds the test's own *control* -- lenses cranked to 20, vaults switched
+/// off entirely, so no cave is carved anywhere -- and counts what moves. If
+/// this reports cells, the cave is not the cause.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_does_the_lens_stress_move_cells_without_a_cave() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = WorldgenParams { pocket_density: 20.0, ..vault_test_params(base) };
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    for seed in SEEDS {
+        for (name, p) in [("with vaults", &with), ("no vaults", &without)] {
+            for (size, bounds) in [("512x320", BOUNDS), ("2048x640", CAVE_BOUNDS)] {
+                let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
+                worldgen::generate(&mut world, Spec::Generated { params: p, seed });
+                let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                for _ in 0..120 {
+                    step(&mut world);
+                }
+                let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                let gone: Vec<_> = before.difference(&after).copied().collect();
+                let sample: Vec<String> = gone
+                    .iter()
+                    .take(3)
+                    .map(|(x, y, m)| {
+                        let n = world.materials.get(pixel_physics::sim::material::MaterialId(*m)).name.clone();
+                        format!("({x},{y}) {n}")
+                    })
+                    .collect();
+                println!("seed {seed} {size} {name}: {} moved; {}", gone.len(), sample.join(", "));
+            }
+        }
+    }
+}
+
 #[test]
 fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
@@ -1591,11 +1673,11 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     let mut placed = 0;
     let mut overlapped = 0;
     for seed in SEEDS {
-        let mut world = build(&with, seed);
-        let control = build(&without, seed);
+        let mut world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved: Vec<(i32, i32)> = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -1626,8 +1708,8 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
             control.materials.id_of("gravel").expect("gravel"),
         );
         let mut lens_cells = 0;
-        for y in y0.max(0)..=y1.min(BOUNDS.1) {
-            for x in x0.max(0)..=x1.min(BOUNDS.0) {
+        for y in y0.max(0)..=y1.min(CAVE_BOUNDS.1) {
+            for x in x0.max(0)..=x1.min(CAVE_BOUNDS.0) {
                 let m = control.get(x, y).material;
                 if m == sand || m == gravel {
                     lens_cells += 1;
@@ -1643,15 +1725,41 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
         // And it still arrives at rest, exactly like the plain seal test --
         // this is the same claim, just under a reproduction that used to
         // delete the system outright rather than merely stress it.
-        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        //
+        // **Scoped to the carved system's own neighbourhood, and that is a
+        // narrowing to the subject rather than a relaxation.** Whole-world
+        // at-rest at *shipped* densities is
+        // `generated_terrain_is_already_at_rest`'s claim and it asserts zero.
+        // This world is not at shipped densities: `pocket_density` is 20
+        // against a shipped 0.6, thirty-three times over, specifically to
+        // guarantee a lens lands inside a cave envelope. When this moved to
+        // `CAVE_BOUNDS` it began reporting 25 cells in motion on seed 5 --
+        // and `probe_p2_does_the_lens_stress_move_cells_without_a_cave`
+        // reproduces exactly those 25 with `vault_density: 0.0`, no cave
+        // carved anywhere in the world. Gravel and water, near the surface,
+        // three hundred columns and a hundred rows away from the system.
+        // Asserting on them here would be this test failing for something
+        // that is not its subject and that it cannot see; the finding has its
+        // own entry in `Reports/open-bugs-handoff.md` and its own
+        // reproduction, which is what `CLAUDE.md` asks for instead.
+        let watched = |x: i32, y: i32| {
+            x >= x0 - 16 && x <= x1 + 16 && y >= y0 - 16 && y <= y1 + 16
+        };
+        let before: std::collections::HashSet<_> =
+            snapshot(&world).into_iter().filter(|&(x, y, _)| watched(x, y)).collect();
         for _ in 0..120 {
             step(&mut world);
         }
-        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let after: std::collections::HashSet<_> =
+            snapshot(&world).into_iter().filter(|&(x, y, _)| watched(x, y)).collect();
         let gone: Vec<_> = before.difference(&after).copied().collect();
         assert!(
+            !before.is_empty(),
+            "seed {seed}: the watched window around the carved system is empty -- vacuous"
+        );
+        assert!(
             gone.is_empty(),
-            "seed {seed}: {} cells left their position in a lens-stressed cave world; first {:?}",
+            "seed {seed}: {} cells left their position within 16 of the carved system; first {:?}",
             gone.len(),
             gone.iter().take(6).collect::<Vec<_>>()
         );
@@ -1675,11 +1783,11 @@ fn vault_water_cannot_wet_the_massif_around_it() {
     let with = vault_test_params(base);
     let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let soil = world.materials.id_of("soil").expect("soil");
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 let c = world.get(x, y);
                 if c.material == soil {
                     assert_eq!(
@@ -1735,7 +1843,7 @@ fn probe_r2t3_dump_a_chamber() {
             if shown {
                 break;
             }
-            let world = build(&with, seed);
+            let world = build_cave_world(&with, seed);
             let id = |n: &str| world.materials.id_of(n).expect(n);
             let (stone, gravel, water, crystal) = (id("stone"), id("gravel"), id("water"), id("crystal"));
             let glyph = |x: i32, y: i32| {
@@ -1757,11 +1865,11 @@ fn probe_r2t3_dump_a_chamber() {
             // A chamber is found as a run of air deep in the rock -- the one
             // thing `pockets` can never produce, since a lens is solid. Its
             // shape is then read off whether any crystal is within reach.
-            for y in 220..=(BOUNDS.1 - 40) {
+            for y in 220..=(CAVE_BOUNDS.1 - 40) {
                 if shown {
                     break;
                 }
-                for x in 40..=(BOUNDS.0 - 40) {
+                for x in 40..=(CAVE_BOUNDS.0 - 40) {
                     if world.get(x, y).material != material::EMPTY {
                         continue;
                     }
@@ -1772,9 +1880,9 @@ fn probe_r2t3_dump_a_chamber() {
                         continue;
                     }
                     println!("\n=== {label}: seed {seed}, air at ({x}, {y}) ===");
-                    for row in (y - 8).max(0)..=(y + 34).min(BOUNDS.1) {
+                    for row in (y - 8).max(0)..=(y + 34).min(CAVE_BOUNDS.1) {
                         let line: String =
-                            ((x - 40).max(0)..=(x + 40).min(BOUNDS.0)).map(|c| glyph(c, row)).collect();
+                            ((x - 40).max(0)..=(x + 40).min(CAVE_BOUNDS.0)).map(|c| glyph(c, row)).collect();
                         println!("  {row:>4} {line}");
                     }
                     shown = true;
@@ -1817,8 +1925,8 @@ fn probe_r2t3_what_moves_in_a_vault() {
     };
     let cells = |w: &World| {
         let mut v = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 let c = w.get(x, y);
                 v.push((c.material, c.aux()));
             }
@@ -1832,7 +1940,7 @@ fn probe_r2t3_what_moves_in_a_vault() {
         let mut changes = Vec::new();
         for (i, (a, b)) in prev.iter().zip(now.iter()).enumerate() {
             if a != b {
-                let (x, y) = ((i as i32) % (BOUNDS.0 + 1), (i as i32) / (BOUNDS.0 + 1));
+                let (x, y) = ((i as i32) % (CAVE_BOUNDS.0 + 1), (i as i32) / (CAVE_BOUNDS.0 + 1));
                 changes.push((x, y, a.0, a.1, b.0, b.1));
             }
         }
@@ -1873,11 +1981,11 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
     let mut systems = 0usize;
     let mut runs_walked = 0usize;
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved = std::collections::HashSet::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -1893,10 +2001,10 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
             carved.contains(&(x, y))
                 && world.materials.kind(world.get(x, y).material) != material::MaterialKind::Solid
         };
-        for y in 0..=BOUNDS.1 {
+        for y in 0..=CAVE_BOUNDS.1 {
             let mut run = 0;
-            for x in 0..=BOUNDS.0 + 1 {
-                let ceiling = x <= BOUNDS.0 && open(x, y) && !open(x, y - 1);
+            for x in 0..=CAVE_BOUNDS.0 + 1 {
+                let ceiling = x <= CAVE_BOUNDS.0 && open(x, y) && !open(x, y - 1);
                 if ceiling {
                     run += 1;
                 } else {
@@ -1933,14 +2041,14 @@ fn a_forced_cave_world_is_deterministic() {
     let with = vault_test_params(base);
     let mut placed = 0;
     for seed in [1u64, 4] {
-        let mut a = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let mut a = World::new(Rect::new(0, 0, CAVE_BOUNDS.0, CAVE_BOUNDS.1));
         let counts = worldgen::generate_reported(&mut a, Spec::Generated { params: &with, seed });
         placed += counts.iter().find(|(n, _)| *n == "vaults").map(|(_, c)| *c).unwrap_or(0);
         // `generate_reported` skips the structural pass `build` runs, and the
         // hash covers aux, so run it here or the comparison measures that
         // difference instead of generation.
         structural::compute_world_distances(&mut a);
-        let b = build(&with, seed);
+        let b = build_cave_world(&with, seed);
         assert_eq!(world_hash(&a), world_hash(&b), "seed {seed}: two builds of a forced-cave world differ");
     }
     assert!(placed > 0, "vacuous: neither forced world placed a system");
@@ -1962,6 +2070,15 @@ fn a_forced_cave_world_is_deterministic() {
 /// teeth are never written, so they never enter the diff -- and vugs are
 /// excluded by component size, because a vug's crystal ring legitimately
 /// fills its rim columns.
+/// The open-span floor this test tracks, which is the pass's own.
+///
+/// `carve_cave_void` skips any run shorter than this outright, so a shorter
+/// run cannot be "a passage a formation closed" -- it is a formation touching
+/// a wall. Phase 2 moved the pass's gate from 5 to 20 with the envelope, and
+/// this moves with it for the reason it was written: it is a restatement of
+/// the pass's eligibility rule, not an independent bar.
+const SPELEO_MIN_SPAN: usize = 20;
+
 #[test]
 fn speleothems_never_bridge_a_passage() {
     // **Diff-free, unlike every other round-2/3 vault guard**, and that
@@ -1994,9 +2111,9 @@ fn speleothems_never_bridge_a_passage() {
     let mut systems_checked = 0usize;
     let mut fused_columns_total = 0usize;
     for seed in SEEDS {
-        let world = build(&with, seed);
+        let world = build_cave_world(&with, seed);
         let is_void = |x: i32, y: i32| {
-            if x < 0 || x > BOUNDS.0 || y < 0 || y > BOUNDS.1 {
+            if x < 0 || x > CAVE_BOUNDS.0 || y < 0 || y > CAVE_BOUNDS.1 {
                 return false;
             }
             let c = world.get(x, y);
@@ -2004,8 +2121,8 @@ fn speleothems_never_bridge_a_passage() {
                 || world.materials.kind(c.material) == material::MaterialKind::Liquid
         };
         let mut seen: std::collections::HashSet<(i32, i32)> = Default::default();
-        for y0 in 0..=BOUNDS.1 {
-            for x0 in 0..=BOUNDS.0 {
+        for y0 in 0..=CAVE_BOUNDS.1 {
+            for x0 in 0..=CAVE_BOUNDS.0 {
                 if seen.contains(&(x0, y0)) || !is_void(x0, y0) {
                     continue;
                 }
@@ -2113,7 +2230,7 @@ fn speleothems_never_bridge_a_passage() {
                         // open space without another void cell anywhere
                         // else in that column, is not a closed passage --
                         // it is a formation touching a wall.
-                        if run.len() >= 5 && run.iter().all(|&(_, s)| s) {
+                        if run.len() >= SPELEO_MIN_SPAN && run.iter().all(|&(_, s)| s) {
                             bridged_x.push(x);
                             fused_here += 1;
                             println!(
@@ -2155,11 +2272,37 @@ fn speleothems_never_bridge_a_passage() {
                 // 1, 3, 4, 5, 7, 8. Fourteen is comfortably clear of the
                 // measured maximum and still far below "a wall of pillars"
                 // in a system that can now be 300 cells across.
+                // **The bar is a density, because the object it evaluates
+                // changed size.** It was `bridged_formations <= 14` per
+                // system, set from measurement on systems up to ~300 cells
+                // across; Phase 2's envelope takes a system to 1137 across in
+                // this very suite, and an absolute per-system cap on a
+                // 4x-wider object is a 4x tighter rule wearing the same
+                // number. It duly fired at 17 -- which is `CLAUDE.md`'s
+                // "which object does this rule evaluate" in its cheapest
+                // form: a cell, a run, a formation, or a *system*, and the
+                // answer changed underneath it.
+                //
+                // Measured over this suite's 5 seeds, 33 systems, with the
+                // run floor tracking the pass's own eligibility gate:
+                // **median 0.00, p90 0.94, max 1.79** bridged formations per
+                // 100 columns of system span.
+                //
+                // 2.4 is 34% clear of that, and -- the half that matters --
+                // it is still *below the ceiling the metric can reach*, so
+                // it can actually fire. `SPELEO_SPACING_MIN` is 36, so even
+                // a solid picket fence of bridged formations is only
+                // 100/36 = 2.78 per 100 columns; any bar at 3 or above
+                // would be a bar nothing can ever cross, which is the
+                // vacuous-guard failure this file has hit before.
+                let width = x1b - x0b + 1;
+                let per_100 = 100.0 * bridged_formations as f32 / width as f32;
                 assert!(
-                    bridged_formations <= 14,
-                    "seed {seed}: {bridged_formations} formations bridged floor-to-ceiling in one cave \
-                     system ({fused_here} columns) -- that is the picket-fence failure A3 exists to \
-                     avoid, not the occasional true column it allows"
+                    per_100 <= 2.4,
+                    "seed {seed}: {bridged_formations} formations bridged floor-to-ceiling in a \
+                     {width}-column system ({fused_here} fused columns) -- {per_100:.2} per 100 \
+                     columns against a picket-fence ceiling of 2.78. That is the failure A3 exists \
+                     to avoid, not the occasional true column it allows"
                 );
                 fused_columns_total += bridged_formations;
             }
@@ -2191,11 +2334,11 @@ fn probe_r3_dump_a_cave_system() {
     let with = vault_test_params(base);
     let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved: Vec<(i32, i32)> = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -2253,8 +2396,8 @@ fn probe_r3_dump_a_cave_system() {
             x1 - x0 + 1,
             y1 - y0 + 1
         );
-        for y in (y0 - 2).max(0)..=(y1 + 2).min(BOUNDS.1) {
-            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(BOUNDS.0))
+        for y in (y0 - 2).max(0)..=(y1 + 2).min(CAVE_BOUNDS.1) {
+            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(CAVE_BOUNDS.0))
                 .map(|x| {
                     let c = world.get(x, y);
                     if c.material == material::EMPTY {
@@ -2623,6 +2766,53 @@ fn the_shipped_world_does_not_hit_the_region_ceiling() {
         }
     }
     println!("worst regions-per-window at {w} wide: {worst:.2}");
+}
+
+/// Every local pass declares a margin that covers the reach its own
+/// constants imply.
+///
+/// **The generalisation of `a_cave_cannot_reach_past_its_declared_margin`,
+/// which was the only one of these that existed.** A margin is the contract
+/// a per-chunk generator will plan against: an understated one is a promise
+/// to produce different cells at a chunk edge, and nothing checks it at
+/// runtime, because `pass_summary()`'s only consumer reads the GLOBAL list
+/// rather than the numbers. Three of the four have been silently wrong at
+/// least once -- `talus` declared 3 while walking up to `MAX_FALL` = 120,
+/// `vaults` declared 96 after round 6 took the envelope to 202, and
+/// `residuals`' declared 80 was justified in the pass table by an aspect
+/// floor that had since been withdrawn.
+///
+/// Asserted against the constants, never against literals, so a change that
+/// lengthens a reach fails a test instead of the world. The pass table now
+/// holds the *expressions* rather than the numbers, which means this test
+/// should have nothing to catch -- and it stays because the next reach to be
+/// added is the one nobody remembers to fold into an expression.
+#[test]
+fn every_local_pass_declares_the_margin_it_reaches() {
+    use pixel_physics::worldgen::{passes, residual};
+    let summary = worldgen::pass_summary();
+    let declared = |name: &str| {
+        summary
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap_or_else(|| panic!("{name} is in the pass table"))
+            .1
+    };
+    // `(pass, reach, what the reach is)`. Each reach is spelled out here
+    // from the constants rather than read from the same expression the table
+    // uses, so the test is an independent statement of the arithmetic and
+    // not a tautology over it.
+    let cases: [(&str, i32, &str); 4] = [
+        ("brows", passes::BROWS_MARGIN, "RUN_FAR of detection + MAX_BROW_REACH of writing"),
+        ("talus", passes::TALUS_MARGIN, "RUN_FAR + MAX_FALL to the foot + 2 * MAX_TALUS_PEAK of apron"),
+        ("residuals", residual::RESIDUALS_MARGIN, "MAX_HEIGHT / MIN_ASPECT / 2, the widest half-footprint"),
+        ("vaults", passes::MAX_CAVE_HALF_W + passes::VAULT_RIND, "MAX_CAVE_HALF_W + VAULT_RIND"),
+    ];
+    for (name, reach, why) in cases {
+        let margin = declared(name);
+        assert!(margin >= 0, "{name} declares GLOBAL; it is a local pass and must state a number");
+        assert!(margin >= reach, "{name} declares a margin of {margin} and reaches {reach} ({why})");
+    }
 }
 
 #[test]

@@ -590,6 +590,30 @@ const CLIFF_DROP_FAR: i32 = 20;
 const MAX_BROW_REACH: i32 = 20;
 const MAX_TALUS_PEAK: i32 = 30;
 
+/// Columns of context `brows` reads beyond the ones it writes: the far
+/// detection run to find the face, then the reach it hangs the lip out over.
+///
+/// **An expression, not a number, and that is the point.** Every margin in
+/// this table has now been silently wrong at least once -- `talus` declared 3
+/// while walking 120, `vaults` declared 96 while reaching 202 -- and each
+/// time the number was correct on the day it was written and had no way to
+/// stay correct when the constant behind it moved. A margin is the contract a
+/// per-chunk generator will plan against, so an understated one is a promise
+/// to produce different cells at a chunk edge, and nothing checks it at
+/// runtime: `pass_summary()`'s only consumer reads the GLOBAL list, not the
+/// numbers. `every_local_pass_declares_the_margin_it_reaches` in
+/// `tests/worldgen.rs` is the check; writing the derivation is what stops it
+/// having anything to catch.
+pub const BROWS_MARGIN: i32 = RUN_FAR + MAX_BROW_REACH;
+
+/// Columns of context `talus` reads: the far detection run, the walk down to
+/// the foot of the fall, and the apron laid out either side of it.
+///
+/// The apron term is `2 * MAX_TALUS_PEAK` because the heap runs out at a
+/// slope of about a half (`for step in 0..peak * 2` at the write site), so a
+/// heap starting at the cap reaches twice the cap in columns.
+pub const TALUS_MARGIN: i32 = RUN_FAR + MAX_FALL + 2 * MAX_TALUS_PEAK;
+
 /// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
 /// the ground falls away to the right and -1 when it falls to the left.
 fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
@@ -853,7 +877,15 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
 /// collapses into dust. A chamber too large for this is drawn smaller; a
 /// massif too thin for the depth band simply has no chamber, and the counter
 /// says so.
-const MAX_VAULT_EXTENT: i32 = 30;
+///
+/// **4x for the 4x world** (Phase 2), with the vug's own semi-axes and its
+/// crystal lining thickness moved with it. Scaling the cap alone would have
+/// done nothing -- the draw never reached 30 -- and scaling the draw without
+/// the lining would have left the one bright thing in the deep massif rimmed
+/// by a hairline: a 1-3 cell ring is a rim on a 16-cell ellipse and a scratch
+/// on a 64-cell one, which is round 2's *"reads as a generator's shape, not a
+/// geode's"* finding arriving from the other direction.
+const MAX_VAULT_EXTENT: i32 = 120;
 
 /// How thick the solid stone rind around a chamber must be, in cells.
 ///
@@ -881,17 +913,60 @@ pub const VAULT_RIND: i32 = 2;
 /// exponent is the knob; see [`CaveEnv::draw`].
 /// The half-width every lattice constant in this file was tuned against,
 /// and the reference `CaveEnv::cell` scales from. Round 3's fixed envelope.
+///
+/// **Deliberately not scaled with the world, and that is the whole
+/// mechanism.** `CaveEnv::cell` is `CAVE_CELL * half_w / ROUND_3_HALF_W`, so
+/// this and [`CAVE_CELL`] are the *denominator* every cave-space length is
+/// expressed against. Scaling them alongside the envelope would leave every
+/// ratio unchanged and produce a bigger box with the same furniture in it --
+/// which is precisely what A2 measured and rejected: with the lattice cell
+/// held fixed, span across reached its target and largest-walkable fell 38%
+/// -> 23%, because the extra area went into finer structure the player
+/// cannot occupy. Leaving the reference alone is what makes a 4x envelope a
+/// 4x *cave*.
 const ROUND_3_HALF_W: i32 = 90;
-const MIN_CAVE_HALF_W: i32 = 55;
-const MIN_CAVE_HALF_H: i32 = 22;
+
+/// Half-extents of a cave system's envelope, **4x round 7's, for the 4x
+/// world** (`Reports/world-scale-handoff.md`, Phase 2).
+///
+/// The owner's rejection of round 6 was that features have no room to have a
+/// shape: *"You cannot create good looking crystals or stalagmites and
+/// stalactites that are only 1-2 pixels wide."* The world grew to make room;
+/// this is a cave growing into it. Everything the envelope is the
+/// denominator of follows for free -- the lattice cell, the edge fades,
+/// `min_system_cells`, the monumental chamber's `chamber_scale` -- because
+/// each of those is already a ratio against [`ROUND_3_HALF_W`] rather than
+/// an absolute size. That was A2's design and it is what makes this a
+/// four-line change rather than a re-tune.
+///
+/// **What does not follow, and is Phase 3's business, not a bug here:**
+/// [`MAX_CEILING_SPAN`] is a roof-*structure* bound (how far stone spans
+/// unsupported), not a cave-size one, so a 4x system gets roughly 4x the
+/// stone teeth dropped into its roof. The handoff predicts this in as many
+/// words -- *"expect Phase 2 alone to look worse"* -- because the honeycomb
+/// gets larger rather than better until the shape work lands.
+const MIN_CAVE_HALF_W: i32 = 220;
+const MIN_CAVE_HALF_H: i32 = 88;
 /// The upper limit, and the number `vaults`' declared column margin has to
 /// cover. **Raising either of these without raising `Pass::margin` in
 /// `worldgen/mod.rs` breaks the streaming contract silently** -- nothing
 /// checks it at runtime, because `pass_summary()`'s only consumer looks at
 /// the GLOBAL list and not at the numbers. `a_cave_cannot_reach_past_its_
-/// declared_margin` in `tests/worldgen.rs` is what catches it instead.
-pub const MAX_CAVE_HALF_W: i32 = 200;
-const MAX_CAVE_HALF_H: i32 = 80;
+/// declared_margin` in `tests/worldgen.rs` is what catches it instead, and
+/// the margin is now *derived* from these ([`VAULTS_MARGIN`]) so the two
+/// cannot drift apart again.
+pub const MAX_CAVE_HALF_W: i32 = 800;
+const MAX_CAVE_HALF_H: i32 = 320;
+
+/// Columns of context the `vaults` pass reads beyond the ones it writes.
+///
+/// Derived here rather than written as a literal in the pass table, because
+/// a literal is what let it be silently wrong before: round 6's A2 raised
+/// [`MAX_CAVE_HALF_W`] from 90 to 200 and the declared margin stayed at 96,
+/// a promise to produce different cells at a chunk edge that nothing checked
+/// at runtime. The geode vug's [`MAX_VAULT_EXTENT`] plus its rind sits well
+/// inside this.
+pub const VAULTS_MARGIN: i32 = MAX_CAVE_HALF_W + VAULT_RIND;
 
 /// One system's envelope: its half-extents, and the local grid arithmetic
 /// that used to be `const`.
@@ -1067,7 +1142,16 @@ const MAX_CEILING_SPAN: i32 = 36;
 /// A kept component smaller than this is not a system: a sliver of passage
 /// with no chamber is a dig reward of nothing. Rejected wholesale, same as
 /// a failed seal.
+///
+/// An *area*, not a length, and already envelope-relative in use --
+/// `CaveEnv::min_system_cells` is `(area / 160).max(MIN_SYSTEM_CELLS)` -- so
+/// the 4x envelope carries it without this number moving.
 const MIN_SYSTEM_CELLS: usize = 80;
+
+/// Columns a cavity needs before its floor gets breakdown mounds, **4x for
+/// the 4x world** (Phase 2). See the mound block in `carve_cave_void` for
+/// why this could not stay at 20.
+const MOUND_MIN_WIDTH: usize = 80;
 
 /// Chance a placement draw is a geode vug rather than a cave system. The
 /// vug stays as the rare jewel variant; the cave is the main event.
@@ -1120,9 +1204,17 @@ const SPELEO_PAIR: f32 = 0.25;
 /// 5 did, per the owner's explicit instruction to spend the budget on size
 /// rather than count now that formations are scenery and cost nothing in
 /// walkability.
-const SPELEO_SPACING_MIN: i32 = 9;
-const SPELEO_SPACING_MAX: i32 = 28;
-const DRIP_SCALE: f32 = 40.0;
+/// **4x for the 4x world** (Phase 2). Spacing, width and count are the same
+/// budget spent three ways, and the envelope's own 4x growth already spends
+/// the count side of it: a system four times wider offers four times the
+/// candidate columns at the same spacing, so holding these fixed would have
+/// bought back exactly the *"way too many, way too thin"* distribution A3
+/// was undoing, at four times the scale. Growing the gaps with the cave
+/// keeps formations-per-chamber where round 6 left it and leaves the width
+/// budget below free to actually be spent.
+const SPELEO_SPACING_MIN: i32 = 36;
+const SPELEO_SPACING_MAX: i32 = 112;
+const DRIP_SCALE: f32 = 160.0;
 
 /// Base width of a formation's cone, in cells, drawn per placement --
 /// round 6's A3, replacing round 5's "a minority go two cells wide, the
@@ -1142,8 +1234,23 @@ const DRIP_SCALE: f32 = 40.0;
 /// formation's root.
 const CONE_ANCHOR_SEARCH: i32 = 3;
 
-const SPELEO_WIDTH_MIN: i32 = 3;
-const SPELEO_WIDTH_MAX: i32 = 8;
+/// **The owner's complaint, in one pair of numbers, 4x'd for the 4x world**
+/// (Phase 2). Round 6's A3 got these from 1-2 cells to 3-8 and the round-7
+/// census still measured median base width **3** across 16 seeds and every
+/// preset (`examples/cave_probe.rs`) -- which is what *"you cannot create
+/// good looking crystals or stalagmites and stalactites that are only 1-2
+/// pixels wide"* is about. Three cells has no silhouette, no taper and no
+/// interior at any zoom; twelve has all three.
+///
+/// The overlap proof at the write site is unchanged and still by
+/// construction, not by inspection: every footprint's half-width is clamped
+/// to `(min_spacing - 1) / 2`, so two neighbouring cones cannot touch. With
+/// [`SPELEO_SPACING_MIN`] at 36 that clamp is 17 and this ceiling's own half
+/// is 16, so the width draw is what binds -- the same ordering round 6 had
+/// (floor 9 clamping to 4 against a half-ceiling of 4), which is what keeps
+/// the taper reachable rather than permanently clipped.
+const SPELEO_WIDTH_MIN: i32 = 12;
+const SPELEO_WIDTH_MAX: i32 = 32;
 
 /// Round-5 task 5: how many cells below the waterline a column's floor may
 /// sit and still be a candidate -- too far below and a stalagmite would
@@ -1161,7 +1268,7 @@ const SPELEO_WIDTH_MAX: i32 = 8;
 /// table needs more room than that to break through -- so there is
 /// nothing left to spend a chance draw on rejecting. See the round-5
 /// finding for the bar this did and did not reach.
-const WATERLINE_FLOOR_REACH: i32 = 4;
+const WATERLINE_FLOOR_REACH: i32 = 16;
 const WATERLINE_CHANCE: f32 = 1.0;
 const WATERLINE_CRYSTAL: f32 = 0.5;
 
@@ -1333,8 +1440,8 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         // unioned into lumpy caverns is superseded by the cave system above;
         // the one-entry lobe list survives because the shape test and the cap
         // below are written against it and verified in that form.)
-        let a = 8.0 + noise::unit(seed, Purpose::Vault, k * 17, 4) * 12.0;
-        let b = 6.0 + noise::unit(seed, Purpose::Vault, k * 17, 5) * 6.0;
+        let a = 32.0 + noise::unit(seed, Purpose::Vault, k * 17, 4) * 48.0;
+        let b = 24.0 + noise::unit(seed, Purpose::Vault, k * 17, 5) * 24.0;
         // **The cap is applied to the lobe, not to the scan box**, and
         // the difference is a correctness bug rather than a preference.
         // Capping the scan instead was the first version: a lobe reaching
@@ -1393,7 +1500,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                     // three cells, per cell -- at the round-2 one-to-two the
                     // rim read as a perfect ring, which is a generator's
                     // shape, not a geode's.
-                    let thickness = 1.0 + 2.0 * noise::unit(seed, Purpose::Vault, px, py);
+                    let thickness = 4.0 + 8.0 * noise::unit(seed, Purpose::Vault, px, py);
                     if vug && !inside(fx, fy, -thickness) {
                         lining.push((px, py));
                     } else {
@@ -1422,7 +1529,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         // gravel was a two-cell strip at the very bottom of the bowl.
         let floor_y = hollow.iter().map(|&(_, y)| y).max().unwrap_or(cy);
         let ceiling_y = hollow.iter().map(|&(_, y)| y).min().unwrap_or(cy);
-        let thickness = 2 + (noise::unit(seed, Purpose::Vault, k, 8) * 3.0) as i32;
+        let thickness = 8 + (noise::unit(seed, Purpose::Vault, k, 8) * 12.0) as i32;
         // Never fill the chamber solid: leave at least two rows of head-room,
         // or a small grotto becomes a lump of buried gravel with no void in
         // it and there is nothing to find.
@@ -2099,7 +2206,17 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
         let end = col;
         col += 1;
         // One nominal depth per cavity, drawn on its first column.
-        let base = 2 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 3.0) as i32;
+        //
+        // Depth, mound size and the "large cavity" bar are all **4x for the
+        // 4x world** (Phase 2), and they had to move together with the
+        // envelope rather than be left alone. A cavity in a 4x system is four
+        // times wider, so a bar of 20 columns is met by every cavity there is
+        // and one to three mounds five rows tall become a fine stipple along
+        // a floor four times longer -- the count knob left pointing the wrong
+        // way, which is the same trade the speleothem constants above spell
+        // out. `MOUND_MIN_WIDTH` scaled with the cavity keeps "one to three
+        // heaps per large cavity" meaning what it says.
+        let base = 8 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 12.0) as i32;
         // Breakdown mounds: one to three heaps per large cavity, proposed as
         // unit-slope triangles on top of the base fill -- a cave floor is
         // rubble fallen from the roof, not tile, and a dead-flat fill from
@@ -2108,14 +2225,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
         // the verifier guards their toes like everything else's.
         let width = end - start + 1;
         let mut mound = vec![0i32; width];
-        if width >= 20 {
+        if width >= MOUND_MIN_WIDTH {
             let sx = cx + start as i32;
             let count = 1 + (noise::unit(seed, Purpose::CaveFloor, sx, k * 31 + 1) * 3.0) as i32;
             for m in 0..count {
                 let at = (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 2)
                     * width as f32) as i32;
                 let peak =
-                    2 + (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 3) * 4.0) as i32;
+                    8 + (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 3) * 16.0) as i32;
                 for (i, e) in mound.iter_mut().enumerate() {
                     *e = (*e).max(peak - (i as i32 - at).abs());
                 }
@@ -2230,7 +2347,11 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                         run = 0;
                     }
                 }
-                best >= 12
+                // 4x for the 4x world (Phase 2): "tall enough to read as a
+                // chamber rather than a passage" is a claim about the
+                // cavity, and cavities in a 4x envelope are 4x taller, so
+                // 12 rows had stopped separating the two.
+                best >= 48
             })
             .collect();
         let mut i = 0usize;
@@ -2243,7 +2364,9 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
             while i < tall.len() && tall[i] {
                 i += 1;
             }
-            if i - start >= 6 {
+            // Likewise 4x: six columns of tall void is a junction in a 4x
+            // system, not a room.
+            if i - start >= 24 {
                 chambers += 1;
                 chamber_floors.push((start..i).map(fs).max().unwrap_or(0));
                 for c in chamber_col.iter_mut().take(i).skip(start) {
@@ -2415,7 +2538,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                 };
                 let fs = b - h; // lowest open row: the floor surface
                 let span = fs - t + 1;
-                if span < 5 {
+                // **4x for the 4x world** (Phase 2), and the reason is the
+                // cone rather than the count. A formation's trunk length is
+                // drawn from this span (`lt` below) while its base width is
+                // drawn from `SPELEO_WIDTH_*`, which Phase 2 took to 12-32
+                // -- so a 5-row cavity would now hold a 32-cell-wide, 3-row
+                // pancake. Every gate in this block that reads `span` moves
+                // with the envelope for the same reason.
+                if span < 20 {
                     continue;
                 }
                 // A distinct sub-range of the noise coordinate per run, so
@@ -2435,13 +2565,13 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                 // left ordinary passage -- most of a system's length --
                 // essentially undecorated regardless of how wet it read.
                 let wet = noise::smoothstep(0.1, 0.4, focus);
-                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(3.0, 5.0, span as f32);
+                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(12.0, 20.0, span as f32);
                 if noise::unit(seed, Purpose::Speleothem, px, ry) >= chance {
                     continue;
                 }
                 let kind = noise::unit(seed, Purpose::Speleothem, px, ry + 1);
                 let crystal = noise::unit(seed, Purpose::Speleothem, px, ry + 2) < SPELEO_CRYSTAL;
-                let pair = kind < SPELEO_PAIR && span >= 7;
+                let pair = kind < SPELEO_PAIR && span >= 28;
                 let stalactite = pair || kind < SPELEO_PAIR + 0.45;
                 // Round-5 task 4a: a heavy-tailed draw scaled to the local
                 // open span, replacing the old `2 + unit * 6` -- a uniform
@@ -2487,10 +2617,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                         }
                     }
                 }
-                if lt < 2 {
+                // A trunk shorter than this is dropped rather than drawn: at
+                // the 4x base width a two-row stub is a wide flat lump, not
+                // a formation. 4x round 7's 2, for the same reason the span
+                // gate above moved.
+                if lt < 8 {
                     lt = 0;
                 }
-                if lg < 2 {
+                if lg < 8 {
                     lg = 0;
                 }
                 if lt == 0 && lg == 0 {
@@ -2690,7 +2824,12 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
             if fs < water_line || fs - water_line > WATERLINE_FLOOR_REACH {
                 continue;
             }
-            if last_wl.is_some_and(|l| dx - l < 2) {
+            // 4x for the 4x world (Phase 2): two columns apart was a real
+            // gap when a formation was 3 cells wide and is an overlap now
+            // that it is 12-32. The main pass's own overlap proof is
+            // `SPELEO_SPACING_MIN`-derived; this is the same guarantee for
+            // the targeted pass, which does not go through it.
+            if last_wl.is_some_and(|l| dx - l < SPELEO_WIDTH_MAX) {
                 continue;
             }
             let span = fs - t + 1;

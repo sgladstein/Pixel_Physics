@@ -74,6 +74,12 @@ impl Bucket {
 }
 
 fn main() {
+    // 2048x640 was the shipped size when this default was chosen; the world
+    // has since grown to 8192x2560, so this default is now a quarter-linear
+    // world (a sixteenth the area) rather than the size that ships. Left as
+    // is rather than bumped to match -- `size=8192x2560` (see the module
+    // doc's usage examples) is how to measure at the shipped size; this
+    // stays the cheap default for a quick run.
     let mut size = (2048i32, 640i32);
     // Two full day/night cycles by default. **A shorter run is not a
     // measurement of this quantity**: the sky is a designed oscillator on a

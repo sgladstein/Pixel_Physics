@@ -1,12 +1,15 @@
 //! What a bigger world actually costs, measured rather than extrapolated.
 //!
-//! The owner has asked for a 4x-linear world (8192x2560, sixteen times the
-//! cells). Every number available for that decision was an *extrapolation*
-//! from the shipped 2048x640 size — generation scales with area, so 542 ms
-//! becomes ~8.7 s; the field solve was 7.2 ms at 2048x1280 and touches every
-//! field cell in the world every frame, so ~57 ms. Extrapolations across a
-//! 16x range are exactly the kind of number this repo keeps being wrong
-//! about, and the whole of the scale plan's first phase is sized off them.
+//! **Written when the owner had asked for a 4x-linear world (8192x2560,
+//! sixteen times the cells) and it was still a proposal; it now ships** —
+//! `app::WORLD_WIDTH`/`WORLD_HEIGHT` are 8192x2560. At the time, every
+//! number available for that decision was an *extrapolation* from the then-
+//! shipped 2048x640 size — generation scales with area, so 542 ms becomes
+//! ~8.7 s; the field solve was 7.2 ms at 2048x1280 and touches every field
+//! cell in the world every frame, so ~57 ms. Extrapolations across a 16x
+//! range are exactly the kind of number this repo keeps being wrong about,
+//! and the whole of the scale plan's first phase was sized off them — this
+//! tool is what replaced the extrapolation with a measurement.
 //!
 //! So: build the thing and time it. Reports, per size:
 //!
@@ -27,6 +30,12 @@
 //! cargo run --release --example scale_probe -- scales=1,4
 //! cargo run --release --example scale_probe -- size=8192x2560 frames=120
 //! ```
+//!
+//! `scales=` multiplies `BASE_W`/`BASE_H` below, which are still 2048x640 —
+//! so the default `1,2,3,4` now tops out at `4` = 8192x2560, the size that
+//! ships, rather than at some multiple beyond it. To measure past the
+//! shipped size, `size=WxH` takes an explicit size directly and ignores
+//! `scales` entirely.
 
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::world::World;
@@ -41,7 +50,11 @@ use std::time::Instant;
 const QUIET_MS: f64 = 1.0;
 const QUIET_RUN: usize = 120;
 
-/// The shipped size every multiplier is taken against.
+/// The size every `scales=` multiplier is taken against. **Was** the
+/// shipped size when this was written; the world has grown since and this
+/// was deliberately left unmoved (see the module doc), so `scales=4` now
+/// lands exactly on the shipped 8192x2560 rather than a size beyond it.
+/// `size=WxH` is the way to probe past that without touching this.
 const BASE_W: i32 = 2048;
 const BASE_H: i32 = 640;
 

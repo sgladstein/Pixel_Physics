@@ -112,13 +112,18 @@ fn build_world_reporting(
 /// point — a room comfortably inside it would show that rooms work, which
 /// nobody doubts, rather than whether the ceiling is in a sensible place.
 ///
-/// 200 wide against a 512-wide world is 39% of it, which is the number the
-/// eye is actually being asked to judge.
+/// 200 wide against the 512-wide viewport (`WIDTH`) is 39% of it, which is
+/// the number the eye is actually being asked to judge —
+/// `stamp_reference_room` places it at the cursor and it is judged by
+/// looking at it on screen, not against the far larger world it is
+/// stamped into.
 const REFERENCE_ROOM_SPAN: i32 = 200;
 
 /// Tall enough to stand a structure up rather than draw a lintel: the roof
 /// has to be carried by walls doing real work, or the span is not being
-/// tested. 160 is half the world's height.
+/// tested. 160 is half the viewport's height (`HEIGHT`, 320) — the same
+/// "judged on screen" reasoning as `REFERENCE_ROOM_SPAN` above, not a claim
+/// about the world's own (now much taller) height.
 const REFERENCE_ROOM_HEIGHT: i32 = 160;
 
 pub struct App {
@@ -287,10 +292,12 @@ pub enum Tool {
     /// click *within `dig_reach` of him* dug and anything further painted.
     /// Reported from the first playtest as "I cannot dig. The mouse
     /// either makes sand/material or erases it" — and correctly, because
-    /// at zoom 1 that reach is a fourteen-*pixel* bullseye around a 3x6
-    /// pixel character, with no indication it is there and the ordinary
-    /// brush as the failure mode. Nothing on screen said a second verb
-    /// existed, so the verb effectively did not.
+    /// at zoom 1 that reach is a fourteen-*pixel* bullseye around what was,
+    /// at the time, a 3x6 pixel character (he has since grown twice more,
+    /// to 5x10 and now 7x14 — see `player::PLAYER_WIDTH`/`PLAYER_HEIGHT`),
+    /// with no indication it is there and the ordinary brush as the
+    /// failure mode. Nothing on screen said a second verb existed, so the
+    /// verb effectively did not.
     ///
     /// The general lesson is one `CLAUDE.md` already states about size
     /// caps: a reach may bound *where* something happens and must never
@@ -2137,10 +2144,10 @@ mod tests {
     }
 
     /// Every world cell. The scans below used `0..WIDTH x 0..HEIGHT`, which
-    /// was the whole world only while the world was exactly one screen; on a
-    /// world four screens wide they would have quietly searched the
-    /// top-left corner and reported "nothing anywhere" about a quarter of a
-    /// quarter of it.
+    /// was the whole world only while the world was exactly one screen; on
+    /// the world this ships at now — sixteen screens wide and eight deep —
+    /// they would have quietly searched the top-left corner and reported
+    /// "nothing anywhere" about a sixteenth of an eighth of it (1/128).
     fn world_cells(app: &App) -> impl Iterator<Item = (i32, i32)> {
         let b = app.world.bounds().expect("the app's world is bounded");
         (b.min_x..=b.max_x).flat_map(move |x| (b.min_y..=b.max_y).map(move |y| (x, y)))

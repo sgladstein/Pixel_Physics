@@ -1,9 +1,9 @@
 //! What the *player's viewport* shows of a world larger than itself.
 //!
 //! `filmstrip` renders whole small worlds, which was the same picture while
-//! the world was exactly one screen. It no longer is: the world ships four
-//! screens wide and twice as deep, and almost everything that can go wrong
-//! with that is invisible in a whole-world render —
+//! the world was exactly one screen. It no longer is: the world ships
+//! sixteen screens wide and eight deep, and almost everything that can go
+//! wrong with that is invisible in a whole-world render —
 //!
 //! - the camera clamped so hard at an edge that half the screen is outside
 //!   the world,
@@ -721,8 +721,8 @@ fn main() {
 
     for shot in 0..a.shots {
         // Aimed at the strike when there is one: a bolt lands anywhere in a
-        // world four screens wide, so a shot framed anywhere else is a render
-        // of a flash with the interesting part outside it.
+        // world sixteen screens wide, so a shot framed anywhere else is a
+        // render of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
         let x = match (a.vault || a.boulder, a.mine, aimed) {
             (true, _, _) => vault_at

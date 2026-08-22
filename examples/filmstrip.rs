@@ -30,8 +30,11 @@
 //!
 //! # Why crop and zoom are not optional extras
 //!
-//! At 1:1 a one-pixel-tall dark line across a 512-wide world is genuinely
-//! easy to miss — that is exactly how the horizontal chunk-seam tearing went
+//! At 1:1 a one-pixel-tall dark line across a 512-wide world — the size a
+//! filmstrip scene builds at (`WIDTH`x`HEIGHT`, viewport-sized on purpose;
+//! see `viewshot.rs`'s own doc for why the *shipped*, now much larger, world
+//! is a separate question this tool does not answer) — is genuinely easy to
+//! miss — that is exactly how the horizontal chunk-seam tearing went
 //! unnoticed until it was pointed out. `crop` and `zoom` are the difference
 //! between "I looked at it" and "I saw it".
 //!

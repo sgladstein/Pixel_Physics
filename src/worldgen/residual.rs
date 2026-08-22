@@ -96,6 +96,23 @@ const SIZE_SKEW: f32 = 2.4;
 const MIN_ASPECT: f32 = 1.1;
 const MAX_ASPECT: f32 = 2.6;
 
+/// Columns of context the `residuals` pass reads beyond the ones it writes.
+///
+/// A site's footprint reaches at most its own half-width, and the widest a
+/// residual can draw is the tallest it can draw over the squattest aspect it
+/// can draw: `MAX_HEIGHT / MIN_ASPECT`, halved for a half-width, plus a
+/// column of slack. There is also a floor of 6 on `width` for very short
+/// draws, which is far inside this.
+///
+/// **Derived rather than restated, because the restatement had already gone
+/// stale.** The pass table declared 80 and explained it as "aspect >= 0.8
+/// (width >= height/3), so the widest possible footprint is 120/0.8/2 = 75
+/// columns" -- and `MIN_ASPECT` has been 1.1 since the 0.8 experiment was
+/// measured prominence-inert and withdrawn. The margin stayed safe by
+/// accident; anyone re-deriving it from that comment would have re-derived
+/// it from a number that no longer exists.
+pub const RESIDUALS_MARGIN: i32 = (MAX_HEIGHT / MIN_ASPECT / 2.0) as i32 + 1;
+
 /// A residual's silhouette, decided from the hardness this specific site's
 /// rock actually has over the height it is about to stand -- never
 /// authored, per `Reports/design-philosophy.md` §2b's test that a visible

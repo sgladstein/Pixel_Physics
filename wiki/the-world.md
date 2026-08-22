@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: 2026-08-21.*
+*Current as of: 2026-08-22.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -255,7 +255,7 @@ but bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
-A world is several screens across and about twice a screen deep, so most of
+A world is sixteen screens across and eight screens deep, so most of
 it is somewhere you have to go rather than somewhere you can see. What is
 on screen is a **view** of it, not the whole of it: walk to the edge of
 the picture and the view travels with you — and with nobody in the world,

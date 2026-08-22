@@ -153,8 +153,11 @@ pub const AMBIENT_TEMPERATURE: i16 = 20;
 /// organism-substrate rewrite will hit the identical aliasing problem for a
 /// burning `Plant` cell's cell-type tag, so both fields land together now
 /// rather than widening `Cell` twice. Same "irrelevant at this scale" cost
-/// argument the original 4→8 byte widening (M12) already made: a 2048²
-/// world goes 32 MB → 48 MB.
+/// argument the original 4→8 byte widening (M12) already made, illustrated
+/// there with a round 2048² world (32 MB → 48 MB). At the actual shipped
+/// 8192x2560 world and this file's real `Cell` size (12 bytes, asserted
+/// below), the cell grid itself is 8192 x 2560 x 12 ≈ 240 MiB — 160 MiB at
+/// the pre-M12 8-byte `Cell`.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Cell {
     pub material: MaterialId,

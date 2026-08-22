@@ -671,8 +671,10 @@ pub(crate) fn is_moisture_source(
 /// through separate functions cost a second `HashMap` fetch of the same
 /// tile for every blocked neighbour (the first version did, and the paired
 /// `ascii` river scene showed the within-run spring cost rising ~0.5 ms at
-/// 2048x640 for it). `has_glow` short-circuits the per-block array read
-/// for the overwhelmingly common tile with no glow anywhere.
+/// the 2048x640 world this was measured at — since grown to 8192x2560 and
+/// not re-measured there — for it). `has_glow` short-circuits the
+/// per-block array read for the overwhelmingly common tile with no glow
+/// anywhere.
 ///
 /// The glow half exists for exactly the reason `is_moisture_source` does:
 /// `blocked` goes true for a whole 8x8 block the moment one cell in it is
@@ -1123,7 +1125,9 @@ pub fn step(world: &mut World) {
     // **Subsetting this by column was tried in the round-7 scale work and
     // reverted.** Gating each column on `sky_drifted` -- now a discrete
     // event, since `sky_light_amplitude` is quantised -- looked like the
-    // obvious win and measured 8.26 -> 6.55 ms at 2048x640. It was measuring
+    // obvious win and measured 8.26 -> 6.55 ms at the 2048x640 world this
+    // was measured at (the world has since grown to 8192x2560; this
+    // particular before/after was not repeated there). It was measuring
     // a bug: a tile in the solve set is rebuilt from a fresh `FieldTile` at
     // the top of this function, so a skipped column does not keep stale
     // light, it *loses* it (measured, mid-air cells going 2.43 -> 0.0 and
@@ -1557,7 +1561,7 @@ pub fn sky_light_amplitude(frame: u64) -> f32 {
     // **Quantised, and that is what lets a quiet world stop solving.**
     //
     // Measured on a settled world with *zero* awake chunks: `field::step`
-    // cost 8.26 ms/frame at the shipped 2048x640 and 42.37 ms at 8192x2560.
+    // cost 8.26 ms/frame at 2048x640 and 42.37 ms at the shipped 8192x2560.
     // Not the CA sweep -- that measured 0.00 and 0.08 ms respectively, so
     // chunk sleeping was doing its job perfectly. All of it was this
     // function moving.
@@ -2061,7 +2065,8 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // overlapping `bounds` (`ensure_chunks_for`), so a
                         // chunk's own 64x64 span can extend past a world
                         // whose size isn't a multiple of `CHUNK_SIZE` (the
-                        // sandbox itself is 512x320 -- fine -- but
+                        // sandbox itself is 8192x2560 -- both divisible by
+                        // 64, so still fine -- but
                         // `plant.rs`/`creature.rs`'s own 200x200 test
                         // worlds are not). `Chunk::get_world` has no
                         // concept of world bounds at all, unlike
@@ -2105,9 +2110,11 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                         // cell on top of the `kind` lookup and the
                         // conditional capacity one. Paired ascii runs showed
                         // the price: the river scene's spring-OFF mean rose
-                        // from {12.770, 12.765} to {13.42..13.86} ms at
-                        // 2048x640, with *zero* awake chunks — 78 unsettled
-                        // field tiles re-solving was enough. Three fetches
+                        // from {12.770, 12.765} to {13.42..13.86} ms at the
+                        // 2048x640 world this was measured at (grown since
+                        // to 8192x2560, not re-measured there), with *zero*
+                        // awake chunks — 78 unsettled field tiles
+                        // re-solving was enough. Three fetches
                         // folded to one is cheaper than what the glow read
                         // was added to, not just cheaper than its first
                         // version.
@@ -3432,7 +3439,7 @@ mod tests {
         // (rebuild_blocked switched from World::get, which is bounds-aware,
         // to Chunk::get_world, which is not) caught that the out-of-world
         // slice of a chunk whose 64x64 span extends past a non-64-aligned
-        // world (the sandbox's own 512x320 happens to divide evenly, but
+        // world (the sandbox's own 8192x2560 happens to divide evenly, but
         // plant.rs/creature.rs's 200x200 test worlds -- and any future
         // arbitrary size -- don't) silently stopped reading as blocked.
         //

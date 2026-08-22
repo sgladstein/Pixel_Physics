@@ -524,12 +524,22 @@ const MOISTURE_OVERLAY_MAX: f32 = 4.0;
 
 /// Clamp bounds for `Renderer::zoom` — magnifying, screen pixels per world
 /// cell. `8` is arbitrary (untuned against anything but "still recognizably
-/// the sandbox, not a single giant cell filling the window" at the engine's
-/// 512x320 simulation resolution).
+/// the sandbox, not a single giant cell filling the window" at the
+/// engine's 512x320 viewport resolution — `WIDTH`/`HEIGHT`, not the world).
 const MAX_ZOOM: i32 = 8;
 /// Clamp bounds for `Renderer::zoom_out_stride` — minifying, world cells
 /// per screen pixel. `4` keeps a stride-sampled view still readable as
 /// "the same kind of picture, zoomed out" rather than aliasing into noise.
+///
+/// A consequence worth stating, not a case for changing the number: at
+/// stride 4 the view spans 2048x1280 cells (`visible_span` multiplies the
+/// 512x320 viewport by the stride). That was exactly the whole
+/// `WORLD_WIDTH`x`WORLD_HEIGHT` before the world grew to 8192x2560, so
+/// "zoom all the way out to see the whole world" used to be true at this
+/// clamp and no longer is — the maximum stride now shows a quarter of the
+/// world's width and half its depth. Raising the clamp is a legibility
+/// trade this constant's own doc already argues against; it is not
+/// revisited here.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
 /// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
@@ -542,10 +552,19 @@ const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 /// scale.
 ///
 /// This is the **sustained** rate, reached after `PAN_RAMP_SECONDS` of holding
-/// a key; the scroll opens at `PAN_START_FRACTION` of it. `0.5` is 256 cells/s,
-/// about 2.8x the gnome's own run (`run_max` 1.5 cells/tick = 90 cells/s), and
-/// puts the 1536-cell pannable width — the world less one viewport — about six
-/// seconds end to end, or two and a half for the world's one-screen depth.
+/// a key; the scroll opens at `PAN_START_FRACTION` of it. `0.5` is 256 cells/s
+/// horizontally (0.5 x the 512-cell viewport width) and 160 cells/s vertically
+/// (0.5 x the 320-cell viewport height — `visible_span` hands `pan` a
+/// different span per axis, so the two rates are not the same number), about
+/// 2.8x the gnome's own run (`run_max` 1.5 cells/tick = 90 cells/s) on the
+/// horizontal axis. At the 8192x2560 world this ships at, that puts the
+/// 7680-cell pannable width — the world less one viewport, `WORLD_WIDTH -
+/// WIDTH` — at 7680 / 256 = 30 seconds end to end, and the 2240-cell pannable
+/// height (`WORLD_HEIGHT - HEIGHT`) at 2240 / 160 = 14 seconds. (Both figures
+/// ignore the ramp, same as this always has: it eats under a second of a
+/// multi-second traverse.) Before the world grew from 2048x640 the same
+/// arithmetic gave 1536 / 256 = six seconds and 320 / 160 = two seconds for a
+/// pannable height that was, then, exactly one screen.
 ///
 /// **`1.5` shipped here first and was rejected by playtest: "way too fast."**
 /// Keep the number, because the way it was arrived at is the useful part. The
@@ -609,10 +628,12 @@ const CRACK_DARKEN: u16 = 110;
 /// cells are transparent — the world shows through, which is what keeps a
 /// filled rectangle reading as a figure rather than a crate.
 ///
-/// Grown from 3x6 to 5x10 on a playtest note ("can we make the gnome a
-/// little bigger"). The extra rows are what buy the readable silhouette:
-/// at 3x6 there was exactly one row for the face and none at all for
-/// arms, so every feature had to be a full-width band.
+/// Grown from 3x6 to 5x10, then to the current 7x14, on playtest notes
+/// ("can we make the gnome a little bigger", then "a little bigger
+/// still" — `player.rs`'s own extent doc has the second step). The extra
+/// rows bought the readable silhouette: at 3x6 there was exactly one row
+/// for the face and none at all for arms, so every feature had to be a
+/// full-width band.
 const GNOME_HAT: [u8; 4] = [204, 62, 48, 255];
 const GNOME_FACE: [u8; 4] = [232, 186, 148, 255];
 const GNOME_BEARD: [u8; 4] = [226, 226, 226, 255];
@@ -2123,8 +2144,8 @@ impl Renderer {
         // builds a whole new `World` and keeps the same `Renderer`, so a
         // cache keyed on "same width, same origin" would hold the *previous*
         // terrain's skyline over freshly generated ground for the rest of
-        // the session. The copy is a memcpy of one `i32` per column -- 8 KB
-        // at 2048 wide -- against a draw that touches every pixel.
+        // the session. The copy is a memcpy of one `i32` per column -- 32 KB
+        // at the shipped 8192 wide -- against a draw that touches every pixel.
         if !world.sky_surface().is_empty() {
             self.horizon.clear();
             self.horizon.extend_from_slice(world.sky_surface());
@@ -2167,9 +2188,11 @@ impl Renderer {
     /// `DEPTH_LIGHT_SHOULDER_REACH` for why an opening and not a blur).
     ///
     /// Naive windowed filters, not sliding-window minima: the window is 19
-    /// wide and the skyline 2048 columns, so this is ~80k comparisons per
-    /// rebuild against a draw that touches every pixel — the same budget
-    /// argument `rebuild_horizon`'s own memcpy note makes. Columns that have
+    /// wide and the skyline is 8192 columns at the shipped world size, so
+    /// this is two passes of 19 x 8192 ≈ 310k comparisons per rebuild (was
+    /// ~80k at the 2048-wide world this was written against) against a
+    /// draw that touches every pixel — the same budget argument
+    /// `rebuild_horizon`'s own memcpy note makes. Columns that have
     /// never held ground (`i32::MAX`) stay `MAX` in the datum, so they keep
     /// reading as bottomless sky rather than borrowing a neighbour's depth.
     fn rebuild_light_datum(&mut self) {

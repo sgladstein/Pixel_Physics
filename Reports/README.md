@@ -156,7 +156,14 @@ tried?"*.
 - [world-scale-handoff.md](world-scale-handoff.md) — **handoff; start
   here for the 4x world.** What round 7's performance work landed, the one
   target it missed and why, the question waiting on the owner, and Phases
-  2-5 written to be picked up cold.
+  2-5 written to be picked up cold. Phase 2 is done; Phases 3-5 stand.
+- [world-scale-phase-2.md](world-scale-phase-2.md) — **shipped.** The world
+  at 8192x2560 and the caves scaled into it: what was re-derived, what
+  deliberately was not and why the handoff's own list is not self-consistent,
+  the three things that were silently broken at the new size, and the paired
+  census Phase 3 should measure itself against. Carries the finding that a
+  feature left at its old size in a 4x world loses *fourteen* times its
+  significance, not four.
 - [worldgen-round6-handoff.md](worldgen-round6-handoff.md) — **handoff.**
   What round 6 landed, what was ruled, and what the owner then rejected on
   the review cards. The starting point for rounds 7+.

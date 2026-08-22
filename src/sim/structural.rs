@@ -1052,7 +1052,9 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
 /// Paid once at generation and never per frame — reported by
 /// `examples/ascii.rs`, which times it against the same terrain built
 /// without this pass so the figure is attributed rather than asserted.
-/// At the shipped 2048x640, measured with a probe splitting the two halves:
+/// At 2048x640 -- the size the world shipped at when this was measured; it
+/// has since grown to 8192x2560 and this has not been re-measured there --
+/// measured with a probe splitting the two halves:
 ///
 /// | | seeding scan | relaxation | total |
 /// |---|---|---|---|
@@ -1096,8 +1098,9 @@ pub fn compute_world_distances(world: &mut World) {
     // plus a `HashMap<ChunkCoord, Chunk>` lookup *per read*, and each cell
     // is read five times over (itself plus four neighbours) before the
     // search even starts. That was affordable while the world was one
-    // screen. Measured at 2048x640, with the probe splitting the two
-    // halves:
+    // screen. Measured at 2048x640 -- the size the world shipped at then,
+    // since grown to 8192x2560 and not re-measured there -- with the probe
+    // splitting the two halves:
     //
     //   seeding scan   193 ms
     //   relaxation     386 ms
