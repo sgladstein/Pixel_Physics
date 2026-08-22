@@ -286,6 +286,46 @@ tests the thing it is named for; the probe above is what keeps the finding.
 guarantees a lens lands inside a cave envelope, which is the entire
 reproduction.
 
+### 0f. Terrace risers are inert: erosion deletes them at any nonzero `world_age` (worldgen)
+
+Found while attributing the Phase 2 review's "sharp vertical faces"
+(`Reports/world-scale-phase-2.md` §7a).
+
+`column.rs`'s `riser_roughness` term adds a second, much larger detail term
+near a terrace riser, and carries a long justification for why a riser needs
+breaking up: *"a riser is a single-column jump of `terrace_step * mask` rows
+-- up to 34 on `canyon` -- and `detail_amplitude` is 2.5 to 3.0, which is
+nowhere near enough to break a face that tall."* It reads as current.
+
+**Measured, it never reaches the screen.** Pre-erosion, the largest adjacent
+`|d elev|` is 19.93 rows in a single column (canyon seed 3, x 2937), and
+those columns are entirely the riser term. `erosion.rs` caps every adjacent
+pair at `THERMAL_STABLE_SOFT + hard * THERMAL_STABLE_HARD_BONUS` = 0.55 +
+4.5 = 5.05 rows/column, and canyon ships `world_age: 1.0` (600 iterations).
+Post-erosion, `probe_p2_how_sheer_is_the_ground` over all 8192 columns:
+
+  canyon: med 0, p90 1, p99 3, max 5; columns >=6: 0, >=10: 0, >=20: 0
+
+Every shipped preset except `flat` carries a nonzero `world_age`, and `flat`
+zeroes `terrace_strength` anyway. So the roughening term fires only in a
+configuration nothing ships.
+
+**Not necessarily a defect** -- round-4 task 4 turned age on deliberately
+after the riser work landed, and a subdued world may be what is wanted. What
+is wrong is that the source says otherwise at length, so the next session to
+read it will believe a mechanism is live that cannot be. Either the comment
+gets the measurement, or the term gets removed, or `world_age` stops eating
+it -- but the three cannot all stay as they are.
+
+Related, same investigation, also unasked: **the palette-family thresholds
+are gated on x only** (`passes.rs`'s `palette_family_for` takes them from
+`character(x)`; only the comparison value and bias are 2-D). Measured on
+canyon seed 3, the steepest ramp sweeps 0 to 1 in **11 columns** and shows in
+the shipped render as warmth going -1.3 to +27.2 across world x 1358-1390,
+coherent from the skyline to the bottom of the frame. That is a genuine
+near-vertical colour seam and it may be a second referent for the owner's
+*"the patterns don't flow"*. Untested by eye; nobody has been asked.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

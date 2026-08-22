@@ -272,11 +272,22 @@ scene now runs at the shipped size automatically because it takes
 **The load and fracture model is untouched, and that is measured rather
 than asserted.** `scripts/seedsweep.sh` -- the order-statistic sweep over
 `worldcrack` at 512x320, six presets x four seeds -- came back
-**bit-identical** before and after: cells lost max 131, p90 85, median 28,
-min 0; rock destroyed max 165, p90 5. Run before *and* after, in the same
-session on the same machine, against a worktree build of the previous
-commit, because a remembered number is the comparison this repo keeps
-getting wrong.
+**bit-identical** across the Phase 2 worldgen work: cells lost max 131, p90
+85, median 28, min 0; rock destroyed max 165, p90 5. Run before *and* after,
+in the same session on the same machine, against a worktree build of the
+previous commit, because a remembered number is the comparison this repo
+keeps getting wrong.
+
+**It moved on the review round, and the reason is the world, not the
+model.** After `residual_density` went to 0.45 (§7a): cells lost max 131
+(unchanged), p90 85 -> 94, median 28 -> 20 -- noise either side -- and rock
+destroyed **max 165 -> 4, p90 5 -> 0**. That last one is large and it is
+expected: `worldcrack` digs into *generated terrain*, and a world with a
+third of the standing tors has far less loose rock for a dig to bring down.
+The sweep exists to catch a change that eats **more** world; this eats less,
+for a reason that is upstream of the load model entirely. Worth stating
+rather than waving through, because a 40x move in a guard number is exactly
+the shape of thing that should stop a session.
 
 **The 648 ms frame is a load transient, not a standing cost**, and it is
 already visible in `scale_probe`'s own worst-frame columns (sweep 336 ms +
@@ -362,6 +373,57 @@ screen covers generation but not the settle behind it.
   Left alone here because weather is not Phase 2 and undoing it costs frame
   time that wants its own measurement — but it is a visible change nobody
   asked for and it should be decided, not inherited.
+
+## 7a. The review round, and what it cost to read a picture wrong
+
+Both Phase 2 cards came back. The cave sizing got *"Looks better. I need to
+start playtest to really know"* -- provisional, not settled -- and the strata
+A/B went **against this session's own prediction**, which §5 records.
+
+The third thing in that verdict is the one worth writing down as method.
+Asked what was wrong with the render, the owner answered: *"The biggest #1
+issue here though, is the repeating hard boundary at 1/3 and 2/3 of the
+image. The patterns don't flow and there are sharp vertical faces."*
+
+**It was the harness.** `viewshot shots=3` spreads its cameras across the
+whole world and butts the tiles together with no separator, so that card was
+three places -- world x 1109-1620, 3840-4351, 6570-7081, with 2,219 unshown
+columns between each -- presented as one landscape. Measured on that image,
+the two joins are the largest and second-largest of all 1,535 adjacent column
+pairs (88.8x and 61.7x the median), and the skyline steps **61 rows in one
+column**. A null test settles what that means: 400 random *cross-tile* column
+pairs -- genuinely unrelated places -- have a median difference of 15.6, and
+the joins sit inside that distribution, because that is exactly what they
+are.
+
+For scale, `probe_p2_how_sheer_is_the_ground` then measured the real thing:
+the largest adjacent step worldgen produces, in any preset, over all 8192
+columns, is **5 rows**. Not one column in any preset steps six. The seam was
+twelve times larger than anything the generator can make.
+
+So the owner spent a review round reporting a defect in the picture as the
+world's worst problem, and would have been right to. `strip=1` and a default
+gutter exist so it cannot recur, and the summary line now names the columns
+a sheet is *not* showing. **The lesson is not "check the harness" -- it is
+that a rendering convention which is obvious to the person who wrote the
+renderer is invisible to the person judging the render.** A contact sheet
+looks like a photograph.
+
+Two real findings came out of chasing it, neither of which anyone was
+looking for:
+
+- **Erosion has already removed every plumb face from the ground.** Pre-
+  erosion terrace risers reach 19.9 rows in a single column; `THERMAL_STABLE_
+  SOFT + hard * THERMAL_STABLE_HARD_BONUS` caps adjacent pairs at 5.05
+  rows/column and every shipped preset carries `world_age > 0`, so none of
+  them survive to the screen. `column.rs`'s long justification for the riser-
+  roughening term reads as though it still fires. It does not.
+- **The palette-family thresholds are gated on x only.** A rock-colour
+  boundary can therefore sweep 0 to 1 in **11 columns** and run coherently
+  from the skyline to the bottom of the frame -- a genuine near-vertical
+  seam, and one lands mid-tile in the picture the owner judged. It may be a
+  second, real referent for *"the patterns don't flow"*, and it is untested
+  and unasked.
 
 ## 8. What Phase 3 inherits
 
