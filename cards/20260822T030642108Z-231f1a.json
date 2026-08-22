@@ -1,0 +1,43 @@
+{
+  "id": "20260822T030642108Z-231f1a",
+  "created": "2026-08-22T03:06:42Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "ba72691",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ice at a speed you can watch - and yes, it was real time",
+  "question": "Is this the order of magnitude you meant? Both clips play at true speed, twelve seconds of world time each.",
+  "context_md": "*\"Is this real time? The freeze is so fast. It lasts only a few seconds. This should be different order of magnitude. When it melts, it happens in 1 second.\"*\n\n**Yes, it was real time** -- the GIF delay is set from the sample interval, so those clips played 1:1. And the melt was six times faster than you said: 362 cells of ice and 1,788 of snow went to **zero of both inside ten frames**, a fifth of a second.\n\n| | before | now |\n|---|---|---|\n| pond ices over in | 0.3 s | **3.3 s** |\n| sheet gone in | 0.17 s | **8 s** |\n\nMelting had no brake at all -- it converted on the first visit above the melting point. That was a deliberate decision written into the code (\"thaw urgency is carried by the temperature gradient itself\"), and your playtest overturned it. Freezing was borrowing boiling's rate, which it had no business doing. Both have their own now.\n\n**On lengthening the whole weather cycle, which you also asked for: I did not, and I owe you the reason.** I measured it before changing it, and cold snaps already last **100 seconds** -- the clips are a slice of one, not a whole one. Making them ten times longer gives one snowfall every two hours of play, lasting seventeen minutes. That is not what \"an order of magnitude\" meant, so I reverted it. If you *do* want fronts that long, say so and it is a one-line change.\n\n**One thing to watch for in the clip:** the thaw goes ragged and patchy, and the last of it lingers after the rest has gone. That is the roll rather than anything modelled about shade or thickness. Tell me if it reads as ice retreating or as ice flickering out.\n\n**Also rejected, for the record:** a latent-heat brake on melting, copying the one boiling already has, at the real physical ratio. It cannot work here -- nothing in a thaw is more than about 19 degrees above freezing, and the bill would be 80.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T030642108Z-231f1a/000-ice_before.gif"
+      ],
+      "caption": "Freeze in 0.3 s, thaw in 0.17 s. Both are over before the clip is.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T030642108Z-231f1a/001-ice_after.gif"
+      ],
+      "caption": "Freeze over 3.3 s, thaw over 8 s, patchy on the way out.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
