@@ -11,6 +11,29 @@ on:
     branches: [main]
 
 jobs:
+  # Cheap, no toolchain, runs beside `test` rather than ahead of it. Asks one
+  # question: does any other name for the trunk hold a commit `main` cannot
+  # reach? Copying `master` onto `main` left `master` standing as a writable
+  # mirror that nothing gates, and `3d53351` records what that costs -- a
+  # branch merged `master` while `main` was 10 commits ahead and silently
+  # lost the CLAUDE.md restructure, the map-scroll feature and the play-button
+  # fix. `master` merely *lagging* is fine and passes; a commit reachable only
+  # from `master` is the failure. Goes permanently green if `master` is
+  # deleted, which is the intended end state.
+  #
+  # fetch-depth: 0 is load-bearing -- the default shallow checkout cannot
+  # answer an ancestry question, and against a truncated history this check
+  # reports a clean run over commits that are not there. The script refuses to
+  # run shallow rather than passing vacuously.
+  branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: trunk has no stranded twin
+        run: bash scripts/branchcheck.sh --gate --no-fetch
+
   test:
     runs-on: ubuntu-latest
     steps:

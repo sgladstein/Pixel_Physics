@@ -109,6 +109,7 @@ python3 scripts/review.py serve --open      # the owner's review queue; see belo
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
+bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
@@ -196,8 +197,39 @@ for you to post. Full protocol, including the JSON card spec, in
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
-once.** Git handles the merges; what it cannot handle is the two failures
-below, both of which have cost real hours.
+once.** Git handles the merges; what it cannot handle is the three failures
+below, each of which has cost real hours.
+
+**`main` is the trunk. Never integrate against `master`.** `main` began as a
+15-byte stub while the project lived on `master`, and the fix was to copy
+`master` onto `main` — but the copy left `master` standing, so for a while
+both names looked equally plausible and the docs named both. `3d53351`
+records the result: a branch merged `master` while `main` was 10 commits
+ahead, and silently missed the CLAUDE.md restructure, the map-scroll feature
+and the play-button fix. Nothing failed; the session noticed because a diff
+made no sense. `main` is the GitHub default, is the only branch CI gates, and
+is what the reset procedure below names. `master` is a mirror with nothing of
+its own and is on its way out. `scripts/branchcheck.sh --gate` fails if any
+commit is ever reachable from `master` but not `main`, and CI runs it.
+
+**Know how far behind you are, before you trust anything you measured on
+it.** The worktree rule below keeps two sessions from breaking each other's
+build; nothing was ever written down about staying current, so nothing pulled
+a branch forward and the drift compounded silently. Measured 2026-08-22
+across 27 remote branches: one was current, **ten sat at exactly 160 commits
+behind `main`** — cut at the same moment and never once updated — and twelve
+more were already fully merged and still standing as clutter. A branch does
+not notice it is 160 behind. The merge does, and by then the conflict surface
+is the whole session rather than a file or two.
+
+So: run `bash scripts/branchcheck.sh` when you pick up a branch, and pull
+`main` in *while* you work rather than saving it for the end. This is not
+tidiness — a baseline measured on a 160-behind branch is a measurement of a
+tree nobody else has, and the numbers in a report written from it do not
+transfer. The one exception the script prints for you: a branch sharing *no*
+history with `main` is a deliberate orphan carrying data, not source
+(`review-queue`, the review queue's transport — see `review_lib.py`'s
+`SYNC_BRANCH`). Never merge `main` into one of those.
 
 **Work in your own worktree, not the shared checkout.** Two sessions in one
 checkout share a `target/`, so one session's half-finished edit makes the

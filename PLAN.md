@@ -1038,7 +1038,7 @@ whenever. Folded into the priority-order list above where they overlap.
 | 7 | `scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak | perf, correctness, M16 |
 | 8 | `World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime | bug, M16 |
 | 9 | Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever | bug, M16 |
-| 10 | Housekeeping: default branch is `main` (a 15-byte stub — the project lives on `master`), no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
+| 10 | Housekeeping: ~~default branch is `main` (a 15-byte stub — the project lives on `master`)~~ **(resolved 2026-08-21, the other way round: `master` was copied onto `main` rather than the default being switched, so `main` is now the trunk, CI gates it, and `master` is a lagging mirror kept only until someone deletes it — see the branch-topology note below)**, no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
 | 11 | Reserve a slice-identifier field on `ChunkCoord` before it reaches the save format (see the worldgen redesign above) | chore, architecture, blocks M10 |
 
 A note from the same document worth keeping as a standing rule: two of its
@@ -1411,9 +1411,26 @@ debug-build step (#3) and `ascii.rs` regression gate (#4) together since
 they're the same "make the safety net real" theme; then the doc-drift
 fixes (#6, cheap); #1 (creature reclaim) and #2 (redundant touch_
 neighbours) whenever convenient, both low urgency.
-Also worth a decision, not just a fix: whether to make `master` the
-default branch (or merge into `main`) and close out the
+~~Also worth a decision, not just a fix: whether to make `master` the
+default branch (or merge into `main`)~~ — **decided 2026-08-21, in the
+opposite direction: `master` was copied onto `main`.** `main` is the GitHub
+default, CI gates `main` only (`9430346`), and the worktree procedure in
+CLAUDE.md names `origin/main`. `master` was left standing as a mirror and is
+now an exact copy of `main` carrying nothing of its own; it exists only until
+someone deletes it. Still open from this line: close out the
 `pixel-physics-issues.md` items that are actually resolved now.
+
+**Branch topology, and the one thing that must stay true.** Leaving a second
+name for the trunk is not free. `3d53351` records a branch that merged
+`master` while `main` was 10 commits ahead and silently missed the CLAUDE.md
+restructure, the map-scroll feature and the play-button fix; the session
+found out by reading a diff that made no sense. The invariant is not "the two
+are equal" — `master` lagging is harmless, it is only a name. The invariant
+is **no commit is reachable from `master` that is not reachable from
+`main`**, because that is the state that strands work on the branch CI does
+not gate. `scripts/branchcheck.sh --gate` asserts exactly that and runs in CI
+(`branches` job); it passes vacuously once `master` is gone, which is the
+intended end state rather than a hole.
 
 ---
 
