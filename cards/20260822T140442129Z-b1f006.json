@@ -1,0 +1,58 @@
+{
+  "id": "20260822T140442129Z-b1f006",
+  "created": "2026-08-22T14:04:42Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-integration",
+    "branch": "plant-integration",
+    "commit": "f424f98",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-integration"
+  },
+  "title": "The grove at noon, judged against the standard rather than against last time",
+  "question": "Please answer these as if this were the first image from this project you had ever seen. (1) How many separate trees can you count? Eight were planted. (2) Pick any one of them: can you point to a length of bare trunk between the ground and where its foliage starts? (3) Is what that trunk carries a mass of leaves? 'Better or worse than before' is not an answer to any of the three.",
+  "context_md": "**Deliberately not a before/after.** The last card asked you to compare two panes and you answered it correctly -- \"a little different, fatter merging a bit more\". That was a well-formed answer to a badly-formed question. `Reports/tree-architecture-research.md` Â§7d says so in as many words, and records that the same mistake was made once before inside that document: *\"a time series that gets less blobby is not the same as a tree. Judge against a clear bole and a foliage crown, not against the previous frame.\"* So this is one stand, against an absolute standard.\n\n**Please do not mark it down for being opaque.** Â§7b is explicit that a filled crown is *correct* -- a real tree seen from outside is opaque foliage. The error was never density, it was **composition**: that report measured wood 12,039 against 253 leaves, 48:1. Composition is a number and it is under the image.\n\n**The one piece of good news, measured:** crown shyness is working. The widest unbroken run of plant cells above ground is **39 cells** against a **56-cell** founder spacing, so no two crowns fuse anywhere -- and the field that causes it is live, not decorative (`max canopy 1.500 / 4.0`, which is a **31x** suppression of the growth score at that density, not a nudge). The merging you flagged last time is not crowns bridging.\n\n**My reading, which is what I want you to overturn if it is wrong:** this fails the standard on the other two axes. There is no bole at all -- foliage runs to the ground (bottom band of the crown profile reads **60** where a clear-boled tree reads 0) -- and it is **27% leaf**, down from 49% at 12,000 frames, so the wood:leaf ratio is drifting back the way Â§7b was written to fix as the stand matures. It reads to me as a hedgerow rather than a row of trees. Say if that is wrong, or if it is right but not what you want fixed first.\n\nSecond image is instrumentation, not for judging -- see its caption.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the stand, frame 28800 (noon, 8 exact days)",
+      "files": [
+        "20260822T140442129Z-b1f006/000-honest_plain.png"
+      ],
+      "caption": "scene=grove, 8 founders at 56-cell spacing, zoom 2, rows 40-219",
+      "meta": {
+        "trees planted": 8,
+        "established (>= 20 cells)": 8,
+        "canopy top row (0 would void the run)": 84,
+        "foliage share % (bar: >= 40)": 27,
+        "foliage centre 0=collar 100=apex (bar: >= 60)": 58,
+        "crown profile top->bottom (bottom band bar: 0)": "73 / 95 / 86 / 91 / 60",
+        "stem thick median (bar: >= 2)": 19,
+        "rows >1 cell wide %": 60,
+        "widest run above ground vs 56-cell spacing": "39 -- no crowns fused",
+        "max canopy density / 4.0": 1.5,
+        "growth-score divisor at that density": "31x",
+        "seeds set": 42
+      },
+      "focus": null
+    },
+    {
+      "label": "instrumentation: canopy-density field (NOT for judging)",
+      "files": [
+        "20260822T140442129Z-b1f006/001-honest_canopy.png"
+      ],
+      "caption": "The crowding field the growth rule divides by. Full-replace red ramp on plant cells only -- gaps render as sky by construction, because the field is only stored on organism cells, so an empty gap is not evidence of anything. Mid-brightness is already a ~31x suppression, not a weak signal: the overlay normalises by 4.0 while the score divides by 1.5.",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
