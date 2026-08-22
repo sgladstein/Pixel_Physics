@@ -6,8 +6,8 @@ file names — see `Reports/` for why any of it is built the way it is.*
 *Current as of: 2026-08-21. Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
-stopped all being made of the same stuff. One plant-economy number is unsettled
-against the world's weather — see `Reports/open-bugs-handoff.md`.*
+stopped all being made of the same stuff. One plant-economy number is unsettled and
+its cause is still open — see `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 

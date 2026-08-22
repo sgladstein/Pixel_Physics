@@ -869,13 +869,17 @@ probe.
 
 Three materials arrive with them: `litter`, `grassblade`, `grassroot`.
 
-**What is not settled.** The plant economy was calibrated on branches that
-had no weather, and the trunk has weather now — it rains into scenes whose
-constants were measured dry. One test is red because of it, and two further
-cross-line inconsistencies are recorded but not measured. All of it is in
-`Reports/open-bugs-handoff.md` §A–§D, with the controls that produced each
-number. Do not re-derive those diagnoses; do not trust a plant constant
-without re-measuring it first.
+**What is not settled.** One test is red: the genome's root-branching slot
+orders root mass in the right direction but by a fraction of the margin it
+was calibrated at. Two explanations have been offered and **both have been
+measured and falsified** — it is not the `field.rs` diff and it is not
+weather (it never rains during that test's frame window). The cause is
+genuinely not yet known. A separate suspicion, that grass and creeper were
+running a retired root-branching model, was measured and **closed**: both
+species' knobs fire, and zeroing grass's would have cost 60% of its root
+mat. All of it, with the controls that produced each number, is in
+`Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
+do not trust a plant constant without re-measuring it first.
 
 ## M16 status
 

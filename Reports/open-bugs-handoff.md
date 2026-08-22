@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### A. The plant economy has not met main's weather — **OPEN, 2026-08-21**
+### A. The slot-1 root spread has collapsed, and the first two explanations were both wrong — **OPEN, 2026-08-22**
 
 **Found by the merge that brought the plant lines onto `main`, not by a
 playtest.** Two of the plant line's own tests fail after the merge and pass
@@ -42,36 +42,89 @@ direction at every step; what has collapsed is the *size* of the effect,
 which is what the bar was set to detect. That is the shape of a signal
 being swamped rather than a mechanism being broken.
 
-**The mechanism, and it is more specific than "the field changed".**
-`main` added weather over the 111 commits the plant lines were behind; the
-plant lines touched `field.rs` **not at all**. Both drivers call
-`weather::step` (`update.rs:76`, `parallel.rs:104`), and the plant tests'
-own `run` helper drives `update::step` — **so it rains into these scenes
-now, and it never did on the branch the numbers were measured on.**
+**Two explanations have now been offered and BOTH are falsified. Read this
+before proposing a third.**
 
-That matters because of what termination actually is here: growth stops by
-**carbon starvation**, a tip that cannot afford `cost` tick after tick
-ageing out and retiring. Carbon comes from `Photosynthesize` scaled by
-`water_status`. Rain recharges the soil the roots drink from, the water
-term stops binding, and the tree does not run the shortfall its own
-termination depends on. A tree that grows 3.4x bigger and never plateaus
-is exactly that shape.
+*First explanation — "main rewrote `field.rs` by +553/-44".* True, but it
+was a diff statistic dressed up as a mechanism. It named no code path.
 
-**Why the slot-1 spread narrows is a second, related thing.** Converting a
-primed site to a lateral passes three ceilings: at most **one conversion
-per organism per upkeep tick**, a standing-root-tip cap
-(`tree.ron` RootTip `max_active_tips: 10`), and the carbon gate. Only the
-carbon gate is genotype-sensitive. Take the carbon shortfall away and the
-binding constraint moves to the two ceilings that the genotype cannot
-move — so both draws converge on the same rate-limited outcome and the
-trait still orders them, but by less and less (33% → 6% → 1.8%).
+*Second explanation — "main added weather, so it rains into scenes
+calibrated dry".* This one had a real mechanism behind it and survived a
+code review: `weather::step` is the first call in both drivers
+(`update.rs:76`, `parallel.rs:104`), the plant harness `run_with_fields`
+drives `update::step`, and `root_slot_run`'s bed is open sky. Every step of
+that is true.
 
-**Evidence level:** the code path above is read and verified — `weather::
-step` really is on both drivers, and the ceilings really are where they are
-said to be. **What is not measured:** how much water actually arrives per
-frame in these scenes, and whether removing rain alone restores the 33%
-spread. That control is one line in the test harness and nobody has run
-it.
+**It is still wrong, because it never rains during this test.**
+`weather::step` reads `at(world.seed, world.frame)`; `root_slot_run` pins
+`w.seed = 1` and starts at frame 0. `weather::at` is a pure function of
+those two, so the question is answerable without stepping a world at all —
+which is what `print_dry_window_for_the_slot_seed` (this file's own control,
+in `plant.rs`'s test module) now does:
+
+```
+seed 1: frames 0..12000 — 0 of them precipitating (0%)
+  epoch 0 (frame 0):     None  intensity 0.00
+  epoch 1 (frame 7200):  None  intensity 0.00
+  epoch 2 (frame 14400): Rain  intensity 0.83   <- the first rain, after the test ends
+```
+
+**The first precipitation at seed 1 arrives at frame 14,400, and the test
+stops at 12,000.** Rain cannot be the cause. Neither can evaporation (the
+bed holds no `Liquid` at all, and `Material::evaporates` is Liquid-only), nor
+the soil-moisture ratchet, which needs rain to ratchet.
+
+**Third explanation, and this one is measured rather than argued.** A
+paired `plant_probe species=tree trees=8 frames=12000` on
+`plant-substrate-v2` against the merged tree — same scene, same harness,
+one run each:
+
+| | substrate-v2 | merged | |
+|---|---|---|---|
+| plant cells, mean | 3440.9 | 3435.0 | **unchanged — it is not income** |
+| **root** cells, mean | 288.2 | 219.8 | −24% |
+| **root** cells, max | **745** | **287** | −61% |
+| root cells, range | 114–745 (6.5x) | 129–287 (**2.2x**) | **the spread collapses** |
+| uptake / tick, mean | 16.46 | **27.43** | +67% |
+| water stock, mean | 657.9 | 440.4 | −33% |
+| **stomatal term, mean** | **0.90** | **0.96** | **crosses a threshold** |
+
+Read the last row against `ROOT_REINITIATION_STATUS = 0.95` (`plant.rs`),
+which `break_root_tips` tests as `if status >= 0.95 { return }`.
+
+**`break_root_tips` is the amplifier, and main's world switches it off.** It
+re-initiates a `RootTip` from mature root tissue, once per organism per
+upkeep tick, and it is **genotype-blind** — slot 1 does not reach it. On
+`plant-substrate-v2` the mean stomatal term is 0.90, under the gate, so it
+fires routinely and multiplies the stepping lineages that *consume* primed
+sites; that is what turned a difference in priming density into a 33%
+difference in root mass, and what produced the 745-root outlier. In the
+merged world plants take up 67% more water per tick and meet demand at 0.96
+— over the gate — so the amplifier stays shut, root systems shrink and
+converge, and slot 1 is left moving only the supply of sites in a plant that
+no longer converts many of them.
+
+Note what this is *not*: not more carbon (plant size is identical to within
+0.2%), not rain, not evaporation. It is water reaching roots **more
+efficiently**, which is a change in main's field/soil path — the same
+`field.rs` rewrite the first explanation gestured at, but now with the
+specific quantity (uptake per tick) and the specific consequence (a gate
+crossing) attached.
+
+**Still not confirmed, and this is the measurement that would do it:** a
+direct count of `break_root_tips` firings per run on each branch. The
+mechanism above is inferred from a threshold crossing in an aggregate mean,
+and a mean can cross while the distribution that matters does not. Counting
+the firings is a `#[cfg(test)]` counter at `plant.rs:3017` and one paired
+run — the `S8E` atomic-array pattern in the same file is the template.
+
+**The lesson worth keeping, because it cost two wrong answers.** Both
+explanations were reached by reading diffs and reasoning about mechanism,
+and the second one passed an independent code review. The thing that
+settled it was a **pure function evaluated over the exact seed and frame
+range the test uses** — a control that took one probe and no world stepping.
+Ask "does this mechanism fire in *this* run" before "could this mechanism
+cause this".
 
 **Deliberately not fixed by the merge session.** The two available fixes
 are re-deriving `tree.ron`'s constants against main's field model — a
@@ -80,19 +133,22 @@ first and is a design decision — or moving a bar that was set from
 measurement. Both are the owner's call. Recorded here so the next session
 does not re-derive the diagnosis.
 
-**The cheap next step, if someone wants one:** `branch_priming` was swept
-at landing over 1/2/3/6/12/24 and root mass fell monotonically as the
-interval widened (755 cells at 1, 336 at 6) — the sweep that chose 3. Re-running
-*that* sweep against main's field model would say in one command whether
-slot 1 has simply moved off the responsive part of the curve, which is the
-single most likely explanation and is not yet tested.
+**The cheap next step, and it is now a different one.** Since weather is
+excluded, the question is which of main's *remaining* changes moves a
+plant's carbon income in a rain-free world. `examples/plant_probe.rs` runs
+on both branches unchanged, so a paired
+`plant_probe species=tree trees=8 frames=12000` on `plant-substrate-v2`
+against the merged tree measures exactly that, in two runs and no code
+change. If the merged trees are simply bigger, the income hypothesis holds
+and the field solver is the place to look; if they are the same size, the
+cause is inside the root pass and the priming sweep becomes the next move.
 
 **What is *not* wrong:** the merge resolutions themselves. The slot
 allocator, the species registries and the scheduler dedup sets were each
 audited against both parents; the only real defect found was a scene error,
 below.
 
-### B. `anchor_support` runs over creature organisms, unguarded — **OPEN, 2026-08-22. Churn, not damage — see the correction below.**
+### B. ~~`anchor_support` runs over creature organisms, unguarded~~ — **FIXED 2026-08-22. Churn, not damage; the guard is in.**
 
 **A collision only the merge could produce.** `plant::anchor_support`
 arrived on `plant-substrate-v2`; ants, beetles and worms arrived on `main`;
@@ -113,10 +169,25 @@ and since `was` defaults to 0 the `dist[i] > was` arm fires
 `schedule_structural_check` on **every creature cell, every organism
 tick**.
 
-Note the contrast that makes this look like an oversight rather than a
-decision: the sibling pass `accumulate_support` returns early on
-`state.collar_y == None`, which a creature never has. `anchor_support` has
-no equivalent.
+**A correction, because the first version of this entry got the reason
+wrong.** It said the sibling pass `accumulate_support` is safe because it
+returns early on `state.collar_y == None`, "which a creature never has."
+**That is false after one organism tick.** `organism_upkeep` also runs over
+creatures unguarded, and its census walk sorts every cell that is not a
+`RootTip` and does not `reinforces_powder` into the shoot branch — which is
+every creature `Head`/`Segment` cell. It then writes `shoot_cells`,
+`collar_y` and `shoot_top_y` onto the creature's own `OrganismState`
+(`plant.rs`, the `state.collar_y = collar_y` write at the end of that walk).
+So from a creature's **second** organism tick, `collar_y` is `Some(...)` and
+`accumulate_support` runs its full BFS on it too.
+
+The consequence is still churn rather than damage, and the reasons are
+elsewhere: creature species declare no behaviours, so nothing dispatches;
+`settle_water` at demand 0 returns status 1.0; `break_root_tips`,
+`break_buds` and `allocate_to_frontier` all bail on the missing `Grow`
+entries; and `transport` builds `Plant`-kind topology only, so a creature
+has no faces. But **six** plant passes run over every creature, not one,
+and each writes something.
 
 **It is wasted work, not damage — and that correction matters.** The
 first reading of this was that it risked the amputation `CLAUDE.md` warns
@@ -146,66 +217,74 @@ unguarded, `reindex_organism_cell` really does put creature cells in
 colony. `World::live_organism_count` and the existing creature counters
 would say in one run, and nothing has asked them.
 
-Deliberately not fixed by the merge session: a creature guard on
-`anchor_support` is a behaviour change, and the cheap correct version
-(mirror `accumulate_support`'s early return) is a one-line judgement the
-owner may want to make differently — e.g. by species kind rather than by
-`collar_y`.
+**Fixed as described**, in `plant::step_organisms` after the cadence check:
+one species lookup, keyed on the **`creature` field** — the declaration of
+intent — skipping all seven plant passes for creature organisms.
 
-### C. `grass` and `creeper` root branching was authored against a model the other line retired — **OPEN, 2026-08-22, read from the assets and NOT yet measured**
+Two things it deliberately does not do. It does **not** key on `collar_y`:
+per the correction above the plant side sets that on creatures itself, so
+such a guard would switch itself off on the second tick and still look like
+it was working. And it does not guard `anchor_support` alone, which would
+have fixed the one pass this entry was named for and left five others
+running.
 
-**Neither branch could have seen this, and nothing failed when they met.**
-It auto-merged silently, because the two lines edited *different species
-files*.
+**The slot-reclaim arm must stay outside the guard.** It is the one part of
+`step_organisms` that is genuinely for every organism, and a creature death
+path that empties a cell list between ticks relies on it. A bare `continue`
+at the top of the loop would leak the slot and resurrect
+`pixel-physics-issues.md` #8, which is the bug this whole allocator exists
+to close.
 
-`plant-substrate-v2` measured that a root tip's **in-tick** `branch_chance`
-roll cannot be funded: root branching used to be a second `Grow` in the
-same tick as the primary step, so the tip had to hold two steps' carbon at
-once, and it cleared that bar **twice in twelve thousand frames** while the
-roll fired **zero** times (`Reports/plant-genome-design.md` §8a). It
-replaced the mechanism with `branch_priming` — the tip marks a site for
-free, the site buys its own lateral later — and set root `branch_chance` to
-`0.0` in **all three** of its species, explicitly so that nothing reads as
-a live knob that no longer runs.
+### C. ~~`grass` and `creeper` root branching is running a retired model~~ — **MEASURED AND CLOSED, 2026-08-22. Both knobs fire. Do not zero them.**
 
-`plant-ecology-design` authored two new species against the **old** model:
+**A legitimate question with the opposite answer, kept in full because the
+reasoning that produced the wrong prediction was good reasoning.**
 
-| species | root `branch_chance` | root `branch_priming` |
-|---|---|---|
-| `tree`, `conifer`, `shrub` (substrate line) | `0.0` | `3` |
-| `grass` (ecology line) | **`0.4`** | **unset → `0`** |
-| `creeper` (ecology line) | **`0.05`** | **unset → `0`** |
+The concern: `plant-substrate-v2` measured that a root tip's *in-tick*
+`branch_chance` roll cannot be funded — the tip must hold two steps' carbon
+at once, and over 351 tree root steps the gate opened **twice** and the roll
+fired **zero** times. It replaced the mechanism with `branch_priming` and
+set root `branch_chance: [0.0]` in tree, conifer and shrub.
+`plant-ecology-design`, developing in parallel, authored `grass` (0.4) and
+`creeper` (0.05) with no `branch_priming` at all. The two lines edited
+different species files, so this auto-merged in silence.
 
-`branch_priming` is `#[serde(default)]`, and `0` means "keep the in-tick
-branch roll" — so both new species are running entirely on the mechanism
-the other line retired as unfundable.
+The prediction, from the shared gate: grass *might* differ, creeper is
+"near-certainly inert" since its `cost: 0.25` gives it the tree's exact
+≥0.50 gate and its 0.05 sits beside the 0.04 that never fired.
 
-**What is at stake is not cosmetic.** `grass.ron`'s own comment sells the
-fibrous mat as the point: *"sod is many fine roots threading the top few
-rows, and that multiplicity is what makes `grassroot`'s
-`reinforces_powder` add up to a held bank."* Bank stabilisation is a
-player-visible outcome, and it is downstream of a root-branching rate that
-may be near zero.
+**Measured instead of argued, by running each species paired against its own
+`branch_chance: [0.0]` and comparing output — deterministic, so identical
+output would have proved the knob dead:**
 
-**Why it might still be fine, stated honestly.** Grass's `0.4` is ten times
-a tree's old `0.04`, and grass roots are shallow and cheap, so its carbon
-gate may open far more often than a tree's did. The measured "zero in
-twelve thousand frames" is a *tree* number and does not transfer. But note
-what substrate actually measured: the binding constraint was **the gate,
-not the roll** — the tip could only afford a second step twice in twelve
-thousand frames — and a higher probability on a gate that rarely opens buys
-very little.
+| | as-shipped | knob zeroed | verdict |
+|---|---|---|---|
+| grass (sod bank test) | **137** grassroot cells, crest +27% | **55** grassroot, crest +23% | **fires hard — zeroing costs 60% of the mat** |
+| creeper (`plant_probe`, 8 plants, 12k frames) | mean 204.1 cells | mean 202.5 cells | **fires weakly — 3 of 8 individuals moved, ~0.8% mass** |
 
-**The measurement that would settle it**, and it is cheap: count root cells
-per grass individual, and count how often the second-step affordance gate
-opens, over the same 12,000 frames substrate used. `examples/plant_probe.rs`
-already prints per-organism composition. Nothing has been pointed at grass.
+**So both knobs work, and both proposed fixes were regressions.** Zeroing
+grass's roll would have cut the fibrous mat its `reinforces_powder` bank
+depends on by more than half. Zeroing creeper's would have been a smaller
+regression, but a regression.
 
-Not fixed here: giving `grass` and `creeper` a `branch_priming` value is
-authoring species behaviour, and the right value came from a 1/2/3/6/12/24
-sweep last time, not from copying `3` across.
+**Why the prediction failed, which is the part worth keeping.** The
+inference transferred the *gate* (identical `cost` ⇒ identical ≥2× bar) and
+silently assumed the *economy* transfers with it. It does not. A tree's
+0.053 mean-held carbon was a 2,400-cell canopy's income diluted across a
+large, distant frontier; grass's whole shoot photosynthesises, its frontier
+is ≤22 cells, and its cost is 0.15 — a ≥0.30 bar it clears routinely. Even
+creeper, which really does carry the tree's 0.25 cost, clears it sometimes,
+because a ground-hugging plant's source-to-root path is short.
 
-### D. Two smaller things the merge exposed, neither blocking — **OPEN, 2026-08-22**
+**A measurement on one species does not transfer to another through a shared
+constant.** The constant was shared; the economy that has to pay it was not.
+
+**Left as it is.** Nothing to fix. What remains open is a *documentation*
+gap rather than a defect: `grass.ron`'s comment justifies 0.4 by comparison
+to "a tree root's 0.04", a value that no longer exists anywhere — worth
+rewording to cite this measurement instead, next time that file is touched.
+
+### D. ~~Two smaller things the merge exposed~~ — **BOTH RESOLVED, 2026-08-22**
 
 **E1. The repaired creature bed is damp but still has no floor and no
 walls.** `eating_one_leaf_does_not_kill_the_tree_that_grew_it` fills soil
@@ -215,8 +294,11 @@ world floor and the seed rides down with it. The test passes — dampening
 the bed was enough to make the tree leaf — but it passes *despite* the
 scene, not because of it. `plant::tests::plant_tree_on_ground` walls **and**
 floors its bed, with a comment saying this exact error has cost time twice.
-Left alone deliberately: it passes, and widening a repair past what the
-failure needed is how a merge session starts owning other people's tests.
+**Fixed 2026-08-22**, once the review pointed out that a test passing
+*despite* its scene hands the next change a bed that does not stay where it
+is put. Floor **and** walls, matching `plant_tree_on_ground` — a floor alone
+still lets an open-sided bed spill off its own edges, which that helper's
+comment records as having cost time twice. Still passes, in 2.96 s.
 
 **E2. A bar in the ecology line's sod test predates the substrate line's
 root economy.** `sod_crest > bare_crest * 1.10` is justified in-file by a
@@ -225,10 +307,14 @@ cells in the bank). Those runs happened on `plant-ecology-design` before
 the stomatal reserve, the primed-site conversion and the root
 `branch_chance` supersession existed — all three of which move how much
 `grassroot` the sod arm grows, which is the quantity the margin is made of.
-**It passes today**, so this is a note about provenance, not a failure: the
-number is no longer a measurement of the system it now guards. Re-measure
-it the next time anything touches root economy, per the standing "set bars
-from measurement" convention.
+**Re-measured 2026-08-22 on the merged tree, and the provenance is
+restored**: shed bare 327 / sod 305 (-7%), crest bare 185 / sod 235 (+27%),
+**137** grassroot cells against the recorded 135. The recorded pair
+reproduces almost exactly, so the bar is still a measurement of the system
+it guards. Worth knowing *why* it barely moved: the sod scene is short and
+its outcome turned out to be insensitive to everything the merge changed —
+which is itself the reason the §C probe below had to vary the knob directly
+rather than trust this test to reveal it.
 
 ### E. A test scene can outlive the economy it was written for — **FIXED 2026-08-21, kept for the reasoning**
 
@@ -248,6 +334,94 @@ like a bug in the code" has been paid for. **When a merge brings a new
 currency, every scene that grows something is a scene that may no longer
 supply it.**
 
+### F. Cross-line seams neither branch's tests exercise — **OPEN, 2026-08-22**
+
+Two plant branches developed for 111 commits while main added creatures,
+weather, evaporation and a rewritten field solver. **The merge conflicts
+were the easy part** — an independent three-way review found no runtime
+defect in any of them. The risk is where a plant-line mechanism meets a
+main-line one, which no test on either side covers. What follows was read
+off the merged source; where something is measured it says so, and where it
+is inference it says that too.
+
+**F1. A litter blanket blocks rain from reaching the soil — LIVE, verified.**
+`weather::step`'s soak loop walks down from the surface and `break`s at the
+first cell whose `water_capacity == 0` (`weather.rs:482`, whose own comment
+explains it as "a puddle on bare rock does not wet the rock beneath it").
+`litter.ron` and `grassblade.ron` declare **no** `water_capacity`, so it
+defaults to 0 — and cell `aux` is the only channel roots drink from. A
+column topped by shed litter therefore takes **zero** soak. Real mulch
+conserves soil moisture; this does the opposite, and the blanket deepens
+fastest exactly over rooted ground, where root `deplete_moisture` also holds
+the field dry enough to slow litter's own decay. *Measure:* paired storm
+over littered vs bare soil, summing soil `aux` after one epoch.
+
+**F2. Snow defoliates canopies through the shade-death rule — LIVE, inferred.**
+Snow is placed one cell above the topmost non-empty cell, which for a treed
+column is the crown; snow is non-empty, so it attenuates light; `tree.ron`
+leaves carry `shade_death: 0.003` rolled as `0.003·darkness³` per organism
+tick. A snow epoch is ~100 organism ticks. Nobody designed deciduous
+winters; they may be lovely. *Not measured, and the field's 8x8 block
+resolution may blunt a 1–2 cell snow cap.* *Measure:* paired leaf census
+across a snow epoch vs a clear one, same seed.
+
+**F3. Root drinking destroys water unconserved — LIVE, verified by reading.**
+`absorb_water`'s Liquid arm sets the adjacent cell to `Cell::EMPTY` and
+credits at most `rate` — the cell's remaining fill is destroyed, not
+transferred. That was tuned on branches where ponds never evaporated; main
+added evaporation drawing down the same ponds. Nothing tallies held water,
+so the loss is silent. *Measure:* pond volume vs time, 2x2 over
+tree/no-tree and weather/no-weather, plus a conservation tally on that arm.
+
+**F4. Grass cannot die, and the guard that would have caught it was removed
+— LATENT, and it goes LIVE the day grass is plantable.** Both abscission
+rules gate on `CellType::Leaf`; grass has `plastochron: 0` and never makes
+one, so it has no shade death, no drought death, no age death. Separately,
+the "do not germinate on another plant" guard was deleted on the explicit
+argument that a mis-sited seedling "is shed leaf by leaf by
+`drought_death`" — a cleanup that does not exist for grass. A grass seed
+landing on a branch, a stone, a litter drift or a nest roof would germinate,
+never root, and stand forever, holding an organism slot (reclamation
+requires an *empty* cell list). At the 4,095 ceiling `push_organism`'s range
+check is a `debug_assert` and `encode_organism_id` does not mask, so the
+index would bleed into the generation bits — **silent organism identity
+corruption in release**. Today worldgen plants only `tree` and moss and the
+brush only plants trees, so nothing reaches it. *Measure:* count organisms
+with `root_cells == 0 && shoot_cells > 0` on a grass stand under canopy at
+30k frames, and the slot high-water mark.
+
+**F5–F8, in brief.** Grass seeds are ant food and a nest-dropped seed loses
+its organism id, so a colony beside a sward is an unbounded larder and a
+sink on grass recruitment (LATENT with grass). Decay's settle-scan schedules
+a whole chunk's cohort at the same `next_frame` where evaporation
+deliberately staggers by a position-derived phase — a 200-frame comb, cost
+not correctness, unmeasured at forest+pond+storm scale. Soil `aux` has three
+sources and exactly one sink (root uptake): there is no soil-to-air drying,
+so unplanted soil ratchets toward field capacity across rain epochs
+(*measure:* sum soil `aux` over 10 epochs on a plantless world — monotone
+non-decreasing confirms it in one number). And `reinforces_powder` does not
+stop digging, only avalanching, so ants can hollow a sod bank into a lattice
+that never collapses.
+
+### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
+
+Not a merge regression: it was built and judged on `plant-ecology-design`
+before the merge, and the merge carries it forward unchanged. Recorded here
+because a rejected mechanic that nobody tracks gets rediscovered.
+
+The owner's verdict, in full, on the review card *"Grassfire: does a fire
+front across a meadow read as its own regime?"*:
+
+> **"The fire looks bad. Just looks like you are cycling colors. It also
+> doesn't spread at all (if we are going to do this, moisture vs dryness
+> should play a role."**
+
+Three separate claims in that, and they want separating before anyone
+works on it: the *look* is wrong (colour cycling rather than a fire front),
+the *behaviour* is wrong (it does not spread), and there is a design steer
+(**moisture vs dryness should gate spread**) which is a mechanic that does
+not exist yet. The last one is the interesting one, and F1/F8 above are
+about exactly the moisture channel it would have to read.
 
 ### 0. ~~A decay site does not follow its cell~~ — **FIXED 2026-08-21**
 

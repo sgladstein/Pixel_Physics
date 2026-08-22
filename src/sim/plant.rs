@@ -2501,31 +2501,69 @@ pub fn step_organisms(world: &mut World) {
         if !(world.frame + organism_id as u64).is_multiple_of(ORGANISM_TICK_INTERVAL) {
             continue;
         }
-        // Transport first, then upkeep. The order matters and is the same
-        // order the two had before this pass existed: transport ran on the
-        // CA sweep across the 45 frames *leading up to* this tick, so
-        // upkeep has always read an already-diffused value. Running it
-        // after would hand `Photosynthesize`/`Absorb`/decay the previous
-        // tick's distribution.
-        organism::transport(world, organism_id);
-        allocate_to_frontier(world, organism_id);
-        // Before both of the passes that read it.
-        accumulate_support(world, organism_id);
-        // After `accumulate_support` rather than before, and it does not
-        // matter which order they run in -- they share no state. Placed
-        // here so both structural passes sit together, and after
-        // `allocate_to_frontier` so a cell created this tick is already in
-        // the list being walked.
-        anchor_support(world, organism_id);
-        // Before upkeep, so a bud that flushes this tick is already a
-        // `GrowingTip` when `thicken` runs and can be counted as frontier
-        // rather than thickened over on the same tick it woke up.
-        break_buds(world, organism_id);
-        // After `break_buds`, so a tick's single shoot flush is decided
-        // before the roots ask -- and after `organism_upkeep` has set
-        // `water_status`, which is what this gates on.
-        break_root_tips(world, organism_id);
-        organism_upkeep(world, organism_id);
+        // **The plant passes are for plants.** Creatures share this
+        // storage -- they are organisms too, and `live_organism_ids`
+        // rightly returns them -- but every pass below this point is
+        // plant machinery, and until the creature line and the plant
+        // lines merged there was no world in which both existed, so
+        // nothing ever ran one over the other.
+        //
+        // Measured, on the merged tree: none of them *damages* a
+        // creature. Creature species declare no behaviours so nothing
+        // dispatches; `settle_water` at zero demand returns 1.0;
+        // `break_root_tips`, `break_buds` and `allocate_to_frontier` all
+        // bail on the `Grow` entries a creature species does not have;
+        // `transport` builds `Plant`-kind topology, so a creature has no
+        // faces. What they do is *work*: `anchor_support` finds no
+        // `Solid` neighbour for an airborne ant, settles every cell at
+        // `u16::MAX`, and schedules a structural check per creature cell
+        // per tick that `structural::tick` then discards on arrival
+        // (`is_body_material` is `Solid | Plant`).
+        //
+        // **Keyed on the species' `creature` field, deliberately, and not
+        // on `collar_y`.** The obvious guard -- "a creature has no collar"
+        // -- is false after one tick: `organism_upkeep` sorts every cell
+        // that is neither a `RootTip` nor `reinforces_powder` into its
+        // shoot branch, which is every `Head` and `Segment`, and writes
+        // `collar_y`/`shoot_cells`/`shoot_top_y` onto the creature's own
+        // state. A `collar_y` guard would switch itself off on the second
+        // tick and look like it was working.
+        let is_creature = world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
+        if !is_creature {
+            // Transport first, then upkeep. The order matters and is the same
+            // order the two had before this pass existed: transport ran on the
+            // CA sweep across the 45 frames *leading up to* this tick, so
+            // upkeep has always read an already-diffused value. Running it
+            // after would hand `Photosynthesize`/`Absorb`/decay the previous
+            // tick's distribution.
+            organism::transport(world, organism_id);
+            allocate_to_frontier(world, organism_id);
+            // Before both of the passes that read it.
+            accumulate_support(world, organism_id);
+            // After `accumulate_support` rather than before, and it does not
+            // matter which order they run in -- they share no state. Placed
+            // here so both structural passes sit together, and after
+            // `allocate_to_frontier` so a cell created this tick is already in
+            // the list being walked.
+            anchor_support(world, organism_id);
+            // Before upkeep, so a bud that flushes this tick is already a
+            // `GrowingTip` when `thicken` runs and can be counted as frontier
+            // rather than thickened over on the same tick it woke up.
+            break_buds(world, organism_id);
+            // After `break_buds`, so a tick's single shoot flush is decided
+            // before the roots ask -- and after `organism_upkeep` has set
+            // `water_status`, which is what this gates on.
+            break_root_tips(world, organism_id);
+            organism_upkeep(world, organism_id);
+        }
+        // **Outside the guard, and that is load-bearing.** Reclamation is
+        // the one thing here that is genuinely for *every* organism: a
+        // creature whose last cell is eaten or burned between its own
+        // ticks needs its slot back exactly as a dead plant does. A bare
+        // `continue` above would leak it and walk straight back into
+        // `pixel-physics-issues.md` #8, which is the bug this allocator
+        // exists to close.
+        //
         // **Reclaim the slot of an organism that has no cells left.**
         //
         // `Cell::organism_id` spends twelve bits on the slot index, so
@@ -7479,6 +7517,59 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     /// ```text
     /// cargo test --lib print_root_branch_slot_pairing -- --ignored --nocapture
     /// ```
+    /// **Which frames does it not rain on, at the seed the slot pairing
+    /// uses?** — the control `Reports/open-bugs-handoff.md` §A names and
+    /// nobody had run.
+    ///
+    /// `weather::at` is a pure function of `(seed, frame)`, so a dry window
+    /// can be found without stepping a world at all. This exists because
+    /// the plant harness `run`/`run_with_fields` drive `update::step`,
+    /// whose very first call is `weather::step` — every plant test is
+    /// rained on, and the numbers the slot pairing was calibrated against
+    /// were measured on a branch that had no weather at all.
+    ///
+    /// ```text
+    /// cargo test --lib print_dry_window_for_the_slot_seed -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_dry_window_for_the_slot_seed() {
+        use super::super::weather;
+        const SEED: u64 = 1;
+        const NEED: u64 = 12_000;
+        const HORIZON: u64 = weather::WEATHER_EPOCH_FRAMES * 60;
+
+        let dry = |f: u64| weather::at(SEED, f).kind == weather::Precipitation::None;
+
+        // Sampled every 30 frames, the same stride `weather.rs`'s own
+        // `a_rainy_frame` helper uses: an epoch is thousands of frames, so
+        // a 30-frame stride cannot miss a precipitation event whole.
+        let (mut best_start, mut best_len) = (0u64, 0u64);
+        let (mut run_start, mut run_len) = (0u64, 0u64);
+        for f in (0..HORIZON).step_by(30) {
+            if dry(f) {
+                if run_len == 0 {
+                    run_start = f;
+                }
+                run_len += 30;
+                if run_len > best_len {
+                    best_len = run_len;
+                    best_start = run_start;
+                }
+            } else {
+                run_len = 0;
+            }
+        }
+        println!("seed {SEED}: longest dry run {best_len} frames starting at {best_start} (need {NEED})");
+        let wet: u64 = (0..NEED).step_by(30).filter(|&f| !dry(f)).count() as u64 * 30;
+        println!("seed {SEED}: frames 0..{NEED} — {wet} of them precipitating ({:.0}%)", 100.0 * wet as f32 / NEED as f32);
+        for epoch in 0..6u64 {
+            let f = epoch * weather::WEATHER_EPOCH_FRAMES;
+            let w = weather::at(SEED, f);
+            println!("  epoch {epoch} (frame {f}): {:?} intensity {:.2}", w.kind, w.intensity);
+        }
+    }
+
     #[test]
     #[ignore]
     fn print_root_branch_slot_pairing() {
