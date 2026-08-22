@@ -203,11 +203,13 @@ How much water a world gets is a property of its preset. **Arid** has none at
 all: its table sits below the floor of the world, so there are no pools and no
 damp ground anywhere. **Wetland** is the other extreme.
 
-**And somewhere in most worlds, water is running.** A spring breaks out high
-on a cliff face and falls — a real fall, several columns wide, landing in a
-pool at the foot and draining away below it, so it keeps running instead of
-filling the valley up. It is the one thing in the landscape that never
-settles: everything else a new world contains is at rest before you arrive.
+**And somewhere in most worlds, water is running.** A pool sits on the shelf
+above a cliff, brim-full, and pours over the edge — a real fall, several
+columns wide, landing in a second pool at the foot and draining away below
+that, so it keeps running instead of filling the valley up. It comes from
+somewhere and it goes somewhere. It is also the one thing in the landscape
+that never settles: everything else a new world contains is at rest before
+you arrive.
 
 Expect roughly one per world, and not in every world. It wants a genuine
 cliff, so the broken country has them and flat country does not; **wetland**

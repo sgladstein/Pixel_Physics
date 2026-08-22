@@ -3005,6 +3005,30 @@ const SPRING_SPACING: i32 = 900;
 /// it emits.
 const SPRING_DRAIN_REACH: i32 = 150;
 
+/// The source basin cut into the shelf behind the lip: how wide it may run,
+/// the least shelf that will take one, and how deep the bowl goes at its
+/// middle.
+///
+/// Set from a census over six seeds and three presets. The shelf -- ground
+/// behind the rim standing at or above the lip -- runs a median 107 columns on
+/// `canyon` and 120 on `rolling` and `terraced` (the probe's search cap, so
+/// those are floors), and 73-94% of rims carry at least 16 columns of it, so
+/// the minimum below is comfortable rather than binding. The depth is set
+/// against the gnome, who is 14 rows tall: a 12-deep pool reads as water he
+/// could stand in up to the chest, which is a tarn rather than a puddle.
+const SPRING_BASIN_W: i32 = 40;
+const SPRING_BASIN_MIN_W: i32 = 24;
+const SPRING_BASIN_DEPTH: i32 = 12;
+
+/// Columns of untouched ground the basin keeps either side of itself.
+const SPRING_BASIN_CLEARANCE: i32 = 3;
+
+/// How far above the lip -- and so above the pool's own surface, which the lip
+/// pins -- the outlet sits. Clear of the water for good, for the two reasons
+/// in the seating comment in `springs`: a drowned outlet stops emitting, and a
+/// partly-wet one stalls without even reporting a throttle.
+const SPRING_SOURCE_LIFT: i32 = 8;
+
 /// How deep the pool at the foot of a fall stands before it starts draining
 /// away, in cells. The drain sits this far above the basin floor, and the
 /// pool self-levels there -- see the seating comment in `springs`.
@@ -3097,6 +3121,7 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
     // where_can_a_spring_go` is the probe that reads them.
     let (mut n_cand, mut n_spacing, mut n_soil) = (0usize, 0usize, 0usize);
     let (mut n_table, mut n_edge, mut n_blocked) = (0usize, 0usize, 0usize);
+    let (mut n_shelf, mut filled) = (0usize, 0usize);
     let mut n_placed = 0usize;
     for (rim, dir, _drop) in candidates {
         n_cand += 1;
@@ -3138,62 +3163,152 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
             continue;
         }
         let span = budget.min(crate::sim::spring::MAX_SPAN);
-        // **The outlet is perched, and it is seated against the world rather
-        // than against the plan.**
+        // **The source pool is cut, not found.**
         //
-        // Two readings were tried and measured before this one. Seating it at
-        // `table_y` -- the literal "aquifer daylights on the face" -- cannot
-        // work, because `ponds` runs first and fills every cell where the
-        // ground has dropped below the table: the table's exposure surface
-        // *is* the pond surface, and every candidate that reached the check
-        // was rejected for an occupied outlet, 26 of 26 on one seed and 1:1 on
-        // the rest. A spring seated there is a permanently drowned spring,
-        // which the throttle reports only as a climbing `throttled` count.
+        // Looking for one is a recorded dead end (`Reports/dead-ends.md`): for
+        // a basin to spill over *this* cliff, this cliff's lip has to be the
+        // basin's lowest exit, and requiring that placed zero springs across
+        // four presets and six seeds. It is not a tuning failure -- a cliff
+        // edge is a local high point, so the ground behind it rises.
         //
-        // Seating it a fixed depth under the plan's `surface_y` fails for a
-        // different reason: the face is *rough*. `talus` has piled scree
-        // against it, `brows` has hung a lip off it, and rock country now
-        // stands pillars on it, so a run of columns that the plan says is
-        // clear is occupied in the built world -- 331 of 339 candidate faces.
+        // That same fact is what makes cutting one work. The ground behind the
+        // lip standing *at or above* it is exactly the back wall a pool needs,
+        // so a basin cut into that shelf is closed by construction and spills
+        // forward over the cliff rather than running away inland. Measured
+        // over six seeds: the shelf runs a median 107 columns on `canyon` and
+        // 120 on `rolling` and `terraced` (the probe's search cap, so those
+        // are floors), and 73-94% of rims carry at least 16 columns of it.
+        let lip = plans[rim as usize].surface_y;
+        let back = -dir;
+        // The shelf: ground standing at or above the lip. Carve the whole of
+        // it up to `SPRING_BASIN_W`.
         //
-        // So: take the rim's real top from the finished world and hang the
-        // sheet just past the rim on the falling side, which is `viewshot`'s
-        // hand-placed rule and the one that demonstrably runs (it emits 5.0M
-        // fill units and drains 4.2M of them). The table still decides
-        // *whether* -- `table_y < h`, and it has to reach this valley -- just
-        // not *where*. That makes these perched springs, which
-        // `worldgen-design.md` §7 names as what a water table that is a field
-        // rather than one global level buys: "perched springs, flooded
-        // caverns, and dry-next-to-wet moisture gradients".
-        // A free fn rather than a closure: the closure would hold `world`
-        // borrowed across `add_spring`/`add_drain`, which need it mutably.
-        let y = world_top(world, rim, h);
-        let x0 = if dir > 0 { rim + 1 } else { rim - span };
-        // Off the world edge. A fall hard against x = 0 pours down the
-        // boundary itself, where there is no far bank for it to land on and
-        // nothing beyond it for the eye to read the drop against -- seed 1
-        // placed one at x = 1 before this.
-        if x0 < SPRING_EDGE_MARGIN || x0 + span > w - SPRING_EDGE_MARGIN || y >= h {
+        // No back wall is required, and requiring one placed **nothing** on
+        // any preset: the ground behind a rim is *flat at the lip*, not
+        // rising, so a column standing strictly above the lip within a
+        // basin's width essentially never occurs. It is not needed either --
+        // water filled to the lip has two ways out, the cliff at distance 0
+        // and the far end of the shelf a hundred columns away, and it reaches
+        // the cliff first. That is the whole mechanism.
+        let mut shelf = 0;
+        while shelf < SPRING_BASIN_W
+            && plans[(rim + back * (shelf + 1)).clamp(0, w - 1) as usize].surface_y <= lip
+        {
+            shelf += 1;
+        }
+        if shelf < SPRING_BASIN_MIN_W {
+            n_shelf += 1;
+            continue;
+        }
+        let (near, far) = (rim + back, rim + back * shelf);
+        let (bx0, bx1) = (near.min(far), near.max(far));
+        if bx0 < SPRING_EDGE_MARGIN || bx1 >= w - SPRING_EDGE_MARGIN {
             n_edge += 1;
             continue;
         }
-        // Every emission column clear, and a real fall under the sheet. This
-        // is the check `World::add_spring` does not do: it validates nothing
-        // about position, so an outlet in rock is not an error anywhere
-        // downstream -- it is a spring that emits nothing for the life of the
-        // world.
+
+        // The bowl floor: deepest in the middle, tapering to nothing at both
+        // ends, with a little wobble so it is a tarn and not a quarry. Held as
+        // a closure over the plan so the volume can be inspected before a
+        // single cell is removed.
+        let floor_at = |x: i32| -> i32 {
+            let t = (x - bx0) as f32 / ((bx1 - bx0).max(1)) as f32;
+            let bowl = 1.0 - (2.0 * t - 1.0).powi(2);
+            let wobble = noise::value_1d(seed, Purpose::Spring, x as f32 / 9.0) - 0.5;
+            lip + ((SPRING_BASIN_DEPTH as f32) * bowl + wobble * 3.0).round().max(1.0) as i32
+        };
+
+        // **Refuse anything that is not ordinary ground**, before removing a
+        // cell. The rest of this file keeps a never-overwrite-a-sealed-feature
+        // contract and this is that contract: crystal, flowstone, spar and
+        // standing water all mean some other pass has already authored here.
+        // It is also what keeps the vault seal's `assert_eq!` out of play --
+        // chambers sit `vault_min_depth` (200) rows down and this cuts at the
+        // surface, so the two should never meet, and this check is what makes
+        // that a guarantee rather than an expectation.
+        let ordinary = |m: material::MaterialId| {
+            m == material::EMPTY || m == ctx.stone || m == ctx.soil || m == ctx.sand || m == ctx.gravel
+        };
+        // The flanks are checked too, not just the carve volume. A basin cut
+        // hard against an existing pond merges with it, and two pools at
+        // different levels touching is a head difference: the water flows,
+        // the world is not at rest, and `every_pool_has_a_level_surface`
+        // reports a surface that "steps from 176 to 163 between x 406 and
+        // 407" -- which is exactly what it caught here.
+        let clean = (bx0 - SPRING_BASIN_CLEARANCE..=bx1 + SPRING_BASIN_CLEARANCE).all(|bx| {
+            let bx = bx.clamp(0, w - 1);
+            let in_carve = bx >= bx0 && bx <= bx1;
+            if in_carve {
+                return plans[bx as usize].soil_depth == 0
+                    && (0..=floor_at(bx)).all(|by| by >= h || ordinary(world.get(bx, by).material));
+            }
+            // On the flanks, only water matters, and only water near this
+            // pool's own level -- a pond far below in the same canyon cannot
+            // merge with it, but one within a bowl-depth of the lip can. The
+            // first version checked a fixed depth from the lip and bottomed
+            // out one row short of the pond that actually merged.
+            let band = SPRING_BASIN_DEPTH + SPRING_BASIN_CLEARANCE;
+            ((lip - band).max(0)..=(lip + band).min(h - 1))
+                .all(|by| world.get(bx, by).material != ctx.water)
+        });
+        if !clean {
+            n_blocked += 1;
+            continue;
+        }
+
+        // Cut it. Every column is cleared from the top of the world down to
+        // its bowl floor, so nothing is ever left overhanging -- material only
+        // comes off from above, which is what makes the carve structurally
+        // safe by construction rather than by a check afterwards.
+        for bx in bx0..=bx1 {
+            let floor = floor_at(bx);
+            for by in 0..floor {
+                if world.get(bx, by).material != material::EMPTY {
+                    world.set(bx, by, Cell::EMPTY);
+                }
+            }
+            // Then fill to the lip. `ponds`' convention verbatim: `aux` is
+            // left alone because on a `Liquid` `aux == 0` means **full**, and
+            // writing a literal here is the documented way to manufacture
+            // water out of nothing.
+            for by in lip..floor {
+                world.set(bx, by, Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, bx, by)));
+                filled += 1;
+            }
+        }
+
+        // **The outlet sits clear above the pool it feeds.** Two mechanisms
+        // measured on the way here, both recorded in `dead-ends.md`: a spring
+        // emitting into the pool it is filling switches *itself* off, because
+        // `spring::step` counts an outlet drowned at `THROTTLE_FILL` (90% of a
+        // cell); and an outlet holding *partly* filled water neither emits nor
+        // counts as throttled, so it stalls silently while the ledger still
+        // looks healthy. Above the lip the outlet stays in air for good,
+        // because the pool cannot rise past the lip -- it spills there
+        // instead, which is the whole mechanism.
+        let y = lip - SPRING_SOURCE_LIFT;
+        let mid = (bx0 + bx1) / 2;
+        let x0 = (mid - span / 2).clamp(0, w - span);
+        if y < 0 || y >= h {
+            n_edge += 1;
+            continue;
+        }
         let outlet_clear = (0..span).all(|d| world.get(x0 + d, y).material == material::EMPTY);
         if !outlet_clear {
             n_blocked += 1;
             continue;
         }
-        let air_below = (1..=SPRING_MIN_AIR)
-            .all(|d| y + d < h && world.get(x0 + span / 2, y + d).material == material::EMPTY);
-        if !air_below {
+        // And a real drop on the other side for the overflow to fall down.
+        if (1..=RUN_FAR)
+            .map(|d| world_top(world, (rim + dir * d).clamp(0, w - 1), h))
+            .max()
+            .unwrap_or(lip)
+            < lip + SPRING_MIN_AIR
+        {
             n_blocked += 1;
             continue;
         }
-        let ex = x0;
+        let ex = (rim + dir).clamp(0, w - 1);
         if !world.add_spring(x0, y, span) {
             // The engine's own budget refused it. Nothing further will fit
             // either, since every remaining span is at least this wide.
@@ -3276,10 +3391,11 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
     if std::env::var("SPRING_DEBUG").is_ok() {
         println!(
             "  springs: {n_cand} cliff candidates -> refused {n_spacing} too close, {n_soil} soil-topped, \
-             {n_table} no groundwater, {n_edge} at the world edge, {n_blocked} outlet blocked; PLACED {n_placed}"
+             {n_table} no groundwater, {n_shelf} no shelf to cut into, {n_edge} at the world edge, \
+             {n_blocked} blocked; PLACED {n_placed} ({filled} cells of source pool)"
         );
     }
-    0
+    filled
 }
 
 pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {

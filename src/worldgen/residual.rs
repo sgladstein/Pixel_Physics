@@ -598,7 +598,21 @@ mod tests {
         use crate::sim::{parallel, structural};
         let presets = presets();
         let base = presets.presets.get("canyon").expect("canyon preset");
-        let params = WorldgenParams { residual_density: 3.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+        // `spring_flow` off beside the life densities, and for the same
+        // reason: this is a claim about whether *placed stone* holds still,
+        // and a spring is a live process. A world with a waterfall running
+        // through it is never at rest and never should be -- the spring has
+        // its own test (`a_generated_world_grows_a_spring_that_actually_runs`)
+        // asserting the stronger property, that water both arrives and
+        // leaves. It became load-bearing here when springs learned to cut
+        // their own source basin, which is what let them place at this size.
+        let params = WorldgenParams {
+            residual_density: 3.0,
+            tree_density: 0.0,
+            moss_density: 0.0,
+            spring_flow: 0.0,
+            ..base.clone()
+        };
         let bounds = (511, 319);
         let mut checked = 0;
         for seed in 1u64..=20 {
@@ -653,7 +667,21 @@ mod tests {
         use crate::sim::{parallel, structural};
         let presets = presets();
         let base = presets.presets.get("canyon").expect("canyon preset");
-        let params = WorldgenParams { residual_density: 3.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+        // `spring_flow` off beside the life densities, and for the same
+        // reason: this is a claim about whether *placed stone* holds still,
+        // and a spring is a live process. A world with a waterfall running
+        // through it is never at rest and never should be -- the spring has
+        // its own test (`a_generated_world_grows_a_spring_that_actually_runs`)
+        // asserting the stronger property, that water both arrives and
+        // leaves. It became load-bearing here when springs learned to cut
+        // their own source basin, which is what let them place at this size.
+        let params = WorldgenParams {
+            residual_density: 3.0,
+            tree_density: 0.0,
+            moss_density: 0.0,
+            spring_flow: 0.0,
+            ..base.clone()
+        };
         let bounds = (511, 319);
         let mut checked = 0;
         let (mut collapsed, mut anchored, mut floating) = (0, 0, 0);

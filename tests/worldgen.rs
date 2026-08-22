@@ -348,10 +348,6 @@ fn every_pass_writes_something() {
         // should fail loudly. That it *fired* is a different question, and a
         // cell count could never have answered it; the ledger does, in
         // `a_generated_world_grows_a_spring_that_actually_runs`.
-        if *name == "springs" {
-            assert_eq!(*cells, 0, "springs wrote terrain; it is supposed to register emitters only");
-            continue;
-        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
     // The other half: at the size the game actually ships, vaults fire.
@@ -2728,7 +2724,17 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
     // pool finds real successes without changing what the pass is rating.
     let presets = presets();
     let base = presets.get("canyon").expect("canyon preset");
-    let params = WorldgenParams { world_age: 1.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+    // `spring_flow` off beside the life densities, and for the same reason:
+    // this is a claim about whether *seated stone* holds still, and a spring
+    // is a live process. It became load-bearing when springs learned to cut
+    // their own source basin, which is what let them place at this size.
+    let params = WorldgenParams {
+        world_age: 1.0,
+        tree_density: 0.0,
+        moss_density: 0.0,
+        spring_flow: 0.0,
+        ..base.clone()
+    };
 
     let mut seated_cells = 0usize;
     let mut checked = 0usize;
@@ -3420,6 +3426,15 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
     /// is 10; the bar is set below it with headroom, since the drain sits at
     /// that height and the surface ripples around it.
     const POOL_ROWS: usize = 6;
+    /// How far either side of the outlet to look for the source pool, and how
+    /// many of those columns must hold standing water. The cut basin is
+    /// `SPRING_BASIN_W` = 40 columns wide and the outlet sits at its middle,
+    /// so half of it reaches ~20 either way. Measured: the cut basin gives
+    /// **38** columns and the face-outlet build it replaced gives **8**, so
+    /// the bar sits three times below the pass and half again above the fail
+    /// -- headroom in both directions rather than on top of either.
+    const SOURCE_SPAN: i32 = 24;
+    const SOURCE_COLUMNS: usize = 12;
     let presets = presets();
     // `canyon` is the preset with the faces: measured 1.0 springs per world
     // over six seeds, against 0.8 rolling, 0.5 terraced and 0.0 wetland (which
@@ -3476,13 +3491,43 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
         let deepest = world
             .drains
             .iter()
-            .map(|&(dx, _)| (0..h).filter(|&dy| world.get(dx, dy).material == water_id).count())
+            .map(|&(dx, dy)| standing_depth(&world, dx, dy - 24, 48, h, water_id))
             .max()
             .unwrap_or(0);
         assert!(
             deepest >= POOL_ROWS,
             "seed {seed}: deepest standing water at a drain is {deepest} rows, under the {POOL_ROWS} bar -- \
              the fall ends in a damp patch rather than a pool\n{report}"
+        );
+        // **And a pool at the top**, which is the other half of the same
+        // verdict -- "it looks like it comes from nowhere". The source basin
+        // is cut around the outlet, so census straight down the outlet's own
+        // columns. Depth again rather than a count, for the same reason as
+        // the plunge pool: `render.rs` dims a liquid by fill, so a wide film
+        // of half-empty cells is a big number and invisible.
+        // **The pool the fall comes out of, measured by its width.**
+        //
+        // Depth cannot tell it from the version that had no source pool at
+        // all, and three tries proved that rather than fixing it: a sheet
+        // pouring down a column is a column full of water; restricting to
+        // water that *stands* on something still found the plunge pool eighty
+        // rows below; band-limiting to the outlet's own level still found the
+        // puddles that collect in the irregularities of any cliff lip. All
+        // three passed against the face-outlet build, which is the artifact
+        // they were supposed to reject.
+        //
+        // Width is what actually differs. A cut tarn is tens of columns of
+        // standing water at one level; a puddle on a lip is one or two. So
+        // count the columns, not the rows.
+        const SOURCE_BAND: i32 = 24;
+        let sp = world.springs[0];
+        let wide = (sp.x - SOURCE_SPAN..=sp.x + SOURCE_SPAN)
+            .filter(|&sx| standing_depth(&world, sx.clamp(0, w - 1), sp.y, SOURCE_BAND, h, water_id) >= 3)
+            .count();
+        assert!(
+            wide >= SOURCE_COLUMNS,
+            "seed {seed}: only {wide} columns of standing water near the outlet, under the {SOURCE_COLUMNS} \
+             bar -- the fall comes off a bare face or a puddle, not out of a pool\n{report}"
         );
         let firings = 900 * world.springs.iter().map(|s| s.span).sum::<i32>() as u64;
         let ratio = l.throttled as f64 / firings as f64;
@@ -3560,6 +3605,7 @@ fn probe_p1_is_there_a_pool_behind_the_cliff() {
         let params = presets.get(name).expect("preset");
         let (mut rims, mut with_hollow) = (0usize, 0usize);
         let (mut depth, mut width) = (Vec::new(), Vec::new());
+        let mut shelves: Vec<i32> = Vec::new();
         for seed in [1u64, 3, 7, 19, 42, 24301] {
             let terrain = {
                 let soil = params_material_tan(name, "soil");
@@ -3582,6 +3628,17 @@ fn probe_p1_is_there_a_pool_behind_the_cliff() {
                     }
                     last = x;
                     rims += 1;
+                    // **The shelf**: how far back the ground stays at or
+                    // above the lip. That run is where a basin can be *cut*,
+                    // and its back wall is guaranteed higher than the spill
+                    // lip, so the pool it holds spills forward over the cliff
+                    // instead of running away inland. Counted directly rather
+                    // than inferred from the search's zero.
+                    let mut shelf = 0;
+                    while shelf < BEHIND && g(x + -dir * (shelf + 1)) <= g(x) {
+                        shelf += 1;
+                    }
+                    shelves.push(shelf);
                     // Walk *back* from the lip, away from the fall. The
                     // source hollow is the first run of ground below the
                     // lip's own level -- a puddle the lip would spill out
@@ -3610,12 +3667,55 @@ fn probe_p1_is_there_a_pool_behind_the_cliff() {
         }
         depth.sort_unstable();
         width.sort_unstable();
+        shelves.sort_unstable();
         let q = |v: &Vec<i32>, f: f32| if v.is_empty() { -1 } else { v[((v.len() as f32 - 1.0) * f) as usize] };
         println!(
             "{name:9} over 6 seeds: {rims} cliff rims | {with_hollow} have a hollow starting within {BEHIND} cols behind the lip | \
-             its depth below the lip (rows): p10 {} p50 {} p90 {} max {} | its width (cols): p50 {} p90 {}",
+             its depth below the lip (rows): p10 {} p50 {} p90 {} max {} | its width (cols): p50 {} p90 {} \
+             || SHELF at-or-above the lip (cols): p10 {} p50 {} p90 {} | rims with >= 16 cols of shelf: {}",
             q(&depth, 0.1), q(&depth, 0.5), q(&depth, 0.9), q(&depth, 1.0),
-            q(&width, 0.5), q(&width, 0.9)
+            q(&width, 0.5), q(&width, 0.9),
+            q(&shelves, 0.1), q(&shelves, 0.5), q(&shelves, 0.9),
+            shelves.iter().filter(|&&v| v >= 16).count()
         );
     }
+}
+
+/// Depth of *standing* water in a column: the longest run of water cells
+/// sitting directly on top of something solid.
+///
+/// **Not "water cells in the column", which is what a falling ribbon is too.**
+/// That metric was written first and it could not tell a pool from a
+/// waterfall: run against the version whose outlet was on a bare cliff face,
+/// the naive count passed, because a sheet pouring down a column is a column
+/// full of water. The repo has paid for this shape of mistake before -- the
+/// whisker hunt defined a "film" as water with air above and below, which is
+/// what *every falling droplet* looks like.
+///
+/// `band` bounds how far below `from_y` the pool's *surface* may be. Without
+/// it the census at a spring's outlet finds the plunge pool eighty rows down
+/// the cliff and calls it the source: run against the face-outlet version,
+/// which has no source pool at all, an unbounded search passed.
+fn standing_depth(world: &World, x: i32, from_y: i32, band: i32, h: i32, water: material::MaterialId) -> usize {
+    let mut best = 0;
+    let mut y = h - 1;
+    while y > 0 {
+        let solid = world.get(x, y).material != material::EMPTY && world.get(x, y).material != water;
+        if solid && world.get(x, y - 1).material == water {
+            let mut run = 0;
+            let mut ty = y - 1;
+            while ty >= 0 && world.get(x, ty).material == water {
+                run += 1;
+                ty -= 1;
+            }
+            // `ty + 1` is the surface of this pool.
+            if ty + 1 >= from_y && ty + 1 - from_y <= band {
+                best = best.max(run);
+            }
+            y = ty;
+        } else {
+            y -= 1;
+        }
+    }
+    best
 }

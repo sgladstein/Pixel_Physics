@@ -132,7 +132,8 @@ pool; the outlet just had to be at the lip instead of on the floor. Measured
 over 500 frames, water standing in the fall's own 128-column bucket: seed 7
 421 -> 630, seed 42 293 -> 761.
 
-**The source half is a dead end as a search**, recorded in `dead-ends.md`.
+**The source half is now cut rather than found.** As a *search* it is a dead
+end, recorded in `dead-ends.md`.
 Finding a basin that spills over a given cliff requires that cliff's lip to be
 the basin's lowest exit, and that landform does not occur here: a cliff edge
 is a local high point, so the ground behind it rises. Requiring it honestly
@@ -142,10 +143,21 @@ rims do have a hollow within 120 columns behind them (canyon 49/92, rolling
 intervening high ground, so a spring put in one fills a pond that never moves
 toward the cliff. `probe_p1_is_there_a_pool_behind_the_cliff` is the census.
 
-**The open route is to author the basin rather than look for one** -- excavate
-a small hollow immediately behind the rim and fill it, the way `ponds`,
-`residuals` and `vaults` all author what they need. Not attempted; it is a
-different change and the owner should choose whether it is worth it.
+**So the pass excavates one.** The measurement that killed the search is what
+says cutting works: because the ground behind a rim never drops below the lip,
+it stands *at or above* it -- a median 107 columns on `canyon`, 120 on
+`rolling` and `terraced` -- and that shelf is exactly the back wall a cut
+basin needs. `springs` walks the shelf, refuses anything that is not ordinary
+ground, cuts a tapered bowl clearing each column from its top down (so nothing
+is left overhanging and the carve is structurally safe by construction), and
+fills it to the lip. The pool has two ways out, the cliff at distance 0 and
+the far end of the shelf a hundred columns away, and it reaches the cliff
+first. That is the whole mechanism.
+
+Placement with the carve: **canyon 1.0 springs per world**, terraced 0.5,
+rolling 0.2, wetland 0. Three canyon seeds emit 4.5M fill units and drain
+~4.0M of it with **zero** throttling, so the pool never drowns its own
+outlet.
 
 Still open too: the fall is thin. Some of that was the drains taking water as
 fast as it landed, which the sink fix addresses; the rest is that `render.rs`
