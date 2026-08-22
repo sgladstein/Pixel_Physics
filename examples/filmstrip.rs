@@ -1872,6 +1872,44 @@ struct Args {
     /// the owner's own statement of what this has to do. A fraction rather
     /// than an absolute so one bar covers every bore size and length.
     min_cave: Option<i64>,
+    /// `max_cave=P` -- exit non-zero unless the roofed void is down to at
+    /// most P percent of what was there at the cut.
+    ///
+    /// **The other half of `min_cave`, and the pair is the point**: "a cave
+    /// can be dug and it does not collapse" passes trivially by making rock
+    /// invincible, which is how four earlier support models died. `min_cave`
+    /// guards the deep bore; this guards the shallow one, which has to come
+    /// down.
+    ///
+    /// It replaces `min_overloaded=50` on that case, and the reason is the
+    /// same one that moved `roomcut` to `min_failing_cells` earlier the same
+    /// session: an event count reads *which failure mode fired*, not whether
+    /// the cave fell in. Measured across the grain-footing change, on the
+    /// identical bore -- overload failures 65 (3,918 cells) became 7 (169),
+    /// while the roofed void went 678 -> 69 before and 678 -> **64** after.
+    /// The roof came down slightly *harder* and the bar called it a
+    /// regression, because the failures had moved from `Overloaded` to
+    /// `Unsupported`. The case's own comment already said the pair should be
+    /// gated on roofed void; only this half was not.
+    max_cave: Option<i64>,
+    /// `max_rock_above=Y,N` -- exit non-zero unless at most N `Solid` cells
+    /// are left strictly above row Y at the end of the run.
+    ///
+    /// **"Where did the rock end up", which is the only question a falling
+    /// scene is really about, and the one no existing bar asked.** Written
+    /// for `scene=rockdrop` after the owner reported "the boulder just
+    /// stops and gets stuck in the middle of the water" and the boulder
+    /// turned out never to have left the sky at all -- 522 of its 600 cells
+    /// still airborne at frame 400, with **every one of the seventeen
+    /// acceptance cases green**, because not one of them drops anything
+    /// into water.
+    ///
+    /// Deliberately not an event count and not a census of the model's own
+    /// verdict. `hanging:` and `afloat:` both read **zero** through that
+    /// whole bug, correctly by their own definitions: the load model
+    /// believed the slab was supported, so a readout that asks the model
+    /// cannot see it. A row and a count ask the world.
+    max_rock_above: Option<(i32, usize)>,
     /// `step=N` -- how far apart consecutive `tunnel=` bites are placed.
     /// Defaults to `dig`, i.e. each bite overlaps the last by half.
     ///
@@ -1990,6 +2028,8 @@ fn parse() -> Args {
         depth: None,
         step: None,
         min_cave: None,
+        max_cave: None,
+        max_rock_above: None,
         confine: true,
         arch: true,
         chain_reach: None,
@@ -2085,6 +2125,12 @@ fn parse() -> Args {
             "depth" => a.depth = Some(v.parse().expect("depth")),
             "step" => a.step = Some(v.parse().expect("step")),
             "min_cave" => a.min_cave = Some(v.parse().expect("min_cave")),
+            "max_cave" => a.max_cave = Some(v.parse().expect("max_cave")),
+            "max_rock_above" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("max_rock_above")).collect();
+                assert_eq!(n.len(), 2, "max_rock_above=row,count");
+                a.max_rock_above = Some((n[0] as i32, n[1] as usize));
+            }
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");
@@ -2734,6 +2780,27 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    if let Some((row, most)) = args.max_rock_above {
+        let left = (0..row)
+            .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let cell = world.get(x, y);
+                !cell.attached() && world.materials.kind(cell.material) == MaterialKind::Solid
+            })
+            .count();
+        if left > most {
+            println!("  FAIL: {left} loose solid cells are still above row {row}, wanted at most {most}");
+            ok = false;
+        }
+    }
+    if let Some(pct) = args.max_cave {
+        let now = roofed_void(world);
+        let kept = if cave_before == 0 { 100 } else { now * 100 / cave_before };
+        if kept > pct {
+            println!("  FAIL: the cave should have come down -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted at most {pct}%");
+            ok = false;
+        }
+    }
     if let Some(max) = args.max_lost {
         let lost = (cells_before.0 + cells_before.1) - occupied(world);
         if lost > max {
@@ -2790,7 +2857,9 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
         }
     }
     if ok
-        && (args.min_overloaded.is_some()
+        && (args.max_cave.is_some()
+            || args.max_rock_above.is_some()
+            || args.min_overloaded.is_some()
             || args.min_failing_cells.is_some()
             || args.max_failures.is_some()
             || args.max_unconfined.is_some()

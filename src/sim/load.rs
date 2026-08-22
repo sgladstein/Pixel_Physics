@@ -402,38 +402,97 @@ pub(crate) fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
 /// Whether the grain at `(x, y)` is loose material something can *stand
 /// on*, or just filler wedged inside a structure.
 ///
-/// # One grain floated a raft on a pond
+/// # Three predicates have now tried to answer this from the grain's shape
 ///
-/// Found by eye and then in a dump, on `scene=lavadrop`: a 90-cell stone
-/// raft sat at the water surface from frame 600 to the end of the run, and
-/// the dump showed a single `o` inside it —
+/// **First**, `Powder` below meant ground, unconditionally. That let a
+/// single swallowed grain float a 90-cell raft on `scene=lavadrop`'s pond
+/// for a whole run — one `o` walled inside the slab, rooting it at distance
+/// 0, with every other cell chaining to it:
 ///
 /// ```text
 /// 254 ~~~~~~~~~~~~~~~~#######..####o##~~~~~~
-/// 255 ~~~~~~~~~~~~~~~~~###.##..######~~~~~~~
 /// ```
 ///
-/// — one rubble grain, encased in rock on all four sides, in the middle of
-/// a piece with nothing but water under it. `rests_on_ground` said Powder,
-/// therefore ground; that cell rooted at distance 0; and every other cell
-/// of the raft relaxed a chain to it. The load model then called all
-/// ninety of them supported, which is why the `hanging` census — the
-/// model's own verdict — read **0** for the whole run while the raft was
-/// plainly visible in the contact sheet.
+/// **Second**, this asked whether the grain was enclosed by body material
+/// on all four faces. That catches a lone grain and **two adjacent grains
+/// defeat it**, because each has the other as a non-body neighbour. Traced
+/// on `scene=rockdrop`, where a 600-cell slab sat in open air 30 rows above
+/// the pond from frame 40 to 400 — the owner saw the tail of it and
+/// reported "the boulder just stops and gets stuck in the middle of the
+/// water":
 ///
-/// The rule was `CLAUDE.md`'s recurring trap in a new costume: *"which
-/// object does this rule evaluate — a cell, a section, or a whole
-/// piece?"*. "Rests on loose ground" is a statement about a **piece**, and
-/// asked per cell it let a grain the piece had swallowed hold the piece up.
+/// ```text
+/// 170 ......###############################ooo#####..##.#####
+/// 171 ......######################oooooooooo###....##########
+/// ```
 ///
-/// Enclosure is the cheap discriminator, and it is the physical one: a
-/// grain with body material on all four faces is not bearing anything,
-/// it is *in* something. A grain at the top of a pile always has powder or
-/// air beside or below it, so a slab resting on scree is untouched; and
-/// this runs only on the structural path, never in the sweep.
+/// Both are the same mistake, and it is `CLAUDE.md`'s recurring one: *"which
+/// object does this rule evaluate — a cell, a section, or a whole piece?"*
+/// "Rests on loose ground" is a claim about a **piece**, and asked of a
+/// grain's own neighbourhood it cannot tell a grain the piece is standing on
+/// from a grain the piece has swallowed. No arrangement of neighbour tests
+/// can: the two look identical up close. Per the same file, *"more tuning
+/// will not find a setting that does not exist."*
+///
+/// # What it reads instead: what the grain is standing on
+///
+/// A grain bears load only if something bears the grain. So walk **down**
+/// the column of loose material and ask what is underneath all of it. That
+/// is a different quantity from the grain's own shape, and it is decidable
+/// locally:
+///
+/// - bedrock, or out of bounds — the world floor. A footing.
+/// - `attached` body material — terrain, braced by the massif behind it.
+///   A footing.
+/// - more powder than `GRAIN_FOOTING_PROBE` deep — a pile that deep is a
+///   pile. A footing.
+/// - **unattached body material — not a footing.** This is the case both
+///   earlier versions got wrong: the grain is resting on the very piece
+///   that is asking, so the load path is a circle. Let the rock under it be
+///   judged on its own account, which is what the relaxation is for.
+/// - empty, or liquid — the grain is itself falling or sinking, and holds
+///   up nothing.
+///
+/// **What this gives up, named:** a slab resting on rubble resting on a
+/// *player-built* (and therefore unattached) platform now reads as
+/// unsupported, because the chain out of the powder lands on unattached
+/// rock. Solid-on-solid is untouched — only a granular layer sandwiched
+/// inside player-built structure loses, which no scene here builds and
+/// nobody has reported. Reading the cell's stored `aux` instead would cover
+/// it, and is rejected for the reason `is_anchor` already gives: a stored
+/// distance lags the world by a tick, and here it would be circular, since
+/// the distance under a swallowed grain is 0 *because of this rule*.
 fn grain_is_footing(world: &World, x: i32, y: i32) -> bool {
-    !NEIGHBOURS_4.iter().all(|&(dx, dy)| is_body_material(world, world.get(x + dx, y + dy).material))
+    let mut probe = (x, y);
+    for _ in 0..GRAIN_FOOTING_PROBE {
+        let below = (probe.0, probe.1 + 1);
+        if !world.in_bounds(below.0, below.1) {
+            return true; // the floor of the world holds everything up
+        }
+        let cell = world.get(below.0, below.1);
+        if cell.material == super::material::BEDROCK {
+            return true;
+        }
+        if is_body_material(world, cell.material) {
+            return cell.attached();
+        }
+        if world.materials.kind(cell.material) != MaterialKind::Powder {
+            return false; // air or liquid under the pile: it is on its way down
+        }
+        probe = below;
+    }
+    true // deeper than the probe: a pile, not a pocket
 }
+
+/// How far down a column of loose material `grain_is_footing` looks for
+/// something holding it up.
+///
+/// Bounds the walk without gating the answer (`CLAUDE.md`: "a size cap must
+/// bound work, never gate whether something happens") — running past it
+/// resolves to *footing*, which is the conservative direction and the
+/// physically right one, since anything under eight cells of scree is
+/// bearing through the scree whatever it is.
+const GRAIN_FOOTING_PROBE: usize = 8;
 
 /// The buoyant half of `rests_on_ground`, split out because the caller of
 /// `bearing_moment` has to tell the two cases apart: a pile is a footing

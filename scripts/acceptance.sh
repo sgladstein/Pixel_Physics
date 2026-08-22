@@ -149,6 +149,16 @@ run crackcanyon scene=worldcrack preset=canyon seed=7 dig=6 start=2 every=250 co
 #    passes the first by making rock invincible, and that is how four
 #    earlier support models died.
 #
+#    **The shallow case is gated on the void too, as of the grain-footing
+#    change.** It was `min_overloaded=50`, which contradicted the paragraph
+#    above and read *which failure mode fired* rather than whether the roof
+#    fell in: overload failures went 65 (3,918 cells) to 7 (169) across that
+#    change while the roofed void went 678 -> 69 before and 678 -> 64 after,
+#    i.e. the roof came down slightly harder and the bar called it a
+#    regression. Second time in one session an event-count bar has caught a
+#    mode shift and not a behaviour change -- see `roomcut`. Measured 9-10%
+#    left; the bar is 20%.
+#
 #    `preset=flat` specifically. On sloping terrain the scene drives a
 #    horizontal bore at a fixed depth below the surface *at one x*, so on a
 #    hillside it leaves the hill -- `rolling` seed 24301 starts with 124
@@ -157,7 +167,27 @@ run crackcanyon scene=worldcrack preset=canyon seed=7 dig=6 start=2 every=250 co
 #    1, 7 and 24301, so the bar at 90 has real headroom.
 run cavedeep   scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=18 start=2 every=600 count=4 zoom=1 min_cave=90       repeat=2 max_frame_ms=$BUDGET_MS
 run cavedeep1  scene=worldcrack preset=flat seed=1 dig=4 tunnel=35 depth=18 start=2 every=600 count=4 zoom=1 min_cave=90       repeat=2 max_frame_ms=$BUDGET_MS
-run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 start=2 every=600 count=4 zoom=1 min_overloaded=50 repeat=2 max_frame_ms=$BUDGET_MS
+run caveshallow scene=worldcrack preset=flat seed=7 dig=4 tunnel=35 depth=6 start=2 every=600 count=4 zoom=1 max_cave=20       repeat=2 max_frame_ms=$BUDGET_MS
+
+# 10b/10c. **Rock into water, and a lava quench — the hole this suite had.**
+#    Every case above is structural, terrain, coldsnap or strike. None of
+#    them drops anything into a liquid, and that blindness let a 600-cell
+#    slab ship sitting in mid-air 30 rows above its own pond with all
+#    seventeen cases green. `CLAUDE.md`: "the scenes were not too few; they
+#    were blind by construction."
+#
+#    Gated on **where the rock ended up**, not on how many events fired and
+#    not on the model's own verdict. Both `hanging:` and `afloat:` read zero
+#    through the whole bug — correctly, by their own definitions, since the
+#    load model believed the slab was supported. A row and a count ask the
+#    world instead. Measured 0 loose solid cells left aloft in both scenes
+#    against 522 with the bug; the bars are 10 and 5.
+#
+#    `min_bodies` alongside, because "the rock went down" and "the rock went
+#    down *as pieces*" are different claims and only the second is the
+#    milestone. Measured 24 and 17 concurrent bodies; the bars are 8.
+run rockdrop scene=rockdrop fall=20 start=2 every=100 count=4 crop=180,150,180,170 zoom=2 max_rock_above=195,10 min_bodies=8 repeat=2 max_frame_ms=$BUDGET_MS
+run lavadrop scene=lavadrop         start=2 every=300 count=4 crop=196,216,120,104 zoom=2 max_rock_above=248,5  min_bodies=8 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 11. A pond freezes over under a cold snap and nothing gives way. The
 #    acceptance bar the ice milestone was set: a floating sheet's only

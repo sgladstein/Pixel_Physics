@@ -1961,58 +1961,88 @@ mod tests {
         );
     }
 
-    /// **A grain the piece has swallowed does not hold the piece up.**
+    /// **A grain the piece has swallowed does not hold the piece up — and
+    /// two grains do not either, which is the case that shipped.**
     ///
-    /// A raft of rock floating on water, with one grain of rubble encased
-    /// in the middle of it. `is_resting_on_ground` said Powder, therefore
-    /// ground, so that cell rooted at distance 0 and the whole raft relaxed
-    /// a chain to it — and the load model then called every cell of it
-    /// supported. Seen for real on `scene=lavadrop`: a 90-cell slab sat at
-    /// the water surface from frame 600 to the end of the run while the
-    /// `hanging` census, which reports the model's own verdict, read 0.
+    /// The first version of this test placed **one** grain inside the raft
+    /// and passed against a rule that asked whether the grain was enclosed
+    /// by body material on all four faces. Two adjacent grains defeat that
+    /// rule outright, because each is the other's non-body neighbour — and
+    /// they went out. `scene=rockdrop`'s 600-cell slab then sat in open air
+    /// 30 rows above its pond from frame 40 to 400, held there by pockets
+    /// like this:
     ///
-    /// The paired negative is the point and is asserted first: the same
-    /// raft with the same grain **on its underside**, where a grain
-    /// genuinely is a footing, must still be held. Without it this test
-    /// would pass against a rule that had simply stopped believing in
-    /// rubble at all, which is the change that took `scene=ligament`'s slab
-    /// out of the air and is not wanted.
+    /// ```text
+    /// 170 ......###############################ooo#####..##.#####
+    /// 171 ......######################oooooooooo###....##########
+    /// ```
+    ///
+    /// so the pair case is asserted here explicitly rather than left to
+    /// follow from the single one. See `load::grain_is_footing`, which now
+    /// asks what the grain is *standing on* instead of what is beside it.
+    ///
+    /// Four cases, and the two positives matter as much as the negatives: a
+    /// rule that had simply stopped believing in rubble would take
+    /// `scene=ligament`'s slab out of the air, which is not wanted.
     #[test]
     fn a_grain_swallowed_by_a_piece_is_not_a_footing() {
-        let sand_grain_at = |gx: i32, gy: i32| {
+        // A raft sitting just above the bedrock floor, so a grain placed
+        // *under* it has something real to stand on. The first fixture put
+        // the raft in mid-air and asserted that a grain hanging under it
+        // was a footing -- which the new rule correctly denies, because a
+        // grain with air beneath it is falling.
+        let raft_with = |grains: &[(i32, i32)]| {
             let mut w = test_world();
             let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
             for x in 0..64 {
                 w.set(x, 63, Cell::new(material::BEDROCK, 0));
             }
-            // A raft in open water, touching neither shore.
-            for x in 10..54 {
-                for y in 40..63 {
-                    w.set(x, y, Cell::new(material::WATER, 0));
-                }
-            }
             for x in 24..40 {
-                for y in 30..34 {
+                for y in 58..62 {
                     w.set(x, y, Cell::new(material::STONE, 0));
                 }
             }
-            w.set(gx, gy, Cell::new(sand, 0));
+            for &(gx, gy) in grains {
+                w.set(gx, gy, Cell::new(sand, 0));
+            }
             compute_world_distances(&mut w);
             w
         };
 
-        // Under the raft: a real footing, and the chain roots on it.
-        let w = sand_grain_at(32, 34);
+        // Under the piece, standing on bedrock: a real footing.
+        let w = raft_with(&[(32, 62)]);
         assert!(
-            is_resting_on_ground(&w, 32, 33),
-            "a grain beneath the piece is exactly what `rests_on_ground` is for and must still count"
+            is_resting_on_ground(&w, 32, 61),
+            "a grain between the piece and the bedrock is exactly what `rests_on_ground` is for"
         );
 
-        // Inside the raft: rock on all four sides, and it must not.
-        let w = sand_grain_at(32, 32);
+        // One grain walled inside the piece.
+        let w = raft_with(&[(32, 60)]);
         assert!(
-            !is_resting_on_ground(&w, 32, 31),
-            "a grain with rock on all four faces is filler inside the piece, not something the piece stands on"
+            !is_resting_on_ground(&w, 32, 59),
+            "a lone grain inside the piece is filler, not footing"
+        );
+
+        // **Two adjacent grains inside the piece** -- the shipped bug.
+        let w = raft_with(&[(32, 60), (33, 60)]);
+        assert!(
+            !is_resting_on_ground(&w, 32, 59),
+            "two grains inside the piece are still filler; each being the other's neighbour must not make them ground"
+        );
+
+        // And a grain with nothing under it is falling, whatever is above.
+        let mut w = raft_with(&[]);
+        let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+        for x in 24..40 {
+            for y in 30..34 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.set(32, 34, Cell::new(sand, 0));
+        compute_world_distances(&mut w);
+        assert!(
+            !is_resting_on_ground(&w, 32, 33),
+            "a grain hanging in mid-air under a raft holds nothing up"
         );
     }
 
@@ -2041,31 +2071,37 @@ mod tests {
         let mut w = test_world();
         let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
         let debris = stone_debris(&w);
-        // Bedrock floor well below, so the grain is genuinely the only
-        // thing under the stone and the stone is genuinely detached.
+        // The grain sits **on the bedrock**, not in mid-air thirty rows
+        // above it. The first fixture did the latter, and
+        // `load::grain_is_footing` was later taught that a grain with
+        // nothing under it is falling rather than bearing -- so the stone
+        // came down on the first check and the setup assertion below,
+        // which is meant to be the boring half, went red. A fixture that
+        // does not contain the situation reads exactly like a broken
+        // mechanism.
         for x in 0..64 {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
         }
-        w.set(32, 33, Cell::new(sand, 0));
-        w.set(32, 32, Cell::new(material::STONE, 0));
+        w.set(32, 62, Cell::new(sand, 0));
+        w.set(32, 61, Cell::new(material::STONE, 0));
         compute_world_distances(&mut w);
-        w.schedule_structural_check_around(32, 32);
+        w.schedule_structural_check_around(32, 61);
         run(&mut w, 60);
         assert_eq!(
-            w.get(32, 32).material,
+            w.get(32, 61).material,
             material::STONE,
             "the grain is still there, so the stone should still be standing on it"
         );
 
         // The grain goes, and nothing is told.
-        w.set(32, 33, Cell::EMPTY);
+        w.set(32, 62, Cell::EMPTY);
         run(&mut w, 240);
 
         assert_eq!(
-            w.get(32, 32).material,
+            w.get(32, 61).material,
             debris,
             "the ground went and nothing rescheduled the cell above it -- still {}",
-            w.materials.get(w.get(32, 32).material).name
+            w.materials.get(w.get(32, 61).material).name
         );
     }
 

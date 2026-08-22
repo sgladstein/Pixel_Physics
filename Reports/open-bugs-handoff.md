@@ -332,6 +332,46 @@ the run and a worst frame of 122 ms. A molten core sealed inside its own
 crust has no path to lose heat, which is arguably right and is certainly
 expensive: a large enough lava body is a permanent tax on the frame.
 
+### 1e-ter. ~~A boulder that never leaves the sky~~ — **FIXED; the fourth version of one predicate**
+
+Reported from play as *"the boulder just stops and gets stuck in the middle
+of the water"*, and it was worse than that: on `scene=rockdrop` the
+600-cell slab **never fell at all**, still airborne at frame 400 with only
+~100 cells ever promoted away.
+
+`rests_on_ground` grants an anchor to any `Solid` with `Powder` below it.
+Three versions have now tried to qualify that from the grain's own
+neighbourhood:
+
+1. `Powder => true`. A single swallowed grain floated a 90-cell raft on
+   `scene=lavadrop`'s pond.
+2. `grain_is_footing` as an **enclosure** test — body material on all four
+   faces. Catches one grain; **two adjacent grains defeat it**, each being
+   the other's non-body neighbour. This is what shipped and what the
+   boulder was standing on.
+3. Now: walk **down** the column of loose material and ask what is under
+   all of it. Bedrock, out of bounds, attached material or a pile deeper
+   than `GRAIN_FOOTING_PROBE` is a footing; unattached rock, air or liquid
+   is not.
+
+The first two are the same mistake and `CLAUDE.md` names it: *"which object
+does this rule evaluate?"*. "Rests on loose ground" is a claim about a
+**piece**, and a grain's neighbourhood cannot tell a grain the piece stands
+on from a grain the piece has swallowed — they look identical up close.
+Version 3 reads a different quantity instead of a better-tuned version of
+the same one.
+
+**Given up knowingly:** a slab on rubble on a *player-built* (unattached)
+platform now reads as unsupported. Solid-on-solid is untouched; only a
+granular layer sandwiched inside player structure loses. Reading the stored
+`aux` would cover it and is circular here, since the distance under a
+swallowed grain is 0 *because of this rule*.
+
+**Two fixtures were wrong and passed anyway**, both putting a grain in
+mid-air and asserting it bore weight. Both are corrected, and the two-grain
+case is now asserted explicitly rather than left to follow from the
+one-grain case.
+
 ### 1e-bis. ~~Slabs of rock hanging over a solidifying lava lake~~ — **FIXED, and the cause was the frame budget**
 
 Kept because the *shape* of it will recur. `scene=lavalake` at frame 6,000

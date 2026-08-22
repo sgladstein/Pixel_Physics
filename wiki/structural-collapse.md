@@ -106,11 +106,15 @@ be part of the structure" rather than a material swap.
 Rubble is something rock can stand *on*, and that is all. Loose material
 holds a piece up the way a gravel bed holds up a paving slab — it takes
 weight, and it takes it wherever the piece actually touches down — but it
-cannot hold anything *steady*. It has to be underneath, too: a grain that
-ends up walled in on every side *inside* a piece is filler, not footing,
-and holds nothing up. That sounds like a technicality and is the
-difference between a raft of rock sinking and a raft of rock parked on a
-pond forever, held there by a single swallowed pebble. A piece whose weight sits over its footing
+cannot hold anything *steady*. And something has to hold the rubble up in
+turn: loose material only bears weight if it is itself standing on
+something — bedrock, on ground, or on more loose material. Debris caught
+*inside* a falling piece is filler, not footing, and a grain with nothing
+under it is on its way down like everything else.
+
+That sounds like a technicality and it is the difference between a boulder
+sinking to the bottom of a pond and a boulder parked in the sky above it,
+held there by two grains of its own debris. A piece whose weight sits over its footing
 rests on rubble indefinitely, however heavy it is; one reaching out past
 the edge of what it's standing on tips off, however light. Nothing in
 between is special-cased, and the same rule covers a boulder settling into
