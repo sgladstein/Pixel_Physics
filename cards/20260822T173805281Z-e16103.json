@@ -1,0 +1,67 @@
+{
+  "id": "20260822T173805281Z-e16103",
+  "created": "2026-08-22T17:38:05Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "68c1fee",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The bubbles were never the wrong colour — the blend was",
+  "question": "Does the near-replace read as gas now? And having seen what cheaper boiling actually buys (clip 3), do you agree it is not worth the real latent heat?",
+  "context_md": "You asked for a test case per option, an example of each, and what each costs. Here they are, and the finding that reframes the question came out of building them.\n\n**The tint was already steam's colour the whole time.** `BUBBLE_TINT` is (225, 238, 248). Steam's own palette in `steam.ron` is (222, 228, 236). They are the same colour. What was wrong is that only 30% of a bubble pixel *was* that colour and the other 70% was the blue water behind it. Measured over the 24,320 pixels that change:\n\n| | distance from the pond | distance from steam |\n|---|---|---|\n| before | 44 | 166 |\n| after | 150 | 60 |\n\nSo the old bubble was, numerically, a shade of water — four times closer to the pond it sat in than to the gas it was meant to be. That is not a resolution limit, it is a blend fraction, and this file has now made the same mistake three times: a magnitude-scaled blend of the right colour is not the right colour.\n\n**I have adopted this one.** It is three constants, so the demo *was* the implementation. Same pixels, same population, same shapes — only the colour crossed over.\n\n### The other three, and what each would cost\n\n**Turn the heat up (clip 4).** No code at all — `lavapour` already exists, and a real heat source in a pond makes a real steam crust and plume. Nothing to build; it is evidence that the physics works, not a change.\n\n**Cheaper boiling (clip 3).** One constant: latent heat 540 → 60. It buys **1,142 boils against 193**, six times as many. And look at the clip — *the water looks identical*. The steam leaves at the floor and vents, so what you gain is haze above the surface, not bubbles in the pool. It also throws away the real latent heat of vaporisation, which is what stopped lava-into-water \"bouncing\". **I would not do this**, and the clip is why.\n\n**Clip 5 is the control, and it is the answer to your question.** Ordinary heat, real latent heat, bubbles switched off: a simmering pan shows *nothing whatsoever*. At about 1.8 cm to a cell, a real boiling bubble is smaller than one pixel. So a drawn bubble is the only honest representation there is — and that is why I put the surface spitting in the simulation instead, where it moves actual water.\n\nAll clips are true speed.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1. before (as it shipped)",
+      "files": [
+        "20260822T173805281Z-e16103/000-opt_now.gif"
+      ],
+      "caption": "30% steam, 70% pond. 44 RGB units from plain water.",
+      "meta": {}
+    },
+    {
+      "label": "2. adopted: near-replace",
+      "files": [
+        "20260822T173805281Z-e16103/001-opt_a_steamcolour.gif"
+      ],
+      "caption": "Three constants. 60 units from steam, 150 from the water. Same bubbles, same places.",
+      "meta": {}
+    },
+    {
+      "label": "3. cheap boiling, no drawn bubbles",
+      "files": [
+        "20260822T173805281Z-e16103/002-opt_c_cheapboil.gif"
+      ],
+      "caption": "1,142 real boils against 193 -- and the water looks the same. Not recommended.",
+      "meta": {}
+    },
+    {
+      "label": "4. a real heat source, no drawn bubbles",
+      "files": [
+        "20260822T173805281Z-e16103/003-opt_b_realheat.gif"
+      ],
+      "caption": "Lava into a pond. Already ships; costs nothing because it is not a change.",
+      "meta": {}
+    },
+    {
+      "label": "5. control: nothing drawn at all",
+      "files": [
+        "20260822T173805281Z-e16103/004-opt_control_realonly.gif"
+      ],
+      "caption": "Ordinary heat, real physics, no renderer. A simmering pan shows nothing.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
