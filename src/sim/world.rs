@@ -630,6 +630,24 @@ pub struct FailureCounts {
     /// Bucket edges are the two floors and powers of two around them, so
     /// the boundary that matters is a boundary in the readout too.
     pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// Cells that left a fracture as part of a promoted `ChunkBody`, and
+    /// cells that left it as rubble.
+    ///
+    /// **The mass, because the event counts were answering a different
+    /// question than the one being asked.** Reported from play against a
+    /// collapse whose region sizes and body count had both improved by a
+    /// large factor: *"they don't look like chunks when they fall, they are
+    /// still mostly dust when they sink."* He was right and every counter
+    /// said otherwise, because `size_buckets` measures how big the *region*
+    /// was and "peak chunk bodies" counts how many *events* there were, and
+    /// a player watches neither — he watches how much of what is falling is
+    /// in pieces big enough to see.
+    ///
+    /// A region of 83 cells that fractures into eleven 4-cell fragments is
+    /// a large region, several bodies' worth of events, and entirely dust
+    /// on screen. Only the ratio of these two tells them apart.
+    pub promoted_cells: u32,
+    pub shattered_cells: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -641,6 +659,16 @@ pub const SIZE_BUCKETS: [u32; 7] = [1, 2, 3, 6, 8, 16, 64];
 impl FailureCounts {
     pub fn record_reach(&mut self, reach: u32) {
         self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
+    /// One fragment's worth of mass, split by where it went. See
+    /// `promoted_cells`.
+    pub fn record_fragment(&mut self, cells: usize, promoted: bool) {
+        if promoted {
+            self.promoted_cells += cells as u32;
+        } else {
+            self.shattered_cells += cells as u32;
+        }
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {

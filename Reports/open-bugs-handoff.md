@@ -332,6 +332,73 @@ the run and a worst frame of 122 ms. A molten core sealed inside its own
 crust has no path to lose heat, which is arguably right and is certainly
 expensive: a large enough lava body is a permanent tax on the frame.
 
+### 1h. Falling rock grinds itself to powder in deep water — three coupled defects
+
+Reported from play: *"they don't look like chunks when they fall, they are
+still mostly dust when they sink."* True, and every counter said otherwise.
+**Diagnosed and measured in full; not fixed.** Read this before touching
+`rigid.rs`'s liquid path.
+
+`scene=rockdrop`, a 600-cell slab into an open pool:
+
+| | |
+|---|---|
+| mass promoted as chunks, cumulative | **2,515 cells** |
+| mass shattered to rubble | 424 |
+| chunk share by mass | 85% |
+| stone left at the end | **0** (`rock -600, rubble +572`) |
+
+2,515 cells out of a 600-cell slab is **four passes over the same rock**.
+The pieces are real and they are re-broken until nothing is left. That is
+why "85% chunks" and "it's all dust" are both true, and why
+`what came off:` had to be added — `size_buckets` measures the *region*
+and peak-bodies counts *events*, and a player watches neither.
+
+**The loop.** A body cannot displace deep water → it stalls → it is
+re-rasterized into the grid → the load model judges it unsupported → it
+fractures again, one rung smaller → repeat. Measured: only **2,834 of
+10,849** displacement attempts succeed.
+
+**Why displacement fails.** Printing a failing walk:
+
+```text
+WAYFAIL back=(0,-1) motion=(0,1) reach=11 trail=empty*,empty*,water,water,…
+```
+
+`*` marks a cell the body is about to re-occupy, and the third entry is
+**water inside this body's own footprint**. A promoted body's cells are
+written `Cell::EMPTY`, so the space it is standing in reads as free to the
+CA sweep and to every other body: water and rubble pour into it, and with
+two dozen bodies in flight they fill each other.
+
+**What was tried, and why it is not in the tree.** `FLAG_MANAGED` is
+exactly the reservation this needs — `Cell::is_empty` is managed-aware, so
+one flag closes the footprint to the sweep, to `try_move` and to other
+bodies at once, and `demote_body_at` is a no-op for it since `body_index`
+only holds liquid bodies. Built, and it works: bodies stay whole and reach
+the floor. **It also loses 1,821 cell-equivalents of water** on
+`scene=rockdrop` (ledger 32,850 → 31,029), because `settle`'s relocation
+targets (`nearest_free`, `surface_above`) hand back footprint cells the
+same loop then overwrites with body material. Holding the reservation up
+through the fill and releasing it cell by cell — plus `surface_above`
+asking `is_empty` rather than the raw material test — narrows it and does
+not close it (30,641). Reverted rather than shipped: trading "rock grinds
+to dust" for "water vanishes" is not a trade.
+
+**Three defects, and they have to be fixed together:**
+
+1. A body's footprint is not reserved from anything.
+2. `settle` can relocate a displaced occupant into a cell it is about to
+   fill (this is §1c's ~10% landing loss, seen from the other side).
+3. A body that stalls is fractured again rather than left alone or helped
+   down, so (1) turns into a grinder rather than a pause.
+
+The right shape for (1)+(2) is probably a body-level exchange: a rigid body
+moving by an integer offset vacates exactly as many cells as it enters, so
+the displaced fluid can be paired with the vacated cells by construction
+instead of searched for. `make_way_behind` is a per-cell approximation of
+that and cannot see the pairing.
+
 ### 1e-ter. ~~A boulder that never leaves the sky~~ — **FIXED; the fourth version of one predicate**
 
 Reported from play as *"the boulder just stops and gets stuck in the middle

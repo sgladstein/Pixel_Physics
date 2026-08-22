@@ -598,7 +598,9 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
         let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
         let fragment = take_fragment(&mut left, seed, target);
-        if fragment.len() >= MIN_BODY_CELLS {
+        let promoted = fragment.len() >= MIN_BODY_CELLS;
+        world.structural_failures.record_fragment(fragment.len(), promoted);
+        if promoted {
             promote(world, &fragment, impulse);
         } else {
             for &(fx, fy) in &fragment {

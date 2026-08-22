@@ -3457,6 +3457,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                     format!("{}{hi}:{n}", edges[i])
                 })
                 .collect();
+            // The mass split, beside the region sizes -- see
+            // `FailureCounts::promoted_cells`. A big region that fractures
+            // into fragments below `MIN_BODY_CELLS` is dust on screen and
+            // reads as a success in every other number here.
+            let (chunks, dust) = (f.promoted_cells, f.shattered_cells);
+            if chunks + dust > 0 {
+                println!(
+                    "    what came off: {chunks} cells as chunks, {dust} as dust ({}% chunk by mass)",
+                    chunks * 100 / (chunks + dust)
+                );
+            }
             println!(
                 "    failing region size: mean {:.1} cells, largest {}, sizes [{}]",
                 (f.overloaded_cells + f.unsupported_cells) as f64 / events as f64,
