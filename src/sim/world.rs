@@ -468,10 +468,11 @@ pub struct World {
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
     pub chain_window: u64,
-    /// Where the world was last disturbed, and when. A small ring: only
-    /// the most recent handful matter, since older ones fall outside
-    /// `chain_window` anyway.
-    pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
+    /// Where the world was last disturbed, when, and **how big the wound
+    /// was**. A small ring: only the most recent handful matter, since
+    /// older ones fall outside `chain_window` anyway. See
+    /// `structural::Disturbance` for why the extent is not optional.
+    pub disturbances: std::collections::VecDeque<crate::sim::structural::Disturbance>,
     /// Failures already judged and part-way through coming down, one slice
     /// per `structural::STRUCTURAL_TICK_INTERVAL` frames. See
     /// `structural::StagedFracture` and `advance_staged_fractures`; empty

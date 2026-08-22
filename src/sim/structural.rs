@@ -365,29 +365,63 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if matches!(verdict, super::load::ChainVerdict::Deferred) {
         defer!();
     }
-    // Damage stays near what was actually disturbed, if a reach is set.
-    //
-    // Checked here rather than earlier so the cell is still *evaluated*:
-    // the load model keeps working, the stress view keeps reading true,
-    // and only the consequence is withheld. Gating the evaluation instead
-    // would make far-away rock unfailable in principle, which is the
-    // binary immunity four earlier support models were rejected for.
-    //
-    // `Vec::new()`, so a refused cell stops being rescheduled rather than
-    // spinning: it will be looked at again when something disturbs it, and
-    // that something is exactly what would license it to fail.
-    if let super::load::ChainVerdict::Failing(_) = verdict {
-        if !world.within_disturbance(x, y) {
-            return Vec::new();
-        }
-    }
     if let super::load::ChainVerdict::Failing(failure) = verdict {
+        // **Damage stays near what was actually disturbed, and the thing
+        // that has to stay near it is the *region*, not the question.**
+        //
+        // This was a veto on `within_disturbance(x, y)` -- the cell whose
+        // scheduled check happened to run. What a failure licenses is
+        // `failure.region`: for `Overloaded` the union of supported
+        // subtrees (each to `MAX_SUBTREE_CELLS`), for `Unsupported` a
+        // detached piece out to `MAX_REGION_CELLS` (20,000). Neither
+        // `failure.at` (up to `ROOTWARD_CHECK_STEPS` support-parent hops
+        // away) nor any region cell was tested at all, so **one licensed
+        // check 16 cells from a blast could legally destroy a region
+        // spanning the world**. Measured on the nine-charge harness before
+        // this line: damage landing 79 cells out at LOCAL (reach 48) and 37
+        // at TIGHT (reach 16). `CLAUDE.md`'s "which object does this rule
+        // evaluate -- a cell, a section, or a whole piece?", for the third
+        // time on this branch.
+        //
+        // Judged, then clipped -- never gated earlier. The load model keeps
+        // working and the stress view keeps reading true; only the
+        // consequence is bounded. Gating the *evaluation* would make
+        // far-away rock unfailable in principle, which is the binary
+        // immunity four earlier support models were rejected for.
+        //
+        // # Why this does not overturn the note at the staging call site
+        //
+        // That block (search `re-argue its case`) records that a judged
+        // failure's remainder must not be able to lose, because "every one
+        // of those is rock left hanging in open air". **That reasoning
+        // stands.** It is about a collapse stranded by an exhausted budget
+        // or by a re-asked question, which is a bug. Rock left standing
+        // because the *player set a limit* is not a bug: it is the
+        // setting's own advertised behaviour -- `wiki/structural-
+        // collapse.md` says outright that at NONE "you can undercut a
+        // mountain and it will sit there", and LOCAL/TIGHT are the same
+        // trade in smaller portions. The staged queue itself is still never
+        // re-judged; what reaches it is already inside the licence.
+        let region = clip_region_to_licence(world, failure.region);
+        if region.is_empty() {
+            // **Not `Vec::new()`.** Control only reaches here when
+            // `worsened` is true, so `propagate` already holds this cell's
+            // reschedule and its neighbour fan-out, and the new `aux` has
+            // been written. The old veto returned an empty vector and
+            // dropped both -- a fourth early return that did not carry the
+            // wavefront the block above says every early return must carry,
+            // and it dropped it specifically for *rising* distances, which
+            // is the direction that propagates collapse.
+            return propagate;
+        }
         // The forest this describes is about to change out from under it.
         world.load_cache.clear();
-        world.structural_failures.record(failure.mode, failure.region.len());
+        // The **clipped** size, deliberately: these counters are read as
+        // "how much did this failure take", and after the clip that is what
+        // the region is.
+        world.structural_failures.record(failure.mode, region.len());
         let reach = (failure.at.0 - x).unsigned_abs() + (failure.at.1 - y).unsigned_abs();
         world.structural_failures.record_reach(reach);
-        let region = failure.region;
         // Confined rock has nowhere to go, so it cracks where it stands
         // rather than displacing. See `crush_in_place` -- and note this
         // keys the *outcome* on free space, never the criterion: the
@@ -785,6 +819,22 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     if material.breaks_into.is_none() {
         // Same "not actually participating" framing the aux-cached path
         // above uses for the identical case.
+        return Vec::new();
+    }
+    // **The leash applies to trees too.** This path never consulted
+    // `within_disturbance` at all, so `chain_reach` did not exist for
+    // organisms at any setting *including NONE* -- measured on the
+    // nine-charge harness, which recorded damage landing 35 cells from a
+    // live disturbance at NONE while reporting zero rock failures, and the
+    // organism path is the only thing that can produce that.
+    //
+    // At SPREAD the gate is a constant `true` and this changes nothing. At
+    // LOCAL/TIGHT/NONE it stops a blast amputating a stand of trees fifty
+    // cells away, which no setting currently prevents. `Vec::new()` on a
+    // refusal for the same reason the rock path uses it: a refused cell
+    // stops being rescheduled and is looked at again when something
+    // disturbs it, which is exactly what would license it.
+    if !world.within_disturbance(x, y) {
         return Vec::new();
     }
     // Deliberately dropped rather than recorded: this is a limb losing its
@@ -1273,7 +1323,20 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
         // the star's length used.
         CrushedObject::Section => {
             let extent = region.iter().map(|&(x, y)| (x - at.0).abs().max((y - at.1).abs())).max().unwrap_or(0) as usize;
-            reveal_in_disc(world, at, extent.clamp(object.min_joint_reach(), CRACK_MAX_LENGTH) as f32)
+            let mut reach = extent.clamp(object.min_joint_reach(), CRACK_MAX_LENGTH) as f32;
+            // **Bounded by the licence, because this is the one consequence
+            // that is *sized* rather than enumerated.** Everything else a
+            // failure does works from `region`, which `tick` has already
+            // clipped; this disc deliberately reaches into the massif around
+            // the piece, out to `CRACK_MAX_LENGTH`, and a crush that writes
+            // cracks outside the leash is the same leak one channel over --
+            // cracked rock carries less, so it is a delayed failure the
+            // player was promised would not happen. `None` at SPREAD, where
+            // nothing bounds it and the arithmetic is untouched.
+            if let Some(headroom) = world.licence_headroom(at.0, at.1) {
+                reach = reach.min(headroom as f32);
+            }
+            reveal_in_disc(world, at, reach)
         }
         // A **severed piece** has no claim on the rock outside it. Its
         // damage has to scale from zero, and with a fabric it does so
@@ -2554,6 +2617,30 @@ const JITTER_STEPS: u32 = 16;
 /// A cell whose material has no configured debris is left alone rather than
 /// deleted, and reports `false`: counting a decline would make grit look
 /// like it happened.
+/// Retain only the cells of a failing region the current `chain_reach`
+/// licenses.
+///
+/// A **clip**, not a veto: a failure that is licensed anywhere still
+/// happens, it just cannot eat past the leash. See `tick`'s own note at the
+/// call site for why this does not contradict the staging block's "a
+/// remainder must not be able to lose".
+///
+/// At SPREAD the licence is universal, so the region is handed straight
+/// back untouched -- no scan, no reallocation, and the shipped setting pays
+/// nothing at all for the leash existing.
+///
+/// **Runs before `erode_failing_boundary`**, so the clipped edge is chewed
+/// up like any other rock-facing boundary rather than reading as a knife
+/// cut across the stone.
+fn clip_region_to_licence(world: &World, region: Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+    if world.chain_reach == i32::MAX {
+        return region;
+    }
+    let mut region = region;
+    region.retain(|&(x, y)| world.within_disturbance(x, y));
+    region
+}
+
 /// Record how far a consequence actually landed from the nearest *live*
 /// disturbance -- the `FailureCounts::max_damage_reach` half of the
 /// containment pair, and the only number in the census that can see the
@@ -3173,12 +3260,52 @@ impl World {
     /// Deliberately coarse. The ring holds only the most recent few,
     /// because anything older has fallen outside `chain_window` and a
     /// player cannot disturb dozens of places in the same second.
-    pub fn record_disturbance(&mut self, x: i32, y: i32) {
+    /// `extent` is the **outer limit of the damage this verb does itself**,
+    /// in cells from `(x, y)`: the wound, not the chain. See
+    /// `Disturbance::extent`, and note the signature deliberately has no
+    /// default -- a volume verb that quietly recorded a point disturbance
+    /// is the bug this argument exists to make impossible.
+    pub fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
         let frame = self.frame;
-        self.disturbances.push_back((x, y, frame));
+        self.disturbances.push_back(Disturbance { x, y, extent: extent.max(0), frame });
         while self.disturbances.len() > MAX_DISTURBANCES {
             self.disturbances.pop_front();
         }
+    }
+
+    /// How far from a disturbance of this `extent` a consequence may land,
+    /// in cells — `chain_reach` measured from the **edge of the wound**
+    /// rather than from its centre.
+    ///
+    /// # Why the wound has to be inside its own licence
+    ///
+    /// A blast records one disturbance, at its epicentre, and its own
+    /// damage is a *volume*: the crater alone is 41 cells across at radius
+    /// 20 and the joint fabric reaches `radius * joint_reach` (2.4) past
+    /// that, further still on an unconfined shot. A reach of 16 measured
+    /// from the epicentre is inside the charge's own hole. Leashing on that
+    /// makes TIGHT crack rock and never break it, which is the owner's
+    /// *original* complaint reintroduced by the fix for a different one.
+    ///
+    /// So "what you struck" scales with the tool, and LOCAL/TIGHT leash
+    /// **the chain beyond the wound** rather than the wound itself.
+    ///
+    /// # NONE is exempt, and that is deliberate
+    ///
+    /// At `chain_reach == 0` the extent does not apply and the behaviour is
+    /// exactly what it was: no failure is ever licensed anywhere. NONE is
+    /// the hard off switch, it is the owner's working escape hatch, and it
+    /// is the one setting that currently does what it says
+    /// (`wiki/structural-collapse.md`: "only what you struck is ever
+    /// destroyed. Nothing collapses afterwards, at all"). This commit must
+    /// not quietly redefine it.
+    ///
+    /// `saturating_add` because SPREAD is `i32::MAX`.
+    fn licence_radius(&self, extent: i32) -> i32 {
+        if self.chain_reach == 0 {
+            return 0;
+        }
+        self.chain_reach.saturating_add(extent)
     }
 
     /// Whether a failure at `(x, y)` is close enough in space and recent
@@ -3192,8 +3319,8 @@ impl World {
         if self.chain_reach == i32::MAX {
             return true;
         }
-        self.disturbances.iter().any(|&(dx, dy, frame)| {
-            self.frame.saturating_sub(frame) <= self.chain_window && (x - dx).abs().max((y - dy).abs()) <= self.chain_reach
+        self.disturbances.iter().any(|d| {
+            self.frame.saturating_sub(d.frame) <= self.chain_window && (x - d.x).abs().max((y - d.y).abs()) <= self.licence_radius(d.extent)
         })
     }
 
@@ -3215,9 +3342,38 @@ impl World {
     pub fn distance_to_live_disturbance(&self, x: i32, y: i32) -> Option<i32> {
         self.disturbances
             .iter()
-            .filter(|&&(_, _, frame)| self.frame.saturating_sub(frame) <= self.chain_window)
-            .map(|&(dx, dy, _)| (x - dx).abs().max((y - dy).abs()))
+            .filter(|d| self.frame.saturating_sub(d.frame) <= self.chain_window)
+            // **Measured from the edge of the wound, not from its centre**,
+            // for exactly the reason `licence_radius` adds the extent there:
+            // otherwise the metric and the gate stop being in the same units
+            // and the number stops meaning "how far past the licence did
+            // damage travel". A cell inside the wound reads `0`.
+            .map(|d| ((x - d.x).abs().max((y - d.y).abs()) - d.extent).max(0))
             .min()
+    }
+
+    /// How much further a consequence standing at `(x, y)` may reach before
+    /// it leaves the licence, or `None` when nothing bounds it (SPREAD).
+    ///
+    /// The bound a *radius* needs, as opposed to the yes/no
+    /// `within_disturbance` a cell needs. `crush_in_place`'s section disc is
+    /// the one consequence that is sized rather than enumerated, and a
+    /// crush that writes cracks outside the leash is the same leak one
+    /// channel over.
+    ///
+    /// `0` (rather than `None`) when there is a live disturbance but no
+    /// headroom left: that is "you may not reach at all", which is a real
+    /// answer and not the absence of one.
+    pub fn licence_headroom(&self, x: i32, y: i32) -> Option<i32> {
+        if self.chain_reach == i32::MAX {
+            return None;
+        }
+        self.disturbances
+            .iter()
+            .filter(|d| self.frame.saturating_sub(d.frame) <= self.chain_window)
+            .map(|d| (self.licence_radius(d.extent) - (x - d.x).abs().max((y - d.y).abs())).max(0))
+            .max()
+            .or(Some(0))
     }
 
     /// Drop staged fracture work the current `chain_reach` no longer
@@ -3245,6 +3401,44 @@ impl World {
         staged.retain(|entry| !entry.region.is_empty());
         self.staged_fractures = staged;
     }
+}
+
+/// Something that actually happened to the world, and how big it was.
+///
+/// # Why an extent, and why it is not optional
+///
+/// `chain_reach` is a leash on **consequences**, and a leash measured from
+/// a single point cannot tell the wound from the chain. A blast records one
+/// disturbance at its epicentre while its own damage is a volume: at radius
+/// 20 the crater is 41 cells across and the joint fabric reaches
+/// `radius * joint_reach` past it, further on an unconfined shot. TIGHT's
+/// 16 cells is inside the charge's own hole, so leashing on the point alone
+/// makes TIGHT crack rock and never break it -- the owner's original
+/// complaint, reintroduced by the fix for a different one.
+///
+/// It also closes a leak found separately: a blast strips `attached` (a 12x
+/// capacity bonus, never regained) out to ~97 cells while recording a
+/// licence of 16, so at TIGHT it quietly pre-weakened a large region it was
+/// not allowed to break -- primed to fail later from something unrelated,
+/// which is the "delayed, apparently causeless collapse" shape
+/// `load::ROOTWARD_CHECK_STEPS` was reduced to bound.
+///
+/// The signature of `record_disturbance` carries it rather than a defaulted
+/// overload existing beside it: three production callers, and a default
+/// would let a new volume verb silently record a point, which is precisely
+/// the bug. A verb with no natural extent passes `0` and reproduces the old
+/// behaviour exactly.
+#[derive(Clone, Copy, Debug)]
+pub struct Disturbance {
+    pub x: i32,
+    pub y: i32,
+    /// Outer limit of the damage the verb does *itself*, in cells from
+    /// `(x, y)`. Read off the tool, never guessed: `explosion` takes the
+    /// reach its own joint fabric actually used (which C3's surface-burst
+    /// fix stretches by up to 2x), `rigid::strike` its swing's crack reach,
+    /// `rigid::mine_swept` its chisel's.
+    pub extent: i32,
+    pub frame: u64,
 }
 
 /// How many recent disturbances are remembered. A player cannot disturb
@@ -4074,7 +4268,9 @@ mod tests {
             w.set(0, 30, Cell::EMPTY);
             w.schedule_structural_check_around(0, 30);
             if let Some((dx, dy)) = disturb_at {
-                w.record_disturbance(dx, dy);
+                // Extent `0`: an erasure has no wound of its own to
+                // license, and the point of this scene is the *reach*.
+                w.record_disturbance(dx, dy, 0);
             }
             run(&mut w, 200);
             w
@@ -5067,13 +5263,47 @@ mod tests {
     /// around the far end of the overhang. The staged queue is not supposed
     /// to care: everything on it was licensed once, as one failure, and
     /// `advance_staged_fractures` never asks a second time.
+    ///
+    /// # Ignored, and it is a decision waiting to be made rather than a bug
+    ///
+    /// **This scene cannot pass once the region is clipped, and it is not
+    /// the staging that broke.** Measured: 383 of the overhang's 4,400
+    /// cells come down (the part inside TIGHT's 33x33 box around the neck)
+    /// and **4,017 stay standing** — as a slab with air under it, because
+    /// the clip removed the middle of the connection and refused the rest.
+    /// The staged queue still drains everything it is given; what it is
+    /// given is now the clipped region, so `stages.len() >= 2` still holds
+    /// and only `intact_rock_left == 0` fails.
+    ///
+    /// So the two halves of this commit genuinely disagree here. The clip
+    /// is deliberate and its consequence is stated in the wiki ("rock that
+    /// was holding nothing up can be left standing" at LOCAL/TIGHT). This
+    /// test's `intact_rock_left == 0` is the opposite claim — the wiki's
+    /// older *"nothing stops half way and leaves rock hanging in the air,
+    /// and no setting anywhere makes the rest of it safe"* — and the two
+    /// cannot both be true at a bounded reach.
+    ///
+    /// Kept rather than edited, per `CLAUDE.md`'s "a revert keeps the
+    /// knowledge": the reproduction is exact, and whichever way the
+    /// question is settled this is the scene that shows it. What replaces
+    /// it as a live guard is
+    /// `a_paced_remainder_falls_even_after_its_licence_has_gone` below,
+    /// which pins the property this test was *named* for — the queue is
+    /// never re-judged — in a form the clip does not make vacuous.
+    ///
+    /// **The open question, for whoever picks this up:** is a 4,000-cell
+    /// slab left hanging in open air at TIGHT better or worse than the
+    /// unleashed cascade it replaces? It is not obviously better, and it is
+    /// the one outcome the load model has spent four support models
+    /// avoiding.
+    #[ignore = "clipping the region contradicts this scene's `intact_rock_left == 0`; see the doc above -- a decision, not a bug"]
     #[test]
     fn a_paced_remainder_falls_even_when_the_disturbance_cannot_reach_it() {
         let mut w = World::new(Rect::new(0, 0, 255, 159));
         let slab = ligament(&mut w);
         compute_world_distances(&mut w);
         w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
-        w.record_disturbance(45, 62);
+        w.record_disturbance(45, 62, 0);
         w.schedule_structural_check_around(45, 62);
         // The reach really cannot see the far end, or this is the previous
         // test wearing a different hat.
@@ -5086,6 +5316,327 @@ mod tests {
             intact_rock_left(&w, &slab),
             0,
             "{} cells still standing: the paced remainder never came down, so something between the failure and `advance_staged_fractures` is still asking the load model for permission",
+            intact_rock_left(&w, &slab)
+        );
+    }
+
+    /// **The guard the 64x64 bridge could not be.**
+    ///
+    /// `a_reach_limit_keeps_damage_near_what_was_disturbed` is a 4-cell
+    /// bridge in a 64x64 world -- the whole scene is smaller than one
+    /// region, so "the region extends far beyond the reach" has no room to
+    /// happen there and that test cannot fail for the reported artifact at
+    /// all. It stays, because a disturbance that licenses *nothing* is a
+    /// real case; this is the one that can see the leak.
+    ///
+    /// The ligament owns a 4,400-cell region reaching 110 cells past the
+    /// neck, and the check that finds it is **licensed** -- the disturbance
+    /// is right there. Before the clip, that one licensed check destroyed
+    /// the whole span; the reach bounded where the question was asked and
+    /// never what the answer ate.
+    ///
+    /// Asserted on `max_damage_reach` (the P1a instrument) rather than on
+    /// one cell's material: the question is the *extent* of what was
+    /// destroyed, and a single named cell cannot say it. Paired with a
+    /// SPREAD arm, per `CLAUDE.md` -- without it, "nothing landed past 16
+    /// cells" also passes against a scene in which nothing broke at all.
+    #[test]
+    fn a_reach_limit_clips_the_region_a_licensed_failure_eats() {
+        fn collapse(reach: i32) -> World {
+            let mut w = World::new(Rect::new(0, 0, 255, 159));
+            let slab = ligament(&mut w);
+            compute_world_distances(&mut w);
+            w.chain_reach = reach;
+            // Extent `0`: this scene has no tool in it, only a check. The
+            // extent is tested separately, and mixing the two here would
+            // make it impossible to say which one held the damage in.
+            w.record_disturbance(45, 62, 0);
+            w.schedule_structural_check_around(45, 62);
+            collapse_stages(&mut w, &slab, 1_200);
+            w
+        }
+
+        let spread = collapse(i32::MAX);
+        assert!(
+            spread.structural_failures.max_damage_reach > 90,
+            "test setup: at SPREAD this failure must eat well past any reach we then set -- it reached {} cells",
+            spread.structural_failures.max_damage_reach
+        );
+
+        let tight = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        let leashed = collapse(tight);
+        assert!(
+            leashed.structural_failures.max_damage_reach <= tight as u32,
+            "damage landed {} cells from the only disturbance against a reach of {tight} -- the licence bounds the question, not the region",
+            leashed.structural_failures.max_damage_reach
+        );
+        assert!(
+            leashed.structural_failures.overloaded + leashed.structural_failures.unsupported > 0,
+            "nothing failed at all at TIGHT, which is a reach limit making rock invincible rather than leashing it"
+        );
+    }
+
+    /// A blast at TIGHT breaks the rock it actually hit, and does not break
+    /// rock well outside it.
+    ///
+    /// **Both halves, or it passes by making rock invincible.** The wound
+    /// half is the reason `Disturbance::extent` exists: a charge of radius
+    /// 20 wakes a joint fabric out past 48 cells, so a reach of 16 measured
+    /// from the epicentre is inside the charge's own crater, and leashing on
+    /// that would crack rock and never break it -- the owner's original
+    /// complaint, reintroduced by the fix for a different one.
+    ///
+    /// Paired against the *same blast* with the extent forced to zero, which
+    /// is what the point-disturbance model was. `CLAUDE.md`: compare two
+    /// runs, not one run against a remembered number.
+    ///
+    /// Driven by `Blasts::trigger_with`, never `trigger_tuned`: only the
+    /// former records a disturbance at all, so a guard written on the other
+    /// has zero disturbances, behaves identically at every mode, and is
+    /// vacuous.
+    #[test]
+    fn a_disturbance_extent_licenses_the_wound_but_not_the_chain() {
+        use crate::sim::explosion::Blasts;
+        use crate::sim::particle::ParticleSystem;
+
+        let tight = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        // A deep charge in a solid massif, so the failures that follow are
+        // the rock's and not the scene's edges.
+        fn massif(reach: i32) -> World {
+            let mut w = World::new(Rect::new(0, 0, 255, 159));
+            for y in 40..160 {
+                for x in 0..256 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for y in 158..160 {
+                for x in 0..256 {
+                    w.set(x, y, Cell::new(material::BEDROCK, 0));
+                }
+            }
+            compute_world_distances(&mut w);
+            w.chain_reach = reach;
+            w
+        }
+        let fire = |w: &mut World, flatten: bool| {
+            let mut particles = ParticleSystem::new();
+            let mut blasts = Blasts::new();
+            blasts.trigger_with(w, &mut particles, 128, 100, 20, 180.0);
+            let extent = w.disturbances.back().expect("a blast records a disturbance").extent;
+            if flatten {
+                // The point-disturbance model, on the identical blast.
+                let d = w.disturbances.pop_back().expect("just read it");
+                w.disturbances.push_back(Disturbance { extent: 0, ..d });
+            }
+            for _ in 0..600 {
+                w.begin_step();
+                scheduler::step(w);
+                w.end_step();
+                crate::sim::rigid::step_chunk_bodies(w);
+                update::step(w);
+                blasts.step(w, &mut particles);
+            }
+            extent
+        };
+
+        let mut wound = massif(tight);
+        let extent = fire(&mut wound, false);
+        assert!(
+            extent > tight,
+            "test setup: a radius-20 charge must record a wound wider than TIGHT's own reach, recorded {extent} against {tight}"
+        );
+
+        let mut point = massif(tight);
+        fire(&mut point, true);
+
+        let with_extent = wound.structural_failures.overloaded_cells + wound.structural_failures.unsupported_cells;
+        let without = point.structural_failures.overloaded_cells + point.structural_failures.unsupported_cells;
+        assert!(
+            with_extent > without,
+            "the extent bought nothing: {with_extent} cells failed with the wound licensed against {without} with a point licence -- TIGHT is leashing the blast's own seams"
+        );
+
+        // ...and the chain past the wound is still leashed. Anything the
+        // structural model destroyed sits inside `reach + extent`, measured
+        // from the edge of the wound by `distance_to_live_disturbance`.
+        assert!(
+            wound.structural_failures.max_damage_reach <= tight as u32,
+            "damage landed {} cells past the wound against a reach of {tight}",
+            wound.structural_failures.max_damage_reach
+        );
+    }
+
+    /// **NONE is the hard off switch and stays one**, extent or no extent.
+    ///
+    /// The exemption is deliberate and is pinned here rather than left to
+    /// read off `licence_radius`: NONE is the owner's working escape hatch
+    /// and the one setting that currently does what it says
+    /// (`wiki/structural-collapse.md`: "only what you struck is ever
+    /// destroyed. Nothing collapses afterwards, at all"). A commit that
+    /// gave every disturbance a volume could very easily have handed NONE
+    /// one too.
+    #[test]
+    fn none_still_means_none() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "NONE").expect("a NONE chain mode").reach;
+        // A wound big enough to cover the entire overhang, which at any
+        // other setting would license all of it. Recorded in open air above
+        // the neck, so that "zero failures" is the literal claim: at reach 0
+        // the licence is the struck cell and nothing else, and the struck
+        // cell here is sky.
+        w.record_disturbance(45, 30, 200);
+        w.schedule_structural_check_around(45, 62);
+        assert!(!w.within_disturbance(159, 79), "NONE licensed the far corner of the overhang through a 200-cell extent");
+        assert!(!w.within_disturbance(45, 62), "NONE licensed the neck 32 cells away through a 200-cell extent");
+
+        let stages = collapse_stages(&mut w, &slab, 1_200);
+
+        assert_eq!(
+            w.structural_failures.overloaded + w.structural_failures.unsupported,
+            0,
+            "{} failure(s) fired at NONE with a 200-cell extent recorded",
+            w.structural_failures.overloaded + w.structural_failures.unsupported
+        );
+        assert_eq!(intact_rock_left(&w, &slab), slab.len(), "rock came away at NONE: {stages:?}");
+
+        // ...and the identical scene at TIGHT does come apart, so the
+        // exemption is what held it and not an inert scene. `CLAUDE.md`:
+        // compare two runs.
+        let mut loud = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut loud);
+        compute_world_distances(&mut loud);
+        loud.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        loud.record_disturbance(45, 30, 200);
+        loud.schedule_structural_check_around(45, 62);
+        collapse_stages(&mut loud, &slab, 1_200);
+        assert!(
+            loud.structural_failures.overloaded + loud.structural_failures.unsupported > 0,
+            "test setup: the same scene and the same 200-cell extent produced no failure at TIGHT either, so NONE was never what stopped it"
+        );
+    }
+
+    /// A refused failure still carries its distance wavefront.
+    ///
+    /// Control only reaches the clip when `worsened` is true, so `propagate`
+    /// already holds this cell's reschedule and its neighbour fan-out, and
+    /// the new `aux` has been written. The veto this replaced returned
+    /// `Vec::new()` and discarded both -- a fourth early return that did not
+    /// carry the wavefront the block at the top of `tick` says every early
+    /// return must, and it dropped it specifically for *rising* distances,
+    /// which is the direction that propagates collapse. The consequence of
+    /// dropping it, measured once already: frame 3,000 with 15,840 cells
+    /// never load-evaluated.
+    ///
+    /// `tick` is called directly rather than through the scheduler, because
+    /// the claim is about its **return value** -- the sites it hands back
+    /// are the wavefront, and nothing downstream can distinguish "returned
+    /// nothing" from "had nothing to return".
+    #[test]
+    fn a_refused_failure_still_carries_its_distance_wavefront() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        // Far from the overhang: every failure out here is refused.
+        w.record_disturbance(250, 20, 0);
+
+        // The neck's own bottom face: free below, so structurally
+        // interesting, and it is the cell this scene exists to make fail
+        // (`ROOTWARD_CHECK_STEPS`' own doc: "the neck now fails on its own
+        // check").
+        let (x, y) = (45, 63);
+        assert!(!w.within_disturbance(x, y), "test setup: the cell under test must be outside the licence");
+        let cell = w.get(x, y);
+        // Knocked back to zero so this tick sees the distance **rise**,
+        // which is the only path that reaches the clip at all.
+        w.set(x, y, cell.with_aux(0));
+
+        // ...and it really is a failing cell, or the refusal never happens
+        // and the test passes against anything.
+        let mut cache = std::mem::take(&mut w.load_cache);
+        let mut budget = w.load_budget;
+        let verdict = super::super::load::failing_along_support_chain(&w, x, y, &mut cache, &mut budget);
+        assert!(
+            matches!(verdict, super::super::load::ChainVerdict::Failing(_)),
+            "test setup: the cell under test must be judged failing, or nothing is ever refused here"
+        );
+        drop(verdict);
+        w.load_cache = Default::default();
+        w.load_budget = crate::sim::load::MAX_LOAD_CELLS_PER_FRAME;
+
+        let site = ActiveSite { x, y, kind: ActiveKind::StructuralCheck, next_frame: w.frame };
+        let out = tick(&mut w, &site);
+
+        assert_eq!(
+            w.structural_failures.overloaded + w.structural_failures.unsupported,
+            0,
+            "test setup: the failure was not refused, so this measured the success path"
+        );
+        assert!(
+            !out.is_empty(),
+            "a refused failure returned no sites at all -- the distance wavefront was computed and then thrown away, which is how a structure stops being load-evaluated entirely"
+        );
+    }
+
+    /// **The queue is work, not a question** — restated in a form the
+    /// region clip does not make vacuous.
+    ///
+    /// The test above put the disturbance where its licence could not
+    /// reach the far end. That no longer discriminates: `tick` clips the
+    /// region to the licence *before* staging it, so everything on the
+    /// queue is inside the licence by construction and "the remainder falls
+    /// even though the licence cannot see it" is true for free.
+    ///
+    /// What still has to hold, and is the thing the original test was named
+    /// for, is that `advance_staged_fractures` never asks a second time. So
+    /// the licence is made wide enough to stage the whole overhang, and then
+    /// **taken away mid-collapse** — a disturbance ageing past
+    /// `chain_window` does exactly this in play, and a player pressing `F9`
+    /// does it deliberately (that path goes through
+    /// `relicense_staged_fractures`, which is the *one* sanctioned
+    /// exception). Everything already queued must still come down.
+    #[test]
+    fn a_paced_remainder_falls_even_after_its_licence_has_gone() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "TIGHT").expect("a TIGHT chain mode").reach;
+        // A wound wide enough that the clip keeps the whole overhang, so
+        // the region really is over `FRACTURE_CELLS_PER_TICK` and really
+        // does stage.
+        w.record_disturbance(45, 62, 120);
+        w.schedule_structural_check_around(45, 62);
+        assert!(w.within_disturbance(159, 79), "test setup: the licence must cover the whole overhang, or nothing large is ever staged");
+
+        let mut staged = false;
+        for _ in 0..1_200 {
+            w.begin_step();
+            scheduler::step(&mut w);
+            w.end_step();
+            crate::sim::rigid::step_chunk_bodies(&mut w);
+            update::step(&mut w);
+            if !w.staged_fractures.is_empty() {
+                staged = true;
+                break;
+            }
+        }
+        assert!(staged, "test setup: nothing was ever staged, so this run exercises no queue at all");
+        let queued: usize = w.staged_fractures.iter().map(|f| f.region.len()).sum();
+        assert!(queued > 0, "test setup: the queue is empty");
+
+        // The licence evaporates. Everything already judged must still land.
+        w.disturbances.clear();
+        assert!(!w.within_disturbance(45, 62), "test setup: the licence must really be gone");
+
+        let stages = collapse_stages(&mut w, &slab, 1_200);
+
+        assert!(stages.len() >= 2, "the slab came down in one bite, so this run never exercised the paced path: {stages:?}");
+        assert_eq!(
+            intact_rock_left(&w, &slab),
+            0,
+            "{} cells still standing of the {queued} that were queued: the staged remainder is being re-judged against a licence it never had to satisfy",
             intact_rock_left(&w, &slab)
         );
     }

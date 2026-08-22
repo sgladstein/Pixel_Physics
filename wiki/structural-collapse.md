@@ -30,7 +30,18 @@ thing to judge: rather less rock comes away *in total* than in the build
 before this one, because much of that total used to arrive long after
 anyone was still watching. A piece smaller than one block of the grain has
 no joint inside it and so cracks nothing at all, which is the same rule as
-before wearing different clothes.*
+before wearing different clothes. **The setting that decides how far
+damage travels (`F9`) now actually does something, which it largely did
+not before** — see the last section, which is rewritten. Three things
+changed there: the setting survives loading a new world (it used to
+quietly go back to the default while the title bar kept naming what you
+picked, so anyone comparing settings across a re-roll was comparing the
+default with itself); it now bounds *what a collapse eats* rather than
+only where the question gets asked; and trees obey it, which they never
+did at any setting. The thing to judge in play is the trade the second of
+those buys, which is real and is described below: at the tighter settings
+a collapse can now stop part way and leave rock standing that is holding
+nothing up.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -86,8 +97,10 @@ several bites rather than one. A hundred-cell overhang therefore reads as
 something *coming down*, with the near end going first and the far end
 following it, instead of the whole span blinking out of existence in a
 single frame. Once it has started it always finishes: nothing stops
-half way and leaves rock hanging in the air, and no setting anywhere
-makes the rest of it safe.
+half way and leaves rock hanging in the air — **except where you have
+asked it to.** At the default that "except" never fires. At the tighter
+`F9` settings below it can, and that is the price of them; see that
+section.
 
 **What you build is sound until something happens to it.** Placed stone is
 braced the same way the world's own rock is — the way a real cliff face is
@@ -181,15 +194,39 @@ cycled with `F9`, named in the title bar whenever it is not the default:
 
 - **SPREAD** (default) — damage travels as far as the structure says it
   should. Nothing is held back.
-- **LOCAL** — consequences stay within a wide room of the blow.
+- **LOCAL** — consequences stay within a wide room of the wound.
 - **TIGHT** — the wound and its surroundings only. Undermining still brings
   things down, but a hillside stops unravelling.
 - **NONE** — only what you struck is ever destroyed. Nothing collapses
   afterwards, at all.
 
+**The distance is measured from the edge of what you hit, not from the
+middle of it.** A big charge makes a big wound, and its own crater and the
+seams it opens are always inside its own allowance however tight the
+setting is — otherwise TIGHT would crack rock and never break it, which is
+the opposite of the complaint it exists for. So the leash is on *the chain
+beyond the wound*: what the tool does is the tool's business, and what
+happens next is what the setting governs. A heavier tool therefore gets a
+longer leash, which is the same thing as saying a bigger bang is allowed a
+bigger consequence.
+
+The setting now survives loading a new world, which it did not before — it
+used to go quietly back to SPREAD on every re-roll while the title bar
+went on naming what you had chosen. It also reaches a collapse that has
+already started: switching to a tighter setting mid-cave-in stops the rest
+of it arriving, rather than only affecting the next one. And it applies to
+trees, which previously ignored it entirely — a blast could take a limb off
+a tree fifty cells away at any setting, including NONE.
+
 The whole range is one number, so it is worth trying the ends rather than
-reasoning about them. Note what the tighter settings cost: a delayed
-cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
-a mountain and it will sit there.
+reasoning about them. Note what the tighter settings cost, and there are
+two costs, not one. A delayed cave-in is a mechanic, and **NONE** removes
+it entirely — you can undercut a mountain and it will sit there. And at
+**LOCAL** or **TIGHT** a collapse that runs into the edge of its allowance
+simply stops there, so a long span can lose the part near the blast and
+leave the far part standing on nothing. That is the setting doing what it
+was asked, and it is also the thing most likely to look wrong: rock in the
+air is a strong signal, and whether it is a worse artifact than the
+unravelling hillside it replaces is the open question on this page.
 
 *Current as of: this build.*

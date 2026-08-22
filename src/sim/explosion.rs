@@ -969,6 +969,18 @@ pub struct Blast {
     /// make a `Blast` immortal, the same way `crack_growth` is clamped where
     /// it is read so that `0` cannot freeze the star half-drawn forever.
     afterglow_frames: u16,
+    /// How far this charge's **own** damage reaches from the epicentre, in
+    /// cells — the extent `Blasts::trigger_with` records with the
+    /// disturbance (`structural::Disturbance::extent`).
+    ///
+    /// Computed here, at construction, from the numbers the blast actually
+    /// used rather than from the nominal tuning: `joint_halo_reach` already
+    /// carries C3's `1/sqrt(contained)` stretch and the standoff coupling,
+    /// so an unconfined charge records the wider licence it earns and an
+    /// airburst records almost none. Recomputing `radius * joint_reach` at
+    /// the trigger site instead would drift from the halo the first time
+    /// either was tuned.
+    damage_extent: i32,
 }
 
 /// Every blast currently expanding, plus the tuning they all read.
@@ -1048,10 +1060,17 @@ impl Blasts {
         // before the first stage runs rather than after.
         world.add_pressure_impulse(cx, cy, radius, strength);
         world.add_heat(cx, cy, radius, strength / self.tuning.heat_fraction);
-        // A blast is a disturbance: it licenses failures near it. See
-        // `World::chain_reach`.
-        world.record_disturbance(cx, cy);
         let mut blast = Blast::new(world, cx, cy, radius, strength, &self.tuning);
+        // A blast is a disturbance: it licenses failures near it. See
+        // `World::chain_reach`, and `Blast::damage_extent` for why the
+        // licence is a *volume* -- a leash measured from the epicentre alone
+        // is inside the charge's own crater at TIGHT.
+        //
+        // **Recorded after `Blast::new`, not before**, because the extent is
+        // read off the blast rather than recomputed. Nothing between the two
+        // consults `disturbances`: the only reader is `structural::tick`,
+        // which runs from the scheduler on a later frame.
+        world.record_disturbance(cx, cy, blast.damage_extent);
         let still_going = blast.advance(world, particles, &self.tuning);
         self.last_report = blast.report;
         if still_going {
@@ -1256,6 +1275,31 @@ impl Blast {
             seams
         });
 
+        // **What this charge does to the rock by itself**, as one radius.
+        // See `Blast::damage_extent`, and note this is deliberately the
+        // *widest* of the three things a blast writes rather than any one of
+        // them: a licence that did not cover the whole wound would leash the
+        // blast's own seams, which is the thing four commits just fixed.
+        let damage_extent = {
+            // The crater is a floor: a charge always removes its own hole,
+            // even when nothing in reach is jointed and `wake` returned
+            // `None`.
+            let crater = radius.max(1);
+            let fabric = joint_halo_reach(radius, tuning, exposure).ceil() as i32;
+            // The archived walker star. `crack_rays` defaults to `0`, so
+            // this contributes nothing on any shipped setting -- it is here
+            // so that a sweep which turns the rays back on does not silently
+            // record a licence narrower than the damage it draws. Longest
+            // possible ray: the length draw is `base * (FLOOR + SPREAD * j*j)`
+            // with `j` in `[0, 1)`.
+            let star = if tuning.crack_rays > 0 {
+                radius + BLAST_SHELL_REACH + 1 + (radius as f32 * tuning.crack_reach * (CRACK_LENGTH_FLOOR + CRACK_LENGTH_SPREAD)).ceil() as i32
+            } else {
+                0
+            };
+            crater.max(fabric).max(star)
+        };
+
         Self {
             cx,
             cy,
@@ -1278,6 +1322,7 @@ impl Blast {
             },
             calved: false,
             afterglow_frames: 0,
+            damage_extent,
         }
     }
 
@@ -1903,6 +1948,40 @@ struct PendingJoint {
     down: bool,
 }
 
+/// How well the charge is coupled into the grain, `0.0` (no coupling at
+/// all) to `1.0` (in or on the ground).
+///
+/// Scales the reach **and** the activation density, so a standoff charge
+/// leaves a small sparse craquelure rather than the same diced near field
+/// in a smaller patch. See `JOINT_CONTACT_STANDOFF`.
+fn joint_contact(radius: i32, exposure: JointExposure) -> f32 {
+    let crater = radius.max(1) as f32;
+    (1.0 - exposure.standoff / (crater * JOINT_CONTACT_STANDOFF)).clamp(0.0, 1.0)
+}
+
+/// The outer limit of the joint fabric a charge wakes, in cells from the
+/// epicentre — **the blast's own damage reach**, which is what
+/// `World::record_disturbance` is given as this charge's extent.
+///
+/// Pulled out of `JointSeams::wake` rather than recomputed at the trigger
+/// site, and that is the whole reason it is a function: the licence a blast
+/// records and the halo it actually writes must be the *same* number, and
+/// two copies of this expression would drift the first time either is
+/// tuned. Note in particular that C3's surface-burst fix stretches the
+/// reach by `1/sqrt(contained)` up to 2x, so the nominal `radius *
+/// joint_reach` is **not** what an unconfined charge reaches.
+///
+/// **Confinement scales the halo; it never gates it.** See
+/// `JointExposure::vented` for the measurement that asked for this and
+/// `JOINT_VENT_FLOOR` for the cap. A fully contained charge has
+/// `contained == 1`, so this multiplies by exactly one and the buried case
+/// is bit-identical to what shipped.
+fn joint_halo_reach(radius: i32, tuning: &Tuning, exposure: JointExposure) -> f32 {
+    let crater = radius.max(1) as f32;
+    let contained = (1.0 - exposure.vented).clamp(JOINT_VENT_FLOOR, 1.0);
+    crater * tuning.joint_reach / contained.sqrt() * joint_contact(radius, exposure)
+}
+
 impl JointSeams {
     /// Wake the fabric around a charge: open the near joints **now**, and
     /// queue the far ones for the growth front.
@@ -1916,17 +1995,8 @@ impl JointSeams {
     /// Otherwise `(seams, joints opened, joints activated)`.
     fn wake(world: &mut World, cx: i32, cy: i32, radius: i32, tuning: &Tuning, exposure: JointExposure) -> Option<(Self, u32, u32)> {
         let crater = radius.max(1) as f32;
-        // **Confinement scales the halo; it never gates it.** See
-        // `JointExposure::vented` for the measurement that asked for this
-        // and `JOINT_VENT_FLOOR` for the cap. A fully contained charge has
-        // `contained == 1`, so this multiplies by exactly one and the
-        // buried case is bit-identical to what shipped.
-        let contained = (1.0 - exposure.vented).clamp(JOINT_VENT_FLOOR, 1.0);
-        // ...and standoff scales the coupling, both the distance it
-        // reaches and how much of the grain it wakes at all. A charge in
-        // or on the ground has `standoff == 0` and is likewise untouched.
-        let contact = (1.0 - exposure.standoff / (crater * JOINT_CONTACT_STANDOFF)).clamp(0.0, 1.0);
-        let reach = crater * tuning.joint_reach / contained.sqrt() * contact;
+        let contact = joint_contact(radius, exposure);
+        let reach = joint_halo_reach(radius, tuning, exposure);
         // A charge with no coupling left wakes nothing, and that is the
         // gate the `struck_solid` flag used to be -- except that it is a
         // *distance* now, so a shot two cells over a hillside is not the

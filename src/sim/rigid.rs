@@ -1010,8 +1010,11 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     }
     world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
     // A cut is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
+    // `World::chain_reach`. The extent is the chisel's own outer crack
+    // reach -- the same `radius + MINE_CRACK_REACH` handed to `score_cracks`
+    // above, so the licence covers exactly the rock this cut damaged and no
+    // more (`structural::Disturbance::extent`).
+    world.record_disturbance(cx, cy, radius + MINE_CRACK_REACH);
     // Last, so everything above sees the full bite as rubble. That
     // ordering is not incidental: it is exactly what `player::dig` did
     // when the thinning lived there, so moving it in here changes the
@@ -1090,9 +1093,6 @@ const MINE_CRACK_RAYS: u32 = 3;
 const MINE_PRESSURE: f32 = 0.4;
 
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
-    // A blow is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the
@@ -1110,6 +1110,17 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // want different sizes: you draw with a pencil and you swing a hammer.
     // So the brush still scales the blow, from a floor that always lands.
     let radius = radius.max(MIN_STRIKE_RADIUS);
+    // A blow is a disturbance: it licenses failures near it. See
+    // `World::chain_reach`. The extent is the swing's own crack reach --
+    // the same `radius * CRACK_REACH` handed to `score_cracks` below, so
+    // the licence covers exactly the rock this blow scored
+    // (`structural::Disturbance::extent`).
+    //
+    // **Recorded after the floor, not before it.** `radius` is rebound one
+    // line up, and a licence taken from the unfloored brush radius would be
+    // narrower than the swing that actually lands -- which is the same
+    // mistake as recording a point for a volume, one argument along.
+    world.record_disturbance(cx, cy, radius * CRACK_REACH);
     // Three zones, and the split is what makes a blow read as a blow rather
     // than as a hole appearing. The core is pulverized -- that is the bite.
     // A thin shell around it chips off immediately, so every hit produces
