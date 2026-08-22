@@ -49,13 +49,13 @@ for where it goes and how it comes back.
 **Warm water shows it, too.** Vapour rises through a heated pool as sparse
 pale bubbles that climb and thin out with the heat, so a pan over a fire
 reads as coming to the boil rather than as water that happens to be
-glowing. They start well below boiling — a rising bubble is not *in* boiling
-water, it is in warm water above a boiling floor — so a puddle beside a
-campfire fizzes gently and a pot on a hearth roils. `H` cycles the looks,
-including off: small bubbles (the default), **large** ones — fewer, wider,
-visibly round and in two sizes rather than a scatter of identical specks —
-a stream of columns leaving one spot on the floor, and bubbles only near
-the surface.
+glowing. They start well below boiling — a rising bubble is not *in*
+boiling water, it is in warm water above a boiling floor — so a puddle
+beside a campfire fizzes gently and a pot on a hearth roils. The backtick
+key cycles the looks, including off: small bubbles (the default),
+**large** ones — fewer, wider, visibly round and in two sizes rather than
+a scatter of identical specks — a stream of columns leaving one spot on
+the floor, and bubbles only near the surface.
 
 **And the surface itself breaks up**, whichever of those you have on and
 even with them off, because that part is not drawn: water near boiling
