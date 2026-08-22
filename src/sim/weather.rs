@@ -448,23 +448,104 @@ const WATER_CHILL: f32 = 40.0;
 /// them separate: this one is not the pace knob.
 const SWEEP_LIQUID_DEPTH: i32 = 1;
 
-/// How much ice the front's own sweep will reach *through* to chill the
-/// water below, in cells — and so, in practice, how thick a sheet gets.
+/// How many cells of ice halve the rate at which the water underneath it
+/// freezes.
 ///
-/// `CRUST_CHILL_DEPTH`'s doc already records that a sheet has to be
-/// bounded, and how it used to be: a drop could only chill water through a
-/// *thin* crust, so once the ice was `SNOW_CHILL_DEPTH` thick nothing below
-/// it was reached again. `SWEEP_LIQUID_DEPTH` bypassed that, because the
-/// whole-ground sweep walks through up to `CRUST_CHILL_DEPTH` of crust —
-/// and a 20-deep pond went to **833 frozen cells against 148 of liquid**,
-/// solid to within a row of its bed, over one long cold spell.
+/// # Stefan's law, replacing a cliff that was standing in for a curve
 ///
-/// Nine, matching the figure that doc names, so the pond keeps water under
-/// its ice: a frozen crust a player can stand on, with a pond beneath it,
-/// rather than a block. That is the reading `wiki/weather.md` and
-/// `wiki/structural-collapse.md` both describe — ice is the one thing
-/// water holds up.
-const SHEET_MAX_THICKNESS: i32 = 9;
+/// **Ice insulates the water it is made of.** The interface freezes at a
+/// rate set by the temperature gradient across the crust already above it,
+/// so `dx/dt` goes as `1/x` and thickness goes as the **square root of
+/// time** — fast at first, then ever slower, never quite stopping. That
+/// self-limiting shape is the whole reason a real pond does not freeze to
+/// its bed on one cold night.
+///
+/// This replaced `SHEET_MAX_THICKNESS`, a hard nine-cell cutoff on how much
+/// crust the sweep would reach through. That constant existed for the right
+/// reason -- without a bound a 20-deep pond went to **833 frozen cells
+/// against 148 of liquid**, solid to within a row of its bed -- and got
+/// there the wrong way: a wall where the physics has a curve. It also had
+/// to be *chosen*, and nothing could say what it should be, because the
+/// quantity it capped was not a quantity anything measured. The readout it
+/// needed (`examples/filmstrip.rs`'s `sheet:` line) did not exist until
+/// this change either, and the first thing it showed was every column of
+/// the pond pinned at 10 to 12 cells: the cap, being a cap.
+///
+/// # Realised as how often a visit reaches the water, not how deep it goes
+///
+/// A depth rule cannot produce a curve. A *rate* rule can: a column is
+/// visited many times, so a `1/x` chance of reaching the water per visit is
+/// a `1/x` growth rate, which integrates to the square root. Nothing has to
+/// remember a column's history for this -- the crust above the water is
+/// itself the record of how much has frozen there.
+///
+/// Four is set from what it has to beat: at four cells the sheet grows at
+/// half speed, at twelve at a quarter, so the old nine-cell wall is now a
+/// place the ice passes slowly rather than one it stops at.
+const STEFAN_HALVING_DEPTH: f32 = 4.0;
+
+/// How many cells of crust the *temperature* falloff halves over -- the
+/// linear profile through the slab, and the thing that makes the sheet stop.
+///
+/// **This stands in for a heat flux the engine does not have, and saying so
+/// is the point.** Real lake ice stops thickening when the heat conducted up
+/// through it equals the heat arriving from the water below. Nothing in this
+/// engine supplies that upward flux, so Stefan's rate law alone -- correct as
+/// it is -- describes growth that slows forever and never stops. Measured:
+/// at a one-cell halving depth the pond went from 944 cell-equivalents of
+/// liquid to **180 against 971 frozen** over nine thousand frames,
+/// thickening monotonically throughout. That is exactly the runaway the old
+/// `SHEET_MAX_THICKNESS` cap existed to prevent, arriving by a slower road.
+///
+/// So the cold delivered at depth is attenuated as well as its rate, and
+/// below the point where it no longer clears the freezing point nothing
+/// freezes and what is there melts back. The sheet settles where chilling and
+/// conduction balance.
+///
+/// Sixteen, set by measurement against the sheet the previous build produced
+/// and play accepted: paired on `scene=coldsnap`, the old nine-cell cap gave
+/// a sheet **5.9 cells thick on average and 12 at the thickest**, and this
+/// gives 5.3 and 10. Swept -- 12 gives 4.1/8, 20 gives 6.5/13.
+///
+/// It is not arbitrary the way nine was, because it is not the answer: it
+/// scales one. The stall lands at about `G * (2.5 * bite - 1)` cells, so **a
+/// harder night really does make thicker ice**, where nine was one number for
+/// every night.
+const CRUST_GRADIENT_DEPTH: f32 = 16.0;
+
+/// How many cells of ice one cell of lying snow is worth, as insulation.
+///
+/// **Snow is the best insulator in the scene and the engine had it as an
+/// accelerant.** Real snow has roughly a tenth of ice's thermal
+/// conductivity -- it is mostly trapped air -- so a snow blanket is what
+/// stops a lake freezing deeper, and lake ice grows *fastest* on cold clear
+/// nights with the snow blown off. The engine did the reverse: a landing
+/// flake chilled three cells into the water across nine columns, against
+/// the clear-sky sweep's one, so snowfall multiplied the freezing rate.
+///
+/// Reported from play, off the six-minute arc: *"it seems to slowly grow
+/// and then jumps to fully frozen"*. Measured across that step, freezing
+/// went **+40 cells in one window to +246** in the next, while lying snow
+/// went 55 to 114.
+///
+/// Four rather than the real ten: at ten a single flake settling on a sheet
+/// stops it dead, which is a cliff again with the sign flipped. What is
+/// wanted is that snow cover slows thickening markedly, not that it
+/// forbids it.
+///
+/// Measured by `a_drift_on_the_ice_slows_the_freeze_underneath_it`, which had
+/// to be *built* rather than found -- no shipped scene puts snow on ice, and
+/// this constant swept at 1, 4 and 8 gave bit-identical output on
+/// `scene=coldsnap` because seed 2900's cold spell is dry from end to end.
+/// On the paired pond, ice under a drift against bare ice in the same run:
+/// **8.47 against 6.10 cells with the old behaviour, 6.23 against 6.83 with
+/// this**. The sign of the effect is what changed, not just its size.
+///
+/// Note this insulates *lying* snow only. Falling snow still delivers cold,
+/// and that is not the inversion: snow falls out of cold air, and a snowy
+/// night really does ice a pond over faster across its *surface*. It is the
+/// thickening underneath that a blanket should slow.
+const SNOW_INSULATION: f32 = 4.0;
 
 /// Above this on the chill channel, a clear sky freezes standing water on
 /// its own.
@@ -1005,7 +1086,7 @@ pub fn step(world: &mut World) {
             // not one. This is the only thing in the file that can freeze
             // water, and a drop lands in a randomly chosen column, so
             // freeze-over starts somewhere rather than everywhere.
-            hold_column_cold(world, x, surface_y, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH, SNOW_CHILL_DEPTH);
+            hold_column_cold(world, x, surface_y, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
             for dir in [-1i32, 1] {
                 let mut hint = surface_y;
                 for step in 1..=WATER_CHILL_RADIUS {
@@ -1020,7 +1101,7 @@ pub fn step(world: &mut World) {
                         break;
                     };
                     hint = cy;
-                    hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH, SNOW_CHILL_DEPTH);
+                    hold_column_cold(world, cx, cy, bounds, snow, cold, water_cold, SNOW_CHILL_DEPTH, WATER_CHILL_DEPTH);
                 }
             }
             // **Snow does not lie on open water**, the same refusal the
@@ -1238,7 +1319,7 @@ fn hold_the_ground_cold(world: &mut World, w: Weather, bounds: Rect, snow: Optio
             continue;
         };
         hint = Some(y);
-        hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, SWEEP_LIQUID_DEPTH, SHEET_MAX_THICKNESS);
+        hold_column_cold(world, x, y, bounds, snow, cold, water_cold, CRUST_CHILL_DEPTH, SWEEP_LIQUID_DEPTH);
     }
 }
 
@@ -1295,9 +1376,17 @@ fn hold_column_cold(
     water_cold: i16,
     crust_depth: i32,
     liquid_depth: i32,
-    liquid_through: i32,
 ) {
     let (mut crust_chilled, mut liquid_chilled) = (0, 0);
+    // Weighted crust above the water, in ice-equivalent cells -- see
+    // `STEFAN_HALVING_DEPTH` and `SNOW_INSULATION`. Accumulated as the walk
+    // descends, so by the time it reaches liquid it holds exactly the
+    // insulation that liquid is under.
+    let mut insulation = 0.0f32;
+    // Position-tagged, per this module's rule: one draw per column per
+    // visit, so two columns at the same depth do not share a fate and the
+    // same world always freezes the same way.
+    let mut r = rng::stream(world.seed, 0x53_5445_4641, world.frame, x as u64);
     for d in 0..(crust_depth + liquid_depth) {
         let y = surface_y + d;
         if y > bounds.max_y {
@@ -1311,22 +1400,53 @@ fn hold_column_cold(
                 m.melting_point < AMBIENT_TEMPERATURE as f32,
             )
         };
-        // **How thick a sheet can get is decided here**, by how much crust
-        // the walk is allowed to reach *through* rather than by how much
-        // liquid it chills once it arrives. Without the second clause a
-        // pond keeps freezing downward for as long as the front lasts:
-        // measured on `scene=coldsnap` at 833 frozen cells against 148 of
-        // liquid left, a 20-deep pond gone solid to within a row of its
-        // bed. See `SHEET_MAX_THICKNESS`.
-        if freezable && (liquid_chilled >= liquid_depth || crust_chilled > liquid_through) {
-            break;
+        // **How thick a sheet gets is decided here**, and it is a rate
+        // rather than a wall. The crust already above this water is what
+        // slows the water below it freezing -- Stefan's law -- so the walk
+        // reaches the liquid with a probability that falls off with the
+        // insulation it came through, drawn once on arrival. Repeated over
+        // many visits that is a `1/x` growth rate, and thickness that goes
+        // as the square root of time. See `STEFAN_HALVING_DEPTH` for why a
+        // depth cutoff could not express this and what it cost.
+        let conducted = 1.0 / (1.0 + insulation / CRUST_GRADIENT_DEPTH);
+        let reaches = 1.0 / (1.0 + insulation / STEFAN_HALVING_DEPTH);
+        if freezable {
+            if liquid_chilled >= liquid_depth {
+                break;
+            }
+            if liquid_chilled == 0 && insulation > 0.0 && !r.chance(reaches) {
+                break;
+            }
         }
         if !freezable && !holds_cold {
             break;
         }
-        let target = if cell.material == snow.unwrap_or(material::EMPTY) { cold } else { water_cold };
+        let lying_snow = cell.material == snow.unwrap_or(material::EMPTY);
+        // **The same falloff, applied to how cold the cell is actually
+        // made** -- which is the linear temperature profile through a slab,
+        // and is what makes the sheet *stop*.
+        //
+        // The rate rule above alone does not stop it. `1/x` growth is slow
+        // but unbounded, and measured that way: at a one-cell halving depth
+        // the pond went from 944 cell-equivalents of liquid to **180 against
+        // 971 frozen** over nine thousand frames, thickening monotonically
+        // the whole time. That is the runaway `SHEET_MAX_THICKNESS` was put
+        // there to stop, arriving by a slower road.
+        //
+        // With the gradient, the air's cold reaches a depth and no further:
+        // below it the target no longer clears the freezing point, so
+        // nothing freezes, and ice already there drifts back toward ambient
+        // by ordinary conduction and melts. The sheet settles where chilling
+        // and conduction balance, which is what sets the thickness of real
+        // lake ice -- and it is set by *how cold the night is* rather than
+        // by a constant, so a hard freeze does reach deeper.
+        let base = if lying_snow { cold } else { water_cold };
+        let target = (AMBIENT_TEMPERATURE as f32 + (base - AMBIENT_TEMPERATURE) as f32 * conducted) as i16;
         if cell.temperature() > target {
             world.set(x, y, cell.with_temperature(target));
+        }
+        if !freezable {
+            insulation += if lying_snow { SNOW_INSULATION } else { 1.0 };
         }
         // Each class keeps its own depth budget, so a drift is chilled
         // exactly as deep as it always was and the water under six cells of
@@ -1876,6 +1996,69 @@ mod tests {
             }
         }
         w
+    }
+
+    /// Snow lying on ice slows the ice thickening under it.
+    ///
+    /// # Built as a paired test because no shipped scene exercises it
+    ///
+    /// `SNOW_INSULATION` was added, swept at 1, 4 and 8, and produced
+    /// **bit-identical output at all three** on `scene=coldsnap` -- the tell
+    /// `CLAUDE.md` records for a knob that is not connected. It was
+    /// connected; the scene simply never presents the situation. Seed 2900's
+    /// cold spell is entirely dry, twenty-four thousand frames with **zero
+    /// cells of lying snow**, so the pond there freezes under a clear sky and
+    /// there is nothing to insulate it. (Snow also never lies on *open*
+    /// water, by design -- see `a_snowstorm_leaves_no_snow_raft_insulating
+    /// _the_pond` -- so the case needs ice first and snowfall second.)
+    ///
+    /// So the situation is built rather than found: one pond, already
+    /// skinned with ice, with a drift laid over half of it. Both halves get
+    /// the same sky and the same frames, which cancels everything the rule
+    /// under test is not about.
+    #[test]
+    fn a_drift_on_the_ice_slows_the_freeze_underneath_it() {
+        let seed = 2900;
+        let mut w = frozen_pond_world(seed, a_long_cold_spell(seed, 8000));
+        let ice = w.materials.id_of("ice").expect("ice.ron should be embedded");
+        let snow = w.materials.id_of("snow").expect("snow.ron should be embedded");
+        // Skin the whole pond with one row of ice, so both halves start
+        // level and the only difference between them is what is on top.
+        for x in POND.0..=POND.1 {
+            w.set(x, POND_SURFACE, Cell::new(ice, 0));
+        }
+        // A drift three cells deep over the left half only.
+        let mid = (POND.0 + POND.1) / 2;
+        for x in POND.0..=mid {
+            for d in 1..=3 {
+                w.set(x, POND_SURFACE - d, Cell::new(snow, 0));
+            }
+        }
+        advance(&mut w, 3000, true);
+
+        let thickness = |from: i32, to: i32| -> f64 {
+            let mut total = 0usize;
+            for x in from..=to {
+                let mut run = 0;
+                for d in 0..16 {
+                    if w.get(x, POND_SURFACE + d).material == ice {
+                        run += 1;
+                    } else if run > 0 {
+                        break;
+                    }
+                }
+                total += run;
+            }
+            total as f64 / (to - from + 1) as f64
+        };
+        let (under_snow, bare) = (thickness(POND.0, mid), thickness(mid + 1, POND.1));
+        println!("ice under a drift {under_snow:.2} cells, bare ice {bare:.2}");
+        assert!(bare > 0.0, "test setup: the bare half never thickened, so this compares nothing");
+        assert!(
+            under_snow < bare,
+            "ice under a drift reached {under_snow:.2} cells against {bare:.2} bare -- \
+             snow is not insulating, or is accelerating the freeze as it used to"
+        );
     }
 
     /// The pond's columns in `frozen_pond_world`, and its surface row.

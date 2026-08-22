@@ -4,7 +4,8 @@
 evaporated, and damp ground gives its water back to the sky — plus drying
 that follows the sun; and cold is now something the air does rather than
 something only snowfall does, so a pond ices over across a minute or two
-and holds).*
+and holds; and the sheet now thickens quickly then slowly rather than at
+one pace, with lying snow slowing it rather than speeding it up).*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
@@ -84,6 +85,19 @@ downward several cells and the water underneath stays water. Look closely
 and its underside is ragged, with the odd hole still open. A shallow pond
 under an exceptionally long hard freeze will eventually reach its bed, but
 that takes minutes of unbroken cold.
+
+**The sheet thickens quickly at first and then ever more slowly**, because
+ice insulates the water beneath it — the thicker it gets, the less of the
+night's cold reaches the water underneath, so growth tails off instead of
+continuing at one pace. How thick it ends up is set by how cold the spell
+is: a marginal freeze leaves a skin, a hard one leaves a slab roughly three
+times thicker.
+
+**And snow on top slows it down.** A drift lying on a frozen pond is the
+best insulator in the world — it is mostly trapped air — so the ice under a
+snow-covered patch stays thinner than the ice beside it that the wind kept
+clear. This is a reversal: until this build, snow *sped up* freezing, and a
+snowfall arriving mid-freeze made a pond ice over several times faster.
 
 Ice is real footing. It floats, it carries the snow that drifts onto it,
 and you can walk and build on it — but it is *ice*, not rock. Pile enough
