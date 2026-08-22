@@ -192,8 +192,7 @@ architecture moved under both.
 
 ## WP-B3 — Grass (Session F, after WP-B2; root re-tune after WP-A)
 
-> **STATUS 2026-08-21: items 1, 2, 3, 5 and 6 met; item 4 (paired burn)
-> outstanding.**
+> **STATUS 2026-08-21: COMPLETE — all six acceptance items met.**
 >
 > Grass grows, reads as a sward (owner: *"looks different from trees"*, 4/5),
 > reproduces, and holds a bank. Sheets:
@@ -223,8 +222,29 @@ architecture moved under both.
 > run, which is the number every §6 evolution experiment was waiting for and
 > which trees cannot supply.
 >
-> **Item 4, the paired burn, is not run.** It needs a fire-front scene that
-> does not exist, and it is the one remaining gap in this package.
+> **Item 4, the paired burn: done.** Speeds measured over identical strips
+> (`fire::tests::a_fire_front_crosses_grass_faster_than_foliage_and_not_at_
+> all_over_soil`), time for a front to cross 170 cells:
+>
+> | surface | frames | cells/frame |
+> |---|---|---|
+> | **grass** | **127** | **1.34** |
+> | tree foliage | 161 | 1.06 |
+> | leaf litter | 180 | 0.94 |
+> | bare soil | never crossed | — |
+>
+> Grass is ~27% faster than canopy foliage and bare soil stops a front dead,
+> so the "carries fire across open ground between two stands" claim holds.
+> `filmstrip` gained `ignite=x,y,radius,frame` for the visual, and the GIF is
+> with the owner.
+>
+> **The finding that came out of it, and it is emergent rather than
+> authored: sward *connectivity*, not moisture, decides whether grass burns
+> at all.** Fire spreads to 4-neighbours only, so at 64 founders the gaps
+> between tufts stop a front dead (ignition landed — 10 cells lit — and went
+> straight out), while at 200 founders it is continuous and the fire runs the
+> whole world. A patchy meadow is a firebreak; a closed one is a fuse. Worth
+> an owner call on whether that is wanted before anything is tuned around it.
 
 ---
 

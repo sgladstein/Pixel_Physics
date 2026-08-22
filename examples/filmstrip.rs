@@ -675,6 +675,9 @@ struct Args {
     /// look like a bug in the code", in its cheaper form: a scene that
     /// cannot contain the artifact will look like the artifact is absent.
     plants: usize,
+    /// `ignite=x,y,radius,frame` -- start a fire at a chosen frame, after
+    /// the vegetation has had time to grow. Repeatable.
+    ignitions: Vec<(i32, i32, i32, usize)>,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -802,6 +805,7 @@ fn parse() -> Args {
         species: "tree".into(),
         // 0 means "leave `PlantScene`'s own default alone".
         plants: 0,
+        ignitions: Vec::new(),
         preset: String::new(),
         start: 100,
         every: 60,
@@ -836,6 +840,11 @@ fn parse() -> Args {
             "seed" => a.seed = v.parse().expect("seed"),
             "species" => a.species = v.into(),
             "plants" => a.plants = v.parse().expect("plants"),
+            "ignite" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
+                assert_eq!(n.len(), 4, "ignite=x,y,radius,frame");
+                a.ignitions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3] as usize));
+            }
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
@@ -946,6 +955,37 @@ fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize
                 }
             }
             println!("  cut: ({x}, {y}) {w}x{h} at frame {now} -- removed {removed} cells, {organism_cells} of them living tissue");
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// Light a fire at a scheduled frame -- `ignite=x,y,radius,frame`.
+///
+/// Same shape as `fire_due_cuts` and `fire_due_explosions`, drained the same
+/// way, and called from the same three places for the same reason: a scene
+/// whose whole subject is a fire front has to start burning *after* the
+/// vegetation has grown, not at build time when there is nothing to burn.
+///
+/// Reports the cell count it actually lit, not the radius it was asked for.
+/// "Did the fire start in the grass" is a counter question: an ignition two
+/// rows above a sward looks identical on a contact sheet to one inside it,
+/// and it would smoulder out while reading as a fire that failed to spread.
+fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].3 <= now {
+            let (x, y, r, _) = pending.remove(i);
+            let lit = (y - r..=y + r)
+                .flat_map(|cy| (x - r..=x + r).map(move |cx| (cx, cy)))
+                .filter(|&(cx, cy)| {
+                    let d = (cx - x, cy - y);
+                    d.0 * d.0 + d.1 * d.1 <= r * r && world.get(cx, cy).material != material::EMPTY
+                })
+                .count();
+            world.ignite_circle(x, y, r);
+            println!("  ignite: ({x}, {y}) r={r} at frame {now} -- lit {lit} cells");
         } else {
             i += 1;
         }
@@ -1137,6 +1177,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_cuts = args.cuts.clone();
+    let mut pending_ignitions = args.ignitions.clone();
     let mut blasts = explosion::Blasts::new();
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
@@ -1166,11 +1207,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -1235,6 +1278,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let began = std::time::Instant::now();
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
@@ -1253,6 +1297,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize) {
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
