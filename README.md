@@ -710,15 +710,16 @@ the clearing radius instead of a smaller circle within it — which is also the
 more sensible design regardless of the bug, since a fireball inside a hole
 has nothing left to burn.
 
-**Known simplification, left as such rather than fixed tonight**: the
-fireball reuses `World::ignite_circle`, the M14 debug force-ignite tool,
-which sets *any* material burning regardless of its `flammability` — a stone
-wall next to a blast currently gets the same fire tint oil would, rather than
-being immune the way `flammability: 0.0` says it should be. Visually this
-reads as "the blast leaves the surroundings glowing hot," which is not
-unreasonable for a first cut; a version that actually checks flammability
-(closer to `fire::try_ignite`'s temperature-driven path) would be the more
-correct fix.
+**A simplification this section used to carry is gone**: the first cut's
+fireball reused `World::ignite_circle`, the M14 debug force-ignite tool,
+which sets *any* material burning regardless of its `flammability` — stone
+next to a blast glowed like oil. The rebuild described at the top of this
+section replaced that with a real per-cell `flammability` roll
+(`explosion.rs`'s ignition step documents the replacement as the point), so
+stone is now immune the way `flammability: 0.0` says it should be. This
+paragraph described the old behaviour for some time after the rebuild
+landed — the two halves of one section disagreeing is exactly the failure
+`scripts/docscheck.sh` cannot catch and a read-through can.
 
 **Debris realism, added later (overnight run §6).** The corner-aware
 gradient above was right about *direction* but every cell within roughly
