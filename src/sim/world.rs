@@ -521,6 +521,16 @@ pub struct FailureCounts {
     /// Furthest a failure has ever been found from the cell whose check
     /// found it, in cells.
     ///
+    /// **This is not a containment measure and never was**, whatever it has
+    /// been labelled: it is Manhattan `|failure.at - (x, y)|`, the distance
+    /// from the *checked cell* to the *failing ancestor*, bounded by
+    /// construction to `load::ROOTWARD_CHECK_STEPS` hops. It cannot see how
+    /// far the consequence landed from what the player hit, and measured on
+    /// a rolling-world blast it reads **1 cell** while real failures are
+    /// landing everywhere. `max_damage_reach` below is the number that
+    /// answers that question; this one answers the empirical question its
+    /// own paragraph below poses and nothing else.
+    ///
     /// Instrumentation for a decision, not a metric anyone needs at
     /// runtime. `Reports/prior-art-destruction.md` flags
     /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
@@ -532,6 +542,29 @@ pub struct FailureCounts {
     /// standing at a stress ratio of 1.87. So the question is empirical:
     /// how far do failures *actually* land from their trigger here?
     pub max_chain_reach: u32,
+    /// **The containment measure**: the greatest Chebyshev distance from
+    /// the nearest *live* disturbance to any cell a consequence actually
+    /// destroyed, over the whole run.
+    ///
+    /// Reported in the units `World::chain_reach` is written in (see
+    /// `World::distance_to_live_disturbance`, its measurement twin), so it
+    /// can be read straight against the `F9` setting: at LOCAL this
+    /// standing at 200 says damage travelled four times past the licence,
+    /// and no other counter here can say that at all.
+    ///
+    /// **Damage only.** Recorded where something stops being what it was --
+    /// the region handed to the fracturer, each paced slice,
+    /// `break_free` on the organism path, and the cells a crush actually
+    /// fissures. Deliberately *not* recorded for `rigid::settle`'s landing
+    /// scheduling or for a check that was scheduled and refused: those are
+    /// **work**, not damage, and folding them in would make the number
+    /// unreadable -- a scheduled check that changed nothing is exactly what
+    /// a contained world is full of.
+    ///
+    /// Nothing is recorded when there is no live disturbance at all, rather
+    /// than `0`: see `World::distance_to_live_disturbance` for why zero is
+    /// the wrong answer to "nothing was disturbed".
+    pub max_damage_reach: u32,
     /// The largest single failing region, in cells.
     ///
     /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
@@ -633,6 +666,13 @@ pub struct FailureCounts {
 impl FailureCounts {
     pub fn record_reach(&mut self, reach: u32) {
         self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
+    /// See `max_damage_reach`. Callers pass a distance already resolved
+    /// against a *live* disturbance (`World::distance_to_live_disturbance`
+    /// returned `Some`), so there is no sentinel to filter here.
+    pub fn record_damage_reach(&mut self, reach: i32) {
+        self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {

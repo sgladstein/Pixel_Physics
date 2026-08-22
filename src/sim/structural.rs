@@ -685,6 +685,9 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // `failure.at`, not `(x, y)`: the cell that gave way is the ancestor
         // the chain walk found over its limit, which may be many cells from
         // the one this tick was checking. It is where the impulse belongs.
+        // Everything in `region` is about to stop being rock, one way or
+        // the other -- this is the damage, so this is where it is measured.
+        record_damage_reach_over(world, &region);
         if !super::rigid::fracture_failing_region(world, &region, failure.at) {
             // The region was under `MIN_FRACTURE_CELLS`, so nothing here
             // will ever fly -- this whole branch is grit by construction,
@@ -788,6 +791,7 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // anchor and becoming deadwood, not rock coming apart, and
     // `shattered_cells` is paired with `promoted_cells` to describe the
     // latter. See `break_free`'s own doc.
+    record_damage_reach_over(world, &[(x, y)]);
     let _ = break_free(world, x, y);
     schedule_organism_neighbours(world, x, y, organism_id)
 }
@@ -1335,6 +1339,14 @@ fn sever_joint(world: &mut World, x: i32, y: i32, down: bool) -> bool {
         return false;
     }
     world.set(x, y, scored);
+    // A crush is damage even though nothing moves: this cell has stopped
+    // being intact rock. Measured per severed edge rather than over the
+    // failing region, because the `Section` disc deliberately reaches
+    // *into* the massif around the piece that failed -- the region is not
+    // where the crack landed.
+    if let Some(d) = world.distance_to_live_disturbance(x, y) {
+        world.structural_failures.record_damage_reach(d);
+    }
     true
 }
 
@@ -2501,6 +2513,10 @@ pub fn advance_staged_fractures(world: &mut World) {
     world.load_cache.clear();
     world.structural_failures.record_staged(region.len().min(FRACTURE_CELLS_PER_TICK));
     let Sliced { slice, remainder } = slice_failing_region(region, staged.at);
+    // Same measurement as `tick`'s, one tick later: a paced slice is damage
+    // arriving from a queue the reach never re-consults, which is precisely
+    // the thing the containment number has to be able to see.
+    record_damage_reach_over(world, &slice);
     if !super::rigid::fracture_failing_region(world, &slice, staged.at) {
         // Same grit-by-construction branch as `tick`'s, one tick later.
         let mut grit = 0usize;
@@ -2538,6 +2554,34 @@ const JITTER_STEPS: u32 = 16;
 /// A cell whose material has no configured debris is left alone rather than
 /// deleted, and reports `false`: counting a decline would make grit look
 /// like it happened.
+/// Record how far a consequence actually landed from the nearest *live*
+/// disturbance -- the `FailureCounts::max_damage_reach` half of the
+/// containment pair, and the only number in the census that can see the
+/// artifact `chain_reach` exists to bound.
+///
+/// **Called only where something stops being what it was**: the region
+/// handed to the fracturer, each paced slice, the organism path's
+/// `break_free`, and (in `sever_joint`) the cells a crush fissures.
+/// Scheduling a check, refusing one, and a landing body's own re-checks are
+/// all *work* rather than damage and are deliberately not recorded -- mixing
+/// them in would make the number unreadable, since a contained world is
+/// full of checks that changed nothing.
+///
+/// One `record` per event rather than one per cell. The statistic is a max
+/// either way; taking it locally keeps the per-cell cost to the ring scan
+/// alone.
+fn record_damage_reach_over(world: &mut World, cells: &[(i32, i32)]) {
+    let mut furthest: Option<i32> = None;
+    for &(x, y) in cells {
+        if let Some(d) = world.distance_to_live_disturbance(x, y) {
+            furthest = Some(furthest.map_or(d, |f: i32| f.max(d)));
+        }
+    }
+    if let Some(d) = furthest {
+        world.structural_failures.record_damage_reach(d);
+    }
+}
+
 #[must_use]
 fn break_free(world: &mut World, x: i32, y: i32) -> bool {
     // Resolved per cell rather than passed in by the caller, because a
@@ -3153,6 +3197,54 @@ impl World {
         })
     }
 
+    /// Distance from `(x, y)` to the nearest disturbance still inside
+    /// `chain_window`, or `None` if there is none.
+    ///
+    /// **The measurement twin of `within_disturbance`** -- same ring, same
+    /// age test, same Chebyshev metric -- so "how far did damage travel" is
+    /// reported in the units the `F9` setting is written in. A metric in
+    /// different units from the gate cannot be compared against the gate's
+    /// own number, which is the entire point of having it.
+    ///
+    /// `None` rather than `0` when nothing is live, and the difference
+    /// matters: `0` is "perfectly contained", so a world with no live
+    /// disturbance at all would report the best containment there is while
+    /// eating itself. `CLAUDE.md`: ask what the metric says when nothing is
+    /// wrong. A stale disturbance licenses nothing and must not flatter it
+    /// either, which is why the age test is here and not only in the gate.
+    pub fn distance_to_live_disturbance(&self, x: i32, y: i32) -> Option<i32> {
+        self.disturbances
+            .iter()
+            .filter(|&&(_, _, frame)| self.frame.saturating_sub(frame) <= self.chain_window)
+            .map(|&(dx, dy, _)| (x - dx).abs().max((y - dy).abs()))
+            .min()
+    }
+
+    /// Drop staged fracture work the current `chain_reach` no longer
+    /// licenses.
+    ///
+    /// The staged queue is deliberately ungated once a failure has been
+    /// judged (`structural::advance_staged_fractures` -- a remainder must
+    /// not be able to lose to the budget or to the load model and leave
+    /// rock hanging in open air). A **player changing the setting** is the
+    /// one exception, and it has to be, or `F9` reads as doing nothing: the
+    /// aftermath the player is trying to stop keeps arriving at
+    /// `FRACTURE_CELLS_PER_TICK` cells a tick from a queue the new setting
+    /// never sees.
+    ///
+    /// Only ever called when the reach *tightens* (`App::cycle_chain_mode`),
+    /// so it can only ever leave more standing than the player asked for,
+    /// never less. At `NONE` it empties the queue outright, which is exactly
+    /// what NONE advertises -- `wiki/structural-collapse.md`: "only what you
+    /// struck is ever destroyed. Nothing collapses afterwards, at all."
+    pub fn relicense_staged_fractures(&mut self) {
+        let mut staged = std::mem::take(&mut self.staged_fractures);
+        for entry in staged.iter_mut() {
+            entry.region.retain(|&(x, y)| self.within_disturbance(x, y));
+        }
+        staged.retain(|entry| !entry.region.is_empty());
+        self.staged_fractures = staged;
+    }
 }
 
 /// How many recent disturbances are remembered. A player cannot disturb
@@ -4995,6 +5087,67 @@ mod tests {
             0,
             "{} cells still standing: the paced remainder never came down, so something between the failure and `advance_staged_fractures` is still asking the load model for permission",
             intact_rock_left(&w, &slab)
+        );
+    }
+
+    /// The other half of `F9`: a **tightened** setting must reach the work
+    /// already in flight.
+    ///
+    /// The test above pins that a staged remainder is *not* re-judged, which
+    /// is deliberate and stays. `relicense_staged_fractures` is the single
+    /// exception, and without it switching to NONE mid-aftermath reads as
+    /// doing nothing at all -- the collapse keeps arriving at
+    /// `FRACTURE_CELLS_PER_TICK` a tick from a queue the new setting never
+    /// consults, which is precisely the reported complaint.
+    ///
+    /// Run at SPREAD with **no disturbance recorded**, deliberately: SPREAD
+    /// licenses everything without one, so the ring is empty when the
+    /// setting tightens and the new licence covers nothing anywhere. That is
+    /// what NONE advertises ("only what you struck is ever destroyed"), and
+    /// it also makes the second half of the assertion mean what it says --
+    /// nothing else in the world can newly fail either, so anything that
+    /// comes down after the switch came off the queue.
+    #[test]
+    fn tightening_the_chain_mode_drops_staged_work_it_no_longer_licenses() {
+        let mut w = World::new(Rect::new(0, 0, 255, 159));
+        let slab = ligament(&mut w);
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(45, 62);
+
+        // Run only until something is actually queued -- "did it fire at
+        // all" is a counter question, and a test that tightened an empty
+        // queue would pass against any implementation whatsoever.
+        let mut staged = false;
+        for _ in 0..1_200 {
+            w.begin_step();
+            scheduler::step(&mut w);
+            w.end_step();
+            crate::sim::rigid::step_chunk_bodies(&mut w);
+            update::step(&mut w);
+            if !w.staged_fractures.is_empty() {
+                staged = true;
+                break;
+            }
+        }
+        assert!(staged, "test setup: nothing was ever staged, so this run exercises no queue at all");
+        let standing = intact_rock_left(&w, &slab);
+        assert!(standing > 0, "test setup: the overhang was already gone before the setting changed");
+
+        // The player presses `F9` through to NONE, mid-aftermath.
+        w.chain_reach = CHAIN_MODES.iter().find(|m| m.name == "NONE").expect("a NONE chain mode").reach;
+        w.relicense_staged_fractures();
+        assert!(
+            w.staged_fractures.is_empty(),
+            "{} staged fracture(s) survived a switch to NONE -- at reach 0 with nothing disturbed the queue holds nothing the setting licenses",
+            w.staged_fractures.len()
+        );
+
+        let stages = collapse_stages(&mut w, &slab, 400);
+        assert_eq!(
+            intact_rock_left(&w, &slab),
+            standing,
+            "{} more cells came down after the player asked for NONE: {stages:?}",
+            standing - intact_rock_left(&w, &slab)
         );
     }
 

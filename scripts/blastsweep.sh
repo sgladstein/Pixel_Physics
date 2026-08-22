@@ -146,6 +146,7 @@ losses=""
 rocks=""
 promoted=""
 reaches=""
+damages=""
 sites_all=""
 awakes=""
 frames_ms=""
@@ -185,7 +186,21 @@ for seed in $SEEDS; do
   fail_line=$(echo "$out" | grep -E '^    failures: overloaded ' | tail -1)
   over=$(echo "$fail_line" | sed -nE 's/.*overloaded ([0-9]+) .*/\1/p')
   unsup=$(echo "$fail_line" | sed -nE 's/.*unsupported ([0-9]+) .*/\1/p')
-  reach=$(echo "$out" | grep -E 'furthest a failure landed' | tail -1 | sed -nE 's/.*trigger: ([0-9]+) cells.*/\1/p')
+  # **The containment column, and it changed under this parser on purpose.**
+  # The line this used to read ("furthest a failure landed from its
+  # trigger") was mislabelled: it holds `max_chain_reach`, the Manhattan
+  # distance from a checked cell to its failing ancestor, bounded to
+  # `ROOTWARD_CHECK_STEPS` hops -- it read **1 cell** on a rolling-world
+  # blast that was tearing the hillside apart. `max_damage_reach` is the
+  # real one: Chebyshev distance from the nearest *live* disturbance to a
+  # cell that was actually destroyed, in the same units as the `F9` setting,
+  # so it can be read straight against `CHAIN` above. The old statistic is
+  # kept as a second row rather than deleted -- it answers a different, real
+  # question (how far rootward the chain walk finds its failures).
+  damage_line=$(echo "$out" | grep -E 'furthest damage landed from a live disturbance' | tail -1)
+  damage=$(echo "$damage_line" | sed -nE 's/.*disturbance: ([0-9]+) cells.*/\1/p')
+  chainmode=$(echo "$damage_line" | sed -nE 's/.*chain_reach = ([^)]+)\).*/\1/p')
+  reach=$(echo "$out" | grep -E "furthest a failure.s root was" | tail -1 | sed -nE 's/.*checked: ([0-9]+) cells.*/\1/p')
   paced=$(echo "$out" | grep -E 'paced across ticks' | tail -1 | sed -nE 's/.*ticks: ([0-9]+) slice.*/\1/p')
   # The only parsed field that is a *displacement* rather than a judgement.
   # `over`/`unsup` above are recorded before the free-face test, the
@@ -209,7 +224,8 @@ for seed in $SEEDS; do
   panels_line=$(echo "$outp" | grep -E '^panels sheet' | sed -E 's/.*: //')
 
   check "failures" "$over" "$unsup"
-  check "furthest a failure landed from its trigger" "$reach"
+  check "furthest damage landed from a live disturbance" "$damage" "$chainmode"
+  check "furthest a failure's root was from the cell that was checked" "$reach"
   check "paced across ticks" "$paced"
   check "of those, actually moved" "$moved_bodies" "$moved_cells" "$grit"
   check "cells lost since the cut" "$lost" "$rock"
@@ -221,7 +237,8 @@ for seed in $SEEDS; do
 
   echo "  at the last tile:"
   echo "    failures: overloaded ${over:-PARSE?} / unsupported ${unsup:-PARSE?}"
-  echo "    furthest a failure landed from its trigger: ${reach:-PARSE?} cells"
+  echo "    furthest damage landed from a live disturbance: ${damage:-PARSE?} cells (chain_reach = ${chainmode:-PARSE?})"
+  echo "    furthest a failure's root was from the cell checked: ${reach:-PARSE?} cells"
   echo "    paced across ticks: ${paced:-PARSE?} slice(s)"
   echo "    actually moved: ${moved_bodies:-PARSE?} bodies (${moved_cells:-PARSE?} cells promoted), ${grit:-PARSE?} cells shattered"
   echo "    cells lost since the cut: ${lost:-PARSE?} (rock ${rock:-PARSE?})"
@@ -235,6 +252,7 @@ for seed in $SEEDS; do
   rocks="$rocks ${rock:-}"
   promoted="$promoted ${moved_cells:-}"
   reaches="$reaches ${reach:-}"
+  damages="$damages ${damage:-}"
   sites_all="$sites_all ${sites:-}"
   awakes="$awakes ${awake:-}"
   # `stats` takes integers (see its own note); the worst frame is the only
@@ -274,10 +292,16 @@ stats "rock destroyed" "$(echo "$rocks" | tr ' ' '\n' | awk 'NF { print -$1 }')"
 # and the sign is not flipped on the way in because both ends are worth
 # reading -- an enormous max is its own kind of report.
 stats "promoted cells" "$promoted"
-# The containment statistic: how far from its own trigger a failure was
-# still landing. A blast that takes the mountain apart at range reads here
-# and nowhere else.
-stats "furthest a failure landed from its trigger" "$reaches"
+# **The containment statistic.** How far past the nearest live disturbance
+# damage was still landing, in the units `chain_reach` is set in -- so at
+# `CHAIN=chain_reach=48` a max of 200 here says the leash is not holding,
+# and there is no other number in this sweep that can say it.
+stats "furthest damage landed from a live disturbance" "$damages"
+# Kept, demoted: this is `max_chain_reach`, how far rootward the chain walk
+# had to go to find the cell that gave way. A real question, and not the
+# containment one -- it is bounded to `ROOTWARD_CHECK_STEPS` by construction
+# and read 1 cell on a blast that was eating the hillside.
+stats "furthest a failure's root was from the cell checked" "$reaches"
 # The two quiet statistics. Both are read at the last tile, 1,600 frames
 # after the final charge -- a world that has stopped eating itself and one
 # that is still going look identical in any single picture.

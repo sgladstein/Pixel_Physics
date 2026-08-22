@@ -487,7 +487,20 @@ impl App {
     pub fn cycle_chain_mode(&mut self) {
         self.chain_mode = (self.chain_mode + 1) % crate::sim::structural::CHAIN_MODES.len();
         let mode = &crate::sim::structural::CHAIN_MODES[self.chain_mode];
+        let previous = self.world.chain_reach;
         self.world.chain_reach = mode.reach;
+        // **Tightening the setting also drops staged work it no longer
+        // licenses.** The staged queue is ungated once a failure has been
+        // judged and that is deliberate (`structural::advance_staged_
+        // fractures`), so without this line the aftermath the player is
+        // trying to stop keeps arriving at `FRACTURE_CELLS_PER_TICK` a tick
+        // from a queue the new setting never sees -- and `F9` reads as
+        // having done nothing, which is exactly the reported complaint.
+        // Only on a tighten, so relaxing the setting can never resurrect
+        // work that was already dropped.
+        if mode.reach < previous {
+            self.world.relicense_staged_fractures();
+        }
         let line = format!("CHAINING: {} - {}", mode.name, mode.note.to_uppercase());
         self.show_toast(&line);
     }
@@ -1769,6 +1782,15 @@ impl App {
         std::mem::swap(&mut world.materials, &mut self.world.materials);
         build_world_with(&mut world, &self.worldgen, &self.worldgen_preset, self.worldgen_seed);
         self.world = world;
+        // A rebuilt world is a fresh `World`, and `World::new` starts at
+        // `i32::MAX` (SPREAD). The chain mode is a *player setting*, not a
+        // property of the terrain, so it has to be re-applied here or every
+        // `F6`/`F7`/`F8` and every worldgen hot-reload silently reverts it --
+        // while `App::chain_mode` and the status line keep naming the mode the
+        // player chose. Every A/B of chain modes that rerolled the seed between
+        // arms was therefore comparing SPREAD against SPREAD, which is how
+        // "LOCAL and TIGHT do not contain anything" came to be reported.
+        self.world.chain_reach = crate::sim::structural::CHAIN_MODES[self.chain_mode].reach;
     }
 
     pub fn toggle_overlay(&mut self) {
@@ -2612,6 +2634,64 @@ mod tests {
         );
         // Reset must not throw away materials loaded from disk.
         assert!(app.world.materials.id_of("gravel").is_some());
+    }
+
+    /// **The `F9` setting must survive a world rebuild, because the title
+    /// bar goes on claiming it does.**
+    ///
+    /// `reset` builds a brand-new `World` and `World::new` starts at
+    /// `i32::MAX` (SPREAD), while `App::chain_mode` -- which is what the
+    /// status line names -- is untouched. `reset` is reached from `F6`
+    /// (next seed), `F7` (cycle preset), `F8` (previous seed) and the
+    /// worldgen file watcher, which is every way a player gets a fresh world
+    /// to test a chain mode in. So every A/B that rerolled the world between
+    /// arms was comparing SPREAD with SPREAD while the title bar said
+    /// LOCAL -- which is how "LOCAL and TIGHT do not contain anything" came
+    /// to be reported.
+    #[test]
+    fn a_rebuilt_world_keeps_the_chain_mode_the_title_bar_is_claiming() {
+        let mut app = App::new();
+        app.cycle_chain_mode();
+        let chosen = &crate::sim::structural::CHAIN_MODES[app.chain_mode];
+        assert_ne!(chosen.reach, i32::MAX, "test setup: one cycle must leave the default, or this proves nothing");
+        assert_eq!(app.world.chain_reach, chosen.reach, "test setup: F9 never reached the world in the first place");
+
+        app.reset();
+
+        assert_eq!(
+            app.world.chain_reach,
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].reach,
+            "the world came back at reach {} while the status line still says {}",
+            app.world.chain_reach,
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].name
+        );
+    }
+
+    /// **Tightening the setting has to reach the work already in flight.**
+    ///
+    /// `World::staged_fractures` is ungated by design once a failure has
+    /// been judged, so a collapse mid-flight goes on arriving whatever `F9`
+    /// now says -- which is exactly the "switching to NONE does nothing"
+    /// half of the complaint. The queue here stands in for one mid-collapse;
+    /// nothing has been disturbed, so at any reach but SPREAD the licence
+    /// covers none of it.
+    #[test]
+    fn tightening_the_chain_mode_drops_staged_work_the_new_setting_cannot_license() {
+        let mut app = App::new();
+        app.world.staged_fractures.push_back(crate::sim::structural::StagedFracture {
+            region: vec![(100, 100), (101, 100)],
+            at: (100, 100),
+            next_frame: app.world.frame + 5,
+        });
+
+        app.cycle_chain_mode(); // SPREAD -> LOCAL: a tighten
+
+        assert!(
+            app.world.staged_fractures.is_empty(),
+            "F9 tightened to {} and {} staged fracture(s) survived it -- the aftermath the player is trying to stop keeps arriving from a queue the new setting never sees",
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].name,
+            app.world.staged_fractures.len()
+        );
     }
 
     #[test]

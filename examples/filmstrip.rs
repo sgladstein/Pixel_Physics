@@ -54,6 +54,19 @@ use pixel_physics::sim::rng;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::{explosion, material, parallel, update};
 
+/// Name the live `chain_reach` (`F9`) for the sheet.
+///
+/// `SPREAD` is `i32::MAX`, and printing that as a number tells a reader
+/// nothing at all -- while a sheet that does not name the mode it was run
+/// at cannot be compared with the one beside it, which is the whole point
+/// of sweeping the setting.
+fn chain_reach_name(reach: i32) -> String {
+    pixel_physics::sim::structural::CHAIN_MODES
+        .iter()
+        .find(|m| m.reach == reach)
+        .map_or_else(|| reach.to_string(), |m| m.name.to_string())
+}
+
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
@@ -2467,7 +2480,24 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
-        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // **Relabelled to what it actually holds.** It was printed as
+        // "furthest a failure landed from its trigger", which is not what
+        // `max_chain_reach` is: it is Manhattan `|failure.at - (x, y)|`,
+        // the distance from the checked cell to the failing ancestor,
+        // bounded by construction to `ROOTWARD_CHECK_STEPS` hops. Read as a
+        // containment number it is worse than useless -- on a rolling-world
+        // blast it reads 1 cell while damage is landing everywhere.
+        println!("    furthest a failure's root was from the cell that was checked: {} cells", f.max_chain_reach);
+        // ...and the number that *is* the containment measure, in the units
+        // the `F9` setting is written in so the two can be read against each
+        // other. The reach is named rather than printed raw: `i32::MAX` as a
+        // number is unreadable, and a sheet that does not say which mode
+        // produced it cannot be compared to the one beside it.
+        println!(
+            "    furthest damage landed from a live disturbance: {} cells (chain_reach = {})",
+            f.max_damage_reach,
+            chain_reach_name(world.chain_reach)
+        );
         // R3a's "did it fire at all" counter. A failure too big for one
         // tick comes down over several, and the `bodies` line above shows
         // that as a *series* of bursts -- but a series of bursts is also
