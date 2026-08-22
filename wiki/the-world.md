@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -156,9 +156,10 @@ genuinely different places.
 
 ## What is not here yet
 
-Rivers, springs, rain and evaporation — water currently sits where it was
-generated and does not cycle. Caves, and plant cover that arrives with the
-world rather than being planted by hand. Worlds are also still a fixed
+Rivers and springs — generated water pools where it lies rather than
+flowing from anywhere to anywhere. (Rain, evaporation and starting plant
+cover all exist now — see [Weather](weather.md) for the first two; an
+earlier version of this list predated them.) Caves. Worlds are also still a fixed
 size — a large one, but bounded — rather than continuing indefinitely as
 you travel.
 

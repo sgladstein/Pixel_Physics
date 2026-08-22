@@ -110,7 +110,14 @@ def build_card(root: Path, spec: dict) -> dict:
             # read next to the picture, because two very different mechanisms
             # look identical at the zoom a contact sheet is judged at.
             "meta": item.get("meta") or {},
+            # Which part of this image the agent actually wants judged. The page
+            # frames it by default and one zoom step out reveals the margin the
+            # agent deliberately rendered around it -- so a too-tight crop costs
+            # a scroll rather than a re-render round trip.
+            "focus": item.get("focus"),
         })
+        if items[-1]["focus"]:
+            check_focus_fits(items[-1]["focus"], root, stored[0])
 
     ask = spec.get("ask") or {}
     return {
@@ -132,6 +139,52 @@ def build_card(root: Path, spec: dict) -> dict:
             "annotations": ask.get("annotations", True),
         },
     }
+
+
+def parse_focus(value: str):
+    """`center` or `x,y,w,h`, in the rendered image's own pixel coordinates.
+
+    `center` is the middle half by area, which is exactly the region of
+    interest when the agent rendered at double it -- so the common case needs
+    no arithmetic on their side, and no dimensions here. The page expands it
+    against the image's natural size.
+    """
+    v = (value or "").strip().lower()
+    if v in ("center", "centre"):
+        return "center"
+    parts = [p.strip() for p in v.split(",")]
+    if len(parts) != 4:
+        raise SystemExit("--focus takes 'center' or 'x,y,w,h' (got %r)" % value)
+    try:
+        rect = [int(p) for p in parts]
+    except ValueError:
+        raise SystemExit("--focus values must be whole pixels (got %r)" % value)
+    if rect[2] <= 0 or rect[3] <= 0:
+        raise SystemExit("--focus width and height must be positive (got %r)" % value)
+    if rect[0] < 0 or rect[1] < 0:
+        raise SystemExit("--focus x and y must not be negative (got %r)" % value)
+    return rect
+
+
+def check_focus_fits(focus, root: Path, stored_rel: str) -> None:
+    """Reject a rect that falls outside the image, while it is still fixable.
+
+    A focus rect the page cannot satisfy renders as a blank or clipped
+    viewport, which reads as a broken tool rather than a bad argument -- so it
+    fails here, where the agent is still holding the command that caused it.
+    """
+    if focus == "center" or not focus:
+        return
+    size = rl.image_size(rl.media_dir(root) / stored_rel)
+    if size is None:
+        return  # not a format we can measure; the page clamps instead
+    w, h = size
+    x, y, fw, fh = focus
+    if x + fw > w or y + fh > h:
+        raise SystemExit(
+            "--focus %d,%d,%d,%d falls outside the %dx%d image. The focus rect is "
+            "in the *rendered image's* pixels, not world coordinates."
+            % (x, y, fw, fh, w, h))
 
 
 def parse_item_flag(value: str) -> dict:
@@ -217,8 +270,10 @@ def cmd_post(args) -> int:
         spec["context_md"] = Path(args.context_file).read_text(encoding="utf-8")
     if args.blind:
         spec["blind"] = True
+    focus = parse_focus(args.focus) if args.focus else None
     if args.image:
-        spec.setdefault("items", []).extend({"files": [p]} for p in args.image)
+        spec.setdefault("items", []).extend({"files": [p], "focus": focus}
+                                            for p in args.image)
     if args.gif:
         # Mechanically identical to --image: the queue copies any file and the
         # page renders whatever it is. It exists because an agent decides what
@@ -229,9 +284,10 @@ def cmd_post(args) -> int:
             if not path.lower().endswith(".gif"):
                 print("review: --gif was given %s, which is not a .gif. Posting it "
                       "anyway; use --image for stills." % path, file=sys.stderr)
-            spec.setdefault("items", []).extend([{"files": [path]}])
+            spec.setdefault("items", []).extend([{"files": [path], "focus": focus}])
     if args.item:
-        spec.setdefault("items", []).extend(parse_item_flag(v) for v in args.item)
+        spec.setdefault("items", []).extend(
+            dict(parse_item_flag(v), focus=focus) for v in args.item)
     if args.wait:
         spec["blocking"] = True
 
@@ -249,6 +305,7 @@ def cmd_post(args) -> int:
 def cmd_ab(args) -> int:
     root = rl.review_root()
     refresh_bin(root)
+    ab_focus = parse_focus(args.focus) if args.focus else None
     spec = {
         "title": args.title,
         "question": args.question,
@@ -258,8 +315,8 @@ def cmd_ab(args) -> int:
         "blocking": args.wait,
         "context_md": args.context or "",
         "items": [
-            {"label": args.a_label, "files": args.a},
-            {"label": args.b_label, "files": args.b},
+            {"label": args.a_label, "files": args.a, "focus": ab_focus},
+            {"label": args.b_label, "files": args.b, "focus": ab_focus},
         ],
     }
     if args.context_file:
@@ -498,6 +555,8 @@ def main(argv=None) -> int:
                          "`cargo run --release --example filmstrip -- gif=1 out=x.gif`")
     sp.add_argument("--item", action="append", metavar="LABEL:PATH[::CAPTION]",
                     help="labelled artifact; repeatable")
+    sp.add_argument("--focus", metavar="SPEC",
+                    help='"center" (the middle half — what you want when you rendered at double the region of interest) or x,y,w,h in the rendered image\'s pixels')
     sp.add_argument("--blind", action="store_true",
                     help="hide labels until after the owner chooses")
     sp.add_argument("--wait", action="store_true",
@@ -517,6 +576,7 @@ def main(argv=None) -> int:
     sp.add_argument("--board", default="inbox")
     sp.add_argument("--context")
     sp.add_argument("--context-file")
+    sp.add_argument("--focus", metavar="SPEC", help='"center" (the middle half — what you want when you rendered at double the region of interest) or x,y,w,h in the rendered image\'s pixels')
     sp.add_argument("--blind", action="store_true")
     sp.add_argument("--wait", action="store_true")
     sp.add_argument("--timeout", type=float, default=1800)

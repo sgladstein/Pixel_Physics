@@ -1,6 +1,6 @@
 # The Gnome
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press

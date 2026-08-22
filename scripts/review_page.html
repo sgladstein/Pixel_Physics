@@ -63,8 +63,8 @@
   .pane-label { display: flex; justify-content: space-between; align-items: center;
                 gap: 8px; margin-bottom: 8px; font-weight: 600; }
   .imgwrap { overflow: auto; background: #0b0d10; border-radius: 6px;
-             line-height: 0; max-height: 70vh; display: flex; justify-content: center; }
-  .imgbox { position: relative; flex: 0 0 auto; line-height: 0; }
+             line-height: 0; max-height: 70vh; text-align: center; }
+  .imgbox { position: relative; display: inline-block; line-height: 0; }
   /* Non-negotiable for this project: a smoothed upscale of a pixel simulation
      is a different artifact than the one that was rendered, and the owner
      would be judging the browser's interpolation. */
@@ -189,6 +189,10 @@ function draft(id) {
 function view(id) {
   if (!state.view.has(id))
     state.view.set(id, { frame: 0, playing: false, zoom: "fit", timer: null, ratingArm: false });
+  const v = state.view.get(id);
+  const card = state.cards.find(c => c.id === id);
+  if (card && v.zoom === "fit" && !v.zoomTouched && card.items.some(it => it.focus))
+    v.zoom = "focus";
   return state.view.get(id);
 }
 
@@ -218,6 +222,30 @@ const isAnimated = item => item.files.length === 1 && /\.gif$/i.test(item.files[
 // factor it picked, and every other step is exact.
 const ZOOMS = ["fit", 1, 2, 4, 8];
 
+// "focus" is the region the agent actually wants judged; the image around it is
+// margin they rendered deliberately so a too-tight crop costs a scroll rather
+// than a re-render. It leads the cycle, and `fit` -- which already shows the
+// whole image -- becomes the zoom-out step. Cards with no focus keep exactly
+// the old cycle, so nothing existing changes behaviour.
+const zoomsFor = card =>
+  card.items.some(it => it.focus) ? ["focus", ...ZOOMS] : ZOOMS;
+
+function focusRect(item, natW, natH) {
+  const f = item.focus;
+  if (!f) return null;
+  if (f === "center") {
+    // The middle half by area: exactly the region of interest when the agent
+    // rendered at double it. Floored so the rect stays whole pixels.
+    const w = Math.max(1, Math.floor(natW / 2)), h = Math.max(1, Math.floor(natH / 2));
+    return [Math.floor((natW - w) / 2), Math.floor((natH - h) / 2), w, h];
+  }
+  if (!Array.isArray(f) || f.length !== 4) return null;
+  // Clamp rather than trust: a card may predate the post-time bounds check, or
+  // have been hand-written.
+  const w = Math.min(f[2], natW), h = Math.min(f[3], natH);
+  return [Math.min(f[0], natW - w), Math.min(f[1], natH - h), w, h];
+}
+
 function fitFactor(natW, boxW) {
   if (!natW || !boxW) return 1;
   // A contact sheet wider than the pane gets scaled down -- seeing the whole
@@ -239,22 +267,82 @@ function applyZoom(card) {
     const apply = () => {
       const natW = img.naturalWidth;
       if (!natW) return;
-      const factor = v.zoom === "fit" ? fitFactor(natW, wrap.clientWidth - 2) : v.zoom;
-      img.style.width = Math.max(1, Math.round(natW * factor)) + "px";
+      const natH = img.naturalHeight;
+      // Measure the *pane*, never the wrap: focus mode constrains the wrap's
+      // width to the focus region, so sizing from the wrap feeds its own output
+      // back in and collapses to 1x on the next pass. The pane's width is set
+      // by the card layout and is unaffected by anything done here.
+      const host = wrap.parentElement;
+      const paneW = host ? host.clientWidth - 20 : wrap.clientWidth - 2;
+      const item = card.items[Number(img.dataset.item)];
+      const fr = v.zoom === "focus" ? focusRect(item, natW, natH) : null;
       const btn = el.querySelector('button[data-act="zoom"]');
-      if (btn) {
-        btn.textContent = (v.zoom === "fit" ? "Zoom fit " + fmtFactor(factor)
-                                            : "Zoom " + fmtFactor(factor))
-                          + " \u00b7 " + natW + "\u00d7" + img.naturalHeight;
+
+      if (fr) {
+        // Make the wrap exactly the focus viewport and scroll the rect into it.
+        // Using the scroll container rather than clipping means the margin is
+        // still reachable by dragging, without leaving focus mode.
+        const factor = Math.max(1, Math.min(8, Math.floor(paneW / fr[2])));
+        img.style.width = Math.max(1, Math.round(natW * factor)) + "px";
+        // Constrain the viewport to the declared region in BOTH axes. Without
+        // the width cap the pane stays as wide as the card, so the label said
+        // "128x80" while about 161 source pixels were on screen -- the same
+        // class of lie the zoom factor itself used to tell.
+        wrap.style.maxWidth = Math.round(fr[2] * factor) + "px";
+        wrap.style.margin = "0 auto";
+        wrap.style.height = Math.round(fr[3] * factor) + "px";
+        wrap.scrollLeft = Math.round(fr[0] * factor)
+                          - Math.max(0, (paneW - fr[2] * factor) / 2);
+        wrap.scrollTop = Math.round(fr[1] * factor);
+        if (btn) {
+          btn.textContent = "Focus " + fmtFactor(factor) + " \u00b7 "
+            + fr[2] + "\u00d7" + fr[3] + " of " + natW + "\u00d7" + natH;
+        }
+      } else {
+        wrap.style.height = "";
+        wrap.style.maxWidth = "";
+        wrap.style.margin = "";
+        const factor = v.zoom === "fit" ? fitFactor(natW, paneW)
+                     : v.zoom === "focus" ? fitFactor(natW, paneW)  // no rect: behave as fit
+                     : v.zoom;
+        img.style.width = Math.max(1, Math.round(natW * factor)) + "px";
+        if (btn) {
+          btn.textContent = (v.zoom === "fit" ? "Zoom fit " + fmtFactor(factor)
+                                              : "Zoom " + fmtFactor(factor))
+                            + " \u00b7 " + natW + "\u00d7" + natH;
+        }
       }
       drawPins(card);
     };
     if (img.complete && img.naturalWidth) apply();
     else img.addEventListener("load", apply, { once: true });
+
+    // The first pass runs before the card has finished laying out, so the pane
+    // it measures is not the pane the owner ends up looking at. That showed as
+    // a label reading "Focus 6x" beside a pane wide enough for 8x -- the factor
+    // was computed at a transient width and never revisited. Re-apply when the
+    // pane's *width* changes; guarding on width specifically matters because
+    // focus mode sets the wrap's height, and reacting to that would loop.
+    const host = wrap.parentElement;
+    if (host && !wrap._ro) {
+      wrap._lastW = Math.round(host.clientWidth);
+      wrap._ro = new ResizeObserver(entries => {
+        const w = Math.round(entries[0].contentRect.width);
+        if (w === wrap._lastW) return;
+        wrap._lastW = w;
+        apply();
+      });
+      wrap._ro.observe(host);   // the pane, not the wrap -- see above
+    }
   });
 }
 
-function cycleZoom(v) { v.zoom = ZOOMS[(ZOOMS.indexOf(v.zoom) + 1) % ZOOMS.length]; }
+function cycleZoom(card, v) {
+  v.zoomTouched = true;   // stop the focus default reasserting itself
+  const modes = zoomsFor(card);
+  const i = modes.indexOf(v.zoom);
+  v.zoom = modes[(i + 1) % modes.length];
+}
 const frameCount = card => Math.max(...card.items.map(it => it.files.length));
 
 // ---------------------------------------------------------------- fetching
@@ -441,7 +529,7 @@ function renderScrub(card, v) {
   const n = frameCount(card);
   return `
   <div class="scrub" data-card="${card.id}">
-    <button data-act="play">${v.playing ? "❚❚" : "▶"}</button>
+    <button data-act="play" data-card="${card.id}">${v.playing ? "❚❚" : "▶"}</button>
     <input type="range" min="0" max="${n - 1}" value="${Math.min(v.frame, n - 1)}"
            data-act="frame">
     <span class="frameno">${Math.min(v.frame, n - 1) + 1} / ${n}</span>
@@ -608,8 +696,18 @@ document.addEventListener("click", async ev => {
 
   const btn = ev.target.closest("button[data-act]");
   if (btn) {
-    const card = cardById(btn.dataset.card);
-    if (!card) return;
+    // Fall back to the enclosing card-scoped element. Requiring every control
+    // to repeat data-card meant one forgotten attribute produced a dead button
+    // and no error: `play` sits inside <div class="scrub" data-card=...> and
+    // never carried its own, so it did nothing at all until now.
+    const card = cardById(btn.dataset.card
+                          || btn.closest("[data-card]")?.dataset.card);
+    if (!card) {
+      console.warn("review: control %o could not be traced to a card — it will "
+                   + "do nothing. Give it data-card, or nest it inside an "
+                   + "element that has one.", btn.dataset.act);
+      return;
+    }
     const d = draft(card.id), v = view(card.id);
     switch (btn.dataset.act) {
       case "choice": {
@@ -626,7 +724,7 @@ document.addEventListener("click", async ev => {
       case "submit": return submit(card);
       case "archive": return setStatus(card, "archived");
       case "reopen": return setStatus(card, "open");
-      case "zoom": cycleZoom(v); return renderFeed();
+      case "zoom": cycleZoom(card, v); return renderFeed();
       case "play": return togglePlay(card);
     }
   }
@@ -677,7 +775,7 @@ document.addEventListener("keydown", ev => {
 
   if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); return submit(card); }
   if (ev.key === " ") { ev.preventDefault(); return togglePlay(card); }
-  if (ev.key === "z") { cycleZoom(v); return renderFeed(); }
+  if (ev.key === "z") { cycleZoom(card, v); return renderFeed(); }
   if (ev.key === "e") return setStatus(card, "archived");
   if (ev.key === "r") { v.ratingArm = true; return toast("rate 1–5"); }
   if (/^[1-5]$/.test(ev.key)) {
