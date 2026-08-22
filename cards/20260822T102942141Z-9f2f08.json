@@ -1,0 +1,43 @@
+{
+  "id": "20260822T102942141Z-9f2f08",
+  "created": "2026-08-22T10:29:42Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "dcbdf7f",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The surface spits now, and that part is real water",
+  "question": "Does the surface read as alive? And the LARGE mix — two sizes rather than a grid of identical discs — is that closer?",
+  "context_md": "Your four points, in order.\n\n**\"Both should cause a surface disturbance.\"** Done, and deliberately not in the renderer. Water within fifteen degrees of boiling now throws the odd real drop off its own free surface: it hops, and it falls back. It is the same code a boulder's crown uses, so the pool is actually debited and nothing is invented — and it happens with the bubbles switched **off**, which is what \"both\" has to mean. Watch the specks above the water in either clip.\n\n**\"How much is this still connected to the physics of the scene vs is just an animation?\"** Straight answer: **the bubbles are an animation.** They are computed from position, the frame number and that cell's own temperature, with no memory and no writes back into the world — they move nothing. They are keyed to something real (water that genuinely is near boiling, and boiling that genuinely follows), but a bubble is a mark on the screen. That is exactly why I put the surface disturbance in the simulation rather than next to them: it is the one part of this that is water going somewhere.\n\n**\"Large should include a mix of this plus 1 pixel smaller bubbles.\"** Two sizes now, picked per site by a hash independent of the one deciding whether a site lights at all — otherwise size and presence correlate and all the small ones turn up together.\n\n**\"I want both to remain options I can A/B test in live play.\"** They do. `H` cycles OFF, RISING, LARGE, COLUMNS, SURFACE, and the status line names whichever is on.\n\nThree things this cost, all found by looking rather than by a test: the first version fired **zero** times, because a pan is heated from below and its surface is the *coolest* part, so \"a hot cell with air above it\" describes nothing; then it fired and threw nothing, because a settled pool's top row is never quite full and the splash code will only take a full cell; then it looked like rain, because a boulder's crown is three cells thrown hard and a pan spitting is one drop that barely clears the water.\n\nCosts nothing measurable — worst frame with the pops off and on is 8.04 against 8.60 ms on this pan.\n\nBoth clips are the same pan at true speed, zoomed 6x.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "bubbles off",
+      "files": [
+        "20260822T102942141Z-9f2f08/000-card_pop_off.gif"
+      ],
+      "caption": "No bubbles drawn at all. The surface still spits, because that part is not drawn.",
+      "meta": {}
+    },
+    {
+      "label": "large",
+      "files": [
+        "20260822T102942141Z-9f2f08/001-card_pop_large.gif"
+      ],
+      "caption": "Two disc sizes mixed, plus the same real spitting.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
