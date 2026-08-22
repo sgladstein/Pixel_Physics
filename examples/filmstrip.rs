@@ -289,6 +289,44 @@ fn stone_floor(w: &mut World) {
 /// The scenes the current bug list is about. Adding one is three lines, and
 /// is much preferred to editing an existing one — a scene that quietly
 /// changed underneath a recorded measurement is worse than no scene.
+/// Whether a contact sheet should draw every tile under the same light.
+///
+/// Every cell is tinted and dimmed by the day/night cycle before it is drawn
+/// (`Renderer::pinned_light`, which is what this switches on), and
+/// `DAY_NIGHT_PERIOD_FRAMES` is 3600. So a sheet of a process that takes days
+/// walks its tiles around the light cycle, and consecutive tiles differ in
+/// *brightness* for reasons that have nothing to do with whatever the sheet
+/// was cut to show.
+///
+/// **Reported from play against the ice arc**: *"you can see a different ice
+/// morphology between the first and second half"*. Reproduced, and part of it
+/// was the sunset. Eight tiles every 2,700 frames is every 0.75 of a day, so
+/// they landed at noon, sunset, midnight and sunrise in rotation -- the census
+/// prints the phase per tile and said exactly that, unread.
+/// `scripts/acceptance.sh`'s `coldsheet` had it worse at `every=1800`, exactly
+/// half a day, alternating noon and midnight forever.
+///
+/// **Auto rather than always.** A sheet that spans a tenth of a day has no
+/// aliasing to fix -- `scene=fall every=60 count=6` is six frames of a rock
+/// falling -- and pinning it would only throw away a true picture of the sky.
+/// It engages when the span reaches a day, which is when the aliasing starts.
+/// `phase=noon` and `phase=off` force it either way.
+///
+/// The alternative, tried first and rejected: snap the *sample frames* to a
+/// whole number of days. It works, but whole-day quantisation is the only
+/// interval that shares a phase, so it doubled `coldsheet`'s span and runtime
+/// and changed which frames were being judged. A render pin changes neither.
+fn pin_sheet_light(args: &Args) -> bool {
+    // The span the sheet covers, not the tile count: one extra tile at a
+    // short interval is not the situation this exists for.
+    let span = (args.every * args.count.saturating_sub(1)) as u64;
+    let pin = args.phase.unwrap_or(span >= pixel_physics::sim::field::DAY_NIGHT_PERIOD_FRAMES);
+    if pin {
+        println!("phase: every tile drawn at noon ({span} frames spans a day or more; phase=off to see the real sky)");
+    }
+    pin
+}
+
 fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     // Set before the scene is built, because several scenes cut into the
@@ -1734,6 +1772,10 @@ struct Args {
     start: usize,
     every: usize,
     count: usize,
+    /// `phase=noon` / `phase=off` -- force a contact sheet's samples onto a
+    /// fixed point of the day/night cycle, or force that off. `None` decides
+    /// it from the span; see `snap_to_noon`.
+    phase: Option<bool>,
     cols: usize,
     zoom: i32,
     crop: Rect,
@@ -2072,6 +2114,7 @@ fn parse() -> Args {
         tunnel: 0,
         relax: false,
         span: 200,
+        phase: None,
         // A pond a player would recognise as a pond, and the width the
         // acceptance case in ice.ron's note is stated at.
         fall: 90,
@@ -2087,6 +2130,7 @@ fn parse() -> Args {
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
             "count" => a.count = v.parse().expect("count"),
+            "phase" => a.phase = Some(v == "noon"),
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
@@ -3116,6 +3160,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // The gif branch is for watching motion, not measuring: no
         // per-frame timing and no body sampling, so it reports neither.
         return (0.0, world, 0, cells_before, cave_before);
+    }
+
+    // Contact sheets draw every tile under the same light -- see
+    // `pin_sheet_light`. The GIF branch above deliberately does not: it plays
+    // at real speed, so its day/night swing is the world's own.
+    if pin_sheet_light(args) {
+        // Phase 0 of the cycle is noon -- `field::sun_rising` runs noon,
+        // sunset, midnight, sunrise.
+        renderer.pinned_light = Some(0);
     }
 
     let mut captured = 0usize;

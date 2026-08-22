@@ -934,6 +934,26 @@ pub struct Renderer {
     /// rock, which is the "caves are dark, bring a torch" feature and not
     /// this one.
     daylight: u8,
+    /// `Some(frame)` draws every frame's *lighting* as if it were that frame,
+    /// leaving the simulation alone.
+    ///
+    /// **For contact sheets of slow processes.** Every cell is tinted and
+    /// dimmed by the day/night cycle (`sky::apply_light` below), and
+    /// `DAY_NIGHT_PERIOD_FRAMES` is 3600, so a sheet sampling a multi-day
+    /// process walks its tiles around the light cycle and adjacent tiles
+    /// differ in brightness for reasons that have nothing to do with what the
+    /// sheet was cut to show. Reported from play against a six-minute ice
+    /// arc: *"you can see a different ice morphology between the first and
+    /// second half"* -- and tile six was simply at dusk.
+    ///
+    /// A render-side pin rather than moving the sample frames, which was
+    /// tried first and is worse: quantising the interval to whole days is the
+    /// only way to make sampled frames share a phase, and that doubled the
+    /// span (and the runtime) of the one acceptance case it touched while
+    /// changing which frames were being judged. This changes no frame and no
+    /// timing. `field::noon_equivalent_light` divides the same oscillator out
+    /// of *decisions*; this is its render-side twin.
+    pub pinned_light: Option<u64>,
     /// `CAVE_FADE_DEPTH`'s ramp, precomputed: how far toward `UNDERGROUND`
     /// a cell `i` rows below its column's sky floor is drawn, as a 0..=255
     /// weight.
@@ -984,6 +1004,7 @@ impl Renderer {
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
+            pinned_light: None,
             cave_ramp: {
                 let mut ramp = [0u8; CAVE_FADE_DEPTH as usize + 1];
                 for (i, slot) in ramp.iter_mut().enumerate() {
@@ -1293,9 +1314,13 @@ impl Renderer {
         // be visibly lying, for the whole length of a front, about the one
         // thing the player can see.
         let storm_supply = world.storm_supply();
-        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
+        // Both the gradient and the ambient tint come from the same frame, so
+        // a pin moves them together -- half-pinning would light the ground at
+        // noon under a midnight sky.
+        let lit_at = self.pinned_light.unwrap_or(world.frame);
+        self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
-        self.daylight = sky::daylight_level(world.frame);
+        self.daylight = sky::daylight_level(lit_at);
         self.rebuild_horizon(world);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
