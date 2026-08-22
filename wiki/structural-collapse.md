@@ -1,9 +1,10 @@
 # Structural Collapse
 
 *Current as of: this build (rock submerged in water sinks rather than
-hanging, and reaches the bottom as rock rather than as grit; so does rock
-left in steam or standing on debris that has since washed away; a quench
-crust comes apart in slabs). Where something
+hanging, and reaches the bottom as rock rather than as grit; how fast it
+sinks now depends on how big the piece is, so a slab leads and grit
+trails; so does rock left in steam or standing on debris that has since
+washed away; a quench crust comes apart in slabs). Where something
 breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
@@ -81,11 +82,19 @@ was broken up again, over and over. Now the deeper the water, the longer
 the fall; it does not cost the piece anything. A pile of rock on a pond
 floor is jagged.
 
-**And it sinks at a pace rather than accelerating.** Water pushes back:
-a piece slows as it goes under, settles to a steady sink, and heavier rock
-goes down faster than lighter. What that buys is that everything from one
-break arrives *together* — no piece outruns the grit it came off, and none
-reaches the bottom while the rest are still at the surface.
+**And it sinks at a pace rather than accelerating.** Water pushes back: a
+piece slows as it goes under and settles to a steady sink instead of
+speeding up all the way to the bed.
+
+**Big pieces lead and grit follows.** How fast a piece settles depends on
+how big it is as well as how heavy — a boulder plummets, a fragment drifts
+down, and a stone barely denser than water only just sinks at all. So the
+debris from one break arrives spread out, largest first, over a few
+seconds rather than all at once. That is a change from the previous build,
+which sank everything at one speed to stop pieces outrunning each other;
+what that was really fixing was pieces *accelerating* to ten times the
+speed of their own grit, and the fix over-corrected into a world where a
+pebble and a slab fell alike.
 
 **And ground that goes away is noticed.** A piece can be held up by nothing
 but the loose material beneath it, and loose material moves: the gravel

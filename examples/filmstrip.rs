@@ -289,6 +289,75 @@ fn stone_floor(w: &mut World) {
 /// The scenes the current bug list is about. Adding one is three lines, and
 /// is much preferred to editing an existing one — a scene that quietly
 /// changed underneath a recorded measurement is worse than no scene.
+/// Upper bounds of the size classes `fastest by size` reports, in cells
+/// across. Coarse on purpose: terminal velocity goes as the square root of
+/// size, so the interesting contrast is between a fragment and a block, and
+/// finer buckets would mostly report how many bodies happened to land in
+/// each.
+const SIZE_BUCKETS: [usize; 5] = [3, 6, 9, 14, usize::MAX];
+
+/// How much water has to stand over a body's head before its speed counts as
+/// evidence about the terminal velocity, in cells.
+///
+/// **Not one, which is what `rigid::surrounding_liquid` uses to decide whether
+/// to apply drag at all.** The two questions are different and the difference
+/// is a whole frame: the harness samples speeds *after* the body has moved,
+/// so on the frame a body enters the water it was airborne when the clamp
+/// ran, kept its full entry speed, and then moved two or three cells down --
+/// and a one-cell probe then calls it submerged and records an unclamped
+/// speed as though it were the cap.
+///
+/// That is the whole reason a working size term measured as no size term at
+/// all. Six cells is more than a body can travel in a frame at any speed the
+/// clamp allows, so anything this deep has been clamped at least once.
+const SUBMERGED_MARGIN: i32 = 6;
+
+/// Whether a body is *well* inside a liquid, by `rigid::surrounding_liquid`'s
+/// probe -- above the top of its bounding box, at the middle column, which is
+/// outside the footprint and so never reads the body's own reservation --
+/// carried down `SUBMERGED_MARGIN` cells.
+///
+/// **Without this the sink readout measures the sky.** A terminal velocity in
+/// water has no authority over a body falling through air, so a peak taken
+/// over a body's whole life is its *entry* speed and says nothing about the
+/// cap. Measured: sweeping the drag coefficient from 1.0 to 3.0 moved the
+/// unfiltered peak from 3.37 to 2.58 and left the size ordering
+/// non-monotonic, which reads as "the size term does not work" and is really
+/// "this number is about the twenty rows of air above the pond".
+/// `CLAUDE.md` records the same trap catching the previous sink test.
+fn submerged(world: &World, b: &pixel_physics::sim::rigid::ChunkBody) -> bool {
+    let (mut x0, mut x1, mut y0) = (i32::MAX, i32::MIN, i32::MAX);
+    for c in &b.cells {
+        let (x, y) = b.cell_position(c);
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+    }
+    if x1 < x0 {
+        return false;
+    }
+    let px = (x0 + x1) / 2;
+    (1..=SUBMERGED_MARGIN).all(|d| {
+        world.in_bounds(px, y0 - d)
+            && world.materials.kind(world.get(px, y0 - d).material) == MaterialKind::Liquid
+    })
+}
+
+/// A body's longer side, in cells -- `rigid::body_extent`, which is private.
+fn body_extent_of(b: &pixel_physics::sim::rigid::ChunkBody) -> i32 {
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for c in &b.cells {
+        x0 = x0.min(c.dx);
+        x1 = x1.max(c.dx);
+        y0 = y0.min(c.dy);
+        y1 = y1.max(c.dy);
+    }
+    if x1 < x0 {
+        return 1;
+    }
+    (x1 - x0).max(y1 - y0) + 1
+}
+
 /// Whether a contact sheet should draw every tile under the same light.
 ///
 /// Every cell is tinted and dimmed by the day/night cycle before it is drawn
@@ -3187,6 +3256,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // visibly threw rock is exactly the confusion this harness exists to
     // prevent.
     let mut peak_bodies = 0usize;
+    // Peak speed reached by a body in each size class -- see the loop that
+    // fills it, and `rigid::SINK_DRAG_COEFFICIENT` for the curve it is the
+    // readout for.
+    let mut peak_by_size = [0.0f32; SIZE_BUCKETS.len()];
     // **How fast the fastest piece ever went, and when the first and last
     // of them came to rest.** Reported from play as *"a first group of
     // chunks that drop too fast and then the rest that come together with
@@ -3219,7 +3292,23 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             // the differences between them entirely.
             peak_bodies = peak_bodies.max(world.chunk_bodies.len());
             for b in &world.chunk_bodies {
-                peak_speed = peak_speed.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+                let speed = (b.vx * b.vx + b.vy * b.vy).sqrt();
+                peak_speed = peak_speed.max(speed);
+                // Bucketed by size and kept as a *peak*, because a terminal
+                // velocity is a cap and only a body that reached its cap is
+                // evidence about where the cap is. The per-tile `by size`
+                // line samples an instant and is confounded by exactly the
+                // bodies that matter most: a big piece already resting on
+                // the pile reads slow, which inverts the ordering and makes
+                // a working size term look backwards. Measured once as
+                // "smallest 4 cells across at 0.95, largest 10 across at
+                // 0.18" on a build whose terminal genuinely rose with size.
+                if submerged(&world, b) {
+                    let e = body_extent_of(b) as usize;
+                    let bucket =
+                        SIZE_BUCKETS.iter().position(|&hi| e <= hi).unwrap_or(SIZE_BUCKETS.len() - 1);
+                    peak_by_size[bucket] = peak_by_size[bucket].max(speed);
+                }
             }
             let flying = !world.chunk_bodies.is_empty();
             if was_flying && !flying {
@@ -3303,6 +3392,26 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
                 speeds[0],
                 speeds[speeds.len() / 2],
                 speeds[speeds.len() - 1]
+            );
+            // **The spread above cannot say whether size is what varies it**,
+            // and that is the question a terminal velocity is about: a real
+            // one goes as the square root of the body's size, so grit drifts
+            // down while a boulder plummets. A flat clamp and a
+            // size-dependent one produce the same "slowest/median/fastest"
+            // line on a scene with a range of pieces in it. Only a *paired*
+            // extreme -- the smallest piece against the largest, in the same
+            // frame -- separates them, which is `CLAUDE.md`'s rule about
+            // comparing two runs applied to two bodies.
+            let mut by_size: Vec<(i32, f32)> = world
+                .chunk_bodies
+                .iter()
+                .map(|b| (body_extent_of(b), (b.vx * b.vx + b.vy * b.vy).sqrt()))
+                .collect();
+            by_size.sort_by_key(|&(e, _)| e);
+            let (small, fast) = (by_size[0], by_size[by_size.len() - 1]);
+            println!(
+                "    by size: smallest piece {} cells across at {:.2}, largest {} across at {:.2}",
+                small.0, small.1, fast.0, fast.1
             );
         }
         // Which failure fired, cumulatively. An overloaded piece and a
@@ -3817,6 +3926,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             "fastest piece: {peak_speed:.2} cells/frame; everything came to rest between frames {} and {last_rest}",
             first_rest.map_or("-".to_string(), |f| f.to_string())
         );
+        let by_size: Vec<String> = SIZE_BUCKETS
+            .iter()
+            .zip(peak_by_size)
+            .filter(|(_, v)| *v > 0.0)
+            .map(|(hi, v)| format!("<={hi}: {v:.2}"))
+            .collect();
+        if !by_size.is_empty() {
+            println!("fastest submerged by size (cells across): {}", by_size.join(", "));
+        }
     }
     println!("worst full-screen draw: {worst_draw_ms:.2} ms");
     image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)

@@ -1490,40 +1490,72 @@ fn surrounding_liquid(world: &World, body: &ChunkBody) -> Option<MaterialId> {
 /// leaves 450 while showing the artifact. The clamp buys the look for
 /// almost nothing.
 fn drag_through_liquid(body: &mut ChunkBody, shape: BodyShape, fluid_density: f32) {
-    let carried = (fluid_density / shape.density.max(f32::EPSILON)).min(1.0);
+    let ratio = shape.density / fluid_density.max(f32::EPSILON);
+    let carried = (1.0 / ratio.max(f32::EPSILON)).min(1.0);
     body.vy -= GRAVITY * carried;
-    // Scaled by the square root of the density excess and normalised so a
-    // body twice the density of the fluid sinks at exactly `SINK_SPEED` --
-    // the shape a real terminal velocity has, so heavy things sink faster
-    // than light ones without a second constant. Floored, so something
-    // nearly neutral still creeps down instead of hanging.
-    let excess = (1.0 - carried).max(0.0);
-    let terminal = (SINK_SPEED * (excess / 0.5).sqrt()).max(NEUTRAL_SINK_SPEED);
+    // `reach` is the extent plus one, because the ring search that shoves
+    // fluid out of the way wants the plus one. A terminal velocity wants the
+    // body itself.
+    let size = (shape.reach - 1).max(1) as f32;
+    let excess = (ratio - 1.0).max(0.0);
+    let terminal =
+        (2.0 * GRAVITY * size * excess / SINK_DRAG_COEFFICIENT).sqrt().max(NEUTRAL_SINK_SPEED);
     body.vy = body.vy.min(terminal);
     body.vx = body.vx.clamp(-terminal, terminal);
 }
 
-/// Terminal sink speed in a liquid, in cells per frame, for a body **twice
-/// the density** of what it is sinking through.
+/// The drag coefficient a sinking body is given, which with `GRAVITY` and
+/// the body's own size and density is its whole terminal velocity.
 ///
-/// Reported from play, on the drop the piece-integrity fix had just
-/// improved: *"it falls at slightly odd rates. There is a first group of
-/// chunks that drop too fast and then the rest that come together with the
-/// grit later."* Exactly reproduced -- at 1.6 stone settles at **1.84
-/// cells/frame** and holds it for the whole descent, against a spread of
-/// 0.14 to **6.00** with nothing here at all, and the contact sheet showed
-/// pieces on the pond floor while others were still at the surface.
+/// # A real terminal velocity, because a flat one was the remaining complaint
 ///
-/// Set from what the same rock's rubble does, because that is the
-/// complaint: chunks and grit arriving at different times reads as two
-/// different physics whatever either one is doing on its own. Slower was
-/// measured and is worse on the other axis -- at a terminal of 0.8 the
-/// pieces arrive one at a time onto a growing pile and 287 of 600 cells end
-/// as rubble against 180.
-const SINK_SPEED: f32 = 1.6;
+/// This replaced a flat `SINK_SPEED` of 1.6, normalised on density alone, and
+/// the readout that condemned it is the paired extreme `examples/filmstrip.rs`
+/// now prints: on `scene=rockdrop`, *"smallest piece 4 cells across at 1.76,
+/// largest 17 across at 1.75"*. Grit and a block, same speed to two decimals.
+/// Play said *"still reads as too fast"*, and a size-blind clamp is why --
+/// the only speed it can pick is one that is wrong for most of the pieces.
+///
+/// Terminal velocity balances weight-minus-buoyancy against drag. In two
+/// dimensions mass goes as `d²` and frontal area as `d`, so
+///
+/// ```text
+///     v = sqrt( 2 g d (rho_body/rho_fluid - 1) / Cd )
+/// ```
+///
+/// -- the square root of the body's *size*, which is the term that was
+/// missing. Stone in water at this coefficient: a 3-cell chunk 0.71, an
+/// 8-cell 1.16, a 20-cell slab 1.84. A boulder plummets and grit drifts,
+/// which is the thing a single number cannot express.
+///
+/// **Cd = 2.0 is the blunt-body figure, and the regime was checked rather
+/// than assumed.** At roughly 1.8 cm to the cell a 4-cell fragment is ~7 cm
+/// across moving ~1 m/s, so Re is about 8 x 10^4: fully inertial, where
+/// Newton drag holds and an irregular tumbling solid sits at Cd 1-2. Flat
+/// plates are nearer 2 and spheres nearer 0.5; pixel rubble is neither, and
+/// the upper end of the blunt range is also the end that reads right.
+///
+/// # This deliberately re-opens a spread that an earlier complaint closed
+///
+/// The flat clamp was set to make everything from one break arrive together,
+/// against *"a first group of chunks that drop too fast and then the rest
+/// that come together with the grit later"*. Size dependence spreads arrival
+/// times again -- on purpose, and it is not a regression to that report. What
+/// that report was about was a **43x** spread (0.14 to 6.00) produced by
+/// nothing braking a body at all, so the ordering was by how long a piece had
+/// been falling and meant nothing. This is a **2.6x** spread ordered by size:
+/// the big pieces lead, the grit follows, and that is what a break in water
+/// looks like.
+///
+/// The measured cost of slowing the descent is recorded on
+/// `drag_through_liquid`: pieces that arrive later arrive one at a time onto
+/// a pile that is already there, and get re-judged and re-broken. Watch
+/// surviving stone on `rockdrop` and `lavadrop` when tuning this.
+const SINK_DRAG_COEFFICIENT: f32 = 2.0;
 
-/// The floor under `SINK_SPEED`'s density scaling: a body only just denser
-/// than the liquid still goes down, slowly, rather than hanging in it.
+/// The floor under `SINK_DRAG_COEFFICIENT`'s size-and-density scaling: a body
+/// only just denser than the liquid still goes down, slowly, rather than
+/// hanging in it.
 const NEUTRAL_SINK_SPEED: f32 = 0.1;
 
 /// How fast a body has to be falling before it throws a crown, in cells per
@@ -2345,6 +2377,92 @@ mod tests {
     /// it -- measured at **5.27 cells/frame** with buoyancy alone against 5.60
     /// with nothing at all -- so the guard has to be a speed rather than a
     /// rate, and both of those were red-checked against it.
+    /// A tank deep enough for a body to actually reach its terminal, walled
+    /// so the water cannot spread away from where the fixture says it is.
+    ///
+    /// `pond_world` is 44 rows deep, and at these speeds a body needs ~20
+    /// rows just to accelerate up to its cap -- so a 16-cell body in it is
+    /// measured mid-acceleration and reports a terminal it never reached.
+    fn deep_tank() -> World {
+        let mut w = World::new(Rect::new(0, 0, 95, 255));
+        for x in 0..96 {
+            for y in 250..256 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        for y in 0..250 {
+            w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(86, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for x in 10..86 {
+            for y in 40..250 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    /// The fastest a square stone body `side` cells across goes once it is
+    /// well down the tank -- its terminal, since a terminal is a cap and
+    /// gravity holds it there.
+    fn terminal_of(side: i32) -> f32 {
+        let mut w = deep_tank();
+        let cells: Vec<BodyCell> = (0..side)
+            .flat_map(|dx| (0..side).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+            .collect();
+        w.chunk_bodies.push(ChunkBody::falling(cells, 40.0, 45.0, 0.0));
+        let mut fastest = 0.0f32;
+        for _ in 0..900 {
+            crate::sim::parallel::step(&mut w);
+            step_chunk_bodies(&mut w);
+            for b in &w.chunk_bodies {
+                // The middle of the tank: past the acceleration run-up at
+                // the top, clear of the floor at the bottom.
+                if b.y > 140.0 && b.y < 210.0 {
+                    fastest = fastest.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+                }
+            }
+        }
+        fastest
+    }
+
+    /// A big piece sinks faster than a small one, by the square root of its
+    /// size.
+    ///
+    /// # The guard the flat clamp did not have, and could not have failed
+    ///
+    /// `SINK_SPEED` normalised terminal velocity on density alone, so every
+    /// stone body in the world sank at 1.8 whatever its size -- measured on
+    /// `scene=rockdrop` as *"smallest piece 4 cells across at 1.76, largest
+    /// 17 across at 1.75"*. Every test in this file passed, because none of
+    /// them ever compared two sizes; `a_piece_sinking_through_water_does_not
+    /// _run_away` bounds one body against an absolute number, which a flat
+    /// clamp satisfies perfectly.
+    ///
+    /// A paired comparison instead, per `CLAUDE.md`: three sizes in the same
+    /// tank cancels everything the rule under test is not about.
+    #[test]
+    fn a_big_piece_sinks_faster_than_a_small_one() {
+        let (small, middling, large) = (terminal_of(3), terminal_of(8), terminal_of(16));
+        println!("terminal: 3 across {small:.2}, 8 across {middling:.2}, 16 across {large:.2} cells/frame");
+        assert!(small > 0.0, "test setup: the 3-cell body never reached the measurement band");
+        assert!(
+            small < middling && middling < large,
+            "terminals do not rise with size: {small:.2}, {middling:.2}, {large:.2}"
+        );
+        // `v = sqrt(2 g d (rho - 1) / Cd)`, so the ratio between two sizes is
+        // the square root of the ratio of their sizes and nothing else --
+        // no constant in it to fit, which is why this asserts the ratio
+        // rather than the three speeds. Loose because a body is measured
+        // against a moving column of water it is itself pushing about.
+        let predicted = (16.0f32 / 3.0).sqrt();
+        let measured = large / small;
+        assert!(
+            (measured / predicted - 1.0).abs() < 0.35,
+            "16-across sinks {measured:.2}x the 3-across; the square-root law predicts {predicted:.2}x"
+        );
+    }
+
     #[test]
     fn a_piece_sinking_through_water_does_not_run_away() {
         let mut w = pond_world(80);
@@ -2379,9 +2497,10 @@ mod tests {
             }
         }
         assert!(fastest_wet > 0.0, "test setup: the body never reached the water, so this asserts nothing");
-        // `SINK_SPEED` puts stone's terminal at about 1.8; the bar is
-        // double that, comfortably under the 6.00 the artifact reached and
-        // well clear of the transient a body carries in with it.
+        // A six-across body of stone caps at about 1.16 under
+        // `SINK_DRAG_COEFFICIENT`; the bar is triple that, comfortably under
+        // the 6.00 the artifact reached and well clear of the transient a
+        // body carries in with it.
         assert!(
             fastest_wet < 3.6,
             "a piece reached {fastest_wet:.2} cells/frame underwater; it is accelerating through the pond rather than sinking"
