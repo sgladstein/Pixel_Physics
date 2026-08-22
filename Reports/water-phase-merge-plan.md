@@ -19,7 +19,13 @@ You are picking up a finished feature branch and merging it. The work is
 done and judged; **your job is to land it without losing any of it**, not
 to improve it.
 
-## Standing rules — these are the owner's, verbatim, and they still hold
+## Standing rules — the water-phase session's brief, quoted for context
+
+**These were addressed to the session that built this branch, not to you.**
+Quoted so you know what the work was produced under; they are not orders
+carried over. Where your own harness brief says something different, yours
+governs your session — except where a rule is about the repo rather than
+about a session, and those are called out below.
 
 > Work in a worktree if you spawn agents (`.claude/worktrees/` convention;
 > agent worktrees have cut from stale bases before — verify HEAD against
@@ -30,21 +36,51 @@ to improve it.
 > touches structural or weather behavior. Push only to
 > `claude/water-phase-changes-ki6g8c` unless I explicitly direct otherwise.
 
+Of those, the two that *are* about the repo and do carry over: **stage
+explicit paths, never `git add -A`** (doing it once swept ~1,200 lines of
+someone else's in-progress work into an unrelated commit), and **commit
+messages carry the measurement**, not just the intent. Both are in
+`CLAUDE.md` in their own right.
+
 Read `CLAUDE.md` first — all of it. It is about *method*, not code, and
 every rule in it was bought with a real failure.
 
-Two notes on the rules for this particular job:
+### Your harness will name a branch that does not exist. That is normal.
 
-- **The branch name in your harness brief may say `...-amsy3d`. It is
-  wrong, and here is the evidence rather than an assertion:**
-  `git ls-remote --heads origin` shows **no such branch has ever existed**,
-  while `claude/water-phase-changes-ki6g8c` exists and holds all 62
-  commits — **29 of which predate this line of work's current session**
-  (dated 2026-08-20). So the work lives on `ki6g8c` as a matter of record,
-  not of anyone's say-so. Re-run that `ls-remote` yourself before trusting
-  it. Flag the discrepancy to the owner; do not create or push `amsy3d`.
-- **Do not merge to `master` without the owner saying so in this session.**
+The harness mints a working branch name per session, derived from the
+session or plan name, and it does not exist on origin until something
+pushes to it. The water-phase session was told
+`claude/water-phase-changes-amsy3d`; a later session was told
+`claude/starry-wiggling-token-plan-a1pfep` — named after this very plan
+file. **Neither has ever existed on origin**, and that is not evidence
+either is wrong.
+
+So do not read "your brief names a branch that isn't there" as a conflict
+to resolve. The substantive question is a different one, and it is the
+owner's, not a matter of which brief outranks which:
+
+> **Where should the merge result land?**
+
+The work itself is unambiguous and you can verify it in one command:
+`git ls-remote --heads origin | grep water-phase` shows
+`claude/water-phase-changes-ki6g8c`, holding all 62 commits, **29 of them
+dated 2026-08-20** — before the session that finished it even began. That
+is where the branch is. It is not where the *merge* necessarily goes.
+
+**Recommended, but confirm it with the owner before pushing anything:**
+merge `origin/master` *into* `ki6g8c` and push `ki6g8c`. That keeps the
+conflict resolution reviewable on the feature branch before it touches the
+trunk, keeps "merges to the trunk only on my explicit say-so" intact, and
+lands the 62 commits plus one merge commit as a reviewable unit. The
+session that built the branch is finished with it — tree clean, everything
+pushed — so you are not racing anyone for it.
+
+- **Do not merge to the trunk without the owner saying so in this session.**
   "Get ready for merge" is not "merge". Ask.
+- **Confirm whether the trunk is `main` or `master`.** They point at the
+  same commit today (`c7cdcdc`), so it currently makes no difference — but
+  a branch named `claude/main-master-divergence-5d72zb` exists on origin,
+  so that equality has not always held. Ask which one is meant.
 
 ## The state, measured — **and re-measure it before you use it**
 
