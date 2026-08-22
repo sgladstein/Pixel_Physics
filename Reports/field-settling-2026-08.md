@@ -1,133 +1,154 @@
-# What a bigger world costs, and how long the field takes to go quiet
+# What the coarse field costs, and what actually decides it
 
-*Round 7, sizing the 4x world. **This file replaces an earlier version whose
-headline claim was wrong**; the correction is kept in full at the bottom,
-because how it went wrong is more useful than the number it got wrong.*
+*Round 7, sizing the 4x world. **This file has now been wrong twice and
+rewritten twice**, in opposite directions, and both corrections are kept in
+full at the bottom — how it went wrong is more useful than the numbers it got
+wrong.*
 
-## The measurement
+## Measure it against the clock, not across it
 
-`examples/scale_probe.rs`. Generated world, no player, no input. It steps
-until the field goes quiet — quiet being `QUIET_RUN` consecutive frames
-whose `field::step` costs under `QUIET_MS` — then measures at rest.
+The field's cost is governed by **two designed oscillators**: the day/night
+cycle (`DAY_NIGHT_PERIOD_FRAMES = 3600`) and the weather, which is a pure
+function of `(seed, frame)` and turns gusts on and off over thousands of
+frames. Any mean taken over a window shorter than a cycle is a sample of an
+oscillator at an arbitrary phase, not a cost.
 
-| size | cells | place | structural | gen | peak RSS | quiet at | settled sweep | settled field |
+That is not a theoretical worry. Three 600-frame windows on the **same**
+2048x640 world, differing only in the frame they started at, measured
+**0.00, 4.98 and 7.04 ms/frame** — each offered as "the settled field cost".
+
+So `examples/field_cost.rs` classifies every frame by both oscillators and
+buckets over two full cycles. Quote its `amortised` row and nothing shorter.
+
+## The instruments, and what each is for
+
+| | Answers |
+|---|---|
+| `field_cost.rs` | what a frame costs, bucketed by sky-step and gusting |
+| `FIELD_PASS=N` | which of the eight passes the cost is in |
+| `FIELD_DRIFT=N` | which *channel* is unsettled, and which of the three seeds woke each tile |
+| `field_hash` | is this build's field bit-identical to that one's |
+| `field_channels` + `FIELD_DUMP` | if not, how far apart, per channel, against the settle epsilons |
+| `FIELD_CARRY` / `FIELD_SKYFAST` | run the paired baseline in the same session, without a `git stash` |
+
+The last one matters more than it looks. The first reading of the
+carry-forward change showed a 29.5 ms win **alongside a 50% regression in
+every other pass**; the regression was entirely the machine having slowed
+between two runs an hour apart.
+
+## Where the cost was, at 8192x2560
+
+| | solved | total | blocked | advect | diffuse | velocity | sky | pressure |
 |---|---|---|---|---|---|---|---|---|
-| 2048×640 | 1.31 M | 384 ms | 202 ms | **586 ms** | 37 MiB | frame 4501 | 0.00 ms | 0.23 / 1.34 ms |
-| 4096×1280 | 5.24 M | 1503 | 903 | 2405 | 138 MiB | — | — | — |
-| 6144×1920 | 11.8 M | 3415 | 2244 | 5658 | 305 MiB | — | — | — |
-| 8192×2560 | 21.0 M | 6488 | 5325 | **11 813 ms** | **539 MiB** | frame 4501 | 0.07 ms | **4.87 / 10.72 ms** |
+| sky step | 1482 | 59 ms | **29.5** | 7.8 | 7.6 | 6.4 | 3.4 | 2.4 |
+| the echo after it | 555 | 34 ms | **11.2** | 5.7 | 7.4 | 3.8 | 3.2 | 2.2 |
 
-Settled figures are mean / worst over 60 frames with **zero awake chunks**.
+Every other frame hits the early-out at the top of `step` and is free. The
+"echo" is the frame after a sky step, re-solving the ~95 tiles the step left
+marked unsettled; it is not an independent defect.
 
-## What it says
+**Amortised, and what the two changes bought** (paired, same machine):
 
-**Chunk sleeping works completely.** A settled 4x world — sixteen times the
-cells — sweeps in 0.07 ms. Scale costs the falling-sand simulation nothing.
+    30.36 -> 17.17 ms   carrying the CA-derived arrays forward
+    18.44 -> 16.71 ms   skipping the momentum passes once they can write only zero
+    worst frame 132 -> 72 ms
 
-**The field has two separate costs, and they need separate fixes.**
+Both are **bit-identical**, verified by hash and by byte-comparing all six
+channels at matched frames — not by a green suite.
 
-1. **A transient of ~4500 frames — about 75 seconds** — during which the
-   field costs 8 ms/frame at the shipped size and up to 42 ms at 4x. Pressure
-   churns (max frame-to-frame swings of 2–27 units, ~3900 of 20480 field
-   cells above the settle epsilon) and then decays cleanly and exponentially:
-   past frame 4200 the max drift falls 0.0084 → 0.00001 over the next 1400
-   frames. **The time to quiet is the same at 1x and 4x** — it is a time
-   constant of the solver, not a size effect.
-2. **A steady state that is not free at 4x**: 4.87 ms mean, 10.72 ms worst.
-   That is the sky. `sky_light_amplitude` is quantised (see below), so the
-   full five-pass solve runs on the ~760 frames in 3600 where the sky
-   actually steps, and at 4x each of those costs ~20 ms.
+### An awake *tile* is not an awake *chunk*
 
-**Generation and memory are the other two blockers**, and are unrelated to
-the above: 11.8 s and 539 MiB peak at 4x, with
-`structural::compute_world_distances` at 45% of generation and holding a
-second full-grid mirror plus a distance array while it runs — so it is both
-the largest time cost and the reason peak memory is roughly double the
-steady grid.
+`rebuild_blocked` rescans all 4096 CA cells of every solved tile, with a
+material-registry lookup each, to rederive `blocked`, `transmission`,
+`moisture_source` and `glow`. Its own comment already called it "the busiest
+standing cost in the field". What nobody noticed is that the sun wakes tiles
+over rock that has not moved in ten thousand frames — `FIELD_DRIFT` reports
+`chunk 0` on those frames — and a settled chunk's occupancy is unchanged *by
+definition of settled*. Carrying the arrays forward takes the pass to 0.00 ms.
 
-## Changes made while measuring
+### Settled means changing slowly, and slowly is not never
 
-**Kept: `sky_light_amplitude` is quantised** to `SKY_LIGHT_STEP = 0.01` —
-0.26% of the 0.2..4.0 range, under one step of the 8-bit colour it is drawn
-through, and above the 0.005 settle epsilon so a step registers.
+The momentum passes are geometric decays, so once a tile's pressure and
+velocity are **exactly** zero they can only write zero again. Keying the skip
+on `settled` instead froze a gale's residue at 0.32 pressure units forever,
+against a settle epsilon of 0.01.
 
-The old code ran the day/night clock on an accident, and said so: the sun
-moves less than `SETTLE_EPSILON_LIGHT` per frame, so the `amplitude_changed`
-flag written to drive it "is essentially never true", and the sky advanced
-only because the pass wrote a slightly different value every frame and its
-tiles therefore never converged. Quantising makes the amplitude piecewise
-constant, so the flag fires on the frames the sky actually moves and the
-clock runs on the mechanism intended for it.
+## Rejected, with numbers, because each measured better
 
-Quantised on the 0..1 daylight *fraction*, not the amplitude, so both
-endpoints stay bit-exact and
-`sky_light_amplitude_cycles_between_the_night_floor_and_max_light` keeps its
-`assert_eq!`s. The first attempt quantised the amplitude and moved the night
-floor to 0.19999999; weakening that assertion to fit would have been the
-wrong way round.
+- **Subsetting `apply_sky_to` by column.** 8.26 -> 6.55 ms, and it was
+  measuring a bug: a tile in the solve set is rebuilt from a fresh
+  `FieldTile`, so a skipped column does not keep stale light, it **loses** it
+  (mid-air cells going 2.43 -> 0.0 and staying there). Corrected to "solved
+  OR drifted" it covered the whole world anyway and cost 8.26 -> 9.06 ms.
+- **Skipping the momentum passes per tile.** Bit-identical on a calm world,
+  and on a windy one pressure diverged **11.04** against an epsilon of 0.01:
+  with the sun up, sky-woken tiles worldwide were being pressure-stepped, so
+  a gust relaxed through all of them rather than advancing one ring a frame.
+  The old behaviour is arguably the accident — a gust that spreads further at
+  noon than at midnight — but it is wind the player sees, and changing it is
+  the owner's call, not a side effect of a performance pass. **Open question
+  for the owner, not a closed door.**
 
-**Reverted: subsetting `apply_sky_to` by column.** Gating each column on
-`sky_drifted` measured 8.26 → 6.55 ms and was measuring a bug. A tile in the
-solve set is rebuilt from a fresh `FieldTile`, so a skipped column does not
-keep stale light — it **loses** it. Measured: mid-air cells going `2.43 ->
-0.0` and staying there, because the fresh tile also takes
-`sky_amplitude = amplitude` and so reports no drift to ask for a repair.
-Corrected to "solved OR drifted" it covered the whole world anyway and cost
-8.26 → 9.06 ms.
+## Two bugs the counters caught and no timing could
 
-**It is now worth retrying, for a reason that did not hold then.** Both
-measurements above were taken *inside the transient*, when the solve set is
-most of the world and there is nothing to subset to. The steady-state cost
-is a different regime: on a sky-step frame the only thing that needs solving
-is the sky-lit tiles. Retry it against the settled numbers, not the
-transient ones.
+- **The momentum skip never fired at all.** `any_fluid` counted
+  `tile_unsettled`, and ~95 tiles are unsettled after every sky step purely
+  because their *light* moved — so it was true on every frame of a dead-calm
+  world. The timings looked like an ordinary frame; `momentum == solved` on
+  every line of `FIELD_PASS` said otherwise. This is `CLAUDE.md`'s "did it
+  fire at all needs a counter, not a picture", arriving as a pass that costs
+  0.00 ms looking exactly like a pass that was skipped.
+- **"A previous tile exists" is not "a previous tile was ever scanned".**
+  `World::ensure_chunks_for` eagerly inserts a blank `FieldTile` for every
+  chunk, so the first carry-forward version carried an all-default scan
+  forward permanently for any chunk already settled when the field first
+  stepped. A whole-field hash over 3,600 frames of the `rolling` preset said
+  **identical** — worldgen leaves every chunk dirty, so those first solves all
+  rescanned. Every hand-built test scene hit it instantly. Fixed by stating
+  the difference as data: `derived_valid`, set by the scan itself.
 
-## Next, in order
+## What is left
 
-1. **The steady-state sky cost** (4.87 ms mean at 4x) — retry the column
-   subset against settled numbers, with the light-erasure trap above in mind.
-2. **Generation** (11.8 s) — `compute_world_distances` first: 45% of the time
-   and the whole of the memory spike.
-3. **The transient** (~75 s at 8–42 ms/frame). Lowest priority of the three:
-   it is paid once at load, it does not grow with world size, and it may be
-   legitimate physics settling rather than a defect. Establish which before
-   touching the solver.
+1. **`step_diffusion`, ~11-14 ms**, now the largest single pass. It is what
+   makes shade soft rather than a hard stencil at field resolution, so it is
+   not skippable the way the others were — a canopy's whole appearance rests
+   on it.
+2. **`apply_sky_to`, ~4-6 ms**, walks every column of the world whenever the
+   step runs at all. Small, and the obvious subset is the one reverted above.
+3. **What a gust costs.** Diluted at 4x, large at 1x (78 of 320 chunks woken
+   by a +-34 dipole 52 cells across), and unhelped by either change here,
+   because a gust genuinely disturbs the fluid channels.
 
 ---
 
-## The correction, kept because the failure is instructive
+## Correction 1: "the field never settles"
 
-The first version of this file led with: *"the field never settles, and it
-costs a third of the world every frame"*, and attributed it to a pressure
-channel that never converges. **That is wrong.** Pressure converges cleanly
-at about frame 4500.
+The first version of this file led with *"pressure never converges"*. It does,
+at about frame 4500. Three instruments each gave a confident wrong answer, and
+each was wrong the same way — **it could be satisfied without the world being
+quiet**: a fixed 400-frame count; `world.fields_settled()`, which latched true
+at frame 47 because it is a verdict over the tiles *actually solved* that
+frame; and a `field_at_bilinear` lattice that reported quiet at frame 0
+because points spread evenly over a world mostly land in solid rock.
 
-Three separate instruments each gave a confident wrong answer, and each was
-wrong in the same way — **it could be satisfied without the world being
-quiet**:
+The rule earned: **ask what a metric says when the thing it measures has not
+happened yet.**
 
-- **A fixed frame count.** The probe ran 400 frames and called what followed
-  "settled". Everything downstream inherited a transient measurement as a
-  steady-state one. The solve set was then observed to be flat at 37% of
-  tiles "from frame 650 to 3000" — true, and stopping at 3000 when
-  convergence lands at 4500 is how a decaying transient reads as a permanent
-  one.
-- **`world.fields_settled()`.** Latched true at frame 47 while the field was
-  demonstrably still churning: it is a verdict over the tiles *actually
-  solved* that frame, so an empty or lucky solve set reads as everything
-  being settled.
-- **A lattice of `field_at_bilinear` probe points.** Reported quiet at frame
-  0. Points spread evenly over a world mostly land in solid rock, where the
-  pressure never moves at all — a metric that cannot distinguish a still
-  world from a blind sampler.
+## Correction 2: "a ~4500-frame load transient"
 
-What settled it was keying on the **cost** rather than on any notion of
-stillness: the two regimes are 40x apart (42 ms/frame converging against
-0.01 ms converged), which no vacuous reading can fake. And keying the
-diagnostic to `world.frame` rather than to a call counter, since the field
-is stepped intermittently and the two diverge by thousands of frames.
+The second version attributed 30-50 ms/frame over the first ~4500 frames to
+generated terrain starting far from field equilibrium, and planned to seed the
+field at load. **There is no load transient. It is the wind.** Seed 1 opens on
+a gale — wind 0.963, below `GUST_THRESHOLD` at frame **3704** — gusting a +-34
+dipole every 26 frames throughout. The field goes quiet at 4501, about 800
+frames after the last gust, which is one gust's dispersal time. Three
+ablations pin it: terrain is at rest by frame 7 (sweep-only run, zero awake
+chunks), so there was never anything to seed; per-channel attribution puts
+every unsettled tile on pressure with peak swings of 10.7, 13.5 and **14.7 at
+frame 2400 — larger than at frame 1200**, and a decaying transient does not
+get louder; and past the gale pressure peaks at 0.007 against an epsilon of
+0.01.
 
-The rule this earns, which is the sibling of "ask what a metric counts when
-nothing is wrong": **ask what a metric says when the thing it measures has
-not happened yet.** All three instruments answered "quiet" for a world that
-was not quiet, and none of them could have said so.
+The rule earned: **a cost that tracks the frame number is not necessarily a
+function of the frame number.** Everything in `weather::at` is, and it was
+sitting between the generator and the solver the whole time.
