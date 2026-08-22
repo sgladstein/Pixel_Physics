@@ -41,7 +41,21 @@ only where the question gets asked; and trees obey it, which they never
 did at any setting. The thing to judge in play is the trade the second of
 those buys, which is real and is described below: at the tighter settings
 a collapse can now stop part way and leave rock standing that is holding
-nothing up.*
+nothing up.
+
+**New this build, and the two worth watching.** What comes away from a
+collapse is now sized the way a hammer blow's debris is sized, so a big
+failure calves blocks where it used to shed chips and grit — fewer, larger
+pieces, and rather less dust. And falling rock now shoves smoke aside
+instead of stopping dead on it, which mattered because the one place in the
+world thick with smoke is the fresh crater a chunk is trying to fall into.
+
+**Still true, and the honest limit of the setting:** how far damage travels
+is set far more by how big the blast itself was than by where `F9` is
+pointed. The setting reliably controls **how much** comes down — at the
+tightest settings almost nothing does — but a big charge marks rock a long
+way out at every setting, because the web it wakes is part of the blast
+rather than part of the aftermath.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut

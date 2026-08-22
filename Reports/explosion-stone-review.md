@@ -1279,3 +1279,187 @@ reach. So §15d's four zero-joint charges are partly fixed: the shallow ones
 on slopes now crack (charge 7 of the sweep, 16/16 open, goes from 0 to 825
 joints), and a true airburst stays nearly silent, which is what it should
 be.
+
+## 17. The containment number was the gate restated
+
+Written after an adversarial review of `dffef0e` and `39d0978` — 44 agents,
+40 candidate findings, 10 confirmed. The headline finding invalidates a
+result this report was about to carry.
+
+### 17a. The retraction
+
+`dffef0e` reported, and I relayed to the owner, a four-mode table claiming
+damage reach fell to exactly the leash at every setting. **The AFTER column
+is forced by construction, not measured.**
+
+`within_disturbance` is `EXISTS live d: cheb(cell,d) <= chain_reach + d.extent`.
+`distance_to_live_disturbance` is `min over live d of max(cheb - d.extent, 0)`.
+If the first holds via `d0` then `cheb_0 - extent_0 <= chain_reach`, and a min
+over all `d` is no larger. So `within_disturbance ==> distance <= chain_reach`,
+unconditionally — and all four recording sites are downstream of the clip:
+the clipped region, the organism path gated two lines above it, the paced
+slice (a subset of an already-clipped region), and `sever_joint`, whose disc
+is clamped by `licence_headroom(at)` and cut hard at `reach`.
+
+So "LOCAL 48, TIGHT 16, NONE 0" against leashes of 48, 16 and 0 is a
+saturated ceiling. `CLAUDE.md`: *a debug readout must not be a function of
+the thing it debugs.*
+
+**The NONE arm is also a units bug on its own terms.** `licence_radius`
+early-returns `0` at `chain_reach == 0` and deliberately ignores the extent,
+while `distance_to_live_disturbance` subtracts it unconditionally — so the
+gate measures from the wound's centre and the metric from its edge. The
+35-cell organism amputation that motivated building this instrument would now
+read `0`.
+
+### 17b. What replaced it, and the first draft that was wrong
+
+`filmstrip::damage_radius` snapshots the material grid at the cut and reports
+the furthest cell of **rock that stopped being rock** from the charge that
+made it, nearest-charge per cell. It reads no `chain_reach`, no
+`World::disturbances`, no `within_disturbance`, no `licence_radius` and no
+age window, so it can report 200 at TIGHT.
+
+**Its first draft counted any changed cell and read 296 on a single charge** —
+almost all of it smoke drifting to the far edge of the world and debris
+grains landing. Both are real changes; neither is damage. Narrowed to "was
+`Solid`, is not the same material now", the same charge reads 63. This is the
+whisker rule exactly: the metric counted what a blast *looks like* rather
+than what it costs. It returns `-1`, not `0`, on a world with no charge in
+it.
+
+### 17c. The honest table
+
+Nine charges, rolling seed 1, frame 5,000:
+
+| mode | old number | rock lost, furthest from its charge | promoted | rock destroyed |
+|---|---|---|---|---|
+| SPREAD | 292 | 65 | 11,389 | 7,512 |
+| LOCAL 48 | **48** | 54 | 6,142 | 4,851 |
+| TIGHT 16 | **16** | 51 | 4,828 | 4,547 |
+| NONE 0 | **0** | 54 | 174 | 2,936 |
+
+**`chain_reach` does not control how far damage reaches.** 65 / 54 / 51 / 54,
+essentially flat. What it controls is how *much*: 11,389 promoted down to
+174. The reach is dominated at every setting by the charge's own footprint,
+because the fabric opens seams to `joint_reach * radius` = 2.4 x 20 = 48
+cells before any chain runs. **The F9 leash is a quantity knob wearing a
+distance label**, and that is the honest answer to the owner's original
+complaint that a blast still spreads across the screen at LOCAL and TIGHT.
+It does, and tightening F9 was never going to stop it; `joint_reach` is the
+knob that would.
+
+### 17d. The other confirmed findings
+
+- **A confined `Overloaded` failure near a licence edge wrote nothing and
+  dropped the distance wavefront** — `licence_headroom` clamps the crush disc
+  below `min_joint_reach`'s floor of 10, stone's grain is 13, so the disc
+  contains no joint and `tick` read the resulting `0` as idempotence. The
+  artifact `39d0978` exists to fix, reintroduced 250 lines later, as an
+  annulus around every licence boundary. Fixed by distinguishing "refused by
+  the leash" from "nothing left to do" (`Crush { fresh, leashed }`). **TIGHT
+  promoted cells 4,828 -> 6,666; SPREAD bit-identical.**
+  **No sweep could have caught it**: every statistic `seedsweep.sh` gates is a
+  damage count, and this artifact *reduces* damage, so it read as the leash
+  working.
+- `structural.rs`'s empty-region return claimed *"control only reaches here
+  when `worsened` is true"* — false, and false about the settled path the
+  module is built to judge on.
+- `break_free`'s doc block had been orphaned onto `clip_region_to_licence` by
+  two successive insertions, taking with it reasoning another line cites by
+  name. Nothing catches this: no `missing_docs` lint, and
+  `unused_doc_comments` does not fire because the block landed on a valid
+  item.
+- `FailureCounts::confined` is named in `structural.rs` as *"the number to
+  watch in `scripts/blastsweep.sh`"* and that script had never parsed it.
+
+### 17e. Smoke was a wall, and it was not the complaint
+
+The owner reported chunks that seem fully cracked all round staying put and
+not falling into the crater. **Smoke was a real and separate bug**: `Gas` was
+not in `clear_or_displaceable`'s displaceable set, so a body that hit smoke
+moved no substep and re-embedded three frames later — and a crater is 18%
+smoke. Guard fails by 23 rows: *"smoke held the chunk up at y=39 when an open
+shaft put it at y=62"*.
+
+**It is not what the owner is seeing.** On the shallow charge that actually
+makes a crater, before and after are byte-identical. A new counter
+(`filmstrip::severed_islands`) says why:
+
+```text
+  frame 400, blast=300,8,20,180,60, rolling seed 1
+  rock the fissures actually cut loose: 44 piece(s), largest 292 cells
+                    of those, wedged with no free face: 0 (0 cells)
+```
+
+Forty-four pieces cut free, largest 292 cells, **none wedged**. So neither
+smoke nor confinement is the gate — they are judged *supported*.
+`depowder=300` names the culprit: promoted 972 -> 4,687, largest still-loose
+piece 292 -> 27. `load::rests_on_ground` is "the cell below is a `Powder`"
+feeding `is_anchor`, so one cell of a slab over soil anchors the whole slab.
+
+**This is fixed on `claude/water-phase-changes-ki6g8c` (`31f06b9`), the third
+version of that predicate, and this branch deliberately does not duplicate
+it.** That control is blunt — it removed 6,922 cells, the soil overburden as
+well as the blast's rubble — so it does not separate the two; `preset=flat`
+was tried as the isolation and is not a worldgen preset.
+
+### 17f. Fragments stop being all one size
+
+The owner's second complaint. Two answers.
+
+`rigid::fracture` passed a flat `size_bias: 0` for as long as the ladder has
+existed, so a collapse drew targets of 2..64 cells where a *blow* drew
+8..256. Sized off the failing region's half-extent instead: mean body 22 ->
+35 cells, grit 25% -> 18% of everything that came off, and **`seedsweep.sh
+strike=12` cells lost max 521 -> 120, rock destroyed max 1,345 -> 280** — a
+residual this branch had been carrying, where three attempts to damp it had
+made it worse. The cause was never the damping: a collapse could not calve a
+piece big enough to fly and dissolved it instead.
+
+`FailureCounts::promoted_sizes` buckets every promoted body by doubling,
+because the old pair only yields a mean and *"a few blocks, more cobbles, a
+lot of grit"* is a distribution.
+
+A varying grain (`fracture_field::pitch_at`) is built, works, looks right —
+and is **off by default**. Four seeds: banding narrows the spread (best case
+down a quarter, worst case up 7%) and costs 10-14 ms on the worst frame.
+Frame cost is a hard constraint, so it ships as `Material::joint_band_contrast`
+(default `0.0`) with `bands=` on `filmstrip` for the A/B.
+
+### 17g. `roomcut` was red on a blocking CI gate for twenty commits
+
+Written off as pre-existing; `origin/main` is green. Bisected to `c089aa2`,
+which reshaped what a failing region is — overload failures **17 -> 1**.
+Rendered side by side, the ceiling comes down on both and slightly further
+here by frame 400; what changed is that it arrives as one paced collapse
+rather than thirty-seven, and lands at frame ~350 rather than ~150. So the
+bar moved from an event count to an outcome (`max_cave=40`), red-checked
+against the uncut room. **The timing change is real and is recorded in
+`open-bugs-handoff.md` rather than absorbed into a green tick** — the owner
+has separately complained about breakage arriving late.
+
+Second time an event-count bar in `acceptance.sh` has caught a mode shift
+rather than a behaviour change; the `strike` case records the first.
+
+### 17h. For whoever merges this — the collision with the water/lava branch
+
+By owner decision `claude/water-phase-changes-ki6g8c` lands **first**. It is
+47 commits ahead of `main` with all 19 of its acceptance cases green, and it
+overlaps this work in `load.rs`, `rigid.rs`, `structural.rs` and
+`filmstrip.rs`. Three specific calls, so nobody has to re-derive them:
+
+- **Take *their* `region_has_free_face`.** Both branches independently found
+  that `Gas` read as solid there; theirs (`a729965`) also handles a lighter
+  `Liquid`, which this one does not.
+- **Keep *this* branch's `clear_or_displaceable`.** They do not touch it, and
+  it is the other half of the same bug: `region_has_free_face` decides
+  whether a piece is judged confined, `clear_or_displaceable` decides whether
+  a body already in flight can move through smoke. Both are needed.
+- **Take *their* `rests_on_ground` / support-walk work wholesale**
+  (`31f06b9`, `7a8f13a`). This branch deliberately built none of it — see
+  §17e — so there is nothing here to reconcile, only to inherit.
+
+Everything else on this branch is additive: `fracture_field.rs` is a new
+module, and `severed_islands`, `damage_radius`, `promoted_sizes` and
+`max_cave` are new counters and a new gate.

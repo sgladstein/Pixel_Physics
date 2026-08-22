@@ -184,6 +184,11 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                what, and where it breaks -- fissures, strike damage
   rigid.rs     M8: chunk bodies -- component labeling, contour tracing,
                and detached pieces falling as one coherent thing
+  fracture_field.rs
+               the joint fabric: which Worley domain a cell of rock belongs
+               to, so a blast reveals the grain the rock already has instead
+               of drawing a star across it. Position-keyed and stateless, so
+               a second charge retraces the first one's breaks
   liquid.rs    heightfield liquid bodies -- test-only today: promotion was
                implemented and reverted, so its bugs are latent until it
                lands (Reports/liquid-heightfield-design.md)
@@ -1157,6 +1162,22 @@ without writing `aux`) if every `Solid` neighbour that exists happens to be
 mid-burn, rather than either reading their timers or treating "temporarily
 unusable" the same as "no support at all." Regression test:
 `a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance`.
+
+**Rock has a grain, and a blast wakes it** (`fracture_field.rs`). Where the
+planes stone is disposed to part along run is a fixed, position-keyed
+property of the place rather than a shape drawn at the moment of the event,
+so a second charge on the same ground retraces the first one's breaks rather
+than drawing new ones. A blast severs the boundaries of the Worley domains
+around it — closed, straight-sided polygons meeting at three-way junctions —
+and a *confined* failure reveals the same fabric where it stands. The
+severing rule is exact and needs no threshold: an edge is a joint iff its two
+cells sit in different domains, which is the domain's own boundary on the
+4-connected grid, so a domain whose boundary is fully severed is enclosed by
+construction rather than by luck. `Reports/explosion-stone-review.md` §15-17
+is the design record, and `Material::joint_spacing` (`0.0` = not jointed) is
+what keeps this to brittle rock: sand, soil, gravel and snow are already the
+fragments.
+
 
 ## M18 status
 

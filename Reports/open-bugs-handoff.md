@@ -11,6 +11,83 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0a. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
+
+`World::record_disturbance` has exactly three production callers —
+`rigid::mine_swept`, `rigid::strike` and `explosion.rs`. The paint brush
+(`World::paint_*`) and fire burnout record nothing. Since `39d0978` the
+organism support path is gated on `within_disturbance`, so at LOCAL, TIGHT
+and NONE, erasing or burning out a trunk leaves the crown standing as living
+wood. **Rock has had the identical hole for longer** — erasing a pillar with
+the brush at LOCAL leaves the roof floating — so this is a pre-existing gap
+that `39d0978` newly exposed for a second material class, not a regression.
+
+Also worth knowing: `rigid::strike` and `rigid::mine_swept` both `continue`
+on `organism_id() != 0`, so the pick and the chisel cannot damage a tree at
+all. **The explosion is the only tree-damaging verb that records a
+disturbance**, which means LOCAL and TIGHT degenerate to NONE for vegetation
+under every other verb.
+
+*Fix shape:* give the brush and the fire burnout a `record_disturbance` with
+an extent. That repairs rock's brush inertness at the same time. Deliberately
+not done on the explosion branch — it is a change to two unrelated verbs.
+
+### 0b. A room's collapse arrives at frame ~350 where it used to arrive at ~150
+
+`c089aa2` reshaped what a failing region is (boundary erosion, fragments
+separating along fissures). On `scene=room wall=5 dig=3` the ceiling's
+collapse merged from **thirty-seven separate failures into one** paced
+failure of 1,903 cells. Measured against `origin/main`, roofed void as a
+percentage of what was there at the cut:
+
+```text
+  frame        2     200     400     800
+  main      100%     20%     22%     22%
+  branch    100%     24%     18%     18%
+```
+
+The roof comes down on both, and slightly further on the branch by frame 400
+— so the outcome is equivalent or better and `acceptance.sh`'s `roomcut` bar
+was moved from an event count to `max_cave=40` accordingly. **What is not
+settled is the timing.** The owner has separately complained about breakage
+arriving late, and this is a collapse taking a bit over twice as long to
+arrive. It needs a playtest verdict, not another metric: if it reads as
+sluggish in the hand, the lever is `FRACTURE_CELLS_PER_TICK` and the staging
+interval, not the region shaping.
+
+### 0c. Near-surface blasts do not throw chunks into the air
+
+Reported from play: *"explosions in particles and explosions deep in the rock
+are close to satisfying, but explosions near the surface of rock should blast
+chunks into the air and it doesn't."* Diagnosed and deliberately not built.
+
+The plumbing exists: `ChunkBody` has signed `vx/vy`, `rigid::advance`
+integrates gravity as a plain `+=` with no falling-only assumption, and
+`rigid::promote` computes a real radial velocity. Four reasons it cannot do
+this today, none of them a tuning value:
+
+1. **Magnitude.** At the crater rim `|v| = (180 * 0.06) / ~21 ~= 0.51`
+   cells/frame; against `GRAVITY = 0.15` that is **0.87 cells of rise**. The
+   same blast's particles launch at 8-9 cells/frame, ~16x faster — which is
+   why the ejecta plume that reads well is entirely grit.
+2. **Direction is radial from the epicentre only** — no free-surface normal.
+3. **The one late chunk-producing step is aimed the wrong way on purpose**:
+   `explosion::calve` uses `-(strength * CALVE_FORCE)`, throwing the rim
+   *into* the hole.
+4. **Depth is not an input to any impulse.** `probe_confinement` computes
+   `RayResult.cost` — the resistance-weighted distance to air — and
+   **discards it**. There is no burden measurement anywhere.
+
+*Fix shape, worked but unbuilt:* keep `RayResult.cost` per sector as the
+burden; grade the outcome three ways on it (deep -> camouflet unchanged,
+shallow -> flood the cone between the charge and its nearest free surface and
+hand it to `fracture_with_impulse` with a **positive** force along the
+free-surface normal, zero -> surface burst that mostly vents); and make the
+magnitude an order of magnitude larger than the rim's — 2-4 cells/frame buys
+13-53 cells of rise against `MAX_SPEED_PER_AXIS` of 6.0. `Reports/
+explosion-stone-review.md` §4 already defers "explicit spall" by name.
+
+
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 
 `ponds` fills any hollow that reaches the open surface, and an overhang
