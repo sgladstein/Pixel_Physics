@@ -1,0 +1,45 @@
+{
+  "id": "20260822T001540743Z-a19327",
+  "created": "2026-08-22T00:15:40Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-genome",
+    "branch": "plant-genome",
+    "commit": "40147a7",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-genome"
+  },
+  "title": "Root morphology: the ByOrder machinery on roots was dead",
+  "question": "Is this the axis you meant by 'fully different morphology'? And is a descending main axis with wandering laterals the right shape to aim at, or did you mean something else?",
+  "context_md": "Your verdict on the last card: *\"clearly different but not as much as I\nwould like. It just looks like more vs less roots instead of fully\ndifferent morphology.\"* That was right, and it pointed at a dead\nmechanism.\n\n**Why it could only be density.** Every `ByOrder` field on the root's\n`Grow` is a **single-element array** — `upward_weight: [0.6]` — and\n`.at(order)` clamps to the last entry. So a primary axis and a\nthird-order lateral read the *same* parameters. Worse: nothing ever\nincremented a root's order. `break_buds` does exactly this above ground\n(\"a flushed bud is an axillary meristem — it is a lateral by definition,\nso it starts the next tier\"); `break_root_tips` never did, and neither\ndid my new lateral conversion. **Every root cell in the world is order\n0**, so the `ByOrder` machinery on roots has been dead the whole time —\na gate hiding a second bug by making it unreachable.\n\n**Left** is today. **Right** is with laterals incrementing their order,\nplus one species-data line authoring a hierarchy\n(`upward_weight: [0.95, 0.15]` — primary axis drives down, laterals\nwander).\n\n| | today | order + hierarchy |\n|---|---|---|\n| depth histogram, surface→bedrock | 27, 28, 16, 13, 13 | **15, 21, 22, 20, 19** |\n| deepest row below surface | 26.6 | 29.8 |\n| lateral spread | 54.6 | 55.0 |\n| root cells with 3+ root neighbours | 72% | 67% |\n\n**The control matters here:** the order fix *alone*, with today's uniform\nauthoring, is **byte-identical** to today — same 438 median, same\nhistogram, every figure. It changes nothing for any shipped species and\nonly makes the axis reachable. The morphology comes from the one authored\nline.\n\nI have **not** landed the authored hierarchy — that is a species-design\ncall, and `[0.95, 0.15]` is a first guess I picked to test whether the\naxis exists at all.\n",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "today",
+      "files": [
+        "20260822T001540743Z-a19327/000-hier-A-uniform.png"
+      ],
+      "caption": "uniform order - surface-weighted tangle, depth 27/28/16/13/13",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "order + hierarchy",
+      "files": [
+        "20260822T001540743Z-a19327/001-hier-C-ordered-fixed.png"
+      ],
+      "caption": "descending axes reaching bedrock, depth 15/21/22/20/19",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
