@@ -1,0 +1,35 @@
+{
+  "id": "20260822T181610079Z-2a6991",
+  "created": "2026-08-22T18:16:10Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "89b8685",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "You were right three times — including that the pan should show something",
+  "question": "Nothing to judge here except the sink clip, which is finally animated. The bubble finding is for next session.",
+  "context_md": "Three verdicts, and you were right on all three. Answers in order, plus the one clip you could not judge.\n\n### \"This is not an animated gif. This is a panel of static images.\"\n\nMy mistake and a real footgun: `gif` defaults **off** in the harness, so asking for `out=clip.gif` without it wrote a 110-tile contact sheet — 1,264 by 13,392 — into a file named `.gif`, and nothing anywhere complained. Fixed: a filename ending in `.gif` now gets an animation, and says so. **The clip below is the real one**, 90 frames at true speed.\n\n### \"It had nothing to do with nightfall.\"\n\nAccepted. I over-weighted that half. The lighting fix is still worth having — the sheet genuinely was sampling noon, dusk, midnight and dawn in rotation — but it was not your answer, and I should have said so after looking at the corrected sheet instead of leading with it.\n\nThe real cause is the one at the end of that card, and it is now fixed: **ice insulates the water under it**, so a sheet should thicken fast and then ever more slowly, and **lying snow should slow it further**. The engine had a hard nine-cell cap standing in for the first and had the second *backwards*. Measured on a pond skinned with ice, half of it under a drift:\n\n| ice under a drift | bare ice, same run |\n|---|---|\n| **8.47 cells** (before — snow made ice 39% *thicker*) | 6.10 |\n| **6.23 cells** (now — snow makes ice 9% thinner) | 6.83 |\n\nThe sign changed, not just the size. The coverage step you saw is still there and I have not claimed otherwise: that is lateral spread across bare water, which insulation does not touch.\n\n### \"A simmering pan doesn't show nothing when I boil water on the stove.\"\n\nYou are right and my sentence was wrong. I wrote it about the engine with the renderer switched off, and presented it as if it excused the renderer. It does not.\n\nSo I measured the thing that settles it: **steam with water directly above it — a bubble, by definition.** Nothing had ever counted it, because a plume standing over a pond and a pond full of rising bubbles give the same steam total.\n\n| scene | submerged steam | steam at peak |\n|---|---|---|\n| lava poured into a pond | **0** across the whole run | 104 |\n| lava dropped in | **0, 3, 0, 0, 0** | 496 |\n| pan over a hearth | 5 on the first tile, then **0** | 11 |\n\n**The engine essentially never puts gas inside water.** Boiling happens where the hot face meets the water and the steam leaves upward from there; nothing forms at a floor and travels up a column. That is not a resolution limit and not a tuning knob — the mechanism you are describing does not exist, and the drawn bubbles have been standing in for it.\n\nThat is a mechanism to build, not a constant to change, so I have recorded it and stopped there for this session.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the sink clip, actually animated this time",
+      "files": [
+        "20260822T181610079Z-2a6991/000-card_sink_after.gif"
+      ],
+      "caption": "90 frames, true speed. 3-cell fragments sink at 0.82, 16-cell blocks at 1.90.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
