@@ -39,14 +39,21 @@ the soil off the world at every region boundary.
 So relief, hills, sky, terracing, dunes and soil depth are **unchanged**, and
 the composition a player sees per screen is the composition round 7 shipped.
 
-**Residuals, talus and brows follow the surface, not the world.** A residual
-stands *up* from the ground into `sky_rows + relief_amplitude` of air — 141
+**Residuals, boulders, talus and brows follow the surface, not the world.**
+A residual stands *up* from the ground into `sky_rows + relief_amplitude` of air — 141
 rows for `rolling`, and `MAX_HEIGHT = 120` already nearly fills it. A 4x
 residual would be built off the top of the world. Talus is already bounded by
 the cliff it sits under (`peak = ...min(fall / 2)`), and a cliff is a
-surface feature. Neither can move until the surface does. Residuals are also
+surface feature. None of them can move until the surface does. Residuals are also
 the pass Phase 4 exists to delete (`residual_density: 0.0` is its stated
 first step), so growing them now would be tuning something on its way out.
+
+Boulders are the same case one step further down: `boulders` seats a cluster
+on an erosion *shed marker*, which is a plan-space record of hard rock that
+retreated off a surface slope. Its size draw (3-13 cells of base width,
+height capped at 3x that) is a claim about a block that fell off a cliff, and
+the cliff did not get bigger. Scaling it would put thirteen-metre boulders on
+a hillside whose whole relief is 76 rows.
 
 **What is left is what lives underground, where the 4x world genuinely
 made room** — the massif went from about 470 rows to about 2400 — and it is
@@ -228,12 +235,33 @@ them. **A blind A/B is queued in the review inbox.**
 | settled worst frame, field | — | **51.77 ms** |
 | settled worst frame, sweep | — | **0.17 ms** |
 | worst frame during the post-load settle | — | **648 ms** |
+| `river-cost` scene, spring off | worst 16.1 ms, mean 6.7 | worst **73.4 ms**, mean **10.9** |
+| `river-cost` scene, spring on | worst 12.8 ms, mean 7.0 | worst **80.3 ms**, mean **16.3** |
 | `cargo test` (whole suite) | ~1 min | **4 m 56 s**, 713 pass |
 
 Generation is 19.6x for 16x the area, so it is slightly worse than linear;
 the loading screen covers it. RSS matches the handoff's 358 MiB. The settled
 field worst frame is **better** than the 72 ms the handoff measured, and the
 handoff's unmet 4 ms amortised target is unchanged and still unmet.
+
+**`ascii`'s river-cost scene is the one standing frame cost worth flagging.**
+It builds a spring, a fall and a pool at the shipped size and holds them at
+steady state: the standing bill went from 1.37 ms/frame at 2048x640 to
+**5.43 ms/frame**, past both the ~3.5 ms wind-revert class and the
+pre-registered 2.0 ms bar the harness prints. Not investigated here -- it is
+a world-size cost in the field and liquid layers, not a worldgen one -- but
+it is the number a session working on frame cost should start from, and the
+scene now runs at the shipped size automatically because it takes
+`app::WORLD_WIDTH`.
+
+**The load and fracture model is untouched, and that is measured rather
+than asserted.** `scripts/seedsweep.sh` -- the order-statistic sweep over
+`worldcrack` at 512x320, six presets x four seeds -- came back
+**bit-identical** before and after: cells lost max 131, p90 85, median 28,
+min 0; rock destroyed max 165, p90 5. Run before *and* after, in the same
+session on the same machine, against a worktree build of the previous
+commit, because a remembered number is the comparison this repo keeps
+getting wrong.
 
 **The 648 ms frame is a load transient, not a standing cost**, and it is
 already visible in `scale_probe`'s own worst-frame columns (sweep 336 ms +
@@ -254,6 +282,22 @@ screen covers generation but not the settle behind it.
   the massif got five times deeper. Most systems are now far deeper than any
   round-7 system was. Nothing is broken; the *distribution* is new and nobody
   chose it.
+- **Generation is *not* super-linear, and the metric that said it was is
+  counting the wrong thing.** `examples/ascii.rs` reported "202.94x the
+  512x320 build for 128.0x the area -- WORSE THAN LINEARLY", which is true
+  and means nothing: `sky_rows` does not scale with world height, so a taller
+  world is a proportionally *more solid* one. 59% of cells filled at 512x320
+  against 94% at the shipped size, so solid cells went up **206x** for 128x
+  of area. Against the cells it actually writes the build is linear or
+  slightly better -- `PASS_TIMING=1` puts `stone_massif` at 3946 of 5188 ms
+  and 201 ns per placed cell, against ~300 ns/cell at 512x320. The message
+  now ratios against solid cells and prints both. This cost a wrong
+  hypothesis (that `RegionMap::sample`'s O(regions) linear scan was the
+  super-linear term) and a change that was implemented, verified
+  bit-identical by world hash, measured at **zero** (5031 -> 5082 ms) and
+  reverted; it is in `Reports/dead-ends.md` with the condition to re-test it.
+  `CLAUDE.md`'s "ask what a metric counts when nothing is wrong", one more
+  time.
 - **Erosion incises about twice as deep in a 4x-wide world with no constant
   touched.** `RAIN_SUPPLY` is per column and flow accumulates downhill across
   the whole world with no reset, while carve is proportional to `sqrt(flow)`.

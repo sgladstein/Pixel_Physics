@@ -858,10 +858,25 @@ fn terrain_generation_cost() {
     // ...and at the size the app actually ships, which is the number that
     // decides whether `R` and `F6` feel instant or feel like a stall. The
     // 512x320 figures above stay because they are the historical series;
-    // this is the live one. Generation is O(area), so four times the area
-    // should cost four times as much -- what this watches for is a *worse*
-    // than linear term, which is what `compute_world_distances` would
-    // contribute if its per-cell `World::get` started missing chunk lookups.
+    // this is the live one. What this watches for is a *worse* than linear
+    // term, which is what `compute_world_distances` would contribute if its
+    // per-cell `World::get` started missing chunk lookups.
+    //
+    // **Ratioed against solid cells, not against area, and the difference
+    // reversed the verdict.** Against area it read "199x the build for 128x
+    // the area -- WORSE THAN LINEARLY" at 8192x2560, which is true and
+    // means nothing: `sky_rows` does not scale with world height, so a
+    // taller world is a proportionally *more solid* one -- 59% filled at
+    // 512x320 against 94% at the shipped size. Solid cells went up 204x for
+    // that 128x of area, so the same generator doing the same per-cell work
+    // is bound to look super-linear in area and is in fact slightly
+    // sub-linear in the thing it actually writes. `PASS_TIMING=1` confirms
+    // it: `stone_massif` is 3946 of 5188 ms and 201 ns per cell placed,
+    // against ~300 ns/cell at 512x320.
+    //
+    // This is `CLAUDE.md`'s "ask what a metric counts when nothing is
+    // wrong", and it cost a wrong hypothesis and a reverted change before
+    // anyone asked it (`Reports/world-scale-phase-2.md` §7).
     let (ww, wh) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
     let mut big = World::new(Rect::new(0, 0, ww - 1, wh - 1));
     let start = std::time::Instant::now();
@@ -873,16 +888,21 @@ fn terrain_generation_cost() {
     pixel_physics::worldgen::generate_only(&mut big_bare, spec());
     let big_without_pass = start.elapsed();
 
+    let big_solid = (0..ww)
+        .map(|x| (0..wh).filter(|&y| big.get(x, y).material != material::EMPTY).count())
+        .sum::<usize>();
     let area_ratio = (ww as f64 * wh as f64) / (512.0 * 320.0);
+    let solid_ratio = big_solid as f64 / (gen_solid as f64).max(1.0);
     let cost_ratio = big_with_pass.as_secs_f64() / gen_with_pass.as_secs_f64().max(f64::EPSILON);
     println!(
-        "{ww}x{wh} generated terrain -- THE SHIPPED WORLD SIZE ({name}, seed 1): {:.2} ms to build and relax, \
-         {:.2} ms to place alone -- structural pass {:.2} ms. That is {cost_ratio:.2}x the 512x320 build for \
-         {area_ratio:.1}x the area, so the build scales {} in world area. Paid on start, R, F6, F7 and F8.",
+        "{ww}x{wh} generated terrain -- THE SHIPPED WORLD SIZE ({name}, seed 1), {big_solid} solid cells: \
+         {:.2} ms to build and relax, {:.2} ms to place alone -- structural pass {:.2} ms. That is \
+         {cost_ratio:.2}x the 512x320 build for {area_ratio:.1}x the area but {solid_ratio:.1}x the solid \
+         cells, so the build scales {} in the cells it writes. Paid on start, R, F6, F7 and F8.",
         big_with_pass.as_secs_f64() * 1000.0,
         big_without_pass.as_secs_f64() * 1000.0,
         (big_with_pass.saturating_sub(big_without_pass)).as_secs_f64() * 1000.0,
-        if cost_ratio > area_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly" },
+        if cost_ratio > solid_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly or better" },
     );
 }
 
