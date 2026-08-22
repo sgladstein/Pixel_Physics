@@ -11,6 +11,11 @@
     name: "rootwood",
     display: "Root",
     kind: Plant,
+    // Climbable, and that is mostly about *not blocking*: a root threading
+    // through soil used to stop a tunnel dead, since `mine` will not cut an
+    // organism cell and `displace_disc` will not shove one. It still cannot
+    // be dug -- it simply is not a wall any more.
+    climbable: true,
     // Denser than trunk wood -- root tissue is water-saturated.
     density: 1.05,
     // Pale tan, not dark brown. Real roots are cream-to-tan and read pale

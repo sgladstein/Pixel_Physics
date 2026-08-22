@@ -43,6 +43,16 @@ ground. So you see sky between the leaves of a tree, and the space under a
 platform you build reads as outdoors, because it is. Making a building read
 as *indoors* is a separate thing that does not exist yet.
 
+**The rock itself carries depth.** In any cross-section — a cliff face, the
+wall of your shaft, the cutaway the screen always is — the ground is
+brightest in a band at the surface, with the very top row catching the
+light, and dims gradually over roughly a viewport's descent to a settled
+deep-rock gloom. It never goes black: the layering stays readable at any
+depth, dimmer is not dark. This also keeps the world honest at night — the
+land now sits darker than the night sky instead of glowing in front of it.
+`F10` switches the whole effect off and back on, for comparing against the
+old evenly-lit look.
+
 **Being underground comes on gradually.** Go in under the surface and the
 light does not switch off at the doorway: it dims sharply in the first row
 or two and keeps falling for about the height of a small room before it is

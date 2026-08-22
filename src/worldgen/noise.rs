@@ -69,6 +69,129 @@ pub enum Purpose {
     Region = 13,
     /// Dune crests in arid country.
     Dune = 14,
+    /// Which region palette family a cell's shade sits in.
+    ///
+    /// Its own stream rather than sharing `Dither`, which already decides
+    /// the soil/gravel contact at the same `(x, y)`: sharing would put every
+    /// palette-family change exactly on a contact boundary, which is the
+    /// correlation the purpose tag exists to prevent
+    /// (`Reports/prior-art-worldgen-slicing.md` §6.3).
+    Palette = 15,
+    /// Per-dune amplitude and slip-face fraction, keyed on the dune index.
+    ///
+    /// Separate from `Dune`, which places the crests: keying both on the
+    /// same stream would tie a dune's height to where it happens to sit,
+    /// which is the correlation the tag exists to prevent.
+    DuneShape = 16,
+    /// Column-scale roughening applied to terrace risers.
+    Riser = 17,
+    /// The slow 2-D field that makes a palette-family transition wander with
+    /// depth instead of standing as a vertical pier.
+    ///
+    /// Its own stream rather than sharing `Palette`, which supplies the
+    /// per-cell dither draw at the same `(x, y)`: sharing would correlate
+    /// where the band *is* with which cells inside it flip, so the band would
+    /// dither hardest exactly along its own centre line and reintroduce an
+    /// edge.
+    PaletteField = 18,
+    /// Sealed vault placement: where a chamber sits, how big it is, and which
+    /// shape it takes.
+    ///
+    /// Its own stream rather than sharing `Pocket`, which decides lens
+    /// placement over the same rock: sharing would tie a vault's position to
+    /// whether a lens happened to be drawn nearby, which is exactly the
+    /// correlation the purpose tag exists to prevent.
+    Vault = 19,
+    /// Worley feature points for the cave-system field ([`worley_f2_f1`]).
+    ///
+    /// Its own stream rather than sharing `Vault`, which draws the system's
+    /// placement and per-system coin flips over small integer coordinates:
+    /// the Worley lattice indices are small integers too, so sharing would
+    /// correlate where a system sits with the shape it takes inside.
+    Cave = 20,
+    /// Cave floors: gravel fill thickness, breakdown mounds, and the
+    /// per-system waterline draw.
+    ///
+    /// Separate from `Cave`, whose lattice coordinates overlap the same
+    /// small-integer range as floor-segment representatives — sharing would
+    /// tie how deep a floor is buried to where the chambers happen to sit.
+    CaveFloor = 21,
+    /// Speleothems: where a stalactite or stalagmite grows, how tall, how
+    /// wide, and whether it is crystal.
+    Speleothem = 22,
+    /// Per-band rock hardness for plan-space erosion: one draw per strata
+    /// band index, so a band is hard or soft along its whole length —
+    /// which is what makes eroded ledges coherent rather than speckled
+    /// (`Reports/worldgen-erosion-design.md`). 20–22 were appended by the
+    /// concurrent round-3 cave branch and this by the erosion track; the
+    /// two landed without colliding because each reserved its numbers in
+    /// advance — keep doing that.
+    Hardness = 23,
+    /// Boulder-socket shape: which run of `erosion::Deposits::boulder`
+    /// markers becomes one cluster, and its width, height and shade.
+    ///
+    /// Its own stream rather than sharing `Pocket` (lens placement over the
+    /// same rock) or `Hardness` (which decided *whether* this socket exists
+    /// in the first place) — sharing either would tie a boulder's drawn
+    /// shape to an unrelated decision at the same coordinate, the
+    /// correlation every purpose tag exists to prevent. Claimed by the
+    /// round-4 data track; 24 is the next free number after `Hardness`.
+    Boulder = 24,
+    /// The round-5 monumental chamber: per-system half-extent draw for the
+    /// one dilated room grown around a system's point of greatest
+    /// clearance.
+    ///
+    /// Its own stream rather than sharing `Vault` (the system's placement
+    /// draws) or `Cave` (the Worley lattice) — either would tie the
+    /// chamber's size to an unrelated decision keyed on the same small
+    /// integers, the correlation every purpose tag exists to prevent.
+    /// 26 (`Drip`) and 27 (`CeilingGrain`) are reserved for later round-5
+    /// tasks; appended when each lands, not claimed unused here.
+    CaveChamber = 25,
+    /// The round-5 drip-focus field: a low-frequency 1D value-noise field
+    /// over x giving a local speleothem density, so formations bunch in
+    /// wet stretches and leave dry ones bare instead of standing at even
+    /// spacing.
+    ///
+    /// Its own stream rather than sharing `Speleothem`, which draws every
+    /// per-formation coin flip (height, crystal, pair) at the same `px` --
+    /// sharing would correlate a stretch's clustering with the formations'
+    /// own shapes, the correlation every purpose tag exists to prevent.
+    /// 27 (`CeilingGrain`) is still reserved and unclaimed, for task 6.
+    Drip = 26,
+    // 27 is reserved for `CeilingGrain` (round-5 task 6). Reserved in
+    // advance and deliberately left as a gap rather than filled from below:
+    // two tracks ran concurrently on this enum, and a discriminant that
+    // moves once it has been written into a world is a different world.
+    // Append only.
+    /// Round 6's A2: the per-system cave envelope size draw, heavy-tailed
+    /// and weighted small, keyed on the placement index and column.
+    ///
+    /// Its own stream rather than sharing `Vault` (which draws whether a
+    /// system is a vug, and where in the depth band it sits) because the
+    /// depth `Vault` picks is chosen *from* the band this draw defines --
+    /// sharing would make a system's size and its depth the same coin.
+    CaveSize = 28,
+    /// Reserved: per-system shape variation on top of the size draw.
+    /// Claimed here so the number cannot be taken by another track while
+    /// A2's own follow-up is unwritten.
+    CaveVariety = 29,
+    /// Residual landform placement: where a tor/stack/pinnacle site sits
+    /// along x, keyed on the candidate's region cell.
+    ///
+    /// Round 6 Track B (`Reports/worldgen-erosion-design.md`'s "residual
+    /// landforms" step, `Reports/worldgen-implementation-tasks-round6-
+    /// formations.md` B2). B1 measured that plan-space erosion never offers
+    /// a residual-scale candidate to protect — max prominence at reach 15
+    /// peaks at 8.34 (canyon) / 5.00 (rolling) across a full erosion run,
+    /// never once above the reach-15 bar — so a residual is authored
+    /// directly by this pass rather than emerging from the erosion rates.
+    Residual = 30,
+    /// Residual size and shape draws, keyed on the same site as `Residual`
+    /// but its own stream — sharing would tie a residual's size/shape to
+    /// whether it happened to get placed at all, the correlation every
+    /// purpose tag exists to prevent.
+    ResidualShape = 31,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.
@@ -116,6 +239,57 @@ pub fn value_1d(seed: u64, purpose: Purpose, x: f32) -> f32 {
     a + (b - a) * (t * t * (3.0 - 2.0 * t))
 }
 
+/// 2D value noise in `[0, 1)`: the same lattice as [`value_1d`], bilinearly
+/// interpolated with the same smoothstep weights.
+///
+/// Added for the palette-family modulation, which needs a field that varies
+/// slowly in *both* directions. Everything else in this file is 1D because
+/// the surface heightfield is a function of `x` alone; a shade decision is
+/// not, and reusing a 1D field for it is exactly what produced the artifact
+/// this exists to fix — a probability that is constant down a whole column
+/// draws a full-height vertical pier of one colour however finely the
+/// per-cell dither is stippled.
+///
+/// Value rather than gradient noise for the same reason [`value_1d`] is: the
+/// axis-alignment gradient noise buys is worth paying for when the field is
+/// the *shape* of something, and this one is a slow weight on a probability
+/// that is then dithered per cell, which destroys any lattice signature long
+/// before it reaches a pixel.
+pub fn value_2d(seed: u64, purpose: Purpose, x: f32, y: f32) -> f32 {
+    let (x0f, y0f) = (x.floor(), y.floor());
+    let (tx, ty) = (x - x0f, y - y0f);
+    let (x0, y0) = (x0f as i32, y0f as i32);
+    let (sx, sy) = (tx * tx * (3.0 - 2.0 * tx), ty * ty * (3.0 - 2.0 * ty));
+    let c00 = unit(seed, purpose, x0, y0);
+    let c10 = unit(seed, purpose, x0 + 1, y0);
+    let c01 = unit(seed, purpose, x0, y0 + 1);
+    let c11 = unit(seed, purpose, x0 + 1, y0 + 1);
+    let a = c00 + (c10 - c00) * sx;
+    let b = c01 + (c11 - c01) * sx;
+    a + (b - a) * sy
+}
+
+/// 2D fractional Brownian motion in `[0, 1)`. Same cascade as [`fbm_1d`],
+/// including the per-octave sub-seed and the reason for it.
+pub fn fbm_2d(seed: u64, purpose: Purpose, x: f32, y: f32, octaves: u32) -> f32 {
+    let mut sum = 0.0f32;
+    let mut amp = 1.0f32;
+    let mut freq = 1.0f32;
+    let mut norm = 0.0f32;
+    for i in 0..octaves {
+        let s = seed.wrapping_add((i as u64 + 1).wrapping_mul(0xA076_1D64_78BD_642F));
+        sum += amp * value_2d(s, purpose, x * freq, y * freq);
+        norm += amp;
+        amp *= 0.5;
+        freq *= 2.0;
+    }
+    if norm > 0.0 {
+        sum / norm
+    } else {
+        0.0
+    }
+}
+
 /// 1D fractional Brownian motion in `[0, 1)`.
 ///
 /// `x` is expected to be pre-divided by the caller's wavelength, so an octave
@@ -152,6 +326,51 @@ pub fn fbm_1d(seed: u64, purpose: Purpose, x: f32, octaves: u32) -> f32 {
 /// its amplitude.
 pub fn fbm_1d_c(seed: u64, purpose: Purpose, x: f32, octaves: u32) -> f32 {
     fbm_1d(seed, purpose, x, octaves) * 2.0 - 1.0
+}
+
+/// Worley (cellular) noise: distances to the nearest and second-nearest
+/// feature point, in lattice units, as `(f1, f2)`.
+///
+/// One feature point per unit lattice cell, both of its coordinates split out
+/// of a single [`hash`] — two separate `unit` draws at hand-scrambled
+/// coordinates is the classic way to reintroduce correlation between the two
+/// axes. The neighbourhood searched is the naive 3x3 around the sample's own
+/// cell, which can understate F2 near a cell corner when the true
+/// second-nearest point sits two cells away; `Reports/worldgen-design.md` §7
+/// accepts that for this use, because the field is thresholded, evaluated
+/// once at genesis, and the error only perturbs where a passage wall sits —
+/// a 5x5 search would cost 2.8x for a difference no one can see in rock.
+///
+/// The property the caves are built on: **`f2 - f1` is zero along the
+/// boundaries of the Worley cells** (where two feature points are
+/// equidistant) and grows toward each cell's centre, so thresholding it low
+/// carves the boundary network — passages — and the junctions where three
+/// boundaries meet open into wider bulges — chambers. One field, one
+/// threshold, and the chamber-and-passage anatomy comes out of the geometry
+/// rather than being drawn.
+pub fn worley_f2_f1(seed: u64, purpose: Purpose, x: f32, y: f32) -> (f32, f32) {
+    let (x0, y0) = (x.floor() as i32, y.floor() as i32);
+    let mut f1 = f32::MAX;
+    let mut f2 = f32::MAX;
+    for j in -1..=1 {
+        for i in -1..=1 {
+            let (cx, cy) = (x0 + i, y0 + j);
+            let h = hash(seed, purpose, cx, cy);
+            // Top 24 bits and the next 24: each is every bit an f32 mantissa
+            // holds, from disjoint parts of one finalized hash.
+            let fx = (h >> 40) as f32 / (1u64 << 24) as f32;
+            let fy = ((h >> 16) & 0x00FF_FFFF) as f32 / (1u64 << 24) as f32;
+            let (dx, dy) = (cx as f32 + fx - x, cy as f32 + fy - y);
+            let d = (dx * dx + dy * dy).sqrt();
+            if d < f1 {
+                f2 = f1;
+                f1 = d;
+            } else if d < f2 {
+                f2 = d;
+            }
+        }
+    }
+    (f1, f2)
 }
 
 /// The standard clamped Hermite ramp: 0 below `edge0`, 1 above `edge1`, and
@@ -231,6 +450,45 @@ mod tests {
         let a: Vec<f32> = (0..50).map(|i| fbm_1d(1, Purpose::Height, i as f32 / 9.0, 3)).collect();
         let b: Vec<f32> = (0..50).map(|i| fbm_1d(2, Purpose::Height, i as f32 / 9.0, 3)).collect();
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn worley_distances_are_ordered_and_continuous() {
+        // f1 <= f2 by construction, both non-negative, and f1 is bounded by
+        // the lattice: the nearest feature point of a 3x3 neighbourhood is
+        // never further than the diagonal of one cell from a sample inside
+        // the centre cell.
+        for k in 0..400 {
+            let (x, y) = (k as f32 * 0.173 - 20.0, k as f32 * 0.311 - 30.0);
+            let (f1, f2) = worley_f2_f1(77, Purpose::Cave, x, y);
+            assert!(f1 >= 0.0 && f2 >= f1, "disordered at ({x}, {y}): {f1} {f2}");
+            assert!(f1 < 1.5, "f1 {f1} further than a cell diagonal at ({x}, {y})");
+        }
+        // Continuity across a lattice line: the feature points either side do
+        // not change when the sample crosses it, so the distances cannot jump.
+        let (a1, a2) = worley_f2_f1(77, Purpose::Cave, 4.999, 2.5);
+        let (b1, b2) = worley_f2_f1(77, Purpose::Cave, 5.001, 2.5);
+        assert!((a1 - b1).abs() < 0.01 && (a2 - b2).abs() < 0.01);
+    }
+
+    #[test]
+    fn worley_f2_f1_reaches_low_and_high() {
+        // The caves threshold this difference, so it has to actually span a
+        // range: near-zero somewhere (a cell boundary crosses the sampled
+        // window) and well above the threshold somewhere else (a cell
+        // interior). A field that never dips low carves nothing; one that
+        // never rises high carves everything.
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        for j in 0..60 {
+            for i in 0..60 {
+                let (f1, f2) = worley_f2_f1(3, Purpose::Cave, i as f32 / 8.0, j as f32 / 8.0);
+                lo = lo.min(f2 - f1);
+                hi = hi.max(f2 - f1);
+            }
+        }
+        assert!(lo < 0.05, "no cell boundary found in a 7.5-cell window: min {lo}");
+        assert!(hi > 0.4, "no cell interior found: max {hi}");
     }
 
     #[test]

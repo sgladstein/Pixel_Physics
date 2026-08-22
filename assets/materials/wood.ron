@@ -19,6 +19,13 @@
     name: "wood",
     display: "Wood",
     kind: Plant,
+    // Walk-through and climbable, while it is alive. A growing tree is
+    // scenery you move past and go up, not a wall you stop against -- the
+    // gnome used to wedge against trunks with no way round and no way
+    // through, since `mine` skips organism cells. Read only alongside
+    // `Cell::organism_id() != 0`, so a `wood` wall someone painted is as
+    // solid as it ever was, and so is anything a body drops here.
+    climbable: true,
     density: 0.9,
     // **Four bark bands of four tonal steps** — see `organism::PALETTE_BAND`
     // and `leaf.ron`'s longer note. Band 0 is the original palette

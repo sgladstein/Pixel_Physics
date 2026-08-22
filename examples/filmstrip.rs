@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer};
+use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer, TreeDepth};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -363,6 +363,39 @@ fn build(args: &Args) -> World {
             let base = common::PlantScene::default();
             let plants = if args.plants > 0 { args.plants } else { base.trees };
             return common::PlantScene { species: args.species.clone(), trees: plants, ..base }.build();
+        }
+        // `grove`, plus a gnome who walks the length of it once the trees
+        // are actually trees. The one question it exists to answer: does he
+        // *get through*, or does he wedge against the first trunk the way
+        // he did before living tissue stopped being a wall.
+        //
+        // Read the **distance** printed beside the tile, not the picture. A
+        // gnome standing against a trunk and a gnome standing in one are
+        // the same few pixels at contact-sheet zoom, and the difference
+        // between them is the entire change.
+        "wood" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
+        }
+        // The same grown stand, but he walks until he has hold of a tree
+        // and then goes up it. Read the **climbed** counter beside the
+        // tile, not the picture: a gnome at the top of a tree and a gnome
+        // shoved up there by the depenetration pass are the same few pixels
+        // at this zoom, and only a number separates them.
+        "climb" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
+        }
+        // Walk to a tree and shake it. Read the counters: a tree that shed
+        // nothing and a shake that never fired are the same picture, and
+        // `shake_shed` is graded by shade, so a healthy stand is *supposed*
+        // to drop very little.
+        "shake" => {
+            let mut world = common::PlantScene::default().build();
+            world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
+            return world;
         }
         // The sandbox's *real* starting terrain, built by the same
         // `app::build_terrain` the running game calls -- not a replica, so
@@ -966,7 +999,7 @@ fn build(args: &Args) -> World {
             }
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride"
+            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood, climb, shake"
         ),
     }
     w
@@ -1040,6 +1073,11 @@ struct Args {
     genome: String,
     out: String,
     grain: GrainMode,
+    /// `trees=weave|haze|front|behind` -- which `TreeDepth` the sheet is
+    /// shot in. The whole value of a selector is being able to put its
+    /// settings side by side, and a still image is the only way to compare
+    /// two of them at once.
+    tree_depth: TreeDepth,
     /// `channel=` -- render the sheet through one of `render.rs`'s debug
     /// overlays instead of ordinary material colour. The whole reason the
     /// plant work needs this harness: resource, canopy density and (later)
@@ -1119,6 +1157,15 @@ struct Args {
     /// material came away in. Peak concurrent bodies is the quantity that
     /// actually says "it threw pieces".
     min_bodies: Option<usize>,
+    /// `min_travelled=N` -- exit non-zero unless the scripted gnome covered
+    /// at least N cells after setting off.
+    ///
+    /// The gnome path had no gated case at all before this, which is how a
+    /// character who could be walled in by a *tree* went unnoticed. Distance
+    /// is the right quantity for the same reason `min_overloaded` is the
+    /// right one for a collapse: "he is standing near a trunk" and "he is
+    /// standing *in* one" are the same picture.
+    min_travelled: Option<i32>,
     /// `loadmap=1` -- also report the single most-stressed cell in the
     /// world per tile. `CLAUDE.md`: sanity-check a new metric against a
     /// case you know is fine before trusting it about one you don't, and
@@ -1232,6 +1279,7 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        tree_depth: TreeDepth::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         gif: false,
@@ -1244,6 +1292,7 @@ fn parse() -> Args {
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        min_travelled: None,
         max_lost: None,
         dump: None,
         depth: None,
@@ -1292,6 +1341,15 @@ fn parse() -> Args {
                     other => panic!("unknown grain {other:?}"),
                 }
             }
+            "trees" => {
+                a.tree_depth = match v {
+                    "weave" => TreeDepth::Weave,
+                    "haze" => TreeDepth::Haze,
+                    "front" => TreeDepth::Front,
+                    "behind" => TreeDepth::Behind,
+                    other => panic!("unknown trees {other:?}"),
+                }
+            }
             // One flag for both overlay families, resolved by name: they are
             // one question ("which channel am I looking at") from the
             // caller's side, and keeping them as two arguments would invite
@@ -1336,6 +1394,7 @@ fn parse() -> Args {
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
+            "min_travelled" => a.min_travelled = Some(v.parse().expect("min_travelled")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("load")).collect();
@@ -1515,6 +1574,21 @@ struct Gnome {
     script: Script,
     /// Bites that actually landed (the cooldown swallows most frames).
     bites: usize,
+    /// Where he was standing when he set off, so the sheet can report how
+    /// far he actually got. See `Script::Wood`.
+    start_x: Option<f32>,
+    /// Whether `Script::Climb` has hold of something yet, and the height it
+    /// had when it grabbed. The rise from there is the number the sheet is
+    /// read for — see `Script::Climb`.
+    grabbed: bool,
+    grabbed_at: f32,
+    highest: f32,
+    shakes: usize,
+    dislodged_by_shaking: usize,
+    shed: usize,
+    seeds: usize,
+    shaken_cells: usize,
+    shaken_shoot: u32,
     /// Loose cells shoved clear of a bore, summed over every bite.
     displaced: usize,
     dusted: usize,
@@ -1538,7 +1612,26 @@ enum Script {
     /// `scene=ride`: no input at all — the shelf under him gives way and
     /// the only question is whether he goes with it.
     Ride,
+    /// `scene=wood`: stand still while the stand grows, then walk the
+    /// length of it.
+    Wood,
+    /// `scene=climb`: walk until something is in reach, then go up it.
+    Climb,
+    /// `scene=shake`: walk until a tree is in reach, then keep shaking it.
+    Shake,
 }
+
+/// How long `Script::Wood` waits before setting off.
+///
+/// A grove is planted as *seeds*, and the sheets that judge tree shape are
+/// shot at `start=8000`. Walking into a plot of bare soil would answer
+/// nothing, so he holds still until there is a wood to walk into.
+const WOOD_WALK_FROM: usize = 6000;
+
+/// How long `Script::Climb` walks before it starts reaching for a hold —
+/// far enough to be standing in a tree rather than beside a stray twig.
+/// See the arm in `act` for the run that made this necessary.
+const CLIMB_WALK_TICKS: usize = 60;
 
 impl Gnome {
     fn for_scene(scene: &str, dig_yield: f32) -> Self {
@@ -1547,12 +1640,25 @@ impl Gnome {
             "bury" => Script::Bury,
             "swim" => Script::Swim,
             "ride" => Script::Ride,
+            "wood" => Script::Wood,
+            "climb" => Script::Climb,
+            "shake" => Script::Shake,
             _ => Script::Course,
         };
         Self {
             script,
             tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
             bites: 0,
+            start_x: None,
+            grabbed: false,
+            grabbed_at: 0.0,
+            highest: 0.0,
+            shakes: 0,
+            dislodged_by_shaking: 0,
+            shed: 0,
+            seeds: 0,
+            shaken_cells: 0,
+            shaken_shoot: 0,
             displaced: 0,
             dusted: 0,
             went_under: None,
@@ -1595,11 +1701,78 @@ impl Gnome {
                 ..Default::default()
             },
             Script::Ride => PlayerInput::default(),
+            Script::Wood => PlayerInput { right: step_no >= WOOD_WALK_FROM, ..Default::default() },
+            // Walk until he has a handhold, then hold `W` and nothing
+            // else. Holding a direction *while* climbing shimmies him
+            // sideways out of the trunk, which is how you leave a tree and
+            // is not what this scene is showing.
+            //
+            // **Walk a fixed distance first, then climb.** The first
+            // version reached for the first handhold it met, which was a
+            // creeping twig at ground level twelve cells from where he
+            // spawned. He gripped it, rose, left it, launched, fell back
+            // in, gripped again -- and the counter reported "climbed 30
+            // cells" off a stack of grab-and-launch cycles at knee height,
+            // with the trees still a hundred cells away. The number was
+            // real and meant nothing, which is the exact trap `CLAUDE.md`
+            // opens by warning about; the picture is what caught it.
+            Script::Climb if self.grabbed => PlayerInput { grab: true, jump_held: true, ..Default::default() },
+            // Same walk-first delay `Script::Climb` needed, and for the
+            // same reason: the first thing in reach of the spawn point is a
+            // creeping twig, not a tree.
+            Script::Shake => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
+                ..Default::default()
+            },
+            Script::Climb => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM,
+                // Reaching only starts once he is clear of the twig — walk
+                // first, then walk *and* reach until something takes.
+                // `grab` is the reach: climbing has its own key now, so
+                // holding `W` alone takes hold of nothing.
+                grab: step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS,
+                jump_held: step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS,
+                ..Default::default()
+            },
         };
+        if self.script == Script::Wood && step_no == WOOD_WALK_FROM {
+            self.start_x = world.player.as_ref().map(|p| p.x);
+        }
+        if self.script == Script::Shake && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
+            let target = world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(world, p, (WIDTH, 190), &tuning));
+            if let Some(at) = target {
+                self.grabbed = true;
+                let shaken = world.get(at.0, at.1).organism_id();
+                self.shaken_shoot = world.organism(shaken).map(|o| o.shoot_cells).unwrap_or(0);
+                if let Some(s) = player::shake(world, at, &tuning) {
+                    self.shaken_cells = s.cells;
+                    self.shakes += 1;
+                    self.dislodged_by_shaking += s.dislodged;
+                    self.shed += s.shed;
+                    self.seeds += s.seeds;
+                }
+            }
+        }
+        if self.script == Script::Climb {
+            if let Some(p) = world.player.as_ref() {
+                if p.climbing && !self.grabbed {
+                    self.grabbed = true;
+                    self.grabbed_at = p.y;
+                    self.highest = p.y;
+                }
+                self.highest = self.highest.min(p.y);
+            }
+        }
         // Aim: straight ahead at his own height for the tunnel, and
         // anywhere at all while buried, since a buried bite auto-aims.
         let digging = match self.script {
-            Script::Course | Script::Swim | Script::Ride => false,
+            Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
+            // Handled below rather than through the dig path: the same
+            // left button, a different verb.
+            Script::Shake => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -1626,6 +1799,14 @@ impl Gnome {
         }
         if !p.buried && self.went_under.is_some() && self.came_back.is_none() {
             self.came_back = Some(step_no);
+        }
+    }
+
+    /// How far he has come since setting off, or 0 if he never did.
+    fn travelled(&self, world: &World) -> i32 {
+        match (self.start_x, world.player.as_ref()) {
+            (Some(from), Some(p)) => (p.x - from) as i32,
+            _ => 0,
         }
     }
 
@@ -1660,6 +1841,41 @@ impl Gnome {
             .map(|y| (0..WIDTH).filter(|&x| world.get(x, y).material != material::EMPTY).count())
             .sum();
         s.push_str(&format!(", world holds {held} cells"));
+        if let Some(from) = self.start_x {
+            s.push_str(&format!(", travelled {:.0} cells", p.x - from));
+        }
+        // How much of him a tree is actually covering this frame.
+        //
+        // The depth effect is invisible in a still unless the sheet happens
+        // to catch a frame with real overlap, and hunting for one by eye is
+        // exactly the "an image says what and where, only a number says how
+        // much" trap. This says whether there was anything to see.
+        let (px0, py0, px1, py1) = p.bounds();
+        let covered = (py0..=py1)
+            .flat_map(|y| (px0..=px1).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = world.get(x, y);
+                c.organism_id() != 0 && world.materials.get(c.material).climbable
+            })
+            .count();
+        s.push_str(&format!(", {covered}/{} cells behind foliage", (px1 - px0 + 1) * (py1 - py0 + 1)));
+        if self.script == Script::Shake {
+            // What is being shaken, as well as what came of it. A shake
+            // that reaches only the trunk it was grabbed by and one that
+            // reaches the crown look identical on a contact sheet, and the
+            // first version of the cap made exactly that mistake.
+            s.push_str(&format!(", shaking {} of a {}-shoot plant", self.shaken_cells, self.shaken_shoot));
+            s.push_str(&format!(
+                ", {} shakes: {} knocked loose, {} leaves down, {} sown",
+                self.shakes, self.dislodged_by_shaking, self.shed, self.seeds
+            ));
+        }
+        if self.script == Script::Climb {
+            match self.grabbed {
+                true => s.push_str(&format!(", climbed {:.0} cells (gripped at y={:.0})", self.grabbed_at - self.highest, self.grabbed_at)),
+                false => s.push_str(", NEVER GRIPPED"),
+            }
+        }
         if let Some(under) = self.went_under {
             s.push_str(&format!(", went under at {under}"));
             match self.came_back {
@@ -1768,7 +1984,7 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
+fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
     let f = world.structural_failures;
     let mut ok = true;
     if let Some(pct) = args.min_cave {
@@ -1798,6 +2014,13 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
+    if let Some(min) = args.min_travelled {
+        let went = gnome.travelled(world);
+        if went < min {
+            println!("  FAIL: expected the gnome to cover at least {min} cells, he covered {went}");
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_overloaded {
         if f.overloaded < min {
             println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
@@ -1811,7 +2034,7 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
             ok = false;
         }
     }
-    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some()) {
+    if ok && (args.min_overloaded.is_some() || args.max_failures.is_some() || args.max_frame_ms.is_some() || args.min_bodies.is_some() || args.min_travelled.is_some()) {
         println!("  OK: scene={} met its expectations", args.scene);
     }
     ok
@@ -1828,14 +2051,14 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world, peak_bodies, cells_before, cave_before) = run_once(&args, true);
+    let (last_ms, world, gnome, peak_bodies, cells_before, cave_before) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, best, peak_bodies, cells_before, cave_before) {
+    if !check_expectations(&world, &args, &gnome, best, peak_bodies, cells_before, cave_before) {
         std::process::exit(1);
     }
 }
@@ -1844,7 +2067,7 @@ fn main() {
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
 /// not need an image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
+fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
     let mut world = build(args);
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
@@ -1854,6 +2077,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     let cave_before = roofed_void(&world);
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.tree_depth = args.tree_depth;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
     let mut particles = ParticleSystem::new();
@@ -1938,7 +2162,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // apply to it.
         // The gif branch is for watching motion, not measuring: no
         // per-frame timing and no body sampling, so it reports neither.
-        return (0.0, world, 0, cells_before, cave_before);
+        return (0.0, world, gnome, 0, cells_before, cave_before);
     }
 
     let mut captured = 0usize;
@@ -2087,7 +2311,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
             .expect("writing the contact sheet");
         println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     }
-    (worst_ms, world, peak_bodies, cells_before, cave_before)
+    (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
 }
 
 /// How much rock and rubble the world is holding: `Solid` and `Powder`

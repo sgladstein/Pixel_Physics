@@ -88,11 +88,23 @@ pub enum CellType {
     /// A root system's own growing tip — `Grow`-driven like `GrowingTip`,
     /// but with `Absorb` for water uptake and gravitropism/hydrotropism
     /// direction bias instead of phototropism/wind. A distinct cell type
-    /// (not `GrowingTip` reused) because `structural.rs`'s organism branch
-    /// anchors its reachability search specifically on `RootTip` cells
-    /// (`Reports/organism-substrate-design.md` §2/§5) — anchoring on every
-    /// `GrowingTip` instead would anchor a tree on its own canopy, which
-    /// is not what "supported by roots" means.
+    /// (not `GrowingTip` reused) because the support search is *meant* to
+    /// anchor on `RootTip` cells (`Reports/organism-substrate-design.md`
+    /// §2/§5) — anchoring on every `GrowingTip` instead would anchor a
+    /// tree on its own canopy, which is not what "supported by roots"
+    /// means.
+    ///
+    /// **It does not do that yet, and this comment used to say it did.**
+    /// `structural::organism_is_supported` anchors on any `Solid`
+    /// neighbour, searching outward from the cell under test — so it asks
+    /// "am I within `max_unsupported_span` hops of stone", not "can I
+    /// reach a root". Soil is a `Powder` and anchors nothing. The
+    /// distinction is the whole of why a structural check fired mid-crown
+    /// amputates a tree (`plant.rs`'s `shed_stranded_leaves`, measured at
+    /// 772 cells against 20,213), and it is what `Reports/
+    /// felling-blockers.md` §1 is about. Recorded here rather than quietly
+    /// reworded because this is the first comment anyone investigating
+    /// that will read, and it sent at least one reader the wrong way.
     RootTip = 4,
     /// An **axillary bud** — a dormant meristem left behind at a node,
     /// holding the potential to become a `GrowingTip` later.

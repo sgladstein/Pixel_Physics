@@ -396,6 +396,21 @@ def test_every_page_button_traces_to_a_card() -> None:
     handler_ok = "btn.closest(\"[data-card]\")" in src
     check(handler_ok, "the click handler falls back to an enclosing [data-card]")
 
+    # The full-screen viewer is browser-only, so these are structural rather
+    # than behavioural: enough to catch it being deleted or unwired, not a
+    # substitute for driving it. A quarter of posted media is wider than the
+    # card pane at 1:1, so losing this silently would matter.
+    for needle, why in (
+            ('id="lightbox"', "the lightbox element exists"),
+            ("openLightbox(card, Number(img.dataset.item))",
+             "clicking a card image opens it full screen"),
+            ("if (lb.card) {", "the lightbox takes the keyboard while open"),
+            ("function lbClamp()", "panning is clamped so the image cannot leave the screen"),
+            ("lbClamp();", "and the clamp is actually applied"),
+            ("function lbDefaultFactor()",
+             "the opening zoom adapts to extreme aspect ratios")):
+        check(needle in src, why)
+
     orphans = []
     for m in re.finditer(r"<button\s+([^>]*?)>", src, re.S):
         attrs = m.group(1)

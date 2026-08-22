@@ -958,6 +958,13 @@ redesigning anything.
 
 ### M10 redesign: worldgen, in full in `Reports/worldgen-design.md`
 
+> August 2026: `Reports/world-review-2026-08.md` reviewed the *built*
+> worldgen by rendered image (first committed strips, six review lenses +
+> a prosecutor), answered rivers/waterfalls (feasible; in-plane
+> springs/drains, field-step audit first), and re-sequenced the next steps
+> around the owner's priorities: regions-become-biomes, secret sealed
+> vaults, depth-graded light. Read it before starting world work.
+
 `PLAN.md`'s old M10 line — "seeded noise-based chunk generation... LRU
 unload... RLE-compress" — hid essentially every real problem. Settled with
 the owner, replacing that line:

@@ -1,0 +1,67 @@
+// The lining of a geode vug: the one bright thing in the deep massif.
+//
+// Everything a player finds down there is grey, brown or black, so the whole
+// point of a sealed vault is that breaking into one changes the colour of the
+// screen. That is why this palette is far outside stone's 92..192 brightness
+// band -- a "luminous" crystal drawn in the same range as the rock it sits in
+// would read as a slightly odd bed, not as a find.
+//
+// **Glows** — the game's first local light source, decided by the owner for
+// exactly this material and this moment (2026-08: "discovered chambers
+// justify building the game's first true local light source"). The round-2
+// note that deferred emission to the reviewing session is fulfilled, not
+// contradicted: the reviewing session built the mechanism (`Material::glow`
+// feeding the field's light channel via `field::rebuild_blocked`, the
+// renderer reading it back underground) and this line is that hookup.
+// 1.8 against `field::MAX_LIGHT` 4.0: a breached chamber reads as softly
+// self-lit and its halo bleeds a block or two into the dark — a find, not
+// a floodlight, and well under noon so nothing outdoors ever competes.
+(
+    name: "crystal",
+    display: "Crystal",
+    kind: Solid,
+    glow: 1.8,
+    // Denser than stone: quartz is about 2.65 against granite's ~2.6, and the
+    // number matters only for whatever mass-based rule reads it later.
+    density: 2.65,
+    // **Four tones, one family.** Unlike stone, a crystal lining has no
+    // regional character to express -- it is sealed inside the massif and is
+    // read against exactly one background, the rock around it -- so the
+    // families mechanism is deliberately not used here and `base_colors`
+    // covers the whole list. A random pick (the brush) gets the same four
+    // tones the vault lining does, which is what a player painting crystal
+    // would expect.
+    //
+    // Pale luminous tones: a cold blue-white that no natural material in this
+    // world occupies. Sand tops out at (232, 208, 142) and cap-rock at
+    // (192, 190, 183), so these are the brightest cells in the ground by a
+    // clear margin and cannot be confused with either.
+    colors: [
+        (206, 228, 240),
+        (228, 244, 252),
+        (182, 210, 228),
+        (244, 252, 255),
+    ],
+    base_colors: 4,
+    // A lining hangs from the roof of a chamber as often as it stands on the
+    // floor, so it needs to reach further unsupported than bulk stone does
+    // relative to its size -- but the vault pass writes a lining at most two
+    // cells thick against a solid rind, so this is never actually the
+    // binding constraint at genesis. It matters once a player starts mining
+    // one out, which is the point at which a roof lining should come down.
+    max_unsupported_span: 8,
+    attached_span_bonus: 12,
+    // Crystal shatters rather than crumbling: it breaks into its own powder.
+    breaks_into: "shard",
+    // Two rungs fewer than stone's 6, so fragments top out at 8 cells rather
+    // than 64. Stone calves slabs; a crystal lining should come apart small,
+    // which is the difference between "a piece of the wall came off" and
+    // "the geode shattered".
+    fragment_rungs: 4,
+    // Brittle: strong in compression, very weak in tension. Hanging costs
+    // more than it does for stone (3), which is what makes a mined-out roof
+    // lining drop rather than dangle.
+    support_cost_below: 1,
+    support_cost_beside: 2,
+    support_cost_above: 5,
+)

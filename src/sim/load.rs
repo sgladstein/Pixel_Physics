@@ -1021,7 +1021,6 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // comes from.
     let keyed = cell.attached() || parent.is_some_and(|(px, py)| world.get(px, py).attached());
     let attachment = if keyed { m.attached_span_bonus as i64 } else { 1 };
-    let capacity = base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES;
     // A cell whose support is a pile of loose grains is *held*, but it is
     // not braced: sand resists compression and essentially no bending. So
     // resting on powder keeps the chain alive (see `rests_on_ground`) and
@@ -1059,7 +1058,7 @@ pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
     // property of the *load* standing on it, not of the rock's own section,
     // so it is applied in `evaluate_within` where the mass is known -- see
     // `bearing_moment`.
-    capacity
+    base.saturating_mul(section.pow(2)).saturating_mul(attachment).saturating_mul(uncracked_faces(world, x, y)) / CRACK_FACES
 }
 
 /// The moment a piece resting on loose ground can resist before it tips.

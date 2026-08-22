@@ -17,7 +17,7 @@
 //! The trigger moved because a decay site is a bare coordinate and nothing
 //! makes it follow its cell: shed litter is created in a canopy and falls
 //! every time, so scheduling at creation stranded the site
-//! (`Reports/open-bugs-handoff.md` §0). Settling is not a workaround for
+//! (`Reports/open-bugs-handoff.md` §0e). Settling is not a workaround for
 //! that — it is what the rule means. Weathering happens to matter that has
 //! come to rest.
 //!
@@ -81,7 +81,22 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
     }
 
-    let shades = world.materials.get(into).palette.len().max(1) as u32;
+    // `base_shades`, not `palette.len()`: soil ships three region families
+    // now (`worldgen::passes::palette_family`), and ash that decayed into a
+    // random one of them would speckle a wet bank with desert-pale soil.
+    // Decay has no region to consult, so it stays in the first family.
+    //
+    // **Read off `into`, not off a hardcoded `soil`.** Two lines of this
+    // arrived from different branches and each had half of it: the worldgen
+    // line fixed the *shade* (families) while still looking up `soil` by
+    // name, and the plant-ecology line made the *target* data
+    // (`Material::decays_into`) so litter could use the same channel. Taking
+    // main's `soil` lookup would have painted a litter cell in soil's
+    // shades; taking the old `palette.len()` would have speckled the
+    // families back in. `into` is already resolved above and is what the
+    // `world.set` below writes, so it is the only thing either half should
+    // ever have been reading.
+    let shades = world.materials.get(into).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     world.set(x, y, Cell::new(into, shade));
 

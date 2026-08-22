@@ -177,11 +177,44 @@ field rework — see `open-bugs-handoff.md`.
 - [weather-handoff.md](weather-handoff.md) — **handoff; weather has since
   shipped** (`weather.rs`, wiki). Check its open items against the wiki
   page's "not here yet" list before trusting either.
+- [worldgen-erosion-design.md](worldgen-erosion-design.md) — **design;
+  implemented** (`worldgen/erosion.rs`). Plan-space erosion — the mechanism
+  behind the mesas and benches nobody has complained about, and the one the
+  owner's verdicts keep pointing back to.
+- [field-settling-2026-08.md](field-settling-2026-08.md) — **settled, and
+  rewritten twice.** What the coarse field costs per frame, and what
+  decides it. Read the "measure it against the clock, not across it"
+  section before quoting any field timing; both earlier versions of this
+  file were wrong because they did not.
+- [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
+  multi-lens pass over the generated world.
+- [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —
+  **review.** Why the caves do not look good, ahead of rounds 5 and 6.
+- [pass-interference-2026-08.md](pass-interference-2026-08.md) —
+  **investigation.** Which worldgen passes overwrite each other.
+- [world-scale-handoff.md](world-scale-handoff.md) — **handoff; start
+  here for the 4x world.** What round 7's performance work landed, the one
+  target it missed and why, the question waiting on the owner, and Phases
+  2-5 written to be picked up cold.
+- [worldgen-round6-handoff.md](worldgen-round6-handoff.md) — **handoff.**
+  What round 6 landed, what was ruled, and what the owner then rejected on
+  the review cards. The starting point for rounds 7+.
+- The round task files, one per worldgen round, each holding its own
+  findings and measurements:
+  [round 1](worldgen-implementation-tasks-2026-08.md),
+  [round 2](worldgen-implementation-tasks-round2-2026-08.md),
+  [round 3](worldgen-implementation-tasks-round3-2026-08.md),
+  [round 4](worldgen-implementation-tasks-round4-2026-08.md),
+  [round 5](worldgen-implementation-tasks-round5-2026-08.md),
+  round 6 [caves](worldgen-implementation-tasks-round6-caves.md) and
+  [formations](worldgen-implementation-tasks-round6-formations.md).
 
 ## Character
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
+- [felling-blockers.md](felling-blockers.md) — **investigation.** Why
+  cutting a tree down is not in yet.
 
 ## Open working files
 

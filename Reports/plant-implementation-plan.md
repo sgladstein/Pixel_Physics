@@ -183,7 +183,7 @@ architecture moved under both.
 > regression**. Pending sites 105 -> 12,056, converging: a standing forest
 > floor, not a leak. One cosmetic question is with the owner -- litter's
 > palette may be too close to soil's to read. Full record in
-> `Reports/open-bugs-handoff.md` §0.
+> `Reports/open-bugs-handoff.md` §0e.
 >
 > Not run: the edible-cells-near-surface count. It is a creature-side
 > quantity and the creature branch sets its own bar when it consumes this.

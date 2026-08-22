@@ -3975,7 +3975,7 @@ fn is_frontier(cell_type: CellType) -> bool {
 /// fastest fuel in the world, and it rots back into soil on `decay.rs`'s
 /// schedule. That last one is what makes a forest floor a cycle rather than
 /// an accumulator, and it is why this could not land until decay sites
-/// stopped stranding (`Reports/open-bugs-handoff.md` §0).
+/// stopped stranding (`Reports/open-bugs-handoff.md` §0e).
 ///
 /// It draws from litter's palette rather than keeping the leaf's shade: the
 /// greens going is what says "shed" at a glance.
@@ -4020,7 +4020,7 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32) {
 /// cannot touch wood. The cap is generous against the cluster size and
 /// conservative on overflow: a component too big to survey completely is
 /// left standing, not deleted.
-fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
+pub(crate) fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
     const COMPONENT_CAP: usize = 32;
     let mut visited: Vec<(i32, i32)> = Vec::new();
     for (sdx, sdy) in NEIGHBOURS_8 {

@@ -117,7 +117,7 @@ pub enum ActiveKind {
     /// litter arrived: a shed leaf is created in a canopy and *falls*, and
     /// a decay site is a bare coordinate that nothing makes follow its
     /// cell, so scheduling at creation stranded the site every time
-    /// (`Reports/open-bugs-handoff.md` §0). `World::end_step` now scans a
+    /// (`Reports/open-bugs-handoff.md` §0e). `World::end_step` now scans a
     /// chunk on its **awake -> settled** transition and schedules a site
     /// for every decayable cell in it, which is both the cheap point and
     /// the correct one — weathering happens to matter that has come to
