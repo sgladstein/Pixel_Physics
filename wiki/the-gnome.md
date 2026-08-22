@@ -1,12 +1,13 @@
 # The Gnome
 
-*Current as of: this build. New since the last pass: living plants are
+*Current as of: 2026-08-22. New since the last pass: living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
 lip at the top of a jump is mantled, the sprite faces where it's going,
 holding `W` out of water puts him on the bank, and left-clicking a plant
-shakes it. Cutting a tree down is deliberately not in yet.*
+you are pointing at shakes it. Cutting a tree down is deliberately not in
+yet.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press

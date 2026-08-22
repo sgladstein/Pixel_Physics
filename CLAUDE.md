@@ -67,12 +67,31 @@ already changed decisions:
 |---|---|
 | `README.md` | Architecture, and per-milestone status |
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
-| `PLAN.md` | Roadmap, settled decisions, the issues backlog |
-| `Reports/*.md` | Design records and research, one per subsystem |
-| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions, what has been ruled out *by measurement*, and what was tried and reverted. Read this before touching a listed area. |
+| `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
+| `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (542 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
+| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
-| `Reports/fracture-mechanics-design.md` | Why rock breaks the way it does, and why three earlier support models were wrong |
-| `Reports/load-model-handoff.md` | **The next step on destruction**, written up to be picked up cold |
+| `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
+
+**Which rules apply to what you are doing right now** (all in this file
+unless named otherwise):
+
+- Running a parameter sweep → *When every setting of a sweep fails the same
+  way* (Method), *A change that moves nothing* (Conventions), and the
+  `include_str!` gotcha.
+- Writing or trusting a guard test → the guard bullets in Conventions
+  (*fail for the replacement*, *inputs actually vary*, *superseded tests
+  keep passing*) and *A green suite does not prove a test ran* (Gotchas).
+- Measuring liquids, powders or destruction → *Metric traps* and *Chunk
+  decomposition is a recurring root cause* (Method).
+- Adding per-cell work to the sweep → *Guard hot-path work at the call
+  site* (Method), and README's Performance section on sweep-scale costs.
+- Touching organism code → the structural-check amputation gotcha, *A
+  traversal must use the same neighbourhood the writer used* (Gotchas),
+  and *A channel that oscillates by design* (Method).
+- Proposing, building or retrying any mechanism → `Reports/dead-ends.md`
+  first.
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when
@@ -86,14 +105,74 @@ cargo test                                       # unit + integration
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
+python3 scripts/review.py serve --open      # the owner's review queue; see below
+bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
+bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
+bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
-so an artifact can be judged by eye without a window. For the real app, press
+so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
+it encodes an animation instead, still with no window and no GPU: reach for that
+when the question is whether something *moves* right, which a grid of stills
+cannot answer. For the real app, press
 `F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
 structural test bed — or set
 `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
 land under `%TEMP%`.
+
+**Having rendered something, show it — don't describe it.** See *Getting the
+owner's judgement* below; it is not an occasional tool.
+
+## Getting the owner's judgement
+
+**`scripts/review.py` is the primary way to get feedback from the owner, and it
+is meant to be used constantly — not saved for big moments.** Everything this
+project optimises for is judged by eye: whether a collapse *feels* like
+destruction, whether a fall reads as sand, whether a pool looks flat while it is
+still moving. None of that is a test result. Describing it in chat has
+repeatedly failed — three separate models were overturned only by the owner's
+playtest reports, and nearly every fix judged by test output alone left the
+screen unchanged.
+
+So when a change is visible, **post it rather than describe it**. "This looks
+better" is precisely the claim the owner has to check, and a sentence is not
+checkable.
+
+Post when:
+
+- a change alters anything on screen — including one you are confident about;
+- you are about to claim something looks, moves or feels better;
+- a complaint could mean two things — render both readings and ask which one it
+  is, rather than spending the whole detour on the wrong one;
+- a step is "judge by eye" — post *before* declaring it done, not after;
+- you are choosing between approaches and the difference is visual: post a blind
+  A/B (`review.py ab --blind`) instead of arguing it out. Blinding costs you
+  nothing, because the stored verdict names the real option.
+
+Posting is **fire-and-forget**: post, carry on, and collect the verdict with
+`review.py inbox` later or in a later session — run it when you pick a thread
+back up, including at the start of a new one. Do not stall a session waiting.
+`--wait` exists for one case only: a wrong guess would waste the work you are
+about to do. A `--wait` that times out changes nothing — the card stays queued
+and answerable — so it is only ever your own time at risk.
+
+Two house rules, both from failures already paid for here:
+
+- **Put the discrete event count in the card's `meta`.** The page renders it
+  directly under the image. A collapse once read as "chunks are working" from a
+  picture whose body count was zero for the whole run; an image says *what* and
+  *where*, and only the number says *whether it fired*.
+- **Prefer a paired comparison** over one run against a remembered impression.
+  Outcomes here have enormous spread, so a single run is a sample from a wide
+  distribution.
+
+The queue is shared by every worktree of the clone, so a card posted from
+`.claude/worktrees/foo` and one from the main checkout land in the same place,
+and an answer outlives the session — and the worktree — that asked for it. The
+owner views it with the `serve` command above; it does not need to be running
+for you to post. Full protocol, including the JSON card spec, in
+`.claude/skills/review/SKILL.md`.
 
 ## Working alongside another session
 
@@ -125,9 +204,9 @@ cannot compile is the window you created.
 
 If you find yourself needing to commit while a contested file holds
 somebody else's unfinished work, do **not** try to stage around it. Add a
-worktree at `origin/master`, re-apply your own change there, verify, commit
+worktree at `origin/main`, re-apply your own change there, verify, commit
 and push from it, then bring the main tree's branch pointer forward with
-`git reset --mixed origin/master` — which moves the branch and leaves their
+`git reset --mixed origin/main` — which moves the branch and leaves their
 working tree untouched.
 
 **That reset strands stale files whenever the main tree was *behind*.** It
@@ -166,9 +245,15 @@ same shape.
 
 An image tells you *what* and *where*. A metric tells you *how much* and
 *whether it came back*. Reaching for a metric to answer "what and where" is
-the recurring mistake.
+the recurring mistake — and the inverse bites too: a corrected overlay was
+still misread as "everything at the ramp floor" when the real value was 40%
+of scale, genuinely hard to judge on a one-cell-wide twig. Pair every debug
+channel with a probe that prints the values (`examples/plant_probe.rs`),
+and reach for it the moment the question turns quantitative.
 
-**"Did it fire at all" needs a counter, not a picture.** An image shows
+### "Did it fire at all" needs a counter, not a picture
+
+An image shows
 *what* and *where*; it cannot show whether the thing you built is what
 produced it. A collapse rendered as coherent falling slabs, was read as
 "chunks are working," and the harness's own body count said **zero for the
@@ -178,8 +263,9 @@ mechanisms look identical at the zoom a contact sheet is read at. When a
 change adds a discrete "this happened" event, print the count next to the
 image and read both.
 
-**Check that a planned step can demonstrate itself, before promising it
-will.** "Cracks weaken rock" was scheduled as an independently shippable,
+### Check that a planned step can demonstrate itself, before promising it will
+
+"Cracks weaken rock" was scheduled as an independently shippable,
 judge-by-eye milestone. Built, it did almost nothing visible, because
 failure was evaluated per cell against *its own* reach and a crack at a
 beam's root weakens a cell the criterion never tests. One question asked
@@ -195,21 +281,25 @@ evaluate — a cell, a section, or a whole piece?** — and check that the
 quantities it needs (a centroid, a contact width, a tipping moment) are even
 defined for that object.
 
-**Resolve an ambiguous complaint before building anything.** "Flatness at
-rest" was read as the surface texture and turned out to mean a screen-wide
+### Resolve an ambiguous complaint before building anything
+
+"Flatness at rest" was read as the surface texture and turned out to mean a screen-wide
 tilt — opposite directions, a whole detour spent on the wrong one. When a
 report could mean two different things, the cheap move is to measure both
 and see which one is actually there, or to ask. It is much cheaper than the
 fix you build for the wrong reading.
 
-**Ask what a metric counts when nothing is wrong.** The whisker hunt defined
+### Ask what a metric counts when nothing is wrong
+
+The whisker hunt defined
 a "film" as a water cell with air above and below — which is *what falling
 water looks like*, so the metric counted every droplet in the world. Its
 numbers were real and meant nothing. Sanity-check a new metric against a
 case you know is fine, before trusting it about a case you don't.
 
-**When the complaint is about something visible and persistent, measure the
-standing state, not the event rate.** Attributing film *creation* blamed the
+### When the complaint is visible and persistent, measure the standing state, not the event rate
+
+Attributing film *creation* blamed the
 plain straight-down fall for 76% of them — true, and useless, because those
 films existed for one frame each. The artifact that persists came from
 somewhere else entirely, and only a standing count showed it.
@@ -224,15 +314,6 @@ the cell's own colour**. A magnitude-scaled blend was tried and produced a
 canopy-density sheet that read as blank: the ramp was red, wood is brown,
 and a mid-range value moved one colour byte from 139 to 155. The obvious
 reading — "the mechanism is dead" — would have sent a fix at working code.
-
-### An image says *what and where*; only a number says *how much*
-
-The corollary of "look before you measure", and it bites in the other
-direction just as hard. A corrected overlay was still misread as "everything
-at the ramp floor" when the real value was 40% of scale — genuinely hard to
-judge on a one-cell-wide twig. Pair every debug channel with a probe that
-prints the values (`examples/plant_probe.rs`); reach for it the moment the
-question turns quantitative.
 
 ### Fixing a bug often exposes a constant that was compensating for it
 
@@ -253,10 +334,10 @@ under it is dead, which looks exactly like passing because it is correct.
 The sibling of "two fixes failing the same way means the approach is
 wrong", and it points the opposite direction. Eight settings across two
 *forms* of leaf abscission all collapsed the stand identically — which read
-as "the approach is wrong" and was not: a structural check had landed
-*with* the mechanism and was constant across every run, and it alone was
-the collapse (772 cells against 20,213 at the same setting, from that one
-line). A sweep only varies the knob; anything that rode along with the
+as "the approach is wrong" and was not: a rider that had landed *with* the
+mechanism was constant across every run and was alone the collapse (the
+full account, with its numbers, is the structural-check amputation gotcha
+below). A sweep only varies the knob; anything that rode along with the
 mechanism is part of every data point. Before condemning an approach, run
 the control that isolates it — the mechanism at its gentlest setting with
 every rider stripped out.
@@ -358,12 +439,24 @@ consider it at all.
   never sitting on the measured value. Where a report asks for a number the
   engine cannot yet hit, record both and leave the gap visible rather than
   relabelling it away.
-- **A revert keeps the knowledge.** Keep the reproduction (`#[ignore]` it if
-  it now fails), and record what the withdrawn fix was, what it improved, and
-  why it went. A reverted fix's genuine improvements become the bar its
-  replacement must meet — not the pre-fix baseline.
+- **A revert keeps the knowledge — and gets an address.** Keep the
+  reproduction (`#[ignore]` it if it now fails), record what the withdrawn
+  fix was, what it improved, and why it went, and add the entry to
+  `Reports/dead-ends.md` in the same change, with the condition the
+  rejection depends on. A reverted fix's genuine improvements become the
+  bar its replacement must meet — not the pre-fix baseline.
+- **A new report gets its line in `Reports/README.md` in the same commit**,
+  and a report that supersedes another updates the superseded line.
+  `scripts/docscheck.sh` flags omissions, including a merged report still
+  listed as in-flight.
+- **A shipped milestone or feature gets its README status section before
+  the work is called done.** Five features went undocumented for multiple
+  milestones and had to be reconstructed after the fact; the Status
+  section's "known limitations" also outlived two of the fixes that
+  removed them.
 - **A session that makes a significant change affecting a `wiki/` page must
-  update that page (and its freshness note) in the same change.** This is a
+  update that page (and its freshness note — a real date, never "this
+  build", which can never go stale) in the same change.** This is a
   cheap backstop, not the real defence against `wiki/*.md` going stale the
   way early design Reports did — the real defence is that each page
   describes coarse, player-visible behavior, not implementation, which is
@@ -371,8 +464,10 @@ consider it at all.
   drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
-- **Determinism is required** (same-build, per `PLAN.md`) — it was reversed
-  from "not required" and some older comments still say otherwise.
+- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
+  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
+  §8. (An earlier version of this bullet warned of stale comments saying
+  otherwise; a sweep found none survive.)
 - **A guard test must be able to fail for the *replacement* artifact**, not
   only the original one. A fix that cleared torn seam rows and introduced
   much worse banding passed its own test, because that test only looked at
@@ -466,8 +561,6 @@ consider it at all.
   cells are materially empty but read as not-empty. Use the raw
   `cell.material == material::EMPTY` when the question is "is there material
   here", not "is this position available".
-- `liquid_fill`: `aux == 0` on a `Liquid` cell means **full**, not empty.
-  Writing a literal 0 fill manufactures a full cell out of nothing.
 - `MAX_REACH == CHUNK_SIZE / 2` exactly, and that equality is load-bearing for
   `parallel.rs`'s cross-chunk write-safety proof *and* for its
   reinsert-then-replay loop. Changing it needs both re-derived.

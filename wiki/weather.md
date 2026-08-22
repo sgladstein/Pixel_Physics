@@ -1,6 +1,6 @@
 # Weather
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the
