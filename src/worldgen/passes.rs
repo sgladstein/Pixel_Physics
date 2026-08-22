@@ -3005,6 +3005,16 @@ const SPRING_SPACING: i32 = 900;
 /// it emits.
 const SPRING_DRAIN_REACH: i32 = 150;
 
+/// How deep the pool at the foot of a fall stands before it starts draining
+/// away, in cells. The drain sits this far above the basin floor, and the
+/// pool self-levels there -- see the seating comment in `springs`.
+///
+/// Sized to be seen rather than to be right: `render.rs` dims a liquid by
+/// fill and `ponds` already refuses pools too shallow to read as water at
+/// all, so a plunge pool that is technically present and two cells deep buys
+/// nothing the owner asked for.
+const SPRING_POOL_DEPTH: i32 = 10;
+
 /// How far a spring stays clear of either world edge.
 const SPRING_EDGE_MARGIN: i32 = 64;
 
@@ -3225,9 +3235,35 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
                 continue;
             }
             seen[n] = basin;
+            // **At the pool's surface, not on its floor** -- the drain's
+            // *height* is what decides whether a pool stands, and the rate
+            // is not. `spring::step` takes only from a drain cell that
+            // currently holds a liquid, so a drain above the waterline is
+            // inert: nothing leaves until the pool has risen to it, and then
+            // it takes at most `DRAIN_FILL` per frame. `DRAIN_FILL` and
+            // `EMIT_FILL` are both `LIQUID_FULL`, so one drain balances one
+            // emission column and the pool settles *at the drain's height*
+            // with the throughput passing through it. A pool with an outlet
+            // at its lip, self-levelling, and conserving.
+            //
+            // The first version seated drains one cell above the basin floor,
+            // which is the same construction with the pool depth set to
+            // zero: it took the water as fast as it landed, 90-98% of
+            // everything emitted, so nothing ever stood at the bottom. The
+            // owner, shown it: *"it looks like it comes from nowhere and goes
+            // nowhere ... Ideally it should also end in a pool."*
+            //
+            // It is very likely the thinness complaint from the same card as
+            // well. `render.rs` dims a liquid toward black by *fill*, so
+            // water being removed as fast as it arrives is never near full
+            // and draws almost black against the rock.
+            let floor = world_top(world, basin, h);
             for d in 0..span {
                 let dx = (basin + d - span / 2).clamp(0, w - 1);
-                let dy = world_top(world, dx, h) - 1;
+                // Follow the basin's own floor where it is lower than the
+                // centre column's, so a drain never ends up buried in a bank
+                // that happens to be higher than where the pool bottoms out.
+                let dy = world_top(world, dx, h).min(floor) - SPRING_POOL_DEPTH;
                 if dy >= 0 {
                     world.add_drain(dx, dy);
                 }
