@@ -154,8 +154,18 @@ fills it to the lip. The pool has two ways out, the cliff at distance 0 and
 the far end of the shelf a hundred columns away, and it reaches the cliff
 first. That is the whole mechanism.
 
-Placement with the carve: **canyon 1.0 springs per world**, terraced 0.5,
-rolling 0.2, wetland 0. Three canyon seeds emit 4.5M fill units and drain
+**The basin has to sit in level ground, and that was learned the hard way.**
+The first shelf test was "ground at or above the lip", which admits ground
+*well* above it -- and since the cut clears each column from the sky down to
+the bowl floor, a basin sited on rising ground is a sheer trench gouged
+through a hillside. Shown one, the owner: *"a weird cut through a sharp piece
+of stone."* Requiring the ground within `SPRING_BASIN_RIM` = 8 rows of the lip
+for the basin's whole width fixes it, and costs nothing -- it *improves*
+placement, because a narrower basin in flat ground qualifies where a wide one
+on a slope did not.
+
+Placement with the carve: **canyon 1.0 springs per world**, rolling 0.8,
+terraced 0.8, wetland 0. Three canyon seeds emit 4.5M fill units and drain
 ~4.0M of it with **zero** throttling, so the pool never drowns its own
 outlet.
 

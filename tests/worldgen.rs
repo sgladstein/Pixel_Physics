@@ -348,6 +348,19 @@ fn every_pass_writes_something() {
         // should fail loudly. That it *fired* is a different question, and a
         // cell count could never have answered it; the ledger does, in
         // `a_generated_world_grows_a_spring_that_actually_runs`.
+        // `springs` writes none *here* for the same reason `vaults` does -- the
+        // world is too small for what it needs. Its source basin wants a
+        // cliff with `SPRING_BASIN_MIN_W` columns of near-level rock behind
+        // the lip, and at 512x320 there is nowhere to put one. Asserted zero
+        // rather than skipped, and fired separately at the shipped size
+        // below, so that an exclusion which stops being true fails loudly --
+        // it already has once, in both directions: springs began writing here
+        // when they learned to cut a basin, and stopped again when the basin
+        // was required to sit in level ground.
+        if *name == "springs" {
+            assert_eq!(*cells, 0, "springs cut a basin at 512x320, where no cliff-and-shelf fits");
+            continue;
+        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
     // The other half: at the size the game actually ships, vaults fire.
@@ -361,6 +374,21 @@ fn every_pass_writes_something() {
         }
     }
     assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
+
+    // And `springs`, at the size that actually ships: its source basin needs
+    // a cliff with level rock behind it, which is a property of a big world's
+    // terrain rather than of the pass.
+    let big = (pixel_physics::app::WORLD_WIDTH as i32 - 1, pixel_physics::app::WORLD_HEIGHT as i32 - 1);
+    let mut spring_cells = 0;
+    for seed in [1u64, 7] {
+        let mut world = World::new(Rect::new(0, 0, big.0, big.1));
+        for (name, cells) in worldgen::generate_reported(&mut world, Spec::Generated { params, seed }) {
+            if name == "springs" {
+                spring_cells += cells;
+            }
+        }
+    }
+    assert!(spring_cells > 0, "springs never cut a source basin at the shipped size across 2 seeds");
 
     // `boulders`'s own "the pass fires somewhere" half lives in
     // `a_forced_boulder_world_seats_stone_and_arrives_at_rest` rather than

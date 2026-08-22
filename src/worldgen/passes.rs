@@ -3017,8 +3017,12 @@ const SPRING_DRAIN_REACH: i32 = 150;
 /// against the gnome, who is 14 rows tall: a 12-deep pool reads as water he
 /// could stand in up to the chest, which is a tarn rather than a puddle.
 const SPRING_BASIN_W: i32 = 40;
-const SPRING_BASIN_MIN_W: i32 = 24;
+const SPRING_BASIN_MIN_W: i32 = 12;
 const SPRING_BASIN_DEPTH: i32 = 12;
+
+/// How far above the lip the basin's ground may stand. Small on purpose: see
+/// the shelf comment in `springs` for the trench this stops.
+const SPRING_BASIN_RIM: i32 = 8;
 
 /// Columns of untouched ground the basin keeps either side of itself.
 const SPRING_BASIN_CLEARANCE: i32 = 3;
@@ -3190,10 +3194,19 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
         // water filled to the lip has two ways out, the cliff at distance 0
         // and the far end of the shelf a hundred columns away, and it reaches
         // the cliff first. That is the whole mechanism.
+        // **Level ground, not merely ground above the lip.** The shelf test was
+        // `surface_y <= lip`, which admits ground *well* above it -- and since
+        // the cut clears each column from the sky down to the bowl floor, a
+        // basin sited on rising ground is a sheer trench gouged through a
+        // hillside. Shown one, the owner: *"a weird cut through a sharp piece
+        // of stone"*. So the ground has to be within `SPRING_BASIN_RIM` rows
+        // of the lip for its whole width: the cut is then shallow everywhere
+        // and reads as a hollow in flat ground rather than as an excavation.
         let mut shelf = 0;
-        while shelf < SPRING_BASIN_W
-            && plans[(rim + back * (shelf + 1)).clamp(0, w - 1) as usize].surface_y <= lip
-        {
+        while shelf < SPRING_BASIN_W && {
+            let g = plans[(rim + back * (shelf + 1)).clamp(0, w - 1) as usize].surface_y;
+            g <= lip && g >= lip - SPRING_BASIN_RIM
+        } {
             shelf += 1;
         }
         if shelf < SPRING_BASIN_MIN_W {
