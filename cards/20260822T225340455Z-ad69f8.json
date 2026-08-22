@@ -1,0 +1,44 @@
+{
+  "id": "20260822T225340455Z-ad69f8",
+  "created": "2026-08-22T22:53:40Z",
+  "board": "water",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "water-merge",
+    "commit": "6e64b48",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Depth grade now shades open water: deliberate?",
+  "question": "Does the dark vertical band through the pond read right, or does open water want exempting from the depth grade?",
+  "context_md": "scene=rockdrop, first pan after the master merge.\n\nThe band is in **every tile, including before the slab lands**, so it is not the drop. It is master's TerrainLight::Depth (its default) shading everything below the frozen skyline. Its own comment says water inside the ground *takes the same grade on top, deliberate -- a flooded cave is deep first and wet second* -- but this is the first time that grade has met an **open pond** rather than a flooded cave.\n\nIt does not line up with the chunk grid (band spans world x 225-286; boundaries are at 192/256/320), so it is not the usual seam artifact.\n\nSeparately: filmstrip has no terrain_light argument, so this cannot be A/B'd headlessly. Say the word and I will add one.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rockdrop after the merge",
+      "files": [
+        "20260822T225340455Z-ad69f8/000-pan-rockdrop.png"
+      ],
+      "caption": "4 tiles, fall=20, crop 180,150,180,170 at zoom 2",
+      "meta": {
+        "peak chunk bodies in flight": 21,
+        "came off as chunks (cells)": 983,
+        "came off as dust (cells)": 200,
+        "chunk share by mass": "83%",
+        "rock delta": -263,
+        "rubble delta": 241,
+        "cells lost": 22
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
