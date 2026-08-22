@@ -1,6 +1,6 @@
 # Structural Collapse
 
-*Current as of: this build. Where something breaks — at the neck, across
+*Current as of: 2026-08-21. Where something breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building. Digging into open ground no longer spreads: a hole is a hole,
@@ -142,4 +142,3 @@ reasoning about them. Note what the tighter settings cost: a delayed
 cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
 a mountain and it will sit there.
 
-*Current as of: this build.*

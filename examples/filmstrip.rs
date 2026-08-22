@@ -1757,6 +1757,23 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
 
 fn main() {
     let args = parse();
+
+    // Take the machine-wide timing lock only when this run is actually going
+    // to *judge* a timing -- `max_frame_ms=` is the one thing here that can
+    // fail for a reason that is not about the simulation.
+    //
+    // Not unconditionally, deliberately. `scripts/acceptance.sh` makes
+    // eighteen filmstrip invocations, and most of them gate on failure counts
+    // and cell censuses, which are exact under any load. Locking those would
+    // serialise the whole acceptance run behind any measurement in progress
+    // and buy nothing. Locking the frame-budget cases costs seconds and stops
+    // this harness trampling `examples/ascii`'s measurement, or being trampled
+    // by it -- which it silently was until now.
+    let _lock = args.max_frame_ms.map(|_| pixel_physics::perf::lock("examples/filmstrip"));
+    if args.max_frame_ms.is_some() {
+        println!("{}", pixel_physics::perf::Machine::probe().banner());
+    }
+
     // Repeated runs are for the *timing* only -- the image and the
     // expectations come from the last one, which is a full run like any
     // other. Deliberately re-simulated from scratch rather than reusing a

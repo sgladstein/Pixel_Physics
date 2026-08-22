@@ -1,10 +1,14 @@
 name: CI
 
+# `main` is the repository's default branch. This said `master` until the
+# review-queue merge, which meant nothing pushed to `main` was gated -- and
+# that a tidy-up deleting the stale `master` mirror would have silently
+# disabled CI entirely rather than failing loudly.
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   test:
