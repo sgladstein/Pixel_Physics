@@ -1,0 +1,58 @@
+{
+  "id": "20260822T084126139Z-201147",
+  "created": "2026-08-22T08:41:26Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "5e57b7e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The spires thinned out — and the landscape, with no stitching in it",
+  "question": "Are the spires occasional enough now, or still too many? And does this read as one landscape — I need to know whether the \"hard boundary\" complaint survives once the picture stops lying.",
+  "context_md": "**First: your #1 issue was my picture, not the world, and I am sorry for the round it cost.**\n\nThe card you judged was three viewport shots from *different parts of the world* butted together with no separator — tiles at world x 1109-1620, 3840-4351 and 6570-7081, with **2,219 unshown columns between each**. So the \"repeating hard boundary at 1/3 and 2/3\" was the seam between them. Measured: those two joins were the **largest and second-largest of all 1,535 adjacent column pairs** in that image, and the skyline stepped **61 rows in one column** across the first. For scale, I then measured the real thing — the largest step worldgen produces anywhere, in any preset, is **5 rows**. The seam was twelve times bigger than anything the generator can make.\n\nBoth panes here are one **contiguous** strip, world x 1109-2645 unbroken, same moment, no joins. `viewshot` grew a `strip=1` mode and a white gutter for the old kind, and the summary line now names the columns it is *not* showing.\n\n**The gnome is in it, as you asked.** He is 7x14 and standing on the ground in each third — the counts below were taken with him out of frame, because he is 14 rows proud over 7 columns and my spire detector counts him as a spire.\n\n**The spires.** `residual_density` 1.4 -> 0.45, chosen from a sweep rather than by arithmetic, measured as spires per 512-column screen over 48 screens and **paired against residuals-switched-off** — which mattered: at my first threshold half of canyon's standing features were still there with the pass disabled. They are boulders and brow lips. I would have been tuning the wrong pass.\n\nOn this exact span, one variable, gnome out of frame: **8 spires [6,1,1] per screen -> 4 [3,1,0]**, and the cluster of three tall monuments (50, 44 and 57 rows within 300 columns) is now a single 57.\n\n**What I could not settle from the diff:** whether \"occasional\" means what I have, or fewer still. 0.3 measures identically to 0.45, so there is room to go further at no cost if these are still too many.\n\n**Also changed in both panes** (so it is not the variable here): the sand lenses are no longer perfect ovals. There is a separate card for those at proper zoom.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — residual_density 1.4",
+      "files": [
+        "20260822T084126139Z-201147/000-card-spires-before.png"
+      ],
+      "caption": "the density you saw",
+      "meta": {
+        "residual_density": 1.4,
+        "spires per screen (gnome out of frame)": "6, 1, 1",
+        "spires in this span": 8,
+        "tall monuments (>40 rows)": 3,
+        "world-wide per screen med/p90/max": "1 / 3 / 5"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — residual_density 0.45",
+      "files": [
+        "20260822T084126139Z-201147/001-card-spires-after.png"
+      ],
+      "caption": "the knee of the sweep",
+      "meta": {
+        "residual_density": 0.45,
+        "spires per screen (gnome out of frame)": "3, 1, 0",
+        "spires in this span": 4,
+        "tall monuments (>40 rows)": 1,
+        "world-wide per screen med/p90/max": "0 / 2 / 4",
+        "same with residuals off (control)": "0 / 2 / 3"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
