@@ -90,6 +90,25 @@ cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below
 ```
 
+**The real app can be screenshotted headlessly**, which this file previously
+assumed impossible — every "verify live" instruction routed through
+`filmstrip` because the sandbox has no display. On a headless Linux box:
+
+```
+apt-get install -y libxkbcommon-x11-0 mesa-vulkan-drivers   # once per container
+xvfb-run -a -s "-screen 0 1280x800x24" \
+  env VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
+      PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES=3 \
+  ./target/release/pixel-physics                            # writes %TEMP%/pixel_physics_screenshot.png
+```
+
+`lvp_icd.json` is lavapipe, Mesa's software rasteriser; without it `Pixels::
+new` fails with "Unable to create a surface" and the panic looks like a code
+bug rather than a missing driver. It is slow — seconds per frame — so it is
+for *looking at one frame of the real thing*, not for timing anything. Frame
+timings still come from `ascii`, and `PIXEL_PHYSICS_CAPTURE_SEQUENCE` still
+works for a strip.
+
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
 so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
 it encodes an animation instead, still with no window and no GPU: reach for that
