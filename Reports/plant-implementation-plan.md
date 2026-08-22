@@ -238,13 +238,37 @@ architecture moved under both.
 > `filmstrip` gained `ignite=x,y,radius,frame` for the visual, and the GIF is
 > with the owner.
 >
-> **The finding that came out of it, and it is emergent rather than
-> authored: sward *connectivity*, not moisture, decides whether grass burns
-> at all.** Fire spreads to 4-neighbours only, so at 64 founders the gaps
-> between tufts stop a front dead (ignition landed — 10 cells lit — and went
-> straight out), while at 200 founders it is continuous and the fire runs the
-> whole world. A patchy meadow is a firebreak; a closed one is a fuse. Worth
-> an owner call on whether that is wanted before anything is tuned around it.
+> **CORRECTION, owner-checked.** I wrote that at 200 founders "the fire runs
+> the whole world". That was wrong, and it was wrong the way this repo keeps
+> warning about: I read *how much* off a picture. What spread across the
+> frame in that contact sheet was smoke haze, not the burn. Re-shot at 80-
+> frame intervals, the burnt band moves roughly **0.12 cells/frame — about a
+> tenth of the 1.34 the contiguous strip measured** — and after 560 frames it
+> has covered maybe an eighth of the world. The owner's verdict on the GIF
+> was *"it doesn't spread at all"*, and at the timescale anyone actually
+> watches, that is right.
+>
+> The strip speeds above still stand: they are a *material* comparison over
+> identical contiguous fuel, and grass is genuinely the fastest of the four.
+> What does not follow from them is anything about a real sward, which is
+> sparse, damp and thin.
+>
+> Sward connectivity is still what gates it — at 64 founders the ignition
+> landed (10 cells lit) and went straight out. But "a patchy meadow is a
+> firebreak" is the charitable reading of a plainer fact: **grassfire is not
+> currently a spectacle at any density tested.**
+>
+> **Two follow-ups, both M14 fire work and neither in this plan** (owner
+> feedback on the card, recorded here so they are not lost):
+>
+> 1. **Fire has no visual of its own.** `render.rs` blends a burning cell's
+>    own colour toward a fire tint with a flicker — no flame body, no plume.
+>    Owner: *"Just looks like you are cycling colors."* That is exactly what
+>    the code does.
+> 2. **Moisture should gate spread and effectively does not.**
+>    `MOISTURE_IGNITION_RESISTANCE` is 0.9, so full saturation only cuts
+>    effective flammability tenfold and wet ground still burns. Owner: *"if
+>    we are going to do this, moisture vs dryness should play a role."*
 
 ---
 

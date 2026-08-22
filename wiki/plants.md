@@ -94,13 +94,15 @@ Three consequences follow from that, and none of them is a rule about grass:
 - Its roots run **sideways through the top few rows of soil** instead of
   diving, and that mat holds loose ground together where a tree's few thick
   roots do not.
-- It is the **fastest fuel in the world** — a fire front crosses a meadow
-  about a quarter faster than it crosses a tree canopy, and bare soil stops
-  one dead. This is how a fire gets from one stand of trees to another. The
-  roots survive underground.
-  **But only where the grass is continuous.** Fire steps from one plant to
-  the one touching it, so a thin, patchy sward is a firebreak and a thick
-  closed one is a fuse. Nothing says so anywhere; it falls out of the gaps.
+- It is the **most flammable thing that grows** — cell for cell a fire runs
+  through grass about a quarter faster than through a tree canopy, and bare
+  soil will not carry one at all. The roots survive underground.
+  Fire steps from one plant to the one touching it, so a thin, patchy sward
+  is a firebreak and a thick closed one is a fuse. Nothing says so anywhere;
+  it falls out of the gaps. **In practice a grassfire is currently a slow,
+  local smoulder rather than a front sweeping a meadow** — see
+  `Reports/plant-implementation-plan.md` for the measurement and the two
+  fire-side changes that would be needed.
 - It **breeds far faster than a tree** — it is cheap to build, it sets seed
   young, and it will colonise bare ground long before anything woody does.
 
