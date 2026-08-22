@@ -1,0 +1,43 @@
+{
+  "id": "20260822T180743652Z-e79163",
+  "created": "2026-08-22T18:07:43Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "8ca9a72",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The first waterfall a generated world has ever had",
+  "question": "Does this read as a waterfall, or as a damp stain on the cliff? I think it is too thin and too dark, and I want to know whether you agree before I spend a round tuning it.",
+  "context_md": "Nothing had ever placed a spring in a generated world -- every waterfall shown before now was a test harness putting one there by hand. This is the `springs` worldgen pass placing one on its own.\n\n**It works, by the numbers.** Over three canyon seeds it emits 2.6-4.5M fill units and drains 90-98% of it, so the water genuinely arrives and leaves rather than filling a bath. But looking at it, I am not convinced: the fall hugs the rock face and renders nearly black, because `render.rs` dims a liquid toward black by *fill*, and the drains at the foot take the water almost as fast as it lands so no cell is ever near full.\n\nIf you agree it is too thin, the lever I would reach for first is moving the drains further from the plunge pool so a pool actually stands under the fall -- the near drain is 40 columns out, which is basically in the pool.\n\nThis is a still, and a fall is a moving thing. Say the word and I will get you a sequence instead.\n\nCanyon, seed 7, world x 7280-7792 at 4x, after 500 frames of settling.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "generated spring, canyon seed 7",
+      "files": [
+        "20260822T180743652Z-e79163/000-fall-tight.png"
+      ],
+      "caption": "Outlet at (7388, 99), span 5. The fall is the blue-grey band down the left of the face.",
+      "meta": {
+        "emitted (fill units)": 4500000,
+        "drained": 4052533,
+        "throttled": 0,
+        "water cells standing after 500 frames": 421,
+        "springs per world (canyon, 6 seeds)": 0.8,
+        "standing cost": "+2.645 ms/frame at 8192x2560"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
