@@ -1111,6 +1111,26 @@ held up. **A performance or cost claim in a doc needs either a test or a
 measurement command next to it, or it should be written as an intention,
 not a fact.**
 
+### Open after the plant-line merge (2026-08-22)
+
+Kept separate from the table above, which mirrors
+`Reports/pixel-physics-issues.md` item for item and should not drift from
+it. Full detail and reproductions for all four live in
+`Reports/open-bugs-handoff.md` under the letters given.
+
+| Ref | Title | Kind |
+|---|---|---|
+| §A | Genotype **slot 1's root-mass lever measures dead**: 1 of 8 seeds clears the guard's 10% ordering, mean per-seed ratio 0.92 ± 0.056 — 1.4 SE from 1.0, and 7 SE from the calibrated 1.33. `root_and_shoot_branching_read_different_slots` is the one red test on the branch, and it is reporting a real defect, so the bar must not be moved. Needs `tree.ron` re-derived against the post-repair quantity, with `print_root_branch_slot_seed_sweep` as the guard. | bug, model |
+| §Y | **The gnome cannot get through a wood.** `wood` acceptance case: 34 cells travelled against a bar of 200 (calibrated at 362). Split measured — 152 with litter disabled, so litter is 118 of the 166-cell shortfall and the residual 48 is the missing bole. Owner's call: the *response* lives in `player.rs` (`wade_rows`/`wade_slowdown`), not in the plant lines. | bug, player |
+| §U | **Drought raises absolute biomass, which inverts real plant behaviour.** A water-stressed tree measured *larger* on both totals (982 vs 734 cells) and on wood (428 vs 299) than a watered one. Real drought narrows rings — that is the basis of dendrochronology. Hypothesis on file: `break_root_tips` is gated on `water_status < 0.95`, so stress *triggers* root re-initiation without throttling the carbon that pays for it. | bug, model |
+| §X | **The desert niche needs a capacity lever, not a wilting point.** Arid country is dead because its blanket is **sand**, which declares no `water_capacity` at all — not because dry soil sits under the wilting point. So making the wilting point a species trait, which §X originally proposed, would do nothing for the desert. Three candidate levers instead: give sand a small capacity, let a root reach the water table, or store rain. | design, blocks desert species |
+
+**Stale in the table above, verified 2026-08-22:** #10 says the default
+branch is `main`, "a 15-byte stub — the project lives on `master`".
+`origin/main` and `origin/master` are now the *same commit*, so that half of
+#10 is done; the rest of the item (LICENSE, `rustfmt.toml`, `rust-version`)
+still stands.
+
 ---
 
 ## Execution order
