@@ -1,0 +1,45 @@
+{
+  "id": "20260822T225241144Z-d28318",
+  "created": "2026-08-22T22:52:41Z",
+  "board": "help",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "water-merge",
+    "commit": "6e64b48",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Help page: does the rewrite actually read more easily?",
+  "question": "Two versions of the help overlay (/). One is what ships today, one is a rewrite. Which one can you find a key in faster? Note the shipping one is clipped: it runs three lines past its own panel, so 'K A/B EXPERIMENT', 'F5 RELOAD ASSETS' and the line naming the key that CLOSES it are drawn off-screen. It also lists two keys it cannot draw - ';' (depth light) and ''' (glow shape) render as blank gaps, because the 5x7 font has no glyph for either. Both fixed in the rewrite along with the two new water-merge keys.",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current (32 flat lines, overflows)",
+      "files": [
+        "20260822T225241144Z-d28318/000-help-before.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "rewrite (2 columns, sectioned, fits)",
+      "files": [
+        "20260822T225241144Z-d28318/001-help-after3.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
