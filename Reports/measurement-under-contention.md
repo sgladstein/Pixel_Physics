@@ -151,26 +151,37 @@ less than four do.
 ## 6. What is deliberately not built
 
 **Compilation does not take the timing lock, and compilation is the
-interferer.** This is the gap that keeps TRUSTED runs at one-in-three instead
-of routine. Closing it means builds acquire the lock as readers and
-measurements as writers, so a measurement *creates* its window instead of
-waiting for one — the only mechanism that can work on a box that is busy 92%
-of the time.
+interferer — decided, 2026-08-19: not building it.** This is the gap that
+keeps TRUSTED runs at one-in-three instead of routine. Closing it would mean
+builds acquire the lock as readers and measurements as writers, so a
+measurement *creates* its window instead of waiting for one — the only
+mechanism that can work on a box busy 92% of the time.
 
-It was left open on purpose, and the reasons are worth keeping because they
-are the argument to re-litigate:
+The decision is **no**, on this reasoning:
 
-- It is the only mechanism here whose failure mode costs **other people
-  work** rather than costing a measurement its credibility. A stale writer
-  lock stalls every agent's build.
-- It is enforced only by convention — every session must route `cargo`
-  through a wrapper, and one that does not fails *silently*.
-- It needs the agreement of sessions that do not know it exists.
+- **It buys speed, not correctness.** The workflow without it already yields
+  a sound number: re-run until `TRUSTED`, about one attempt in three, a
+  minute each. Three minutes for a trustworthy measurement is not a problem
+  worth a protocol. Nothing about the lock would make a wrong number right;
+  `Machine` and the verdict already refuse to let a wrong number pass as a
+  right one, which is the property that actually matters.
+- **It is the only mechanism here whose failure mode costs other people
+  work.** Everything else degrades a measurement. A stale writer lock stalls
+  every agent's build.
+- **It is enforced only by convention, and fails silently.** Every session
+  must route `cargo` through a wrapper; one that does not simply competes as
+  before, while the mechanism's existence invites the belief that it cannot.
+- **`sccache` attacks the same load without any of that.** Installed
+  2026-08-19; a cleaned-crate release rebuild went 17.74 s to 0.81 s. It
+  needs no cooperation, has no blast radius, and removes work rather than
+  scheduling it.
 
-The case for it got stronger once measurement became scene-sized: blocking
-builds for 7-11 s is a very different proposition from blocking them for
-143 s. If TRUSTED runs need to be routine, this is the thing to build, and it
-should be agreed with the other sessions before a line of it is written.
+What would reopen it: a measured need for routine TRUSTED runs — a timing
+question asked often enough that three-minutes-per-answer is the bottleneck —
+or a re-run of `examples/quiet_probe` (45 min, once every session has
+restarted into `sccache`) still showing single-digit quiet *and* someone
+actually blocked by it. The 8% figure above predates `sccache` and should not
+be quoted as if it did not.
 
 **`examples/filmstrip.rs` locks only on an explicit `lock=1`.** The first
 attempt keyed it off `max_frame_ms=`, on the reasoning that this is the one

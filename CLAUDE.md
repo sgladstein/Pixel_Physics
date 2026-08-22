@@ -282,9 +282,11 @@ and the mechanisms that were wrong first are in
   something and an untrusted *worst* is worth nothing. About one in three
   lands, a minute each.
 - **The lock does not cover compilation, and compilation is the interferer.**
-  Nine `cargo` and four `rustc` were live in one sample. Closing that gap is
-  the open decision in the report's section 6; it was left open because its
-  failure mode blocks other people's builds.
+  Nine `cargo` and four `rustc` were live in one sample. Making builds take
+  it was **considered and declined** (report section 6): it would buy speed,
+  not correctness -- re-running until `TRUSTED` already yields a sound number
+  -- and it is the only mechanism here whose failure mode blocks other
+  people's builds. Do not build it without a measured need.
 - **`sccache` is installed on this machine and cuts that load at the source.**
   A cleaned-crate release rebuild — what a fresh worktree at the same commit
   pays — went **17.74 s to 0.81 s** on a cache hit. It is wired up as a *user
