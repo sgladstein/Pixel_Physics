@@ -1,0 +1,66 @@
+{
+  "id": "20260822T021948436Z-d5cb77",
+  "created": "2026-08-22T02:19:48Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/Pixel Physics/.claude/worktrees/plant-ecology",
+    "branch": "plant-ecology-design",
+    "commit": "0395f26",
+    "agent": null,
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\Pixel Physics\\.claude\\worktrees\\plant-ecology"
+  },
+  "title": "Grassfire: does a fire front across a meadow read as its own regime?",
+  "question": "Watching the fire run along the sward -- does that read as a distinct fast surface fire, different in kind from a tree burning, or just as fire moving through some plants?",
+  "context_md": "WP-B3 acceptance item 4, the last one. Grass is meant to be the fastest fuel in the world: the thing that carries a fire across open ground between two stands.\n\n**Measured first, in a paired test over identical strips** -- time for a front to cross 170 cells:\n\n| surface | frames | speed |\n|---|---|---|\n| **grass** | **127** | **1.34 cells/frame** |\n| tree foliage | 161 | 1.06 |\n| leaf litter | 180 | 0.94 |\n| bare soil | never crossed | — |\n\nSo grass is ~27% faster than canopy foliage, and bare soil stops a front dead. That part is settled by number, not by eye.\n\n**What I want your eye on is whether it *reads* as a different regime in motion**, which no number can answer.\n\n**One finding worth knowing before you watch it, because it surprised me.** The first attempt showed *nothing* — the ignition landed (the counter said 10 cells lit) and the fire went straight out. The cause was not moisture, which was my first guess; it was **connectivity**. Fire spreads to 4-neighbours only, and at 64 founders the sward has gaps between tufts that a front cannot cross. At 200 founders it is continuous and the fire runs the whole world.\n\nThat means a **patchy meadow is a firebreak and a closed one is a fuse**, emergently, from no rule that says so. If that seems right to you it is worth keeping; if grass should carry fire even when sparse, that is a real design call and I have not made it.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The fire running (GIF)",
+      "files": [
+        "20260822T021948436Z-d5cb77/000-wpb3-grassfire.gif"
+      ],
+      "caption": "200 founders, ignited at the left edge at frame 11,000",
+      "meta": {
+        "cells lit by the ignition": 27,
+        "founders": 200,
+        "grass front (cells/frame)": 1.34,
+        "foliage front": 1.06,
+        "soil front": "never"
+      },
+      "focus": null
+    },
+    {
+      "label": "Same burn as stills",
+      "files": [
+        "20260822T021948436Z-d5cb77/001-wpb3-grassfire-dense.png"
+      ],
+      "caption": "every 120 frames -- flames, then the burnt band, then smoke across the world",
+      "meta": {
+        "founders": 200
+      },
+      "focus": null
+    },
+    {
+      "label": "The sparse sward that would NOT burn",
+      "files": [
+        "20260822T021948436Z-d5cb77/002-wpb3-grassfire-sheet.png"
+      ],
+      "caption": "64 founders, identical ignition -- the front cannot cross the gaps between tufts",
+      "meta": {
+        "cells lit by the ignition": 10,
+        "founders": 64,
+        "spread": "none"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
