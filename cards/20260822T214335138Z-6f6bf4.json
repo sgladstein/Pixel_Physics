@@ -1,0 +1,53 @@
+{
+  "id": "20260822T214335138Z-6f6bf4",
+  "created": "2026-08-22T21:43:35Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "7120741",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The waterfall, actually animated this time",
+  "question": "Does this read as a waterfall now — a pool that spills over an edge, falls, and lands in another pool? And is the fall itself still too thin?",
+  "context_md": "**Please ignore the previous card (`290b82`) — I built it wrong.** Putting two files in one item makes the page treat them as a two-frame sequence, which is exactly what you saw. A GIF has to be its own item. The animation was fine all along (24 frames, looping); my card flattened it. Same content here, correctly attached.\n\nYou said it looked like it came from nowhere and went nowhere. Both halves are now built.\n\n**Finding a source pool was impossible, so the pass cuts one** — and the measurement that killed the search is what made cutting work. Requiring the ground to *drop* behind a cliff lip matched nothing in 24 worlds, which means the opposite holds: the shelf behind a rim stands at or above the lip for a median 107–120 columns. That is exactly the back wall a pool needs. So `springs` walks that shelf, cuts a tapered bowl into it, and fills it to the brim. The pool has two ways out — the cliff right there, and the far end of the shelf a hundred columns away — and it reaches the cliff first.\n\nStill unfinished, and I have not touched it: the fall is narrow. `render.rs` dims a liquid toward black by fill, so a thin sheet reads darker than it should. Tell me if it bothers you and I will go at it directly rather than guessing.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "running — one screen of play, 1:1",
+      "files": [
+        "20260822T214335138Z-6f6bf4/000-spill.gif"
+      ],
+      "caption": "canyon seed 11, 24 frames looping. Tarn on the shelf, spill over the lip, water landing below.",
+      "meta": {
+        "springs per world (canyon)": 1.0,
+        "emitted / drained (fill units, 900 frames)": "4500000 / 4044780",
+        "throttled": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "the same feature at the shipped size, 6x",
+      "files": [
+        "20260822T214335138Z-6f6bf4/001-carved.png"
+      ],
+      "caption": "canyon seed 7. Carved tarn right, spray going over the lip centre, plunge pool left. Gnome for scale.",
+      "meta": {
+        "source pool width (columns of standing water)": 38,
+        "same, on the version you rejected": 8,
+        "standing cost": "+2.645 ms/frame at 8192x2560"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
