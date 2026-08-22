@@ -841,6 +841,42 @@ spanning dozens of cells, a chunk touched only via a neighbour's dirty mark)
 plus an independent review pass focused specifically on concurrency
 correctness before this was committed.
 
+## Plant lines merged: the genome, and the ecology
+
+**Two long-running plant branches landed together** — `plant-substrate-v2`
+/ `plant-genome` (the genome and root work) and `plant-ecology-design`
+(litter, decay and herbaceous species). Both had been developing against a
+trunk that moved 111 commits underneath them, so read this section's last
+paragraph before trusting any plant number.
+
+Built, on the genome side: a positional genotype slot map, so an individual
+plant differs from its species mean in traits that are drawn once and
+inherited; **root branching by primed sites** rather than an in-tick roll
+(the old form demanded two steps' carbon in one tick and measurably never
+fired); root laterals that carry an order; a stomatal reserve as a standing
+throttle; and organism slot reclamation, so a plant that dies gives its
+`organism_id` back instead of consuming one of 4,095 forever.
+
+Built, on the ecology side: **shed foliage becomes `litter`** — a falling,
+piling, burnable powder that weathers back into soil — rather than being
+deleted, which is what makes a forest floor a cycle instead of an
+accumulator. Decay became data (`Material::decays_into`) rather than an
+ash-only special case, and decay sites are now scheduled when a chunk
+*settles*, since a shed leaf falls and a bare coordinate does not follow
+it. Two new species: **grass**, whose roots reinforce the soil they thread
+so a rooted bank holds where a bare one spills, and **creeper**, a form
+probe.
+
+Three materials arrive with them: `litter`, `grassblade`, `grassroot`.
+
+**What is not settled.** The plant economy was calibrated on branches that
+had no weather, and the trunk has weather now — it rains into scenes whose
+constants were measured dry. One test is red because of it, and two further
+cross-line inconsistencies are recorded but not measured. All of it is in
+`Reports/open-bugs-handoff.md` §A–§D, with the controls that produced each
+number. Do not re-derive those diagnoses; do not trust a plant constant
+without re-measuring it first.
+
 ## M16 status
 
 Built: the active-site scheduler (`scheduler.rs`) and plant growth
@@ -1688,7 +1724,7 @@ compiling — concurrent cargo processes skew the figure badly.
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle
-sleeping, twenty-one materials loaded from data with hot reload, angle of repose
+sleeping, twenty-four materials loaded from data with hot reload, angle of repose
 from a friction angle, density-driven displacement and layering, a
 capsule-swept brush that emits loose material as a stream, the coarse
 pressure/velocity/temperature/light field grid, heat diffusion,

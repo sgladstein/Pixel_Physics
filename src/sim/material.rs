@@ -1085,8 +1085,17 @@ const EMBEDDED: &[&str] = &[
     // **The plant-ecology set, appended after the creature set** for the
     // reason the note above already settles: the tiebreak is which side was
     // already trunk, and the creature ids were on main while these were on
-    // a branch. So `snow`/`ant`/`nest`/`beetle` keep 18-21 and these take
-    // 22-24. Nothing here has a pinned convenience constant either.
+    // a branch. So `snow`/`ant`/`nest`/`beetle` keep **19-22** and these
+    // take **23-25**. Nothing here has a pinned convenience constant
+    // either.
+    //
+    // **An entry's id is its position in this list plus two**, because
+    // `EMPTY` (0) and `BEDROCK` (1) are compiled in rather than parsed and
+    // so are not in it. Worth stating once: counting the `include_str!`
+    // lines and reading the count as an id is off by one in exactly the
+    // way a merge note here was, and the two pinned constants further up
+    // are the check that catches it -- `STONE` is the first entry and is
+    // 2, `RUBBLE` is the fourteenth and is 15.
     // Embedded although **nothing writes it yet** -- the three abscission
     // sites that should are blocked on the decay strand (`litter.ron`'s own
     // closing note, and `decay::tests::

@@ -30,7 +30,10 @@ as wrong, the game has moved past this page, not the other way round.
   jumping, what holds him up, and what happens when the world falls on him.
 - [**Ants**](ants.md) — the colony: what they walk on, the two smells they
   leave behind, and why they dig and build without ever being told to.
+- [**Plants**](plants.md) — how a plant grows rather than being placed:
+  what it pays for a cell, what roots are for, what makes a leaf fall, and
+  what grass does to a bank.
 
-Not covered yet: plants (trees, moss) and the worm — both are
-still being actively redesigned, so a page here would go stale within a
-milestone. Once that work settles, they'll get pages too.
+Not covered yet: the worm — still being actively redesigned, so a page
+here would go stale within a milestone. Once that work settles, it will get
+a page too.

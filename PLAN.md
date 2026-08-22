@@ -1470,7 +1470,7 @@ default branch (or merge into `main`) and close out the
 ---
 
 ## `Reports/plant-substrate-v2-design.md` — done, not started (session handoff)
-*(State 2026-08-21: overtaken — the `plant-substrate-v2` branch built it; unmerged. See the in-flight section of `Reports/README.md`.)*
+*(State 2026-08-22: overtaken — the `plant-substrate-v2` branch built it, and it is **merged** now. See `Reports/README.md`'s Plants section, and `Reports/open-bugs-handoff.md` §A for what the merge left unsettled.)*
 
 Written by a dedicated research agent, per the owner's explicit "plan all
 of this before implementing, especially since a diffusion-mechanism change
@@ -1612,7 +1612,7 @@ this phase either way (§8b).
 ---
 
 ## Plant substrate v2 — started, on branch `plant-substrate-v2` (session handoff)
-*(State 2026-08-21: the branch lives on unmerged, now spread across `plant-substrate-v2` / `plant-genome` / `plant-branch-angle` / `plant-ecology-design`; the plans of record are `Reports/tree-architecture-implementation-plan.md` and, in flight, `Reports/plant-implementation-plan.md`.)*
+*(State 2026-08-22: **merged.** `plant-substrate-v2` / `plant-genome` and `plant-ecology-design` both landed on an integration branch off `origin/main`; `plant-branch-angle` has not. The plans of record are `Reports/tree-architecture-implementation-plan.md` and `Reports/plant-implementation-plan.md`, both merged and indexed. The merge left one test red and three unmeasured cross-line inconsistencies — `Reports/open-bugs-handoff.md` §A–§D, which should be read before touching any plant constant.)*
 
 The design above was "fully planned, zero code written" for several sessions.
 Implementation started on a worktree branch off `master` at `a39da4e`, isolated

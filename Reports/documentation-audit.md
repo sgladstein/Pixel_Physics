@@ -595,11 +595,13 @@ the drift protocol.
   and -reply.md; CLAUDE.md census-timing sections; structural-collapse wiki
   edit), `plant-branch-angle` (branch-angle-and-the-width-bound.md,
   genetic-variability-study.md, plant-appearance-design.md,
-  plant-night-session-handoff.md; CLAUDE.md edit), `plant-ecology-design`
-  (plant-evolution-design.md, plant-implementation-plan.md,
-  plant-work-split.md, a new wiki/plants.md), `plant-genome` /
-  `plant-substrate-v2` (plant-genome-design.md and three companions),
-  `perf-audit` (performance-audit.md, untracked), `perf-lock`
+  plant-night-session-handoff.md; CLAUDE.md edit — **the four documents
+  merged 2026-08-22 with the plant lines, which carried them; the branch
+  itself has not**), `plant-ecology-design` (plant-evolution-design.md,
+  plant-implementation-plan.md, plant-work-split.md, a new wiki/plants.md
+  — **all merged 2026-08-22**), `plant-genome` / `plant-substrate-v2`
+  (plant-genome-design.md and three companions — **all merged
+  2026-08-22**), `perf-audit` (performance-audit.md, untracked), `perf-lock`
   (measurement-under-contention.md untracked, plus an uncommitted CLAUDE.md
   edit adding scripts/perf.sh). Twenty-plus `origin/claude/*` cloud branches
   also exist; the index's in-flight section and docscheck's

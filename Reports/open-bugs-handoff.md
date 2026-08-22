@@ -92,7 +92,7 @@ allocator, the species registries and the scheduler dedup sets were each
 audited against both parents; the only real defect found was a scene error,
 below.
 
-### B. `anchor_support` runs over creature organisms, unguarded — **OPEN, 2026-08-21, read from the code and NOT yet measured**
+### B. `anchor_support` runs over creature organisms, unguarded — **OPEN, 2026-08-22. Churn, not damage — see the correction below.**
 
 **A collision only the merge could produce.** `plant::anchor_support`
 arrived on `plant-substrate-v2`; ants, beetles and worms arrived on `main`;
@@ -118,25 +118,39 @@ decision: the sibling pass `accumulate_support` returns early on
 `state.collar_y == None`, which a creature never has. `anchor_support` has
 no equivalent.
 
-**Why this is worth a real look and not a shrug.** `CLAUDE.md` records that
-a structural check scheduled mid-organism amputates it, that the cost of
-one masqueraded as "the mechanism is wrong" through eight settings, and
-that no new organism path should schedule structural checks without
-measuring what it destroys. This is a new organism path scheduling
-structural checks.
+**It is wasted work, not damage — and that correction matters.** The
+first reading of this was that it risked the amputation `CLAUDE.md` warns
+about, where a structural check fired mid-organism converts everything past
+the span limit to deadwood. **It does not**, and the reason is one line:
+`structural::tick` bails at `is_body_material`, which is
+`Solid | Plant` only, and creature materials are `kind: Creature`. Every
+site scheduled this way is discarded on arrival. Nothing is converted,
+nothing is broken free, no creature is taken apart.
 
-**Evidence level, stated plainly: none of the above is measured.** It is
-read off the merged source. The full suite is green on the creature side,
-so either the checks are harmless on creature materials (there is an
-incidental material-kind guard further down `organism_structural_tick`),
-or nothing exercises an airborne creature long enough to show it. **The
-missing number is simply how many structural checks a live colony
-schedules per tick** — `World::live_organism_count` and the failure
-counters are already there to say so, and nothing has asked them.
+Two further limits, both checked: `nest.ron` is `kind: Solid`, so ants
+standing on the nest patch *are* anchored and never schedule at all; and
+`schedule_active_site` dedups against `pending_decay_sites`' sibling index
+for structural checks, so a cell cannot stack duplicates. The cost is
+bounded, not unbounded.
 
-Deliberately not fixed by the merge session: adding a creature guard is a
-behaviour change to a path `CLAUDE.md` says must be measured before it is
-touched.
+So what is left is **scheduler churn on exactly the colony scenes the
+creature line added its cost instrumentation for** — a structural check
+enqueued, popped and thrown away, per creature cell, per organism tick.
+That is worth a guard, and it is worth *not* being alarmed about.
+
+**Evidence level: the mechanism is read and verified** — the iteration is
+unguarded, `reindex_organism_cell` really does put creature cells in
+`OrganismState::cells`, `OrganismCell::default()` really does reset
+`support` to 0 on every move, and the discard really is unconditional.
+**Not measured:** how many sites this actually costs per frame in a live
+colony. `World::live_organism_count` and the existing creature counters
+would say in one run, and nothing has asked them.
+
+Deliberately not fixed by the merge session: a creature guard on
+`anchor_support` is a behaviour change, and the cheap correct version
+(mirror `accumulate_support`'s early return) is a one-line judgement the
+owner may want to make differently — e.g. by species kind rather than by
+`collar_y`.
 
 ### C. `grass` and `creeper` root branching was authored against a model the other line retired — **OPEN, 2026-08-22, read from the assets and NOT yet measured**
 

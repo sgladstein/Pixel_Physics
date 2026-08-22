@@ -4,14 +4,26 @@
 //! regrows" verify criterion (only the burning half existed before this).
 //!
 //! Dispatched from `scheduler::step` the same way M17's structural checks
-//! and M18's creatures are, via `ActiveKind::Decay`. Deliberately scheduled
-//! *reactively*, not for every ash cell that could ever exist: only
-//! `fire::tick_burn`'s own burnout path — the moment a burning cell
-//! actually turns to ash — schedules a decay site for it, matching the
-//! architecture report's own "cheap: one material, one slow transformation"
-//! framing rather than a fully general decay system. Ash painted directly
-//! by the brush, or loaded from a save that predates this mechanic, simply
-//! never decays — a documented simplification, not an oversight.
+//! and M18's creatures are, via `ActiveKind::Decay`.
+//!
+//! **It is no longer ash-only, and no longer reactive-only.** Both of those
+//! were true and are worth recording, because the reasons they changed are
+//! not the reasons anyone would guess. What decays is now data —
+//! `Material::decays_into`, so `litter` weathers into `soil` on the same
+//! schedule ash does — and sites are scheduled by `World::end_step`'s scan
+//! of a chunk on its **awake -> settled** transition, not by
+//! `fire::tick_burn`'s burnout path alone.
+//!
+//! The trigger moved because a decay site is a bare coordinate and nothing
+//! makes it follow its cell: shed litter is created in a canopy and falls
+//! every time, so scheduling at creation stranded the site
+//! (`Reports/open-bugs-handoff.md` §0). Settling is not a workaround for
+//! that — it is what the rule means. Weathering happens to matter that has
+//! come to rest.
+//!
+//! One consequence worth stating because the old text promised the
+//! opposite: **ash painted directly by the brush does decay now**, once its
+//! chunk settles. It used to be documented as simply never decaying.
 
 use super::cell::Cell;
 use super::scheduler::{ActiveKind, ActiveSite};

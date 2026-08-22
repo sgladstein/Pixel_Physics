@@ -3929,32 +3929,6 @@ fn is_frontier(cell_type: CellType) -> bool {
     matches!(cell_type, CellType::Seed | CellType::GrowingTip | CellType::RootTip)
 }
 
-/// After a leaf is shed, drop any of its neighbouring leaves that no
-/// longer connect to the plant.
-///
-/// A cluster is several cells and only the first touches the stem
-/// (deliberately — `Grow`'s cluster placement keeps foliage off the
-/// apex), so shedding a stem-adjacent leaf can strand the rest of its
-/// spray in the air. Structural checks are reactive and will never look
-/// at them, so without this they float forever.
-///
-/// **Not `schedule_structural_check_around`, and the difference was
-/// measured at 26x.** The organism support search is hop-bounded, so a
-/// structural check fired mid-crown reads any branch further than the
-/// span limit from the roots as unsupported and converts it to deadwood —
-/// scheduling checks from abscission amputated every tree's upper crown,
-/// and the whole shedding mechanism measured as "collapses the stand at
-/// any setting" (772 cells against 20,213 at the same rate, the only
-/// difference being the check). Recorded here because Phase 3's damage
-/// work will meet the same landmine: any mid-crown disturbance today
-/// over-amputates, and that is the support model's bound, not the
-/// disturbance's size.
-///
-/// A bounded component walk over *leaves only* asks exactly the question
-/// shedding raises — "does this spray still hang from anything" — and
-/// cannot touch wood. The cap is generous against the cluster size and
-/// conservative on overflow: a component too big to survey completely is
-/// left standing, not deleted.
 /// What a shed leaf leaves behind: a `litter` cell, not a hole.
 ///
 /// **The shed cell stops being the plant's** -- `Cell::new` carries no
@@ -3982,6 +3956,32 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     world.set(x, y, Cell::new(litter, shade));
 }
 
+/// After a leaf is shed, drop any of its neighbouring leaves that no
+/// longer connect to the plant.
+///
+/// A cluster is several cells and only the first touches the stem
+/// (deliberately — `Grow`'s cluster placement keeps foliage off the
+/// apex), so shedding a stem-adjacent leaf can strand the rest of its
+/// spray in the air. Structural checks are reactive and will never look
+/// at them, so without this they float forever.
+///
+/// **Not `schedule_structural_check_around`, and the difference was
+/// measured at 26x.** The organism support search is hop-bounded, so a
+/// structural check fired mid-crown reads any branch further than the
+/// span limit from the roots as unsupported and converts it to deadwood —
+/// scheduling checks from abscission amputated every tree's upper crown,
+/// and the whole shedding mechanism measured as "collapses the stand at
+/// any setting" (772 cells against 20,213 at the same rate, the only
+/// difference being the check). Recorded here because Phase 3's damage
+/// work will meet the same landmine: any mid-crown disturbance today
+/// over-amputates, and that is the support model's bound, not the
+/// disturbance's size.
+///
+/// A bounded component walk over *leaves only* asks exactly the question
+/// shedding raises — "does this spray still hang from anything" — and
+/// cannot touch wood. The cap is generous against the cluster size and
+/// conservative on overflow: a component too big to survey completely is
+/// left standing, not deleted.
 fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
     const COMPONENT_CAP: usize = 32;
     let mut visited: Vec<(i32, i32)> = Vec::new();
@@ -5143,20 +5143,6 @@ mod tests {
         assert!(lean.0 > 0.0, "a rightward breeze should lean downwind (positive x), got {lean:?}");
     }
 
-    /// Every foliage cell a species grows must land inside the palette band
-    /// range that species declared, and two species with disjoint ranges
-    /// must never share a colour.
-    ///
-    /// **Written to fail for the replacement artifact, not the original
-    /// one.** The failure this guards against is not "bands do nothing" —
-    /// the `plant_probe` counter catches that, and a picture cannot. It is
-    /// the subtler one: a *new cell-creation site* added later that draws
-    /// its shade the old way, `rng.below(palette.len())`, and so paints
-    /// some fraction of a plant in another species' colours. That is
-    /// invisible on a sheet (a few cells of the wrong green) and it is
-    /// exactly what happened to `thicken()` in the first draft of this
-    /// change, where secondary growth — the majority of all wood — kept
-    /// the uniform draw while the shoot was banded.
     /// **Does a sod mat actually hold a bank?** WP-B3's acceptance item 3,
     /// and the only one of grass's four axes (`plant-evolution-design.md`
     /// §4a) that is a *consequence* rather than a look.
@@ -5316,6 +5302,20 @@ mod tests {
         );
     }
 
+    /// Every foliage cell a species grows must land inside the palette band
+    /// range that species declared, and two species with disjoint ranges
+    /// must never share a colour.
+    ///
+    /// **Written to fail for the replacement artifact, not the original
+    /// one.** The failure this guards against is not "bands do nothing" —
+    /// the `plant_probe` counter catches that, and a picture cannot. It is
+    /// the subtler one: a *new cell-creation site* added later that draws
+    /// its shade the old way, `rng.below(palette.len())`, and so paints
+    /// some fraction of a plant in another species' colours. That is
+    /// invisible on a sheet (a few cells of the wrong green) and it is
+    /// exactly what happened to `thicken()` in the first draft of this
+    /// change, where secondary growth — the majority of all wood — kept
+    /// the uniform draw while the shoot was banded.
     #[test]
     fn every_cell_a_species_grows_lands_in_the_band_range_it_declared() {
         for (species, cell_type) in [("tree", CellType::Leaf), ("conifer", CellType::Leaf)] {
