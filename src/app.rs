@@ -1807,7 +1807,7 @@ impl App {
             // Same rule again: silent at the default, named the moment it
             // is not, because the value of a look selector is being able to
             // say afterwards which one you liked.
-            if self.renderer.bubbles == render::BubbleMode::Off {
+            if self.renderer.bubbles == render::BubbleMode::default() {
                 String::new()
             } else {
                 format!(" — bubbles {}", self.renderer.bubbles.label())

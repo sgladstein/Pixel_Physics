@@ -232,6 +232,11 @@ const BUBBLE_DENSITY: f32 = 0.16;
 /// read as *domed* rather than as a square — a bright top over a dimmer
 /// bottom is the cheapest possible specular highlight.
 const BUBBLE_LIFT: f32 = 0.72;
+
+/// The side of a bubble's site, in cells. Three, so the four corners can be
+/// left dark and the mark reads as a disc — see the corner test in
+/// `apply_bubbles`, and the report that asked for it.
+const BUBBLE_SITE: i32 = 3;
 const BUBBLE_UNDERSIDE: f32 = 0.30;
 
 /// The share of a bubble's brightness that does *not* scale with how hot
@@ -295,7 +300,10 @@ const BUBBLE_TINT: [f32; 3] = [225.0, 238.0, 248.0];
 /// is a "does it look right" question, five grain modes behind one key
 /// settled the last one of those in minutes, and no amount of argument or
 /// still images had. `Off` is the default so nothing changes for anyone who
-/// does not press the key, and the active mode is named on screen.
+/// does not press the key, and the active mode is named on screen. **The
+/// selector has since been run**: `Rising` won and is the default; `Off`
+/// stays on the cycle, because a look decision with no way back to the
+/// thing it replaced cannot be re-argued.
 ///
 /// **None of these costs the dirty-rect render skip**, which is the usual
 /// price of an animated effect (`GrainMode::Animated` pays ~10 ms/frame on
@@ -306,14 +314,19 @@ const BUBBLE_TINT: [f32; 3] = [225.0, 238.0, 248.0];
 /// already. A settled world has no such cells and pays nothing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum BubbleMode {
-    /// Today's behaviour: hot water is tinted by the heat glow and nothing
-    /// else. Boiling reads as the steam above the surface.
-    #[default]
+    /// The behaviour up to this build: hot water is tinted by the heat glow
+    /// and nothing else, and boiling reads as the steam above the surface.
     Off,
-    /// Sparse domed highlights on a two-cell grid, scrolling upward. The
-    /// bubble is the unit, not the pixel — a one-pixel speckle at this
-    /// density reads as grain, which is the failure mode this variant is
-    /// shaped against.
+    /// Sparse domed highlights scrolling upward, on a `BUBBLE_SITE` grid
+    /// with the corners left dark. The bubble is the unit, not the pixel —
+    /// a one-pixel speckle at this density reads as grain, which is the
+    /// failure mode this variant is shaped against.
+    ///
+    /// **The default**, chosen from a card: *"Off (current) and rising look
+    /// best. I wish the bigger bubbles weren't so blocky."* Both halves are
+    /// acted on — this is the one that draws something, and it no longer
+    /// draws squares.
+    #[default]
     Rising,
     /// `Rising`, but the pattern is stretched vertically so a bubble is a
     /// short column rather than a blob, and it climbs faster. The other
@@ -344,8 +357,8 @@ impl BubbleMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            BubbleMode::Off => "OFF (current)",
-            BubbleMode::Rising => "RISING",
+            BubbleMode::Off => "OFF (the old look)",
+            BubbleMode::Rising => "RISING (current)",
             BubbleMode::Columns => "COLUMNS",
             BubbleMode::Surface => "SURFACE",
         }
@@ -2189,14 +2202,41 @@ impl Renderer {
         // rather than as a free-floating pocket.
         let (block_w, block_h, scroll) = match self.bubbles {
             BubbleMode::Columns => (2, 4, rise * 2),
-            _ => (2, 2, rise),
+            _ => (BUBBLE_SITE, BUBBLE_SITE, rise),
         };
         let sy = y + scroll;
+        // **Density is per *pixel*, not per site**, so rounding a bubble
+        // does not quietly thin the effect. `BUBBLE_DENSITY` is the share of
+        // the pool that should light up; a site lights with that share
+        // scaled by how much of its own area it actually covers. Without
+        // this, moving `Rising` from a 4-of-4 square to a 5-of-9 disc took
+        // it from 3,250 changed pixels on `scene=simmer` to 1,125 -- a
+        // third of the boil, from a change that was only supposed to be
+        // about shape.
+        let lit = match self.bubbles {
+            BubbleMode::Columns => block_w * block_h,
+            _ => BUBBLE_SITE * BUBBLE_SITE - 4,
+        };
+        let density = BUBBLE_DENSITY * (block_w * block_h) as f32 / lit as f32;
         let site = rng::jitter(x.div_euclid(block_w), sy.div_euclid(block_h));
-        if site >= BUBBLE_DENSITY * boil {
+        if site >= density * boil {
             return;
         }
-        let crown = sy.rem_euclid(block_h) < block_h / 2;
+        let (ix, iy) = (x.rem_euclid(block_w), sy.rem_euclid(block_h));
+        // **Corners off, so a bubble is round rather than square.** Asked
+        // for from play: *"I wish the bigger bubbles weren't so blocky."* A
+        // 2x2 site cannot be anything but a square -- every pixel of it is
+        // a corner -- so the site is 3x3 and its four corners stay unlit,
+        // leaving a five-pixel plus. That is the smallest mark on a square
+        // grid that reads as a disc, and it costs one comparison.
+        //
+        // `Columns` keeps its 2x4 stretch: it is deliberately *not* a
+        // bubble but a stream leaving a nucleation site, and rounding it
+        // would collapse the difference between the two modes.
+        if block_w == BUBBLE_SITE && block_h == BUBBLE_SITE && (ix == 0 || ix == BUBBLE_SITE - 1) && (iy == 0 || iy == BUBBLE_SITE - 1) {
+            return;
+        }
+        let crown = iy < block_h / 2;
         let lift = if crown { BUBBLE_LIFT } else { BUBBLE_UNDERSIDE } * (BUBBLE_FLOOR + (1.0 - BUBBLE_FLOOR) * boil);
         for (c, tint) in rgb.iter_mut().zip(BUBBLE_TINT) {
             *c = (*c as f32 + (tint - *c as f32) * lift).round().clamp(0.0, 255.0) as u8;
@@ -3022,6 +3062,70 @@ mod tests {
         }
     }
 
+    /// **A bubble is a disc, not a square.**
+    ///
+    /// Asked for from play: *"I wish the bigger bubbles weren't so
+    /// blocky."* A 2x2 site cannot be anything but a square — every pixel
+    /// of it is a corner — so the site is `BUBBLE_SITE` and its four
+    /// corners stay dark, leaving a five-pixel plus.
+    ///
+    /// Asserted as **no lit site has a lit corner**, over whichever of the
+    /// three row alignments the scroll happens to be at, rather than by
+    /// eye: a rounded bubble and a square one are four pixels apart at a
+    /// zoom no contact sheet is read at.
+    ///
+    /// The paired claim is that it did not get thinner on the way: see
+    /// `rounding_a_bubble_does_not_thin_the_boil`.
+    #[test]
+    fn a_bubble_is_a_disc_rather_than_a_square() {
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        let on = boiling_pool_frame(BubbleMode::Rising, 95);
+        let lit = |x: usize, y: usize| {
+            let i = (y * 64 + x) * 4;
+            off[i..i + 4] != on[i..i + 4]
+        };
+        assert!((0..64).any(|x| (0..64).any(|y| lit(x, y))), "nothing was drawn, so this asserts nothing");
+
+        let site = BUBBLE_SITE as usize;
+        let square_free = (0..site).any(|offset| {
+            (0..64 / site).all(|sx| {
+                (0..(64 - offset) / site).all(|sy| {
+                    let (x0, y0) = (sx * site, offset + sy * site);
+                    let any = (0..site).any(|dx| (0..site).any(|dy| lit(x0 + dx, y0 + dy)));
+                    !any || ![(0, 0), (site - 1, 0), (0, site - 1), (site - 1, site - 1)]
+                        .iter()
+                        .any(|&(dx, dy)| lit(x0 + dx, y0 + dy))
+                })
+            })
+        });
+        assert!(
+            square_free,
+            "every row alignment has a lit site with a lit corner, so the bubbles are still squares"
+        );
+    }
+
+    /// **Rounding the bubble must not thin the boil**, which it did.
+    ///
+    /// `BUBBLE_DENSITY` is the share of the *pool* that should light up, and
+    /// it was being applied per *site* — so moving from a 4-of-4 square to a
+    /// 5-of-9 disc quietly cut the effect to a third: 3,250 changed pixels
+    /// on `scene=simmer` became 1,125, from a change that was only supposed
+    /// to be about shape. The density is normalised by how much of its own
+    /// area a site covers, and the same sheet reads 3,200.
+    #[test]
+    fn rounding_a_bubble_does_not_thin_the_boil() {
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        let drawn = pixels_differing(&off, &boiling_pool_frame(BubbleMode::Rising, 95));
+        // A 64x64 pool at `BUBBLE_DENSITY`, measured 655 of 4,096 -- the
+        // bars are half and double that, which is wide enough to survive a
+        // reshuffle of the pattern and narrow enough to catch a mode that
+        // has lost or gained a third of itself.
+        assert!(
+            (300..1300).contains(&drawn),
+            "a uniformly boiling pool lit {drawn} of 4096 pixels; the effect has changed strength, not just shape"
+        );
+    }
+
     /// A pan whose floor is boiling and whose surface is merely warm —
     /// which is what a heated pool actually looks like, and what
     /// `boiling_pool_frame`'s uniform 95C world is not.
@@ -3074,11 +3178,14 @@ mod tests {
         let off = simmering_pan_frame(BubbleMode::Off);
         let on = simmering_pan_frame(BubbleMode::Surface);
         let drawn = pixels_differing(&off, &on);
-        // Two rows of a 64-wide pan qualify as "near the surface", so 128
-        // candidate cells at `BUBBLE_DENSITY`: measured 16, against 0 with
-        // the downward read removed.
+        // Two rows of a 64-wide pan qualify as "near the surface", so the
+        // ceiling here is 128 cells' worth of `BUBBLE_DENSITY` — and it
+        // fell from 16 to 7 when the bubble became a 3x3 disc, because a
+        // taller site puts less of itself inside a two-row band. The
+        // control is **exactly 0** either way, which is what makes a small
+        // absolute number a clean separation rather than a marginal one.
         assert!(
-            drawn >= 8,
+            drawn >= 4,
             "Surface drew {drawn} pixels over a boiling floor -- a bubble is made below where it pops, \
              and this mode has to ask about the water underneath or it is dead on every real pool"
         );

@@ -2006,7 +2006,7 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
-        bubbles: BubbleMode::Off,
+        bubbles: BubbleMode::default(),
         gas: GasMode::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,

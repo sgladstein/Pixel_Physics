@@ -1,7 +1,7 @@
 # Fire & Heat
 
 *Current as of: this build (boiling costs the heat it takes; a quench
-crust breaks up into slabs rather than grit).*
+crust breaks up into slabs rather than grit; warm water shows bubbles).*
 
 Fire spreads by contact: a material touching something already burning has
 a chance, each moment it stays in contact, to catch as well. That chance
@@ -30,6 +30,14 @@ and gives off steam, cell by cell rather than all at once, so a boil
 builds into a rolling plume instead of flashing over. The steam is the
 same water in another shape — see [Liquids & Gases](liquids-and-gases.md)
 for where it goes and how it comes back.
+
+**Warm water shows it, too.** Vapour rises through a heated pool as sparse
+pale bubbles that climb and thin out with the heat, so a pan over a fire
+reads as coming to the boil rather than as water that happens to be
+glowing. They start well below boiling — a rising bubble is not *in* boiling
+water, it is in warm water above a boiling floor — so a puddle beside a
+campfire fizzes gently and a pot on a hearth roils. `H` cycles the looks,
+including off.
 
 **Boiling costs heat, and that is what limits it.** Turning a cell of water
 to steam draws a large amount of warmth out of whatever is heating it, so a
