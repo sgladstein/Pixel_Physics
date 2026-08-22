@@ -434,6 +434,27 @@ pub struct MaterialDef {
     /// about why the transformation happened.
     #[serde(default)]
     pub burns_into: String,
+    /// **What this material slowly weathers into where it lies**, on
+    /// `decay.rs`'s moisture-gated schedule. Ash -> soil is the original and
+    /// was hardcoded; litter -> soil is why it became data.
+    ///
+    /// Distinct from all three transformations above, and the difference is
+    /// the *trigger*: `melts_into` is ambient temperature, `boils_into` is
+    /// ambient temperature, `burns_into` is a combustion timer completing.
+    /// This one is **time plus damp, on matter that has come to rest** --
+    /// weathering, not an event. Unset means it does not happen.
+    #[serde(default)]
+    pub decays_into: String,
+    /// Whether a cell formed by *this* material's decay gets one roll at
+    /// reseeding plant growth in the empty cell above it.
+    ///
+    /// Ash sets it: "a forest burns and regrows" is M16's own verify
+    /// criterion and the reseed is half of it. Litter deliberately does not
+    /// -- leaf fall under a standing canopy is not a succession event, and
+    /// having every shed leaf roll for a new tree would carpet the world.
+    /// Default `false`, so a new decaying material has to ask.
+    #[serde(default)]
+    pub decay_reseeds: bool,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -725,6 +746,7 @@ pub struct Material {
     boils_into_name: String,
     burns_into_name: String,
     breaks_into_name: String,
+    decays_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -736,6 +758,13 @@ pub struct Material {
     pub boils_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
     pub breaks_into: Option<MaterialId>,
+    /// See `MaterialDef::decays_into`. `Some` is also the **gate `decay.rs`
+    /// tests to decide whether a cell is worth scheduling at all**, so it is
+    /// what keeps the settle scan proportional to decayable matter rather
+    /// than to world size.
+    pub decays_into: Option<MaterialId>,
+    /// See `MaterialDef::decay_reseeds`.
+    pub decay_reseeds: bool,
     pub reactions: Vec<Reaction>,
 }
 
@@ -977,12 +1006,15 @@ impl From<MaterialDef> for Material {
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
             burns_into_name: def.burns_into,
+            decays_into_name: def.decays_into,
+            decay_reseeds: def.decay_reseeds,
             breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
             burns_into: None,
+            decays_into: None,
             breaks_into: None,
             reactions: Vec::new(),
         }
@@ -1050,6 +1082,25 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
+    // **The plant-ecology set, appended after the creature set** for the
+    // reason the note above already settles: the tiebreak is which side was
+    // already trunk, and the creature ids were on main while these were on
+    // a branch. So `snow`/`ant`/`nest`/`beetle` keep 18-21 and these take
+    // 22-24. Nothing here has a pinned convenience constant either.
+    // Embedded although **nothing writes it yet** -- the three abscission
+    // sites that should are blocked on the decay strand (`litter.ron`'s own
+    // closing note, and `decay::tests::
+    // ash_that_falls_before_its_first_check_still_decays`). Listed here
+    // rather than left out because a material that is not in this list does
+    // not exist to any headless harness (the P-7 lesson: only the app's F5
+    // reload reads the directory), so leaving it out would mean the switch-
+    // over lands *and* silently does nothing.
+    include_str!("../../assets/materials/litter.ron"),
+    // Herbaceous tissue, above and below ground -- WP-B3. `grassroot`
+    // carries `reinforces_powder`, which is the one consequence grass
+    // brings that no other plant here does.
+    include_str!("../../assets/materials/grassblade.ron"),
+    include_str!("../../assets/materials/grassroot.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1113,6 +1164,8 @@ impl MaterialRegistry {
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             max_cantilever_reach: u16::MAX,
@@ -1149,6 +1202,8 @@ impl MaterialRegistry {
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
@@ -1254,6 +1309,7 @@ impl MaterialRegistry {
             material.boils_into = resolve_if_set(&material.boils_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
+            material.decays_into = resolve_if_set(&material.decays_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()

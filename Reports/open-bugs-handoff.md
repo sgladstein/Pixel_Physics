@@ -11,6 +11,289 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### A. The plant economy has not met main's weather — **OPEN, 2026-08-21**
+
+**Found by the merge that brought the plant lines onto `main`, not by a
+playtest.** Two of the plant line's own tests fail after the merge and pass
+on `plant-substrate-v2` alone. Both were controlled, so this is measured
+rather than suspected.
+
+| test | `plant-substrate-v2` alone | + main (step 2) | + ecology (step 3) |
+|---|---|---|---|
+| `a_tree_eventually_stops_growing` | plateaus at 565 cells (~frame 50,000) | **1,929 and still climbing at 120,000** | **passes again** |
+| `root_and_shoot_branching_read_different_slots` | 336 vs 448 root cells, a 33% slot-1 spread | 411 vs 437, a 6% spread | **440 vs 448, a 1.8% spread** (bar is 10%) |
+
+Controls: both pass on `plant-substrate-v2` alone in 35 s; every figure
+above reproduced bit-identically across runs, so this is deterministic and
+not load or seed noise.
+
+**The termination failure fixed itself when the ecology line landed on
+top**, which is worth more than the fix: it says the missing quantity was a
+*sink*. `plant-ecology-design` sends abscised foliage to `litter` instead
+of deleting it, and with that the tree plateaus again. So growth was not
+running away because income rose without bound — it was running away
+because nothing was taking mass back out. Whatever is done about the row
+below should be judged against that, not against a carbon number in
+isolation.
+
+**What is left is the slot-1 spread, and it is getting narrower, not
+wider** — 33% → 6% → 1.8%. The trait still orders root mass in the right
+direction at every step; what has collapsed is the *size* of the effect,
+which is what the bar was set to detect. That is the shape of a signal
+being swamped rather than a mechanism being broken.
+
+**The mechanism, and it is more specific than "the field changed".**
+`main` added weather over the 111 commits the plant lines were behind; the
+plant lines touched `field.rs` **not at all**. Both drivers call
+`weather::step` (`update.rs:76`, `parallel.rs:104`), and the plant tests'
+own `run` helper drives `update::step` — **so it rains into these scenes
+now, and it never did on the branch the numbers were measured on.**
+
+That matters because of what termination actually is here: growth stops by
+**carbon starvation**, a tip that cannot afford `cost` tick after tick
+ageing out and retiring. Carbon comes from `Photosynthesize` scaled by
+`water_status`. Rain recharges the soil the roots drink from, the water
+term stops binding, and the tree does not run the shortfall its own
+termination depends on. A tree that grows 3.4x bigger and never plateaus
+is exactly that shape.
+
+**Why the slot-1 spread narrows is a second, related thing.** Converting a
+primed site to a lateral passes three ceilings: at most **one conversion
+per organism per upkeep tick**, a standing-root-tip cap
+(`tree.ron` RootTip `max_active_tips: 10`), and the carbon gate. Only the
+carbon gate is genotype-sensitive. Take the carbon shortfall away and the
+binding constraint moves to the two ceilings that the genotype cannot
+move — so both draws converge on the same rate-limited outcome and the
+trait still orders them, but by less and less (33% → 6% → 1.8%).
+
+**Evidence level:** the code path above is read and verified — `weather::
+step` really is on both drivers, and the ceilings really are where they are
+said to be. **What is not measured:** how much water actually arrives per
+frame in these scenes, and whether removing rain alone restores the 33%
+spread. That control is one line in the test harness and nobody has run
+it.
+
+**Deliberately not fixed by the merge session.** The two available fixes
+are re-deriving `tree.ron`'s constants against main's field model — a
+retune over procedural content, which `CLAUDE.md` says wants a seed sweep
+first and is a design decision — or moving a bar that was set from
+measurement. Both are the owner's call. Recorded here so the next session
+does not re-derive the diagnosis.
+
+**The cheap next step, if someone wants one:** `branch_priming` was swept
+at landing over 1/2/3/6/12/24 and root mass fell monotonically as the
+interval widened (755 cells at 1, 336 at 6) — the sweep that chose 3. Re-running
+*that* sweep against main's field model would say in one command whether
+slot 1 has simply moved off the responsive part of the curve, which is the
+single most likely explanation and is not yet tested.
+
+**What is *not* wrong:** the merge resolutions themselves. The slot
+allocator, the species registries and the scheduler dedup sets were each
+audited against both parents; the only real defect found was a scene error,
+below.
+
+### B. `anchor_support` runs over creature organisms, unguarded — **OPEN, 2026-08-21, read from the code and NOT yet measured**
+
+**A collision only the merge could produce.** `plant::anchor_support`
+arrived on `plant-substrate-v2`; ants, beetles and worms arrived on `main`;
+neither line ever had both. `plant::step_organisms` iterates
+`world.live_organism_ids()`, which is **every** organism in the shared
+generational storage — creatures included — and `anchor_support` guards
+only on `state.cells.is_empty()`.
+
+Creature cells really are in that map: `World::reindex_organism_cell`
+inserts into `OrganismState::cells` for any organism whose id a cell
+carries, not only plants.
+
+So for a creature: `is_structural_anchor` wants a `Solid` 4-neighbour (the
+`root_tissue` arm cannot fire — creature materials do not
+`reinforces_powder` and a creature cell is not a `RootTip`), an airborne or
+soil-surrounded creature reaches none, every cell settles at `u16::MAX`,
+and since `was` defaults to 0 the `dist[i] > was` arm fires
+`schedule_structural_check` on **every creature cell, every organism
+tick**.
+
+Note the contrast that makes this look like an oversight rather than a
+decision: the sibling pass `accumulate_support` returns early on
+`state.collar_y == None`, which a creature never has. `anchor_support` has
+no equivalent.
+
+**Why this is worth a real look and not a shrug.** `CLAUDE.md` records that
+a structural check scheduled mid-organism amputates it, that the cost of
+one masqueraded as "the mechanism is wrong" through eight settings, and
+that no new organism path should schedule structural checks without
+measuring what it destroys. This is a new organism path scheduling
+structural checks.
+
+**Evidence level, stated plainly: none of the above is measured.** It is
+read off the merged source. The full suite is green on the creature side,
+so either the checks are harmless on creature materials (there is an
+incidental material-kind guard further down `organism_structural_tick`),
+or nothing exercises an airborne creature long enough to show it. **The
+missing number is simply how many structural checks a live colony
+schedules per tick** — `World::live_organism_count` and the failure
+counters are already there to say so, and nothing has asked them.
+
+Deliberately not fixed by the merge session: adding a creature guard is a
+behaviour change to a path `CLAUDE.md` says must be measured before it is
+touched.
+
+### C. `grass` and `creeper` root branching was authored against a model the other line retired — **OPEN, 2026-08-22, read from the assets and NOT yet measured**
+
+**Neither branch could have seen this, and nothing failed when they met.**
+It auto-merged silently, because the two lines edited *different species
+files*.
+
+`plant-substrate-v2` measured that a root tip's **in-tick** `branch_chance`
+roll cannot be funded: root branching used to be a second `Grow` in the
+same tick as the primary step, so the tip had to hold two steps' carbon at
+once, and it cleared that bar **twice in twelve thousand frames** while the
+roll fired **zero** times (`Reports/plant-genome-design.md` §8a). It
+replaced the mechanism with `branch_priming` — the tip marks a site for
+free, the site buys its own lateral later — and set root `branch_chance` to
+`0.0` in **all three** of its species, explicitly so that nothing reads as
+a live knob that no longer runs.
+
+`plant-ecology-design` authored two new species against the **old** model:
+
+| species | root `branch_chance` | root `branch_priming` |
+|---|---|---|
+| `tree`, `conifer`, `shrub` (substrate line) | `0.0` | `3` |
+| `grass` (ecology line) | **`0.4`** | **unset → `0`** |
+| `creeper` (ecology line) | **`0.05`** | **unset → `0`** |
+
+`branch_priming` is `#[serde(default)]`, and `0` means "keep the in-tick
+branch roll" — so both new species are running entirely on the mechanism
+the other line retired as unfundable.
+
+**What is at stake is not cosmetic.** `grass.ron`'s own comment sells the
+fibrous mat as the point: *"sod is many fine roots threading the top few
+rows, and that multiplicity is what makes `grassroot`'s
+`reinforces_powder` add up to a held bank."* Bank stabilisation is a
+player-visible outcome, and it is downstream of a root-branching rate that
+may be near zero.
+
+**Why it might still be fine, stated honestly.** Grass's `0.4` is ten times
+a tree's old `0.04`, and grass roots are shallow and cheap, so its carbon
+gate may open far more often than a tree's did. The measured "zero in
+twelve thousand frames" is a *tree* number and does not transfer. But note
+what substrate actually measured: the binding constraint was **the gate,
+not the roll** — the tip could only afford a second step twice in twelve
+thousand frames — and a higher probability on a gate that rarely opens buys
+very little.
+
+**The measurement that would settle it**, and it is cheap: count root cells
+per grass individual, and count how often the second-step affordance gate
+opens, over the same 12,000 frames substrate used. `examples/plant_probe.rs`
+already prints per-organism composition. Nothing has been pointed at grass.
+
+Not fixed here: giving `grass` and `creeper` a `branch_priming` value is
+authoring species behaviour, and the right value came from a 1/2/3/6/12/24
+sweep last time, not from copying `3` across.
+
+### D. Two smaller things the merge exposed, neither blocking — **OPEN, 2026-08-22**
+
+**E1. The repaired creature bed is damp but still has no floor and no
+walls.** `eating_one_leaf_does_not_kill_the_tree_that_grew_it` fills soil
+into `y=150..159` of a `0..199` world and plants on top. Soil is a
+`Powder`, nothing floors or walls the bed, so it avalanches ~40 rows to the
+world floor and the seed rides down with it. The test passes — dampening
+the bed was enough to make the tree leaf — but it passes *despite* the
+scene, not because of it. `plant::tests::plant_tree_on_ground` walls **and**
+floors its bed, with a comment saying this exact error has cost time twice.
+Left alone deliberately: it passes, and widening a repair past what the
+failure needed is how a merge session starts owning other people's tests.
+
+**E2. A bar in the ecology line's sod test predates the substrate line's
+root economy.** `sod_crest > bare_crest * 1.10` is justified in-file by a
+paired same-session measurement (bare 185 → sod 235, +27%, 135 `grassroot`
+cells in the bank). Those runs happened on `plant-ecology-design` before
+the stomatal reserve, the primed-site conversion and the root
+`branch_chance` supersession existed — all three of which move how much
+`grassroot` the sod arm grows, which is the quantity the margin is made of.
+**It passes today**, so this is a note about provenance, not a failure: the
+number is no longer a measurement of the system it now guards. Re-measure
+it the next time anything touches root economy, per the standing "set bars
+from measurement" convention.
+
+### E. A test scene can outlive the economy it was written for — **FIXED 2026-08-21, kept for the reasoning**
+
+`creature::tests::eating_one_leaf_does_not_kill_the_tree_that_grew_it` built
+its bed as `Cell::new(soil, 0)` — and `aux == 0` is *dry* on a `Powder`.
+That was fine while a plant ran on one currency: `main` has no
+`absorb_water` at all. The plant line makes water a real second currency
+with a real source, so a root in dry soil has **no income**: the tree grew
+wood, never a leaf, and the test failed on its scene rather than on the
+organism-freeing behaviour it is named for. Dampened to
+`SOIL_FIELD_CAPACITY`, matching `plant::tests::plant_tree_on_ground`, which
+has always done this — passes in 3.26 s.
+
+Same class as the moss scene `main` repaired when evaporation landed, and
+the third time `CLAUDE.md`'s "a scene that contradicts the code will look
+like a bug in the code" has been paid for. **When a merge brings a new
+currency, every scene that grows something is a scene that may no longer
+supply it.**
+
+
+### 0. ~~A decay site does not follow its cell~~ — **FIXED 2026-08-21**
+
+Kept because the *reasoning* is reusable, not because the bug is open.
+
+**Was:** a scheduled `ActiveKind::Decay` site is a bare coordinate;
+`CellSurface::move_cell` touches no scheduler state; `decay::tick`
+unschedules on a material mismatch, which is also what "the cell fell out of
+this coordinate" looks like. So anything that moved before its first check
+(200 frames) was immortal. Live for ash (fire makes it where the fuel just
+burned away, so it usually falls) and total for litter (shed in a canopy,
+falls every time).
+
+**Fixed by changing *when* a site is scheduled, not by making sites follow
+cells.** Decay sites are now created at the **awake→settled transition** in
+`World::end_step`, riding the chunk scan `recompute_reach` was already doing
+there. That is not a workaround for the strand — it is what the rule always
+meant. Weathering happens to matter that has come to rest, so settling *is*
+the event, and a cell that moves afterwards simply gets a fresh site when it
+stops. Bounded (one chunk), rare (chunks settle once and stay settled), and
+no hot-path cost.
+
+Two riders it needed:
+
+- `Material::decays_into` / `decay_reseeds`, so the scan gates on a `Vec`
+  index at a site that already holds the `Cell` (ash → soil and litter →
+  soil are both data now; ash keeps the reseed roll, litter does not).
+- The dedup index extended from `StructuralCheck` to `Decay`. Without it a
+  drift that is disturbed and re-settles stacks a site per settle, and since
+  each rolls `DECAY_CHANCE_*` independently the decay rate would become a
+  function of how often the ground was walked on — a correctness problem,
+  not a performance one.
+
+**The four candidates it was chosen over**, kept so they are not re-derived:
+
+| candidate | why it lost |
+|---|---|
+| Re-schedule from `move_cell` | Its own comments call it the hottest path in the engine, and a falling cell moves every frame — it would push a site per frame of fall, each 200 frames out. |
+| Have `tick` search for the cell | Bounded scan, fragile, wrong the moment two cells swap which one it finds. |
+| Per-cell age in `aux` | **Cannot work.** Something must tick the age and the CA sweep skips settled chunks — a settled litter layer is exactly when decay must run and exactly when the sweep is not visiting. This is *why* the scheduler exists. Also `aux` already carries two opposite conventions. |
+| Slow global sweep for decayable material | Trades a per-cell schedule for scanning the world; wrong direction with M10 streaming coming. |
+
+**Guard:** `decay::tests::ash_that_falls_before_its_first_check_still_decays`
+(was `#[ignore]`d as the reproduction, now passes and stays as the guard),
+plus `litter_rots_away_instead_of_accumulating_forever` and
+`a_world_where_nothing_sheds_holds_exactly_no_litter`.
+
+**Measured after:** paired against the pre-change commit, same machine,
+minutes apart — worst frame **240.60 ms vs 257.74 ms** on a settled tree
+grove, i.e. no regression. Pending decay sites went **105 → 12,056**, which
+is the mechanism working rather than leaking: every settled litter cell holds
+one deduped site, and the count converges (8,424 → 11,671 → 12,056), so that
+is a standing forest floor at equilibrium between leaf fall and decay.
+
+**Still open, and it is cosmetic:** litter's palette was authored close to
+soil's on purpose ("reads as texture, not a second canopy lying down"), and
+on the close-up that looks like a mistake — twelve thousand cells of it and
+it barely separates from the ground. Posted to the review queue; if it does
+not read, the fix is the palette, not the mechanism.
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

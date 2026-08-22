@@ -16,6 +16,7 @@ use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
@@ -273,6 +274,20 @@ pub struct World {
     /// streaming will want this keyed per chunk column instead, alongside
     /// everything else that is currently sized to a resident world.
     sky_surface: Vec<i32>,
+    /// The same dedup idea as `pending_structural_checks`, for
+    /// `ActiveKind::Decay`, and it exists for a different reason worth
+    /// stating: decay sites are scheduled by `World::end_step`'s settle
+    /// scan, which fires **every time a chunk goes from awake to settled**.
+    /// A litter drift that is disturbed and re-settles ten times would
+    /// otherwise stack ten sites on each of its cells, and since each site
+    /// independently rolls `DECAY_CHANCE_*`, the effective decay rate would
+    /// become a function of how often the ground was walked on. That is not
+    /// a performance problem, it is a correctness one -- the rate has to be
+    /// a property of the material, not of the chunk's history.
+    ///
+    /// `Decay` carries no state beyond position, so `(x, y)` is an
+    /// unambiguous key, exactly as for a structural check.
+    pending_decay_sites: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -597,6 +612,7 @@ impl World {
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
+            pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -697,10 +713,15 @@ impl World {
 
     /// Read-only view of one organism's whole-plant state, for probes.
     ///
-    /// The crate-internal `organism()` stays the working accessor; this
-    /// exists because `examples/plant_probe.rs` prints the architectural
-    /// event counters (`sympodial_forks`, `plagiotropic_steps`) beside the
-    /// per-tree table, and an example crate cannot see `pub(crate)`.
+    /// **A plain alias for `organism`, and only still here because it has
+    /// callers.** It was added on the plant line to get around `organism`
+    /// being `pub(crate)`, which an example crate could not see; the
+    /// creature line made `organism` itself `pub` for its own reasons, so
+    /// the workaround outlived the problem and the two met at the merge.
+    /// Kept rather than removed because ten call sites across `plant.rs`
+    /// and `examples/plant_probe.rs` read it and renaming them is churn,
+    /// not reconciliation — but prefer `organism` in new code, and fold
+    /// this away whenever those sites are next touched anyway.
     pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
         self.organism(organism_id)
     }
@@ -823,9 +844,19 @@ impl World {
         }
         // See `pending_evaporation`'s own doc — this one is load-bearing for
         // the *rate*, not only for the frame cost.
+        //
+        // `insert` returns false when the position was already present, so
+        // each of these both tests and marks in one go -- the structural arm
+        // above needs two calls only because its index is also read
+        // elsewhere. Two arms rather than one keyed on kind, because the
+        // two sets are independent and the structural path's behaviour must
+        // stay untouched.
         if matches!(site.kind, scheduler::ActiveKind::Evaporate { .. })
             && !self.pending_evaporation.insert((site.x, site.y))
         {
+            return;
+        }
+        if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
         self.active_sites.push(Reverse(site));
@@ -923,6 +954,9 @@ impl World {
         }
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
+        }
+        if let scheduler::ActiveKind::Decay = site.kind {
+            self.pending_decay_sites.remove(&(site.x, site.y));
         }
         Some(site)
     }
@@ -1765,9 +1799,6 @@ impl World {
         self.organism_mut(id)?.cells.get_mut(&(x, y))
     }
 
-    /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
-    /// the reading callers of the old packed field expect, since an
-    /// unregistered or inert cell held a zeroed scalar field.
     /// The **water stock** of the organism owning this cell, and its
     /// stomatal term — see `OrganismState::water` for why the balance is
     /// held per organism rather than per cell.
@@ -1785,6 +1816,9 @@ impl World {
         self.organism(id).map_or(0.0, |s| s.water_desiccation)
     }
 
+    /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
+    /// the reading callers of the old packed field expect, since an
+    /// unregistered or inert cell held a zeroed scalar field.
     pub fn carbon_at(&self, x: i32, y: i32) -> f32 {
         self.organism_cell(x, y).map_or(0.0, |c| c.carbon)
     }
@@ -2279,6 +2313,22 @@ impl World {
         // cost near-zero once everything sleeps.
         let materials = &self.materials;
         let touched = &mut self.touched_chunks;
+        // **Where decayable matter gets its decay site**, collected here and
+        // scheduled after the loop (the loop holds `self.chunks` mutably, so
+        // it cannot call `schedule_active_site`).
+        //
+        // A decay site is a bare coordinate and nothing makes it follow its
+        // cell -- `move_cell` touches no scheduler state -- so scheduling one
+        // when the cell is *created* strands it the moment the cell falls,
+        // which for shed litter is every time. Scheduling on **settle**
+        // instead is not a workaround for that; it is what the rule actually
+        // means. Weathering happens to matter that has come to rest, so the
+        // awake->settled transition is exactly the event, and a cell that
+        // moves afterwards simply gets a fresh site when it settles again.
+        // Bounded (one chunk), rare (chunks settle once and stay settled),
+        // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
+        // §0 for the four candidates this was chosen over.
+        let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -2308,7 +2358,24 @@ impl World {
             if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
                 chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
+                // Rides the scan `recompute_reach` is already doing, on the
+                // same transition and for the same reason it was chosen:
+                // this is the one point that is both cheap and safe.
+                let bounds = chunk.coord.bounds();
+                for y in bounds.min_y..=bounds.max_y {
+                    for x in bounds.min_x..=bounds.max_x {
+                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
+                            settled_decayables.push((x, y));
+                        }
+                    }
+                }
             }
+        }
+        // Deduped inside `schedule_active_site`, which is what stops a drift
+        // that settles repeatedly stacking sites and turning the decay rate
+        // into a function of how often the ground was disturbed.
+        for (x, y) in settled_decayables {
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
         }
     }
 

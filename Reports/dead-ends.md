@@ -3,7 +3,8 @@
 **What this is:** the index of approaches this project has already tried
 and rejected, extracted by a ten-agent census (2026-08-21, 542 entries)
 over the source comments, the Reports, `README.md` and `PLAN.md` that
-record them. Re-attempting a known dead end costs a whole session, and it
+record them; 547 after the plant-line merge of 2026-08-21 added five.
+Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
 **How to use it:** grep your area's `##` section before proposing or
@@ -451,7 +452,16 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/structural.rs fn crush_in_place doc, paragraph on rigid::score_cracks** - Reusing rigid::score_cracks for confined crushes was evaluated and rejected even though it is the same idea: it unbraces the rock either side of every fissure (telling the load model the inside of a mountain has come free) and schedules structural checks at each (turning a crush into a treadmill). Both behaviours are right for a blow and wrong here.
 - **src/sim/structural.rs fn crush_in_place doc, section 'Fissures, not graph paper'** - Cracking confined failures on a fixed world-coordinate lattice (every sixth column and row, with keying ligaments) was built and looked absurd: preset=rolling seed=1 strike=20 drew a perfectly regular 6x6 crosshatch reading as wireframe mesh over the rock. No metric said so; one contact sheet did. Cracks must radiate from the failed cell.
 
-## plants  (138 entries)
+## plants  (142 entries)
+
+- **`assets/species/tree.ron` RootTip `Grow` (`branch_chance: [0.0]`), `OrganismCell::primed`, `Reports/plant-genome-design.md` §8a** - A root tip's *in-tick* branch roll: root branching was a second `Grow` in the same tick as the primary step, so the tip had to hold two steps' carbon at once. Measured, it cleared that bar **twice in twelve thousand frames** and the 0.04 roll fired **zero** times. The economy was not the defect — a root tip cannot photosynthesise, lives on allocation and spends at first affordance, which is intended — the *shape of the purchase* was. Replaced by `branch_priming`: the tip marks a site for free as it passes and the site buys its own lateral later. `branch_chance` left at `0.0` rather than its old value so nothing reads as a live knob that no longer runs.
+  *Re-test when:* Only if root tips gain an income that can fund two steps in one tick; the zero here is the "vacuous, not wrong" shape `CLAUDE.md` warns about — the gate was unreachable, so the roll was never really tested.
+- **`assets/species/tree.ron` `branch_priming` comment (swept 1/2/3/6/12/24)** - `branch_priming: [1]` was swept and rejected: at 1 it stops being an oscillator and primes *every* cell, and the walk then re-scans **82,487 primed cells over a run against 1,160 at 3**, for a stand-scale cost the mechanism does not need. Root mass falls monotonically as the interval widens (755 cells at 1, 336 at 6). Landed at 3, which also puts genotype slot 1 on the responsive part of the curve.
+  *Re-test when:* Only alongside a cheaper primed-site walk; the rejection is about scan cost, not about root mass.
+- **`src/sim/plant.rs` `plagiotropic_here`, `Reports/plant-evolution-design.md` §4a register** - Order-0 plagiotropy (dropping the `order > 0` guard so a plant's first-order shoot could also run plagiotropic) was tried and reverted, back to `order > 0 && alleles[LOCUS_TROPISM] != 0`. A knob whose only justification is a form class that pure data already reaches is not paying for itself.
+  *Re-test when:* **Do not re-derive it from the same argument.** What would change the answer is evidence that order-0 plagiotropy produces something `heading_inertia` and a low turgor budget cannot — and that is a sheet, not a syllogism.
+- **`src/sim/organism.rs` EMBEDDED species list, `Reports/plant-evolution-design.md` §4a register** - Two authored probe species were shipped and then **retired against the owner's verdicts**: `weeping.ron` ("same plant" as `tree`) and `prostrate.ron` ("Not that different" from `creeper`, 2/5). Both files were deleted rather than left embedded — a condemned probe does not outlive its verdict here. `creeper.ron` survived the same round and stayed.
+  *Re-test when:* A form probe is worth re-authoring only against a silhouette lever that texture and colour actually move (`Reports/plant-appearance-design.md`); relabelling which cell is which will reproduce the same verdict.
 
 - **PLAN.md 'AUDIT: what the scene discovery invalidates, and what survives' and 'The environment is now fixed'** - Every plant judgement made in 20- or 40-row-sky scenes is invalid: trees reach 41-47 rows, press the ceiling and can only spread sideways (widest row 56 cells at 40 rows of sky vs 7 at 70), and LIGHT_DECAY=0.997 made light attenuate through empty air so headroom cost illumination (median height 21→65 and biomass 1,271→15,362 from the decay fix alone). LIGHT_DECAY moved to 0.9997 and the 96-row grove scene exists for tree judgement. The audit's own first conclusion — 'the slab is substantially a ceiling artifact' — was then itself found wrong: with light and headroom fixed the mass is real; the ceiling was a confound hiding it by starving growth.
   *Re-test when:* forest and default plant_probe (40-row) scenes remain valid for root and soil work only; never re-tune canopy behaviour against them.
@@ -1069,7 +1079,10 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/update.rs mod seam_cliffs (cause paragraph) and test chunking_the_sweep_does_not_change_where_a_pile_settles** - Three movement-rule hypotheses for seam cliffs were wrong first, including the recorded leading one (seam cells failing to get flowing() set — they do get it). The cause is the chunk-by-chunk sweep order making the seam column a one-grain-per-frame conveyor (33 straight-down slumps vs 0.9 sideways escapes/frame); the step_monolithic control is what found it.
   *Re-test when:* Any artifact aligned with the F1 chunk grid: suspect sweep decomposition before movement rules, and use the monolithic control.
 
-## other  (16 entries)
+## other  (17 entries)
+
+- **`src/sim/world.rs` `push_organism`; merge of `plant-substrate-v2` onto `main`, 2026-08-21** - A **debug-only** organism generation-wrap counter (`pub static ORGANISM_GENERATION_WRAPS: AtomicU64` behind `#[cfg(debug_assertions)]`) was built on `plant-substrate-v2` and dropped at the merge in favour of `main`'s always-on `World::organism_generation_wraps: u32`. Two reasons, both `main`'s own: a `u32` add on the allocation path is free next to the `HashMap` the same function just built, and a counter that only exists in debug builds cannot say anything about a long *release* session, which is the only place the count gets interesting. The dropped version also had **zero readers** — a declaration and an increment, nothing else.
+  *Re-test when:* Not applicable as a mechanism; recorded so the debug-only form is not re-proposed as a "cheaper" option. It was not cheaper, it was blinder.
 
 - **PLAN.md 'Decisions locked during planning' table, Determinism row** - 'Determinism not required' was reversed to required (same-build): off-camera persistence, slow processes in unloaded chunks, and fast-forward all need catch-up, and catch-up is only sound as outcome = f(state, elapsed, seed) — a pure function needs determinism to exist as a shortcut. Some older comments still say 'not required' and are wrong.
   *Re-test when:* Scoped narrowly: same-build only, not cross-platform bit-identical; worldgen reproducible within one world's lifetime.

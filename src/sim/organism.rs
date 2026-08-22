@@ -1283,7 +1283,7 @@ pub struct OrganismState {
     /// free but makes a plant's character a property of the world's event
     /// history rather than of the plant: ids come from planting order, so
     /// inserting one sapling anywhere earlier redraws every organism after
-    /// it, and slot reuse (once `free_organism` exists) wraps its
+    /// it, and slot reuse wraps its
     /// generation at 16 and hands out bit-identical ids — repeats that
     /// would cluster spatially, exactly where they read as wrong. Keying on
     /// the germination coordinate costs these six floats and makes the
@@ -1621,6 +1621,24 @@ const EMBEDDED: &[&str] = &[
     // what stops the next merge having to reason about it again.
     include_str!("../../assets/species/conifer.ron"),
     include_str!("../../assets/species/shrub.ron"),
+    // **A form probe, not a shipped species** -- WP-C of `Reports/plant-
+    // implementation-plan.md`. It asks whether one corner of the Grow
+    // envelope is a real form *class* or just another small tree, at the
+    // cost of one file plus one contact sheet. Embedded because a headless
+    // harness reads only this list (P-7), not the assets directory.
+    //
+    // **Two siblings shipped with it and have been retired against the
+    // owner's verdicts** -- `weeping.ron` ("same plant" as `tree`) and
+    // `prostrate.ron` ("Not that different" from this file, 2/5). Both
+    // verdicts and what they cost are in `Reports/plant-evolution-
+    // design.md` §4a's register; a condemned probe does not outlive its
+    // verdict here.
+    include_str!("../../assets/species/creeper.ron"),
+    // **A shipped species, not a probe** -- WP-B3. Listed after the probes
+    // because it postdates them, not because it ranks with them: grass is
+    // the species the plant programme is for, and the one that differs from
+    // a tree on all four of the axes in `plant-evolution-design.md` §4a.
+    include_str!("../../assets/species/grass.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

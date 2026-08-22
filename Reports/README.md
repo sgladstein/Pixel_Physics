@@ -107,11 +107,41 @@ tried?"*.
   [tree-architecture-variety-review-verification.md](tree-architecture-variety-review-verification.md)
   — **review + second-pass verification** of `plant-substrate-v2`.
 - [tree-architecture-implementation-plan.md](tree-architecture-implementation-plan.md)
-  — **plan of record for branch `plant-substrate-v2`** (in flight).
-- [plant-substrate-v2-design.md](plant-substrate-v2-design.md) — **design;
-  implemented on branch `plant-substrate-v2`** (in flight).
+  — **plan of record for the `plant-substrate-v2` line; merged.**
+- [plant-substrate-v2-design.md](plant-substrate-v2-design.md) — **design,
+  implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+
+The genome and appearance set, merged from `plant-substrate-v2` /
+`plant-genome`. Two of its claims did not survive contact with main's
+field rework — see `open-bugs-handoff.md`.
+
+- [plant-genome-design.md](plant-genome-design.md) — **design, signed off
+  2026-08-18, implemented.** The positional genotype slot map; §8a is the
+  measurement behind the primed-site root repair.
+- [plant-genome-implementation-handoff.md](plant-genome-implementation-handoff.md)
+  — **handoff.** What the genome work left for the next session.
+- [plant-genome-handoff.md](plant-genome-handoff.md) — **handoff**,
+  earlier than the above and superseded by it for anything still open.
+- [plant-genome-review-request.md](plant-genome-review-request.md) —
+  **review request.** The questions put to the owner about the slot map.
+- [root-morphology-findings.md](root-morphology-findings.md) —
+  **findings.** Why root morphology is inexpressible through the
+  architectural knobs, and that thickening is the reason.
+- [roots-and-breakage-handoff.md](roots-and-breakage-handoff.md) —
+  **handoff.** Roots and breakage, written before the genome work landed.
+- [branch-angle-and-the-width-bound.md](branch-angle-and-the-width-bound.md)
+  — **measured study.** Branch angle, the straightness budget, and the
+  width bound they ran into.
+- [genetic-variability-study.md](genetic-variability-study.md) —
+  **measured study.** How much a genome actually moves an individual;
+  the spread that makes single-run comparisons here unsafe.
+- [plant-appearance-design.md](plant-appearance-design.md) — **design.**
+  Why relabelling a cell cannot move a silhouette that texture and colour
+  set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
+- [plant-night-session-handoff.md](plant-night-session-handoff.md) —
+  **handoff.**
 
 ## Creatures and ecology
 
@@ -127,6 +157,15 @@ tried?"*.
 - [ecological-lod-design.md](ecological-lod-design.md) — **recommendation,
   not settled.** How an ecology survives a world that is not simulated
   (off-camera catch-up).
+- [plant-evolution-design.md](plant-evolution-design.md) — **design, all
+  nine §8 calls signed off 2026-08-19; partly implemented.** The plant
+  ecology: litter, decay, grass and the creeper; §4a's register holds the
+  probe verdicts and the do-not-retry notes.
+- [plant-implementation-plan.md](plant-implementation-plan.md) — **the
+  executable split** (WP-A/B/C/D/E/F) the design above is delivered
+  through.
+- [plant-work-split.md](plant-work-split.md) — **work split.** How the
+  plant queue was divided between concurrent sessions.
 
 ## Worldgen and world
 
@@ -169,15 +208,6 @@ flags the mismatch).
 - `creature-evolution-plan.md` — branch `creatures-m18`.
 - `load-concentration-review.md`, `load-concentration-review-reply.md` —
   branch `load-share`.
-- `branch-angle-and-the-width-bound.md`, `genetic-variability-study.md`,
-  `plant-appearance-design.md`, `plant-night-session-handoff.md` — branch
-  `plant-branch-angle`.
-- `plant-evolution-design.md`, `plant-implementation-plan.md`,
-  `plant-work-split.md`, plus a new `wiki/plants.md` — branch
-  `plant-ecology-design`.
-- `plant-genome-design.md`, `plant-genome-implementation-handoff.md`,
-  `plant-genome-review-request.md` — branches `plant-genome` /
-  `plant-substrate-v2`.
 - `performance-audit.md` — worktree `perf-audit` (untracked).
 - `measurement-under-contention.md` — worktree `perf-lock` (untracked,
   with a CLAUDE.md edit adding `scripts/perf.sh`).

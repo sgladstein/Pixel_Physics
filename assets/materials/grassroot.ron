@@ -1,0 +1,47 @@
+// The below-ground half of a herbaceous plant: `grass.ron`'s
+// `root_material`. WP-B3, `Reports/plant-implementation-plan.md`.
+//
+// **The whole reason this is its own material rather than `rootwood` is
+// `reinforces_powder`.** Sod holding a bank together is the one consequence
+// (axis 4 of `plant-evolution-design.md` §4a's four axes) that grass brings
+// and no other plant in this world does — and it has to arrive *emergently*,
+// out of a fibrous root mat threading loose soil, not as a grass-only rule
+// somewhere in the sim. The flag already exists and already does this for
+// any `Plant` cell; grass is simply the first species whose architecture
+// puts enough of them through the top few rows of soil for it to show.
+//
+// One band of four tonal steps, matching `rootwood.ron` exactly — roots are
+// barely seen, and a species' `bark_bands` index wraps modulo the palette
+// length at render time, so a second band would buy nothing.
+(
+    name: "grassroot",
+    display: "Grass root",
+    kind: Plant,
+    // Under `rootwood`'s heartwood but above `grassblade`: fine fibrous
+    // roots, still denser than the blade above them.
+    density: 0.35,
+    colors: [
+        (162, 152, 108),
+        (178, 168, 122),
+        (146, 136, 96),
+        (192, 184, 138),
+    ],
+    // **The point of the file.** Loose powder in contact with a `Plant` cell
+    // carrying this is held; a fibrous mat through the top rows of a bank is
+    // therefore many small holds rather than one big one, which is what a
+    // sod bank *is*.
+    reinforces_powder: true,
+    // Underground and damp. Grass burns above the ground line and regrows
+    // from the roots, which is exactly what a real grassfire does and is
+    // worth having fall out of the numbers rather than a special case.
+    flammability: 0.05,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    breaks_into: "litter",
+    // As `grassblade`: not a load path, and opted out of the cantilever rule
+    // by omission. A root mat reinforces the powder around it; it does not
+    // hold a structure up.
+    max_unsupported_span: 1,
+)

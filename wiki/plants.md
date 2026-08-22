@@ -3,9 +3,11 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-Freshness: written when water became a real currency and roots started
-mattering; updated when the genome took over leaf economics, wood density
-and seed provisioning. Accurate as of that change.
+*Current as of: 2026-08-21. Written when water became a real currency and
+roots started mattering; updated when the genome took over leaf economics,
+wood density and seed provisioning, and again when grass arrived and plants
+stopped all being made of the same stuff. One plant-economy number is unsettled
+against the world's weather — see `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -80,6 +82,33 @@ can no longer cover another cell, not because it hit a size limit.
   before it breaks.
 
 ## Species
+
+Not every plant is a tree. **Grass** grows a few rows tall instead of a
+hundred, in tufts that spread into a continuous green layer over open
+ground, and it is a different kind of thing to look at rather than a small
+version of the same thing. It has no separate leaves — the blade *is* the
+plant, so the whole of it is green from the soil up, and there is no bare
+brown stem holding it there.
+
+Three consequences follow from that, and none of them is a rule about grass:
+
+- Its roots run **sideways through the top few rows of soil** instead of
+  diving, and that mat holds loose ground together where a tree's few thick
+  roots do not.
+- It is the **most flammable thing that grows** — cell for cell a fire runs
+  through grass about a quarter faster than through a tree canopy, and bare
+  soil will not carry one at all. The roots survive underground.
+  Fire steps from one plant to the one touching it, so a thin, patchy sward
+  is a firebreak and a thick closed one is a fuse. Nothing says so anywhere;
+  it falls out of the gaps. **In practice a grassfire is currently a slow,
+  local smoulder rather than a front sweeping a meadow** — see
+  `Reports/plant-implementation-plan.md` for the measurement and the two
+  fire-side changes that would be needed.
+- It **breeds far faster than a tree** — it is cheap to build, it sets seed
+  young, and it will colonise bare ground long before anything woody does.
+
+Grass cannot get into dry sand, though, and neither can a tree: sand is
+simply harder to push a root through than either of them can manage.
 
 Species differ in shape, colour and habit — how readily they branch, how
 strongly they reach for light, how far apart their leaves sit, whether they
