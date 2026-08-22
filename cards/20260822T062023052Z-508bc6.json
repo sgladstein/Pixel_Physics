@@ -1,0 +1,43 @@
+{
+  "id": "20260822T062023052Z-508bc6",
+  "created": "2026-08-22T06:20:23Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "d1282c8",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rock reaches the bottom as rock",
+  "question": "Does what lands on the pond floor read as broken rock now rather than as a dune of grit? Both clips are the same drop, at true speed.",
+  "context_md": "*\"Chunks of rock hit the water and then start disintegrating into grit instead of tumbling down as rock chunks.\"*\n\nThat is fixed. The same 600-cell slab, same drop:\n\n| | before | now |\n|---|---|---|\n| what is left of the slab | **nothing** --  |  |\n| still stone when it stops | 0 of 600 | **422 of 600** |\n| times the same rock was broken | 4.2 | **1.5** |\n\n**What was doing it.** A piece lifted out of the grid left the space it was standing in marked *empty*, so water poured into its own footprint. It then found water in front of it with nowhere to put it -- only 2,834 of 10,849 attempts to shove water aside succeeded -- gave up after three frames, was written back into the world, was judged unsupported, and was broken up again. Over and over, all the way down.\n\nA body moving one cell **vacates exactly as many cells as it enters**, so the water in front can be handed the space behind by arithmetic instead of by searching for a gap. There is no failure left in that path, so nothing stalls, so nothing gets re-broken.\n\n**Three things it cost on the way, and none of them showed up in a test.** It ate 920 cells of water before I filtered one set; it left permanent wedge-shaped air pockets standing inside the pond, which the water ledger was perfectly happy about because nothing had been *lost* -- only the picture showed it; and holding the footprint from the moment a piece breaks off made a scene with **no water in it at all** five and a half times slower per frame, because more rock survives intact and the load model's cost grows faster than the piece does. So a piece only takes its footprint when there is liquid within forty-eight rows below it, and every dry scene is byte-identical.\n\n**What I have not fixed:** the last of it still shatters -- you will see a puff of grit in the water on the way down, and the mound at the bottom has gravel between the blocks. Say if that is still too much.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260822T062023052Z-508bc6/000-card_rock_before.gif"
+      ],
+      "caption": "Every one of the 600 cells ends as powder. The floor is a smooth dune.",
+      "meta": {}
+    },
+    {
+      "label": "now",
+      "files": [
+        "20260822T062023052Z-508bc6/001-card_rock_after.gif"
+      ],
+      "caption": "422 of 600 still stone. The floor is jagged.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
