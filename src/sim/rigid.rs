@@ -1496,10 +1496,41 @@ fn clear_or_displaceable(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i
         return true;
     }
     let kind = world.materials.kind(world.get(x, y).material);
-    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid) {
+    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid | MaterialKind::Gas) {
         return false; // solid, plant, creature -- a real obstruction
     }
-    displace(world, occupied, x, y)
+    if displace(world, occupied, x, y) {
+        return true;
+    }
+    // **Gas never blocks, even when there is nowhere to shove it.** Powder
+    // and liquid that cannot be moved are treated as solid, because deleting
+    // them would manufacture a hole in the world's material budget
+    // (`a_body_moving_through_powder_destroys_no_material`). A gas has no
+    // such claim: it is already the one kind the engine removes on its own
+    // (`Material::dissipation`, `update.rs`), and the alternative here is a
+    // boulder resting on smoke.
+    //
+    // Reported from play as *"chunks of rock that seem fully cracked all the
+    // way around stay put and don't fall into the leftover hole/crater"*, and
+    // this was one of the causes. `Tuning::smoke_fraction` backfills 18% of a
+    // cleared crater with `SMOKE`, so the hole a chunk is meant to fall into
+    // is the one place in the world densely full of gas -- and a fresh crater
+    // has no empty cell within `DISPLACE_SEARCH` to shove it to, so
+    // `displace` fails there almost every time. The chunk moved no substep,
+    // hit `STALL_FRAMES_BEFORE_SETTLING` and re-embedded roughly where it
+    // started.
+    //
+    // Measured, paired, `blast=300,45,20,180,60` on rolling seed 1, against
+    // the `smoke=0` control the same commit adds to `filmstrip`: at frame 80
+    // the shipped setting had **1 body / 10 cells** still in flight against
+    // the control's **6 bodies / 100 cells**, and peak concurrent bodies ran
+    // 8 against 16. The airborne mass collapsed between frames 74 and 80 --
+    // 174 -> 105 -> 97 -> 10 -- exactly where the smoke backfill lands.
+    if kind == MaterialKind::Gas {
+        world.set(x, y, Cell::EMPTY);
+        return true;
+    }
+    false
 }
 
 /// Shove the loose cell at `(x, y)` to the nearest empty cell that the body
@@ -2284,6 +2315,56 @@ mod tests {
 
         assert_eq!(count_material(&w, material::SAND), sand_before, "the body deleted sand it passed through instead of displacing it");
         assert_eq!(total_debris(&w), 18, "the body itself lost cells");
+    }
+
+    /// A falling chunk goes *through* smoke, not onto it.
+    ///
+    /// The paired shape `CLAUDE.md` asks for: the same slab dropped down the
+    /// same shaft, once packed with smoke and once left open, must end at the
+    /// same height. Before this, `clear_or_displaceable` treated every kind
+    /// but `Powder` and `Liquid` as a real obstruction, so the smoke arm
+    /// stalled in mid-air and re-embedded three frames later -- and because
+    /// `Tuning::smoke_fraction` backfills a fresh crater, the one place in
+    /// the world thick with gas is exactly the hole the player is watching a
+    /// chunk fail to fall into.
+    ///
+    /// The shaft is packed solid with smoke deliberately: `displace` searches
+    /// `DISPLACE_SEARCH` rings for an *empty* cell, so a thin wisp would be
+    /// shoved aside and pass even under the old rule. What this pins is the
+    /// case with nowhere to shove it to, which is the case a crater is.
+    #[test]
+    fn a_falling_body_is_not_held_up_by_smoke() {
+        fn drop_through(fill: Option<MaterialId>) -> i32 {
+            let mut w = test_world();
+            for x in 0..64 {
+                w.set(x, 63, Cell::new(material::BEDROCK, 0));
+            }
+            // Walls, so the shaft cannot vent sideways -- otherwise `displace`
+            // finds room outside it and the two arms stop differing.
+            for y in 30..63 {
+                w.set(19, y, Cell::new(material::BEDROCK, 0));
+                w.set(30, y, Cell::new(material::BEDROCK, 0));
+            }
+            if let Some(m) = fill {
+                for y in 40..63 {
+                    for x in 20..30 {
+                        w.set(x, y, Cell::new(m, 0));
+                    }
+                }
+            }
+            let region = loose_slab(&mut w, 22, 31, 6, 3);
+            assert!(fracture_failing_region(&mut w, &region, region[0]), "the slab must promote");
+            for _ in 0..400 {
+                step_chunk_bodies(&mut w);
+            }
+            // Lowest stone cell anywhere: where the chunk came to rest.
+            (0..64).rev().find(|&y| (0..64).any(|x| w.get(x, y).material == material::STONE)).expect("the slab is somewhere")
+        }
+
+        let open = drop_through(None);
+        let smoky = drop_through(Some(material::SMOKE));
+        assert!(open > 55, "test setup: down an empty shaft the slab should reach the floor, it stopped at y={open}");
+        assert_eq!(smoky, open, "smoke held the chunk up at y={smoky} when an open shaft put it at y={open}");
     }
 
     #[test]

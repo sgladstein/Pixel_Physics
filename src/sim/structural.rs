@@ -995,16 +995,46 @@ const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
 /// Air specifically, by the raw material test: `Cell::is_empty()` is
 /// managed-aware and would count a promoted liquid body's container cells
 /// as occupied, which is the wrong answer to "could rock move into here".
+///
+/// # Gas counts as air, and leaving it out was the bug
+///
+/// A `Gas` cell is somewhere rock can move into --
+/// `rigid::clear_or_displaceable` shoves it aside or vents it, so a piece
+/// with nothing but smoke on one side genuinely has room. Testing `EMPTY`
+/// alone made that piece **confined**, which sends it down the crush branch
+/// to be cracked where it stands instead of allowed to fall.
+///
+/// The place that bites is the one place the player is looking.
+/// `explosion::Tuning::smoke_fraction` backfills 18% of a fresh crater with
+/// `SMOKE`, so the hole a blasted chunk is meant to drop into is the densest
+/// gas in the world -- and the emptier the blast made it, the more smoke it
+/// left. Reported from play as *"chunks of rock that seem fully cracked all
+/// the way around stay put and don't fall into the leftover hole/crater"*.
+///
+/// `explosion.rs` already had to learn this once, at
+/// `an_explosion_clears_a_crater`: *"Not `is_empty()`: `smoke_fraction`
+/// backfills part of the crater with `SMOKE`, so the epicentre is
+/// legitimately allowed to hold a gas cell afterwards."* Same fact, a
+/// different consumer.
 fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
     let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
     region.iter().any(|&(x, y)| {
         NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
-            !cells.contains(&(nx, ny))
-                && world.in_bounds(nx, ny)
-                && world.get(nx, ny).material == super::material::EMPTY
+            !cells.contains(&(nx, ny)) && world.in_bounds(nx, ny) && is_open_space(world, nx, ny)
         })
     })
+}
+
+/// Whether `(x, y)` is somewhere a piece of rock could move into: empty, or
+/// holding a gas that would be shoved aside.
+///
+/// The raw material test rather than `Cell::is_empty()`, which is
+/// managed-aware -- see `region_has_free_face`, which is what this was
+/// factored out of, for why both halves are here.
+fn is_open_space(world: &World, x: i32, y: i32) -> bool {
+    let material = world.get(x, y).material;
+    material == super::material::EMPTY || world.materials.kind(material) == super::material::MaterialKind::Gas
 }
 
 /// How far a confined region is from the nearest air, in cells, capped at
@@ -5374,6 +5404,48 @@ mod tests {
             leashed.structural_failures.overloaded + leashed.structural_failures.unsupported > 0,
             "nothing failed at all at TIGHT, which is a reach limit making rock invincible rather than leashing it"
         );
+    }
+
+    /// Smoke beside a piece is somewhere it can go, so the piece is not
+    /// confined.
+    ///
+    /// Paired, and the pairing is the test: the same block of rock with one
+    /// cell of its surroundings set to `EMPTY` and to `SMOKE` must give the
+    /// same answer, because `rigid::clear_or_displaceable` will shove the
+    /// gas aside either way. Before this, only the `EMPTY` arm passed, and
+    /// the consequence was not academic -- `explosion::Tuning::smoke_fraction`
+    /// fills 18% of a fresh crater with gas, so the hole a blasted chunk is
+    /// meant to drop into was the one place in the world that read as solid.
+    ///
+    /// The third arm is the one that keeps this honest: packed solid with
+    /// *rock* it must still be confined, or the predicate has stopped being
+    /// able to say no at all.
+    #[test]
+    fn smoke_beside_a_piece_is_not_the_same_as_rock_beside_it() {
+        fn confined_with(fill: Option<MaterialId>) -> bool {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            for y in 20..40 {
+                for x in 20..40 {
+                    w.set(x, y, Cell::new(super::super::material::STONE, 0));
+                }
+            }
+            let region: Vec<(i32, i32)> = (28..32).flat_map(|x| (28..32).map(move |y| (x, y))).collect();
+            // One cell against the region's side, and nothing else changed.
+            match fill {
+                Some(m) => w.set(27, 29, Cell::new(m, 0)),
+                None => w.set(27, 29, Cell::EMPTY),
+            }
+            !region_has_free_face(&w, &region)
+        }
+
+        assert!(
+            confined_with(Some(super::super::material::STONE)),
+            "test setup: buried in solid rock the piece must read as confined, or this predicate cannot say no"
+        );
+        let open = confined_with(None);
+        let smoky = confined_with(Some(super::super::material::SMOKE));
+        assert!(!open, "test setup: one empty cell beside the piece must give it a free face");
+        assert_eq!(smoky, open, "smoke beside the piece read as confined={smoky} where air read as confined={open}");
     }
 
     /// A blast at TIGHT breaks the rock it actually hit, and does not break

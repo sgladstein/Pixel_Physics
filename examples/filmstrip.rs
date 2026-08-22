@@ -1325,6 +1325,19 @@ struct Args {
     /// `crack_rays=` -- the hybrid knob. `0` (the default) is pure fabric;
     /// 4-6 puts the old radial walker back on top of it for an A/B.
     crack_rays: Option<u32>,
+    /// `smoke=<fraction>` -- override `explosion::Tuning::smoke_fraction`,
+    /// how much of a cleared crater is backfilled with `SMOKE`.
+    ///
+    /// **`smoke=0` is the control for "do chunks fall into the hole".**
+    /// `rigid::clear_or_displaceable` shoves `Powder` and `Liquid` aside and
+    /// treats everything else as a real obstruction, `Gas` included -- so at
+    /// the shipped `0.18` a promoted chunk falling into a fresh crater can be
+    /// stopped dead by the blast's own smoke, stall for
+    /// `STALL_FRAMES_BEFORE_SETTLING` frames and re-embed roughly where it
+    /// started. Running the same charge at `0` and at the default is the
+    /// paired comparison that says whether that is actually happening, and
+    /// it costs one flag rather than a rebuild.
+    smoke: Option<f32>,
 
 }
 
@@ -1373,6 +1386,7 @@ fn parse() -> Args {
         joint_open: None,
         joint_density: None,
         crack_rays: None,
+        smoke: None,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -1458,6 +1472,7 @@ fn parse() -> Args {
             "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
             "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
             "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
+            "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "loadmap" => a.loadmap = v != "false",
@@ -2302,6 +2317,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     if let Some(v) = args.crack_rays {
         blasts.tuning.crack_rays = v;
     }
+    if let Some(v) = args.smoke {
+        blasts.tuning.smoke_fraction = v;
+    }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
@@ -2532,6 +2550,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // eighty cells inside a massif are the same grey rubble at the
         // zoom a contact sheet is read at.
         println!("    of those, confined (no free face anywhere): {} ({} cells), deepest {} cells from air, {} cells fissured", f.confined, f.confined_cells, f.deepest_confined, f.crushed_cells);
+        // The complaint itself, counted rather than looked at -- see
+        // `severed_islands`. Printed beside `confined` because the two are
+        // the same story from opposite ends: `confined` counts failures the
+        // model *judged* and refused to move, this counts rock that is cut
+        // free and standing there whether or not anything ever judged it.
+        let (pieces, islands, island_cells, largest_piece) = severed_islands(&world);
+        println!("    rock the fissures actually cut loose: {pieces} piece(s), largest {largest_piece} cells -- of those, wedged with no free face: {islands} ({island_cells} cells)");
         // How much the world has actually *lost* since the cut was made,
         // which the failure counts above cannot say: a failed cell that
         // became rubble is still standing there. Printed per tile rather
@@ -2827,6 +2852,115 @@ fn cracked_world_census(world: &World) -> u32 {
         }
     }
     n
+}
+
+/// **The owner's first complaint, as a number.**
+///
+/// > *"Chunks of rock that seem fully cracked all the way around stay put
+/// > too often and don't fall into the leftover hole/crater."*
+///
+/// An **island** here is a maximal 4-connected component of body material
+/// that the fissures have cut completely free -- every step out of it is
+/// either a cracked edge into more rock, or the edge of the world. If any
+/// step reaches air, gas or loose material, the piece has somewhere to go
+/// and is not what he is reporting; it is excluded.
+///
+/// Returned as `(pieces, islands, cells, largest)` -- `pieces` is every
+/// component the fissures genuinely cut loose from the massif, and `islands`
+/// is the subset of those with no free face anywhere. The pair is the whole
+/// point: if `pieces` is near zero the web on screen is not cutting anything
+/// at all, and no amount of work on what a *severed* piece is allowed to do
+/// will change what the player sees.
+///
+/// All are printed, never one:
+/// a run with many one-cell chips stuck in the massif and one with a single
+/// 200-cell slab hanging in a wall are different bugs that any single number
+/// reads as the same, and `MIN_BODY_CELLS` is 8 -- an island under that was
+/// never going to fly whatever the support model said.
+///
+/// **Why this is a counter and not a picture.** A contact sheet shows a web
+/// of dark polygon outlines whether those polygons are about to come apart
+/// or have been welded in place for two thousand frames, and at the zoom a
+/// sheet is read at the two are indistinguishable. `CLAUDE.md`: *"did it fire
+/// at all" needs a counter, not a picture.*
+///
+/// 4-connected, matching `load::is_supported` and `rigid::take_fragment` --
+/// the two consumers that decide whether this piece is held and how it comes
+/// apart. Asking in 8 would call a piece free that neither of them can
+/// actually separate.
+fn severed_islands(world: &World) -> (usize, usize, usize, usize) {
+    use std::collections::VecDeque;
+    let idx = |x: i32, y: i32| y as usize * WIDTH as usize + x as usize;
+    let mut seen = vec![false; (WIDTH * HEIGHT) as usize];
+    let solid = |x: i32, y: i32| {
+        world.in_bounds(x, y) && matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid)
+    };
+    // A component bigger than this is the massif, not a chunk. Bounding the
+    // *walk* rather than declining to answer: the walk is abandoned and the
+    // cells stay marked, so the hillside is paid for once instead of once
+    // per cell in it.
+    const MAX_ISLAND: usize = 512;
+    let (mut pieces, mut islands, mut cells, mut largest) = (0usize, 0usize, 0usize, 0usize);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if seen[idx(x, y)] || !solid(x, y) {
+                continue;
+            }
+            let mut queue = VecDeque::from([(x, y)]);
+            seen[idx(x, y)] = true;
+            let mut member = Vec::new();
+            let mut enclosed = true;
+            let mut overflowed = false;
+            while let Some((cx, cy)) = queue.pop_front() {
+                member.push((cx, cy));
+                if member.len() > MAX_ISLAND {
+                    overflowed = true;
+                    break;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) {
+                        continue; // a joint: this is where the island ends
+                    }
+                    if !world.in_bounds(nx, ny) {
+                        continue; // the world's edge holds it like rock does
+                    }
+                    if !solid(nx, ny) {
+                        // Air, gas, powder or plant across an *uncracked*
+                        // edge: this piece has an open side, so whatever is
+                        // keeping it up, it is not being wedged.
+                        enclosed = false;
+                        continue;
+                    }
+                    if !seen[idx(nx, ny)] {
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+            }
+            if overflowed {
+                // Drain the rest so the massif is marked and not re-walked.
+                while let Some((cx, cy)) = queue.pop_front() {
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (cx + dx, cy + dy);
+                        if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) || !solid(nx, ny) || seen[idx(nx, ny)] {
+                            continue;
+                        }
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+                continue;
+            }
+            pieces += 1;
+            largest = largest.max(member.len());
+            if enclosed {
+                islands += 1;
+                cells += member.len();
+            }
+        }
+    }
+    (pieces, islands, cells, largest)
 }
 
 fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {
