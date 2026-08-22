@@ -1530,10 +1530,23 @@ const NEUTRAL_SINK_SPEED: f32 = 0.1;
 /// frame.
 ///
 /// A body settling the last cell into a pool should slide in; one that has
-/// fallen any distance should not. `GRAVITY` is 0.05/frame, so this is
-/// roughly the speed reached after a ten-cell drop -- set from that rather
-/// than from a scene, because the quantity it gates is the *feel* of an
-/// impact and a bar tuned to one pond depth would be a bar about that pond.
+/// fallen any distance should not. That sentence is the specification; the
+/// number below is set from it rather than from a scene, because the
+/// quantity it gates is the *feel* of an impact and a bar tuned to one pond
+/// depth would be a bar about that pond.
+///
+/// **The arithmetic that used to be written here was wrong, and the value it
+/// justified is nonetheless right.** It read *"`GRAVITY` is 0.05/frame, so
+/// this is roughly the speed reached after a ten-cell drop"*. `GRAVITY` is
+/// **0.15** (see the constant above), so `v = sqrt(2 g d)` puts 0.7 at a
+/// **1.6-cell** drop; a real ten-cell drop reaches 1.73.
+///
+/// Which of the two the constant should be is settled by the specification
+/// and not by the arithmetic: one cell of fall reaches 0.55, so 0.7 is the
+/// bar that separates a settle from a fall, and 1.73 would be a bar that
+/// ignores everything short of a storey. Left where it is, with the
+/// derivation corrected -- but noting it was never *measured* to be 0.7,
+/// only argued to be, and the argument had the wrong number in it.
 const SPLASH_MIN_ENTRY_SPEED: f32 = 0.7;
 
 /// Report splash sites beside a body that has just broken a free surface.
@@ -2621,8 +2634,12 @@ mod tests {
         let fast = sites_from(74.0, 1.4);
         assert!(fast > 0, "a boulder hitting open water at speed reported no splash site at all");
 
-        // Started at the surface at rest. Gravity is 0.05/frame, so it is
-        // several rows under before it is moving fast enough to qualify.
+        // Started at the surface at rest. `GRAVITY` is 0.15/frame, so one row
+        // of fall reaches 0.55 and it is a couple of rows under before it is
+        // moving fast enough to qualify -- by which point it is no longer at
+        // a free surface to splash from. (This comment said 0.05 and
+        // "several rows"; both were wrong, and `SPLASH_MIN_ENTRY_SPEED`'s
+        // doc records where that number came from.)
         let gentle = sites_from(79.0, 0.0);
         assert!(
             gentle < fast,
