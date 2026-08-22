@@ -67,6 +67,13 @@ synchronised side by side for an A/B. A GIF cannot be paused on the frame that
 looked wrong; a sequence can.
 
 A card may carry both — a GIF to judge the feel, frames to find the moment.
+**One file per item, then.** `files` is the *frame sequence* field: several
+entries in one item become a scrubbable strip, so a GIF and a still put in the
+same item do not render as an animation beside a picture — they render as a
+two-frame sequence, and the animation is gone. That is what `--gif` and
+`--image` do for you, each appending its own single-file item; the JSON form
+gives you no such protection. Posted wrong once, and the owner had to say
+"your card wasn't an animated gif, just two frames".
 
 **Autoplay earns its place at roughly ten frames or more.** A two-frame sequence
 set playing is a strobe, not an animation: post those two states as an A/B and
