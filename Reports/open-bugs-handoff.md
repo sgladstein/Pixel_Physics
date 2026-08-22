@@ -11,61 +11,64 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### 0. A decay site does not follow its cell, so anything that falls never decays
+### 0. ~~A decay site does not follow its cell~~ — **FIXED 2026-08-21**
 
-**Reproduction:** `decay::tests::ash_that_falls_before_its_first_check_still_decays`,
-`#[ignore]`d because it fails. Paired, and the pairing is what makes it
-credible: two ash cells, same flooded basin, same floor, same damp. One is
-wedged between stone blocks so it cannot move and **decays to soil as
-intended**; the other is released six rows up, falls to the same floor, and
-is **still ash after 20,000 frames**.
+Kept because the *reasoning* is reusable, not because the bug is open.
 
-**Cause, and it is two lines apart.** A scheduled `ActiveKind::Decay` site is
-a bare coordinate. `CellSurface::move_cell` (`surface.rs`) copies the cell and
-its flags and touches no scheduler state, so a cell that moves leaves its site
-behind. `decay::tick` then finds a different material at the coordinate and
-takes its "burned into something else, erased, buried" arm — which returns an
-empty `Vec`, i.e. **unschedules**. That arm is correct for the cases it names
-and wrong for the case it cannot distinguish: the cell simply having fallen.
+**Was:** a scheduled `ActiveKind::Decay` site is a bare coordinate;
+`CellSurface::move_cell` touches no scheduler state; `decay::tick`
+unschedules on a material mismatch, which is also what "the cell fell out of
+this coordinate" looks like. So anything that moved before its first check
+(200 frames) was immortal. Live for ash (fire makes it where the fuel just
+burned away, so it usually falls) and total for litter (shed in a canopy,
+falls every time).
 
-**Why no existing test caught it.** Every other test in `decay.rs` drives
-`field::step` and `scheduler::step` and *no physics driver at all*, so nothing
-in any of them can fall. They pass because the scenario is trivially stable —
-CLAUDE.md's own "a test can pass because the code under it is dead" in its
-other costume. The new test adds `update::step`.
+**Fixed by changing *when* a site is scheduled, not by making sites follow
+cells.** Decay sites are now created at the **awake→settled transition** in
+`World::end_step`, riding the chunk scan `recompute_reach` was already doing
+there. That is not a workaround for the strand — it is what the rule always
+meant. Weathering happens to matter that has come to rest, so settling *is*
+the event, and a cell that moves afterwards simply gets a fresh site when it
+stops. Bounded (one chunk), rare (chunks settle once and stay settled), and
+no hot-path cost.
 
-**Live consequence today (ash):** fire produces ash exactly where the fuel
-was, and the fuel *below* it has just burned away, so ash usually falls. Its
-first check is 200 frames later (`DECAY_TICK_INTERVAL`), long after it lands.
-So M16's "a forest burns and regrows" criterion is half-working, and the ash
-that stays is the ash that happened not to move.
+Two riders it needed:
 
-**What it blocks:** WP-B2 (litter) outright. Litter is shed in a canopy and
-falls to the ground *every* time, so 100% of it would strand. The material
-(`assets/materials/litter.ron`) is landed and embedded but **nothing writes
-it**, and the three abscission sites are deliberately not switched over —
-emitting litter with no drain is shipping a known leak. See that file's
-closing note.
+- `Material::decays_into` / `decay_reseeds`, so the scan gates on a `Vec`
+  index at a site that already holds the `Cell` (ash → soil and litter →
+  soil are both data now; ash keeps the reseed roll, litter does not).
+- The dedup index extended from `StructuralCheck` to `Decay`. Without it a
+  drift that is disturbed and re-settles stacks a site per settle, and since
+  each rolls `DECAY_CHANCE_*` independently the decay rate would become a
+  function of how often the ground was walked on — a correctness problem,
+  not a performance one.
 
-**Not fixed here, because the cheap-looking fixes are each wrong in a
-different way** and picking one is a design call, not an implementer's
-default:
+**The four candidates it was chosen over**, kept so they are not re-derived:
 
-| candidate | why it is not obviously right |
+| candidate | why it lost |
 |---|---|
-| Re-schedule from `move_cell` | It is described in its own comments as the hottest path in the engine, and already pays a registry lookup grudgingly. A scheduler write per powder move is a frame cost, and WP-B2's own acceptance carries a hard ~1 ms settled-frame budget. |
-| Have `tick` search for the cell | Bounded scan, fragile, and wrong the moment two litter cells swap which one it finds. |
-| Per-cell age in `aux` | The real fix in spirit, but `aux` carries two opposite conventions already (`CLAUDE.md`'s first gotcha) and a third reader is how that gotcha gets a fourth entry. |
-| Schedule on settle | Wants a "powder came to rest" hook that does not exist. |
+| Re-schedule from `move_cell` | Its own comments call it the hottest path in the engine, and a falling cell moves every frame — it would push a site per frame of fall, each 200 frames out. |
+| Have `tick` search for the cell | Bounded scan, fragile, wrong the moment two cells swap which one it finds. |
+| Per-cell age in `aux` | **Cannot work.** Something must tick the age and the CA sweep skips settled chunks — a settled litter layer is exactly when decay must run and exactly when the sweep is not visiting. This is *why* the scheduler exists. Also `aux` already carries two opposite conventions. |
+| Slow global sweep for decayable material | Trades a per-cell schedule for scanning the world; wrong direction with M10 streaming coming. |
 
-A fifth option, and the one that makes `litter.ron` work with no hot-path
-cost, is to stop scheduling per cell at all and sweep for decayable material
-on a slow cadence — but that trades a per-cell schedule for a periodic scan,
-which is exactly the kind of cost this repo measures before adopting.
+**Guard:** `decay::tests::ash_that_falls_before_its_first_check_still_decays`
+(was `#[ignore]`d as the reproduction, now passes and stays as the guard),
+plus `litter_rots_away_instead_of_accumulating_forever` and
+`a_world_where_nothing_sheds_holds_exactly_no_litter`.
 
-**Also noted while here:** `decay::tick` is welded to ash by identity and
-hardcoded to produce soil, and `Material` has no `decays_into` field. That
-generalisation is small and is *not* the blocker; the strand is.
+**Measured after:** paired against the pre-change commit, same machine,
+minutes apart — worst frame **240.60 ms vs 257.74 ms** on a settled tree
+grove, i.e. no regression. Pending decay sites went **105 → 12,056**, which
+is the mechanism working rather than leaking: every settled litter cell holds
+one deduped site, and the count converges (8,424 → 11,671 → 12,056), so that
+is a standing forest floor at equilibrium between leaf fall and decay.
+
+**Still open, and it is cosmetic:** litter's palette was authored close to
+soil's on purpose ("reads as texture, not a second canopy lying down"), and
+on the close-up that looks like a mistake — twelve thousand cells of it and
+it barely separates from the ground. Posted to the review queue; if it does
+not read, the fix is the palette, not the mechanism.
 
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 

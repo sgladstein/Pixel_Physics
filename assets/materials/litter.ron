@@ -6,10 +6,6 @@
 // not `deadwood` (that is a snapped *branch*, dense and slow-burning) and
 // not `ash` (that is what fire leaves, and it is mineral).
 //
-// **This material is inert as landed: nothing decays it yet.** See the
-// blocking note at the bottom — that is a decision for the owner, not a
-// default for an implementer to pick.
-//
 // The creature branch's S3 will extend this with the edibility fields
 // (`food_energy` and friends). Named here in a comment rather than added as
 // dead data, on the same reasoning as `design-philosophy.md`'s line on
@@ -54,6 +50,12 @@
     burn_temperature: 500.0,
     burn_duration: 60,
     burns_into: "ash",
+    // **Rots where it lies**, on `decay.rs`'s moisture-gated schedule -- the
+    // same channel ash uses, which is what makes a forest floor a cycle
+    // rather than an accumulator. No `decay_reseeds`: leaf fall under a
+    // standing canopy is not a succession event, and a reseed roll per shed
+    // leaf would carpet the world in trees.
+    decays_into: "soil",
     // Mandatory for anything fire can heat — see `ash.ron`'s note on why a
     // material with no conductivity keeps its chunk awake forever holding
     // heat it cannot shed.
@@ -61,30 +63,4 @@
     // **No `breaks_into`.** Litter is already the broken-down form; there is
     // nothing smaller for it to become, and pointing it at itself would make
     // a fragment loop. The plan asks for exactly this.
-    //
-    // ------------------------------------------------------------------
-    // **BLOCKED, and not with a placeholder: litter has no way to decay.**
-    //
-    // The plan called for "decays to soil on the ash decay schedule (copy
-    // ash's transformation pattern; if ash has no reusable hook, say so and
-    // stop rather than inventing one)". There *is* a hook —
-    // `ActiveKind::Decay`, dispatched to `decay::tick` — but it is welded to
-    // ash by identity (`if world.get(x, y).material != ash_id { return }`)
-    // and hardcoded to produce soil, and there is no `decays_into` field on
-    // `Material` at all. Generalising it is a small change.
-    //
-    // That is not the blocker. The blocker is that **a decay site is a
-    // coordinate and nothing makes it follow its cell.**
-    // `CellSurface::move_cell` copies the cell and its flags and touches no
-    // scheduler state, and `decay::tick` *unschedules* on a material
-    // mismatch — which is what "the cell fell out of this coordinate" looks
-    // like. Litter is shed in a canopy and falls to the ground every single
-    // time, so every litter cell would strand its own decay site in mid-air
-    // and the forest floor would accumulate litter that never drains.
-    // `decay::tests::ash_that_falls_before_its_first_check_still_decays` is
-    // the reproduction, `#[ignore]`d because it fails.
-    //
-    // Emitting litter with no decay would be shipping a known leak, so the
-    // three abscission sites are NOT switched over in this commit.
-    // ------------------------------------------------------------------
 )

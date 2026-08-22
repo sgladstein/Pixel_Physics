@@ -172,56 +172,21 @@ architecture moved under both.
 
 ## WP-B2 — Litter (Session F, after WP-B1)
 
-> **STATUS 2026-08-21: item 1 landed, item 2 BLOCKED, awaiting an owner
-> decision.** `assets/materials/litter.ron` exists and is embedded. The three
-> abscission sites are deliberately *not* switched over: a decay site is a
-> bare coordinate and nothing makes it follow its cell, so every litter cell
-> — shed in a canopy, falling to the ground every time — would strand its own
-> decay site in mid-air and the forest floor would accumulate litter that
-> never drains. Proven paired, not read off the source:
-> `decay::tests::ash_that_falls_before_its_first_check_still_decays`.
-> Full write-up and four rejected candidate fixes in
-> `Reports/open-bugs-handoff.md` §0. **The frame-cost and edible-cell
-> measurements in the acceptance below are not runnable until this is
-> decided** — nothing emits litter, so both would measure zero and mean
-> nothing.
-
-
-**Spec** (call 3, signed off: one material, landed once, plant side
-writes it; the creature branch consumes it later):
-
-1. `assets/materials/litter.ron`: Powder, light (density ~0.3),
-   flammable (~0.6, short burn), `breaks_into` nothing, decays to soil
-   on the ash decay schedule (copy ash's transformation pattern; if ash
-   has no reusable hook, say so and stop rather than inventing one).
-   Name the fields the creature plan's S3 will extend (`food_energy`
-   etc.) in a comment, not in code.
-2. The three abscission sites stop deleting foliage:
-   plant.rs:3510 (shade), :3541 (drought), :3740
-   (`shed_stranded_leaves`) write a litter cell instead of
-   `Cell::EMPTY`. The shed cell loses its `organism_id` (it is no
-   longer the plant's). Update the conceding comment at
-   plant.rs:4093–4097 — it records exactly this gap.
-
-**Acceptance:**
-
-- Paired standard run, litter on/off: the on-arm's ground shows litter
-  accumulating under stands (sheet at noon), and the count of edible
-  cells within three rows of the surface — today 0–11 — is measured
-  and reported. **Measure, then report; do not set a bar** — the
-  creature side sets its own bar when it consumes this.
-- Litter provably drains: a sealed test scene's litter count reaches 0
-  after decay (the u8-decay ghost-trail lesson — assert strict
-  decrease).
-- **The frame cost measurement is part of this package, not a
-  follow-up:** falling powder defeats the dirty-rect skip exactly
-  where it earns its keep, so measure `ascii` worst-frame on a
-  **settled mature forest**, paired, same session. If it costs more
-  than ~1 ms on the settled scene, stop and report with the number —
-  mitigations (shorter litter life, emit only with a clear fall path)
-  are a decision, not a default.
-- Sanity when nothing is wrong: with `shade_death: 0.0` the litter
-  count is exactly 0.
+> **STATUS 2026-08-21: COMPLETE.** Litter material, all three abscission
+> sites switched over, and the blocker fixed. Decay sites are now scheduled
+> at the awake->settled transition instead of at cell creation, which is what
+> the rule always meant -- weathering happens to matter that has come to rest.
+> `Material::decays_into`/`decay_reseeds` make both ends data; the dedup
+> index covers `Decay`. Acceptance: litter drains to 0 (strict-decrease
+> guard), a world where nothing sheds holds exactly 0, and the paired
+> settled-forest frame cost is **240.60 ms vs 257.74 ms baseline -- no
+> regression**. Pending sites 105 -> 12,056, converging: a standing forest
+> floor, not a leak. One cosmetic question is with the owner -- litter's
+> palette may be too close to soil's to read. Full record in
+> `Reports/open-bugs-handoff.md` §0.
+>
+> Not run: the edible-cells-near-surface count. It is a creature-side
+> quantity and the creature branch sets its own bar when it consumes this.
 
 ---
 

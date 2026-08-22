@@ -3522,15 +3522,20 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // darkness; 0.0 stays off.
                     //
                     // Checked before the credit, so a leaf being shed does
-                    // not also earn on the tick it dies. The cell is
-                    // emptied rather than turned to wood: leaving
-                    // `MatureBody` behind would have shading foliage
-                    // silently thicken the stem it hung from — the pipe
-                    // model reading a leaf as xylem, fixed once already.
+                    // not also earn on the tick it dies. The cell becomes
+                    // `litter` rather than wood: leaving `MatureBody`
+                    // behind would have shading foliage silently thicken
+                    // the stem it hung from — the pipe model reading a leaf
+                    // as xylem, fixed once already. It used to become
+                    // `Cell::EMPTY`, and that was a conceded gap rather
+                    // than a decision — foliage left the world entirely, so
+                    // a forest floor never accumulated anything and there
+                    // was nothing for the creature side to eat. See
+                    // `shed_to_litter`.
                     if shade_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                         if rng.chance(shade_death * darkness * darkness * darkness) {
-                            world.set(cx, cy, Cell::EMPTY);
+                            shed_to_litter(world, cx, cy);
                             // Reclaim any spray this stranded. NOT a
                             // structural check -- see
                             // `shed_stranded_leaves` for the measured 26x
@@ -3561,7 +3566,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // trade-inversion this split prevents.
                         let thirst = world.desiccation_at(cx, cy).clamp(0.0, 1.0);
                         if rng.chance(drought_death * thirst * thirst * thirst) {
-                            world.set(cx, cy, Cell::EMPTY);
+                            shed_to_litter(world, cx, cy);
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
                         }
@@ -3716,6 +3721,33 @@ fn is_frontier(cell_type: CellType) -> bool {
 /// cannot touch wood. The cap is generous against the cluster size and
 /// conservative on overflow: a component too big to survey completely is
 /// left standing, not deleted.
+/// What a shed leaf leaves behind: a `litter` cell, not a hole.
+///
+/// **The shed cell stops being the plant's** -- `Cell::new` carries no
+/// organism id, which is the point. It is loose matter from here on: it
+/// falls, it piles at litter's own steep angle of repose, it burns as the
+/// fastest fuel in the world, and it rots back into soil on `decay.rs`'s
+/// schedule. That last one is what makes a forest floor a cycle rather than
+/// an accumulator, and it is why this could not land until decay sites
+/// stopped stranding (`Reports/open-bugs-handoff.md` §0).
+///
+/// It draws from litter's palette rather than keeping the leaf's shade: the
+/// greens going is what says "shed" at a glance.
+///
+/// `id_of` by name, like `soil`, because litter was appended to `EMBEDDED`
+/// and has no `material::` constant. This runs on an abscission event, not
+/// per cell per frame, so the string hash is not on a hot path. Falls back
+/// to emptying the cell so a stripped asset set still sheds.
+fn shed_to_litter(world: &mut World, x: i32, y: i32) {
+    let Some(litter) = world.materials.id_of("litter") else {
+        world.set(x, y, Cell::EMPTY);
+        return;
+    };
+    let shades = world.materials.get(litter).palette.len().max(1) as u32;
+    let shade = world.rng.below(shades) as u8;
+    world.set(x, y, Cell::new(litter, shade));
+}
+
 fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
     const COMPONENT_CAP: usize = 32;
     let mut visited: Vec<(i32, i32)> = Vec::new();
@@ -3760,7 +3792,7 @@ fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_id: u16) {
         }
         if !anchored && !overflowed {
             for &(lx, ly) in &component {
-                world.set(lx, ly, Cell::EMPTY);
+                shed_to_litter(world, lx, ly);
             }
         }
         visited.extend(component);

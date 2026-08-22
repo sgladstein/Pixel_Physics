@@ -17,6 +17,7 @@ use std::collections::{BinaryHeap, HashMap};
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature::CreatureState;
+use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
@@ -133,6 +134,20 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup idea as `pending_structural_checks`, for
+    /// `ActiveKind::Decay`, and it exists for a different reason worth
+    /// stating: decay sites are scheduled by `World::end_step`'s settle
+    /// scan, which fires **every time a chunk goes from awake to settled**.
+    /// A litter drift that is disturbed and re-settles ten times would
+    /// otherwise stack ten sites on each of its cells, and since each site
+    /// independently rolls `DECAY_CHANCE_*`, the effective decay rate would
+    /// become a function of how often the ground was walked on. That is not
+    /// a performance problem, it is a correctness one -- the rate has to be
+    /// a property of the material, not of the chunk's history.
+    ///
+    /// `Decay` carries no state beyond position, so `(x, y)` is an
+    /// unambiguous key, exactly as for a structural check.
+    pending_decay_sites: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -321,6 +336,7 @@ impl World {
             chunk_bodies: Vec::new(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
@@ -499,6 +515,12 @@ impl World {
             }
             self.mark_structural_check_pending(site.x, site.y);
         }
+        // `insert` returns false when the position was already present, so
+        // this both tests and marks in one go -- the structural arm above
+        // needs two calls only because its index is also read elsewhere.
+        if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
+            return;
+        }
         self.active_sites.push(Reverse(site));
     }
 
@@ -581,6 +603,9 @@ impl World {
         self.active_sites.pop();
         if let scheduler::ActiveKind::StructuralCheck = site.kind {
             self.clear_structural_check_pending(site.x, site.y);
+        }
+        if let scheduler::ActiveKind::Decay = site.kind {
+            self.pending_decay_sites.remove(&(site.x, site.y));
         }
         Some(site)
     }
@@ -1780,6 +1805,22 @@ impl World {
         // cost near-zero once everything sleeps.
         let materials = &self.materials;
         let touched = &mut self.touched_chunks;
+        // **Where decayable matter gets its decay site**, collected here and
+        // scheduled after the loop (the loop holds `self.chunks` mutably, so
+        // it cannot call `schedule_active_site`).
+        //
+        // A decay site is a bare coordinate and nothing makes it follow its
+        // cell -- `move_cell` touches no scheduler state -- so scheduling one
+        // when the cell is *created* strands it the moment the cell falls,
+        // which for shed litter is every time. Scheduling on **settle**
+        // instead is not a workaround for that; it is what the rule actually
+        // means. Weathering happens to matter that has come to rest, so the
+        // awake->settled transition is exactly the event, and a cell that
+        // moves afterwards simply gets a fresh site when it settles again.
+        // Bounded (one chunk), rare (chunks settle once and stay settled),
+        // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
+        // §0 for the four candidates this was chosen over.
+        let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -1809,7 +1850,24 @@ impl World {
             if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
                 chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
+                // Rides the scan `recompute_reach` is already doing, on the
+                // same transition and for the same reason it was chosen:
+                // this is the one point that is both cheap and safe.
+                let bounds = chunk.coord.bounds();
+                for y in bounds.min_y..=bounds.max_y {
+                    for x in bounds.min_x..=bounds.max_x {
+                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
+                            settled_decayables.push((x, y));
+                        }
+                    }
+                }
             }
+        }
+        // Deduped inside `schedule_active_site`, which is what stops a drift
+        // that settles repeatedly stacking sites and turning the decay rate
+        // into a function of how often the ground was disturbed.
+        for (x, y) in settled_decayables {
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
         }
     }
 
