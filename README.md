@@ -869,7 +869,11 @@ probe.
 
 Three materials arrive with them: `litter`, `grassblade`, `grassroot`.
 
-**What is not settled.** One test is red: the genome's root-branching slot
+**What is not settled.** One test is red, and it is a calibration problem
+rather than a visible one -- the stand was rendered before and after and
+judged by eye as "a little different, fatter merging a bit more, not wildly
+different", with the root change inside existing plant-to-plant
+variability. The genome's root-branching slot
 orders root mass in the right direction but by a fraction of the margin it
 was calibrated at. Two explanations have been offered and **both have been
 measured and falsified** — it is not the `field.rs` diff and it is not

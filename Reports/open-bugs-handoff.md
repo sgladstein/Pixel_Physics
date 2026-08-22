@@ -111,6 +111,30 @@ efficiently**, which is a change in main's field/soil path — the same
 specific quantity (uptake per tick) and the specific consequence (a gate
 crossing) attached.
 
+**Judged by eye, 2026-08-22, and the alarming reading was wrong.** A
+before/after of the stand was rendered at a dry noon frame and put to the
+owner. The session's own reading was that the merged canopy had closed into
+a continuous slab and the roots into a surface mat -- i.e. the "canopies
+merge into a slab" failure `Reports/tree-architecture-research.md` exists
+for. **The owner's verdict, given directly:** the new trees look *"a little
+different, fatter merging a bit more, not wildly different"*, and the roots
+*"a little different but not obvious given the plant to plant variability
+that already exists."*
+
+That is a much smaller claim than the one it replaced, and it changes what
+this entry is. The −24% root mean and the collapsed max are real numbers,
+but they do **not** cash out into a player-visible regression: they sit
+inside the spread twelve identical genomes already produce (31 to 153 cells
+in the recorded census). So §A is a **test-calibration problem**, not a
+symptom of the world looking wrong -- which is the right prior for anyone
+deciding how much to spend on it.
+
+Recorded here because the session that rendered it argued itself into the
+larger claim from two real measurements plus one picture, and only the
+owner's eye cut it back. The card is
+`20260822T081525474Z-8c4bc2` on the `plants` board and is still open in the
+queue; this verdict arrived in conversation rather than through the tool.
+
 **Still not confirmed, and this is the measurement that would do it:** a
 direct count of `break_root_tips` firings per run on each branch. The
 mechanism above is inferred from a threshold crossing in an aggregate mean,
