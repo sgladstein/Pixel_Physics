@@ -1,0 +1,54 @@
+{
+  "id": "20260822T084149897Z-f5e022",
+  "created": "2026-08-22T08:41:49Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "5e57b7e",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The sand lenses, at 6x: no longer perfect ovals",
+  "question": "Do these read as deposited sand now rather than as drawn ovals — or is it still too regular?",
+  "context_md": "Your note: *\"The ovals of sand throughout the stone looks bad and should be fixed. It should be a more natural shape than perfect ovals.\"*\n\nThey were exactly that — an exact rotated ellipse, `(u/a)² + (v/b)² <= 1`. A drawn primitive, which is the category round 6 rejected by name. At the sizes these draw (8 to 60 cells along the long axis) the arc is smooth over tens of cells and nothing else in the rock has an edge like that.\n\nThe outline is now the ellipse plus a wobble: three seeded harmonics at 3/5/8 (one sine is an egg, two is a peanut; odd non-multiple frequencies stop it closing on any symmetry) and a noise field that roughens the edge cell by cell. The lobe term is a fraction of *radius*, so it is worth 2-17 cells along the long axis and under a cell across the short one — which is the right asymmetry, since a lens is only 2-12 cells thick and the long smooth arc is the part that read as drawn. Where the terms pull the boundary inside its own centre the lens pinches out, which is what a real lens does at its ends.\n\n`canyon` seed 3, world x 1980-2492, 6x zoom, one variable.\n\n**It is a `.ron` knob, so you can turn it yourself with F5**: `lens_roughness`, default 1.0, and **0.0 gives you back the exact ellipse**. If 1.0 is not far enough, try 1.3; past about 1.5 lenses start pinching into disconnected lobes — real lenses do that at their ends, but it stops reading as one body.\n\n**What it cost, since frame cost is a hard constraint here:** the `pockets` pass goes 45.9 -> 118.3 ms, +72 ms on a ~9,000 ms generation behind the loading screen. Nothing per-frame. It was 244 ms before I put a cheap rejection ahead of the expensive outline test.\n\n**One thing I deliberately did not change:** the *seal*. The same wobble is applied to the lens and to its rind, so every lens cell is still inside the seal-checked region by construction — a lobe cannot push sand through its own rind and outcrop on a free face, which is the failure that would make the world move on frame one.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — exact ellipse (lens_roughness 0.0)",
+      "files": [
+        "20260822T084149897Z-f5e022/000-lensz-before.png"
+      ],
+      "caption": "what shipped",
+      "meta": {
+        "lens_roughness": 0.0,
+        "lens cells in the world": 275697,
+        "pockets pass ms": 45.9
+      },
+      "focus": null
+    },
+    {
+      "label": "after — lens_roughness 1.0",
+      "files": [
+        "20260822T084149897Z-f5e022/001-lensz-after.png"
+      ],
+      "caption": "harmonics + edge grain",
+      "meta": {
+        "lens_roughness": 1.0,
+        "lens cells in the world": 279708,
+        "pockets pass ms": 118.3,
+        "volume change": "+1.5%, so only the shape moved"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
