@@ -319,6 +319,11 @@ pub struct Tuning {
     /// hybrid knob: at its default of `0` the fabric is the whole pattern,
     /// and at `4`-`6` a fan of walked rays rides on top of it for an A/B.
     ///
+    /// This is the **nominal** radius: `JointSeams::wake` scales it by how
+    /// confined the charge is and how far it stands off the ground, so an
+    /// unconfined shot reaches up to twice this and a standoff shot much less
+    /// (`JointExposure`). A fully buried, in-contact charge gets exactly this.
+    ///
     /// There is **no hard cut at this radius.** It is the distance at which
     /// the activation ramp reaches zero, and a joint activates only if its
     /// own draw falls under the ramp — so the damaged region's edge is
@@ -720,6 +725,101 @@ fn cast_confinement_ray(world: &World, cx: i32, cy: i32, dx: f32, dy: f32, floor
     RayResult { cost, vented: false, struck_solid }
 }
 
+/// How the charge sits against the rock it is meant to crack -- the two
+/// numbers `JointSeams` scales its halo by, bundled for the same reason
+/// `Confinement` below is bundled: they always travel together, and one
+/// `Copy` struct is also what keeps `JointSeams::wake` under clippy's
+/// argument limit.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct JointExposure {
+    /// Fraction of the 16 smoothed confinement sectors that vent to a free
+    /// face: `0.0` fully buried, `1.0` an open-air burst.
+    ///
+    /// The fabric uses this to **compensate**, not to gate, and that is the
+    /// opposite of what it means to `clear_annulus` and `fracture_shell`. A
+    /// vented sector is a direction with no rock in it, so a halo of fixed
+    /// radius wakes proportionally fewer joints on a surface shot than on a
+    /// buried one purely because half its disc is sky. That is physically
+    /// right and it reads as boring: 105 joints for the surface burst
+    /// against 606 for the buried one on the owner's ten-GIF card, and his
+    /// verdict was *"I don't like 3, not much happening."* So the reach is
+    /// stretched by `1/sqrt(contained)` -- an unconfined charge reaches
+    /// further into the rock it *does* have. `contained == 1` leaves the
+    /// arithmetic bit-identical, which is what keeps the buried case from
+    /// paying for the fix.
+    vented: f32,
+    /// Cells from the epicentre to the nearest ground, `0` when the charge
+    /// is in it or on it. See `standoff_to_ground`.
+    standoff: f32,
+}
+
+/// How far the charge stands off the ground it would crack, in cells.
+///
+/// **This is the distance term `Reports/explosion-stone-review.md` §15d
+/// asked for and deliberately did not build.** Four of that sweep's 36
+/// charges woke no joints at all, gated by `probe_confinement`'s
+/// `struck_solid`: a charge whose every probe ray vents to air before
+/// crossing a `Solid` cell reads as "no rock to crack" even with a hillside
+/// two cells under it. The recorded reason for leaving it was that simply
+/// dropping the gate makes an *airburst* dice the ground beneath it at full
+/// ramp -- the ramp is flat out to the crater wall, and an airburst's
+/// crater wall is over the ground. A standoff is what tells those two
+/// apart: a surface burst is *in* the ground (`0`), an airburst is not.
+///
+/// Expanding square rings, the same shape as `structural::burial_depth` and
+/// for the same reason: the first ring holding ground is the answer, and
+/// this runs **once per blast, at trigger**, never per cell per frame.
+///
+/// Ground is `Solid`, `Powder` or `Plant`. A liquid is not, which is the
+/// same reading `cast_confinement_ray` already gives it -- water displaces
+/// rather than bracing on a detonation's timescale, so a charge under water
+/// is a charge under open sky to this probe. Nothing in the harness stands
+/// a charge off *through* water, so that is recorded rather than measured.
+fn standoff_to_ground(world: &World, cx: i32, cy: i32, cap: i32) -> f32 {
+    let is_ground = |x: i32, y: i32| {
+        world.in_bounds(x, y)
+            && matches!(
+                world.materials.kind(world.get(x, y).material),
+                material::MaterialKind::Solid | material::MaterialKind::Powder | material::MaterialKind::Plant
+            )
+    };
+    if is_ground(cx, cy) {
+        return 0.0;
+    }
+    for r in 1..=cap {
+        let hit = (-r..=r).any(|d| is_ground(cx + d, cy - r) || is_ground(cx + d, cy + r) || is_ground(cx - r, cy + d) || is_ground(cx + r, cy + d));
+        if hit {
+            return r as f32;
+        }
+    }
+    cap as f32
+}
+
+/// The floor under the fraction of a charge's surroundings taken as rock,
+/// and therefore the cap on how far the vent compensation may stretch the
+/// halo: `1/sqrt(0.25)` is `2.0`, so no charge reaches more than twice its
+/// nominal joint radius however open it is.
+///
+/// A cap is needed at all because the compensation divides by the contained
+/// fraction and a fully open charge's is zero. Two is the number because
+/// the shortfall it compensates for is about that: a surface shot's disc is
+/// roughly half rock, and area goes as the square of the radius.
+const JOINT_VENT_FLOOR: f32 = 0.25;
+
+/// How much clear air, as a fraction of the crater radius, takes a charge's
+/// coupling into the grain from full to nothing.
+///
+/// `0.5` -- half a crater radius. Air is a bad coupler: a charge that is
+/// not touching the rock puts its energy into the atmosphere and what
+/// reaches the grain falls off fast. It scales the reach **and** the
+/// activation density, so a standoff charge leaves a small, sparse
+/// craquelure instead of the fully diced near field a contact charge
+/// leaves, which is exactly the outcome §15d refused to ship.
+///
+/// Every charge in the harness except the airburst has a standoff of `0`
+/// and is untouched by this.
+const JOINT_CONTACT_STANDOFF: f32 = 0.5;
+
 /// R2's confinement result, bundled for `rigid::fracture_shell` — the reach
 /// array and the radius it is measured against always travel together (a
 /// sector is "open" exactly when its reach equals the radius), and passing
@@ -1120,27 +1220,41 @@ impl Blast {
             None
         };
 
-        // F: the joint fabric. Same `struck_solid` gate as the walker star
-        // above -- an airburst has no grain to wake -- and the same
-        // trigger-time timing, but with one deliberate difference that the
-        // owner's other complaint on that card decides: the **near** joints
-        // are opened *now*, on the bang frame, not handed to the growth
-        // front. Breakage currently arrives 7-15 seconds after the flash
-        // because it waits on a structural relaxation wavefront travelling
-        // one cell per five frames; opening the near seams at detonation
-        // puts visible breakage at the bang and leaves the slower beat to
-        // the scored halo, which is what should look like it is spreading.
+        // F: the joint fabric. Same trigger-time timing as the walker star
+        // above, with one deliberate difference that the owner's other
+        // complaint on that card decides: the **near** joints are opened
+        // *now*, on the bang frame, not handed to the growth front.
+        // Breakage used to arrive 7-15 seconds after the flash because it
+        // waited on a structural relaxation wavefront travelling one cell
+        // per five frames; opening the near seams at detonation puts
+        // visible breakage at the bang and leaves the slower beat to the
+        // scored halo, which is what should look like it is spreading.
+        //
+        // **No `struck_solid` gate here any more**, and that is the fix for
+        // `Reports/explosion-stone-review.md` §15d: four of the 36 sweep
+        // charges woke no joints at all because every probe ray vented to
+        // air before crossing a `Solid` cell, which is what a shallow
+        // charge on a slope looks like from the epicentre. The walker star
+        // above keeps the gate -- it is the archived A/B path and stays
+        // byte-identical -- and the fabric replaces it with the two
+        // continuous terms §15d asked for: a standoff distance and a
+        // confinement scale, both in `JointExposure`. `wake` still returns
+        // `None` when nothing in reach is jointed, and now also when the
+        // coupling has fallen to nothing.
         let mut joints_opened = 0;
         let mut joints_activated = 0;
-        let seams = if struck_solid {
-            JointSeams::wake(world, cx, cy, radius, tuning).map(|(seams, opened, activated)| {
-                joints_opened = opened;
-                joints_activated = activated;
-                seams
-            })
-        } else {
-            None
+        let exposure = JointExposure {
+            vented: open_sectors as f32 / CONFINEMENT_SECTORS as f32,
+            // Capped at the halo it would scale: past a whole nominal joint
+            // reach of clear air the answer has stopped mattering, and the
+            // ring search is quadratic in it.
+            standoff: standoff_to_ground(world, cx, cy, (radius.max(1) as f32 * tuning.joint_reach).ceil() as i32),
         };
+        let seams = JointSeams::wake(world, cx, cy, radius, tuning, exposure).map(|(seams, opened, activated)| {
+            joints_opened = opened;
+            joints_activated = activated;
+            seams
+        });
 
         Self {
             cx,
@@ -1731,12 +1845,30 @@ impl Blast {
 /// shipped with a 70-row sawn-off face at their envelope edge — the same
 /// artifact, diagnosed and fixed once already in this repo.
 ///
-/// **No sector gating.** `clear_annulus` and `fracture_shell` both obey the
-/// confinement probe, because a contained sector must not vent. Joints are
-/// the opposite case: a *confined* charge is exactly the one whose energy
-/// goes into the grain instead of into a cavity, so a fully buried shot
-/// wakes its joints all the way round while clearing almost nothing. That
-/// asymmetry is the mechanism, not an oversight.
+/// **No sector gating, and no gate of any kind.** `clear_annulus` and
+/// `fracture_shell` both obey the confinement probe, because a contained
+/// sector must not vent. Joints are the opposite case: a *confined* charge
+/// is exactly the one whose energy goes into the grain instead of into a
+/// cavity, so a fully buried shot wakes its joints all the way round while
+/// clearing almost nothing. That asymmetry is the mechanism, not an
+/// oversight.
+///
+/// Confinement does reach the fabric, but as **two continuous scales on
+/// one radius**, never as a yes/no (`JointExposure`):
+///
+/// - the reach is stretched by `1/sqrt(contained)`, capped at 2x, so an
+///   unconfined charge reaches further into the rock it *does* have. This
+///   is compensation, not reward: a fixed radius over a half-sky disc wakes
+///   half the joints for reasons of geometry alone, and the owner's verdict
+///   on that was *"I don't like 3, not much happening."* Measured on his
+///   own ten-GIF card, seed 1: the surface burst 105 -> 335 joints and the
+///   shallow crater 144 -> 461, with the buried shot bit-identical at 606
+///   because its `contained` is exactly 1.
+/// - the reach *and* the activation density are both scaled down by the
+///   charge's **standoff**, so a shot in clear air leaves a faint
+///   craquelure rather than a diced field. The airburst at `depth=-8` goes
+///   from 0 joints (it was gated out entirely) to 12 scored and **none
+///   opened** -- it marks the ground and removes nothing from it.
 #[derive(Clone, Debug)]
 struct JointSeams {
     /// The scored halo, sorted by the distance at which the front reaches
@@ -1782,11 +1914,38 @@ impl JointSeams {
     /// something small.
     ///
     /// Otherwise `(seams, joints opened, joints activated)`.
-    fn wake(world: &mut World, cx: i32, cy: i32, radius: i32, tuning: &Tuning) -> Option<(Self, u32, u32)> {
+    fn wake(world: &mut World, cx: i32, cy: i32, radius: i32, tuning: &Tuning, exposure: JointExposure) -> Option<(Self, u32, u32)> {
         let crater = radius.max(1) as f32;
-        let reach = (crater * tuning.joint_reach).max(crater + 1.0);
-        // The opened zone is measured **from the crater wall outward**, not
-        // from the epicentre. Measured from the centre it would be swallowed
+        // **Confinement scales the halo; it never gates it.** See
+        // `JointExposure::vented` for the measurement that asked for this
+        // and `JOINT_VENT_FLOOR` for the cap. A fully contained charge has
+        // `contained == 1`, so this multiplies by exactly one and the
+        // buried case is bit-identical to what shipped.
+        let contained = (1.0 - exposure.vented).clamp(JOINT_VENT_FLOOR, 1.0);
+        // ...and standoff scales the coupling, both the distance it
+        // reaches and how much of the grain it wakes at all. A charge in
+        // or on the ground has `standoff == 0` and is likewise untouched.
+        let contact = (1.0 - exposure.standoff / (crater * JOINT_CONTACT_STANDOFF)).clamp(0.0, 1.0);
+        let reach = crater * tuning.joint_reach / contained.sqrt() * contact;
+        // A charge with no coupling left wakes nothing, and that is the
+        // gate the `struck_solid` flag used to be -- except that it is a
+        // *distance* now, so a shot two cells over a hillside is not the
+        // same thing as one thirty cells over it.
+        if reach < 1.0 {
+            return None;
+        }
+        // Where the flat core of the ramp ends. It is the crater wall
+        // whenever the halo is at least twice the crater, which is every
+        // shipped setting and therefore leaves the arithmetic below exactly
+        // as it was; it shrinks with the reach only for a standoff charge,
+        // whose halo can be smaller than its own crater. Without that the
+        // ramp would divide by a negative and an airburst would sit inside
+        // its own flat core -- the "dices the ground at full ramp" outcome
+        // §15d named.
+        let flat = crater.min(reach * 0.5);
+        // The opened zone is measured **from the crater wall outward**
+        // (`flat`), not from the epicentre. Measured from the centre it
+        // would be swallowed
         // whole by the hole on an open surface shot -- the crater clears
         // that ground anyway -- and the bold near seams would only ever
         // appear on buried charges. As a fraction of the halo it means the
@@ -1802,8 +1961,11 @@ impl JointSeams {
         // that true. Caught by `debris_is_thrown_away_from_the_epicentre`,
         // which sets it to zero to take the fabric's removals out of a scene
         // whose pressure gradient it is reading, and still saw them.
-        let open_to = if open_fraction <= 0.0 { f32::NEG_INFINITY } else { crater + (reach - crater) * open_fraction };
-        let density = tuning.joint_density.clamp(0.0, 1.0);
+        let open_to = if open_fraction <= 0.0 { f32::NEG_INFINITY } else { flat + (reach - flat) * open_fraction };
+        // Scaled by the coupling for the same reason the reach is: what a
+        // standoff charge leaves has to be a sparse craquelure, not the
+        // same diced near field a contact charge leaves in a smaller patch.
+        let density = tuning.joint_density.clamp(0.0, 1.0) * contact;
 
         // The domain map for the box, computed once. A cell's domain costs
         // nine hashes, and the edge test needs both cells' domains, so
@@ -1869,12 +2031,14 @@ impl JointSeams {
                     continue;
                 }
                 // The activation ramp: flat at `joint_density` out to the
-                // crater wall, then linear to zero at the reach. Flat rather
+                // crater wall (`flat`, which is the crater wall for every
+                // charge that is touching the rock), then linear to zero at
+                // the reach. Flat rather
                 // than falling from the epicentre because the near field has
                 // to come apart into *closed* polygons -- half the boundary
                 // of a cell is not a cell, it is a scribble again -- and
                 // linear rather than clipped for the ragged edge.
-                let t = ((d - crater) / (reach - crater)).clamp(0.0, 1.0);
+                let t = ((d - flat) / (reach - flat)).clamp(0.0, 1.0);
                 let ramp = density * (1.0 - t);
                 for down in [false, true] {
                     let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
@@ -3110,8 +3274,18 @@ mod tests {
         // that is the *content* gate this is here to prove: no id test in
         // the code says "stone", so a material that never asked for joints
         // must never get them.
+        //
+        // The sand goes over `test_world`'s stone floor rather than
+        // stopping above it, and that is not tidiness: an unconfined charge
+        // now stretches its halo by up to 2x to compensate for the rock
+        // that is not there (`JointExposure`), and a sand pile *is* an
+        // unconfined charge, so a 48-cell halo becomes a 96-cell one and
+        // the floor 63 cells below is inside it. The scene then contains
+        // jointed rock in reach and the test's own name stops describing
+        // it. `CLAUDE.md`: check the scene still contains the situation you
+        // think it does.
         let mut sand = test_world();
-        for y in 10..118 {
+        for y in 10..128 {
             for x in 10..118 {
                 sand.set(x, y, Cell::new(material::SAND, 0));
             }

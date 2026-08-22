@@ -14,20 +14,23 @@ fail to hold its own roof up the moment you finish it, and the exact width
 at which that starts is not yet where anyone wants it. Also unsettled, and
 the thing to watch when playing: whether collapse now happens **too
 rarely** on open terrain, having spent a long time happening far too much.
-And newly unsettled, and the thing to watch above all: **rock cut loose by
-cracks deep inside solid stone now cracks further where it stands instead
-of being left alone — but only if there is enough of it left to be worth
-cracking.** A worked hillside no longer goes dark with fissures from edge
-to edge, which is what it did briefly: the damage a severed piece does is
-now sized to the piece, and a chip with no inside left does nothing at all.
-Several charges in one hillside read about as they did before this work.
-A single buried charge no longer throws noticeably more rock at the moment
-of the bang than it used to — that went with the fix. What it does instead,
-and this is the thing to judge in play, is **keep working long after the
-bang**: the crater goes on opening for a good ten or twenty seconds, and a
-great deal more rock comes away in the end than ever came away at the blast
-itself. Whether that reads as a mountain settling around a wound or as a
-hillside quietly eating itself is exactly the open question.*
+And the answer to what was the open question at the top of this page last
+build — *does the hillside settle around a wound, or quietly eat itself?* —
+came back as **eating itself**, and is now fixed. **Rock cut loose deep
+inside solid stone still cracks where it stands, but it cracks along the
+same grain a blast finds rather than along wandering lines of its own.**
+Two things follow that are worth watching in play. The breaks a collapse
+draws are now one cell wide, straight and closed, matching the web a blast
+leaves rather than sitting on top of it as a darker tangle. And the world
+**goes quiet**: what came away at the moment of the bang is unchanged, but
+the trickle of small, apparently random collapses that used to go on for
+ten or twenty seconds afterwards has stopped — a charge settles a few
+seconds after the flash and then holds still. The trade is real and is the
+thing to judge: rather less rock comes away *in total* than in the build
+before this one, because much of that total used to arrive long after
+anyone was still watching. A piece smaller than one block of the grain has
+no joint inside it and so cracks nothing at all, which is the same rule as
+before wearing different clothes.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut

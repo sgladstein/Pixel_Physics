@@ -1027,23 +1027,22 @@ enum CrushedObject {
 }
 
 impl CrushedObject {
-    /// The floor under a fissure's length. `CRACK_MIN_LENGTH` exists so a
-    /// small *section* still produces damage the eye can find; a severed
-    /// piece has no such claim on the rock outside it, so its rays are
-    /// bounded by the piece and nothing else.
-    fn min_crack_length(self) -> usize {
+    /// The floor under how far a section's reveal reaches into the rock
+    /// around it. `CRACK_MIN_LENGTH` exists so a small *section* still
+    /// produces damage the eye can find -- and it is now also the floor
+    /// that makes the rule able to *demonstrate itself*: stone's grain is
+    /// 13 cells, so a disc much under ten cells can sit entirely inside one
+    /// domain and contain no joint at all.
+    ///
+    /// A severed piece has no such floor and does not take this path at
+    /// all: it reveals only the joints inside itself, so a piece smaller
+    /// than the grain writes nothing because there is nothing in it to
+    /// write, not because a constant said so. The variant is kept in the
+    /// match rather than folded away so the two objects stay visibly two
+    /// rules -- see `reveal_joints`.
+    fn min_joint_reach(self) -> usize {
         match self {
             CrushedObject::Section => CRACK_MIN_LENGTH,
-            CrushedObject::SeveredPiece => 0,
-        }
-    }
-
-    /// The same argument for the fork pool. Both halves have to scale or
-    /// neither does: a zero-length ray that still throws four branches is
-    /// the same feedback loop with a shorter reach.
-    fn forks_base(self) -> usize {
-        match self {
-            CrushedObject::Section => CRACK_FORKS_BASE,
             CrushedObject::SeveredPiece => 0,
         }
     }
@@ -1123,43 +1122,343 @@ impl CrushedObject {
 /// neighbours, which is the positive feedback `Reports/next-session-
 /// handoff.md` §1b traces every cascade to.
 fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> u32 {
-    // Both the length and the number of forks scale with the piece,
-    // because a fist-sized failure and a 900-cell one should not come
-    // apart to the same amount of damage -- the all-or-nothing outcome is
-    // this project's most expensive recurring artifact and this is where
-    // it would reappear.
-    //
-    // **And at the small end it only scales if the floors come off**,
-    // which is the caveat this comment was missing while it read as
-    // already true. `CRACK_MIN_LENGTH` 10 and `CRACK_FORKS_BASE` 4 are a
-    // floor, not a scale: below a ten-cell extent every piece got the
-    // identical star, so a one-cell chip and a ten-cell section came apart
-    // to exactly the same damage -- the all-or-nothing outcome, in the
-    // half of the range nobody was looking at. The floors are right for
-    // the object they were tuned on and wrong for the other, so they now
-    // come from `CrushedObject` rather than straight from the constants.
-    let extent = region
-        .iter()
-        .map(|&(x, y)| (x - at.0).abs().max((y - at.1).abs()))
-        .max()
-        .unwrap_or(0) as usize;
-    let length = extent.clamp(object.min_crack_length(), CRACK_MAX_LENGTH);
-    let seed = super::rng::jitter(at.0, at.1) * std::f32::consts::TAU;
-    let forks = object.forks_base() + region.len() / CRACK_CELLS_PER_FORK;
-    // `detach: false` -- a confined crush must not unbrace the rock or
-    // reschedule it. Both are right for a *blow* and wrong here:
-    // unbracing confined rock tells the load model the inside of a
-    // mountain has come free, and rescheduling is what turns a crush into
-    // a treadmill. See `walk_fissures`' own doc for the full split.
-    let fissured = walk_fissures(world, at, seed, CRACK_PRIMARIES, length, forks, false);
-    // Counted here rather than inside the walker, so `FailureCounts`
-    // keeps meaning exactly what it did: cells a *confined failure*
-    // cracked where they stood. A blast's fissures are the blast report's
-    // business (`BlastReport::cells_fissured`) and must not land in the
+    // **The damage still scales with the piece, and it is still two
+    // objects and two rules** -- what changed is what gets drawn. See
+    // `reveal_joints` for the mechanism and `CrushedObject` for the split.
+    let fresh = reveal_joints(world, region, at, object);
+    // Counted here rather than inside the reveal, so `FailureCounts`
+    // keeps meaning exactly what it did: damage a *confined failure*
+    // wrote where it stood. A blast's own joints are the blast report's
+    // business (`BlastReport::joints_scored`) and must not land in the
     // structural-failure census.
-    world.structural_failures.crushed_cells += fissured;
-    fissured
+    //
+    // It counts **edges** now rather than visited cells, the same unit
+    // `explosion::sever` returns as `fresh`. The two are within a small
+    // factor of each other (a cell owns two edges), and what the counter
+    // is for is unchanged: `crush_in_place(..) > 0` is the treadmill
+    // guard, and "fresh" has to keep meaning "damage that was not already
+    // there" or the guard stops guarding.
+    world.structural_failures.crushed_cells += fresh;
+    fresh
 }
+
+/// A confined failure **reveals the rock's own joints** inside the object
+/// that failed, instead of walking a star of wandering fissures across it.
+///
+/// # What this replaces, and why the walker had to go from here too
+///
+/// `crush_in_place` used to call `walk_fissures`: three primaries at
+/// `CRACK_PRIMARIES`, `CrackStyle::Wander` at 0.9 rad *per cell*, a fork
+/// pool of `CRACK_FORKS_BASE` plus one per `CRACK_CELLS_PER_FORK`, drawn to
+/// completion in the frame the failure happened. Every one of those three
+/// numbers was tuned, and the shape they drew is the one the owner rejected
+/// four times: *"it shouldn't look like a scribble"*.
+///
+/// The blast stopped drawing it at `d5cb19a` and the crush did not, which
+/// left the walker running on the **only** path that still ran by default
+/// -- and it is worse here than it ever was under a blast, because a crush
+/// fires off the relaxation wavefront hundreds of frames after the bang.
+/// The owner's review of the ten animated blasts names both halves of that:
+/// *"thick lines that appear later in the blast"* (the walker marks an edge
+/// **and its mirror**, so it darkens two adjacent cells, where a joint
+/// darkens one) and *"other random movements and small random collapses
+/// that keep happening"*. Measured on `blast=300,45,20,180,60`, seed 1,
+/// read at frame 1,200 against the shipped `confine=0` control: 610 cracked
+/// cells in the world against the control's 145, so the crush wrote **76%
+/// of every crack cell there is**; 2,365 unsupported judgements against 29;
+/// and it **moved less material than not running at all** (2,226 cells
+/// promoted against 2,814).
+///
+/// # What the swap costs, read as a trajectory rather than an instant
+///
+/// Promoted cells at frame 1,200 fall, 2,226 to 1,213, and that number on
+/// its own reads as lost breakage. It is not: it is lost *lateness*.
+/// Sampled every 200 frames on the same charge (the bang is at frame 60),
+/// cells promoted go
+///
+/// ```text
+///   frame       100    300    500    700    900   1100   1300
+///   walker      503    528    528  1,745  2,184  2,226  2,710   ...still climbing
+///   fabric      503    693    830  1,155  1,213  1,213  1,213   settled
+/// ```
+///
+/// **Identical at the bang and still rising at 1,300 on the walker.** What
+/// the fabric removed is a collapse trickle that never terminates, which is
+/// the owner's *"small random collapses that keep happening"* as a number,
+/// and cracked cells tell the same story over the same run (233 -> 693 for
+/// the walker, 197 -> 379 settling by frame 700 for the fabric). Anyone
+/// reading a single late tile and concluding the change costs breakage
+/// should sample the curve first: `CLAUDE.md`, assert the property rather
+/// than two instants fitted to one trajectory.
+///
+/// # The cost this does carry, and why no setting of it is cheaper
+///
+/// `scripts/seedsweep.sh strike=12`, 24 runs, order statistics, measured in
+/// this session against `d5cb19a` on the same machine. A strike fires no
+/// blast, so this is `Section`'s disc on its own with no fabric already in
+/// the rock:
+///
+/// ```text
+///                                  cells lost        rock destroyed
+///                                  max     p90       max     p90
+///   d5cb19a, the walked star       192     118     1,106     565
+///   disc, density 0.9  (shipped)   521     174     1,345     852
+///   disc capped at 20 rather than 55
+///                                  562       -     2,034       -
+///   density 0.5 rather than 0.9  1,229     580     2,308   1,815
+///   `Section` bounded by the region
+///                                  430     250     1,774   1,086
+/// ```
+///
+/// **Every attempt to damp it made it worse, and the reason is not a
+/// tuning error.** A region diced *completely* has no free face anywhere --
+/// every block is wedged against its neighbours -- so it is judged confined
+/// and stays exactly where it is. A region diced *partially* leaves pieces
+/// with an open side, and those fall. So thinning the reveal moves material
+/// off the hillside rather than saving it, and the shipped setting is the
+/// most complete of the four rather than the gentlest. `CLAUDE.md`: when a
+/// term resists tuning in both directions, the trade is structural. The
+/// walked star is gentler still and is not available -- it is the pattern
+/// the owner rejected four times.
+///
+/// The region-bounded variant is recorded rather than dismissed: it is
+/// worse on rock destroyed and on `cells lost` p90, and on the blast
+/// diagnostic it promotes 1,078 against 1,213, but it does hold the *max*
+/// down. If the strike sweep's max is ever the number that matters more
+/// than its p90, it is one line away.
+///
+/// # Why the fabric cannot run away here, where the star could
+///
+/// This is the property that makes the swap safe rather than merely
+/// prettier, and it is worth stating plainly because W4's 84,051-cracked-
+/// cell dissolve came from exactly the failure it forecloses. The joint set
+/// is a **pure function of position** (`fracture_field`): two crushes at
+/// two neighbouring sites reveal *the same edges*, so the second writes
+/// nothing, returns zero, and `tick`'s guard stops it propagating. Total
+/// damage in a patch of rock is bounded by the number of joints in that
+/// patch however many failures pass through it. A walker had no such
+/// bound: every new origin drew a new star, which is how one severed
+/// island manufactured the next.
+///
+/// The activation draw is deliberately the same `joint_draw` the blast
+/// uses, at a density chosen to match `Tuning::joint_density`, so a crush
+/// inside a blast's own near field re-selects the boundaries the blast has
+/// already severed and writes nothing at all. The noise the owner sees is
+/// loudest exactly there, and this is why it goes quiet there first.
+///
+/// # `detach: false`, restated because this is the easy thing to get wrong
+///
+/// `explosion::sever` calls `detach_around_crack` and
+/// `schedule_structural_check_around` on both cells of every edge it
+/// parts. **This must not**, and neither may it open a seam. Unbracing
+/// confined rock tells the load model the inside of a mountain has come
+/// free; rescheduling is what turns a crush into a treadmill (1,120
+/// confined failures per 400 frames with the world's material dead still);
+/// and opening removes cells, which is the one thing rock with nowhere to
+/// go must not do. Nothing below writes anything but a crack bit.
+fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), object: CrushedObject) -> u32 {
+    match object {
+        // An over-capacity **section** is still attached to the world and
+        // is cracking *into* it: the fissure spreading out of a failing
+        // boulder into the massif around it is the thing being modelled,
+        // and the massif is by definition not in the region that failed.
+        // (Confining the old walker to `region` was tried and was very
+        // nearly a no-op -- 189 confined failures wrote 29 cells of
+        // fissure between them.) So: a disc about the cell that gave way,
+        // sized off the region's own extent between the same two bounds
+        // the star's length used.
+        CrushedObject::Section => {
+            let extent = region.iter().map(|&(x, y)| (x - at.0).abs().max((y - at.1).abs())).max().unwrap_or(0) as usize;
+            reveal_in_disc(world, at, extent.clamp(object.min_joint_reach(), CRACK_MAX_LENGTH) as f32)
+        }
+        // A **severed piece** has no claim on the rock outside it. Its
+        // damage has to scale from zero, and with a fabric it does so
+        // twice over: the reveal is restricted to joints with *both* cells
+        // inside the piece, and a piece smaller than the grain contains no
+        // such joint at all, so it writes nothing without needing a floor
+        // to say so. That is the same conclusion W4b reached by removing
+        // `CRACK_MIN_LENGTH` from this arm, arrived at from the geometry
+        // instead of from a constant -- and it is strictly tighter, because
+        // a zero-length star still marked the cell it started on.
+        CrushedObject::SeveredPiece => reveal_inside_region(world, region),
+    }
+}
+
+/// The domain a cell's material is jointed on, or `None` if it is not
+/// jointed at all.
+///
+/// The material gate is a `Vec` index on the resolved `Material` at a call
+/// site that already holds the `Cell`, never an `id_of("stone")` string
+/// hash in a loop (`CLAUDE.md`: guard hot-path work at the call site that
+/// already has the data). Sand, soil, gravel and snow leave
+/// `joint_spacing` at `0.0` and fall out here.
+///
+/// The pitch travels back with the domain because it is per material: two
+/// different jointed materials meeting have *different lattices*, and
+/// comparing a domain from one against a domain from the other would be
+/// comparing lattice coordinates that do not mean the same thing.
+fn joint_domain(world: &World, x: i32, y: i32) -> Option<((i32, i32), f32)> {
+    if !world.in_bounds(x, y) {
+        return None;
+    }
+    let cell = world.get(x, y);
+    if !is_body_material(world, cell.material) {
+        return None;
+    }
+    let pitch = world.materials.get(cell.material).joint_spacing;
+    if pitch <= 0.0 {
+        return None;
+    }
+    Some((super::fracture_field::domain(world.seed, x, y, pitch), pitch))
+}
+
+/// Sever one edge and nothing else: the crack bit, no mirror, no glow, no
+/// unbracing, no reschedule.
+///
+/// **No mirror write.** The walker has to mark both perpendicular edges of
+/// every cell it visits, because a line drawn *through* cells leaves the
+/// visited cell joined to the rock on the far side of the line and a
+/// 4-connected flood threads straight out through the gap. A domain
+/// boundary is not a line drawn through cells: it *is* the edge set, it
+/// already contains every edge that separates the two domains, and the
+/// mirror would darken a second cell for nothing. That second cell is the
+/// owner's *"thick lines"* -- at zoom 1, which is what the app and every
+/// GIF use, a crack bit darkens the whole cell.
+///
+/// Returns whether this was **fresh** damage, the same meaning
+/// `explosion::sever` gives its return value and the meaning `tick`'s
+/// treadmill guard depends on.
+fn sever_joint(world: &mut World, x: i32, y: i32, down: bool) -> bool {
+    let cell = world.get(x, y);
+    let scored = if down { cell.with_crack_down(true) } else { cell.with_crack_right(true) };
+    if scored == cell {
+        return false;
+    }
+    world.set(x, y, scored);
+    true
+}
+
+/// Reveal the joints in a disc of `reach` cells about `at`, and return how
+/// many edges were newly severed.
+///
+/// The ramp is `CRUSH_JOINT_DENSITY` at the centre falling linearly to zero
+/// at `reach`, compared against the boundary's own `joint_draw` -- **no
+/// hard cut at the radius**. A joint is drawn from the middle outward and
+/// stops where the ramp falls under its own draw, so some run much further
+/// than their neighbours and the damaged patch has a ragged edge. Clipping
+/// at a radius instead is the mistake that shipped the round-3 caves with a
+/// sawn-off face (`CAVE_EDGE_FADE`), and the same trick is why
+/// `explosion::JointSeams` has none either.
+///
+/// Keyed on the **pair of domains**, not on the edge: one draw for a whole
+/// boundary means a joint is either a full straight segment or absent,
+/// where a per-edge draw activates them in a dashed scatter -- which is the
+/// scribble complaint wearing a different hat.
+fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32) -> u32 {
+    if reach < 1.0 {
+        return 0;
+    }
+    let r = reach.ceil() as i32;
+    let (x0, y0) = (at.0 - r, at.1 - r);
+    // One extra row and column: the last cell in the box still has to be
+    // able to ask about the neighbour it owns an edge with.
+    let (w, h) = ((2 * r + 2) as usize, (2 * r + 2) as usize);
+    let idx = |x: i32, y: i32| ((y - y0) as usize) * w + (x - x0) as usize;
+    // The domain map for the box, computed once. A cell's domain costs nine
+    // hashes and the edge test needs both cells', so caching halves the
+    // work outright -- and this runs on a structural failure, tens to
+    // hundreds of times in a run, never per cell per frame.
+    let mut map: Vec<Option<((i32, i32), f32)>> = vec![None; w * h];
+    for y in y0..(y0 + h as i32) {
+        for x in x0..(x0 + w as i32) {
+            let (dx, dy) = (x - at.0, y - at.1);
+            // A cell just outside the reach still has to be mapped: the
+            // edge it shares with the last cell *inside* is a real
+            // boundary and would otherwise read as "no domain".
+            if ((dx * dx + dy * dy) as f32) > (reach + 1.0) * (reach + 1.0) {
+                continue;
+            }
+            map[idx(x, y)] = joint_domain(world, x, y);
+        }
+    }
+    let mut fresh = 0;
+    for y in y0..(y0 + h as i32 - 1) {
+        for x in x0..(x0 + w as i32 - 1) {
+            let Some((home, pitch)) = map[idx(x, y)] else { continue };
+            let (dx, dy) = (x - at.0, y - at.1);
+            let d = ((dx * dx + dy * dy) as f32).sqrt();
+            if d > reach {
+                continue;
+            }
+            let ramp = CRUSH_JOINT_DENSITY * (1.0 - d / reach);
+            for down in [false, true] {
+                let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
+                let Some((other, other_pitch)) = map[idx(nx, ny)] else { continue };
+                // Different lattices never share a joint, and two cells in
+                // the same domain have no boundary between them. The
+                // severing rule is that identity comparison and nothing
+                // else -- no threshold, so no width to leak through.
+                if other_pitch != pitch || other == home {
+                    continue;
+                }
+                if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
+                    continue;
+                }
+                fresh += u32::from(sever_joint(world, x, y, down));
+            }
+        }
+    }
+    fresh
+}
+
+/// Reveal only the joints **inside** a severed piece -- both cells of the
+/// edge in `region` -- and return how many were newly severed.
+///
+/// Flat activation rather than a ramp: the object here is the *piece*, and
+/// a piece has no centre for a distance to be measured from. The density is
+/// the same one the disc starts at, so a boundary that a nearby crush or
+/// blast has already taken is taken again and writes nothing.
+///
+/// **Both cells, deliberately.** An edge with one cell outside the piece
+/// belongs to the collar of rock the fissures already cut -- severing it
+/// again writes a crack bit into rock the piece has no claim on, which is
+/// precisely how one severed island manufactures the next
+/// (`a_severed_chip_with_no_inside_left_cracks_nothing`'s second arm is the
+/// guard on it).
+fn reveal_inside_region(world: &mut World, region: &[(i32, i32)]) -> u32 {
+    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    let mut fresh = 0;
+    for &(x, y) in region {
+        let Some((home, pitch)) = joint_domain(world, x, y) else { continue };
+        for down in [false, true] {
+            let (nx, ny) = if down { (x, y + 1) } else { (x + 1, y) };
+            if !cells.contains(&(nx, ny)) {
+                continue;
+            }
+            let Some((other, other_pitch)) = joint_domain(world, nx, ny) else { continue };
+            if other_pitch != pitch || other == home {
+                continue;
+            }
+            if super::fracture_field::joint_draw(world.seed, home, other) >= CRUSH_JOINT_DENSITY {
+                continue;
+            }
+            fresh += u32::from(sever_joint(world, x, y, down));
+        }
+    }
+    fresh
+}
+
+/// The height of a crush's activation ramp at its own centre -- the
+/// fraction of the joints in the thick of it that part.
+///
+/// `0.9`, which is `explosion::default_joint_density`, and the match is the
+/// point rather than a coincidence: a confined failure inside a blast's
+/// near field then re-selects the boundaries the blast has already severed
+/// and writes nothing, so the crush goes silent exactly where the owner
+/// reported the noise. Not `1.0` for the reason that knob is not either --
+/// a handful of missing edges is what stops the near field reading as a
+/// drawn tessellation.
+const CRUSH_JOINT_DENSITY: f32 = 0.9;
 
 /// Walk one star of wandering, forking fissures out of `start`, and return
 /// how many fresh crack bits were written.
@@ -1193,7 +1492,18 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), obje
 ///
 /// # The two callers, and the one flag that separates them
 ///
-/// `crush_in_place` passes `detach: false`; the blast in `explosion.rs`
+/// **Read in the past tense: the crush is no longer one of them, and this
+/// entry point is `#[cfg(test)]` now.** The split below is still exactly
+/// live -- `FissureWalks::detach` is a real flag with a real production
+/// user, the blast's `crack_rays` star at `true` -- and the `false` arm is
+/// still the rule a confined crush obeys, which is why the argument is
+/// kept here whole. What changed is what draws it: `crush_in_place` reveals
+/// the rock's joint fabric instead of walking a star, and the `detach:
+/// false` contract moved with it (see `reveal_joints`, and
+/// `a_crush_neither_unbraces_the_rock_nor_reschedules_it`, which is now
+/// written against the crush rather than against this).
+///
+/// `crush_in_place` passed `detach: false`; the blast in `explosion.rs`
 /// passes `true`. `detach` turns on the two things
 /// `rigid::score_cracks` does per scored cell and this deliberately does
 /// not do for a crush:
@@ -1223,8 +1533,9 @@ fn crush_in_place(world: &mut World, region: &[(i32, i32)], at: (i32, i32), obje
 /// budget is *shared*: the strokes are processed breadth-first out of one
 /// queue and take forks from one pool in that order. Calling this once per
 /// primary with the pool split three ways draws a different crack, so the
-/// count stays a parameter and `crush_in_place` stays bit-identical to the
+/// count stays a parameter and `crush_in_place` stayed bit-identical to the
 /// version this was extracted from.
+#[cfg(test)]
 pub(crate) fn walk_fissures(
     world: &mut World,
     start: (i32, i32),
@@ -1357,9 +1668,6 @@ pub(crate) enum CrackStyle {
 #[derive(Clone, Debug)]
 pub(crate) struct FissureWalks {
     walkers: Vec<Walker>,
-    /// `run_to_completion`'s cursor. Unused by `advance`, which sweeps the
-    /// whole queue every call.
-    head: usize,
     /// The **shared** fork pool. Shared rather than per-walker because that
     /// is what `crush_in_place` was extracted from: strokes are processed
     /// out of one queue and take forks from one pool in that order, and
@@ -1392,6 +1700,15 @@ pub(crate) struct FissureWalks {
 impl FissureWalks {
     /// The crush star: `primaries` strokes leaving one origin at even
     /// angles, sharing one fork pool. Exactly what `walk_fissures` took.
+    ///
+    /// **Test-only since the fabric landed.** This is the constructor that
+    /// picks `CrackStyle::Wander`, and the crush was its only production
+    /// caller; the blast builds its hybrid star through `empty` +
+    /// `add_ray` and has always been `Brittle`. Kept, with the wandering
+    /// style and the tests that pin its shape, because `crack_rays > 0` is
+    /// still the owner's A/B knob and the walker has to keep working --
+    /// see `reveal_joints` for what took its place on the crush.
+    #[cfg(test)]
     pub(crate) fn new(start: (i32, i32), heading: f32, primaries: usize, length: usize, forks: usize, detach: bool) -> Self {
         // `Wander`, and no glow: this is the crush constructor, and both
         // halves of that are load-bearing (`CrackStyle`'s own doc).
@@ -1407,7 +1724,7 @@ impl FissureWalks {
     /// the blast's fan, whose spokes each have their own start point,
     /// length and start delay.
     pub(crate) fn empty(detach: bool, style: CrackStyle, glow: i16) -> Self {
-        Self { walkers: Vec::new(), head: 0, forks: 0, detach, scored_now: std::collections::HashSet::new(), style, glow }
+        Self { walkers: Vec::new(), forks: 0, detach, scored_now: std::collections::HashSet::new(), style, glow }
     }
 
     /// Every cell this star has scored so far, in no particular order.
@@ -1463,14 +1780,27 @@ impl FissureWalks {
         self.walkers.iter().all(|w| w.done)
     }
 
-    /// Draw the whole star now, in one call. Depth-first: walker `head` is
+    /// Draw the whole star now, in one call. Depth-first: each walker is
     /// drained completely, forks included by the time the queue reaches
     /// them, before the next walker starts.
+    ///
+    /// **Test-only since the fabric landed**, and that is the honest
+    /// record of what happened rather than a tidy-up: drawing a whole
+    /// 3-ray, 4-fork, 10-to-55-cell star *in a single frame, fully formed*
+    /// is half of the owner's complaint about the crush ("thick lines that
+    /// appear later in the blast", arriving whole). The blast's own hybrid
+    /// star goes through `advance`, a slice per frame, and the crush no
+    /// longer walks at all -- see `reveal_joints`. The cursor is a local
+    /// now rather than a field on the struct for the same reason: nothing
+    /// resumes a one-shot draw, and a written-but-never-read field is a
+    /// claim that something does.
+    #[cfg(test)]
     pub(crate) fn run_to_completion(&mut self, world: &mut World) -> u32 {
         let mut fissured = 0;
-        while self.head < self.walkers.len() {
-            fissured += self.step_walker(world, self.head, usize::MAX);
-            self.head += 1;
+        let mut head = 0;
+        while head < self.walkers.len() {
+            fissured += self.step_walker(world, head, usize::MAX);
+            head += 1;
         }
         fissured
     }
@@ -1843,22 +2173,24 @@ const BRITTLE_SNAP_MAX: f32 = 0.9;
 /// rather than heading off sideways.
 const BRITTLE_FORK_ANGLE: f32 = 0.55;
 
-/// How many primary fissures leave the point that gave way.
-///
-/// Three, so the damage reads as a star spreading out of one place --
-/// which is what a crack from an impact looks like -- rather than as one
-/// stroke through the rock or as a wheel of spokes.
-const CRACK_PRIMARIES: usize = 3;
-
-/// How far a fissure runs, bounded by the piece it is running through.
+/// How far a confined failure's reveal reaches, bounded by the piece it is
+/// reaching out of.
 ///
 /// Scaled to the failing region's own extent between these two, because
-/// the damage has to be a *distribution*: a crack that runs 40 cells
-/// through a 900-cell slab and through a 30-cell one is the all-or-nothing
+/// the damage has to be a *distribution*: the same patch of grain revealed
+/// around a 900-cell section and around a 30-cell one is the all-or-nothing
 /// outcome in miniature. The floor keeps a small failure from producing
-/// damage too faint to see; the ceiling keeps a large one from being cut
-/// clean in half by a single stroke, which is displacement's job and not
-/// this.
+/// damage too faint to see -- and, since `d5cb19a` gave stone a 13-cell
+/// grain, from producing none at all; the ceiling keeps a large one from
+/// dicing a quarter of the screen in one tick.
+///
+/// **These two used to bound a fissure walk's length**, alongside three
+/// constants that are gone with it: `CRACK_PRIMARIES` (3 strokes out of one
+/// origin), `CRACK_FORKS_BASE` (4) and `CRACK_CELLS_PER_FORK` (80, one
+/// extra branch per 80 cells of region). The star they sized is what the
+/// owner rejected four times, and `reveal_joints` records the measurement
+/// that finally took it off the crush as well as off the blast. Anyone
+/// restoring a walked crush needs all five numbers, not these two.
 const CRACK_MIN_LENGTH: usize = 10;
 const CRACK_MAX_LENGTH: usize = 55;
 
@@ -1869,15 +2201,14 @@ const CRACK_MAX_LENGTH: usize = 55;
 /// length, not so much that it doubles back on itself.
 const CRACK_WANDER: f32 = 0.9;
 
-/// How many side-branches a crush may throw, and on what terms.
+/// How often a walker throws a side-branch, and how wide it leaves.
 ///
 /// Forking is the difference between a crack and a hatch: a branch that
 /// leaves at a wide angle and dies sooner than its parent reads as rock
 /// splitting, where independent strokes crossing at a point read as the
-/// scribble the owner rejected. Scaled with the piece for the same reason
-/// the length is.
-const CRACK_FORKS_BASE: usize = 4;
-const CRACK_CELLS_PER_FORK: usize = 80;
+/// scribble the owner rejected. The *pool* a walk may draw from is a
+/// parameter (`FissureWalks::add_ray`); the blast's hybrid `crack_rays`
+/// star is the only production caller left that fills it.
 const CRACK_FORK_CHANCE: f32 = 0.10;
 const CRACK_FORK_ANGLE: f32 = 0.8;
 
@@ -3074,7 +3405,29 @@ mod tests {
     /// would not.
     #[test]
     fn rock_with_nowhere_to_go_cracks_where_it_stands() {
-        /// The slab is x 27..35 by y 33..37.
+        /// The slab is x 22..30 by y 33..37.
+        ///
+        /// **It sat at x 27..35 and had to move five cells left**, and that
+        /// is a fact about the scene rather than a widened bar. A confined
+        /// failure now reveals the rock's own joint fabric instead of
+        /// walking a star through it (`reveal_joints`), and stone's grain
+        /// is 13 cells -- the slab at its old address fell *entirely inside
+        /// one Worley domain*, so it contained no joint and there was
+        /// nothing in it to part along. That is the mechanism being right,
+        /// not the test being wrong; but a scene that asks "does confined
+        /// rock crack where it stands" and hands the rule a piece with no
+        /// joint in it cannot answer either way (`CLAUDE.md`: check that a
+        /// step can demonstrate itself). Five cells left it straddles the
+        /// boundary, and the setup assertion below says so out loud so a
+        /// later change to the grain or the world seed fails here with a
+        /// reason instead of looking like a dead mechanism.
+        ///
+        /// **Growing it instead was tried first and quietly changed the
+        /// scene**: at 20x12 the slab is wide enough that stone's 12x
+        /// attached-span bonus holds it up, so only its 42 fringe cells
+        /// were judged at all and each brought a 5-cell region -- under
+        /// `MIN_FRACTURE_CELLS`, declined before any crush. The slab has to
+        /// stay small enough to fail whole.
         const SLAB_CELLS: usize = 8 * 4;
         // A slab isolated by cracks on every side, so nothing holds it and
         // it must be judged as failing. `open` decides the one thing under
@@ -3086,20 +3439,20 @@ mod tests {
                     w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
                 }
             }
-            // Cut the slab loose: cracks all the way round x 27..35, y
+            // Cut the slab loose: cracks all the way round x 22..30, y
             // 33..37. Support cannot cross a fracture, so this leaves it
             // with no parent at all in either world.
-            for x in 27..35 {
+            for x in 22..30 {
                 let top = w.get(x, 32);
                 w.set(x, 32, top.with_crack_down(true));
                 let bottom = w.get(x, 37);
                 w.set(x, 37, bottom.with_crack_down(true));
             }
             for y in 33..37 {
-                let left = w.get(26, y);
-                w.set(26, y, left.with_crack_right(true));
-                let right = w.get(34, y);
-                w.set(34, y, right.with_crack_right(true));
+                let left = w.get(21, y);
+                w.set(21, y, left.with_crack_right(true));
+                let right = w.get(29, y);
+                w.set(29, y, right.with_crack_right(true));
             }
             if open {
                 // A cavity **directly** above the slab -- the cave-in
@@ -3112,7 +3465,7 @@ mod tests {
                 // situation it is named for looks exactly like a broken
                 // mechanism.
                 for y in 28..33 {
-                    for x in 26..36 {
+                    for x in 21..31 {
                         w.set(x, y, Cell::EMPTY);
                     }
                 }
@@ -3129,7 +3482,7 @@ mod tests {
             // interior one is not: scheduling the middle of the slab is
             // scheduling a cell the model deliberately never looks at.
             for y in 33..37 {
-                for x in 27..35 {
+                for x in 22..30 {
                     w.schedule_structural_check(x, y);
                 }
             }
@@ -3145,13 +3498,13 @@ mod tests {
         // debris pins one of two outcomes rather than the claim. The claim
         // is that the rock either stayed or did not.
         let slab_intact =
-            |w: &World| (33..37).flat_map(|y| (27..35).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
+            |w: &World| (33..37).flat_map(|y| (22..30).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::STONE).count();
         // And the weaker question, which is the one the buried half asks:
         // is there still *something* in every cell the slab occupied.
         // Stone that crushed to rubble in its own footprint passes this
         // and fails `slab_intact`; a slab that travelled fails both.
         let slab_present =
-            |w: &World| (33..37).flat_map(|y| (27..35).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY).count();
+            |w: &World| (33..37).flat_map(|y| (22..30).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material != material::EMPTY).count();
 
         let mut buried = massif_with_isolated_slab(false);
         run(&mut buried, 300);
@@ -3161,6 +3514,24 @@ mod tests {
         assert!(
             buried.structural_failures.confined > 0,
             "test setup: the buried slab was never judged as a confined failure, so this proves nothing"
+        );
+        // And the second half of the setup, which the counter above cannot
+        // see: the slab has to *contain a joint* for "it cracks where it
+        // stands" to have an answer. One domain identity comparison per
+        // interior edge, exactly the rule `reveal_inside_region` applies.
+        let pitch = buried.materials.get(material::STONE).joint_spacing;
+        let interior_joints = (33..37)
+            .flat_map(|y| (22..30).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let home = super::super::fracture_field::domain(buried.seed, x, y, pitch);
+                [(1, 0), (0, 1)].iter().any(|&(dx, dy)| {
+                    (x + dx) < 30 && (y + dy) < 37 && super::super::fracture_field::domain(buried.seed, x + dx, y + dy, pitch) != home
+                })
+            })
+            .count();
+        assert!(
+            interior_joints > 0,
+            "test setup: the slab lies entirely inside one Worley domain, so there is no joint in it to reveal -- move it, or the grain changed"
         );
         // The buried half. Fissures, because that is what "cracks where it
         // stands" means and it is what was missing; and no hole, because
@@ -3233,12 +3604,12 @@ mod tests {
         // column's own `crack_right` are the far sides.
         fn massif_with_severed_piece(w_cells: i32, h_cells: i32) -> (World, Vec<(i32, i32)>) {
             let mut w = test_world();
-            for y in 20..50 {
-                for x in 10..50 {
+            for y in 8..60 {
+                for x in 6..58 {
                     w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
                 }
             }
-            let (x0, y0) = (30, 34);
+            let (x0, y0) = (20, 24);
             let (x1, y1) = (x0 + w_cells - 1, y0 + h_cells - 1);
             for x in x0..=x1 {
                 let above = w.get(x, y0 - 1);
@@ -3299,7 +3670,20 @@ mod tests {
 
         // The other end of the same rule: a piece with an interior still
         // comes apart where it stands.
-        let (mut slab, slab_cells) = massif_with_severed_piece(6, 6);
+        //
+        // **It was 6x6 and had to grow to 20x18.** A confined failure now
+        // reveals joints rather than walking a star, and stone's grain is
+        // 13 cells -- a 36-cell piece fits inside one Worley domain and has
+        // no joint in it, which is the *same* answer the mechanism gives
+        // the chip and for the same physical reason. The claim under test
+        // is "a piece with an interior comes apart", so the scene has to
+        // contain a piece with an interior at the grain the rule reads. It
+        // fails in sub-regions of 11 to 49 cells rather than whole (a piece
+        // this wide is partly held up by stone's attached-span bonus),
+        // which is fine here and is *not* fine for
+        // `rock_with_nowhere_to_go_cracks_where_it_stands` -- see the note
+        // there on why that one moved instead of growing.
+        let (mut slab, slab_cells) = massif_with_severed_piece(20, 18);
         assert!(slab_cells.len() >= super::super::rigid::MIN_FRACTURE_CELLS);
         let slab_cracks_before = cracks_outside(&slab, &slab_cells);
         run(&mut slab, 300);
@@ -3309,21 +3693,27 @@ mod tests {
         );
         assert!(
             slab.structural_failures.crushed_cells > 0,
-            "a 36-cell severed slab cracked nothing -- scaling the star from zero must not turn the crush off"
+            "a 360-cell severed slab cracked nothing -- scaling the damage from zero must not turn the crush off"
         );
-        // **And this is the arm that catches a restored floor.** The gate
-        // above hides that change from the chip -- a four-cell chip is
-        // declined before the star is ever sized -- so without a bar here
-        // the pair would pass while the runaway was back for every piece
-        // over six cells. Measured on this scene: 49 crack bits written
-        // outside the slab's own footprint with the sizing scaled from
-        // zero, 199 with `CRACK_MIN_LENGTH`/`CRACK_FORKS_BASE` restored to
-        // the severed-piece arm. The bar sits at twice the measured value
-        // and half the artifact's, which is the widest gap available.
+        // **And this is the arm that catches the runaway coming back.** The
+        // gate above hides that change from the chip -- a four-cell chip is
+        // declined before anything is sized -- so without a bar here the
+        // pair would pass while one severed island went back to
+        // manufacturing the next.
+        //
+        // The measured value is **0** now and the bar is not set on it. A
+        // severed piece reveals only joints with *both* cells inside
+        // itself, so it writes nothing outside by construction; the
+        // history is 49 crack bits when the walked star scaled with the
+        // piece and 199 with the section's floor restored to it, and the
+        // failure mode the bar exists for is `SeveredPiece` being given the
+        // section's *disc* by a later edit, which on this scene is ~130
+        // edges of fabric mostly outside the piece. 24 sits clear of zero
+        // and far clear of all three artifacts.
         let slab_spread = cracks_outside(&slab, &slab_cells) - slab_cracks_before;
         assert!(
-            slab_spread <= 100,
-            "the slab wrote {slab_spread} crack bits into the rock around it (measured 49 when the star scales with the piece, 199 when the section's floor is restored to it) -- the star is being sized for the wrong object again"
+            slab_spread <= 24,
+            "the slab wrote {slab_spread} crack bits into the rock around it (measured 0 when a severed piece reveals only its own interior joints; 49 and 199 for the two walked stars this replaced) -- the damage is being sized for the wrong object again"
         );
     }
 
@@ -4007,22 +4397,46 @@ mod tests {
         }
     }
 
-    /// W1's crush half: `detach: false` must leave attachment and the
-    /// scheduler alone. Unbracing confined rock tells the load model the
-    /// inside of a mountain has come free, and rescheduling is what turns a
-    /// crush into a treadmill -- both recorded as measured dead ends in
-    /// `crush_in_place`'s own doc, and both are one flag away now.
+    /// A square of massif centred on `at`, as a failing region would
+    /// arrive: `extent` is what `crush_in_place` measures off it, so this
+    /// is how a test says "a section this big gave way here".
+    fn block_region(at: (i32, i32), half: i32) -> Vec<(i32, i32)> {
+        (at.1 - half..=at.1 + half).flat_map(|y| (at.0 - half..=at.0 + half).map(move |x| (x, y))).collect()
+    }
+
+    /// W1's crush half, and **the single most dangerous line in this
+    /// change**: a confined crush must leave attachment and the scheduler
+    /// alone. Unbracing confined rock tells the load model the inside of a
+    /// mountain has come free, and rescheduling is what turns a crush into
+    /// a treadmill (1,120 confined failures per 400 frames on dead-still
+    /// material) -- both recorded as measured dead ends in
+    /// `crush_in_place`'s own doc.
+    ///
+    /// **Written against the crush, not against the walker.** It used to
+    /// call `walk_fissures(.., detach: false)`, which after the fabric
+    /// landed would have gone on passing whatever the crush did -- exactly
+    /// `CLAUDE.md`'s superseded test that runs, passes and exercises
+    /// nothing. `explosion::sever` *does* call `detach_around_crack` and
+    /// `schedule_structural_check_around`, and reaching for it here is the
+    /// obvious way to get this wrong, so the assertion now sits on the
+    /// function that would.
     #[test]
-    fn a_crush_walk_neither_unbraces_the_rock_nor_reschedules_it() {
+    fn a_crush_neither_unbraces_the_rock_nor_reschedules_it() {
         let mut w = test_world();
         massif(&mut w);
         let scheduled_before = w.active_site_count();
-        let written = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
+        let region = block_region((32, 32), 8);
+        let written = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
 
-        assert!(written > 0, "test setup: the walk should have scored something");
+        assert!(written > 0, "test setup: the crush should have severed something");
         assert_eq!(w.active_site_count(), scheduled_before, "a confined crush must schedule no structural checks");
         let unattached = (0..64).map(|x| (0..64).filter(|&y| !w.get(x, y).attached()).count()).sum::<usize>();
         assert_eq!(unattached, 0, "a confined crush must not unbrace anything: {unattached} cells lost attachment");
+        // And it must not *remove* anything either. A blast opens its near
+        // joints into one-cell seams of void and grit; rock with nowhere to
+        // go has to stay where it is, so the crush scores and never opens.
+        let holes = (0..64).map(|x| (0..64).filter(|&y| w.get(x, y).material != material::STONE).count()).sum::<usize>();
+        assert_eq!(holes, 0, "a confined crush removed {holes} cells -- it must score joints, never open them");
     }
 
     /// The other half of the same flag, and the reason it exists: a blast's
@@ -4041,20 +4455,48 @@ mod tests {
     }
 
     /// Idempotence on re-crush, which has no flag to record it and never
-    /// needed one: a crack is a bit, the wander is keyed on position, so a
-    /// second confined failure over the same rock retraces the same paths
-    /// and manufactures nothing. `tick`'s "a crush that wrote nothing has
-    /// nothing to propagate" guard is what stopped a crushed pocket
-    /// re-failing 1,120 times every 400 frames, and it reads exactly this
-    /// number.
+    /// needed one: a crack is a bit and the joint set is a pure function of
+    /// position, so a second confined failure over the same rock reveals
+    /// the same edges and manufactures nothing. `tick`'s "a crush that
+    /// wrote nothing has nothing to propagate" guard is what stopped a
+    /// crushed pocket re-failing 1,120 times every 400 frames, and it reads
+    /// exactly this number.
+    ///
+    /// The fabric makes this stronger than the walker did rather than
+    /// merely keeping it: a walker was idempotent only because its wander
+    /// was position-keyed *from the same origin*, so a second failure a
+    /// cell over drew a whole new star. Two crushes at two neighbouring
+    /// sites now reveal the *same* edges, which is the second assertion
+    /// here and is why a fabric crush cannot run away the way W4's did.
     #[test]
     fn crushing_the_same_rock_twice_writes_nothing_the_second_time() {
         let mut w = test_world();
         massif(&mut w);
-        let first = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
-        let second = walk_fissures(&mut w, (32, 32), 0.7, 3, 30, 4, false);
-        assert!(first > 0, "test setup: the first crush should have scored something");
-        assert_eq!(second, 0, "a re-crush wrote {second} fresh cells; confined damage must not accumulate");
+        let region = block_region((32, 32), 8);
+        let first = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
+        let second = crush_in_place(&mut w, &region, (32, 32), CrushedObject::Section);
+        assert!(first > 0, "test setup: the first crush should have severed something");
+        assert_eq!(second, 0, "a re-crush wrote {second} fresh edges; confined damage must not accumulate");
+        // And the property that bounds a cascade rather than one repeat:
+        // sweep a 5x5 grid of *neighbouring* failures over the same patch,
+        // then sweep it again. The first sweep finds whatever the first
+        // crush had not reached; the second finds nothing at all, because
+        // between them they have revealed every joint there is in that
+        // rock. A walker drew a fresh star per origin and had no such
+        // ceiling -- which is how W4 reached 84,051 cracked cells.
+        let sweep = |w: &mut World| {
+            let mut total = 0;
+            for dy in -2..=2 {
+                for dx in -2..=2 {
+                    let at = (32 + dx * 3, 32 + dy * 3);
+                    total += crush_in_place(w, &block_region(at, 8), at, CrushedObject::Section);
+                }
+            }
+            total
+        };
+        let _ = sweep(&mut w);
+        let again = sweep(&mut w);
+        assert_eq!(again, 0, "a second sweep of 25 neighbouring crushes wrote {again} more edges -- confined damage is accumulating without a ceiling");
     }
 
     /// And the inverse for a blast, which is why the crack-tip bonus had to

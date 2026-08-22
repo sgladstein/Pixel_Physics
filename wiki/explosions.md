@@ -1,11 +1,13 @@
 # Explosions
 
-*Current as of: this build (a blast now breaks rock along the grain the
-rock already has, rather than drawing a star of fissures across it — that
-is the newest part of this page and the half most likely to change again;
-see also the note at the top of [Structural
-Collapse](structural-collapse.md), and confinement, the crack halo and
-per-material blast resistance).*
+*Current as of: this build (a blast breaks rock along the grain the rock
+already has, rather than drawing a star of fissures across it, and as of
+this build so does every collapse that follows it — that is the newest
+part of this page and the half most likely to change again; see also the
+note at the top of [Structural Collapse](structural-collapse.md), and
+confinement, the crack halo and per-material blast resistance. New this
+build: shallow and surface charges crack a visible web instead of almost
+nothing, and a charge going off in mid-air marks the ground under it.)*
 
 **Rock has a grain, and a blast finds it.** Stone is not uniform: it is
 disposed to part along particular planes, and where those planes run is a
@@ -59,7 +61,17 @@ there's a free face nearby — open air, a cave, water — the blast bites
 toward it and throws its rubble out through the mouth. Where it's sealed
 in by solid rock, it doesn't excavate at all: it crushes a small pocket
 and spends the rest of its violence waking the joints in the standing
-rock all the way round, the way a real confined charge does. So burying a bomb
+rock all the way round, the way a real confined charge does.
+
+**An open charge is no longer a boring one.** A shot at or just under the
+surface has only half as much rock around it to crack, so for a while it
+left barely any web at all. It now reaches correspondingly further into the
+rock it *does* have, and cracks a proper spread — still less than the same
+charge buried, but a real pattern rather than a few marks. A charge that
+goes off in **mid-air** is different again: air is a poor way to deliver a
+blow to stone, so it leaves a faint scatter of cracks on the ground beneath
+it and takes nothing away. Fly the same charge higher and even that fades
+out, rather than switching off at some particular height. So burying a bomb
 in the middle of a mountain no longer digs an invisible chamber that
 fills itself back in — it *cracks* the mountain, visibly, and that
 cracked rock is weaker: it breaks more easily under the next blast or

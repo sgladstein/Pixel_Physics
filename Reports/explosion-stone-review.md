@@ -1109,3 +1109,173 @@ obvious fix — let `JointSeams::wake` decide, since it already returns `None`
 when nothing in reach is jointed — makes an *airburst* dice the ground under
 it at full ramp, which is worse. It wants a distance term on the charge's own
 standoff, not a gate flip.
+
+**Closed in §15f below**, with that distance term.
+
+## 16. The crush stops drawing a scribble over the fabric
+
+The owner reviewed ten animated blasts, liked the pattern for the first time,
+and gave four objections. Two of them turned out to be one mechanism:
+
+> **"they all have these thick lines that appear later in the blast that I
+> don't like"** — three pin-drop annotations, on all three of his favourites.
+>
+> **"there are other random movements and small random collapses that keep
+> happening that are not as good"** — explicitly distinguished from the crack
+> spread, which he likes.
+
+### 16a. It was `crush_in_place`, and only that
+
+Three things write cracks. `explosion::sever` and `rigid::score_cracks` each
+mark **one** edge. `FissureWalks::step_walker` marks the edge **and its
+mirror** (added by `1c0bcf7` so a line drawn *through* cells seals against a
+4-connected flood), so it darkens **two** adjacent cells — and at zoom 1,
+which is what the app and every GIF use, a crack darkens the whole cell.
+With `crack_rays` defaulting to `0` the blast builds no walkers at all, so
+**the only walker still running by default was the crush**: `CrackStyle::
+Wander` at 0.9 rad per cell, fired off the relaxation wavefront hundreds of
+frames after the flash, and `run_to_completion`, which draws the whole
+3-ray, 4-fork, 10-to-55-cell star in a single frame, fully formed. Thick,
+scribbly, late and arriving whole — the complaint exactly.
+
+Measured, `blast=300,45,20,180,60` on rolling seed 1, read at frame 1,200,
+against the shipped `confine=0` control:
+
+| | crush on | crush off |
+|---|---|---|
+| cracked cells in the world | 610 | **145** |
+| overloaded failures | 679 | **87** |
+| unsupported judgements | 2,365 | **29** |
+| cells promoted | 2,226 | **2,814** |
+
+The crush wrote **76% of every crack cell in the world**, caused **80x the
+unsupported judgements**, and moved *less* material than not running at all.
+
+### 16b. What replaced it
+
+`crush_in_place` now reveals `fracture_field`'s joints instead of walking a
+star, so **every crack in the game is one cell wide, straight and closed**.
+Two objects, two rules, keeping the `CrushedObject` split that `d9eec7f`
+paid for:
+
+- an over-capacity **section** is attached and cracking into the massif
+  around it, so it reveals the joints in a disc about the cell that gave
+  way, sized off the region's extent between `CRACK_MIN_LENGTH` and
+  `CRACK_MAX_LENGTH` — the bounds the star's length used;
+- a **severed piece** has no claim on the rock outside it and reveals only
+  joints with *both* cells inside itself. A piece smaller than the 13-cell
+  grain then contains no joint and writes nothing, without needing a floor
+  to say so.
+
+Nothing here calls `detach_around_crack` or `schedule_structural_check_
+around`, and nothing opens a seam. That split is what keeps a confined crush
+from being a treadmill and it is the single easiest thing to get wrong;
+`a_crush_neither_unbraces_the_rock_nor_reschedules_it` is now written against
+the crush rather than against the walker, because the old version would have
+gone on passing whatever the crush did.
+
+The same charge, at frame 1,200: cracked cells **610 -> 379**, unsupported
+judgements **2,365 -> 277**, overloaded 679 -> 787, worst frame 58.7 -> 39.7
+ms.
+
+### 16c. The promotion figure falls, and it is lateness rather than breakage
+
+Cells promoted at frame 1,200 go 2,226 -> 1,213, which read alone looks like
+lost breakage. Sampled as a curve instead (bang at frame 60):
+
+```text
+  frame       100    300    500    700    900   1100   1300
+  walker      503    528    528  1,745  2,184  2,226  2,710   ...still climbing
+  fabric      503    693    830  1,155  1,213  1,213  1,213   settled
+```
+
+**Identical at the bang, and the walker is still climbing at 1,300.** What
+went is a collapse trickle that never terminates — the owner's *"small
+random collapses that keep happening"* as a number. Cracked cells tell the
+same story on the same run: 233 -> 693 for the walker, 197 -> 379 settling by
+frame 700 for the fabric.
+
+The nine-charge sweep agrees, and it is the statistic that matters because
+`promoted min` is the *"no pieces move, ever"* guard. Four seeds, baseline
+re-measured this session and matching `d5cb19a`'s recorded figures exactly:
+
+| | cells lost | rock destroyed | promoted max / **min** | sites, final tile | worst frame |
+|---|---|---|---|---|---|
+| `d5cb19a` | 4,695 | 8,472 | 11,021 / **6,043** | 13,056 | 104 ms |
+| this work | 5,248 | 9,526 | 13,313 / **9,042** | 20,188 | 73 ms |
+
+### 16d. The cost, and why no setting of it is cheaper
+
+`scripts/seedsweep.sh strike=12` fires no blast, so it isolates the crush.
+24 runs, order statistics, same session:
+
+```text
+                                 cells lost        rock destroyed
+                                 max     p90       max     p90
+  d5cb19a, the walked star       192     118     1,106     565
+  disc, density 0.9 (shipped)    521     174     1,345     852
+  disc capped at 20, not 55      562       -     2,034       -
+  density 0.5 rather than 0.9  1,229     580     2,308   1,815
+  section bounded by its region  430     250     1,774   1,086
+```
+
+**Every attempt to damp it made it worse**, and not because the tuning was
+missed. A region diced *completely* has no free face anywhere — every block
+is wedged — so it is judged confined and stays where it is; a region diced
+*partially* leaves pieces with an open side, and those fall. Thinning the
+reveal moves material off the hillside rather than saving it. The shipped
+setting is the most complete of the four rather than the gentlest, and
+`CLAUDE.md`'s "when a term resists tuning in both directions, ask what it is
+compensating for" applies: the trade is structural. `dig=6` is bit-identical
+before and after.
+
+### 16e. `CrackStyle::Wander` is retired, not deleted
+
+`crack_rays > 0` is still the owner's hybrid A/B knob and the blast's walker
+star is byte-identical, mirror write included. What became `#[cfg(test)]` is
+the *one-shot* entry: `walk_fissures`, `FissureWalks::new` (the constructor
+that picks `Wander`) and `run_to_completion`. The tests that pin the walker's
+archived shape all still run through them.
+
+### 16f. §15d closed: a standoff distance instead of a gate
+
+The fabric no longer consults `struck_solid` at all. Confinement reaches it
+as **two continuous scales on one radius**, never as a yes/no:
+
+- **vent compensation.** A fixed halo over a half-sky disc wakes half the
+  joints for reasons of geometry alone, which is why the surface burst read
+  as *"not much happening"*. The reach is stretched by `1/sqrt(contained)`,
+  capped at 2x. A fully buried charge has `contained == 1` and is
+  bit-identical.
+- **standoff coupling.** Air is a poor coupler, so the distance from the
+  epicentre to the nearest ground scales the reach *and* the activation
+  density to zero over half a crater radius.
+
+On the owner's own ten configurations, seed 1:
+
+| | before | after |
+|---|---|---|
+| 1 deep, standard | 606 | 606 |
+| 2 shallow crater | 144 | **461** |
+| 3 surface burst | 105 | **335** |
+| 4 seabed, water overhead | 376 | **507** |
+| 5 bigger charge | 1,318 | **1,539** |
+| 6 small charge | 222 | 222 |
+| 7 finer grain | 950 | 950 |
+| 8 coarser grain | 341 | 341 |
+| 9 bolder seams | 606 | 606 |
+| 10 wider halo | 1,154 | 1,154 |
+
+Buried:surface narrows from 5.8:1 to 1.8:1 with the buried case untouched.
+Every fully contained charge is bit-identical, which is the check that the
+scale is a compensation and not a general loosening.
+
+**And the airburst does not dice the ground.** `blast=300,-8,20,180` woke 0
+joints before (gated out); it now wakes **12, all scored, none opened** — it
+marks the rock and removes nothing from it. The harness's own airburst
+(`blast=470,-8,...`) still wakes 0, because at that site the stone is under
+ten rows of unjointed soil and sits right at the edge of the shortened
+reach. So §15d's four zero-joint charges are partly fixed: the shallow ones
+on slopes now crack (charge 7 of the sweep, 16/16 open, goes from 0 to 825
+joints), and a true airburst stays nearly silent, which is what it should
+be.
