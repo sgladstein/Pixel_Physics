@@ -328,6 +328,19 @@ pub struct FieldTile {
     /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
     /// for, not a second moisture channel.
     moisture_floor: Box<[f32]>,
+    /// Whether every cell of this tile came out of its last solve with
+    /// pressure, `vx` and `vy` at **exactly** zero.
+    ///
+    /// What makes skipping the momentum passes bit-identical rather than
+    /// merely close. Those three passes are geometric decays — with no
+    /// divergence, `pressure * PRESSURE_DAMPING` — so once a tile reaches
+    /// exact zero they can only ever write zero again, and not running them
+    /// is a provable no-op. Before that point they are still doing real work,
+    /// however settled the tile looks: measured, skipping them the moment a
+    /// tile went *settled* left a gale's residue frozen at 0.32 pressure
+    /// units forever instead of decaying away, against a settle epsilon of
+    /// 0.01. Settled means "changing slowly", and slowly is not never.
+    momentum_zero: bool,
     /// Whether the four CA-derived arrays above hold a real scan.
     ///
     /// **Not the same question as "is there a previous tile", and the gap
@@ -381,6 +394,11 @@ impl FieldTile {
             // False, so a tile nobody has scanned is always scanned rather
             // than carried. See the field's own doc.
             derived_valid: false,
+            // A fresh tile is all `AMBIENT`, which *is* zero momentum — but
+            // claiming so before anything has looked at it would let the
+            // first frame skip a pass it has no evidence about. Earned, not
+            // assumed.
+            momentum_zero: false,
             // A tile nobody has solved yet has not converged, by definition.
             settled: false,
             sky_lit: false,
@@ -520,6 +538,38 @@ impl FieldTile {
     /// `set_glow_local` can only ever latch it on; on this path there is no
     /// scan to re-raise it, and the previous tile's answer is already the
     /// right one.
+    /// Carry the three momentum channels across for a tile the sun woke.
+    ///
+    /// Pressure and velocity only — **not** temperature, light or moisture,
+    /// which `step_diffusion` still writes for these tiles from `old`-based
+    /// reads, exactly as it always did. And emphatically not light: the whole
+    /// reason a solved tile is rebuilt fresh is that `apply_sky_to` only ever
+    /// max-writes, so a carried-forward light channel can rise with the dawn
+    /// and never fall again. That freezes the world at noon, which is the
+    /// reverted `apply_sky_to` column subset's failure wearing the opposite
+    /// sign.
+    fn inherit_momentum(&mut self, previous: &FieldTile) {
+        for i in 0..FIELD_TILE_AREA {
+            self.cells[i].pressure = previous.cells[i].pressure;
+            self.cells[i].vx = previous.cells[i].vx;
+            self.cells[i].vy = previous.cells[i].vy;
+        }
+        self.momentum_zero = previous.momentum_zero;
+    }
+
+    /// Declare this tile's momentum channels live again, for a writer that
+    /// reaches past the solver — see `World::paint_field`.
+    pub(crate) fn disturb_momentum(&mut self) {
+        self.momentum_zero = false;
+    }
+
+    /// Recorded after the momentum passes have written, so the next frame can
+    /// tell whether running them again could change anything.
+    fn record_momentum_zero(&mut self) {
+        self.momentum_zero =
+            self.cells.iter().all(|c| c.pressure == 0.0 && c.vx == 0.0 && c.vy == 0.0);
+    }
+
     fn inherit_derived(&mut self, previous: &FieldTile) {
         self.blocked.copy_from_slice(&previous.blocked);
         self.transmission.copy_from_slice(&previous.transmission);
@@ -842,10 +892,45 @@ pub fn step(world: &mut World) {
     // read one field cell past their own tile, so a disturbance advances one
     // tile per frame and the ring is what lets it.
     let mut awake: HashSet<ChunkCoord> = HashSet::with_capacity(coords.len());
+    // **Whether anything anywhere is awake for a reason the momentum passes
+    // care about.** A tile woken only by the sun has no news for pressure,
+    // velocity or advection: it is settled and the CA under it has not
+    // moved, so those three spend their whole visit recomputing a fixed
+    // point the tile is already sitting on. Measured at 8192x2560, that was
+    // 31.6 ms of a 54 ms sky-step frame.
+    //
+    // **A whole-world flag, not a per-tile set, and that is a deliberate
+    // retreat from a version that measured better.** Skipping the momentum
+    // passes per tile — fluid seeds plus one ring, everything else carried
+    // forward — is bit-identical on a calm world (0.00000 divergence in all
+    // six channels over 3,600 frames, seed 3, which never gusts) and is
+    // *not* identical while a gust is live: pressure diverged by 11.04
+    // against a settle epsilon of 0.01. The reason is real rather than a
+    // bug. With the sun up, sky-woken tiles across the whole world were
+    // being pressure-stepped, so a gust relaxed through all of them; per
+    // tile it advances one ring per frame instead, which is what this
+    // file's own halo comments say a disturbance is supposed to do. So the
+    // *old* behaviour is the accident — a gust that spreads further at noon
+    // than at midnight — but it is wind the player can see, in smoke and in
+    // leaning trees, and changing how it moves is the owner's call and not
+    // a side effect of a performance pass. Gated globally, both regimes stay
+    // bit-identical and the calm world keeps the whole saving.
+    let mut any_fluid = false;
     for &coord in &coords {
         let tile = world.fields_ref().get(&coord);
         let tile_unsettled = tile.is_none_or(|t| !t.settled());
         let chunk_awake = world.chunk(coord).is_some_and(|c| !c.is_settled());
+        // **Only `chunk_awake`, deliberately not `tile_unsettled`.** A tile is
+        // unsettled whenever *any* of six channels moved, and after a sky
+        // step ~95 tiles are unsettled purely because their light did. Those
+        // kept this flag true on every frame of a dead-calm world, so the
+        // fast path below never once fired -- caught by printing the
+        // momentum count next to the timings, exactly the "did it fire at
+        // all needs a counter, not a picture" case, since a pass costing
+        // 0.00 ms and a pass that ran look identical in a timing. Whether
+        // the momentum channels have anything left to say is answered
+        // properly by `momentum_zero`; this is only the CA's half.
+        any_fluid |= chunk_awake;
         // Light is an equilibrium, not a value that settles: `apply_sky` only
         // ever raises it and only `LIGHT_DECAY` inside `step_diffusion` lowers
         // it, so a lit tile that sleeps keeps its last brightness forever --
@@ -891,6 +976,19 @@ pub fn step(world: &mut World) {
     }
     let mut read_coords: Vec<ChunkCoord> = read.into_iter().collect();
     read_coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
+
+    // Nothing fluid anywhere means every tile in `solve` is a sun-woken one,
+    // so the three momentum passes have no tile to say anything new about --
+    // *provided* their channels have actually reached zero, which is what
+    // makes the skip a no-op rather than a freeze. Checked over `read_coords`
+    // and not `solve`, because `step_pressure` reads one field cell past each
+    // tile: a solved tile beside a *sleeping* one still holding velocity
+    // would take real divergence from it, and a skip keyed on the solve set
+    // alone would silently drop that.
+    let skip_momentum = sky_fast()
+        && !any_fluid
+        && read_coords.iter().all(|c| world.fields_ref().get(c).is_some_and(|t| t.momentum_zero));
+    let momentum: &[ChunkCoord] = if skip_momentum { &[] } else { &solve };
 
     // Old state stays untouched in `world` until the very end, so every phase
     // below can read it through `sample`/`is_blocked` while writing into
@@ -954,6 +1052,21 @@ pub fn step(world: &mut World) {
         if let Some(previous) = previous {
             tile.inherit_moisture_floor(previous);
         }
+        // **A sky-only tile must present its momentum channels, not zeroes.**
+        // `step_velocity` and `step_advection` snapshot `next` and read one
+        // cell past each tile, so a tile that is in the solve set but skipped
+        // the momentum passes would hand its fluid neighbours a fresh tile's
+        // `pressure == 0` -- a silent wrong reading, not a panic, and exactly
+        // the shape of the light erasure that made the reverted column subset
+        // look like a win. Carrying them forward is also what the tile means:
+        // it is settled, and a *sleeping* tile already holds its momentum
+        // channels indefinitely. This only makes a sun-woken tile behave like
+        // the sleeping tile it otherwise is.
+        if skip_momentum {
+            if let Some(previous) = previous {
+                tile.inherit_momentum(previous);
+            }
+        }
         match previous {
             Some(previous)
                 if previous.derived_valid
@@ -977,11 +1090,16 @@ pub fn step(world: &mut World) {
     let mut timing = PassTiming::new();
     timing.time("blocked", || rebuild_blocked(world, &rescan, &mut next));
     timing.time("glowseed", || seed_light_from_glow(&carried, &mut next));
-    timing.time("pressure", || step_pressure(world, &solve, &mut next));
-    timing.time("velocity", || step_velocity(world, &solve, &read_coords, &mut next));
+    timing.time("pressure", || step_pressure(world, momentum, &mut next));
+    timing.time("velocity", || step_velocity(world, momentum, &read_coords, &mut next));
+    // Diffusion stays on the **full** solve set. It is what bleeds light
+    // sideways so shade is soft rather than a hard stencil at field
+    // resolution -- a canopy's whole appearance rests on it, and skipping it
+    // for sun-woken tiles would look like a win in every timing while
+    // changing what the world looks like under every tree.
     timing.time("diffusion", || step_diffusion(world, &solve, &mut next));
     timing.time("advection", || {
-        step_advection(&solve, &read_coords, bounds, world.fields_ref(), &mut next)
+        step_advection(momentum, &read_coords, bounds, world.fields_ref(), &mut next)
     });
     // **Always every column, never subsetted.** Light propagates down a
     // column, so a sleeping tile between the sky and an awake one still
@@ -1037,13 +1155,38 @@ pub fn step(world: &mut World) {
     // fresh scan of the world.
     // Solved tiles merge into the live map; sleeping tiles stay where they
     // are, untouched and unallocated — the point of the subset.
+    if !skip_momentum {
+        for &coord in &solve {
+            if let Some(tile) = next.get_mut(&coord) {
+                tile.record_momentum_zero();
+            }
+        }
+    }
     timing.time("converged", || mark_converged(world.fields_ref(), &solve, &mut next));
 
     let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
-    timing.report(world.frame, solve.len());
+    timing.report(world.frame, solve.len(), momentum.len());
     debug_drift(world, &solve, &next);
     world.merge_fields(next);
     world.set_fields_settled(all_settled);
+}
+
+/// Whether the momentum passes skip sun-woken tiles; `FIELD_SKYFAST=0` turns
+/// it off. Same purpose as `carry_derived` below: a paired run in one command.
+///
+/// Unlike that one this is **not** bit-identical and is not meant to be. It
+/// stops relaxing channels on a tile the solver has already judged settled,
+/// so a value that was decaying by less than `SETTLE_EPSILON_PRESSURE` per
+/// frame now holds still instead. That is not an approximation of the design;
+/// it is the design — a *sleeping* tile already holds those channels
+/// indefinitely, and this only stops a sun-woken tile from getting
+/// relaxation its sleeping neighbour never gets. The bar is therefore
+/// bounded divergence, not identity: no channel may differ from the
+/// unaccelerated run by more than its own settle epsilon.
+fn sky_fast() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FIELD_SKYFAST").map(|v| v != "0").unwrap_or(true))
 }
 
 /// Whether the carry-forward above is enabled; `FIELD_CARRY=0` turns it off.
@@ -1103,11 +1246,40 @@ pub fn field_hash(world: &World) -> u64 {
         }
         eat(u64::from(t.has_glow), &mut acc);
         eat(u64::from(t.derived_valid), &mut acc);
+        eat(u64::from(t.momentum_zero), &mut acc);
         eat(u64::from(t.settled()), &mut acc);
         eat(u64::from(t.sky_lit), &mut acc);
         eat(u64::from(t.sky_amplitude.to_bits()), &mut acc);
     }
     acc
+}
+
+/// Every field channel in the world, flattened in the same sorted order
+/// `field_hash` uses, for measuring how far one build's field drifts from
+/// another's.
+///
+/// `field_hash` answers "identical or not", which is the right bar for a
+/// change that claims to be a pure optimisation and the *wrong* bar for one
+/// that deliberately stops relaxing a settled channel. There the claim is
+/// bounded divergence — no channel further from the unaccelerated run than
+/// its own settle epsilon — and that needs the values, not a checksum.
+///
+/// Six f32 per field cell, channel-major per cell: pressure, vx, vy,
+/// temperature, light, moisture.
+pub fn field_channels(world: &World) -> Vec<f32> {
+    let mut coords: Vec<ChunkCoord> = world.fields_ref().keys().copied().collect();
+    coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
+    let mut out = Vec::with_capacity(coords.len() * FIELD_TILE_AREA * 6);
+    for coord in coords {
+        let Some(t) = world.fields_ref().get(&coord) else { continue };
+        for ly in 0..FIELD_TILE_SIZE {
+            for lx in 0..FIELD_TILE_SIZE {
+                let c = t.get_local(lx, ly);
+                out.extend_from_slice(&[c.pressure, c.vx, c.vy, c.temperature, c.light, c.moisture]);
+            }
+        }
+    }
+    out
 }
 
 /// Wall time per pass, printed when `FIELD_PASS=<every N frames>` is set.
@@ -1137,13 +1309,20 @@ impl PassTiming {
         r
     }
 
-    fn report(&self, frame: u64, solved: usize) {
+    /// `momentum` is printed next to the timings deliberately: a pass that
+    /// costs 0.00 ms looks the same whether it was skipped or merely fast,
+    /// and this repo has already read "the feature never once executed" as
+    /// "the feature is working". The count says which.
+    fn report(&self, frame: u64, solved: usize, momentum: usize) {
         if self.every == 0 || !frame.is_multiple_of(self.every) {
             return;
         }
         let total: f64 = self.marks.iter().map(|(_, ms)| ms).sum();
         let detail: Vec<String> = self.marks.iter().map(|(n, ms)| format!("{n} {ms:.2}")).collect();
-        println!("  [pass] frame {frame:>6} solved {solved:>5} total {total:>7.2}ms | {}", detail.join("  "));
+        println!(
+            "  [pass] frame {frame:>6} solved {solved:>5} momentum {momentum:>5} total {total:>7.2}ms | {}",
+            detail.join("  ")
+        );
     }
 }
 
@@ -2437,6 +2616,69 @@ mod tests {
             (0..FIELD_TILE_SIZE).any(|ly| (0..FIELD_TILE_SIZE).any(|lx| scanned.is_blocked_local(lx, ly))),
             "vacuous: the scene holds nothing solid"
         );
+    }
+
+    /// An impulse into a world whose momentum channels had gone quiet must
+    /// still disperse.
+    ///
+    /// The hazard the zero-momentum fast path creates, and it is invisible to
+    /// every existing gust test because those all run on worlds that never
+    /// went quiet in the first place. `weather::gust` fires into **open air**
+    /// -- deliberately, so the impulse has room to spread -- so no CA cell
+    /// changes anywhere near it and nothing in the CA's own bookkeeping
+    /// reports that the field has work to do again. If `World::paint_field`
+    /// did not clear `momentum_zero`, the solver would skip the very passes
+    /// meant to disperse the impulse and the gust would sit where it landed.
+    ///
+    /// Asserts spread, not merely "the value changed": the impulse is placed
+    /// at one point and read several field cells away, which only pressure
+    /// propagation can reach.
+    #[test]
+    fn an_impulse_still_disperses_after_the_field_has_gone_quiet() {
+        // **No terrain at all, deliberately.** The skip is disarmed whenever
+        // any CA chunk is awake, and a world with so much as a stone floor in
+        // it is *raining on that floor* -- rain writes cells, cells wake
+        // chunks, and the fast path never arms. Measured: with a floor,
+        // `any_fluid` was true on every frame after the impulse and the
+        // mutant below passed. An empty world has nothing for rain to land
+        // on, so the chunks stay settled and the impulse is the only thing
+        // happening.
+        let mut world = World::new(Rect::new(0, 0, 255, 255));
+        // **Seed 3, because the default seed is windy.** `weather::at` is a
+        // pure function of `(seed, frame)` and seed 0 opens gusting, so a
+        // bare test world quietly has a gale in it: measured, all 16 tiles
+        // held zero momentum at frame 0 and none of them did by frame 80,
+        // because every gust is an impulse and every impulse clears the flag
+        // -- correct behaviour, and it would have read as this fast path
+        // being broken. Seed 3 never crosses `GUST_THRESHOLD`.
+        world.seed = 3;
+        world.end_step();
+        // Long enough for the momentum channels to reach the exact zero the
+        // fast path waits for -- the point of the test is the state *after*
+        // that, so check it was actually reached rather than assuming it.
+        for _ in 0..400 {
+            crate::sim::update::step(&mut world);
+            step(&mut world);
+        }
+        // **Every** tile, not just the one under the impulse: the skip is
+        // keyed on the whole read set, so one tile still holding momentum
+        // anywhere nearby leaves it disarmed and the test proves nothing. A
+        // first version checked only the impulse's own tile, and the mutant
+        // with `disturb_momentum` deleted passed it.
+        let armed = world.fields_ref().values().filter(|t| t.momentum_zero).count();
+        assert_eq!(
+            armed,
+            world.fields_ref().len(),
+            "vacuous: only {armed} tiles reached zero momentum, so the fast path was never armed"
+        );
+
+        world.add_pressure_impulse(128, 128, 4, 100.0);
+        for _ in 0..24 {
+            crate::sim::update::step(&mut world);
+            step(&mut world);
+        }
+        let spread = world.field_at(128 + 40, 128).pressure;
+        assert!(spread.abs() > 0.001, "the impulse never reached x+40: {spread} -- it was frozen where it landed");
     }
 
     #[test]

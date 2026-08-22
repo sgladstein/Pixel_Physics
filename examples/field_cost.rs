@@ -108,6 +108,7 @@ fn main() {
     let name = if preset.is_empty() { presets.default_name() } else { preset.clone() };
     let params = presets.get(&name).unwrap_or_else(|| panic!("unknown preset {name:?}")).clone();
 
+    let dump_dir: Option<String> = std::env::var("FIELD_DUMP").ok();
     let hash_every: u64 =
         std::env::var("FIELD_HASH").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
 
@@ -144,6 +145,18 @@ fn main() {
         buckets[usize::from(sky_stepped)][usize::from(gusting)].add(t.elapsed().as_secs_f64() * 1000.0);
         if hash_every > 0 && world.frame.is_multiple_of(hash_every) {
             println!("  field hash @{:>6}: {:016x}", world.frame, field::field_hash(&world));
+        }
+        // `FIELD_DUMP=<dir>` writes the raw channels at the same cadence, for
+        // the changes whose claim is bounded divergence rather than identity.
+        if let Some(dir) = &dump_dir {
+            if world.frame.is_multiple_of(hash_every.max(1)) {
+                let v = field::field_channels(&world);
+                let mut bytes = Vec::with_capacity(v.len() * 4);
+                for f in &v {
+                    bytes.extend_from_slice(&f.to_le_bytes());
+                }
+                std::fs::write(format!("{dir}/f{}.bin", world.frame), bytes).expect("dump");
+            }
         }
     }
 

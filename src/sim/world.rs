@@ -1442,6 +1442,14 @@ impl World {
                     // is there, instead of the solve falling back to every
                     // resident chunk.
                     tile.set_settled(false);
+                    // An impulse can land in open air with no CA cell
+                    // changing anywhere near it -- `weather::gust` does
+                    // exactly that -- so nothing else would tell the field
+                    // that this tile's momentum channels are live again.
+                    // Without this the solver's zero-momentum fast path
+                    // would skip the very pass that is meant to disperse
+                    // the impulse, and the gust would sit there.
+                    tile.disturb_momentum();
                 }
             }
         }
