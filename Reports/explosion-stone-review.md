@@ -1452,7 +1452,9 @@ overlaps this work in `load.rs`, `rigid.rs`, `structural.rs` and
 - **Take *their* `region_has_free_face`.** Both branches independently found
   that `Gas` read as solid there; theirs (`a729965`) also handles a lighter
   `Liquid`, which this one does not.
-- **Keep *this* branch's `clear_or_displaceable`.** They do not touch it, and
+- **Keep *this* branch's `clear_or_displaceable`.** ***The "they do not touch
+  it" half of this is false — see §17i, which is what the merge actually
+  did.*** They rewrote it. The conclusion survives, the reason does not:
   it is the other half of the same bug: `region_has_free_face` decides
   whether a piece is judged confined, `clear_or_displaceable` decides whether
   a body already in flight can move through smoke. Both are needed.
@@ -1463,3 +1465,84 @@ overlaps this work in `load.rs`, `rigid.rs`, `structural.rs` and
 Everything else on this branch is additive: `fracture_field.rs` is a new
 module, and `severed_islands`, `damage_radius`, `promoted_sizes` and
 `max_cave` are new counters and a new gate.
+
+### 17i. The merge, as performed — two of §17h's premises were wrong
+
+Written while merging `origin/main` (which by then contained the water
+branch) into this one: 32 ahead, 143 behind, 22 files overlapping, 41
+conflict hunks. Every §17h call was checked against the source rather than
+taken on faith, and that is the only reason two of them did not quietly
+destroy work.
+
+**The scorecard.**
+
+| §17h said | verdict |
+|---|---|
+| take their `region_has_free_face` | **correct** — theirs is `EMPTY \|\| (Gas && piece_density > gas_density)` plus a floats/liquid arm, and reduces to ours for every gas/solid pair in the game |
+| keep this branch's `clear_or_displaceable`, *"they do not touch it"* | **premise false** — they rewrote it; resolved as a union |
+| take their `rests_on_ground` wholesale | **correct, trivially** — this branch is byte-identical to the merge base there |
+
+**`clear_or_displaceable` was rewritten on their side.** New signature
+(`shape: BodyShape`, `swaps: &mut Vec<_>`), the raw-material test in place
+of `is_empty`, and a whole `Liquid` arm carrying its own measurement
+(`scene=lavapour`: 9 unattached solids with the arm, 19 without, against 154
+before any of that work). Taking this branch's version wholesale, as §17h
+instructs, deletes all of it. The two changes are orthogonal — disjoint
+`kind` arms — so the merge is their structure with `Gas` admitted to the
+guard and this branch's Gas fallback grafted after `displace`. Both
+measurements survive.
+
+**A dead-code trap §17h did not see.** `is_open_space` had exactly one call
+site: inside this branch's `region_has_free_face`. Taking theirs orphans it
+and `clippy --release -D warnings` fails on `dead_code` — a red gate whose
+cause looks unrelated to the resolution that caused it. Deleted here, with
+its play report folded into the surviving rule's doc rather than lost.
+
+**Five independent convergences, which is the real finding.** The two
+branches built the same thing five times without knowing it: the `Gas`
+free-face rule (§17h knew about this one), `max_cave` in `filmstrip`, the
+"peak chunk bodies in flight" counter, a fragment-size distribution, and a
+render-side light pin for contact sheets. Each pair had to be reconciled on
+the merits rather than by picking a side:
+
+- **`max_cave`** — functionally identical implementations (same `roofed_void`
+  ratio, different failure string), applied to *different cases*
+  (`caveshallow=20` theirs, `roomcut=40` ours), so only the `roomcut` line
+  collided: ours `max_cave=40` against theirs `min_failing_cells=1800`. Both
+  kept. They are not the same question — a room can shed 1,800 cells with
+  the ceiling intact, and a ceiling can come down in fewer — and carrying
+  both is strictly stricter than either while re-barring nothing.
+- **Peak chunk bodies** — both print it, both citing `CLAUDE.md`'s "did it
+  fire at all" and the same zero-body-count incident. One kept;
+  `blastsweep.sh` parses the string with `tail -1`, so a duplicate would not
+  have broken the parse, only the output.
+- **Fragment sizes** — *not* a duplicate on inspection: theirs' `size_buckets`
+  measures the failing **region**, ours' `promoted_sizes` the promoted
+  **body**. Both kept. But theirs' `record_fragment(len, promoted)` *was* a
+  duplicate of this branch's `record_promoted`/`record_shattered` pair, and
+  keeping both call sites double-counted every fragment's mass on both
+  sides. Dropped, with the reasoning left at the call site; the richer pair
+  wins because it also fills `promoted_bodies` and `promoted_sizes`.
+- **Light pin** — theirs frame-valued (`pinned_light`, applied automatically
+  to every contact sheet), ours fraction-valued (`daylight_pin`, an opt-in
+  `daylight=` knob). Complementary rather than redundant, so: one field
+  (theirs), both entry points, with `sky::frame_for_daylight` kept as the
+  fraction-to-frame way in.
+
+**The `render.rs` trap held.** Upstream's ungated `let saturation =
+soil_moisture(cell);` is on `main` *and* was on the water branch; this
+branch's `Powder` gate survived the merge intact, comment included. Worth
+restating now that water has landed: the gate guards liquids as much as
+stone — a `Liquid`'s `aux` is fill, so ungated, standing water renders as
+murk.
+
+**A merge-shape lesson worth keeping.** Six of the conflicts were "both sides
+added something" where one side's hunk ended *mid-construct* — a truncated
+`assert!(`, `println!(`, `if let`, or a function missing its closing brace —
+because the shared closing lines fell in the trailing context. Concatenating
+both sides then silently moves those closers past the other side's block.
+Every one of them was a compile error rather than a behaviour change, so the
+compiler caught all six; none is subtle. But a `both` resolution on a hunk
+that does not end at a construct boundary needs the boundary repaired by
+hand, and it is worth checking for deliberately rather than discovering six
+times.

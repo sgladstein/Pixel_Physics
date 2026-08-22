@@ -1,0 +1,66 @@
+// Shed foliage on the ground: what a leaf becomes when a plant drops it,
+// instead of the `Cell::EMPTY` the three abscission sites used to write.
+// WP-B2, `Reports/plant-implementation-plan.md`; owner call 3 in
+// `plant-evolution-design.md` — **one material, landed once, written by the
+// plant side and consumed by the creature side later.** It is deliberately
+// not `deadwood` (that is a snapped *branch*, dense and slow-burning) and
+// not `ash` (that is what fire leaves, and it is mineral).
+//
+// The creature branch's S3 will extend this with the edibility fields
+// (`food_energy` and friends). Named here in a comment rather than added as
+// dead data, on the same reasoning as `design-philosophy.md`'s line on
+// speculative parameters: the plant side has no use for them, and a field
+// nothing reads is a field nobody maintains.
+(
+    name: "litter",
+    display: "Leaf litter",
+    kind: Powder,
+    // **Lighter than water (1.0), unlike every other powder here** — ash is
+    // 1.1, deadwood 0.7, soil and sand heavier still. Shed leaves float and
+    // raft on a pond surface rather than sinking to the bottom, which is
+    // both what real litter does and what makes a wooded pond read as
+    // wooded. It also means litter does *not* displace soil downward when
+    // it lands on it, so a forest floor accumulates a layer on top instead
+    // of stirring the profile underneath.
+    density: 0.3,
+    // High for a powder — sand is 34, ash 22. Leaf litter mats: it
+    // interlocks and holds a steep face instead of slumping flat, so a
+    // drift piles up against a trunk rather than running out to a level
+    // sheet. This is the difference between "there is litter under that
+    // tree" and "there is a uniform brown line across the world".
+    friction_angle: 42.0,
+    // Browns and faded olives — leaves that have left the tree. Kept
+    // deliberately close in value so a litter layer reads as *texture* on
+    // the ground rather than as a second canopy lying down; the greens are
+    // gone, which is what says "shed" at a glance.
+    colors: [
+        (104, 82, 48),
+        (118, 94, 56),
+        (88, 70, 40),
+        (126, 106, 68),
+        (96, 88, 52),
+        (110, 100, 62),
+    ],
+    // Between `leaf` (0.75, burns out in 40) and `deadwood` (0.35, 300).
+    // Dry litter is the fuel that actually carries a ground fire, and it
+    // burns out fast — this is the layer that lets a fire cross open ground
+    // between two stands, which is the whole point of having it as a
+    // material rather than deleting the leaf.
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 60,
+    burns_into: "ash",
+    // **Rots where it lies**, on `decay.rs`'s moisture-gated schedule -- the
+    // same channel ash uses, which is what makes a forest floor a cycle
+    // rather than an accumulator. No `decay_reseeds`: leaf fall under a
+    // standing canopy is not a succession event, and a reseed roll per shed
+    // leaf would carpet the world in trees.
+    decays_into: "soil",
+    // Mandatory for anything fire can heat — see `ash.ron`'s note on why a
+    // material with no conductivity keeps its chunk awake forever holding
+    // heat it cannot shed.
+    heat_conductivity: 0.15,
+    // **No `breaks_into`.** Litter is already the broken-down form; there is
+    // nothing smaller for it to become, and pointing it at itself would make
+    // a fragment loop. The plan asks for exactly this.
+)

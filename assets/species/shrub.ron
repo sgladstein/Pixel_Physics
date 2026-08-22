@@ -1,0 +1,172 @@
+// A basitonous, sympodial shrub -- the "bush" corner of the architectural
+// space, reached with exactly the two levers the botany review said reach
+// it: negative `acrotony` (renewal feeds the base, so the plant keeps
+// throwing new axes from its foot) and `sympodial` forking (every fork
+// replaces its axis, so growth is a mound of short equivalent modules --
+// Leeuwenberg's model once `ByOrder` saturates, at shrub scale).
+//
+// Two orders only: a short basal tier and everything else alike. Economy
+// inherited from tree.ron's node-unit derivations; what differs is
+// architecture and a low turgor budget -- h_max = (0.4 - 0.1) / 0.0075 =
+// 40 rows, hip-height against tree.ron's 120.
+//
+// `thickening_survival` is high on purpose and the pairing is load-bearing:
+// a basitonous species' preferred buds sit on its oldest, most-thickened
+// wood, and the literature's resprouters are exactly the plants whose
+// epicormic buds survive the cambium for decades. At tree.ron's 0.2 the
+// base would lose its bud bank to its own thickening and the habit would
+// read as a stunted tree instead of a thicket.
+(
+    name: "shrub",
+    // Olive foliage on grey-brown stems -- the scrubby end of both axes,
+    // and disjoint from both `tree` and `conifer`. A hedge of these should
+    // read as a different plant at a glance and not as a short tree, which
+    // is the whole complaint this range exists to answer.
+    foliage_bands: (first: 4, count: 2),
+    bark_bands: (first: 2, count: 2),
+    // See tree.ron: the stock fraction where stomata start closing,
+    // multiplied per individual by genotype slot 7.
+    stomatal_reserve: 0.2,
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                // Between grass and tree. A shrub commits less than a tree does and can afford to try sooner.
+                //
+                // Plant-available soil water in the cell below, 0..1:
+                // 0 is the permanent wilting point, 1 is field capacity.
+                // Renamed from `moisture_threshold`, whose unit was the
+                // field channel's 0..4 and which measured the wrong thing.
+                soil_water_threshold: 0.20,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.2,
+                branch_chance: [0.18, 0.3],
+                continuation_weight: 0.7,
+                light_weight: [0.3, 0.45],
+                wind_weight: 0.2,
+                upward_weight: [0.5, 0.25],
+                crowding_weight: 30.0,
+                max_active_tips: 14,
+                plastochron: [3, 2],
+                penetration_force: 0.0,
+                turgor_source: 0.4,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
+                turgor_taper: 0.35,
+                heading_inertia: 0.7,
+                // Moderate angles and **short** runs: a thicket is made of
+                // many equivalent axes that keep turning, so a long
+                // straight internode is exactly what it should not have.
+                // The contrast with `conifer`'s 10 is the point -- this is
+                // the parameter carrying "bushy" rather than a scalar
+                // height budget doing it alone.
+                branch_angle: [50.0, 45.0],
+                internode: [2, 3],
+                // 4 -> 8, with tree.ron and conifer.ron -- see tree.ron's
+                // note on why cluster size is now economically neutral.
+                leaf_cluster: 8,
+                juvenile_size: 30,
+                juvenile_plastochron: 0.4,
+                juvenile_branch: 1.3,
+                // Slots 6-8 appended and 1/5 re-purposed to the root
+                // vector at the 2026-08-18 re-map -- tree.ron carries the
+                // full note.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                // Every fork replaces its axis.
+                sympodial: [true],
+                tropism: [Orthotropic],
+            ),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            // **No `Transpire` here any more.** It drained adjacent soil
+            // and credited nothing, which was the right stand-in while
+            // water was not a currency -- it was the only thing making a
+            // stand dry the ground at all.
+            //
+            // It is a double count now. Transpiration is a single path,
+            // soil -> root -> leaf -> air: `Absorb` moves soil into the
+            // plant and the foliage's `transpiration` demand moves it out
+            // to the air. A second uncredited soil->air drain alongside
+            // that corresponds to nothing, and it would make the ground dry
+            // faster than the plants actually use it.
+            //
+            // If the resulting drawdown is too weak to steer roots
+            // hydrotropically, the honest lever is the foliage demand, not
+            // a phantom drain.
+
+            Grow(
+                cost: 0.25,
+                // **Superseded by `branch_priming` below.** A root tip's
+                // in-tick branch roll demanded a second step's carbon in
+                // the tick the first was paid; it cleared that twice in
+                // twelve thousand frames and fired zero times. Zero here
+                // rather than left at its old value so nothing reads as a
+                // live knob that no longer runs -- see
+                // `Behavior::Grow::branch_priming`.
+                branch_chance: [0.0],
+                continuation_weight: 0.7,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.6],
+                crowding_weight: 0.0,
+                max_active_tips: 8,
+                plastochron: [0],
+                // Steps between primed lateral sites, swept at landing over
+                // 1/2/3/6/12/24: root mass falls monotonically as the
+                // interval widens (755 cells at 1, 336 at 6) because a
+                // sparser mark leaves the conversion with nothing available
+                // to pick most ticks. 3 rather than 1 because 1 stops being
+                // an oscillator -- it primes every cell, and the walk then
+                // re-scans 82,487 primed cells over a run against 1,160 at
+                // 3, for a stand-scale cost the mechanism does not need.
+                // 3 also puts genotype slot 1 on the responsive part of the
+                // curve, which is what lets the trait order an outcome at
+                // all.
+                branch_priming: [3],
+                heading_inertia: 0.75,
+                penetration_force: 1.2,
+                // The root's own genome vector, slots 1/5/8 -- tree.ron's
+                // RootTip entry carries the full derivation of the widths.
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+            ),
+        ]),
+        (MatureBody, [
+            // **Set seed.** The rate is per mature cell, so a plant's
+            // fecundity is its canopy size times this -- size buys
+            // offspring with no rule saying so, which is what makes
+            // selection on every other trait mean anything.
+            //
+            // Rates are a first pass and explicitly untuned against an
+            // outcome: they want a sweep once a population has run long
+            // enough to measure generations per unit time.
+            Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
+            SecondaryThicken(pipe_ratio: 5.5),
+            StructuralAnchor,
+            // Same water economy as tree.ron -- see its own entries for
+            // why each of these exists. Kept identical across the three
+            // species deliberately: the megastudy compares them, and a
+            // species that silently sat out the economy would look like a
+            // morphology result.
+            Absorb(rate: 1.5),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.2,
+                thickening_survival: 0.7,
+                // The habit flip: strongly basitonous.
+                acrotony: -1.6,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 5.5),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+        ]),
+    ],
+)

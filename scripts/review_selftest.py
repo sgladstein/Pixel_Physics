@@ -339,6 +339,71 @@ def test_concurrent_push(base: Path, art: Path) -> None:
           "%d vs %d" % tuple(counts))
 
 
+def gif(path: Path, frames: int, w=8, h=8) -> Path:
+    """Minimal GIF89a. Literal-only LZW -- inefficient, and valid, which is all
+    a fixture needs. `frames=1` reproduces the file this guard exists for."""
+    def lzw(indices, mcs):
+        out, bits, nbits, width = bytearray(), 0, 0, mcs + 1
+        def emit(code):
+            nonlocal bits, nbits
+            bits |= code << nbits; nbits += width
+            while nbits >= 8:
+                out.append(bits & 0xFF); bits >>= 8; nbits -= 8
+        emit(1 << mcs)
+        for i in indices: emit(i)
+        emit((1 << mcs) + 1)
+        if nbits: out.append(bits & 0xFF)
+        return bytes(out)
+    b = bytearray(b"GIF89a")
+    b += struct.pack("<HHBBB", w, h, 0xF0 | 2, 0, 0)
+    for c in [(0, 0, 0), (255, 255, 255)] + [(0, 0, 0)] * 6:
+        b += bytes(c)
+    b += b"\x21\xFF\x0BNETSCAPE2.0\x03\x01\x00\x00\x00"
+    for f in range(frames):
+        b += b"\x21\xF9\x04\x04" + struct.pack("<H", 8) + b"\x00\x00"
+        b += b"\x2C" + struct.pack("<HHHHB", 0, 0, w, h, 0) + bytes([3])
+        data = lzw([(x + f) % 2 for x in range(w * h)], 3)
+        for i in range(0, len(data), 255):
+            chunk = data[i:i + 255]
+            b += bytes([len(chunk)]) + chunk
+        b += b"\x00"
+    b += b"\x3B"
+    path.write_bytes(bytes(b))
+    return path
+
+
+def test_single_frame_gif_is_refused(root: Path, base: Path) -> None:
+    """A still with an animation's name must not reach the owner silently.
+
+    `filmstrip out=x.gif` without `gif=1` writes the contact sheet as a
+    one-frame GIF -- `image::save_buffer` picks its encoder from the extension.
+    Valid file, plausible name, cannot move. Two cards shipped that way while
+    the agents reported posting animations, and nothing anywhere said otherwise.
+    """
+    print("\nsingle-frame GIFs")
+    still, moving = gif(base / "still.gif", 1), gif(base / "moving.gif", 4)
+    check(rl.gif_frames(still) == 1, "frame counter reads a one-frame GIF", "got %s" % rl.gif_frames(still))
+    check(rl.gif_frames(moving) == 4, "and a real animation", "got %s" % rl.gif_frames(moving))
+    check(rl.gif_frames(base / "a.png") is None, "and declines a PNG")
+
+    proc = run("post", "--title", "t", "--question", "q", "--gif", str(still),
+               root=root, expect=None)
+    check(proc.returncode != 0, "--gif refuses a one-frame GIF")
+    check("gif=1" in (proc.stdout + proc.stderr),
+          "and names the cause (filmstrip without gif=1)")
+
+    out = json.loads(run("post", "--title", "t", "--question", "q",
+                         "--gif", str(moving), root=root).stdout)
+    card = rl.load_card(root, out["id"])
+    check(card["items"][0].get("gif_frames") == 4,
+          "a real animation posts, with its frame count recorded for the page")
+
+    proc = run("post", "--title", "t", "--question", "q", "--image", str(still),
+               root=root, expect=0)
+    check("single frame" in proc.stderr,
+          "--image stays an escape hatch, but warns")
+
+
 def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
     """A focus rect the page cannot satisfy must fail where it is still fixable.
 
@@ -479,6 +544,7 @@ def main() -> int:
         test_wait_degrades(base / "q5", art_a)
         test_inbox_is_never_silently_empty(base / "q4", art_a)
         test_focus_is_validated_at_post_time(base / "q6", art_a)
+        test_single_frame_gif_is_refused(base / "q7", base)
         test_every_page_button_traces_to_a_card()
         test_root_is_shared_across_worktrees()
         transport = Path(tempfile.mkdtemp(prefix="review-transport-"))

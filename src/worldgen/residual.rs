@@ -701,9 +701,22 @@ mod tests {
             // in this test is nowhere near the water table; a pond
             // elsewhere in the same 512-wide world rippling on its own
             // schedule is not evidence the residual failed to settle.
-            let water = world.materials.id_of("water").expect("water");
-            let gone: Vec<_> =
-                before.difference(&after).filter(|&&(_, _, m)| m != water.0).copied().collect();
+            // Widened from water alone to the whole water cycle when that
+            // branch merged: snow now melts on the sky's own schedule (the
+            // day/night swing reaches ~26C at noon), and the two cells this
+            // caught were snow at (97,133) and (364,63) -- the second a
+            // third of the world away from the dig at x=89, on its own
+            // schedule, for exactly the reason the water note above gives.
+            // Solids are still asserted, which is what the test is for.
+            let weather: Vec<u16> = ["water", "snow", "ice", "steam"]
+                .iter()
+                .filter_map(|n| world.materials.id_of(n).map(|m| m.0))
+                .collect();
+            let gone: Vec<_> = before
+                .difference(&after)
+                .filter(|&&(_, _, m)| !weather.contains(&m))
+                .copied()
+                .collect();
             assert!(
                 gone.is_empty(),
                 "seed {seed} x {x}: {} non-water cells still moved between frame 400 and 480 after undermining a residual",

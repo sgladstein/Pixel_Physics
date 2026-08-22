@@ -112,6 +112,7 @@ use std::collections::BinaryHeap;
 use super::cell::Cell;
 use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
+use super::organism;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -138,6 +139,59 @@ pub const NEIGHBOURS_8: [(i32, i32); 8] =
 /// growth, and a fast-but-not-instant cascade is what makes a collapse look
 /// progressive rather than either frozen or all-at-once.
 const STRUCTURAL_TICK_INTERVAL: u64 = 5;
+
+/// Frames between re-checks of a cell whose *only* support is loose
+/// material underneath it.
+///
+/// # The one anchor that can leave without telling anybody
+///
+/// `is_resting_on_ground` roots a support chain on a `Powder` beneath, and
+/// its own doc justified that with: *"treating a granular pile as ground is
+/// safe because it is under the CA sweep's control: if it flows out from
+/// underneath, that write dirties the chunk and whatever sat on it is
+/// re-examined."*
+///
+/// **That was not true.** Dirtying a chunk wakes the *sweep*; nothing on
+/// that path schedules a `StructuralCheck`, and `World::set` — the write
+/// seam every mover goes through — does not either. So a cell that took the
+/// ground root read `aux 0`, was judged "holds", stopped rescheduling
+/// itself (the tail of `tick`), and was never asked again however
+/// completely the pile beneath it drained away.
+///
+/// Traced on `scene=lavadrop`, cell (272,252): quench stone at frame 45,
+/// one rubble grain below it, distance 0, verdict holds, dropped. The
+/// rubble sank; sixty frames later the stone was a lone pixel hanging in
+/// open water, and `load::evaluate` — which reads the world, not the cache
+/// — called it UNSUPPORTED for the rest of the run. `filmstrip`'s `poke=`
+/// dropped it instantly, which is what proves it was never re-asked rather
+/// than asked and refused.
+///
+/// # Why here and not at the grain that leaves
+///
+/// Telling the cell above from `update_powder` was built and measured
+/// first. It is the precise trigger and it is **too expensive**: one extra
+/// `World::get` per moving grain per frame took `ascii`'s parallel
+/// sand-and-water stress from 7.6 ms to 9.8 ms worst frame (minimum of
+/// three interleaved runs each), and gating it on `!flowing` — free, the
+/// cell is already in hand — bought the cost back and lost the fix, because
+/// the grains under a quench crust are all mid-flow. A full screen of sand
+/// is that path's worst case by construction, and `CLAUDE.md` is explicit
+/// that frame cost is a hard constraint rather than a tiebreaker.
+///
+/// This costs the CA sweep nothing at all: it is one more site on the
+/// structural scheduler, which is already bounded by
+/// `scheduler::MAX_SITES_PER_FRAME` and `load::MAX_LOAD_CELLS_PER_FRAME`,
+/// and it applies only to cells with no support but the loose stuff below
+/// them — the *contact row* of a detached piece, never the piece's volume
+/// and never attached terrain, which reaches an anchor by relaxation and
+/// takes no ground root at all.
+///
+/// Twelve times `STRUCTURAL_TICK_INTERVAL` — a second at 60Hz. Slow enough
+/// that a settled rubble field is not a treadmill, and the owner has
+/// already said a brief hang is acceptable where it buys something; fast
+/// enough that a piece left stranded comes down while the player is still
+/// looking at what stranded it.
+const GROUNDED_RECHECK_INTERVAL: u64 = STRUCTURAL_TICK_INTERVAL * 12;
 
 /// Recompute one `Solid` cell's distance to the nearest anchor from its
 /// neighbours' currently-stored distances. Dispatched from
@@ -256,7 +310,14 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 
     // The last resort described above: nothing else holds this, so what it
     // is standing on does.
-    let new_distance: u16 = if relaxed == u16::MAX && is_resting_on_ground(world, x, y) { 0 } else { relaxed };
+    //
+    // `grounded_root` is kept because a 0 that came from *here* is not the
+    // same claim as a 0 that came from bedrock: it is provisional on loose
+    // material that can flow away without scheduling anything. See
+    // `GROUNDED_RECHECK_INTERVAL`, which is what the tail of this function
+    // does about it.
+    let grounded_root = relaxed == u16::MAX && is_resting_on_ground(world, x, y);
+    let new_distance: u16 = if grounded_root { 0 } else { relaxed };
 
     // Written *before* the failure test, not after, and the order is
     // load-bearing: `load::failing_region` reads stored distances, and the
@@ -793,6 +854,18 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if moved {
         return propagate;
     }
+    // Held up by nothing but the loose stuff underneath, and that can go
+    // away silently -- keep asking, slowly. See `GROUNDED_RECHECK_INTERVAL`
+    // for the trace this comes from and for why the trigger is not at the
+    // grain that leaves.
+    if grounded_root {
+        return vec![ActiveSite {
+            x,
+            y,
+            kind: ActiveKind::StructuralCheck,
+            next_frame: world.frame + GROUNDED_RECHECK_INTERVAL,
+        }];
+    }
     //
     // Scheduling the parent here instead was tried and reverted. It fixed
     // the same ordering bug `failing_along_support_chain` now fixes, but
@@ -808,21 +881,42 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 /// — the branch `tick` routes to instead of the aux-cached relaxation
 /// above, whose cache `aux` no longer holds once it's carrying a cell-type
 /// tag and resource scalar instead (`Reports/organism-substrate-
-/// design.md` §2/§5). No per-cell cached distance to relax incrementally
-/// — `organism_is_supported` below runs a fresh bounded BFS every call
-/// instead, from `(x, y)` outward rather than from a stored anchor list
-/// (`OrganismState` still doesn't track one — real future work, not faked
-/// here with a placeholder that wouldn't mean anything yet). Cheap enough
-/// for now: `max_span` bounds the search radius, and organisms stay small
-/// (this session's own live-verification tops out in the tens of cells).
+/// design.md` §2/§5).
+///
+/// **The distance is cached, just not in `aux`.** It lives on the organism
+/// sidecar as `OrganismCell::support` and is recomputed from the anchors
+/// outward once per organism tick by `plant::anchor_support`, so this
+/// function is a field read and a comparison. It used to run a fresh
+/// bounded BFS outward from `(x, y)` on every single check — see
+/// `OrganismCell::support` for why that was wrong twice over, and why the
+/// fix was the *direction* of the search rather than its budget.
+///
 /// A no-op for a material with no finite span (moss's own, still — this
-/// only actually does anything for tree.ron's wood so far).
+/// only actually does anything for tree.ron's wood and rootwood so far).
 fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Vec<ActiveSite> {
     let material = world.materials.get(cell.material);
-    let max_span = material.max_unsupported_span;
-    if max_span == u16::MAX {
-        return Vec::new(); // this species' material doesn't participate at all (e.g. moss)
-    }
+    // **`max_cantilever_reach`, not `max_unsupported_span`.** The inert
+    // path reinterprets that field as a capacity (`span^2 / 2`, see
+    // `load::capacity`), and the two are not on the same scale -- see
+    // `MaterialDef::max_cantilever_reach` for the measurement that forced
+    // them apart.
+    //
+    // Scaled by the individual's wood density -- the strength half of
+    // `WOOD_DENSITY_ALLELES` (the price half is on `Grow.cost`): dense
+    // wood holds a longer reach under more load before snapping to
+    // deadwood, cheap wood grows faster and loses more of itself.
+    // **The no-finite-span sentinel is read off the *material*, never off
+    // the scaled span.** `u16::MAX` is leaf.ron's (and moss's) opt-out
+    // from the cantilever rule entirely, and it is a sentinel value, not a
+    // large number: 65535 x 0.75 is 49151, which is not the sentinel, so
+    // scaling first silently enrolled every pioneer-allele plant's foliage
+    // in a rule the opt-out exists to keep it out of. Latent today only
+    // because 49151 still dwarfs any real support distance -- and "latent"
+    // is what the leaf span was before checks started firing and took the
+    // stand from 31,731 cells to 7,171.
+    let unbounded = material.max_cantilever_reach == u16::MAX;
+    let density = world.organism(cell.organism_id()).map_or(1.0, |s| organism::wood_density(&s.alleles));
+    let max_span = ((material.max_cantilever_reach as f32 * density) as u32).min(u16::MAX as u32) as u16;
     let organism_id = cell.organism_id();
     // **Load shortens the span a branch can hold.** `PLAN.md` treats "too
     // much weight breaks a branch" as already in scope, and it was only
@@ -839,7 +933,39 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // (which branch breaks, and when) is emergent from what the player
     // actually piled on it.
     let effective_span = max_span.saturating_sub(supported_load(world, x, y, organism_id) / LOAD_PER_SPAN_UNIT);
-    if organism_is_supported(world, x, y, organism_id, effective_span) {
+    // **A field read, where this used to be a fresh BFS per check.**
+    // `plant::anchor_support` computes every cell's weighted distance to
+    // its organism's anchors once per organism tick, from the anchors
+    // outward; see `OrganismCell::support` for the two defects the old
+    // outward-from-here search had. `0` for a cell with no sidecar: an
+    // organism that has not been walked yet must defer, never fail, because
+    // the action this decides is destructive.
+    let support = world.organism_cell(x, y).map_or(0, |c| c.support);
+    // Two questions off one number, and they are genuinely different.
+    // `u16::MAX` is **attachment** -- nothing this cell connects to reaches
+    // the ground, so the piece it is part of has come off, however short
+    // its own distance would otherwise have been. Anything else is
+    // **cantilever** -- how far out along its own load path it sits, against
+    // what the material can hold with the load currently on it.
+    let detached = support == u16::MAX;
+    // **Attachment applies to every organism material; cantilever only to
+    // the ones that carry load.** Keeping the two apart is what lets
+    // `leaf.ron` opt out of the span rule (`u16::MAX`) and still fall when
+    // the twig it hangs on is cut -- the early return this replaced tested
+    // the span first and so exempted foliage from *both*.
+    //
+    // A leaf must opt out, and the reason is a measurement: `leaf.ron`'s
+    // span was **1**, written to mean "a leaf holds up nothing but itself"
+    // under the old rule, where the number was hops-to-nearest-ground and
+    // nothing ever scheduled a check on a leaf anyway. Under the anchor
+    // pass the number is reach along the load path, which for any leaf in a
+    // crown is tens of cells, so the first run with checks actually firing
+    // destroyed every leaf in the stand -- median leaves per tree 1,376 to
+    // **1**, and with the income gone the stand fell from 31,731 cells to
+    // 7,171. `leaf.ron`'s own doc already says a leaf must not be a load
+    // path; this is that sentence enforced instead of asserted.
+    let over_span = !detached && !unbounded && support > effective_span;
+    if !detached && !over_span {
         // Supported and, unlike the aux-cached path, always an exact
         // answer rather than one still converging -- nothing more to do
         // until something else disturbs this organism's own structure.
@@ -875,17 +1001,6 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
-/// Whether `(x, y)` — a `Plant` cell belonging to `organism_id` — is
-/// within `max_span` connected same-organism `Plant` hops of ground: a
-/// cell (this one, or one reached through the search) touching a `Solid`-
-/// kind neighbour. The direct generalization of the aux-cached path's own
-/// `is_anchor` (touches `BEDROCK`) to a tree: a trunk resting on stone is
-/// exactly as anchored as a stone span touching bedrock is, and a root
-/// pressed against solid ground counts the same way. Growing *through*
-/// soil (not yet possible — `Grow`'s candidates are gated on `is_empty`,
-/// PLAN.md's own recorded gap) will extend this the same way once it
-/// exists; nothing here needs to change for that, since "touches Solid"
-/// stays true for a root embedded in solid-kind ground either way.
 /// How many cells of piled-up load cost one cell of allowable span.
 ///
 /// Four, so `wood`'s span of 8 survives a light dusting and a genuinely
@@ -930,41 +1045,6 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
         }
     }
     load
-}
-
-fn organism_is_supported(world: &World, x: i32, y: i32, organism_id: u16, max_span: u16) -> bool {
-    let touches_solid_ground = |px: i32, py: i32| {
-        NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.kind(world.get(px + dx, py + dy).material) == MaterialKind::Solid)
-    };
-    if touches_solid_ground(x, y) {
-        return true; // distance 0 -- this cell is itself the trunk base, or a root against bare ground
-    }
-
-    let mut visited = std::collections::HashSet::new();
-    let mut queue = std::collections::VecDeque::new();
-    visited.insert((x, y));
-    queue.push_back(((x, y), 0u16));
-    while let Some(((cx, cy), dist)) = queue.pop_front() {
-        if dist >= max_span {
-            continue; // do not expand past the span -- nothing beyond could still be in bounds
-        }
-        for (dx, dy) in NEIGHBOURS_4 {
-            let next @ (nx, ny) = (cx + dx, cy + dy);
-            if visited.contains(&next) {
-                continue;
-            }
-            let neighbour = world.get(nx, ny);
-            if neighbour.organism_id() != organism_id || world.materials.kind(neighbour.material) != MaterialKind::Plant {
-                continue; // a different organism, or non-Plant material, is a wall -- same convention diffuse_resource's own is_wall uses
-            }
-            visited.insert(next);
-            if touches_solid_ground(nx, ny) {
-                return true;
-            }
-            queue.push_back((next, dist + 1));
-        }
-    }
-    false
 }
 
 /// The organism-owned mirror of `schedule_solid_neighbours` — an organism
@@ -1025,45 +1105,151 @@ const COLLAPSE_IMPULSE_STRENGTH: f32 = 4.0;
 /// managed-aware and would count a promoted liquid body's container cells
 /// as occupied, which is the wrong answer to "could rock move into here".
 ///
-/// # Gas counts as air, and leaving it out was the bug
+/// # Water is somewhere to go, and reading it as rock cost the owner a bug
 ///
-/// A `Gas` cell is somewhere rock can move into --
-/// `rigid::clear_or_displaceable` shoves it aside or vents it, so a piece
-/// with nothing but smoke on one side genuinely has room. Testing `EMPTY`
-/// alone made that piece **confined**, which sends it down the crush branch
-/// to be cracked where it stands instead of allowed to fall.
+/// **A liquid the piece outweighs counts as a free face.** Air-only was the
+/// original rule and it is wrong in exactly one direction: a piece
+/// submerged in water has no empty neighbour at all, so it read as
+/// *confined* -- "a pocket already cut free on every side, wedged in a hole
+/// its own shape", per the caller's own words -- and the caller's answer to
+/// a confined `Unsupported` failure is to record it and **leave it exactly
+/// where it is, with nothing rescheduled**. Correct for rock in the middle
+/// of a mountain. For a quench crust floating mid-lake it is the whole of
+/// the owner's report that stone "freezes in place" instead of sinking.
 ///
-/// The place that bites is the one place the player is looking.
-/// `explosion::Tuning::smoke_fraction` backfills 18% of a fresh crater with
-/// `SMOKE`, so the hole a blasted chunk is meant to drop into is the densest
-/// gas in the world -- and the emptier the blast made it, the more smoke it
-/// left. Reported from play as *"chunks of rock that seem fully cracked all
-/// the way around stay put and don't fall into the leftover hole/crater"*.
+/// `CLAUDE.md`'s "when a rule must tell apart two things that can look
+/// identical, state the difference as data", one more time: buried in rock
+/// and submerged in water are the same arrangement of not-empty cells, and
+/// the difference is a density the materials already carry.
 ///
-/// `explosion.rs` already had to learn this once, at
-/// `an_explosion_clears_a_crater`: *"Not `is_empty()`: `smoke_fraction`
-/// backfills part of the crater with `SMOKE`, so the epicentre is
-/// legitimately allowed to hold a gas cell afterwards."* Same fact, a
-/// different consumer.
-fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
-    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+/// The **piece's** mean density against the liquid's, on the same "which
+/// object does this rule evaluate" argument this function's own doc makes
+/// above -- and matching `rigid::clear_or_displaceable`, which is the mover
+/// this has to agree with. A slab with one cell of ice in it still sinks; a
+/// floe does not.
+///
+/// Powder is deliberately *not* included even though `rigid::displace` can
+/// shove it. A piece buried in sand has to push a granular pile out of the
+/// way rather than swap with a fluid, and whether that should count is a
+/// separate question with its own scenes; nothing has reported it.
+///
+/// # A gas is somewhere to go too, and leaving it out stranded rock in mid-air
+///
+/// This rule read `EMPTY` and, later, a lighter `Liquid`, and silently said
+/// **no** to every `Gas`. Steam is not air by the material test, so a stone
+/// cell in a cloud of it was "wedged in a hole its own shape" -- and the
+/// caller's answer to a confined `Unsupported` failure is to record it,
+/// leave it standing, and *reschedule nothing*, so the cell is never asked
+/// again however the world changes around it.
+///
+/// Measured, on `scene=lavadrop`: the quench mints a stone cell at frame
+/// 25 whose eight neighbours are five lava and three steam, it fails as
+/// `Unsupported` with a one-cell region, `confined` comes back true, and it
+/// is dropped from the scheduler for good. Sixty frames later the lava and
+/// the steam have gone and it is a lone stone pixel hanging over open
+/// water, which is what the owner saw. Poking those positions by hand
+/// (`filmstrip`'s `poke=`) drops them immediately, which is what proves the
+/// cell was never re-asked rather than asked and refused.
+///
+/// Rock falls through steam exactly as it falls through air, so a gas the
+/// piece outweighs is an open face. The density test is kept rather than
+/// waved through -- every gas in the game today is orders of magnitude
+/// lighter than any solid, and a rule that says *why* survives one that
+/// isn't.
+fn face_is_open(world: &World, piece_density: f32, nx: i32, ny: i32) -> bool {
+    let material = world.get(nx, ny).material;
+    if material == super::material::EMPTY {
+        return true;
+    }
+    world.materials.kind(material) == MaterialKind::Gas && piece_density > world.materials.density(material)
+}
+
+/// The original rule, plus gases: is any neighbour of the region open space
+/// the piece could move into *without* counting a liquid? Split out so the
+/// buoyant case above can reach it without duplicating it -- what `floats`
+/// must not do is read water as somewhere to go, and a gas is not water.
+fn region_touches_air(
+    world: &World,
+    region: &[(i32, i32)],
+    cells: &std::collections::HashSet<(i32, i32)>,
+    piece_density: f32,
+) -> bool {
     region.iter().any(|&(x, y)| {
         NEIGHBOURS_8.iter().any(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
-            !cells.contains(&(nx, ny)) && world.in_bounds(nx, ny) && is_open_space(world, nx, ny)
+            !cells.contains(&(nx, ny)) && world.in_bounds(nx, ny) && face_is_open(world, piece_density, nx, ny)
         })
     })
 }
 
-/// Whether `(x, y)` is somewhere a piece of rock could move into: empty, or
-/// holding a gas that would be shoved aside.
+/// # Gas counts as air too, and both branches found that independently
 ///
-/// The raw material test rather than `Cell::is_empty()`, which is
-/// managed-aware -- see `region_has_free_face`, which is what this was
-/// factored out of, for why both halves are here.
-fn is_open_space(world: &World, x: i32, y: i32) -> bool {
-    let material = world.get(x, y).material;
-    material == super::material::EMPTY || world.materials.kind(material) == super::material::MaterialKind::Gas
+/// `face_is_open` above admits a gas the piece outweighs. That arm was
+/// built twice, once here and once on the explosion branch, from two
+/// different symptoms -- which is worth recording, because it means the
+/// rule has two unrelated witnesses rather than one.
+///
+/// The explosion side's witness: `explosion::Tuning::smoke_fraction`
+/// backfills 18% of a fresh crater with `SMOKE`, so the hole a blasted
+/// chunk is meant to drop into is the densest gas in the world -- and the
+/// emptier the blast made it, the more smoke it left. Testing `EMPTY` alone
+/// made such a piece **confined**, which sends it down the crush branch to
+/// be cracked where it stands instead of allowed to fall. Reported from
+/// play as *"chunks of rock that seem fully cracked all the way around stay
+/// put and don't fall into the leftover hole/crater"*.
+///
+/// `explosion.rs` had already had to learn the same fact once, at
+/// `an_explosion_clears_a_crater`: *"Not `is_empty()`: `smoke_fraction`
+/// backfills part of the crater with `SMOKE`, so the epicentre is
+/// legitimately allowed to hold a gas cell afterwards."* Same fact, a third
+/// consumer.
+///
+/// The merge kept `origin/main`'s spelling of the rule, which gates the gas
+/// on density and handles a lighter liquid as well; this branch's
+/// `is_open_space` helper was deleted rather than left orphaned.
+fn region_has_free_face(world: &World, region: &[(i32, i32)]) -> bool {
+    let cells: std::collections::HashSet<(i32, i32)> = region.iter().copied().collect();
+    let piece_density = if region.is_empty() {
+        0.0
+    } else {
+        region.iter().map(|&(x, y)| world.materials.density(world.get(x, y).material)).sum::<f32>() / region.len() as f32
+    };
+    // **`floats` first, density second, and the order was decided by
+    // measurement.** Density alone took `scene=coldsnap` from 1 overload
+    // failure to 23 plus 12 unsupported, against an acceptance bar of zero
+    // *unconfined* failures whose entire job is that nothing on that scene
+    // is dismantled. Reverting this one arm and changing nothing else put
+    // it back to 1/0/1-confined, identical to the pre-change baseline, so
+    // the attribution is not in doubt.
+    //
+    // What density gets wrong there is a **mixed** piece: a region that is
+    // mostly ice but has picked up a stone cell averages over 1.0, so the
+    // water beside it read as somewhere to go and the sheet was taken apart
+    // instead of cracking where it stood. `ice.ron` says why in advance --
+    // "the floating below is a flag rather than a density test" -- and
+    // `is_resting_on_ground` already asks the flag for the same question.
+    // Asking density here made this a second, disagreeing reader of it.
+    //
+    // Any floating cell makes the whole piece float, which is the
+    // conservative direction: it can only ever leave a piece confined that
+    // density would have dismantled.
+    if region.iter().any(|&(x, y)| world.materials.get(world.get(x, y).material).floats) {
+        return region_touches_air(world, region, &cells, piece_density);
+    }
+    region.iter().any(|&(x, y)| {
+        NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+            let (nx, ny) = (x + dx, y + dy);
+            if cells.contains(&(nx, ny)) || !world.in_bounds(nx, ny) {
+                return false;
+            }
+            if face_is_open(world, piece_density, nx, ny) {
+                return true;
+            }
+            let neighbour = world.get(nx, ny);
+            world.materials.kind(neighbour.material) == MaterialKind::Liquid
+                && piece_density > world.materials.density(neighbour.material)
+        })
+    })
 }
 
 /// How far a confined region is from the nearest air, in cells, capped at
@@ -3367,13 +3553,29 @@ const DETACH_DEPTH: i32 = 3;
 /// Treating a granular pile as ground is safe in a way that treating solid
 /// as ground is not: powder is under the CA sweep's control, so if it flows
 /// out from underneath, that write dirties the chunk and whatever was
-/// sitting on it gets re-examined. Liquids and gases are excluded — floating
-/// is buoyancy, not support, and nothing here models it.
+/// sitting on it gets re-examined.
+///
+/// **Gases stay excluded; `Liquid` is now excluded only for material that
+/// does not claim to float.** The original rule read "floating is buoyancy,
+/// not support, and nothing here models it", which was true and free while
+/// nothing floated. Ice does, and the claim is a bit on the material rather
+/// than a shape this function could infer — see `MaterialDef::floats` for
+/// what went wrong without it and why the flag is opt-in. The safety
+/// argument for powder carries over unchanged and is the reason this is a
+/// small change rather than a new mechanism: a `Liquid` is under the CA
+/// sweep's control too, so if it flows out from underneath, that write
+/// dirties the chunk and whatever was floating on it is re-examined.
 ///
 /// Only the cell *directly below*: this answers "is it standing on the
 /// ground", not "is there a second, weaker way to span a gap sideways".
+/// **Delegates to `load::rests_on_ground`, and used to be a second copy of
+/// it.** Two modules answering the same question separately is the shape
+/// `CLAUDE.md` warns about, and it went wrong the moment one of them
+/// learned something: `load.rs` grew a rule about grains swallowed inside a
+/// piece (see `load::grain_is_footing`, and the raft it found floating on a
+/// pond) and this one would have gone on rooting chains on them.
 fn is_resting_on_ground(world: &World, x: i32, y: i32) -> bool {
-    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
+    super::load::rests_on_ground(world, x, y)
 }
 
 /// Whether `material` participates in the structural system at all —
@@ -3679,6 +3881,324 @@ mod tests {
         }
     }
 
+    // ---- buoyancy: `MaterialDef::floats` (the ice milestone) ------------
+
+    /// A raft of ice on water is held up by the water, and the paired
+    /// negative is the whole point of the test: **the same geometry in
+    /// stone is not**.
+    ///
+    /// Geometry cannot tell a sheet floating on a pond from a slab
+    /// suspended in one, which is `CLAUDE.md`'s "when a rule must tell
+    /// apart two things that can look identical, state the difference as
+    /// data" -- so the difference is a bit on the material and this test
+    /// asserts on the bit, not on the shape. A single assertion about ice
+    /// would pass just as well if the predicate had been widened to accept
+    /// any `Liquid` below anything, which is the change that would quietly
+    /// make undercut rock below a lake unfallable.
+    #[test]
+    fn a_floating_solid_is_held_up_by_the_water_under_it_and_a_sinking_one_is_not() {
+        for (name, expect_held) in [("ice", true), ("stone", false)] {
+            let mut w = test_world();
+            let id = w.materials.id_of(name).expect("both materials ship");
+            // A basin with no floor under the middle of the water, so the
+            // only thing beneath the raft is liquid. Walls of bedrock, or
+            // the water would run out from under it and the test would be
+            // measuring drainage.
+            for y in 30..40 {
+                w.set(19, y, Cell::new(material::BEDROCK, 0));
+                w.set(45, y, Cell::new(material::BEDROCK, 0));
+            }
+            for x in 19..=45 {
+                w.set(x, 40, Cell::new(material::BEDROCK, 0));
+            }
+            for x in 20..45 {
+                for y in 32..40 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            // A raft in the middle of the span, touching neither wall: the
+            // *only* thing that can hold it is what is underneath.
+            for x in 28..37 {
+                w.set(x, 31, Cell::new(id, 0));
+            }
+            compute_world_distances(&mut w);
+
+            let held = is_resting_on_ground(&w, 32, 31);
+            assert_eq!(
+                held, expect_held,
+                "{name} on water: is_resting_on_ground said {held}, expected {expect_held} -- \
+                 buoyancy is opt-in per material and must not leak to material that never asked"
+            );
+        }
+    }
+
+    /// **A cloud of steam is somewhere to fall, exactly as air is.**
+    ///
+    /// `region_has_free_face` read `EMPTY` and, later, a lighter `Liquid`,
+    /// and silently said no to every `Gas` -- so a stone cell in the steam
+    /// a quench throws off was "wedged in a hole its own shape", recorded
+    /// as a confined `Unsupported` failure and **left standing with nothing
+    /// rescheduled**. The steam then blew away and the stone hung in open
+    /// air for the rest of the run: 23 such cells on `scene=lavadrop` and
+    /// 31 on `scene=lavapour`, which is what the owner reported as rock
+    /// "stuck in the middle of the water".
+    ///
+    /// Asserted on the **confined counter** as well as on the cell,
+    /// because the two claims come apart: a cell that broke free for some
+    /// other reason and a cell the free-face rule let go look identical
+    /// afterwards, and only the counter says which rule ran.
+    #[test]
+    fn a_solid_in_a_cloud_of_gas_is_not_confined() {
+        let mut w = test_world();
+        let steam = w.materials.id_of("steam").expect("steam.ron should be embedded");
+        let debris = stone_debris(&w);
+        for dy in -2i32..=2 {
+            for dx in -2i32..=2 {
+                w.set(32 + dx, 32 + dy, Cell::new(steam, 0));
+            }
+        }
+        // One unattached stone cell in the middle of it, touching nothing
+        // solid and nothing empty.
+        w.set(32, 32, Cell::new(material::STONE, 0));
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(32, 32);
+        run(&mut w, 60);
+
+        assert_eq!(
+            w.structural_failures.confined, 0,
+            "a gas the piece outweighs is a free face -- {} confined failures says the rule still reads steam as rock",
+            w.structural_failures.confined
+        );
+        assert_eq!(
+            w.get(32, 32).material,
+            debris,
+            "the stone should have come free into debris; it is still {}",
+            w.materials.get(w.get(32, 32).material).name
+        );
+    }
+
+    /// **A grain the piece has swallowed does not hold the piece up — and
+    /// two grains do not either, which is the case that shipped.**
+    ///
+    /// The first version of this test placed **one** grain inside the raft
+    /// and passed against a rule that asked whether the grain was enclosed
+    /// by body material on all four faces. Two adjacent grains defeat that
+    /// rule outright, because each is the other's non-body neighbour — and
+    /// they went out. `scene=rockdrop`'s 600-cell slab then sat in open air
+    /// 30 rows above its pond from frame 40 to 400, held there by pockets
+    /// like this:
+    ///
+    /// ```text
+    /// 170 ......###############################ooo#####..##.#####
+    /// 171 ......######################oooooooooo###....##########
+    /// ```
+    ///
+    /// so the pair case is asserted here explicitly rather than left to
+    /// follow from the single one. See `load::grain_is_footing`, which now
+    /// asks what the grain is *standing on* instead of what is beside it.
+    ///
+    /// Four cases, and the two positives matter as much as the negatives: a
+    /// rule that had simply stopped believing in rubble would take
+    /// `scene=ligament`'s slab out of the air, which is not wanted.
+    #[test]
+    fn a_grain_swallowed_by_a_piece_is_not_a_footing() {
+        // A raft sitting just above the bedrock floor, so a grain placed
+        // *under* it has something real to stand on. The first fixture put
+        // the raft in mid-air and asserted that a grain hanging under it
+        // was a footing -- which the new rule correctly denies, because a
+        // grain with air beneath it is falling.
+        let raft_with = |grains: &[(i32, i32)]| {
+            let mut w = test_world();
+            let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+            for x in 0..64 {
+                w.set(x, 63, Cell::new(material::BEDROCK, 0));
+            }
+            for x in 24..40 {
+                for y in 58..62 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for &(gx, gy) in grains {
+                w.set(gx, gy, Cell::new(sand, 0));
+            }
+            compute_world_distances(&mut w);
+            w
+        };
+
+        // Under the piece, standing on bedrock: a real footing.
+        let w = raft_with(&[(32, 62)]);
+        assert!(
+            is_resting_on_ground(&w, 32, 61),
+            "a grain between the piece and the bedrock is exactly what `rests_on_ground` is for"
+        );
+
+        // One grain walled inside the piece.
+        let w = raft_with(&[(32, 60)]);
+        assert!(
+            !is_resting_on_ground(&w, 32, 59),
+            "a lone grain inside the piece is filler, not footing"
+        );
+
+        // **Two adjacent grains inside the piece** -- the shipped bug.
+        let w = raft_with(&[(32, 60), (33, 60)]);
+        assert!(
+            !is_resting_on_ground(&w, 32, 59),
+            "two grains inside the piece are still filler; each being the other's neighbour must not make them ground"
+        );
+
+        // And a grain with nothing under it is falling, whatever is above.
+        let mut w = raft_with(&[]);
+        let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+        for x in 24..40 {
+            for y in 30..34 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.set(32, 34, Cell::new(sand, 0));
+        compute_world_distances(&mut w);
+        assert!(
+            !is_resting_on_ground(&w, 32, 33),
+            "a grain hanging in mid-air under a raft holds nothing up"
+        );
+    }
+
+    /// **Ground that flows away without telling anybody.**
+    ///
+    /// `is_resting_on_ground` roots a support chain on a `Powder`
+    /// underneath, on the recorded argument that "if it flows out from
+    /// underneath, that write dirties the chunk and whatever sat on it is
+    /// re-examined". It does not: waking a chunk schedules no
+    /// `StructuralCheck`, and `World::set` -- the seam every mover goes
+    /// through -- schedules none either. So the cell above read `aux 0`,
+    /// was judged "holds", stopped rescheduling itself, and was never asked
+    /// again.
+    ///
+    /// The grain is removed with a bare `set`, deliberately: that is the
+    /// *whole* claim under test. Anything that schedules a check on the way
+    /// past -- an erase through the brush, a blast, a `break_free` -- would
+    /// paper over the defect and make this pass against the broken code.
+    /// Nothing here runs the CA sweep either, for the same reason.
+    ///
+    /// See `GROUNDED_RECHECK_INTERVAL`, and note the wait: this asserts the
+    /// cell comes down *eventually*, not instantly, which is the trade that
+    /// keeps the cost off the CA hot path.
+    #[test]
+    fn a_cell_left_standing_on_nothing_is_asked_again() {
+        let mut w = test_world();
+        let sand = w.materials.id_of("sand").expect("sand.ron should be embedded");
+        let debris = stone_debris(&w);
+        // The grain sits **on the bedrock**, not in mid-air thirty rows
+        // above it. The first fixture did the latter, and
+        // `load::grain_is_footing` was later taught that a grain with
+        // nothing under it is falling rather than bearing -- so the stone
+        // came down on the first check and the setup assertion below,
+        // which is meant to be the boring half, went red. A fixture that
+        // does not contain the situation reads exactly like a broken
+        // mechanism.
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        w.set(32, 62, Cell::new(sand, 0));
+        w.set(32, 61, Cell::new(material::STONE, 0));
+        compute_world_distances(&mut w);
+        w.schedule_structural_check_around(32, 61);
+        run(&mut w, 60);
+        assert_eq!(
+            w.get(32, 61).material,
+            material::STONE,
+            "the grain is still there, so the stone should still be standing on it"
+        );
+
+        // The grain goes, and nothing is told.
+        w.set(32, 62, Cell::EMPTY);
+        run(&mut w, 240);
+
+        assert_eq!(
+            w.get(32, 61).material,
+            debris,
+            "the ground went and nothing rescheduled the cell above it -- still {}",
+            w.materials.get(w.get(32, 61).material).name
+        );
+    }
+
+    /// **Ice participates in the load model**: freeze a bridge over open
+    /// air, take away what holds it up, and it comes apart into snow.
+    ///
+    /// The other half of the buoyancy pair above, and the reason `floats`
+    /// grants *ground* rather than immunity: a sheet on water is supported,
+    /// and a span over nothing is not. Leaving ice's
+    /// `max_unsupported_span` unset would have passed the freeze-over case
+    /// and failed this one -- `load::capacity` reads that sentinel as "not
+    /// in the structural system at all" and returns infinite capacity, so
+    /// the bridge would hang there. See `MaterialDef::floats`.
+    ///
+    /// The debris material is read from the registry rather than named, the
+    /// same way `stone_debris` does it: retargeting ice.ron's
+    /// `breaks_into` should not silently turn this into an assertion about
+    /// a material the engine no longer makes.
+    #[test]
+    fn ice_participates_in_load() {
+        let mut w = test_world();
+        let ice = w.materials.id_of("ice").expect("ice.ron should be embedded");
+        let debris = w.materials.get(ice).breaks_into.expect("ice must define a breaks_into");
+        // Two piers of bedrock with a long ice span between them, in air --
+        // no water anywhere, so nothing floats and the span is carried by
+        // its ends alone.
+        for y in 30..40 {
+            w.set(10, y, Cell::new(material::BEDROCK, 0));
+            w.set(60, y, Cell::new(material::BEDROCK, 0));
+        }
+        for x in 10..=60 {
+            w.set(x, 29, Cell::new(ice, 0));
+        }
+        compute_world_distances(&mut w);
+        run(&mut w, 30);
+        let spanning = (11..60).filter(|&x| w.get(x, 29).material == ice).count();
+        assert!(spanning > 40, "the bridge should stand while both piers hold it: only {spanning} of 49 cells left");
+
+        // Erase one pier. Erasing delivers no load and no impulse -- it is
+        // the cheapest way to ask "was this being held", which is exactly
+        // the question here.
+        for y in 30..40 {
+            w.set(60, y, Cell::EMPTY);
+        }
+        w.schedule_structural_check_around(60, 29);
+        run(&mut w, 240);
+
+        let left = (11..60).filter(|&x| w.get(x, 29).material == ice).count();
+        let snow = (0..64)
+            .flat_map(|x| (0..64).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == debris)
+            .count();
+        assert!(left < spanning, "the bridge lost nothing when its support went: {left} cells against {spanning}");
+        // **The counter, not just the picture.** A span that quietly slid
+        // sideways under the CA sweep and one the load model took down look
+        // the same in a cell count, and only one of them is this mechanism
+        // (`CLAUDE.md`: "did it fire at all" needs a counter).
+        //
+        // Either criterion counts. Measured: the 49-cell cantilever off one
+        // remaining pier goes by **overload**, one event carrying the whole
+        // span, rather than by running past its `max_unsupported_span` --
+        // the bending moment on a span that long exceeds ice's capacity
+        // before the distance does. Asserting specifically on `unsupported`
+        // failed here for that reason, which is worth recording: the two
+        // modes are interchangeable from the player's side and not from the
+        // model's.
+        let f = w.structural_failures;
+        assert!(
+            f.overloaded + f.unsupported > 0,
+            "no structural failure fired at all, so whatever moved the ice was not the load model \
+             (overloaded {}, unsupported {})",
+            f.overloaded,
+            f.unsupported
+        );
+        // Graded debris, not nothing and not one coherent slab: measured
+        // 14 cells of snow off a 49-cell span, the rest going as bodies in
+        // flight. `CLAUDE.md`'s ethos section: a destructive event that
+        // produces no debris is not finished.
+        assert!(snow > 0, "ice that gives way should come away as {} -- graded debris, not nothing", w.materials.get(debris).name);
+    }
+
     /// The rule that `compute_world_distances`'s flat mirror had to be told
     /// about explicitly, and the one thing that cannot be inferred from the
     /// cells themselves: **off-world reads are bedrock.** `World::get`
@@ -3717,6 +4237,36 @@ mod tests {
             w.get(bounds.min_x + 1, 4).aux() > 0,
             "a cell one column in from the edge is supported *through* its neighbour, not by the edge"
         );
+    }
+
+    /// `run`, plus the per-organism passes — i.e. what production actually
+    /// executes, via `World::step_active_sites`.
+    ///
+    /// **Every organism test has to use this**, and the reason is the whole
+    /// point of the support rewrite. A cell's distance to its anchors is no
+    /// longer searched for at check time; `plant::anchor_support` computes
+    /// it from the anchors outward once per organism tick, and
+    /// `organism_structural_tick` reads the result. A harness that drives
+    /// only `scheduler::step` never runs that pass, so every cell keeps
+    /// `OrganismCell::support`'s default of 0 — "anchored" — and nothing
+    /// can ever fail.
+    ///
+    /// That is not a weakening of these tests, it is them driving the real
+    /// path: three of the four failed the moment the new mechanism landed,
+    /// which is exactly what `CLAUDE.md` asks for when a mechanism is
+    /// replaced ("deliberately break the replacement and confirm the old
+    /// tests fail — if they still pass, delete them rather than porting
+    /// them"). They did fail, so they were testing something, and they get
+    /// ported.
+    ///
+    /// Organisms tick on `(frame + organism_id) % ORGANISM_TICK_INTERVAL`,
+    /// so a frame count below ~45 can miss the pass entirely.
+    fn run_organisms(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            w.begin_step();
+            w.step_active_sites();
+            w.end_step();
+        }
     }
 
     #[test]
@@ -4711,6 +5261,40 @@ mod tests {
     // since growth's own direction is randomized and irrelevant to what's
     // being tested here.
 
+    /// Pin `wood`'s cantilever reach for one test world.
+    ///
+    /// **A test about the mechanism must not depend on the shipped
+    /// constant.** `max_cantilever_reach` is set from a measurement of a
+    /// real stand (support max 77, so 96 with headroom) and will be
+    /// re-derived again when the load model grows the plant's own weight.
+    /// The beams below are 6 and 12 cells, so against the shipped value
+    /// every one of them would sit comfortably inside the limit and these
+    /// tests would pass while exercising nothing -- the exact failure
+    /// `CLAUDE.md` describes as a superseded mechanism's tests still
+    /// passing.
+    ///
+    /// Same synthetic-reload route `editing_max_unsupported_span_while_
+    /// running_changes_what_stands` uses, since that is the only public way
+    /// content changes at runtime.
+    fn pin_wood_reach(w: &mut World, reach: u16) {
+        // Unique per call: the tests run in parallel and three of them pin
+        // the same reach, so a name keyed only on the value had them
+        // deleting the directory out from under each other mid-reload.
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("pixel-physics-organism-reach-{reach}-{seq}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("wood.ron"),
+            format!(
+                "(name: \"wood\", kind: Plant, density: 0.9, colors: [(92,64,40)],                  max_unsupported_span: 8, max_cantilever_reach: {reach}, breaks_into: \"deadwood\")"
+            ),
+        )
+        .unwrap();
+        w.materials.reload(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
@@ -4721,6 +5305,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let organism_id = w.push_organism(tree_species);
+        pin_wood_reach(&mut w, 8);
         // Anchored at the left end by a stone cell directly below it --
         // organism_is_supported's own generalization of "touches BEDROCK"
         // to "touches Solid ground". 6 cells, within wood's span of 8.
@@ -4730,7 +5315,7 @@ mod tests {
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(5, 30); // the far end, distance 5
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         for x in 0..6 {
             assert_eq!(w.get(x, 30).organism_id(), organism_id, "an anchored, in-span organism beam broke (or lost its organism_id) at x={x}");
@@ -4742,15 +5327,16 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let organism_id = w.push_organism(tree_species);
+        pin_wood_reach(&mut w, 8);
         w.set(0, 31, Cell::new(material::STONE, 0));
-        // 12 cells -- longer than wood's span of 8, so the far end (distance
+        // 12 cells -- longer than the reach pinned above, so the far end (distance
         // 11) is unsupported once actually checked.
         for x in 0..12 {
             let cell = organism_wood_cell(&mut w, organism_id);
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(11, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         let deadwood = w.materials.id_of("deadwood").unwrap();
         assert_eq!(w.get(11, 30).material, deadwood, "an over-span organism-owned wood cell should have broken into deadwood");
@@ -4777,7 +5363,7 @@ mod tests {
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(13, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
         assert_eq!(w.get(13, 30).organism_id(), organism_id, "test setup: the intact, anchored beam should not have broken yet");
 
         // Cut the anchor itself -- every cell in the beam is now
@@ -4786,7 +5372,7 @@ mod tests {
         w.set(10, 31, Cell::EMPTY);
         w.schedule_structural_check_around(10, 31);
         w.schedule_structural_check(10, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         assert_ne!(w.get(13, 30).organism_id(), organism_id, "the far end of the organism beam never collapsed after its only anchor was cut");
     }
@@ -4804,6 +5390,9 @@ mod tests {
             let mut w = test_world();
             let wood = w.materials.id_of("wood").expect("wood is compiled in");
             let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            // Pinned so the load term is what decides, not the shipped
+            // reach -- a 9-cell branch is far inside the real 96.
+            pin_wood_reach(&mut w, 8);
             // A trunk on the ground, and a cantilever reaching out from it.
             for y in 30..40 {
                 w.set(10, y, Cell::new(material::STONE, 0));
@@ -4835,8 +5424,8 @@ mod tests {
 
         let mut bare = build(false);
         let mut loaded = build(true);
-        run(&mut bare, 200);
-        run(&mut loaded, 200);
+        run_organisms(&mut bare, 200);
+        run_organisms(&mut loaded, 200);
 
         assert!(
             surviving(&loaded) < surviving(&bare),
@@ -6058,6 +6647,83 @@ mod tests {
         assert!(
             steps.iter().any(|&s| s.abs() > 1),
             "every row of the cut steps by exactly one cell -- that is a drawn diamond, which is what the frontier jitter exists to break"
+        );
+    }
+
+    /// **The strength half of the wood-density allele, on the scene the
+    /// load model already trusts.**
+    ///
+    /// Same beam, same sand, same pinned reach as
+    /// `a_loaded_branch_breaks_at_a_shorter_span_than_a_bare_one` — the
+    /// only difference between the two runs is the individual's density
+    /// allele, so nothing but the multiplier can explain the outcome. The
+    /// pinned reach of 8 is chosen so the tip's distance (8) falls
+    /// *between* the two alleles' effective spans: the pioneer's
+    /// `⌊8 × 0.75⌋ − 1 = 5` cannot hold it and the dense allele's
+    /// `⌊8 × 1.35⌋ − 1 = 9` can. Against the shipped reach of 96 both
+    /// would stand and this would test nothing, which is exactly what
+    /// `pin_wood_reach` exists for.
+    ///
+    /// The price half lives on `Grow.cost` and is measured on a stand, not
+    /// here — one number for both, so tuning cannot turn the trade into a
+    /// free lunch.
+    #[test]
+    fn dense_wood_holds_a_longer_loaded_branch() {
+        let build = |allele: u8| -> World {
+            let mut w = test_world();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            if let Some(state) = w.organism_mut(organism) {
+                state.alleles[organism::LOCUS_WOOD_DENSITY] = allele;
+            }
+            pin_wood_reach(&mut w, 8);
+            for y in 30..40 {
+                w.set(10, y, Cell::new(material::STONE, 0));
+            }
+            for x in 11..=19 {
+                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
+            }
+            // Sand on the branch, the same pile the load test uses. The
+            // load term is what the density multiplier has to compose
+            // with -- §4.1's claim is about a branch under piled load, not
+            // a bare one -- and it is what puts the as-authored allele on
+            // the failing side too (see the third run below).
+            for x in 11..=19 {
+                w.set(x, 29, Cell::new(material::SAND, 0));
+            }
+            w.schedule_structural_check_around(19, 30);
+            w
+        };
+
+        let surviving = |w: &World| -> usize {
+            let wood = w.materials.id_of("wood").unwrap();
+            (11..=19).filter(|&x| w.get(x, 30).material == wood).count()
+        };
+
+        let mut pioneer = build(0);
+        let mut authored = build(1);
+        let mut dense = build(2);
+        run_organisms(&mut pioneer, 200);
+        run_organisms(&mut authored, 200);
+        run_organisms(&mut dense, 200);
+
+        assert_eq!(surviving(&dense), 9, "the dense allele's effective span (9) covers the whole beam and it should stand intact; kept {}", surviving(&dense));
+        assert!(
+            surviving(&pioneer) < surviving(&dense),
+            "cheap wood must break back further under the same load: pioneer kept {} cells, dense kept {}",
+            surviving(&pioneer),
+            surviving(&dense)
+        );
+        // **The middle allele is the control that says the multiplier did
+        // the work.** As authored (x1.0) the effective span is 7 against a
+        // tip at 8, so this beam fails too -- the dense run above is not
+        // standing because the scene is easy, it is standing because 1.35
+        // bought it two more cells of reach.
+        assert!(
+            surviving(&authored) < surviving(&dense),
+            "the as-authored allele should break here as well, or the dense run proves nothing: authored kept {} cells, dense kept {}",
+            surviving(&authored),
+            surviving(&dense)
         );
     }
 }

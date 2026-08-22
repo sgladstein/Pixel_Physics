@@ -1,0 +1,81 @@
+// Steam is water's gas phase, and the missing return leg of the water
+// cycle: boiled off by heat (water.ron's boiling_point), it rises, cools
+// through its own conductivity, and condenses back into water at
+// cooling_point — so nothing accumulates against a ceiling forever, and
+// boiled water comes back instead of only ever leaving the world.
+//
+// **`aux` on a steam cell carries the source water's fill**, on the same
+// convention a Liquid uses (0 means full — see material.rs). fire.rs's
+// `transform` copies it across in both directions, which is what makes the
+// boil → condense loop conserve water per cell exactly. A gas's aux is
+// otherwise unused; nothing else reads or writes it.
+//
+// Born at the boiling water's own temperature (≥ 100°C), which is what
+// keeps the loop alive with no scheduler: a hot cell re-dirties its own
+// chunk every frame (fire.rs's must_stay_dirty), so steam can never be
+// stranded on a sleeping ceiling — it keeps being visited and keeps
+// cooling until condensation fires. cooling_point 45 sits comfortably
+// above the thermal settle band (ambient 20 ± 1), so the cooling curve
+// always reaches it, sealed pockets included.
+(
+    name: "steam",
+    display: "Steam",
+    kind: Gas,
+    // Half of smoke's 0.1, so steam rises through smoke over a fire
+    // rather than mixing into one grey mass.
+    density: 0.05,
+    // A little tighter than smoke's 3: steam reads as a plume, not a haze.
+    dispersion: 2,
+    // Real conductivity, per README's rule: any target of boils_into
+    // inherits its source's heat and needs somewhere to put it, or the
+    // chunk it lands in never sleeps. 0.12 cools a fresh 100–200°C cell to
+    // the 45° condensation threshold in roughly 10–20 visited frames —
+    // fast enough that ceilings bead up while the pool still boils, slow
+    // enough that the plume is visible on the way there.
+    heat_conductivity: 0.12,
+    cooling_point: 45.0,
+    cools_into: "water",
+    // **Condensing under open sky hands the water to the atmosphere
+    // instead of dropping it.** Reported from live play against a lava
+    // pour: the plume "rises about 5 ft in the air and then drops back
+    // into rain... it almost looks like bouncing because it goes up and
+    // down so fast". Measured on `filmstrip scene=lavapour`, the plume held
+    // 140 water cells standing in the air at the peak of the pour, spread
+    // through its whole height -- condensate falling back *through* the
+    // steam still rising, shoving it downward as it went (a falling Liquid
+    // displaces a Gas), which is the bouncing itself.
+    //
+    // Steam that reaches open air has left the world's cells; what happens
+    // to it next is weather. The fill goes to `World::atmospheric_bank`,
+    // the same place a dried puddle goes, and comes back when a front does.
+    // Conservation is exact -- see `MaterialDef::condenses_into_sky`.
+    //
+    // Indoors is unchanged: a pocket sealed in a cave, or the chamber in
+    // `filmstrip scene=boil`, still condenses into water where it stands.
+    condenses_into_sky: true,
+    // **Tried and reverted: direct-contact condensation** -- a
+    // `(with: "water", produces: ("water", "water"))` reaction here, so a
+    // steam bubble touching subcooled water collapses into it the way real
+    // ones do. Built to drain open-bugs-handoff 0b's trapped delta pocket
+    // (~1,400 steam cells at a mean of 163C that `cooling_point` can never
+    // reach, because a near-uniform cavity in warm rock has no gradient).
+    // It conserves water exactly and it did drain the pocket's steam --
+    // and it made the system as a whole *worse*, in both thermal variants,
+    // which per CLAUDE.md means the approach and not the tuning: under the
+    // exchange rule every collapse handed the bubble's whole heat to one
+    // water cell and minted a >=100C boiler (~35 boil/react events a frame,
+    // up from ~5.5); under `mixes_heat` both products sat near 100C and
+    // the boil/collapse loop churned lossless at ~34 boils a frame with
+    // the warm-water population *growing*. Contact condensation moves heat
+    // between phases faster than anything here removes it — and the loop
+    // never needed a new sink at all: its energy source was 90 cells of
+    // hot, thermally-inert rubble acting as permanent radiators inside the
+    // delta (see rubble.ron's heat_conductivity note). With that fixed the
+    // pocket condenses through the ordinary cooling_point above and the
+    // scene sleeps outright.
+    colors: [
+        (222, 228, 236),
+        (206, 214, 226),
+        (234, 238, 244),
+    ],
+)

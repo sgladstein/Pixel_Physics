@@ -245,7 +245,15 @@ function blindOrder(card) {
 }
 
 const isBlind = card => card.blind && card.status === "open";
-const isAnimated = item => item.files.length === 1 && /\.gif$/i.test(item.files[0]);
+// Trust the frame count recorded at post time over the file extension: a
+// one-frame GIF is a still with an animation's name, and labelling it
+// "animated" is the page telling the owner something untrue about what they
+// are looking at.
+const isAnimated = item => item.files.length === 1
+  && /\.gif$/i.test(item.files[0])
+  && (item.gif_frames === undefined || item.gif_frames > 1);
+const isStillGif = item => item.files.length === 1
+  && /\.gif$/i.test(item.files[0]) && item.gif_frames === 1;
 
 // Zoom must state the factor it is actually showing. A control that read
 // "1x" while displaying a 7x upscale of a 96px scene is the debug-readout
@@ -543,9 +551,11 @@ function renderPane(card, realIdx, slot, d, v) {
   return `
   <div class="pane ${d.choice === realIdx ? "picked" : ""}" data-card="${card.id}"
        data-item="${realIdx}" data-slot="${slot}">
-    ${label || item.files.length > 1 || isAnimated(item) ? `<div class="pane-label"><span>${esc(label)}</span>
+    ${label || item.files.length > 1 || isAnimated(item) || isStillGif(item) ? `<div class="pane-label"><span>${esc(label)}</span>
       <span class="hint">${item.files.length > 1 ? item.files.length + " frames"
-                            : isAnimated(item) ? "animated" : ""}</span>
+                            : isAnimated(item) ? "animated · " + (item.gif_frames || "?") + " frames"
+                            : isStillGif(item) ? "single-frame GIF — cannot animate"
+                            : ""}</span>
     </div>` : ""}
     <div class="imgwrap" data-card="${card.id}" data-item="${realIdx}">
       <div class="imgbox"><img src="/media/${esc(item.files[frame])}"

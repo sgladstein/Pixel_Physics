@@ -108,9 +108,14 @@ pub fn daylight_level(frame: u64) -> u8 {
 /// The frame at which the day carries `fraction` of its noon light — the
 /// inverse of [`field::daylight_fraction`], for **rendering a fixed hour**.
 ///
-/// Only [`Renderer::daylight_pin`](crate::render::Renderer) uses it, and
-/// only to hold the exposure still across a contact sheet whose tiles are
-/// hundreds of frames apart. `CLAUDE.md`'s "a channel that oscillates by
+/// Feeds [`Renderer::pinned_light`](crate::render::Renderer), and only to
+/// hold the exposure still across a contact sheet whose tiles are hundreds
+/// of frames apart. That field is frame-valued and this is the fraction-
+/// valued way in: `filmstrip`'s `daylight=` and the grain test both name a
+/// *phase*, which must not drift with the day length. (Two pins were built
+/// independently -- this branch's `daylight_pin` and `origin/main`'s
+/// `pinned_light` -- and the merge kept the field from one and the phase
+/// spelling from the other.) `CLAUDE.md`'s "a channel that oscillates by
 /// design must be divided out of decisions" applies to a picture being
 /// judged as much as to a threshold: nine blasts fired 400 frames apart in
 /// a 3,600-frame day are nine *different exposures*, and a variable that is

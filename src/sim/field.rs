@@ -187,7 +187,25 @@ pub const MAX_LIGHT: f32 = 4.0;
 /// humidity" scalar, same spirit as `MAX_LIGHT`: not calibrated against a
 /// real quantity, just a fixed ceiling the diffusion/decay constants below
 /// are tuned against.
-const MAX_MOISTURE: f32 = 4.0;
+pub(crate) const MAX_MOISTURE: f32 = 4.0;
+
+/// "Did it fire" counters for the field solve, in the style of
+/// `PheromoneStats` and `FailureCounts`.
+///
+/// Exists because the obvious metric for "is the field asleep" answers the
+/// wrong question. Counting tiles left *unsettled* after a step reads zero
+/// both when nothing was solved and when every tile in the world was solved
+/// and converged again — which is precisely the state a sky that writes a
+/// channel every frame produces. Only a count of what was actually solved
+/// separates them, and a timing cannot: at 40 tiles the difference hides
+/// inside the run-to-run spread of the machine.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct FieldStats {
+    /// Times `field::step` got past its global early-out and did real work.
+    pub passes: u64,
+    /// Tiles actually solved, summed across every pass.
+    pub tiles_solved: u64,
+}
 
 /// One coarse cell: ambient conditions for an `FIELD_SCALE`-sided block of the
 /// CA grid.
@@ -198,7 +216,26 @@ pub struct FieldCell {
     pub vy: f32,
     /// Ambient temperature in Celsius. Distinct from `Cell::temperature` — see
     /// the module doc on `Cell` for why both exist.
+    ///
+    /// **This is the true, oscillating reading**, sky included: a cell in open
+    /// air is warmer at noon than at midnight by up to `SKY_TEMPERATURE_SWING`
+    /// (see `apply_sky_temperature_to`). Displays want exactly this. Anything
+    /// making a *decision* off it does not, and must go through
+    /// [`noon_equivalent_temperature`] — see that function for why.
     pub temperature: f32,
+    /// How much of `temperature` is the sky's day/night forcing at this cell,
+    /// in degrees — positive by day, negative by night, attenuated with depth
+    /// by the same Beer-Lambert column transmission that attenuates light.
+    ///
+    /// Written only by `apply_sky_temperature_to`, which sets it outright
+    /// rather than accumulating into it. `temperature - sky_temperature` is
+    /// the *thermal* temperature: what diffusion, advection and `add_heat`
+    /// actually produced, with the day/night oscillation taken back out. That
+    /// subtraction is exact rather than approximate — the reason this is
+    /// stored per cell instead of being recomputed from the frame at the read
+    /// site — because the forcing is depth-graded, so the amount to take out
+    /// is different in the air, in the topsoil and forty cells down.
+    pub sky_temperature: f32,
     pub light: f32,
     /// Ambient humidity — architecture report §4. Sourced from `Liquid` CA
     /// cells (`apply_moisture_sources`), diffuses and evaporates like every
@@ -216,6 +253,12 @@ impl FieldCell {
         vx: 0.0,
         vy: 0.0,
         temperature: AMBIENT_TEMPERATURE as f32,
+        // No sky component: the rest state is the *thermal* rest state, and
+        // that is what an unloaded region, an out-of-bounds read and a wall
+        // must all answer with. `noon_equivalent_temperature` of this is
+        // `AMBIENT_TEMPERATURE` at every phase of the day, which is what
+        // every existing consumer of an unloaded read already assumes.
+        sky_temperature: 0.0,
         light: 0.0,
         moisture: 0.0,
     };
@@ -785,6 +828,16 @@ pub(crate) fn sample_bilinear(
         vx: lerp(a.vx, b.vx, t),
         vy: lerp(a.vy, b.vy, t),
         temperature: lerp(a.temperature, b.temperature, t),
+        // Interpolated alongside `temperature`, and that pairing is the whole
+        // point: a consumer that subtracts one from the other at a fractional
+        // position gets the same answer it would have got before the sky
+        // wrote anything, because two linear interpolations of a difference
+        // and the difference of two linear interpolations are the same thing.
+        // Sampling the sky term block-nearest while the temperature is
+        // bilinear would manufacture a gradient at every block boundary --
+        // exactly what `world.field_at_bilinear` exists to avoid, and exactly
+        // what worm thermotaxis would then steer by.
+        sky_temperature: lerp(a.sky_temperature, b.sky_temperature, t),
         light: lerp(a.light, b.light, t),
         moisture: lerp(a.moisture, b.moisture, t),
     };
@@ -869,7 +922,24 @@ pub fn step(world: &mut World) {
     // fired and the sky had to be driven by tiles that never slept.
     let amplitude_changed =
         sky_light_amplitude(world.frame) != sky_light_amplitude(world.frame.saturating_sub(1));
-    if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed {
+    // The same argument, one channel over, and it needs its own term rather
+    // than riding on the light one: the two halves of the cycle do not line
+    // up. Light is flat all night (`sky_light_amplitude` clips at the night
+    // floor), so `amplitude_changed` is false from sunset to sunrise, which
+    // is exactly when the temperature offset is doing its most interesting
+    // half. Without this the field would hold the sky's dusk temperature all
+    // night on any world quiet enough to reach the early-out.
+    //
+    // Exact inequality, no epsilon: `sky_temperature_offset` is quantised
+    // (see `SKY_TEMPERATURE_QUANTUM`) precisely so that "it changed" is a
+    // question with a crisp answer, and so that this fires only on the
+    // frames where there is a different value to write — measured at +100
+    // frames of 3600 over a full day, against the 825 the light channel and
+    // the CA grid were already opening. An epsilon comparison against the
+    // raw cosine could never fire at all — its
+    // per-frame step is smaller than `SETTLE_EPSILON_TEMPERATURE`.
+    let sky_temperature_changed = sky_temperature_offset(world.frame) != sky_temperature_offset(world.frame.saturating_sub(1));
+    if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed && !sky_temperature_changed {
         return;
     }
 
@@ -959,6 +1029,8 @@ pub fn step(world: &mut World) {
     // and `PLAN.md` requires same-build reproducibility.
     let mut solve: Vec<ChunkCoord> = awake.iter().copied().collect();
     solve.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
+    world.field_stats.passes += 1;
+    world.field_stats.tiles_solved += solve.len() as u64;
 
     // What the velocity and advection snapshots must be able to *read*: the
     // tiles being solved, plus one ring, since a cell at a tile edge samples
@@ -1146,6 +1218,16 @@ pub fn step(world: &mut World) {
     // `Reports/field-settling-2026-08.md` has the full measurement.
     timing.time("sky", || {
         let _lit = apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
+    });
+    // Strictly after `step_advection` and strictly before `mark_converged`,
+    // for the reason the block comment above `next` spells out with a
+    // measurement: whatever writes a channel has to write it *before* the
+    // comparison that decides whether the tile is done, or nothing ever
+    // converges and the world stays awake (5.2 ms -> 47 ms, measured).
+    // Every pass upstream overwrites the cells it touches unconditionally,
+    // so writing this any earlier would simply be clobbered.
+    timing.time("sky temperature", || {
+        apply_sky_temperature_to(sky_temperature_offset(world.frame), &coords, &mut next);
     });
     timing.time("moisture", || apply_moisture_sources(&solve, &mut next));
 
@@ -1504,7 +1586,34 @@ fn mark_converged(
                     if (a.pressure - b.pressure).abs() > SETTLE_EPSILON_PRESSURE
                         || (a.vx - b.vx).abs() > SETTLE_EPSILON_VELOCITY
                         || (a.vy - b.vy).abs() > SETTLE_EPSILON_VELOCITY
-                        || (a.temperature - b.temperature).abs() > SETTLE_EPSILON_TEMPERATURE
+                    // Temperature is judged on the **thermal** channel — the
+                    // reading with the sky's own contribution taken back out
+                    // (`noon_equivalent_temperature`), not the raw one.
+                    //
+                    // This is not a convenience, it is what the flag means. A
+                    // tile is unsettled when it needs *solving* again, and
+                    // the sky's share is not a reason to solve anything:
+                    // `apply_sky_temperature_to` re-imposes it on every tile
+                    // in the world every time it runs, awake or asleep, so a
+                    // sleeping tile's sky term is never stale. Comparing
+                    // the raw reading instead marks a tile unsettled on
+                    // every quantum step of the offset, which buys a solve
+                    // whose only job is to recompute a value that was
+                    // already correct.
+                    //
+                    // **Measured identical on `field_day_scene` — 34,416
+                    // solves over 925 passes either way — and kept anyway**, which is worth
+                    // being explicit about rather than quietly banking. The
+                    // reason it does not move there is that `mark_converged`
+                    // only judges tiles that were *solved*, and in a 40-tile
+                    // world every tile is sky-lit and so is already being
+                    // solved for light's sake on every pass; there is no
+                    // headroom for this to save anything. What it changes is
+                    // what the flag *means*, and that becomes load-bearing
+                    // the moment a world is deep enough for tiles to sleep
+                    // through a day (M10 streaming), which is exactly when
+                    // nobody will be re-deriving this.
+                    || (noon_equivalent_temperature(a) - noon_equivalent_temperature(b)).abs() > SETTLE_EPSILON_TEMPERATURE
                         || (a.light - b.light).abs() > SETTLE_EPSILON_LIGHT
                         || (a.moisture - b.moisture).abs() > SETTLE_EPSILON_MOISTURE
                     {
@@ -1588,6 +1697,65 @@ pub fn sky_light_amplitude(frame: u64) -> f32 {
     // free.
 }
 
+/// How far the sky pushes open-air temperature away from
+/// `AMBIENT_TEMPERATURE` at the peak of day and the depth of night, in
+/// degrees C. Warm days, cool nights; `apply_sky_temperature_to` attenuates
+/// it with depth.
+///
+/// Sweepable, and deliberately modest. 6 puts a surface reading at ~26C at
+/// noon and ~14C at midnight against an ambient 20 — a day you would notice
+/// on a thermometer and never on a melting point. It is well under every
+/// threshold anything in the engine compares a temperature against (the
+/// nearest is `creature.rs`'s `WORM_HEAT_THRESHOLD_ABOVE_AMBIENT`, 25), so
+/// even a consumer that forgot to de-oscillate could not flip a decision
+/// with it — a deliberate margin for this first phase, not a coincidence.
+const SKY_TEMPERATURE_SWING: f32 = 6.0;
+
+/// Step size the sky's temperature offset is rounded to.
+///
+/// **A staircase, on purpose, and this is the whole of the sleep story.**
+/// The offset moves at most `SKY_TEMPERATURE_SWING * TAU /
+/// DAY_NIGHT_PERIOD_FRAMES` = 0.010 degrees per frame, which is under
+/// `SETTLE_EPSILON_TEMPERATURE` (0.02) — so a frame-to-frame comparison of
+/// the raw cosine can *never* fire, and `field::step`'s global early-out
+/// would hold a quiet world at whatever temperature it happened to settle
+/// on, forever (the freeze `PLAN.md`'s day/night sleep test was written
+/// for). Rounding to a quantum coarser than that epsilon makes the offset a
+/// value that genuinely changes, at a frame the gate can recognise exactly
+/// (`!=`, no epsilon of its own), and holds still in between.
+///
+/// 0.2 gives 120 steps per day, and it is the whole of the sleeping cost:
+/// measured on `examples/ascii.rs`'s `field_day_scene` (3600 frames, one
+/// full cycle, settled ground under 160 rows of sky), the field takes 925
+/// passes with this against **825 with the sky's temperature switched off
+/// entirely** — +100 passes, +1,440 tile-solves, +27 ms over a whole day.
+/// At 0.05 the same scene costs 1,229 passes and +254 ms, nine times the
+/// bill for a difference nobody can see.
+///
+/// What it buys is display freshness and nothing else, which is why it can
+/// be this coarse: 0.2C of staleness in a reading that swings 12C is
+/// invisible, and **decisions are not affected by staleness at all** —
+/// `noon_equivalent_temperature` subtracts the offset that was actually
+/// applied, whenever it was applied, so a field holding a four-frame-old
+/// sky still de-oscillates exactly.
+const SKY_TEMPERATURE_QUANTUM: f32 = 0.2;
+
+/// The sky's temperature offset at a given frame: `+SKY_TEMPERATURE_SWING`
+/// at noon, `-SKY_TEMPERATURE_SWING` at midnight, zero at sunrise and
+/// sunset.
+///
+/// The full cosine, not [`sky_light_amplitude`]'s clipped hump: the sun
+/// stops delivering light at sunset and the ground goes on *losing* heat all
+/// night, so the cool half of the cycle is real in a way that "negative
+/// light" is not. Same shared clock ([`sun_elevation`]) either way, so the
+/// warm peak and the bright peak are the same instant.
+///
+/// Rounded to `SKY_TEMPERATURE_QUANTUM` — see that constant, which is where
+/// the whole of the field-sleeping argument lives.
+pub fn sky_temperature_offset(frame: u64) -> f32 {
+    let raw = sun_elevation(frame) * SKY_TEMPERATURE_SWING;
+    (raw / SKY_TEMPERATURE_QUANTUM).round() * SKY_TEMPERATURE_QUANTUM
+}
 /// Step size for [`sky_light_amplitude`], in the same units as
 /// [`MAX_LIGHT`].
 ///
@@ -1677,6 +1845,39 @@ pub fn sun_rising(frame: u64) -> bool {
 /// sun", which is the right answer for a plant and for the fire.
 pub(crate) fn noon_equivalent_light(light: f32, frame: u64) -> f32 {
     (light / sky_light_amplitude(frame) * MAX_LIGHT).clamp(0.0, MAX_LIGHT)
+}
+
+/// A temperature reading with the day/night oscillation taken back out — the
+/// phase-free form of the channel, for anything that makes a *decision* off a
+/// temperature read. The same law as [`noon_equivalent_light`] above
+/// (`CLAUDE.md`: a channel that oscillates by design must be divided out of
+/// decisions), and a different shape, for two reasons worth stating because
+/// the obvious symmetry is wrong twice over.
+///
+/// **Subtractive, not divisive.** Light is a magnitude with a true zero, so
+/// dividing by the sky's current output and rescaling by its peak is
+/// meaningful. Temperature is an interval scale: it has an arbitrary origin
+/// (0C is a phase change of one particular substance), the sky's contribution
+/// is *signed*, and it is negative for half of every day. Dividing by it is
+/// undefined at sunrise and sunset (the offset passes through zero) and
+/// changes sign after them. Subtraction is the only operation the quantity
+/// supports. `PLAN.md`'s sketch of this step reads the light case across
+/// unchanged; that is the part of it that does not transfer.
+///
+/// **Ambient-equivalent, not literally noon-equivalent.** The light version
+/// is exactly 1.0 at noon so that constants derived against noon behaviour
+/// keep their meaning. There are no temperature constants derived at noon —
+/// every threshold in the engine was derived against a world with no
+/// oscillator at all, which is the *mean* of this one — so what preserves
+/// them is returning the reading the field would have had with no sky
+/// forcing. The name is kept for the symmetry of the pair.
+///
+/// Takes the whole cell rather than a bare `f32` so a temperature can never
+/// be paired with the wrong cell's sky term; the value it subtracts is what
+/// `apply_sky_temperature_to` actually applied *here*, which is why this is
+/// exact at depth and not merely approximately right at the surface.
+pub(crate) fn noon_equivalent_temperature(cell: FieldCell) -> f32 {
+    cell.temperature - cell.sky_temperature
 }
 
 /// Top-of-world light boundary condition — architecture report §2's sky
@@ -1866,6 +2067,113 @@ fn apply_sky_to(
         }
     }
     lit
+}
+
+/// The day/night temperature boundary condition: warm days, cool nights,
+/// dying away with depth. `apply_sky_to`'s sibling, sharing its walk shape,
+/// its attenuation data and its position in the pass order.
+///
+/// # What it writes, and what it deliberately does not
+///
+/// **The field's temperature channel only. No `Cell::temperature`, anywhere,
+/// ever.** That is the safety property this phase is built around, and it is
+/// not an oversight to be tidied up later. `fire.rs`'s own record (see the
+/// note beside `diffuse_heat`) is that coupling the field into cell
+/// temperature was built, measured at 16 -> 64 ms a frame, and removed; and
+/// `render.rs`'s heat glow early-exits on `cell.temperature() !=
+/// AMBIENT_TEMPERATURE`, an exact equality that an oscillating *cell*
+/// temperature would make false for every cell in the world at once, roughly
+/// tripling `cell_colour`. A field-only writer touches neither. Every
+/// melting, boiling, cooling and ignition compare in `fire.rs` reads
+/// `Cell::temperature` and is therefore untouched by this pass by
+/// construction, not by careful arithmetic.
+///
+/// # Force toward, never accumulate
+///
+/// This pass *owns* `FieldCell::sky_temperature` and sets it outright, then
+/// moves `temperature` by the difference. So it is idempotent: running it
+/// twice in one frame changes nothing the second time, and a hundred frames
+/// at a fixed offset leave the field where one frame did. An `add`-shaped
+/// version of the same idea drifts a hot world hotter every frame it runs,
+/// which is how a boundary condition turns into an energy source.
+///
+/// The thermal channel — `temperature - sky_temperature`, what
+/// `noon_equivalent_temperature` returns and what every decision reads —
+/// passes through this untouched, because both terms move by the same
+/// amount. `add_heat`, fire's plume, weather's cold snap and the sealed-room
+/// insulation all keep working on it exactly as before. There is no band, no
+/// gate and no clamp on how hot a cell may be for this pass to apply: it does
+/// not compete with them for the channel.
+///
+/// # Depth attenuation, and the wave that is not there
+///
+/// The offset is scaled by the running product of `FieldTile::transmission`
+/// down the column — the same Beer-Lambert per-column data `apply_sky_to`
+/// attenuates light with, and the reason the surface breathes while the deep
+/// field holds still. Field temperature has no decay term (unlike light's
+/// `LIGHT_DECAY`; `step_diffusion` is pure diffusion), so a forcing that
+/// reached deep would launch a thermal wave into buried tiles with nothing to
+/// damp it, and every one of them would wake — the risk this phase was
+/// measured against. It does not happen, and the reason is structural rather
+/// than lucky: the offset here is *not* diffused into place, it is imposed,
+/// and what it is imposed to falls by `SKY_TRANSMISSION` per blocked block —
+/// under a hundredth of a degree three blocks into rock. Measured over one
+/// full 3600-frame day on settled ground with 160 rows of stone
+/// (`examples/ascii.rs`'s `field_day_scene`), against the same build with
+/// `SKY_TEMPERATURE_SWING` set to zero: 39.97 tiles solved per pass before,
+/// **37.2 after** — the solver does not touch more of the world per pass
+/// with the sky writing temperature than without it. The day's totals go up
+/// (32,976 solves over 825 passes -> 34,416 over 925) purely because the
+/// early-out gate now lets 100 more frames through; on those frames the
+/// tiles that get solved are the ones light was already waking.
+///
+/// Walks every column of every tile, awake or asleep, exactly as
+/// `apply_sky_to` does and for the same reason — a sleeping tile between the
+/// sky and an awake one still attenuates, and subsetting the pass that drives
+/// the clock stops the clock. It is a second walk rather than an extra term
+/// inside `apply_sky_to`'s: light carries an amplitude and this carries a
+/// pure attenuation, the two are separately gateable, and the cost is one
+/// downward pass over 2,560 field cells on a 512x320 world.
+fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+    if coords.is_empty() {
+        return;
+    }
+    let (min_cy, max_cy) = coords.iter().fold((i32::MAX, i32::MIN), |(lo, hi), c| (lo.min(c.y), hi.max(c.y)));
+    let mut columns: Vec<i32> = coords.iter().map(|c| c.x).collect();
+    columns.sort_unstable();
+    columns.dedup();
+
+    for cx in columns {
+        for lx in 0..FIELD_TILE_SIZE {
+            // Starts at 1.0, not at the offset: this is the fraction of the
+            // sky's forcing that reaches a block, so it is the same quantity
+            // for the warm half of the day and the cool half. `apply_sky_to`
+            // folds the amplitude into its carried value instead, because
+            // light has no negative half to keep symmetric.
+            let mut reach = 1.0f32;
+            for cy in min_cy..=max_cy {
+                let coord = ChunkCoord::new(cx, cy);
+                let Some(tile) = next.get_mut(&coord) else {
+                    continue; // no chunk here: open sky, carry on unchanged
+                };
+                for ly in 0..FIELD_TILE_SIZE {
+                    let sky = offset * reach;
+                    let mut cell = tile.get_local(lx, ly);
+                    if cell.sky_temperature != sky {
+                        cell.temperature += sky - cell.sky_temperature;
+                        cell.sky_temperature = sky;
+                        tile.set_local(lx, ly, cell);
+                    }
+                    // Attenuated *after* writing, so a block reads the
+                    // forcing that arrives at it rather than what survives
+                    // it — the same choice `apply_sky_to` documents for a
+                    // leaf's own light, and for the same reason: sun-warmed
+                    // rock is warm at its surface.
+                    reach *= tile.transmission_local(lx, ly);
+                }
+            }
+        }
+    }
 }
 
 /// Constant moisture source wherever a `Liquid` CA cell is present —
@@ -2377,6 +2685,19 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 let up = neighbour(0, -FIELD_SCALE);
                 let down = neighbour(0, FIELD_SCALE);
                 let neighbour_avg_t = (left.temperature + right.temperature + up.temperature + down.temperature) / 4.0;
+                // **The sky's share diffuses on exactly the same stencil, and
+                // it has to.** `apply_sky_temperature_to` re-derives this
+                // value from scratch two passes later, so diffusing it looks
+                // like wasted work — it is not. Diffusion here is linear, so
+                // the *thermal* channel every decision reads (`temperature -
+                // sky_temperature`) diffuses correctly only if both terms go
+                // through the same average; drop this line and each frame's
+                // smoothing of the sky's own profile leaks into the thermal
+                // channel instead, which is a behaviour change disguised as
+                // an optimisation. Costs four adds and a divide per field
+                // cell — 2,560 cells on a 512x320 world.
+                let neighbour_avg_s =
+                    (left.sky_temperature + right.sky_temperature + up.sky_temperature + down.sky_temperature) / 4.0;
                 let neighbour_avg_l = (left.light + right.light + up.light + down.light) / 4.0;
 
                 // **Moisture alone reads through a blocked neighbour that is
@@ -2428,20 +2749,47 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 let temperature = (here.temperature
                     + (neighbour_avg_t - here.temperature) * HEAT_DIFFUSION_RATE)
                     .clamp(MIN_TEMPERATURE, MAX_TEMPERATURE);
+                let sky_temperature =
+                    here.sky_temperature + (neighbour_avg_s - here.sky_temperature) * HEAT_DIFFUSION_RATE;
                 let light = ((here.light + (neighbour_avg_l - here.light) * LIGHT_DIFFUSION_RATE) * LIGHT_DECAY)
                     .clamp(0.0, MAX_LIGHT);
                 // Evaporation speeds up above ambient temperature -- the
                 // "extra loop" architecture §4 calls out, tying moisture to
                 // heat instead of decaying at one fixed rate regardless of
                 // how hot the air is.
+                //
+                // **On the noon-equivalent reading, not the raw one**, so
+                // humidity does not go diurnal. Left raw, this term makes
+                // every surface field cell in the world evaporate faster at
+                // noon and not at all at night (the `max(0.0)` swallows the
+                // cool half), and it would retune every humidity-dependent
+                // constant in the engine silently. See
+                // `humidity_does_not_go_diurnal`.
+                //
+                // **The later phase that phrasing pointed at has landed, and
+                // it deliberately did not land here.** `evaporation::warmth`
+                // reads the *raw* field temperature, so standing water dries
+                // two and a half times faster by day than by night -- and it
+                // is the only site in the engine that does. This one stays
+                // noon-equivalent on purpose rather than by omission: the
+                // rate there is `dryness * (1 - shelter) * warmth`, and
+                // `dryness` is a function of the humidity this line decays.
+                // Making both diurnal multiplies the day into the rate twice,
+                // giving a swing nobody set and nobody can tune from either
+                // end. One oscillating read, at the site where the effect is
+                // wanted; `days_evaporate_more_than_nights` asserts it is
+                // there and `humidity_does_not_go_diurnal` asserts it is not
+                // here.
                 let evaporation = (MOISTURE_BASE_DECAY
-                    - (here.temperature - AMBIENT_TEMPERATURE as f32).max(0.0) * MOISTURE_EVAPORATION_PER_DEGREE)
+                    - (noon_equivalent_temperature(here) - AMBIENT_TEMPERATURE as f32).max(0.0)
+                        * MOISTURE_EVAPORATION_PER_DEGREE)
                     .clamp(0.0, 1.0);
                 let moisture = ((here.moisture + (neighbour_avg_m - here.moisture) * MOISTURE_DIFFUSION_RATE) * evaporation)
                     .clamp(0.0, MAX_MOISTURE);
 
                 let mut cell = tile.get_local(lx, ly);
                 cell.temperature = temperature;
+                cell.sky_temperature = sky_temperature;
                 cell.light = light;
                 cell.moisture = moisture;
                 tile.set_local(lx, ly, cell);
@@ -2521,6 +2869,15 @@ fn step_advection(
                     vx: lerp(here.vx, transported.vx, ADVECTION_BLEND),
                     vy: lerp(here.vy, transported.vy, ADVECTION_BLEND),
                     temperature: lerp(here.temperature, transported.temperature, ADVECTION_BLEND),
+                    // Advected with `temperature`, not left behind: wind
+                    // moving the true temperature must move the sky's share
+                    // of it too, or the difference the decision consumers
+                    // read (`noon_equivalent_temperature`) picks up a
+                    // spurious thermal signal wherever the air is moving.
+                    // `apply_sky_temperature_to` overwrites this a pass later
+                    // anyway; what this line protects is the *thermal*
+                    // channel, which is that difference.
+                    sky_temperature: lerp(here.sky_temperature, transported.sky_temperature, ADVECTION_BLEND),
                     light: lerp(here.light, transported.light, ADVECTION_BLEND),
                     moisture: lerp(here.moisture, transported.moisture, ADVECTION_BLEND),
                 };
@@ -3101,6 +3458,260 @@ mod tests {
     }
 
     #[test]
+    fn the_sky_warms_the_day_and_cools_the_night() {
+        // The channel has to actually swing, or every guard below passes for
+        // the wrong reason -- `CLAUDE.md`: "did it fire at all" needs its own
+        // check, and a test that a decision is phase-independent is vacuous
+        // if nothing about the phase ever changed.
+        assert_eq!(sky_temperature_offset(0), SKY_TEMPERATURE_SWING, "frame 0 is noon and should be the warm peak");
+        assert_eq!(
+            sky_temperature_offset(DAY_NIGHT_PERIOD_FRAMES / 2),
+            -SKY_TEMPERATURE_SWING,
+            "half a period later should be the cool trough -- the full cosine, not light's clipped hump"
+        );
+        // Sunrise and sunset: the two zero crossings, and the two phases at
+        // which this whole mechanism is invisible.
+        assert!(sky_temperature_offset(DAY_NIGHT_PERIOD_FRAMES / 4).abs() <= SKY_TEMPERATURE_QUANTUM);
+
+        let mut w = test_world();
+        for _ in 0..200 {
+            step(&mut w);
+        }
+        let noon = w.field_at(20, 4).temperature;
+        assert!(
+            (noon - (AMBIENT_TEMPERATURE as f32 + SKY_TEMPERATURE_SWING)).abs() < 0.1,
+            "open air at noon should read the full swing above ambient: {noon}"
+        );
+        assert_eq!(
+            noon_equivalent_temperature(w.field_at(20, 4)),
+            AMBIENT_TEMPERATURE as f32,
+            "and the de-oscillated reading of that same cell must be exactly ambient"
+        );
+
+        let mut night = test_world();
+        night.frame = DAY_NIGHT_PERIOD_FRAMES / 2;
+        for _ in 0..200 {
+            step(&mut night);
+        }
+        let midnight = night.field_at(20, 4).temperature;
+        assert!(
+            (midnight - (AMBIENT_TEMPERATURE as f32 - SKY_TEMPERATURE_SWING)).abs() < 0.1,
+            "open air at midnight should read the full swing below ambient: {midnight}"
+        );
+    }
+
+    #[test]
+    fn the_sky_temperature_dies_away_with_depth() {
+        // The property the whole perf argument rests on: the forcing is
+        // attenuated by the same Beer-Lambert column transmission light uses,
+        // so it is a surface effect. Field temperature has no decay term, so
+        // a forcing that reached deep would drive a wave into the deep field
+        // with nothing to damp it.
+        let mut w = test_world();
+        for y in 64..256 {
+            for x in 0..256 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w.end_step();
+        for _ in 0..200 {
+            step(&mut w);
+        }
+        let air = w.field_at(128, 32).sky_temperature;
+        let surface = w.field_at(128, 64).sky_temperature;
+        let deep = w.field_at(128, 200).sky_temperature;
+        assert!((air - SKY_TEMPERATURE_SWING).abs() < 0.1, "open air should carry the whole swing: {air}");
+        assert!(surface > 0.5, "the sunlit rock surface should still be warmed by the sky: {surface}");
+        assert!(
+            deep.abs() < 0.01,
+            "the deep field should not feel the sky at all: {deep} (air {air}, surface {surface})"
+        );
+    }
+
+    #[test]
+    fn the_sky_leaves_a_vertical_gradient_in_the_raw_channel_and_none_in_the_thermal_one() {
+        // **Why `creature.rs`'s thermotaxis has to de-oscillate even though
+        // it only ever compares neighbours.** A uniform offset cancels out of
+        // a gradient; this one is not uniform. It is attenuated with depth,
+        // so the first field block under a rock surface stands a fixed
+        // distance below the air above it — measured here at 4.8 degrees per
+        // field cell, *positive at noon and negative at midnight*. That is a
+        // taxis signal of the sky's own making, twice the size of anything a
+        // real heat source leaves at that range, and it reverses twice a day.
+        let profile = |frame: u64| -> (f32, f32) {
+            let mut w = test_world();
+            w.frame = frame;
+            for y in 64..256 {
+                for x in 0..256 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w.end_step();
+            for _ in 0..200 {
+                step(&mut w);
+            }
+            // Just under the rock surface, where a worm burrows and where
+            // the attenuation is steepest.
+            let here = w.field_at_bilinear(128.0, 72.0);
+            let above = w.field_at_bilinear(128.0, 71.0);
+            (
+                above.temperature - here.temperature,
+                noon_equivalent_temperature(above) - noon_equivalent_temperature(here),
+            )
+        };
+        let (raw_noon, thermal_noon) = profile(0);
+        let (raw_midnight, thermal_midnight) = profile(DAY_NIGHT_PERIOD_FRAMES / 2);
+        assert!(raw_noon > 4.0, "noon should leave a warm-above-cool step under the surface: {raw_noon}");
+        assert!(raw_midnight < -4.0, "midnight should leave the same step inverted: {raw_midnight}");
+        assert!(
+            thermal_noon.abs() < 0.01 && thermal_midnight.abs() < 0.01,
+            "the thermal channel must carry none of it: noon {thermal_noon}, midnight {thermal_midnight}"
+        );
+    }
+
+    #[test]
+    fn the_sky_does_not_leak_into_the_thermal_channel() {
+        // The stronger form of `humidity_does_not_go_diurnal` below, and the
+        // one that exercises the arithmetic rather than a flat scene: a world
+        // with a real heat source, real water and a rock surface, so every
+        // pass has gradients to smooth and there is something for a leak to
+        // ride in on.
+        //
+        // The reference is the same world at **sunrise**, where the offset is
+        // zero and the thermal channel is therefore the plain pre-sky
+        // temperature, bit for bit. Noon and midnight must agree with it.
+        //
+        // The bar is not zero, and what the gap is made of is worth knowing:
+        // storing the sum means the thermal channel is recovered by
+        // subtraction every frame, so it carries one rounding of a ~26-degree
+        // value -- measured here at 2.1e-5 degrees worst case over 300
+        // frames, and 6e-8 in the humidity that reads it. That is not free:
+        // this engine is chaotic enough that a 1e-8 perturbation changes an
+        // ash count (`examples/ascii.rs`'s burn scene moved 711 -> 680 with
+        // the sky on, and returned to exactly 711 with
+        // `SKY_TEMPERATURE_SWING` set to 0). Bit-exactness would mean storing
+        // the thermal channel and summing at the read site instead; that was
+        // weighed and not taken, because it makes `FieldCell::temperature` no
+        // longer the true temperature and a naive display read silently
+        // phase-free.
+        let run = |frame: u64| -> Vec<f32> {
+            let mut w = test_world();
+            w.frame = frame;
+            for y in 64..256 {
+                for x in 0..256 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for x in 100..156 {
+                w.set(x, 63, Cell::new(material::WATER, 0));
+            }
+            w.end_step();
+            for _ in 0..300 {
+                w.add_heat(60, 70, 6, 40.0); // a standing hot spot, so the field has real structure
+                step(&mut w);
+            }
+            (0..32)
+                .flat_map(|fy| (0..32).map(move |fx| (fx * 8, fy * 8)))
+                .map(|(x, y)| noon_equivalent_temperature(w.field_at(x, y)))
+                .collect()
+        };
+        let flat = run(DAY_NIGHT_PERIOD_FRAMES / 4); // sunrise: offset exactly zero
+        for (label, frame) in [("noon", 0), ("midnight", DAY_NIGHT_PERIOD_FRAMES / 2)] {
+            let phase = run(frame);
+            let worst = phase.iter().zip(&flat).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+            assert!(
+                worst < 1e-3,
+                "the sky leaked {worst} degrees into the thermal channel at {label} -- \
+                 that channel is what every temperature decision in the engine reads"
+            );
+            // And the raw channel really is swinging, so the comparison above
+            // is not passing because nothing happened.
+            let mut w = test_world();
+            w.frame = frame;
+            for _ in 0..50 {
+                step(&mut w);
+            }
+            assert!(
+                (w.field_at(20, 4).temperature - AMBIENT_TEMPERATURE as f32).abs() > 5.0,
+                "the sky was not writing anything at {label}"
+            );
+        }
+    }
+
+    #[test]
+    fn humidity_does_not_go_diurnal() {
+        // **The guard this phase exists to pass.** The same world, run for
+        // the same number of frames, at noon and at midnight: the humidity
+        // field must come out the same. Moisture is the right subject
+        // because `step_diffusion`'s evaporation term is the one place in
+        // the engine where a *field* temperature reading feeds a continuous
+        // quantity that then accumulates -- and because a later phase means
+        // to make humidity diurnal deliberately, with its constants
+        // re-derived, which is only a meaningful decision if it does not
+        // happen by accident here first.
+        //
+        // A summed difference, not a count of differing cells: `CLAUDE.md`
+        // prefers a continuous quantity, and this one separates cleanly.
+        // **Confirmed able to fail**: swapping the one call in
+        // `step_diffusion` back to the raw `here.temperature` scores 2.881
+        // against a bar of 0.02, and this scene as it stands scores exactly
+        // 0.
+        //
+        // The bar is not 0 even though this run reaches it, because exact
+        // zero is not a property the mechanism guarantees: the thermal
+        // channel is `temperature - sky_temperature`, both terms go through
+        // the same float arithmetic every frame, and any scene with a real
+        // temperature gradient across a block will leave rounding of order
+        // 1e-6 degrees in the difference. 0.02 is that, with headroom, and
+        // still 140x below the effect being excluded.
+        let run = |frame: u64| -> Vec<f32> {
+            let mut w = test_world();
+            w.frame = frame;
+            for x in 100..156 {
+                w.set(x, 200, Cell::new(material::WATER, 0));
+            }
+            w.end_step();
+            for _ in 0..120 {
+                step(&mut w);
+            }
+            (0..32).flat_map(|fy| (0..32).map(move |fx| (fx * 8, fy * 8))).map(|(x, y)| w.field_at(x, y).moisture).collect()
+        };
+        let noon = run(0);
+        let midnight = run(DAY_NIGHT_PERIOD_FRAMES / 2);
+        let total: f32 = noon.iter().zip(&midnight).map(|(a, b)| (a - b).abs()).sum();
+        assert!(
+            total < 0.02,
+            "humidity went diurnal: summed |noon - midnight| over the field is {total}, which means an \
+             evaporation rate that reads the sky's own oscillation instead of the thermal channel"
+        );
+        // And the run is not trivially empty -- there has to be humidity
+        // there for the comparison to have meant anything.
+        let carried: f32 = noon.iter().sum();
+        assert!(carried > 1.0, "the scene held no humidity to compare: {carried}");
+    }
+
+    #[test]
+    fn the_sky_temperature_pass_is_idempotent() {
+        // "Force toward, don't add." Running the pass again at the same
+        // offset must be a no-op -- an accumulating version of it drifts the
+        // world hotter every frame, which is a boundary condition quietly
+        // turned into an energy source.
+        let mut w = test_world();
+        for _ in 0..50 {
+            step(&mut w);
+        }
+        let before = w.field_at(20, 4).temperature;
+        let coords: Vec<ChunkCoord> = w.chunks().map(|c| c.coord).collect();
+        let mut tiles: HashMap<ChunkCoord, FieldTile> =
+            coords.iter().filter_map(|&c| w.fields_ref().get(&c).map(|t| (c, t.clone()))).collect();
+        for _ in 0..10 {
+            apply_sky_temperature_to(sky_temperature_offset(w.frame), &coords, &mut tiles);
+        }
+        let after = sample(&tiles, w.bounds(), 20, 4).temperature;
+        assert_eq!(before, after, "ten more applications of the same offset moved the temperature");
+    }
+
+    #[test]
     fn standing_water_is_a_moisture_source_that_diffuses_and_decays_with_distance() {
         // Architecture §4. `apply_moisture_sources` forces `MAX_MOISTURE`
         // into every field block `rebuild_blocked` flagged as containing a
@@ -3241,8 +3852,17 @@ mod tests {
             step(&mut w);
         }
 
-        let inside = w.field_at(128, 128).temperature;
-        let outside = w.field_at(128, 40).temperature;
+        // The **thermal** channel on both sides of the wall, not the raw
+        // reading. What this test is about is heat that `add_heat` put in one
+        // place turning up in another; the sky's day/night forcing is in the
+        // raw reading too, it is *supposed* to be on both sides of a wall
+        // (the sun shines on the whole world), and at frame 0 — noon — it is
+        // +6, which is enough to fail the outside assertion below on its own
+        // and to pass the inside one on its own. Reading the raw channel here
+        // would make this test report the sky as a leak, and stop it being
+        // able to fail for the leak it was written for.
+        let inside = noon_equivalent_temperature(w.field_at(128, 128));
+        let outside = noon_equivalent_temperature(w.field_at(128, 40));
         assert!(
             inside > cell::AMBIENT_TEMPERATURE as f32 + 5.0,
             "heat source cooled to near-ambient even inside its own sealed room: {inside}"

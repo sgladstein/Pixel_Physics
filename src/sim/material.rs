@@ -341,8 +341,12 @@ pub struct MaterialDef {
     /// scope the mechanic to the material the plant work actually needs
     /// and leave the rest of the engine's mass bookkeeping untouched.
     ///
-    /// Widening it later means teaching those tallies about held water
-    /// first. Flagged rather than done.
+    /// Widening it later meant teaching those tallies about held water
+    /// first, and that is **done**: `weather::water_equivalents` counts a
+    /// water-holding powder's `aux` on the same 1:1 scale infiltration
+    /// already moves fill across at, so held water is on the books and a
+    /// second water-holding powder joins the ledger automatically rather
+    /// than silently leaking out of it.
     #[serde(default)]
     pub water_capacity: u16,
     /// Light this material emits into the field's light channel, in the
@@ -557,6 +561,53 @@ pub struct MaterialDef {
     pub boiling_point: f32,
     #[serde(default)]
     pub boils_into: String,
+    /// The downward counterpart of `melting_point`/`boiling_point`: the
+    /// temperature at or *below* which this material transitions down a
+    /// phase. One generic pair rather than separate freeze/condense fields,
+    /// because a material has at most one phase below it — for a gas this
+    /// reads as its condensation point (steam → water), for a liquid as its
+    /// freezing point (water → ice). Defaults to `NEG_INFINITY`, not
+    /// `INFINITY` — the sentinel has to sit on the *unreachable-cold* side
+    /// for a `<=` threshold, where `default_never`'s `INFINITY` would make
+    /// every unset material "condense" on its first visit.
+    #[serde(default = "default_never_cold")]
+    pub cooling_point: f32,
+    /// What this material becomes at or below `cooling_point`, or empty for
+    /// "does not transition" — same `String`-not-`Option` convention as
+    /// `melts_into` above, for the same RON-friction reason.
+    #[serde(default)]
+    pub cools_into: String,
+    /// The temperature a cell of this material is **born at** — the "lava
+    /// is hot because it is lava" field `fire.rs`'s M14 notes deferred.
+    /// Applied once, when `fire::update` visits a cell still sitting at
+    /// the ambient default every cell is created with; from then on the
+    /// cell cools through its own `heat_conductivity` like anything else,
+    /// and its `cooling_point` (which such a material **must** set — see
+    /// the load-time assert in `Material::from`) turns it to its solid
+    /// form before it ever gets back near ambient.
+    ///
+    /// This replaced a per-visit *pin*, and the difference was measured,
+    /// not aesthetic: a pinned cell can never cool, so every scrap of lava
+    /// a flow stranded where water couldn't reach stayed molten and held
+    /// its chunk awake forever — `filmstrip scene=lavapour` held 195
+    /// molten cells at frame 1500 with 9 of 40 chunks permanently awake
+    /// and the pond under them simmering at ~25 boil/condense pairs a
+    /// frame with nothing left flowing. Born-once keeps the verb (poured
+    /// lava arrives searing) and lets the world finish.
+    #[serde(default = "default_never")]
+    pub intrinsic_temperature: f32,
+    /// Fill (of `material::LIQUID_FULL` = 1000) below which a `Liquid`
+    /// cell refuses its `cooling_point` transition. The default of 900
+    /// exists for conserved loops like water ↔ ice: a Solid's `aux` is an
+    /// anchor distance and cannot carry fill through, so freezing a
+    /// fill-100 cell into ice that melts back to a *full* water cell
+    /// would manufacture volume — the partial fringe at a pool's surface
+    /// stays chilled liquid instead. A one-way transition has no loop to
+    /// conserve and can set this to 0: lava's stranded films crusting
+    /// into thin stone scabs along a slope is the look wanted, and the
+    /// modest volume gain becomes inert stone rather than circulating.
+    #[serde(default = "default_freeze_min_fill")]
+    pub freeze_min_fill: u16,
     /// What this material becomes when its burn timer (`burn_duration`)
     /// finishes, or empty to simply extinguish and revert to being itself,
     /// unchanged. Deliberately a separate field from `melts_into` rather than
@@ -568,6 +619,27 @@ pub struct MaterialDef {
     /// about why the transformation happened.
     #[serde(default)]
     pub burns_into: String,
+    /// **What this material slowly weathers into where it lies**, on
+    /// `decay.rs`'s moisture-gated schedule. Ash -> soil is the original and
+    /// was hardcoded; litter -> soil is why it became data.
+    ///
+    /// Distinct from all three transformations above, and the difference is
+    /// the *trigger*: `melts_into` is ambient temperature, `boils_into` is
+    /// ambient temperature, `burns_into` is a combustion timer completing.
+    /// This one is **time plus damp, on matter that has come to rest** --
+    /// weathering, not an event. Unset means it does not happen.
+    #[serde(default)]
+    pub decays_into: String,
+    /// Whether a cell formed by *this* material's decay gets one roll at
+    /// reseeding plant growth in the empty cell above it.
+    ///
+    /// Ash sets it: "a forest burns and regrows" is M16's own verify
+    /// criterion and the reseed is half of it. Litter deliberately does not
+    /// -- leaf fall under a standing canopy is not a succession event, and
+    /// having every shed leaf roll for a new tree would carpet the world.
+    /// Default `false`, so a new decaying material has to ask.
+    #[serde(default)]
+    pub decay_reseeds: bool,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -594,6 +666,32 @@ pub struct MaterialDef {
     /// reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
+    /// **How far an organism-owned cell may reach out along its own load
+    /// path before it breaks in bending.** `u16::MAX` (the default) opts
+    /// the material out of the rule entirely.
+    ///
+    /// Deliberately *not* `max_unsupported_span`, though it began as that
+    /// field, because the two paths measure different quantities and
+    /// sharing one number made them contradict each other:
+    ///
+    /// - On the inert path, `max_unsupported_span` is reinterpreted as a
+    ///   **capacity**, `(span as i64).pow(2) / 2` (`load::capacity`). Wood's
+    ///   8 means a capacity of 32.
+    /// - On the organism path it is compared against
+    ///   `OrganismCell::support`, the cell's weighted **reach** from its
+    ///   plant's anchors, measured by `plant::anchor_support`.
+    ///
+    /// Those numbers are not on the same scale, and the measurement says so.
+    /// A healthy 8-tree stand at 30,000 frames reads support p50 17, p90 36,
+    /// p99 51, **max 77** -- so any organism value low enough to be a
+    /// sensible capacity destroys the stand (span 8 took it from 31,731
+    /// cells to 500), and any value high enough for real branches makes
+    /// hand-painted wood nearly unbreakable on the inert path.
+    ///
+    /// Set from that measurement with headroom, per `CLAUDE.md`: never from
+    /// an aspiration, and never sitting on the measured value.
+    #[serde(default = "default_never_u16")]
+    pub max_cantilever_reach: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -628,6 +726,97 @@ pub struct MaterialDef {
     /// it there.
     #[serde(default = "default_blast_resistance")]
     pub blast_resistance: f32,
+    /// Whether a `Liquid` directly beneath this material holds it up —
+    /// **buoyancy, stated as data because the load model cannot infer it.**
+    ///
+    /// `structural.rs`'s and `load.rs`'s "is it standing on the ground"
+    /// predicates accept a `Powder` below as support and deliberately
+    /// exclude `Liquid`, with the reason written down in both: *"floating
+    /// is buoyancy, not support, and nothing here models it."* That was
+    /// true and cost nothing while no material floated. Ice does: a sheet
+    /// on a pond has no solid under any part of it, so its only path to an
+    /// anchor runs sideways to the shore, and the middle of an ordinary
+    /// pond is past any span worth giving a thin crust. Worse, a sheet
+    /// cannot even *form*: freezing is per cell, so the first cell to
+    /// freeze mid-pond is a lone solid with no anchor path at all, at any
+    /// finite span, and it is taken apart the frame after it appears.
+    /// Measured on `scene=coldsnap` before this field existed: 3,969
+    /// freezes over one storm and never more than ten cells of ice
+    /// standing at once, with 382 unsupported failures. Freeze-over could
+    /// not happen.
+    ///
+    /// The alternative was leaving `max_unsupported_span` unset, and it is
+    /// worse than it looks: `load::capacity` reads that sentinel as *"this
+    /// material does not participate in the structural system at all"* and
+    /// returns infinite capacity, so ice would also stop failing under
+    /// load and an ice bridge would hang in the air with nothing under it.
+    /// Exempting it is not the same as floating it.
+    ///
+    /// So this is `CLAUDE.md`'s "when a rule must tell apart two things
+    /// that can look identical, state the difference as data" applied
+    /// literally: geometry cannot distinguish a sheet floating on water
+    /// from a cantilever reaching out over it, and a bit on the material
+    /// can. Opt-in and defaulting to `false`, so **no material that does
+    /// not ask for it can change behaviour** — which is what makes this
+    /// safe to land in the load model at all (see `CLAUDE.md` on seed
+    /// sweeps before changing anything that governs procedural content:
+    /// the sweep is unchanged to the cell, because nothing generated is
+    /// buoyant).
+    ///
+    /// It grants *ground*, not immunity: the cell still owes its own torque
+    /// test and is still judged against `load::capacity`, so a sheet under
+    /// a heavy enough load does give way — measured on `scene=coldsnap`,
+    /// a snow-laden sheet breaks up somewhere between a third and half the
+    /// world's width. What it does *not* owe, unlike a cell resting on
+    /// powder, is `load::bearing_moment`'s footing clamp: a pile carries a
+    /// load through the patch it touches and a narrow patch tips, whereas
+    /// buoyancy is distributed over the whole underside and has no
+    /// eccentricity to tip about. Charging new ice that clamp anyway
+    /// destroyed the sheet as it formed — 333 overload failures on
+    /// two-to-five-cell patches in 600 frames, and the crushed cells then
+    /// broke the chain for the ice above them and took 678 more with them.
+    #[serde(default)]
+    pub floats: bool,
+
+    /// Whether this gas, condensing with **open sky above it**, hands its
+    /// water to `World::atmospheric_bank` instead of leaving a liquid cell
+    /// where it stood.
+    ///
+    /// Reported from live play: lava dropped into a pond boils, "rises
+    /// about 5 ft in the air and then drops back into rain... it almost
+    /// looks like bouncing because it goes up and down so fast." Measured
+    /// on `filmstrip scene=lavapour`, which reproduces it: at the peak of
+    /// the pour the plume held **140 water cells standing in the air**,
+    /// spread through its whole 40-row height rather than sitting at its
+    /// top. Every one of them was condensate on its way back down through
+    /// the steam that was still rising — and a falling `Liquid` displaces
+    /// a `Gas`, so the droplets pushed steam *down* as they went, which is
+    /// the "bouncing" itself and not merely its cause.
+    ///
+    /// A plume that reaches open air has left the world's cells: what
+    /// happens to it next is weather, which is what the bank is. Crediting
+    /// it there keeps `water_equivalents(world) + atmospheric_bank`
+    /// exactly conserved (the invariant `weather.rs` and `filmstrip`'s
+    /// census already print), and the water comes back as rain when a
+    /// front does, instead of two seconds later onto the pool it left.
+    ///
+    /// **Opt-in and `false` by default**, on `floats`'s precedent above and
+    /// for the same reason: no material that does not ask for it can change
+    /// behaviour. It is also a correctness gate rather than a taste one —
+    /// the bank is denominated in *water* cell-equivalents
+    /// (`World::credit_atmosphere`), so a second condensing gas would need
+    /// the density ratio `fire::melt_fill` already carries before it could
+    /// set this. Today exactly one material does (`steam.ron`).
+    ///
+    /// **"Open sky" is the frozen `World::sky_surface`, not a scan.** A
+    /// steam pocket sealed in a cave still condenses into water where it
+    /// stands, which is what `fire.rs`'s sealed-pocket guard asserts and
+    /// what a boil under a roof should do. `Reports/open-bugs-handoff.md`
+    /// §4b records four separate attempts to *infer* that distinction from
+    /// the shape of the world, each wrong in a new way; the stored answer
+    /// is one `Vec` index.
+    #[serde(default)]
+    pub condenses_into_sky: bool,
 
     /// How much further this material spans when it is part of the
     /// background mass (`Cell::attached`) rather than standing in front of
@@ -796,6 +985,22 @@ fn default_never() -> f32 {
     f32::INFINITY
 }
 
+/// `default_never`'s mirror for *downward* thresholds (`cooling_point`),
+/// which fire on `temp <= threshold` — the unreachable sentinel for those
+/// sits at negative infinity. Using `default_never` here would invert the
+/// meaning entirely: every material would sit "below" +INFINITY and
+/// transition on its first visit.
+fn default_never_cold() -> f32 {
+    f32::NEG_INFINITY
+}
+
+/// 900: the value `fire.rs`'s `FREEZE_MIN_FILL` constant carried before it
+/// became per-material data, so a `.ron` that says nothing freezes exactly
+/// as water always did. See `MaterialDef::freeze_min_fill`.
+fn default_freeze_min_fill() -> u16 {
+    900
+}
+
 /// Zero: no diffusion at all unless a material opts in. This is not
 /// physically motivated — a moderate default like 0.15 was tried first, so
 /// every material conducted heat plausibly without having to think about it.
@@ -828,6 +1033,21 @@ pub struct ReactionDef {
     pub produces: (String, String),
     #[serde(default = "default_reaction_chance")]
     pub chance: f32,
+    /// How the pair's heat lands on the products. `false` (the default) is
+    /// the *exchange* rule: the neighbour's product takes the hotter side's
+    /// temperature and the self product the cooler's — right for a violent
+    /// reaction like quenching, where the steam must be born hot enough to
+    /// rise and the stone is what the coolant chilled. `true` gives **both
+    /// products the pair's mean** — right for an absorption like steam's
+    /// direct-contact condensation, where the bubble's heat spreads into
+    /// the water mass. The distinction is load-bearing, found by measuring
+    /// the wrong one: contact condensation under the exchange rule handed
+    /// each collapsing bubble's full heat to a single water cell, minting a
+    /// ≥100°C boiler per collapse — a heat-recirculation pump that took
+    /// `scene=lavapour` from ~5.5 to ~35 boil/react events a frame.
+    #[serde(default)]
+    pub mixes_heat: bool,
+
 }
 
 fn default_reaction_chance() -> f32 {
@@ -897,9 +1117,23 @@ pub struct Material {
     pub heat_conductivity: f32,
     pub melting_point: f32,
     pub boiling_point: f32,
+    /// See `MaterialDef::cooling_point`. Unset is `NEG_INFINITY`, not
+    /// `INFINITY` — this is a downward (`<=`) threshold.
+    pub cooling_point: f32,
+    /// See `MaterialDef::intrinsic_temperature`. Unset is `INFINITY`,
+    /// read via `is_finite`.
+    pub intrinsic_temperature: f32,
+    /// See `MaterialDef::freeze_min_fill`.
+    pub freeze_min_fill: u16,
     pub max_unsupported_span: u16,
     /// See `MaterialDef::blast_resistance`. Always >= 0.
     pub blast_resistance: f32,
+    /// See `MaterialDef::floats`.
+    pub floats: bool,
+    /// See `MaterialDef::condenses_into_sky`.
+    pub condenses_into_sky: bool,
+    /// See `MaterialDef::max_cantilever_reach`.
+    pub max_cantilever_reach: u16,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -923,8 +1157,10 @@ pub struct Material {
     // the full set to check against.
     melts_into_name: String,
     boils_into_name: String,
+    cools_into_name: String,
     burns_into_name: String,
     breaks_into_name: String,
+    decays_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
     /// Resolved by `resolve_references`. Unset (or naming something that
@@ -934,8 +1170,16 @@ pub struct Material {
     /// registry load the way a malformed `.ron` file does.
     pub melts_into: Option<MaterialId>,
     pub boils_into: Option<MaterialId>,
+    pub cools_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
     pub breaks_into: Option<MaterialId>,
+    /// See `MaterialDef::decays_into`. `Some` is also the **gate `decay.rs`
+    /// tests to decide whether a cell is worth scheduling at all**, so it is
+    /// what keeps the settle scan proportional to decayable matter rather
+    /// than to world size.
+    pub decays_into: Option<MaterialId>,
+    /// See `MaterialDef::decay_reseeds`.
+    pub decay_reseeds: bool,
     pub reactions: Vec<Reaction>,
 }
 
@@ -947,6 +1191,8 @@ pub struct Reaction {
     pub becomes: MaterialId,
     pub other_becomes: MaterialId,
     pub chance: f32,
+    /// See `ReactionDef::mixes_heat`.
+    pub mixes_heat: bool,
 }
 
 impl Material {
@@ -1112,6 +1358,23 @@ impl From<MaterialDef> for Material {
             super::chunk::MAX_REACH,
         );
 
+        // A born-hot material with no downward transition would cool all
+        // the way to the exact ambient default and be re-born at its birth
+        // temperature by `fire::update`'s `== AMBIENT_TEMPERATURE` check --
+        // a perpetual oscillator that keeps its chunk awake forever. The
+        // `cooling_point` above ambient is what guarantees such a cell
+        // turns solid long before its temperature can ever revisit the
+        // birth trigger. Caught at load time, where a content author sees
+        // it, rather than as an unkillable warm spot downstream.
+        debug_assert!(
+            !def.intrinsic_temperature.is_finite()
+                || (def.cooling_point.is_finite()
+                    && def.cooling_point > super::cell::AMBIENT_TEMPERATURE as f32),
+            "material `{}` sets intrinsic_temperature but no cooling_point above ambient -- \
+             it would re-birth forever at the ambient default",
+            def.name,
+        );
+
         Self {
             display: if def.display.is_empty() {
                 title_case(&def.name)
@@ -1164,6 +1427,9 @@ impl From<MaterialDef> for Material {
             heat_conductivity: def.heat_conductivity,
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
+            cooling_point: def.cooling_point,
+            intrinsic_temperature: def.intrinsic_temperature,
+            freeze_min_fill: def.freeze_min_fill,
             max_unsupported_span: def.max_unsupported_span,
             // Floored at 0: a negative value would make a probe ray's
             // accumulated cost go *down* as it marches deeper into this
@@ -1173,6 +1439,9 @@ impl From<MaterialDef> for Material {
             // want, so it is guarded here rather than left to corrupt the
             // sector classification silently.
             blast_resistance: def.blast_resistance.max(0.0),
+            floats: def.floats,
+            condenses_into_sky: def.condenses_into_sky,
+            max_cantilever_reach: def.max_cantilever_reach,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1207,13 +1476,18 @@ impl From<MaterialDef> for Material {
             support_cost_above: def.support_cost_above.max(1),
             melts_into_name: def.melts_into,
             boils_into_name: def.boils_into,
+            cools_into_name: def.cools_into,
             burns_into_name: def.burns_into,
+            decays_into_name: def.decays_into,
+            decay_reseeds: def.decay_reseeds,
             breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
             boils_into: None,
+            cools_into: None,
             burns_into: None,
+            decays_into: None,
             breaks_into: None,
             reactions: Vec::new(),
         }
@@ -1295,6 +1569,50 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/shard.ron"),
     include_str!("../../assets/materials/flowstone.ron"),
     include_str!("../../assets/materials/spar.ron"),
+    // **The plant-ecology set, appended after the round-2 vault pair** for
+    // the reason the note above already settles: the tiebreak is which side
+    // was already trunk. `crystal`/`shard`/`flowstone`/`spar` were on main
+    // while these were on a branch, so they keep the lower slots and these
+    // take the ones after. Nothing in either group has a pinned convenience
+    // constant.
+    //
+    // **An entry's id is its position in this list plus two**, because
+    // `EMPTY` (0) and `BEDROCK` (1) are compiled in rather than parsed and
+    // so are not in it. Worth stating once: counting the `include_str!`
+    // lines and reading the count as an id is off by one in exactly the
+    // way a merge note here was, and the two pinned constants further up
+    // are the check that catches it -- `STONE` is the first entry and is
+    // 2, `RUBBLE` is the fourteenth and is 15.
+    //
+    // Embedded although **nothing writes it yet** -- the three abscission
+    // sites that should are blocked on the decay strand (`litter.ron`'s own
+    // closing note, and `decay::tests::
+    // ash_that_falls_before_its_first_check_still_decays`). Listed here
+    // rather than left out because a material that is not in this list does
+    // not exist to any headless harness (the P-7 lesson: only the app's F5
+    // reload reads the directory), so leaving it out would mean the switch-
+    // over lands *and* silently does nothing.
+    include_str!("../../assets/materials/litter.ron"),
+    // Herbaceous tissue, above and below ground -- WP-B3. `grassroot`
+    // carries `reinforces_powder`, which is the one consequence grass
+    // brings that no other plant here does.
+    include_str!("../../assets/materials/grassblade.ron"),
+    include_str!("../../assets/materials/grassroot.ron"),
+    // Appended after the block above, by the same trunk-first tiebreak it
+    // states: these were on a branch while those were on master, so they
+    // keep the lower slots and these take the ones after. Nothing here is
+    // addressed by number -- every site goes through `id_of(..)`.
+    //
+    // The water-cycle
+    // milestone's three arrivals, in the order their branches merged: the
+    // gas phase, the heat verb, the freezing half. Lava and ice landed on
+    // concurrent branches that each appended here; both kept, lava first --
+    // neither has a pinned convenience constant (the contracts, `STONE`
+    // through `SMOKE` and `RUBBLE = 15`, are all further up), so the only
+    // thing the ordering decided was two ids nothing addresses by number.
+    include_str!("../../assets/materials/steam.ron"),
+    include_str!("../../assets/materials/lava.ron"),
+    include_str!("../../assets/materials/ice.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1363,9 +1681,18 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            cooling_point: f32::NEG_INFINITY,
+            cools_into: String::new(),
+            intrinsic_temperature: f32::INFINITY,
+            freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
+            floats: false,
+            condenses_into_sky: false,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
@@ -1407,12 +1734,21 @@ impl MaterialRegistry {
             melts_into: String::new(),
             boiling_point: f32::INFINITY,
             boils_into: String::new(),
+            cooling_point: f32::NEG_INFINITY,
+            cools_into: String::new(),
+            intrinsic_temperature: f32::INFINITY,
+            freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            decays_into: String::new(),
+            decay_reseeds: false,
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any
             // other material's span is.
             max_unsupported_span: u16::MAX,
+            floats: false,
+            condenses_into_sky: false,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
@@ -1513,8 +1849,10 @@ impl MaterialRegistry {
         for material in &mut self.materials {
             material.melts_into = resolve_if_set(&material.melts_into_name);
             material.boils_into = resolve_if_set(&material.boils_into_name);
+            material.cools_into = resolve_if_set(&material.cools_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
+            material.decays_into = resolve_if_set(&material.decays_into_name);
             material.reactions = material
                 .reactions_raw
                 .iter()
@@ -1524,6 +1862,7 @@ impl MaterialRegistry {
                         becomes: resolve(&r.produces.0)?,
                         other_becomes: resolve(&r.produces.1)?,
                         chance: r.chance,
+                        mixes_heat: r.mixes_heat,
                     })
                 })
                 .collect();

@@ -324,7 +324,14 @@ fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite
     // C. elegans-style thermotaxis: read the local ambient field, and if
     // it's dangerously hot, every subsequent choice is about descending the
     // gradient rather than foraging.
-    let fleeing = world.field_at(x, y).temperature - AMBIENT_TEMPERATURE as f32 > WORM_HEAT_THRESHOLD_ABOVE_AMBIENT;
+    // The noon-equivalent reading, not the raw one: the field's temperature
+    // channel swings with the day/night cycle (`field::sky_temperature_
+    // offset`), and a fixed threshold sampled at an arbitrary phase of a
+    // designed oscillator is a different threshold every hour — the same law
+    // `LightHere` below already obeys. A worm must not decide the world has
+    // become dangerous because the afternoon is warm.
+    let fleeing =
+        field::noon_equivalent_temperature(world.field_at(x, y)) - AMBIENT_TEMPERATURE as f32 > WORM_HEAT_THRESHOLD_ABOVE_AMBIENT;
 
     let candidates: Vec<(i32, i32, f32)> = NEIGHBOURS_4
         .iter()
@@ -372,7 +379,23 @@ fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite
         // choice falls through to uniform exploration, which is the
         // correct answer to "no gradient" and is what the old code got
         // exactly wrong.
-        let temps: Vec<f32> = candidates.iter().map(|c| world.field_at_bilinear(c.0 as f32, c.1 as f32).temperature).collect();
+        //
+        // **Noon-equivalent here too, even though this is a gradient and a
+        // uniform offset would cancel.** The sky's offset is not uniform: it
+        // is attenuated with depth (`field::apply_sky_temperature_to`), so
+        // between a burrowing worm's own block and the one above it there is
+        // a standing step of the sky's own making. Measured, one field cell
+        // under a rock surface: **+4.8 degrees at noon and -4.8 at
+        // midnight**, against a thermal difference of 0.000 at both — a
+        // taxis signal larger than most real ones, pointing up all day and
+        // down all night, with no heat behind it. See `field.rs`'s
+        // `the_sky_leaves_a_vertical_gradient_in_the_raw_channel_and_none_
+        // in_the_thermal_one`, which is that measurement as a guard. Costs
+        // one subtraction per candidate.
+        let temps: Vec<f32> = candidates
+            .iter()
+            .map(|c| field::noon_equivalent_temperature(world.field_at_bilinear(c.0 as f32, c.1 as f32)))
+            .collect();
         let t_max = temps.iter().copied().fold(f32::MIN, f32::max);
         let t_min = temps.iter().copied().fold(f32::MAX, f32::min);
         let scores: Vec<f32> = temps.iter().map(|t| (t_max - t) / (t_max - t_min + 1e-6)).collect();
@@ -952,7 +975,13 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
     // threshold sampled at an arbitrary phase of a designed oscillator is a
     // different threshold every hour, and the light channel swings 20:1.
     inputs[I::LightHere as usize] = (field::noon_equivalent_light(here.light, world.frame) / field::MAX_LIGHT).clamp(0.0, 1.0);
-    inputs[I::TempAboveAmb as usize] = ((here.temperature - AMBIENT_TEMPERATURE as f32) / TEMP_INPUT_SCALE).clamp(-1.0, 1.0);
+    // Divided through by the day/night oscillator for the same reason
+    // `LightHere` is, one channel over — subtractively, because temperature
+    // is an interval scale and the sky's contribution is signed. A brain
+    // input that drifts with the hour is a brain input every evolved
+    // behaviour is silently conditioned on the time of day.
+    inputs[I::TempAboveAmb as usize] =
+        ((field::noon_equivalent_temperature(here) - AMBIENT_TEMPERATURE as f32) / TEMP_INPUT_SCALE).clamp(-1.0, 1.0);
 
     inputs[I::FoodAdjacent as usize] = if adjacent_food(world, x, y, def).is_some() { 1.0 } else { 0.0 };
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
@@ -1810,6 +1839,49 @@ mod tests {
     }
 
     #[test]
+    fn the_worm_heat_threshold_does_not_move_with_the_time_of_day() {
+        // The guard for `worm_tick`'s flee decision, written at the level of
+        // the quantity it branches on rather than of the worm's path —
+        // **because an end-to-end noon-vs-midnight behaviour comparison is
+        // structurally impossible here**, and that is worth recording rather
+        // than rediscovering. `rng::stream` is keyed on `world.frame`, so two
+        // runs at different phases of the day draw different random numbers
+        // from their first tick, and every trajectory difference is that
+        // rather than the sky. Only a phase-invariant *input* can be
+        // compared, so that is what this compares.
+        //
+        // The scene is a field reading deliberately parked just under the
+        // threshold: converted it stays under at both phases (no flee, all
+        // day), raw it crosses at noon and not at midnight, which is a worm
+        // that panics every afternoon at a temperature it ignores at night.
+        let reading = |frame: u64| -> (f32, f32) {
+            let mut w = test_world();
+            w.frame = frame;
+            w.add_heat(100, 100, 8, WORM_HEAT_THRESHOLD_ABOVE_AMBIENT - 3.0);
+            field::step(&mut w);
+            let cell = w.field_at(100, 100);
+            (cell.temperature - AMBIENT_TEMPERATURE as f32, field::noon_equivalent_temperature(cell) - AMBIENT_TEMPERATURE as f32)
+        };
+        let (raw_noon, converted_noon) = reading(0);
+        let (raw_midnight, converted_midnight) = reading(field::DAY_NIGHT_PERIOD_FRAMES / 2);
+        assert!(
+            (converted_noon - converted_midnight).abs() < 0.01,
+            "the quantity the flee threshold is compared against moved with the hour: noon {converted_noon}, midnight {converted_midnight}"
+        );
+        assert!(
+            converted_noon < WORM_HEAT_THRESHOLD_ABOVE_AMBIENT && converted_midnight < WORM_HEAT_THRESHOLD_ABOVE_AMBIENT,
+            "test setup should sit under the threshold at both phases"
+        );
+        // And the guard can fail: the raw channel — what this decision read
+        // before the sky wrote temperature — does cross at noon.
+        assert!(
+            raw_noon > WORM_HEAT_THRESHOLD_ABOVE_AMBIENT && raw_midnight < WORM_HEAT_THRESHOLD_ABOVE_AMBIENT,
+            "the raw reading is supposed to be phase-dependent here, or this test is not testing anything: \
+             noon {raw_noon}, midnight {raw_midnight}"
+        );
+    }
+
+    #[test]
     fn a_worm_flees_a_hot_field_reading() {
         let mut w = test_world();
         // A single-row corridor (walled top and bottom, so movement is
@@ -2513,9 +2585,39 @@ mod tests {
         // mixing it in makes the test measure foraging.
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // **Floored, and that is the second half of the same repair.** The
+        // bed spans y=150..160 of a 0..199 world with nothing under it, and
+        // soil is a `Powder` -- so it avalanched ~40 rows to the world
+        // floor and the seed rode down with it. The test passed anyway once
+        // the bed was dampened, which is the trap: it passed *despite* the
+        // scene rather than because of it, and the next change here would
+        // have inherited a bed that does not stay where it is put.
+        //
+        // Floor **and** walls, matching `plant::tests::plant_tree_on_ground`
+        // -- a floor alone still lets an open-sided bed spill off its own
+        // edges, which that helper's comment records as having cost time
+        // twice already.
         for x in 0..200 {
+            w.set(x, 160, Cell::new(material::STONE, 0));
+        }
+        for y in 150..161 {
+            w.set(0, y, Cell::new(material::STONE, 0));
+            w.set(199, y, Cell::new(material::STONE, 0));
+        }
+        for x in 1..199 {
             for y in 150..160 {
-                w.set(x, y, Cell::new(soil, 0));
+                // **Damp, not bone dry, and that is a merge repair rather
+                // than a tuning.** This scene was written when a plant ran
+                // on one currency, so `Cell::new(soil, 0)` -- `aux == 0` is
+                // *dry* on a `Powder` -- still grew a tree. Water is a real
+                // second currency now (`plant::absorb_water`, which arrived
+                // with the plant line and did not exist here), and a root
+                // in dry soil has no income at all: the tree grew wood and
+                // never a leaf, so the `find` below failed on a scene
+                // error rather than on the thing this test is named for.
+                // Matches `plant::tests::plant_tree_on_ground`, which has
+                // always dampened its bed for the same reason.
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
             }
         }
         w.plant_tree(100, 149);

@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{FieldOverlay, GrainMode, OrganismOverlay, Renderer, TreeDepth};
+use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer, TreeDepth};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -84,6 +84,198 @@ const FLOOR_THICKNESS: i32 = 8;
 /// germinates looks identical to a scene where growth is broken.
 const TREE_GROUND_Y: i32 = 40;
 
+/// `scene=coldsnap`'s seed, and the run of frames it is aimed at.
+///
+/// **Found by search rather than picked**, the same way `weather.rs`'s own
+/// tests find a frame that has weather in it (`first_frame_with`):
+/// `weather::at` is a pure function of `(seed, frame)`, most frames of most
+/// seeds are clear, and a scene that started at frame 0 of seed 1 would be
+/// a pond under a blue sky. Swept over 4,000 seeds for a front meeting
+/// three conditions at once, each of which one earlier candidate failed:
+///
+/// - **Intensity above ~0.75 for several hundred frames.** Not for the
+///   freezing -- `WATER_CHILL_BASE` puts water below zero at any intensity
+///   -- but for the *snow*, which is what makes the sheet legible as a
+///   frozen surface rather than a recoloured pool. `SNOW_CHILL` is a
+///   magnitude below ambient, so at intensity 0.69 a landing flake is
+///   written at 2°C, which is snow's own melting point: it melts on the
+///   frame it lands and a 1,800-frame storm leaves no drift at all.
+///   (Measured on the first candidate, seed 38.) Above ~0.75 it settles.
+/// - **The snow *ends*, and abruptly.** The thaw is half the artifact.
+///   Precipitation fading out is a slow ramp -- intensity goes to zero as
+///   the wet channel crosses its threshold -- so a front that ends into
+///   clear weather takes ~2,000 frames to do it, and the sheet is gone
+///   before the front is. A front that ends because the **chill** channel
+///   drops instead switches to rain at full intensity: the cold simply
+///   stops, in one frame, which is exactly the event "the front passes"
+///   is meant to be. Rain then falls on the thawing sheet, which is both
+///   correct and better looking than a clear sky.
+/// - **Daylight.** `field::sun_elevation` is another pure function of the
+///   frame, night is half of a 3,600-frame day, and a 1,200-frame run
+///   lands wherever it lands: the first candidate spent its first six
+///   tiles in the dark, where a pale blue sheet on dark blue water is
+///   nearly invisible. Seed 2900's front ends at frame 25,010, which is
+///   phase 3,410 -- shortly before noon -- so the whole run is lit and the
+///   thaw happens at the brightest point of the day.
+///
+/// Starting 700 frames before the switch leaves time for freeze-over (~360
+/// frames at this intensity: the storm chills ~0.7 pond columns a frame and
+/// has to revisit them) and for snow to drift on the ice it made.
+///
+/// `seed=` is deliberately *not* wired to this: the frame window is chosen
+/// for this seed and means nothing on another one.
+const COLDSNAP_SEED: u64 = 2900;
+/// The frame `scene=coldsnap` starts at, and it is the start of a **long**
+/// cold spell rather than of a snowfall.
+///
+/// Re-found when cold stopped needing snow to fall
+/// (`weather::DRY_FROST_CHILL`). The old 24,310 sat in a spell whose usable
+/// cold ran about 700 frames -- twelve seconds -- which was fine when a
+/// pond iced over in a third of one and useless once freezing took a
+/// minute: every clip ended mid-freeze. Seed 2900's spells run to 21,570
+/// frames; `weather.rs`'s `probe_cold_spells` prints them with their start
+/// frames, so this is derived rather than hunted for. This one is 20,100
+/// frames of unbroken cold, which holds the whole arc -- freeze-over,
+/// a long hold, and a thaw -- inside one run.
+const COLDSNAP_START: u64 = 124_680;
+/// The frame seed 2900's cold spell ends. Not read by the simulation
+/// (`weather::at` is the authority) but a run whose tiles all sit before
+/// this is a run that never showed a thaw, and that is worth being able to
+/// see in the log.
+const COLDSNAP_SNOW_ENDS: u64 = 144_780;
+const COLDSNAP_SHORE_Y: i32 = 240;
+const COLDSNAP_POND_DEPTH: i32 = 20;
+
+/// `scene=stormcycle`: seed 31337's front runs from frame 19,080 to 24,060 —
+/// a rain storm peaking at intensity 0.83, with epochs of clear sky either
+/// side of it. Starting at 17,400 buys about 1,700 dry frames before it
+/// arrives, and a run of 8,400 frames comes out the far side with another
+/// 1,700 to spare.
+///
+/// Picked by sweeping `weather::at`, which is a pure function of
+/// `(seed, frame)` and so costs nothing to search. Rain and not snow
+/// deliberately: snow puts the whole freeze/melt loop between the sky and
+/// the census, and what this scene is for is the *outer* cycle on its own.
+///
+/// Run it as:
+///
+/// ```text
+/// cargo run --release --example filmstrip -- \
+///     scene=stormcycle start=0 every=700 count=12 zoom=2 crop=0,168,512,72
+/// ```
+///
+/// **`every=700` is a measured choice, not a default.** At 350 the numbers
+/// still show the storm but half the sheet is spent on it; at 1400 the dip
+/// during the front is one tile wide and reads as noise. At 700 the twelve
+/// census lines run 2500.0 up to 2510.1 across the dry lead, *down* to
+/// 2505.7 through the front, and back up to 2521.3 after it — the shape the
+/// scene exists to show, in numbers, next to the picture.
+///
+/// The crop is the shore band: at zoom 1 over a 320-row world the pond is a
+/// six-pixel line and the rain is what the eye finds instead. Half the tiles
+/// land at night, which is the day/night cycle doing its job over an 8,400
+/// frame run rather than a fault in the sheet.
+///
+/// `seed=` is deliberately not wired to this: the frame window is chosen for
+/// this seed and means nothing on another one.
+const STORMCYCLE_SEED: u64 = 31337;
+const STORMCYCLE_START: u64 = 17_400;
+const STORMCYCLE_STORM: (u64, u64) = (19_080, 24_060);
+const STORMCYCLE_SHORE_Y: i32 = 200;
+const STORMCYCLE_DEPTH: i32 = 6;
+
+/// `scene=watercycle`: **the outer water loop's closing demonstration** —
+/// `stormcycle`'s pond and shore, cell for cell, over a window four times as
+/// long and starting two clear days earlier.
+///
+/// A sibling rather than a longer `stormcycle`, per this file's own rule at
+/// `build`: that scene's numbers are quoted in `weather.rs` and in the
+/// milestone write-up, and a scene that changed underneath a recorded
+/// measurement is worse than no scene. The two share a seed and a geometry,
+/// so anything true of one is true of the other in its own window.
+///
+/// # What the window is chosen to make legible
+///
+/// Three separate things, and none of them shows up in a run that spans less
+/// than a day:
+///
+/// * **The sky fills faster by day than by night.** `evaporation::warmth`
+///   made the drying rate diurnal; the bank is where that becomes visible
+///   over a whole world rather than over one basin. Sampling every 900
+///   frames puts each tile on a quarter of `field::DAY_NIGHT_PERIOD_FRAMES`,
+///   so consecutive tiles are noon, sunset, midnight, sunrise — and the
+///   credit between them rises and falls with them.
+/// * **A storm empties it again.** Seed 31337's front runs 19,022 to 24,060
+///   (`weather`'s `probe_find_a_dry_lead_before_a_storm`; `STORMCYCLE_STORM`
+///   quotes 19,080, which is that probe's coarse 60-frame grid rather than
+///   the true first frame). Starting at 10,800 leaves 2.28 clear days in
+///   front of it and the run carries on 4,700 frames past its end.
+/// * **Nothing is created or destroyed while either happens.** The census
+///   prints `water_equivalents + bank` on every tile, and it must be the
+///   same number on all twenty of them.
+///
+/// 10,800 rather than 11,822 (exactly two days before the front) so that the
+/// start lands on a multiple of `DAY_NIGHT_PERIOD_FRAMES` — the sun is at
+/// noon on tile 0 and every fourth tile after it, which is what makes the
+/// bank column readable as a day at all instead of as a drift.
+///
+/// Run it as:
+///
+/// ```text
+/// cargo run --release --example filmstrip -- \
+///     scene=watercycle start=0 every=900 count=20 zoom=2 crop=0,168,512,72
+/// ```
+///
+/// # What the picture shows, and what only the census can
+///
+/// **The sheet is the control, not the result.** It shows the sky cycling
+/// blue -> pink -> black -> orange four times over, and it shows real rain
+/// streaking across the middle six tiles — which is what says the day and
+/// the front are actually running, and that the numbers below are not a
+/// readout of a clock nobody wired up. What it cannot show is the pond
+/// shrinking: 1,440.0 cell-equivalents down to 1,394.1 over five days is
+/// 3%, which across a 240-cell pond is a fifth of one row. Reading the sheet
+/// for that and concluding nothing happened is the mistake this paragraph
+/// exists to head off. An image says what and where; the census says how
+/// much.
+///
+/// Measured, on the run above (`sky:` deltas, cell-equivalents banked per
+/// quarter-day, in tile order):
+///
+/// | quarter ending at | on the two clear days | through the front | after it |
+/// |---|---|---|---|
+/// | noon | +4.36, +4.36 | -2.53 | +4.41 |
+/// | sunset | +4.54, +4.35, +5.13 | +3.53 | +4.52 |
+/// | midnight | +1.16, +1.16 | +0.65, +2.43 | +1.19 |
+/// | sunrise | +1.19, +1.19 | -2.45 | +2.83, +3.87 |
+///
+/// The warm quarters credit about 4.4 and the cool ones about 1.18 — **3.7
+/// to one**, and wider than the 2.5 the `evaporation` basin guards measure,
+/// because this pond sits under open sky while that basin sits under a lid
+/// that attenuates the sky's forcing to 4.59 of its 6 degrees. Through the
+/// front the sign flips outright: the sky spends faster than a whole pond's
+/// shoreline can refill it.
+///
+/// Two readings in that table that look wrong and are not. The night
+/// quarters *inside* the front (+0.65, +2.43) bracket the wet-channel peak
+/// rather than sitting on it — the front is easing by then, and the second
+/// is a night crediting more than a clear night does because the rain left
+/// puddles all over the bare rock and unsheltered puddles dry fast. Same
+/// reason for the two elevated sunrises after it (+2.83, +3.87), which is
+/// the shore giving the storm's water back and is the return half of the
+/// loop rather than an anomaly.
+///
+/// And `water + sky` reads 3940.0 on every one of the twenty tiles: the
+/// coupling changed the rate and never the ledger.
+///
+/// `seed=` is deliberately not wired to this: the frame window is chosen for
+/// this seed and means nothing on another one.
+const WATERCYCLE_START: u64 = 10_800;
+/// The true first and last frames of the front this scene runs through, as
+/// opposed to `STORMCYCLE_STORM`'s grid-rounded pair. Printed in the header
+/// so the census lines can be read against it.
+const WATERCYCLE_STORM: (u64, u64) = (19_022, 24_060);
+
 /// Water with a varied `shade`, the way the brush lays it down
 /// (`World::paint_capsule` rolls a random shade per cell). The scenes below
 /// would otherwise use `Cell::new(WATER, 0)` and give every cell an
@@ -110,6 +302,113 @@ fn stone_floor(w: &mut World) {
 /// The scenes the current bug list is about. Adding one is three lines, and
 /// is much preferred to editing an existing one — a scene that quietly
 /// changed underneath a recorded measurement is worse than no scene.
+/// Upper bounds of the size classes `fastest by size` reports, in cells
+/// across. Coarse on purpose: terminal velocity goes as the square root of
+/// size, so the interesting contrast is between a fragment and a block, and
+/// finer buckets would mostly report how many bodies happened to land in
+/// each.
+const SIZE_BUCKETS: [usize; 5] = [3, 6, 9, 14, usize::MAX];
+
+/// How much water has to stand over a body's head before its speed counts as
+/// evidence about the terminal velocity, in cells.
+///
+/// **Not one, which is what `rigid::surrounding_liquid` uses to decide whether
+/// to apply drag at all.** The two questions are different and the difference
+/// is a whole frame: the harness samples speeds *after* the body has moved,
+/// so on the frame a body enters the water it was airborne when the clamp
+/// ran, kept its full entry speed, and then moved two or three cells down --
+/// and a one-cell probe then calls it submerged and records an unclamped
+/// speed as though it were the cap.
+///
+/// That is the whole reason a working size term measured as no size term at
+/// all. Six cells is more than a body can travel in a frame at any speed the
+/// clamp allows, so anything this deep has been clamped at least once.
+const SUBMERGED_MARGIN: i32 = 6;
+
+/// Whether a body is *well* inside a liquid, by `rigid::surrounding_liquid`'s
+/// probe -- above the top of its bounding box, at the middle column, which is
+/// outside the footprint and so never reads the body's own reservation --
+/// carried down `SUBMERGED_MARGIN` cells.
+///
+/// **Without this the sink readout measures the sky.** A terminal velocity in
+/// water has no authority over a body falling through air, so a peak taken
+/// over a body's whole life is its *entry* speed and says nothing about the
+/// cap. Measured: sweeping the drag coefficient from 1.0 to 3.0 moved the
+/// unfiltered peak from 3.37 to 2.58 and left the size ordering
+/// non-monotonic, which reads as "the size term does not work" and is really
+/// "this number is about the twenty rows of air above the pond".
+/// `CLAUDE.md` records the same trap catching the previous sink test.
+fn submerged(world: &World, b: &pixel_physics::sim::rigid::ChunkBody) -> bool {
+    let (mut x0, mut x1, mut y0) = (i32::MAX, i32::MIN, i32::MAX);
+    for c in &b.cells {
+        let (x, y) = b.cell_position(c);
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+    }
+    if x1 < x0 {
+        return false;
+    }
+    let px = (x0 + x1) / 2;
+    (1..=SUBMERGED_MARGIN).all(|d| {
+        world.in_bounds(px, y0 - d)
+            && world.materials.kind(world.get(px, y0 - d).material) == MaterialKind::Liquid
+    })
+}
+
+/// A body's longer side, in cells -- `rigid::body_extent`, which is private.
+fn body_extent_of(b: &pixel_physics::sim::rigid::ChunkBody) -> i32 {
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for c in &b.cells {
+        x0 = x0.min(c.dx);
+        x1 = x1.max(c.dx);
+        y0 = y0.min(c.dy);
+        y1 = y1.max(c.dy);
+    }
+    if x1 < x0 {
+        return 1;
+    }
+    (x1 - x0).max(y1 - y0) + 1
+}
+
+/// Whether a contact sheet should draw every tile under the same light.
+///
+/// Every cell is tinted and dimmed by the day/night cycle before it is drawn
+/// (`Renderer::pinned_light`, which is what this switches on), and
+/// `DAY_NIGHT_PERIOD_FRAMES` is 3600. So a sheet of a process that takes days
+/// walks its tiles around the light cycle, and consecutive tiles differ in
+/// *brightness* for reasons that have nothing to do with whatever the sheet
+/// was cut to show.
+///
+/// **Reported from play against the ice arc**: *"you can see a different ice
+/// morphology between the first and second half"*. Reproduced, and part of it
+/// was the sunset. Eight tiles every 2,700 frames is every 0.75 of a day, so
+/// they landed at noon, sunset, midnight and sunrise in rotation -- the census
+/// prints the phase per tile and said exactly that, unread.
+/// `scripts/acceptance.sh`'s `coldsheet` had it worse at `every=1800`, exactly
+/// half a day, alternating noon and midnight forever.
+///
+/// **Auto rather than always.** A sheet that spans a tenth of a day has no
+/// aliasing to fix -- `scene=fall every=60 count=6` is six frames of a rock
+/// falling -- and pinning it would only throw away a true picture of the sky.
+/// It engages when the span reaches a day, which is when the aliasing starts.
+/// `phase=noon` and `phase=off` force it either way.
+///
+/// The alternative, tried first and rejected: snap the *sample frames* to a
+/// whole number of days. It works, but whole-day quantisation is the only
+/// interval that shares a phase, so it doubled `coldsheet`'s span and runtime
+/// and changed which frames were being judged. A render pin changes neither.
+fn pin_sheet_light(args: &Args) -> bool {
+    // The span the sheet covers, not the tile count: one extra tile at a
+    // short interval is not the situation this exists for.
+    let span = (args.every * args.count.saturating_sub(1)) as u64;
+    let pin = args.phase.unwrap_or(span >= pixel_physics::sim::field::DAY_NIGHT_PERIOD_FRAMES);
+    if pin {
+        println!("phase: every tile drawn at noon ({span} frames spans a day or more; phase=off to see the real sky)");
+    }
+    pin
+}
+
 fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     // Set before the scene is built, because several scenes cut into the
@@ -145,12 +444,436 @@ fn build(args: &Args) -> World {
                 }
             }
         }
+        // The water cycle's core loop (the M14 follow-up): a walled stone
+        // chamber holding a pool with a burning oil slick floating on it,
+        // under a stone ceiling low enough that the steam has somewhere to
+        // condense and drip back into the pool. Deliberately needs no new
+        // verb: oil floats on water and burns, which is a heat source the
+        // engine already ships. Read the phase-change counters printed
+        // under each tile alongside the image -- a plume the boiling
+        // actually produced and a puff of painted smoke are the same grey
+        // pixels at this zoom.
+        // A pan of water over a hot hearth: an open basin whose *floor* is
+        // a row of 700C stone, with nothing burning anywhere.
+        //
+        // **Built because `scene=boil` cannot demonstrate the thing this
+        // scene is for**, and finding that out cost a round of looking at
+        // sheets that showed nothing. `boil` heats its pool from a burning
+        // oil slick lying *on the surface*, so the only water above
+        // `render::BUBBLE_MIN_TEMPERATURE` is the top row or two -- 361
+        // cells at frame 90 spread across a 150-wide pool, drawn under the
+        // fire tint and behind a steam cloud. Everything about that is
+        // correct and none of it can show a bubble rising, because there
+        // is no depth of hot water for one to rise *through*.
+        //
+        // Heat from below is the configuration boiling actually has, it is
+        // the one `fire.rs`'s `a_finite_heat_inventory_stops_boiling_and_
+        // the_world_sleeps` already uses as its thermodynamic control, and
+        // it terminates: a fixed inventory of heat, no source, so the pan
+        // comes off the boil on its own rather than running forever.
+        //
+        // Deliberately **open at the top** where `boil` is sealed: the
+        // steam has somewhere to go, so it does not build a cloud over the
+        // very surface the effect has to be judged against.
+        "simmer" => {
+            stone_floor(&mut w);
+            // **Shallow, and the hearth is three rows rather than one.**
+            // First cut was a 61-deep pan over a single 700C row and it was
+            // stone cold by frame 120 with 4 cells left over threshold --
+            // a scene that contradicts what it is for looks exactly like a
+            // mechanism that does not work (`CLAUDE.md`). A pan is a pan:
+            // shallow enough that the heat reaches the surface, with enough
+            // stone under it to hold a boil for a few hundred frames.
+            let (left, right, hearth_rows, depth) = (200, 312, 3, 14);
+            let hearth_y = floor_y - hearth_rows;
+            let rim_y = hearth_y - depth;
+            for y in rim_y..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in left..=right {
+                for y in hearth_y..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true).with_temperature(900));
+                }
+            }
+            for x in (left + 1)..right {
+                for y in rim_y..hearth_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            println!(
+                "simmer: a {}x{depth} pan over {hearth_rows} rows of 900C stone, open to the air",
+                right - left - 1
+            );
+        }
+        "boil" => {
+            stone_floor(&mut w);
+            let (left, right, ceiling_y, rim_y) = (180, 330, 196, 260);
+            // Walls and ceiling are terrain (attached), or the chamber
+            // would erode structurally and the run would measure that
+            // instead of the phase loop.
+            for y in ceiling_y..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in left..=right {
+                for y in ceiling_y..(ceiling_y + 6) {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in (left + 1)..right {
+                for y in rim_y..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            // A burning slick floating on the surface (oil density 0.8 <
+            // water 1.0), pre-ignited -- the same state a player makes by
+            // pouring oil on a pool and lighting it.
+            let burn = w.materials.get(material::OIL).burn_duration;
+            for x in (left + 20)..(right - 20) {
+                let mut slick = Cell::new(material::OIL, (rng::jitter(x, rim_y - 1) * 255.0) as u8);
+                slick.ignite(burn);
+                w.set(x, rim_y - 1, slick);
+            }
+        }
+        // The heat verb (the M14 follow-up's second half): lava poured down
+        // a stone ramp into a walled pond, with a wood stand at the
+        // shoreline. Three separate things to read off the sheet, and only
+        // the first is what the counters answer:
+        //
+        // 1. **A stone crust at the interface**, stippling in over a few
+        //    frames rather than drawing as a line -- that is
+        //    `lava.ron`'s reaction, and `reacted` in the phase-change
+        //    line below the tile is its "did it fire at all" count. Grey
+        //    cells appearing where lava met water and grey cells that were
+        //    already ramp are the same grey at this zoom, which is exactly
+        //    the case `CLAUDE.md` says a picture cannot answer.
+        // 2. **A steam plume** off the pond -- the quench's other product,
+        //    born at the lava's own temperature (`fire::try_react` takes
+        //    the hotter side) so it rises instead of flashing back.
+        // 3. **The wood catching without a flame anywhere in the scene**,
+        //    purely from conducted heat crossing `wood.ron`'s
+        //    `ignition_temperature`. Nothing here is pre-ignited, unlike
+        //    `scene=boil` which has to light an oil slick by hand: that is
+        //    the whole point of the verb. It has no counter of its own on
+        //    the tile line -- the evidence is the ash it leaves (70 cells
+        //    by frame 1500, censused with a throwaway probe) and
+        //    `fire.rs`'s `lava_ignites_adjacent_wood`, which asserts it on
+        //    a sealed pocket where the flow cannot drain away from the
+        //    wood.
+        //
+        // The ramp is a solid wedge rather than a slab on stilts so it
+        // cannot erode structurally -- otherwise the run would be measuring
+        // that instead. Everything stone here is `attached` terrain for the
+        // same reason.
+        "lavapour" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+            let (pond_left, pond_right, pond_top) = (250, 430, 250);
+            // Ramp surface height at column `x`: a straight fall from the
+            // head of the ramp down to the pond's near rim.
+            let (ramp_x0, ramp_y0, ramp_y1) = (170, 130, pond_top - 6);
+            let ramp_top = |x: i32| -> i32 {
+                let t = (x - ramp_x0) as f32 / (pond_left - ramp_x0) as f32;
+                ramp_y0 + ((ramp_y1 - ramp_y0) as f32 * t).round() as i32
+            };
+            for x in ramp_x0..=pond_left {
+                for y in ramp_top(x)..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The pond's far wall. The near one is the ramp itself, which
+            // is what puts the shoreline in the lava's path.
+            for y in pond_top..floor_y {
+                w.set(pond_right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in (pond_left + 1)..pond_right {
+                for y in (pond_top + 2)..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            // A low wood stand on the ramp just above the waterline. Low
+            // deliberately: wood is `Plant` and never displaced, so a tall
+            // stack would dam the ramp and the lava would never reach the
+            // pond inside the run. Five cells lets the flow pool against
+            // it, heat it, and then overtop it.
+            for x in (pond_left - 26)..(pond_left - 12) {
+                let surface = ramp_top(x);
+                for y in (surface - 5)..surface {
+                    w.set(x, y, Cell::new(wood, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+            // A back wall at the head of the ramp. Not decoration: without
+            // it the first frame's slump spreads the reservoir *left* off
+            // the end of the ramp and a third of the pour lands on the
+            // world floor instead of running down, which reads as a leak
+            // and quietly shrinks everything downstream of it.
+            for y in (ramp_y0 - 24)..=ramp_y0 {
+                w.set(ramp_x0 + 1, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            // The reservoir, at the head of the ramp: a finite pour, not an
+            // emitter. ~660 cells -- every molten cell is off-ambient and
+            // keeps its chunk awake until it crusts, so the size is still a
+            // cost, just a finite one now (see `lava.ron`'s header for the
+            // cooling model that made it finite).
+            //
+            // Do not read `reacted` as "cells of lava consumed": a flow
+            // splits into partial-fill cells on the way down and each of
+            // those reacts in its own right. It is a "did it fire, and is
+            // it still firing" count, nothing more. The reading that
+            // matters is that it climbs steeply while the front is in the
+            // water and then goes *flat* alongside `froze` -- flat together
+            // means the pour is finished, crusted where it stranded and
+            // quenched where it reached. The standing census printed under
+            // each tile is the cross-check: molten should read 0 from
+            // there on.
+            for x in (ramp_x0 + 2)..(ramp_x0 + 32) {
+                for y in (ramp_y0 - 22)..ramp_y0 {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                }
+            }
+        }
+        // **Lava dropped into water**, which is the owner's own report
+        // verbatim ("if I drop lava into water, it boils, turns to steam,
+        // rises about 5 ft in the air and then drops back into rain").
+        //
+        // `lavapour` cannot answer it. Its ramp delivers the lava at the
+        // *shoreline*, so what happens next is dominated by a delta
+        // building at the water's edge and by a crust bridging the pond --
+        // real behaviour, and a confound when the question is what the
+        // plume over open water does. Here the lava arrives in the middle
+        // of a wide pond with nothing but water under it, which is what a
+        // player painting lava over a lake actually produces.
+        //
+        // The blob is released a few rows above the surface rather than
+        // placed in it, so the first contact is a real fall onto real
+        // water. `span=` sets the pond width (default 200).
+        "lavadrop" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let half = args.span / 2;
+            let (left, right) = (256 - half, 256 + half);
+            let pond_top = 250;
+            for y in pond_top..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in (left + 1)..right {
+                for y in (pond_top + 2)..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let mut blob = 0;
+            for x in 236..276 {
+                for y in 226..246 {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                    blob += 1;
+                }
+            }
+            println!(
+                "lavadrop: {blob} cells of lava released 6 rows over the middle of a {}-wide pond",
+                right - left - 1
+            );
+        }
+        // A lava *lake*, open to the sky, for the owner's report that a
+        // crust "freezes in place" instead of foundering. The pour scene
+        // above cannot answer it: everything that crusts there is either a
+        // film stranded on the ramp (correctly stuck to the ramp) or stone
+        // minted by the quench reaction inside water. This scene isolates
+        // the third case -- lava cooling into stone at the *middle top of a
+        // lake*, with the nearest anchor 90 columns away, which is far past
+        // stone.ron's `max_unsupported_span` of 16 in either direction.
+        //
+        // Deliberately wide and shallow-walled: the whole question is what
+        // happens to a plate that has no path to an anchor, so a basin
+        // narrow enough for the crust to span shore-to-shore would answer a
+        // different one. `span=` sets the width (default 200).
+        "lavalake" => {
+            stone_floor(&mut w);
+            let lava = w.materials.id_of("lava").expect("lava is a compiled-in material");
+            let half = args.span / 2;
+            let (left, right) = (256 - half, 256 + half);
+            let (lake_top, lake_bottom) = (200, floor_y);
+            for y in lake_top..floor_y {
+                w.set(left, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(right, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let mut cells = 0;
+            for x in (left + 1)..right {
+                for y in (lake_top + 4)..lake_bottom {
+                    w.set(x, y, Cell::new(lava, (rng::jitter(x, y) * 255.0) as u8));
+                    cells += 1;
+                }
+            }
+            println!(
+                "lavalake: {cells} cells of lava in a {}x{} basin, open to the sky; nearest anchor {half} columns from mid-lake",
+                right - left - 1,
+                lake_bottom - lake_top - 4
+            );
+        }
+        // The water cycle's freezing half, and the scene this milestone is
+        // judged on by eye: **a pond with real shorelines under a snowstorm
+        // that passes.** In one run it should show freeze-over creeping
+        // across the surface, snow drifting on the ice it made, the front
+        // lifting, the sheet melting, and the pool coming back.
+        //
+        // Nothing here is scripted. The cold is `weather.rs` acting on the
+        // world the way it does in the app; the freeze is `fire.rs`'s
+        // downward phase change against water.ron's `cooling_point`; the
+        // thaw is ice.ron's melting point sitting below ambient, so the
+        // *absence* of the storm is what melts it. The scene's whole job is
+        // to put a pond under a front and then get out of the way.
+        //
+        // **The seed and the frame are chosen, not arbitrary**, the same
+        // way `weather.rs`'s own tests go looking for a frame that has
+        // weather in it (`first_frame_with`): most frames of most seeds are
+        // clear, so a scene that started at frame 0 of seed 1 would be a
+        // pond under a blue sky. See `COLDSNAP_SEED`.
+        //
+        // The shoreline is not decoration. `structural.rs` cannot express
+        // buoyancy, so a sheet of ice on water has no support underneath it
+        // at all: its only path to an anchor runs sideways along itself to
+        // the shore. That makes the shore the load-bearing part of the
+        // scene, and the pond width (`pond=`) the knob the whole structural
+        // question turns on -- see ice.ron's `max_unsupported_span` note
+        // for the sweep this scene was used to run.
+        "coldsnap" => {
+            stone_floor(&mut w);
+            // Terrain, so it is `attached` and anchors -- the shelf is the
+            // massif the pond is cut into, not something stacked in front
+            // of it, and a shoreline that had to hold itself up would erode
+            // and take the answer about the ice with it.
+            for x in 0..WIDTH {
+                for y in COLDSNAP_SHORE_Y..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            let pond = args.pond.clamp(2, WIDTH - 8);
+            let left = (WIDTH - pond) / 2;
+            for x in left..(left + pond) {
+                // Flush with the shore rather than sunk below it: the
+                // surface row is then level with the stone either side of
+                // it, so the sheet's end cells sit *beside* an anchor
+                // instead of one row under a lip, and snow drifting on the
+                // frozen pond piles continuously with the drift on the
+                // bank.
+                for y in COLDSNAP_SHORE_Y..(COLDSNAP_SHORE_Y + COLDSNAP_POND_DEPTH) {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            w.seed = COLDSNAP_SEED;
+            w.frame = COLDSNAP_START;
+            println!(
+                "coldsnap: seed {COLDSNAP_SEED}, world frame {COLDSNAP_START} (cold until frame {}), pond {pond} cells wide at x {}..{}",
+                COLDSNAP_SNOW_ENDS,
+                left,
+                left + pond - 1
+            );
+        }
+        // **The outer water cycle, end to end, in one sheet.** A dry spell,
+        // a front, and another dry spell, over water that is bare rock all
+        // the way down.
+        //
+        // What is being judged here is not the picture on its own -- rain
+        // falling and a puddle shrinking both looked exactly like this
+        // before any of it was conserved. It is the picture *next to the
+        // census*: the `water + sky` line under each tile must hold still
+        // while the `standing` and `bank` halves of it trade places. That
+        // pairing is `CLAUDE.md`'s "did it fire at all needs a counter, not
+        // a picture" in its exact original form -- a storm that manufactures
+        // water and a storm that spends banked water are the same image, and
+        // only the number tells them apart.
+        //
+        // **One shallow pond and a lot of bare rock, and no soil**, and each
+        // of the three is load-bearing. The first geometry tried here was a
+        // 32-cell puddle beside a 240-cell pond, both 24 rows deep, and it
+        // failed to show the thing: the bank climbed monotonically through
+        // the front, because a puddle that narrow is entirely unsheltered
+        // (`evaporation::shelter` is a fixed-radius stencil) and the credit
+        // from it swamped everything the storm spent. Six rows rather than
+        // twenty-four cuts the evaporating shoreline to a quarter without
+        // touching the pond's *width*, which is the only thing shelter
+        // reads -- so the dry-spell credit comes down to the same order as
+        // the storm's debit and the two become legible against each other.
+        //
+        // The bare rock either side is not empty space. It is where the
+        // front's own drops puddle, and those puddles drying afterwards is
+        // most of the credit that comes back once it has passed.
+        //
+        // No soil because `update::update_soil_water` takes a landing water
+        // cell's fill into wetness and nothing credits it back -- a real,
+        // pre-existing one-way sink out of the ledger (see
+        // `weather::STORM_RESERVE`), and a scene built on soil would show
+        // that leak rather than the cycle.
+        //
+        // `watercycle` is the same geometry in a longer, earlier window --
+        // see `WATERCYCLE_START`. It shares this arm rather than copying it
+        // so that the two scenes cannot drift apart cell by cell; only the
+        // frame the world starts on differs.
+        "stormcycle" | "watercycle" => {
+            for x in 0..WIDTH {
+                for y in STORMCYCLE_SHORE_Y..HEIGHT {
+                    // Attached, so the shore is terrain rather than
+                    // something stacked in front of the sky: an unattached
+                    // shelf erodes inward from every free face over the
+                    // thousands of frames this scene runs for, and the pond
+                    // would drain through the hole.
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for (x0, width) in [(136, 240)] {
+                for y in STORMCYCLE_SHORE_Y..(STORMCYCLE_SHORE_Y + STORMCYCLE_DEPTH) {
+                    for x in x0..(x0 + width) {
+                        w.set(x, y, water_at(x, y));
+                    }
+                }
+            }
+            w.seed = STORMCYCLE_SEED;
+            if args.scene == "watercycle" {
+                w.frame = WATERCYCLE_START;
+                println!(
+                    "watercycle: seed {STORMCYCLE_SEED}, world frame {WATERCYCLE_START}; the front runs {}..{}, so a run of 18000 frames is two clear days, a storm, and a clear day after it. A day is {} frames, so every=900 puts each tile a quarter-day apart. Sky starts holding {:.1} cell-equivalents",
+                    WATERCYCLE_STORM.0,
+                    WATERCYCLE_STORM.1,
+                    pixel_physics::sim::field::DAY_NIGHT_PERIOD_FRAMES,
+                    w.atmospheric_bank
+                );
+            } else {
+                w.frame = STORMCYCLE_START;
+                println!(
+                    "stormcycle: seed {STORMCYCLE_SEED}, world frame {STORMCYCLE_START}; the front runs {}..{}, so a run of 8400 frames is dry, wet, dry. Sky starts holding {:.1} cell-equivalents",
+                    STORMCYCLE_STORM.0, STORMCYCLE_STORM.1, w.atmospheric_bank
+                );
+            }
+        }
         // Falling and spreading, rather than resting on the floor already:
         // the state the horizontal seam tearing shows up in.
         "fall" => {
             stone_floor(&mut w);
             for x in 20..250 {
                 for y in 20..200 {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+        }
+        // A column of water dropped onto a short unwalled shelf in open air:
+        // the front spreads with *nothing under it* for most of its length,
+        // then pours off both ends. Built for open bug #1 (whiskers), which
+        // `fall` and `pour` no longer reproduce: this is the geometry that
+        // still sheds a residual comb, and the one whose films are actually
+        // partial-fill rather than full cells thrown sideways. Shared cell
+        // for cell with `examples/film_probe.rs`'s scene of the same name --
+        // the numbers and the picture have to come from the same world.
+        "shelf" => {
+            stone_floor(&mut w);
+            for x in 180..332 {
+                for y in 200..204 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for x in 236..276 {
+                for y in 120..190 {
                     w.set(x, y, water_at(x, y));
                 }
             }
@@ -182,6 +905,101 @@ fn build(args: &Args) -> World {
                 w.frame = i * 4;
                 w.step_pheromones();
             }
+        }
+        // A scatter of separate grains falling into an open pool: the
+        // splash.
+        //
+        // **`scene=blob` cannot show this and that is geometry, not
+        // tuning.** A splash site is where a denser cell displaces near-full
+        // liquid *with air directly above it* (`update::try_move`), and
+        // under a 68-wide solid blob the cell above the displaced water is
+        // always the next sand cell down. The handful of sites a blob does
+        // produce are its own trailing edge, thrown into the middle of a
+        // blob that fills the frame -- 37 droplets over the whole entry,
+        // every one of them invisible behind the sand.
+        //
+        // Separate grains are the case the mechanic is for and the case a
+        // player makes: each one arrives at open water on its own, and the
+        // droplets it throws fly against open air. **One cell in twenty,
+        // over a hundred rows**, and both numbers were turned down from a
+        // first cut at one in five over sixty: at that density the falling
+        // grains are a curtain, arrivals overlap, and a droplet is one blue
+        // pixel in a snowstorm of yellow ones. The scene has to leave the
+        // air *empty* between arrivals or it cannot show what it is for.
+        "splash" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(392, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in 121..392 {
+                for y in 200..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let mut grains = 0;
+            for x in 160..355 {
+                for y in 20..120 {
+                    // A hash rather than an rng draw, so the scatter is a
+                    // pure function of position and two runs of this scene
+                    // are the same scene (`PLAN.md`: determinism).
+                    if rng::jitter(x, y) < 0.05 {
+                        w.set(x, y, Cell::new(material::SAND, (rng::jitter(y, x) * 255.0) as u8));
+                        grains += 1;
+                    }
+                }
+            }
+            println!("splash: {grains} loose grains over an open pool 271 wide");
+        }
+        // **Rock into water, which nothing here dropped before.** The
+        // splash scene above is loose grains, deliberately -- a splash
+        // needs air above the water it displaces, and a solid slab never
+        // leaves any. That makes it the wrong instrument for the owner's
+        // report ("I don't see any splash... clumps of sand or rocks would
+        // be better"), because the answer for a *clump* is the CA rule and
+        // the answer for a *boulder* is `rigid::report_entry_splash`, and
+        // only the second is a thing the engine can do at all.
+        //
+        // A slab of unattached stone held over an open pool by nothing.
+        // Unattached, so the load model takes it on the first check; wide
+        // and thick enough to clear `MIN_FRACTURE_CELLS` and produce real
+        // bodies rather than grit; and dropped from `fall=` rows up
+        // (default 90) so it arrives well over `SPLASH_MIN_ENTRY_SPEED`.
+        "rockdrop" => {
+            stone_floor(&mut w);
+            for y in 0..floor_y {
+                w.set(120, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(392, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            for x in 121..392 {
+                for y in 200..floor_y {
+                    w.set(x, y, water_at(x, y));
+                }
+            }
+            let top = 200 - args.fall;
+            let mut rock = 0;
+            for x in 226..286 {
+                for y in top..(top + 10) {
+                    w.set(x, y, Cell::new(material::STONE, (rng::jitter(x, y) * 255.0) as u8));
+                    rock += 1;
+                }
+            }
+            // **The dark box under the slab in every tile is the scene, not
+            // a bug.** `World::freeze_sky_surface` records top-of-ground per
+            // column on the first frame and the slab is `Solid`, so its
+            // sixty columns are "underground" from row `top` down and
+            // render unlit for the rest of the run. Nothing can be done
+            // about it from here -- the freeze is deliberately once-only
+            // (`open-bugs-handoff.md` §4b records four failed attempts to
+            // infer the surface instead) -- so crop below `top` when the
+            // picture is for judging.
+            //
+            // Nothing disturbs this scene, so the first check has to be
+            // asked for -- the same way `capped` does it. Without this the
+            // slab hangs there and the harness reports zero of everything,
+            // which reads exactly like the splash being broken.
+            w.schedule_structural_check_around(256, top + 5);
+            println!("rockdrop: a {rock}-cell slab of unattached stone {} rows over an open pool 271 wide", args.fall);
         }
         // A dense blob dropped into a walled pool: the displacement striping.
         "blob" => {
@@ -386,7 +1204,16 @@ fn build(args: &Args) -> World {
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
         "grove" => {
-            return common::PlantScene::default().build();
+            let base = common::PlantScene::default();
+            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            return common::PlantScene {
+                species: args.species.clone(),
+                trees: plants,
+                soil_moisture: args.soil_moisture,
+                start_frame: args.frame0,
+                ..base
+            }
+            .build();
         }
         // `grove`, plus a gnome who walks the length of it once the trees
         // are actually trees. The one question it exists to answer: does he
@@ -1052,7 +1879,7 @@ fn build(args: &Args) -> World {
             pixel_physics::sim::structural::compute_world_distances(&mut w);
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake"
         ),
     }
     w
@@ -1068,6 +1895,33 @@ struct Args {
     /// so a harness that could not vary it could not show the difference
     /// between "you cannot dig" and "rock simply goes".
     dig_yield: f32,
+    /// `species=` -- which species `scene=grove` plants (tree, conifer,
+    /// shrub). The grove is the shape harness, and Phase 2's whole point
+    /// is that different species are different *shapes*.
+    species: String,
+    /// `moisture=N` -- how wet `scene=grove` starts, on `SOIL_SATURATED`'s
+    /// scale. Field capacity by default; below `SOIL_WILTING_POINT` gives
+    /// the dormancy arm, where seeds wait rather than germinate.
+    soil_moisture: u16,
+    /// `frame0=N` -- the frame the world starts on, which pins the weather
+    /// (`weather::at` is pure in seed and frame). Prefer multiples of 3600:
+    /// that pins the day phase, the sky and every organism's tick offset at
+    /// once.
+    frame0: u64,
+    /// `plants=N` -- how many founders `scene=grove` plants, evenly
+    /// spaced. Defaults to `PlantScene`'s own 8, which is tree spacing.
+    ///
+    /// Exists because a *ground layer* cannot be judged on tree spacing.
+    /// Grass at 8 founders across 512 cells renders as four isolated
+    /// sprigs per tile -- which says nothing about whether a sward reads
+    /// as a surface layer, the actual question WP-B3's acceptance asks.
+    /// That is this repo's own "a scene that contradicts the code will
+    /// look like a bug in the code", in its cheaper form: a scene that
+    /// cannot contain the artifact will look like the artifact is absent.
+    plants: usize,
+    /// `ignite=x,y,radius,frame` -- start a fire at a chosen frame, after
+    /// the vegetation has had time to grow. Repeatable.
+    ignitions: Vec<(i32, i32, i32, usize)>,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -1096,9 +1950,25 @@ struct Args {
     /// single width says the room stands or does not, and what is wanted is
     /// the *envelope*.
     span: i32,
+    /// `fall=N` -- how many rows above the pool `scene=rockdrop` starts its
+    /// slab. The lever on entry speed, which is what
+    /// `rigid::SPLASH_MIN_ENTRY_SPEED` gates on.
+    fall: i32,
+    /// `pond=N` -- how wide `scene=coldsnap` cuts its pond, shore to shore.
+    ///
+    /// A knob rather than a constant for the same reason `span` is one: the
+    /// structural question about a frozen sheet is not "does 60 cells
+    /// hold" but *where the envelope is*, because the sheet's only anchor
+    /// path is the shoreline and the answer is therefore a width. This is
+    /// the argument ice.ron's `max_unsupported_span` was swept against.
+    pond: i32,
     start: usize,
     every: usize,
     count: usize,
+    /// `phase=noon` / `phase=off` -- force a contact sheet's samples onto a
+    /// fixed point of the day/night cycle, or force that off. `None` decides
+    /// it from the span; see `snap_to_noon`.
+    phase: Option<bool>,
     cols: usize,
     zoom: i32,
     crop: Rect,
@@ -1108,6 +1978,13 @@ struct Args {
     genome: String,
     out: String,
     grain: GrainMode,
+    /// `bubbles=` -- which of `render.rs`'s `BubbleMode` looks to draw
+    /// boiling liquid with. `off` is the default and today's behaviour;
+    /// the point of the argument is `scene=boil` side by side.
+    bubbles: BubbleMode,
+    /// `gas=` -- which of `render.rs`'s `GasMode` looks to draw gas with.
+    /// `opaque` is the default and today's behaviour.
+    gas: GasMode,
     /// `trees=weave|haze|front|behind` -- which `TreeDepth` the sheet is
     /// shot in. The whole value of a selector is being able to put its
     /// settings side by side, and a still image is the only way to compare
@@ -1208,6 +2085,21 @@ struct Args {
     /// rectangle including the rock, which changes the thing under test;
     /// this erases only what is loose.
     depowder: Option<usize>,
+    /// `poke=x,y,frame` -- schedule a structural check on that cell and its
+    /// four neighbours at the given frame, changing nothing else.
+    /// Repeatable.
+    ///
+    /// **The control for "was this cell ever asked?".** A cell the load
+    /// model calls unsupported and that is nonetheless still standing has
+    /// exactly two explanations -- no check was ever scheduled on it, or
+    /// one was and something downstream declined -- and no readout can tell
+    /// them apart, because both look like a standing cell with an
+    /// UNSUPPORTED verdict beside it. Poking it schedules the check that
+    /// may be missing and touches nothing else: if the cell then falls, it
+    /// was never asked; if it stays, it was asked and refused, and the
+    /// refusal is the bug. Distinct from `cut=` on purpose -- a cut removes
+    /// material, which changes the very support question being asked.
+    pokes: Vec<(i32, i32, usize)>,
     /// `load=x,y` -- print `sim::load::evaluate` at that cell for every
     /// tile. Repeatable. The structural counterpart of the `bodies` line:
     /// an image says a shelf is still up, and only a number says whether it
@@ -1228,11 +2120,38 @@ struct Args {
     /// closest thing to the machine's actual cost. The spread is printed
     /// beside it so a sample that is all noise is visible as such.
     repeat: usize,
+    /// `min_failing_cells=N` -- exit non-zero unless the run's structural
+    /// failures took at least N cells between them.
+    ///
+    /// **The continuous counterpart of `min_overloaded`, and it exists
+    /// because the count measured the wrong thing.** `roomcut`'s bar was
+    /// "at least 5 overload events", which is a *granularity* reading
+    /// dressed up as a collapse reading: making pieces bigger takes the
+    /// same room apart in fewer, larger events and trips it. Measured
+    /// across the quench-crust change, on the identical cut: 11 events
+    /// carrying 2,398 cells became 4 events carrying 2,197, with total
+    /// failing cells 2,742 against 2,713 -- the same room coming down, in
+    /// coarser pieces, and the event count halved twice over.
+    ///
+    /// `CLAUDE.md`: "prefer a continuous quantity over a count of bad
+    /// cells -- counts give knife-edge margins; sums separate cleanly."
+    min_failing_cells: Option<u32>,
     /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
     /// run produced at least / at most that many structural failures. See
     /// `check_expectations`.
     min_overloaded: Option<u32>,
     max_failures: Option<u32>,
+    /// `max_unconfined=N` -- like `max_failures`, but **confined crushes
+    /// don't count**: the bound is on unsupported failures plus overloads
+    /// whose region had a free face. For a scene asserting "nothing comes
+    /// apart" over material that can legitimately crack in place --
+    /// `scene=coldsnap`'s pond, which a hard front freezes solid to the
+    /// basin floor now that stone conducts, whose confined interior then
+    /// crush-fissures and thaws back to clean water -- `max_failures=0`
+    /// gates the wrong mechanism: a fissure is not a collapse. Dismantling
+    /// (the thing such a scene is actually about) still lands in this
+    /// count, because a dismantled region by definition has a free face.
+    max_unconfined: Option<u32>,
     /// `max_frame_ms=N` -- exit non-zero if the **minimum** worst-frame
     /// across `repeat` runs exceeds N.
     ///
@@ -1257,6 +2176,26 @@ struct Args {
     /// material came away in. Peak concurrent bodies is the quantity that
     /// actually says "it threw pieces".
     min_bodies: Option<usize>,
+
+    /// `ice=minCols,maxCells` -- exit non-zero unless at least `minCols` of
+    /// the pond's columns are frozen at the surface **and** no more than
+    /// `maxCells` of it is ice in total.
+    ///
+    /// **Both halves, because each alone passes the artifact the other
+    /// catches.** Reported from play: *"it never really freezes"* -- which
+    /// a coverage floor answers -- and the fix for it, left unbounded,
+    /// turns a pond into a solid block, which only a ceiling on the ice
+    /// itself sees. A cell count alone cannot tell a closed sheet from a
+    /// churning slush of the same mass, and a coverage figure alone cannot
+    /// tell a sheet from a pond frozen to its bed.
+    ///
+    /// Lives here rather than in a unit test because the constant it
+    /// guards, `weather::SHEET_MAX_THICKNESS`, is invisible in a dry
+    /// fixture: it limits how far the front's sweep reaches *through* what
+    /// is already frozen, and it is a lying drift that spends that budget.
+    /// Measured with the cap removed, this scene goes 570 cells of ice to
+    /// **823**, and the water under it 507 to 158.
+    ice: Option<(usize, i64)>,
     /// `min_travelled=N` -- exit non-zero unless the scripted gnome covered
     /// at least N cells after setting off.
     ///
@@ -1279,21 +2218,44 @@ struct Args {
     /// the owner's own statement of what this has to do. A fraction rather
     /// than an absolute so one bar covers every bore size and length.
     min_cave: Option<i64>,
-    /// `max_cave=P` -- exit non-zero unless the roofed void has fallen to at
-    /// most P percent of what was there at the cut. The mirror of
-    /// `min_cave`, and the gate for "this roof came **down**".
+    /// `max_cave=P` -- exit non-zero unless the roofed void is down to at
+    /// most P percent of what was there at the cut.
     ///
-    /// It exists because the thing it replaces was an *event* count.
-    /// `roomcut` was gated on `min_overloaded=5`, and a change to how a
-    /// failing region is shaped merged what had been dozens of separate
-    /// failures into one large paced one -- same roof, same rubble, one
-    /// event instead of thirty-seven. The bar duly went red on a scene whose
-    /// outcome had not got worse. That is the second time an event-count bar
-    /// in this file has caught a mode shift rather than a behaviour change;
-    /// see case 6's own note about `strike`. **Measure what the scene is
-    /// about** -- and what `roomcut` is about is whether the ceiling is
-    /// still up.
+    /// **The other half of `min_cave`, and the pair is the point**: "a cave
+    /// can be dug and it does not collapse" passes trivially by making rock
+    /// invincible, which is how four earlier support models died. `min_cave`
+    /// guards the deep bore; this guards the shallow one, which has to come
+    /// down.
+    ///
+    /// It replaces `min_overloaded=50` on that case, and the reason is the
+    /// same one that moved `roomcut` to `min_failing_cells` earlier the same
+    /// session: an event count reads *which failure mode fired*, not whether
+    /// the cave fell in. Measured across the grain-footing change, on the
+    /// identical bore -- overload failures 65 (3,918 cells) became 7 (169),
+    /// while the roofed void went 678 -> 69 before and 678 -> **64** after.
+    /// The roof came down slightly *harder* and the bar called it a
+    /// regression, because the failures had moved from `Overloaded` to
+    /// `Unsupported`. The case's own comment already said the pair should be
+    /// gated on roofed void; only this half was not.
     max_cave: Option<i64>,
+    /// `max_rock_above=Y,N` -- exit non-zero unless at most N `Solid` cells
+    /// are left strictly above row Y at the end of the run.
+    ///
+    /// **"Where did the rock end up", which is the only question a falling
+    /// scene is really about, and the one no existing bar asked.** Written
+    /// for `scene=rockdrop` after the owner reported "the boulder just
+    /// stops and gets stuck in the middle of the water" and the boulder
+    /// turned out never to have left the sky at all -- 522 of its 600 cells
+    /// still airborne at frame 400, with **every one of the seventeen
+    /// acceptance cases green**, because not one of them drops anything
+    /// into water.
+    ///
+    /// Deliberately not an event count and not a census of the model's own
+    /// verdict. `hanging:` and `afloat:` both read **zero** through that
+    /// whole bug, correctly by their own definitions: the load model
+    /// believed the slab was supported, so a readout that asks the model
+    /// cannot see it. A row and a count ask the world.
+    max_rock_above: Option<(i32, usize)>,
     /// `step=N` -- how far apart consecutive `tunnel=` bites are placed.
     /// Defaults to `dig`, i.e. each bite overlaps the last by half.
     ///
@@ -1424,6 +2386,12 @@ fn parse() -> Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         seed: 1,
+        species: "tree".into(),
+        soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
+        frame0: 0,
+        // 0 means "leave `PlantScene`'s own default alone".
+        plants: 0,
+        ignitions: Vec::new(),
         preset: String::new(),
         start: 100,
         every: 60,
@@ -1435,6 +2403,8 @@ fn parse() -> Args {
         parallel_driver: true,
         out: std::env::temp_dir().join("filmstrip.png").display().to_string(),
         grain: GrainMode::Position,
+        bubbles: BubbleMode::default(),
+        gas: GasMode::default(),
         tree_depth: TreeDepth::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
@@ -1445,13 +2415,17 @@ fn parse() -> Args {
         panels: None,
         cuts: Vec::new(),
         depowder: None,
+        pokes: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
+        min_failing_cells: None,
         min_overloaded: None,
+        max_unconfined: None,
         max_failures: None,
         max_frame_ms: None,
         min_bodies: None,
+        ice: None,
         min_travelled: None,
         max_lost: None,
         dump: None,
@@ -1459,6 +2433,7 @@ fn parse() -> Args {
         step: None,
         min_cave: None,
         max_cave: None,
+        max_rock_above: None,
         confine: true,
         arch: true,
         chain_reach: None,
@@ -1475,22 +2450,41 @@ fn parse() -> Args {
         tunnel: 0,
         relax: false,
         span: 200,
+        phase: None,
+        // A pond a player would recognise as a pond, and the width the
+        // acceptance case in ice.ron's note is stated at.
+        fall: 90,
+        pond: 60,
     };
+    let mut named_gif = false;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
+            "species" => a.species = v.into(),
+            "moisture" => a.soil_moisture = v.parse().expect("moisture"),
+            "frame0" => a.frame0 = v.parse().expect("frame0"),
+            "plants" => a.plants = v.parse().expect("plants"),
+            "ignite" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
+                assert_eq!(n.len(), 4, "ignite=x,y,radius,frame");
+                a.ignitions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3] as usize));
+            }
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
             "every" => a.every = v.parse().expect("every"),
             "count" => a.count = v.parse().expect("count"),
+            "phase" => a.phase = Some(v == "noon"),
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
-            "out" => a.out = v.into(),
+            "out" => {
+                named_gif = v.ends_with(".gif");
+                a.out = v.into();
+            }
             "gif" => a.gif = v != "false",
             "grain" => {
                 a.grain = match v {
@@ -1500,6 +2494,24 @@ fn parse() -> Args {
                     "animated" => GrainMode::Animated,
                     "motion" => GrainMode::Motion,
                     other => panic!("unknown grain {other:?}"),
+                }
+            }
+            "gas" => {
+                a.gas = match v {
+                    "opaque" => GasMode::Opaque,
+                    "translucent" => GasMode::Translucent,
+                    "byfill" => GasMode::ByFill,
+                    other => panic!("unknown gas {other:?}"),
+                }
+            }
+            "bubbles" => {
+                a.bubbles = match v {
+                    "off" => BubbleMode::Off,
+                    "rising" => BubbleMode::Rising,
+                    "large" => BubbleMode::Large,
+                    "columns" => BubbleMode::Columns,
+                    "surface" => BubbleMode::Surface,
+                    other => panic!("unknown bubbles {other:?}"),
                 }
             }
             "trees" => {
@@ -1544,13 +2556,22 @@ fn parse() -> Args {
             "tunnel" => a.tunnel = v.parse().expect("tunnel"),
             "relax" => a.relax = v != "false",
             "span" => a.span = v.parse().expect("span"),
+            "fall" => a.fall = v.parse().expect("fall"),
+            "pond" => a.pond = v.parse().expect("pond"),
+            "min_failing_cells" => a.min_failing_cells = Some(v.parse().expect("min_failing_cells")),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
+            "max_unconfined" => a.max_unconfined = Some(v.parse().expect("max_unconfined")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
             "max_lost" => a.max_lost = Some(v.parse().expect("max_lost")),
             "depth" => a.depth = Some(v.parse().expect("depth")),
             "step" => a.step = Some(v.parse().expect("step")),
             "min_cave" => a.min_cave = Some(v.parse().expect("min_cave")),
             "max_cave" => a.max_cave = Some(v.parse().expect("max_cave")),
+            "max_rock_above" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("max_rock_above")).collect();
+                assert_eq!(n.len(), 2, "max_rock_above=row,count");
+                a.max_rock_above = Some((n[0] as i32, n[1] as usize));
+            }
             "dump" => {
                 let n: Vec<i32> = v.split(',').map(|p| p.parse().expect("dump=x,y,w,h")).collect();
                 assert_eq!(n.len(), 4, "dump=x,y,w,h");
@@ -1568,6 +2589,10 @@ fn parse() -> Args {
             "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
+            "ice" => {
+                let (cols, cells) = v.split_once(',').expect("ice=minCols,maxCells");
+                a.ice = Some((cols.parse().expect("ice minCols"), cells.parse().expect("ice maxCells")));
+            }
             "min_travelled" => a.min_travelled = Some(v.parse().expect("min_travelled")),
             "loadmap" => a.loadmap = v != "false",
             "load" => {
@@ -1599,6 +2624,11 @@ fn parse() -> Args {
                 a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
             "depowder" => a.depowder = Some(v.parse().expect("depowder")),
+            "poke" => {
+                let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("poke")).collect();
+                assert_eq!(n.len(), 3, "poke=x,y,frame");
+                a.pokes.push((n[0], n[1], n[2] as usize));
+            }
             "crop" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
@@ -1606,6 +2636,21 @@ fn parse() -> Args {
             }
             other => panic!("unknown argument {other:?}"),
         }
+    }
+    // **A file named `.gif` gets a GIF.**
+    //
+    // `gif` defaults off, so omitting it while asking for `out=clip.gif`
+    // wrote a contact sheet -- a PNG -- into a file with a `.gif` name, and
+    // nothing anywhere complained. It cost a review round: a 110-tile sheet
+    // 1,264 by 13,392 went out as an animation and came back as *"this is
+    // not an animated gif, it is a panel of a bunch of static images"*.
+    //
+    // Inferred rather than rejected, because the filename is an unambiguous
+    // statement of intent and an error here would only be read after the
+    // same mistake. Announced, so it is never a silent reinterpretation.
+    if named_gif && !a.gif {
+        println!("gif: out is named .gif, so writing an animation ({} frames at true speed)", a.count);
+        a.gif = true;
     }
     a
 }
@@ -1625,6 +2670,39 @@ fn parse() -> Args {
 /// on a contact sheet to one that severed it, and this branch has already
 /// spent a session reading a collapse as a feature that had never once
 /// executed.
+/// Schedule structural checks at whatever positions `poke=` named, once
+/// their frame arrives. See `Args::pokes` for what the experiment is.
+///
+/// A disturbance is recorded alongside, because `World::chain_reach` can
+/// refuse a failure that is far from anything disturbed -- and a poke that
+/// is silently vetoed by that rule would read as "asked and refused" when
+/// it was really "asked with the licence withheld", which is the exact
+/// confusion this arg exists to end.
+fn fire_due_pokes(world: &mut World, pending: &mut Vec<(i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].2 <= now {
+            let (x, y, _) = pending.remove(i);
+            // Extent 0, and that is the honest value rather than a
+            // placeholder: a poke is a single cell, and `record_disturbance`
+            // takes the extent precisely so a *volume* verb cannot quietly
+            // record itself as a point. A point verb saying 0 is the arg
+            // working as intended.
+            world.record_disturbance(x, y, 0);
+            world.schedule_structural_check_around(x, y);
+            let cell = world.get(x, y);
+            println!(
+                "  poke: ({x}, {y}) at frame {now} -- {}, aux {}, attached {}",
+                world.materials.get(cell.material).name,
+                cell.aux(),
+                cell.attached()
+            );
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -1747,6 +2825,37 @@ fn solid_surface_y(world: &World, x: i32) -> i32 {
     panic!("blast= at column {x}: no solid surface in that column, so the charge would have fired into open sky");
 }
 
+/// Light a fire at a scheduled frame -- `ignite=x,y,radius,frame`.
+///
+/// Same shape as `fire_due_cuts` and `fire_due_explosions`, drained the same
+/// way, and called from the same three places for the same reason: a scene
+/// whose whole subject is a fire front has to start burning *after* the
+/// vegetation has grown, not at build time when there is nothing to burn.
+///
+/// Reports the cell count it actually lit, not the radius it was asked for.
+/// "Did the fire start in the grass" is a counter question: an ignition two
+/// rows above a sward looks identical on a contact sheet to one inside it,
+/// and it would smoulder out while reading as a fire that failed to spread.
+fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].3 <= now {
+            let (x, y, r, _) = pending.remove(i);
+            let lit = (y - r..=y + r)
+                .flat_map(|cy| (x - r..=x + r).map(move |cx| (cx, cy)))
+                .filter(|&(cx, cy)| {
+                    let d = (cx - x, cy - y);
+                    d.0 * d.0 + d.1 * d.1 <= r * r && world.get(cx, cy).material != material::EMPTY
+                })
+                .count();
+            world.ignite_circle(x, y, r);
+            println!("  ignite: ({x}, {y}) r={r} at frame {now} -- lit {lit} cells");
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
@@ -1865,6 +2974,13 @@ fn advance(
             println!("  blast report ({bx}, {by}): {report}");
         }
     }
+    // `App::update`'s slot exactly: splashes are debited from the pool and
+    // thrown here, between the blast stage and the particle step. Without
+    // this line the sweep reports splash sites every frame and nothing ever
+    // takes one, so `scene=blob` would show none -- and it is the only
+    // place the water actually leaves the pool, so a harness that omits it
+    // loses nothing rather than quietly draining.
+    pixel_physics::sim::particle::throw_splashes(world, particles);
     particles.step(world);
     world.step_fields();
 }
@@ -2228,6 +3344,282 @@ fn dump_materials(world: &World, args: &Args) {
     }
 }
 
+/// The `hanging` census's cells, folded into 8-connected clusters, one
+/// line each.
+///
+/// **A count answers "how much"; only this answers "what".** 47 hanging
+/// cells is one raft the size of a dinner plate *or* 47 grains scattered
+/// over a pond, and those are opposite bugs: the first is a piece the model
+/// declines to drop, the second is cells it never joins into a piece at
+/// all. The bare count read the same either way and the owner had to read
+/// the ambiguity off the image instead.
+///
+/// The neighbour tally beside each cluster is the second half of the
+/// question. Rock left in mid-*air* and rock left in mid-*water* look
+/// identical in a count and are different failures — water is a medium the
+/// buoyancy rule in `structural::region_has_free_face` has an opinion
+/// about, and air is not — so what is around a cluster is printed rather
+/// than inferred from the scene name.
+///
+/// 8-connected, matching the neighbourhood `load::detached_piece` floods
+/// over: a cluster here is meant to be the piece the model would have
+/// considered, so a diagonal join must not split it into two.
+/// Of the columns that hold water at all, how many have ice at the top of
+/// it — see the `ice:` readout.
+///
+/// **The topmost water-phase cell in the column, not the topmost cell**, so
+/// a drift of snow lying on a sheet does not read as an unfrozen surface
+/// and a sheet under one still counts. Snow is skipped rather than counted
+/// either way: it falls *onto* the water and is not what freezing over
+/// means.
+fn frozen_surface(world: &World) -> (usize, usize, f64, usize) {
+    use pixel_physics::sim::material;
+    let (mut frozen, mut total) = (0usize, 0usize);
+    let (mut thickness_sum, mut thickest) = (0usize, 0usize);
+    for x in 0..WIDTH {
+        let (mut top, mut depth) = (None, 0usize);
+        // The unbroken run of ice from the first freezable cell down --
+        // **the quantity Stefan's law is about**, and the one thing this
+        // census could not say. Coverage answers "has it closed over"; a
+        // sheet that has closed can still be one cell thick or nine, and
+        // the whole shape of real ice growth is thickness against time
+        // (it goes as the square root, because ice insulates the water
+        // under it). Nothing printed it, so nothing could see the curve.
+        let mut run = 0usize;
+        let mut counting = false;
+        for y in 0..HEIGHT {
+            let cell = world.get(x, y);
+            let m = world.materials.get(cell.material);
+            let is_water = cell.material == material::WATER;
+            // Ice, by the same identity test `weather::water_equivalents`
+            // uses: a solid whose melting point is below ambient and which
+            // melts back into water.
+            let is_ice = m.kind == MaterialKind::Solid && m.melts_into == Some(material::WATER);
+            if is_water || is_ice {
+                depth += 1;
+                // **A part-full cell is skipped, not counted as unfrozen.**
+                // `fire.rs` refuses to freeze a liquid below its
+                // `freeze_min_fill` on purpose -- water holds its fringe
+                // liquid to keep the freeze/thaw loop conservative -- and
+                // the top row of a settled pond is exactly that remainder.
+                // Counting it made this metric read **0 of 60 columns
+                // frozen on a pond with 900 cells of ice in it**, which
+                // would have been read as the mechanism doing nothing.
+                // `CLAUDE.md`: ask what a metric counts when nothing is
+                // wrong.
+                let freezable = is_ice || pixel_physics::sim::update::liquid_fill(cell) >= m.freeze_min_fill;
+                if top.is_none() && freezable {
+                    top = Some(is_ice);
+                    counting = is_ice;
+                }
+                if counting {
+                    if is_ice {
+                        run += 1;
+                    } else {
+                        counting = false;
+                    }
+                }
+            }
+        }
+        // **A pond, not a puddle.** Without this the denominator jumps the
+        // moment a snowfall thaws: meltwater spreads a film over the whole
+        // world and `scene=coldsnap` went from 60 columns to 465, so the
+        // percentage stopped being about the pond it was asked about.
+        if depth >= POND_MIN_DEPTH {
+            total += 1;
+            if top == Some(true) {
+                frozen += 1;
+                thickness_sum += run;
+                thickest = thickest.max(run);
+            }
+        }
+    }
+    let mean = if frozen > 0 { thickness_sum as f64 / frozen as f64 } else { 0.0 };
+    (frozen, total, mean, thickest)
+}
+
+/// How deep a column of water has to be before the `ice:` readout counts it
+/// as part of a pond. Four: deeper than the film a thaw spreads over flat
+/// ground, far shallower than anything anyone would call a pond.
+const POND_MIN_DEPTH: usize = 4;
+
+/// Largest cluster the hanging census asks cell by cell.
+///
+/// Censusing a cluster of `k` unattached cells costs `k^2`, because
+/// `load::evaluate` floods the connected region for each one. 512 is set
+/// from what the scenes actually contain: the largest hanging piece
+/// `lavapour` has ever produced is 18 cells, and a whole `roomcut` collapse
+/// is in the hundreds -- so nothing that has ever shown this artifact is
+/// sampled, and `scene=capped`'s deliberate 15,840-cell monolith is.
+const HANGING_CENSUS_FULL: usize = 512;
+
+fn describe_hanging(world: &World, cells: &[(i32, i32)]) -> Vec<String> {
+    use pixel_physics::sim::material;
+    let set: HashSet<(i32, i32)> = cells.iter().copied().collect();
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    struct Cluster {
+        size: usize,
+        x0: i32,
+        x1: i32,
+        y0: i32,
+        y1: i32,
+        air: u32,
+        water: u32,
+        solid: u32,
+    }
+    let mut clusters: Vec<Cluster> = Vec::new();
+    for &start in cells {
+        if !seen.insert(start) {
+            continue;
+        }
+        let mut stack = vec![start];
+        let mut members = Vec::new();
+        while let Some((x, y)) = stack.pop() {
+            members.push((x, y));
+            for dy in -1..=1 {
+                for dx in -1..=1 {
+                    let n = (x + dx, y + dy);
+                    if set.contains(&n) && seen.insert(n) {
+                        stack.push(n);
+                    }
+                }
+            }
+        }
+        let mut c = Cluster {
+            size: members.len(),
+            x0: i32::MAX,
+            x1: i32::MIN,
+            y0: i32::MAX,
+            y1: i32::MIN,
+            air: 0,
+            water: 0,
+            solid: 0,
+        };
+        for &(x, y) in &members {
+            c.x0 = c.x0.min(x);
+            c.x1 = c.x1.max(x);
+            c.y0 = c.y0.min(y);
+            c.y1 = c.y1.max(y);
+            for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let (nx, ny) = (x + dx, y + dy);
+                if set.contains(&(nx, ny)) || !world.in_bounds(nx, ny) {
+                    continue;
+                }
+                let cell = world.get(nx, ny);
+                if cell.material == material::EMPTY {
+                    c.air += 1;
+                } else if cell.material == material::WATER {
+                    c.water += 1;
+                } else {
+                    match world.materials.kind(cell.material) {
+                        MaterialKind::Solid | MaterialKind::Powder => c.solid += 1,
+                        // Steam, lava and the rest: real, and not the
+                        // distinction this readout exists to draw.
+                        _ => {}
+                    }
+                }
+            }
+        }
+        clusters.push(c);
+    }
+    clusters.sort_by(|a, b| b.size.cmp(&a.size));
+    // Six is enough to see the shape of the distribution without burying
+    // the tile it belongs to; the tail is summarised rather than dropped,
+    // because "and 200 singletons" is itself the finding in the scattered
+    // case.
+    const SHOWN: usize = 6;
+    let mut out = Vec::new();
+    let singletons = clusters.iter().filter(|c| c.size == 1).count();
+    out.push(format!(
+        "in {} clusters, largest {}, {singletons} lone cells",
+        clusters.len(),
+        clusters.first().map_or(0, |c| c.size),
+    ));
+    for c in clusters.iter().take(SHOWN) {
+        out.push(format!(
+            "{:>4} cells at x {}..{} y {}..{}, touching {} air / {} water / {} solid",
+            c.size, c.x0, c.x1, c.y0, c.y1, c.air, c.water, c.solid,
+        ));
+    }
+    if clusters.len() > SHOWN {
+        out.push(format!("... and {} smaller", clusters.len() - SHOWN));
+    }
+    out
+}
+
+/// Groups of unattached `Solid` touching no possible support, one line
+/// each, largest first. See the call site for why this exists beside
+/// `hanging` rather than instead of it.
+fn describe_afloat(world: &World) -> Vec<String> {
+    use pixel_physics::sim::material;
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    let mut out: Vec<(usize, String)> = Vec::new();
+    for y0 in 0..HEIGHT {
+        for x0 in 0..WIDTH {
+            let cell = world.get(x0, y0);
+            if cell.attached()
+                || cell.organism_id() != 0
+                || world.materials.kind(cell.material) != MaterialKind::Solid
+                || seen.contains(&(x0, y0))
+            {
+                continue;
+            }
+            // 8-connected over unattached solids, the neighbourhood
+            // `load::detached_piece` floods over, so a group here is the
+            // piece the model would have considered.
+            let mut stack = vec![(x0, y0)];
+            seen.insert((x0, y0));
+            let mut members = Vec::new();
+            let mut liquid = 0u32;
+            let mut supportable = false;
+            while let Some((x, y)) = stack.pop() {
+                members.push((x, y));
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if (dx, dy) == (0, 0) || !world.in_bounds(nx, ny) {
+                            continue;
+                        }
+                        let n = world.get(nx, ny);
+                        match world.materials.kind(n.material) {
+                            // Anything that could bear weight, whether or
+                            // not the model currently thinks it does.
+                            MaterialKind::Powder => supportable = true,
+                            MaterialKind::Solid if n.material == material::BEDROCK || n.attached() => {
+                                supportable = true;
+                            }
+                            MaterialKind::Solid if n.organism_id() == 0 => {
+                                if seen.insert((nx, ny)) {
+                                    stack.push((nx, ny));
+                                }
+                            }
+                            MaterialKind::Liquid => liquid += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            if supportable || liquid == 0 {
+                continue;
+            }
+            let (x1, y1) = (
+                members.iter().map(|c| c.0).max().unwrap(),
+                members.iter().map(|c| c.1).max().unwrap(),
+            );
+            let (xa, ya) = (
+                members.iter().map(|c| c.0).min().unwrap(),
+                members.iter().map(|c| c.1).min().unwrap(),
+            );
+            out.push((
+                members.len(),
+                format!("{:>4} cells at x {xa}..{x1} y {ya}..{y1}, {liquid} liquid faces", members.len()),
+            ));
+        }
+    }
+    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.into_iter().map(|(_, line)| line).collect()
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -2257,9 +3649,13 @@ fn report_loads(world: &World, args: &Args) {
         return;
     }
     let mut worst: Option<((i32, i32), pixel_physics::sim::load::Load)> = None;
+    // Shared cache, for the reason the hanging census records: a whole-world
+    // sweep of the uncached form is quadratic in the size of the piece.
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    let mut budget = u32::MAX;
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
-            let Some(l) = pixel_physics::sim::load::evaluate(world, x, y) else { continue };
+            let Some(l) = pixel_physics::sim::load::evaluate_with_cache(world, x, y, &mut cache, &mut budget) else { continue };
             if worst.is_none_or(|(_, w)| l.stress() > w.stress()) {
                 worst = Some(((x, y), l));
             }
@@ -2308,11 +3704,24 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             ok = false;
         }
     }
+    if let Some((row, most)) = args.max_rock_above {
+        let left = (0..row)
+            .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let cell = world.get(x, y);
+                !cell.attached() && world.materials.kind(cell.material) == MaterialKind::Solid
+            })
+            .count();
+        if left > most {
+            println!("  FAIL: {left} loose solid cells are still above row {row}, wanted at most {most}");
+            ok = false;
+        }
+    }
     if let Some(pct) = args.max_cave {
         let now = roofed_void(world);
         let kept = if cave_before == 0 { 100 } else { now * 100 / cave_before };
         if kept > pct {
-            println!("  FAIL: the roof is still up -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted at most {pct}%");
+            println!("  FAIL: the cave should have come down -- {kept}% of its roofed void left ({now} of {cave_before} cells), wanted at most {pct}%");
             ok = false;
         }
     }
@@ -2335,10 +3744,29 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             ok = false;
         }
     }
+    if let Some((min_cols, max_cells)) = args.ice {
+        let (frozen_cols, total_cols, _, _) = frozen_surface(world);
+        let ice_cells = water_census(world).1;
+        if frozen_cols < min_cols {
+            println!("  FAIL: expected at least {min_cols} of {total_cols} water columns frozen at the surface, got {frozen_cols}");
+            ok = false;
+        }
+        if ice_cells > max_cells {
+            println!("  FAIL: expected at most {max_cells} cells of ice -- a sheet, not a solid pond -- got {ice_cells}");
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_travelled {
         let went = gnome.travelled(world);
         if went < min {
             println!("  FAIL: expected the gnome to cover at least {min} cells, he covered {went}");
+            ok = false;
+        }
+    }
+    if let Some(min) = args.min_failing_cells {
+        let cells = f.overloaded_cells + f.unsupported_cells;
+        if cells < min {
+            println!("  FAIL: expected structural failures to take at least {min} cells, they took {cells}");
             ok = false;
         }
     }
@@ -2361,13 +3789,33 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
     // whose whole life falls between two tiles is invisible in the per-tile
     // lines above.
     println!("  peak chunk bodies in flight at once: {peak_bodies}");
+    if let Some(max) = args.max_unconfined {
+        // `confined` counts failures of *either* mode whose region had no
+        // free face (`structural.rs` records the confined-unsupported
+        // "pocket wedged in its own hole" case too), so it subtracts from
+        // the combined total, not from `overloaded` alone. Saturating
+        // because the invariant confined <= total is structural.rs's, not
+        // this harness's, to enforce.
+        let unconfined = (f.overloaded + f.unsupported).saturating_sub(f.confined);
+        if unconfined > max {
+            println!(
+                "  FAIL: expected at most {max} unconfined structural failures, got {unconfined} ({} overloaded of which {} confined, {} unsupported)",
+                f.overloaded, f.confined, f.unsupported
+            );
+            ok = false;
+        }
+    }
     if ok
-        && (args.min_overloaded.is_some()
+        && (args.max_cave.is_some()
+            || args.max_rock_above.is_some()
+            || args.min_overloaded.is_some()
+            || args.min_failing_cells.is_some()
             || args.max_failures.is_some()
+            || args.max_unconfined.is_some()
             || args.max_frame_ms.is_some()
             || args.min_bodies.is_some()
-            || args.min_travelled.is_some()
-            || args.max_cave.is_some())
+            || args.ice.is_some()
+            || args.min_travelled.is_some())
     {
         println!("  OK: scene={} met its expectations", args.scene);
     }
@@ -2493,7 +3941,7 @@ impl PanelSheet {
         renderer.grain = args.grain;
         renderer.organism_overlay = args.organism_overlay;
         renderer.field_overlay = args.field_overlay;
-        renderer.daylight_pin = args.daylight;
+        renderer.pinned_light = args.daylight.map(pixel_physics::sky::frame_for_daylight);
         Self {
             w,
             h,
@@ -2557,10 +4005,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     let materials_before: Vec<material::MaterialId> = (0..HEIGHT).flat_map(|y| (0..WIDTH).map(move |x| (x, y))).map(|(x, y)| world.get(x, y).material).collect();
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
+    renderer.bubbles = args.bubbles;
+    renderer.gas = args.gas;
     renderer.tree_depth = args.tree_depth;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
-    renderer.daylight_pin = args.daylight;
+    renderer.pinned_light = args.daylight.map(pixel_physics::sky::frame_for_daylight);
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_blasts = args.blasts.clone();
@@ -2584,6 +4034,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     let mut pending_cuts = args.cuts.clone();
     let mut pending_depowder = args.depowder;
     let mut depowder_first = true;
+    let mut pending_pokes = args.pokes.clone();
+    let mut pending_ignitions = args.ignitions.clone();
     let mut blasts = explosion::Blasts::new();
     if let Some(v) = args.joint_reach {
         blasts.tuning.joint_reach = v;
@@ -2621,6 +4073,21 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // frozen because its grain is nailed to the screen) simply do not survive
     // being sampled into stills. Consecutive frames, real playback speed, and
     // a NETSCAPE loop -- the same reasoning `main.rs`'s capture hook records.
+    // `image::save_buffer` below picks its encoder from the file extension, so
+    // `out=x.gif` without `gif=1` silently writes the whole contact sheet as a
+    // ONE-FRAME gif. It is a valid file, it is named like an animation, and it
+    // cannot move -- which is exactly how two review cards shipped as stills
+    // while the agent reported posting an animation. Refuse the combination
+    // rather than producing the thing nobody wanted.
+    if !args.gif && args.out.to_ascii_lowercase().ends_with(".gif") {
+        panic!(
+            "out={} ends in .gif but gif=1 was not passed. The contact sheet \
+             would be written as a single-frame gif that cannot animate. \
+             Add gif=1 for an animation, or use a .png name for a sheet.",
+            args.out
+        );
+    }
+
     if args.gif {
         let mut frames = Vec::with_capacity(args.count);
         let mut step_no = 0usize;
@@ -2629,13 +4096,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
-            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+                fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+            fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
@@ -2687,6 +4158,14 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         let last_charge = args.explosions.iter().map(|c| c.4).chain(args.blasts.iter().map(|c| c.4)).max().unwrap_or(0);
         last_charge + last_age
     });
+    // Contact sheets draw every tile under the same light -- see
+    // `pin_sheet_light`. The GIF branch above deliberately does not: it plays
+    // at real speed, so its day/night swing is the world's own.
+    if pin_sheet_light(args) {
+        // Phase 0 of the cycle is noon -- `field::sun_rising` runs noon,
+        // sunset, midnight, sunrise.
+        renderer.pinned_light = Some(0);
+    }
 
     let mut captured = 0usize;
     let mut step_no = 0usize;
@@ -2697,18 +4176,40 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // hides exactly that. Per tile, because it localizes the spike to a
     // phase of the scene instead of just proving one happened.
     let mut worst_ms = 0.0f64;
+    let mut worst_draw_ms = 0.0f64;
     let mut worst_frame = 0usize;
     // Sampled every frame, not just at capture: a body's whole life can
     // fall between two tiles, and "bodies 0" in every tile of a scene that
     // visibly threw rock is exactly the confusion this harness exists to
     // prevent.
     let mut peak_bodies = 0usize;
+    // Peak speed reached by a body in each size class -- see the loop that
+    // fills it, and `rigid::SINK_DRAG_COEFFICIENT` for the curve it is the
+    // readout for.
+    let mut peak_by_size = [0.0f32; SIZE_BUCKETS.len()];
+    // **How fast the fastest piece ever went, and when the first and last
+    // of them came to rest.** Reported from play as *"a first group of
+    // chunks that drop too fast and then the rest that come together with
+    // the grit later"* -- which is two quantities, a peak speed and an
+    // arrival spread, and the per-tile sample cannot give either: it sees
+    // whichever bodies happen to be alive at that instant.
+    let mut peak_speed = 0.0f32;
+    let (mut first_rest, mut last_rest) = (None::<usize>, 0usize);
+    let mut was_flying = false;
+    // The bank at the previous tile, so the census can print a *rate* beside
+    // the standing total. `None` on the first tile, which prints +0.00 rather
+    // than a delta against a number that does not exist.
+    let mut last_bank: Option<f64> = None;
+    // Cross-tile state for the ice churn readout -- see the `ice:` line.
+    let mut last_ice: Option<(u32, u32, i64)> = None;
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+            fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             // Outside the timed region below on purpose: a panel capture is
             // harness cost, and folding it into the worst-frame number would
             // make the sheet's own instrument report the sheet.
@@ -2725,6 +4226,31 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             // in made all seven scenes report the same ~70-110 ms and hid
             // the differences between them entirely.
             peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            for b in &world.chunk_bodies {
+                let speed = (b.vx * b.vx + b.vy * b.vy).sqrt();
+                peak_speed = peak_speed.max(speed);
+                // Bucketed by size and kept as a *peak*, because a terminal
+                // velocity is a cap and only a body that reached its cap is
+                // evidence about where the cap is. The per-tile `by size`
+                // line samples an instant and is confounded by exactly the
+                // bodies that matter most: a big piece already resting on
+                // the pile reads slow, which inverts the ordering and makes
+                // a working size term look backwards. Measured once as
+                // "smallest 4 cells across at 0.95, largest 10 across at
+                // 0.18" on a build whose terminal genuinely rose with size.
+                if submerged(&world, b) {
+                    let e = body_extent_of(b) as usize;
+                    let bucket =
+                        SIZE_BUCKETS.iter().position(|&hi| e <= hi).unwrap_or(SIZE_BUCKETS.len() - 1);
+                    peak_by_size[bucket] = peak_by_size[bucket].max(speed);
+                }
+            }
+            let flying = !world.chunk_bodies.is_empty();
+            if was_flying && !flying {
+                first_rest.get_or_insert(step_no);
+                last_rest = step_no;
+            }
+            was_flying = flying;
             if ms > worst_ms && step_no > 0 {
                 worst_ms = ms;
                 worst_frame = step_no;
@@ -2733,7 +4259,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
-            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+        fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+        fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+        fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
         if let Some(p) = panels.as_mut() {
             p.capture(&world, &particles, &fired, step_no);
         }
@@ -2741,7 +4269,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
         let touched: HashSet<_> = world.take_touched_chunks();
+        // **Timed separately from the sim, because `worst frame` above is
+        // `advance` only.** A render-side look option -- `GrainMode`,
+        // `BubbleMode`, `GasMode` -- costs nothing that number can see, and
+        // `CLAUDE.md` asks what a visual change costs. Drawn with every
+        // chunk forced dirty, so this is the full-screen worst case rather
+        // than whatever the dirty-rect skip happened to leave.
+        let drew = std::time::Instant::now();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+        worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
         blit_tile(&mut sheet, sheet_w, (gx * (tile_w + gap), gy * (tile_h + gap)), &frame, args.crop, args.zoom);
@@ -2764,6 +4300,44 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             world.chunk_bodies.len(),
             world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
         );
+        // **How fast the pieces are actually going**, which the count
+        // above cannot say and which play asked about: *"it falls at
+        // slightly odd rates -- a first group of chunks that drop too fast
+        // and then the rest that come together with the grit later."*
+        // Printed as a spread, because the complaint is about the spread:
+        // one number would be the average of the two groups and describe
+        // neither.
+        if !world.chunk_bodies.is_empty() {
+            let mut speeds: Vec<f32> =
+                world.chunk_bodies.iter().map(|b| (b.vx * b.vx + b.vy * b.vy).sqrt()).collect();
+            speeds.sort_by(|a, b| a.partial_cmp(b).expect("no NaN speeds"));
+            println!(
+                "    body speed: slowest {:.2}, median {:.2}, fastest {:.2} cells/frame",
+                speeds[0],
+                speeds[speeds.len() / 2],
+                speeds[speeds.len() - 1]
+            );
+            // **The spread above cannot say whether size is what varies it**,
+            // and that is the question a terminal velocity is about: a real
+            // one goes as the square root of the body's size, so grit drifts
+            // down while a boulder plummets. A flat clamp and a
+            // size-dependent one produce the same "slowest/median/fastest"
+            // line on a scene with a range of pieces in it. Only a *paired*
+            // extreme -- the smallest piece against the largest, in the same
+            // frame -- separates them, which is `CLAUDE.md`'s rule about
+            // comparing two runs applied to two bodies.
+            let mut by_size: Vec<(i32, f32)> = world
+                .chunk_bodies
+                .iter()
+                .map(|b| (body_extent_of(b), (b.vx * b.vx + b.vy * b.vy).sqrt()))
+                .collect();
+            by_size.sort_by_key(|&(e, _)| e);
+            let (small, fast) = (by_size[0], by_size[by_size.len() - 1]);
+            println!(
+                "    by size: smallest piece {} cells across at {:.2}, largest {} across at {:.2}",
+                small.0, small.1, fast.0, fast.1
+            );
+        }
         // Which failure fired, cumulatively. An overloaded piece and a
         // piece that was never held look identical falling, so the image
         // cannot say which mechanism produced what is on screen -- and
@@ -2847,6 +4421,503 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             "    body sizes: <8:{} 8-15:{} 16-31:{} 32-63:{} 64-127:{} 128-255:{} 256+:{}",
             sz[0], sz[1], sz[2], sz[3], sz[4], sz[5], sz[6]
         );
+        // The phase-change "did it fire at all" counters, cumulative --
+        // same reasoning as the failure counts above: whether the plume on
+        // screen is boiled steam or painted smoke is a question the image
+        // cannot answer.
+        let p = world.phase_changes;
+        println!(
+            "    phase changes: boiled {}, condensed {}, froze {}, melted {}, reacted {}",
+            p.boiled, p.condensed, p.froze, p.melted, p.reacted
+        );
+        // **How often evaporation found the air already saturated**, which no
+        // image can show: a surface that is drying slowly and one that is
+        // switched off outright look the same in every frame, and the second
+        // is a mechanism not running. `evaporation::DrynessCounts` has the
+        // full story; the short version is that a block of saturated soil is
+        // pinned at double the humidity that stops evaporation dead, and
+        // `dryness` samples the block *above* a surface, so how much of the
+        // world this reaches is a question about relief.
+        //
+        // Water and soil separately, because a wide calm lake reading zero is
+        // the designed behaviour and damp ground reading zero may not be.
+        let d = world.dryness_counts;
+        if d.water_checks + d.soil_checks > 0 {
+            let pct = |share: Option<f64>| share.map_or("-".to_string(), |s| format!("{:.0}%", s * 100.0));
+            println!(
+                "    evaporation becalmed: soil {}/{} ({}), water {}/{} ({})",
+                d.soil_becalmed,
+                d.soil_checks,
+                pct(d.soil_becalmed_share()),
+                d.water_becalmed,
+                d.water_checks,
+                pct(d.water_becalmed_share()),
+            );
+        }
+        // Same reasoning one line up, for splashes: a droplet in flight is
+        // one pixel and lands within a few frames, so `particles` on the
+        // tile line above is very often 0 even on a frame that threw a
+        // dozen. Cumulative, so it answers "has this ever fired".
+        if world.splashes_thrown > 0 {
+            println!("    splash droplets thrown: {}", world.splashes_thrown);
+        }
+        // A census to read against the event counts above -- `CLAUDE.md`'s
+        // "a failure count is not a damage count" bites here too: `froze`
+        // going flat can mean "all the lava finished" or "the remaining
+        // lava stopped cooling", and only a standing count tells them
+        // apart. `burning` likewise separates "the pond simmers off stored
+        // heat" from "something at the shoreline is still on fire".
+        let (mut molten, mut burning, mut hot, mut bubbling) = (0u32, 0u32, 0u32, 0u32);
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                let m = world.materials.get(cell.material);
+                if m.intrinsic_temperature.is_finite() {
+                    molten += 1;
+                }
+                if cell.is_burning() {
+                    burning += 1;
+                }
+                if cell.temperature() >= 100 {
+                    hot += 1;
+                }
+                // The population `render.rs`'s bubble effect can draw on --
+                // a *liquid* cell over the bubbling threshold, which is a
+                // different set from `hot` above (that one is mostly the
+                // steam cloud). Printed because "the pool does not look
+                // like it is bubbling" and "there is nothing hot enough in
+                // the pool to bubble" are the same picture, and only a
+                // count separates them.
+                if m.kind == MaterialKind::Liquid && (cell.temperature() as f32) >= pixel_physics::render::BUBBLE_MIN_TEMPERATURE {
+                    bubbling += 1;
+                }
+            }
+        }
+        // The bank rides on the unconditional standing line rather than on
+        // the self-gating water line below, so **every** scene shows it. It
+        // is the one half of the world's water that no image can contain:
+        // water that has evaporated is not anywhere on screen, and a sheet
+        // showing a pond that has visibly shrunk cannot say whether the
+        // water went into the sky or out of the world. Printed next to a
+        // census of what is standing, the pair is the conservation law.
+        println!(
+            "    standing: molten {molten}, burning {burning}, cells at >=100C {hot}, liquid hot enough to bubble {bubbling}, bank {:.1}",
+            world.atmospheric_bank
+        );
+        // WHERE the heat is, not just how much -- open-bugs-handoff 0b's own
+        // discriminator ("dump where the >=100C cells and the outstanding
+        // steam actually sit"). Per-material counts with a bounding box per
+        // material, because "592 hot cells" was compatible with a hot stone
+        // core, a trapped steam pocket, and a simmering pool all at once,
+        // and only the location separates them. Bounded work: one scan,
+        // printed only when something is hot, so quiet scenes stay quiet.
+        if hot > 0 {
+            use std::collections::HashMap as Map;
+            let mut by_material: Map<u16, (u32, i64, i32, i32, i32, i32)> = Map::new();
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    let cell = world.get(x, y);
+                    if cell.temperature() >= 100 {
+                        let e = by_material.entry(cell.material.0).or_insert((0, 0, i32::MAX, i32::MIN, i32::MAX, i32::MIN));
+                        e.0 += 1;
+                        e.1 += cell.temperature() as i64;
+                        e.2 = e.2.min(x);
+                        e.3 = e.3.max(x);
+                        e.4 = e.4.min(y);
+                        e.5 = e.5.max(y);
+                    }
+                }
+            }
+            let mut rows: Vec<_> = by_material.into_iter().collect();
+            rows.sort_by_key(|(_, (n, ..))| std::cmp::Reverse(*n));
+            for (id, (n, temp_sum, x0, x1, y0, y1)) in rows.into_iter().take(4) {
+                let name = &world.materials.get(pixel_physics::sim::material::MaterialId(id)).name;
+                println!(
+                    "      >=100C in {name}: {n} cells, mean {}C, box x {x0}..{x1} y {y0}..{y1}",
+                    temp_sum / n as i64
+                );
+            }
+        }
+        // **The plume, as a standing state rather than an event rate.**
+        // `boiled`/`condensed` above are cumulative and they run at nearly
+        // 1:1 on any scene with a live boil, which is exactly what a
+        // healthy loop looks like *and* exactly what a plume that rains
+        // straight back down looks like. The owner's report -- steam rises
+        // a few cells and drops back as rain, fast enough to read as
+        // bouncing -- is about neither count: it is about how far the
+        // plume gets and how much *water* is standing in the air inside
+        // it. `CLAUDE.md`'s "when the complaint is about something visible
+        // and persistent, measure the standing state, not the event rate".
+        //
+        // *Airborne water* is a water cell with materially-empty space
+        // directly below it. Sanity-checked against cases known to be fine
+        // before it was trusted, per `CLAUDE.md`: a settled pond
+        // (`scene=coldsnap`) reads 0, and `scene=fall` -- water genuinely
+        // falling through air -- reads in the hundreds, which is the
+        // metric working, not an artifact. On `scene=lavapour` nothing
+        // pours *water*, so every airborne water cell there is condensate
+        // that has turned around and is on its way back down.
+        let (mut steam_cells, mut steam_top, mut steam_bottom) = (0u32, i32::MAX, i32::MIN);
+        let mut submerged_steam = 0u32;
+        let (mut airborne, mut air_top, mut air_bottom) = (0u32, i32::MAX, i32::MIN);
+        let steam_id = world.materials.id_of("steam");
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                if Some(cell.material) == steam_id {
+                    steam_cells += 1;
+                    steam_top = steam_top.min(y);
+                    steam_bottom = steam_bottom.max(y);
+                    // **A bubble is submerged steam**, and nothing counted
+                    // it. Reported from play about a heat source under a
+                    // pool: *"I see bubbles form at the bottom, rise to the
+                    // top and pop"*. Whether the engine ever produces that
+                    // -- gas inside the water, on its way up -- or only ever
+                    // vents steam at the interface, is not visible in a
+                    // contact sheet and is not what `steam_cells` counts: a
+                    // plume standing over a pond and a pond full of rising
+                    // bubbles give the same total.
+                    if y > 0 && world.get(x, y - 1).material == material::WATER {
+                        submerged_steam += 1;
+                    }
+                }
+                if cell.material == material::WATER
+                    && y + 1 < HEIGHT
+                    && world.get(x, y + 1).material == material::EMPTY
+                {
+                    airborne += 1;
+                    air_top = air_top.min(y);
+                    air_bottom = air_bottom.max(y);
+                }
+            }
+        }
+        // **Rock standing on nothing and touching nothing.** The owner's
+        // second report ("it seems to freeze in place... it should sink")
+        // as a standing count, because the failure counters cannot answer
+        // it: `unsupported` says how many cells the model *judged* had no
+        // support, and the whole defect was cells it never judged at all,
+        // or judged and then deliberately left alone as confined. Only a
+        // census of what is still standing there separates those.
+        //
+        // Deliberately the strictest reading -- a `Solid` with no
+        // `Solid`/`Plant` neighbour in any of the 8 directions and nothing
+        // solid beneath it. That makes it blind to a *raft* (whose cells
+        // hold each other's hands) and immune to false positives on
+        // ordinary terrain, where it reads 0 on every scene that has no
+        // artifact. A looser definition was not worth the argument about
+        // what an overhang is.
+        // The load model's **own** verdict, censused: an unattached `Solid`
+        // whose support chain reaches no anchor, still standing there.
+        //
+        // Two cheaper definitions were tried and are worth recording,
+        // because both are the same mistake in different clothes. "No solid
+        // neighbour at all" is blind to a *raft*, whose cells hold each
+        // other's hands, and read 9 against 14 across a change that visibly
+        // cleared a mound off a pond. "Nothing solid in the column below"
+        // is blind to anything over water, because the pond floor is in
+        // that column. `load::evaluate` asks the question the artifact
+        // actually is, and it is the same function the `load=` probe prints
+        // -- so a number here and a probe there cannot disagree.
+        //
+        // Restricted to unattached cells, which is what bounds the cost:
+        // terrain is attached and is the overwhelming majority, and an
+        // attached cell braced by the massif is not what anyone means by
+        // rock hanging in the air.
+        //
+        // **Reported as clusters, not as a bare count, because the count
+        // cannot say what the artifact is.** 47 hanging cells is either one
+        // raft the size of a dinner plate or 47 grains scattered over the
+        // pond, and those are different bugs with different fixes -- the
+        // first is a piece the model refuses to drop, the second is cells
+        // it never groups in the first place. The owner read the same
+        // ambiguity off the image ("attached rock stuck in the middle of
+        // the water, unless you just didn\'t wait long enough") and a
+        // number that cannot distinguish them cannot answer them either.
+        //
+        // **Clustered first, and every cell of a cluster asked unless the
+        // cluster is enormous.** `load::evaluate` answers by flooding the
+        // connected region a cell belongs to, so a cluster of `k` cells
+        // costs `k^2` to census cell by cell. `scene=capped` stands
+        // **15,840** unattached cells up on purpose and this pass never
+        // finished a single tile -- which read in the acceptance log as the
+        // suite stalling with no clue which case did it. A shared
+        // `load::Cache` alone did not fix it.
+        //
+        // Asking only each cluster's *foot* does fix it and is **too
+        // blind**, which is worth recording because it is the obvious
+        // move: the model's verdict is not uniform over a piece (a cell
+        // beyond `max_unsupported_span` from the anchor is unsupported
+        // while the foot standing on it is not), so `scene=lavapour`'s
+        // first tile read **19 against 49**. The census exists to catch
+        // exactly the cells that reading throws away.
+        //
+        // So the cap bounds *work*, never whether the census happens
+        // (`CLAUDE.md`): every cluster up to `HANGING_CENSUS_FULL` is
+        // asked cell by cell, exactly as before, and a larger one is asked
+        // at its lowest-then-leftmost cell and **says so in the output**.
+        // Nothing in any scene that has ever shown this artifact comes
+        // close to the cap -- the largest piece in `lavapour` is 18 cells.
+        let unattached: HashSet<(i32, i32)> = (0..HEIGHT)
+            .flat_map(|y| (0..WIDTH).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let cell = world.get(x, y);
+                !cell.attached() && cell.organism_id() == 0 && world.materials.kind(cell.material) == MaterialKind::Solid
+            })
+            .collect();
+        let mut hanging_cells: Vec<(i32, i32)> = Vec::new();
+        let mut load_cache = pixel_physics::sim::load::Cache::default();
+        let mut load_budget = u32::MAX;
+        let mut seen: HashSet<(i32, i32)> = HashSet::new();
+        let mut sampled_clusters: Vec<usize> = Vec::new();
+        // Iterated over the sorted grid rather than the `HashSet`, so the
+        // clusters (and therefore the printed order) do not depend on hash
+        // iteration order.
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                if !unattached.contains(&(x, y)) || !seen.insert((x, y)) {
+                    continue;
+                }
+                let mut stack = vec![(x, y)];
+                let mut members = Vec::new();
+                while let Some((cx, cy)) = stack.pop() {
+                    members.push((cx, cy));
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let n = (cx + dx, cy + dy);
+                            if unattached.contains(&n) && seen.insert(n) {
+                                stack.push(n);
+                            }
+                        }
+                    }
+                }
+                if members.len() <= HANGING_CENSUS_FULL {
+                    for &(mx, my) in &members {
+                        if pixel_physics::sim::load::evaluate_with_cache(&world, mx, my, &mut load_cache, &mut load_budget)
+                            .is_some_and(|l| !l.supported)
+                        {
+                            hanging_cells.push((mx, my));
+                        }
+                    }
+                    continue;
+                }
+                sampled_clusters.push(members.len());
+                let foot = members.iter().copied().min_by_key(|&(mx, my)| (-my, mx)).expect("a cluster has a cell");
+                if pixel_physics::sim::load::evaluate_with_cache(&world, foot.0, foot.1, &mut load_cache, &mut load_budget)
+                    .is_some_and(|l| !l.supported)
+                {
+                    hanging_cells.extend(members);
+                }
+            }
+        }
+        hanging_cells.sort_unstable();
+        if !sampled_clusters.is_empty() {
+            println!(
+                "    hanging census: {} cluster(s) over {HANGING_CENSUS_FULL} cells asked at the foot only, sizes {sampled_clusters:?}",
+                sampled_clusters.len()
+            );
+        }
+        let hanging = hanging_cells.len() as u32;
+        if hanging > 0 {
+            println!("    hanging: {hanging} unattached solid cells the load model says reach no anchor");
+            for line in describe_hanging(&world, &hanging_cells) {
+                println!("      {line}");
+            }
+        }
+        // **The same artifact asked of the world instead of the model, and
+        // the pair is the point.** `hanging` above is the load model's own
+        // verdict censused, which makes it blind in exactly one direction:
+        // a piece the model *wrongly* calls supported does not appear, and
+        // that is the failure mode with the worst consequences, because
+        // nothing downstream will ever touch it either. Caught for real --
+        // a stone raft sat on `scene=lavadrop`'s pond from frame 600 to the
+        // end of the run, plainly visible in the contact sheet, with
+        // `hanging` reading 0 the whole time.
+        //
+        // So this one consults no model at all: a group of unattached solid
+        // cells, none of which touches anything that could hold it up
+        // (bedrock, attached rock, or loose material), with liquid
+        // somewhere around it. That is "rock floating in water" as the
+        // owner says it, and no support rule can talk it out of the answer.
+        let afloat = describe_afloat(&world);
+        if !afloat.is_empty() {
+            println!("    afloat: {} groups of unattached rock held up by nothing but liquid", afloat.len());
+            for line in afloat.iter().take(6) {
+                println!("      {line}");
+            }
+            if afloat.len() > 6 {
+                println!("      ... and {} smaller", afloat.len() - 6);
+            }
+        }
+        if steam_cells > 0 || airborne > 0 {
+            let span = |n: u32, a: i32, b: i32| if n == 0 { "-".to_string() } else { format!("rows {a}..{b}") };
+            println!(
+                "    plume: steam {steam_cells} cells ({}, {submerged_steam} submerged), airborne water {airborne} cells ({})",
+                span(steam_cells, steam_top, steam_bottom),
+                span(airborne, air_top, air_bottom)
+            );
+        }
+        // The water cycle's standing state, next to the counters above --
+        // and the pair is the point. The counters say the mechanism fired;
+        // this says what is *there*, which is the question a freeze-and-thaw
+        // actually turns on: a run can report thousands of freezes and
+        // melts and still have quietly lost half its pool. Self-gating, so
+        // the structural scenes stay quiet.
+        let (liquid, frozen, snowy) = water_census(&world);
+        if liquid > 0.0 || frozen > 0 || snowy > 0 {
+            println!(
+                "    water: {liquid:.1} cell-equivalents liquid, {frozen} frozen, {snowy} as snow (total {:.1})",
+                liquid + frozen as f64 + snowy as f64
+            );
+            // ...and the same water counted the *other* way, which is the
+            // only way that closes. The line above counts a flake and a full
+            // water cell alike as one cell, which is right for asking
+            // whether a pond froze over and wrong for conservation, because
+            // snow is 0.3 the density of water.
+            // `weather::water_equivalents` converts every phase at what it
+            // would come back as, so this figure plus the bank is the
+            // quantity that must hold still across a whole storm-and-drought
+            // cycle -- and a tile-by-tile printout is where a drift shows up
+            // as a trend rather than as a single end-of-run number.
+            // **How much of the water's *surface* is frozen, and how much
+            // of the freezing was undone.**
+            //
+            // Reported from play: *"it never really freezes and has snow
+            // accumulate on top. The pixels seem to be constantly shifting."*
+            // Neither half of that is answerable from the counters above.
+            // `frozen` is a cell count, and a pond can hold three hundred
+            // ice cells forever as a **churning slush** that never closes
+            // into a sheet -- measured on `scene=coldsnap`: 491 freezes and
+            // 510 melts across 340 frames for a net of **minus nineteen**,
+            // with the band stuck at a quarter of the pond the whole time.
+            //
+            // So two numbers, and they answer different questions:
+            //
+            // - **coverage**: of the columns that hold any water at all,
+            //   how many have ice at the top of that water. That is the
+            //   thing a player calls "frozen over".
+            // - **churn**: freeze events since the last tile against the
+            //   change in standing ice. A healthy front is near 1.0 --
+            //   almost every freeze sticks. A slush is unbounded, because
+            //   the numerator keeps counting and the denominator is zero.
+            let (surface_frozen, surface_total, mean_thick, thickest) = frozen_surface(&world);
+            let (froze, melted) = (world.phase_changes.froze, world.phase_changes.melted);
+            let churn = match last_ice {
+                Some((pf, pm, pi)) => {
+                    let (df, dm, di) = (froze - pf, melted - pm, frozen - pi);
+                    let ratio = if di > 0 { format!("{:.1}", df as f64 / di as f64) } else { "no net gain".to_string() };
+                    format!(", since the last tile froze +{df}, melted +{dm}, standing {di:+} (churn {ratio})")
+                }
+                None => String::new(),
+            };
+            last_ice = Some((froze, melted, frozen));
+            if surface_total > 0 {
+                println!(
+                    "    ice: {surface_frozen} of {surface_total} water columns frozen at the surface ({:.0}%){churn}",
+                    100.0 * surface_frozen as f64 / surface_total as f64
+                );
+                if surface_frozen > 0 {
+                    println!("    sheet: {mean_thick:.1} cells thick on average, {thickest} at the thickest");
+                }
+            }
+            let standing = pixel_physics::sim::weather::water_equivalents(&world);
+            println!(
+                "    water + sky: {standing:.1} standing + {:.1} banked = {:.1} cell-equivalents",
+                world.atmospheric_bank,
+                standing + world.atmospheric_bank
+            );
+            // **How fast the sky filled or emptied since the last tile, next
+            // to what time of day it is and whether anything is falling.**
+            // The absolute figure above is the conservation reading; this is
+            // the *rate*, and it is a different question that the same
+            // number cannot answer by eye. `evaporation::warmth` made drying
+            // diurnal, so what this column should show on a dry scene is a
+            // credit that rises through the morning, peaks around noon and
+            // goes nearly flat overnight -- and then goes hard negative for
+            // as long as a front is spending it.
+            //
+            // Printed as a delta rather than left for the reader to subtract
+            // because the credit over a quarter-day is a percent or two of
+            // the standing total, and a trend that small is invisible in a
+            // column of four-figure numbers. It is also the counter that
+            // says the coupling *fired*: two very different rates look
+            // identical in a picture of a pond (`CLAUDE.md`, "did it fire at
+            // all needs a counter").
+            let elevation = pixel_physics::sim::field::sun_elevation(world.frame);
+            let phase = match (elevation, pixel_physics::sim::field::sun_rising(world.frame)) {
+                (e, _) if e > 0.7 => "noon",
+                (e, _) if e < -0.7 => "midnight",
+                (_, true) => "sunrise",
+                (_, false) => "sunset",
+            };
+            let sky = pixel_physics::sim::weather::at(world.seed, world.frame);
+            // The window *ends* at this tile, so the phase named is the phase
+            // it ended in. Said outright in the line rather than left to the
+            // reader: "+4.54 at sunset" and "+4.54 since sunset" are opposite
+            // readings of the same number, and on a scene whose whole point is
+            // which half of the day dries faster, guessing wrong inverts the
+            // result.
+            print!(
+                "    sky: {:+.2} banked over the {} frames ending at {phase} (sun {elevation:+.2})",
+                world.atmospheric_bank - last_bank.unwrap_or(world.atmospheric_bank),
+                args.every,
+            );
+            if sky.is_precipitating() {
+                println!(", {:?} at intensity {:.2}", sky.kind, sky.intensity);
+            } else {
+                println!(", clear");
+            }
+            last_bank = Some(world.atmospheric_bank);
+        }
+        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // **Which rate the world is rotting at, and how much of it qualifies.**
+        //
+        // The worldgen soil baseline moved ground that used to sit at `aux ==
+        // 0` up to a climate value, and `field.rs` forces humidity from soil
+        // wetness -- so the damp gate that used to trip only near water may
+        // now trip nearly everywhere. Damp decay is 25x dry decay, and that
+        // is invisible on a contact sheet: rotted litter and litter that
+        // simply never landed are the same absence of pixels. Only the split
+        // says which.
+        //
+        // The census is over the cells that can *actually* decay -- the ones
+        // with a `decays_into` -- because that is precisely the population
+        // the gate is sampled over, one sample per cell at its own position.
+        //
+        // An earlier version censused *exposed soil* instead and was
+        // quietly confounded: a wetter world grows more plants, more plants
+        // cover more ground, so the denominator moved with the treatment
+        // (175 exposed cells down to 65 on the same preset) and the
+        // percentage compared two different populations. Count the thing the
+        // rule evaluates, not a proxy that the treatment also moves.
+        let gate = pixel_physics::sim::decay::DECAY_MOISTURE_THRESHOLD;
+        let (mut decayable, mut above) = (0usize, 0usize);
+        for x in 0..WIDTH {
+            for y in 0..HEIGHT {
+                if world.materials.get(world.get(x, y).material).decays_into.is_none() {
+                    continue;
+                }
+                decayable += 1;
+                if world.field_at(x, y).moisture > gate {
+                    above += 1;
+                }
+            }
+        }
+        let pct = if decayable == 0 { 0.0 } else { 100.0 * above as f32 / decayable as f32 };
+        // Living tissue beside the dead, because the two move together and
+        // the interesting failure is the ratio: a world with plenty of
+        // standing litter and no plants left is a world that rotted faster
+        // than it grew, which no single count can show.
+        let living: usize = (0..WIDTH)
+            .flat_map(|x| (0..HEIGHT).map(move |y| (x, y)))
+            .filter(|&(x, y)| world.get(x, y).organism_id() != 0)
+            .count();
+        println!("    living plant tissue: {living} cells");
+        println!(
+            "    decay: {} damp + {} dry = {} events; of {decayable} decayable cells standing, {above} are above the {gate} damp gate ({pct:.0}%)",
+            world.decayed_damp,
+            world.decayed_dry,
+            world.decayed_damp + world.decayed_dry,
+        );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
         // A picture cannot answer this: a collapse at a cliff edge and one
@@ -2926,10 +4997,41 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         // at.
         let events = f.overloaded + f.unsupported;
         if events > 0 {
+            // The histogram, not just the mean and the max: those two are
+            // satisfied by 570 single cells with one outlier and by a real
+            // spread alike, and only one of those can ever produce a chunk.
+            // `MIN_FRACTURE_CELLS` (6) and `MIN_BODY_CELLS` (8) are bucket
+            // edges, so the floors that decide the outcome are visible as
+            // floors in the readout.
+            let edges = pixel_physics::sim::world::SIZE_BUCKETS;
+            let hist: Vec<String> = f
+                .size_buckets
+                .iter()
+                .enumerate()
+                .filter(|&(_, &n)| n > 0)
+                .map(|(i, n)| {
+                    let hi = edges.get(i + 1).map_or(String::from("+"), |next| {
+                        if next - edges[i] == 1 { String::new() } else { format!("-{}", next - 1) }
+                    });
+                    format!("{}{hi}:{n}", edges[i])
+                })
+                .collect();
+            // The mass split, beside the region sizes -- see
+            // `FailureCounts::promoted_cells`. A big region that fractures
+            // into fragments below `MIN_BODY_CELLS` is dust on screen and
+            // reads as a success in every other number here.
+            let (chunks, dust) = (f.promoted_cells, f.shattered_cells);
+            if chunks + dust > 0 {
+                println!(
+                    "    what came off: {chunks} cells as chunks, {dust} as dust ({}% chunk by mass)",
+                    chunks * 100 / (chunks + dust)
+                );
+            }
             println!(
-                "    failing region size: mean {:.1} cells, largest {}",
+                "    failing region size: mean {:.1} cells, largest {}, sizes [{}]",
                 (f.overloaded_cells + f.unsupported_cells) as f64 / events as f64,
-                f.largest_failure
+                f.largest_failure,
+                hist.join(" ")
             );
         }
         if render {
@@ -3000,6 +5102,25 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             }
         }
     }
+    if peak_speed > 0.0 {
+        println!(
+            "fastest piece: {peak_speed:.2} cells/frame; everything came to rest between frames {} and {last_rest}",
+            first_rest.map_or("-".to_string(), |f| f.to_string())
+        );
+        let by_size: Vec<String> = SIZE_BUCKETS
+            .iter()
+            .zip(peak_by_size)
+            .filter(|(_, v)| *v > 0.0)
+            .map(|(hi, v)| format!("<={hi}: {v:.2}"))
+            .collect();
+        if !by_size.is_empty() {
+            println!("fastest submerged by size (cells across): {}", by_size.join(", "));
+        }
+    }
+    println!("worst full-screen draw: {worst_draw_ms:.2} ms");
+    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+        .expect("writing the contact sheet");
+    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
     (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
 }
 
@@ -3074,6 +5195,46 @@ fn census(world: &World) -> (i64, i64) {
         }
     }
     (solid, powder)
+}
+
+/// The water cycle's own census: how much water there is, in whatever phase
+/// it is currently in.
+///
+/// Measured as **fill, not occupancy**, per `CLAUDE.md`'s metric traps: a
+/// `Liquid` cell holds a continuous 0..`LIQUID_FULL` amount and every
+/// resting body wears a fringe of near-empty ones, so counting cells
+/// overstates a spread-out pool against a settled one. Ice and snow are
+/// counted as whole cells because they are whole cells -- a `Solid`'s `aux`
+/// is an anchor distance and carries no fill, which is exactly why
+/// `fire.rs` will only freeze a near-full cell (`FREEZE_MIN_FILL`).
+///
+/// Returned in cell-equivalents (fill / `LIQUID_FULL`) so the three phases
+/// are on one scale and a freeze-and-thaw can be read as conservation:
+/// water lost to ice at the freeze should come back at the thaw, short of
+/// the partial fringe that never froze.
+fn water_census(world: &World) -> (f64, i64, i64) {
+    const LIQUID_FULL: f64 = 1000.0;
+    let (mut liquid, mut frozen, mut snowy) = (0.0f64, 0i64, 0i64);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let cell = world.get(x, y);
+            let m = world.materials.get(cell.material);
+            // Keyed on the material's own phase-change fields, not on a
+            // name: anything that freezes counts as liquid water, anything
+            // that melts back into it counts as its solid phase. See the
+            // same rule in `weather.rs`'s chill walk.
+            match m.kind {
+                MaterialKind::Liquid if m.cooling_point.is_finite() => {
+                    // `aux == 0` on a Liquid means **full**, not empty.
+                    liquid += if cell.aux() == 0 { LIQUID_FULL } else { cell.aux() as f64 } / LIQUID_FULL;
+                }
+                MaterialKind::Solid if m.melts_into.is_some() => frozen += 1,
+                MaterialKind::Powder if m.melts_into.is_some() => snowy += 1,
+                _ => {}
+            }
+        }
+    }
+    (liquid, frozen, snowy)
 }
 
 fn occupied(world: &World) -> i64 {

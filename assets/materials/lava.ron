@@ -1,0 +1,197 @@
+// Lava is the heat verb: the first thing in the world that is hot *because
+// of what it is* rather than because something set it on fire. Everything
+// before it needed a flame -- oil had to be lit, wood had to be next to
+// something already burning -- so there was no way to *apply* heat to a
+// scene. Pour this instead.
+//
+// # The cooling model (which replaced a pin)
+//
+// A lava cell is **born** at `intrinsic_temperature` on its first visit,
+// then cools through its own (deliberately tiny) `heat_conductivity` and
+// crusts into stone at `cooling_point` -- the same downward phase
+// machinery water -> ice uses. The emergent behaviour is the point: edge
+// cells against air lose heat fast and skin over, interior cells feel
+// almost no pull and stay searing, so a flow advances under its own crust
+// and a stranded film -- all edge, no interior -- is the first thing to
+// freeze. A finished flow is stone all the way down, and its chunks
+// sleep.
+//
+// The first shipped model *pinned* the cell to 1000C on every visit
+// instead, and its cost was measured before being paid twice: a pinned
+// cell can never cool, so every scrap a flow stranded where water
+// couldn't reach stayed molten forever -- `filmstrip scene=lavapour` held
+// 195 molten cells at frame 1500 and 143 at 3000 with 9 of 40 chunks
+// permanently awake and the pond below simmering at ~25 boil/condense
+// pairs a frame with nothing left flowing. Do not bring the pin back for
+// another material: any always-off-ambient cell holds its chunk awake for
+// as long as it exists (`fire::must_stay_dirty`), which is ruinous for
+// anything that can be stranded. A born-hot material must also set a
+// `cooling_point` above ambient -- `Material::from` asserts it at load --
+// or it would cool to the exact ambient default and be re-born forever.
+//
+// 1000C is chosen against the two thresholds it has to clear, not from a
+// basalt table: it is far above water's 100C boiling point (so a pool near
+// lava boils rather than merely warming) and far enough above the 400C
+// `wood.ron` now autoignites at that a log lying *against* a flow lights
+// without needing a flame first -- though a single wood cell brushed by a
+// single lava cell does not, which is deliberate; see wood.ron for the
+// arithmetic. `render.rs`'s heat glow saturates at 400C above ambient,
+// so anything from ~420C up draws identically -- the number is a
+// simulation statement, not a colour one.
+//
+// # Quench
+//
+// The reaction lives **here, on lava**, never on `water.ron`, and that is
+// a performance contract rather than a style preference:
+// `fire::update`'s thermally-inert fast path tests `reactions.is_empty()`,
+// and `try_react` clones the reaction `Vec` once per visited cell that has
+// one. Water is one of the most numerous materials in any scene, so a
+// reaction listed on water would be paid for by every water cell in the
+// world; lava is a handful of cells. Same pair, same outcome, opposite
+// cost.
+//
+// `produces: ("stone", "steam")` is ordered `(self, with)` -- lava becomes
+// stone, the water it touched becomes steam. Both take the hotter side's
+// temperature (see `fire::try_react`), so the steam is born at ~1000C and
+// rises as a real plume instead of flashing straight back to water under
+// its own 45C condensation point.
+//
+// chance 0.8, not 1.0: at 1.0 a lava front meeting a pool converts a whole
+// contact row in a single frame and the interface reads as a drawn line.
+// Below 1 the crust stipples in over a few frames, which is the same
+// argument `fire::PHASE_CHANGE_CHANCE` makes for a boiling surface.
+//
+// # Tried and reverted: a minimum fill on the reactant
+//
+// The reaction converts a *whole* neighbour cell, and a flow splits into
+// partial-fill cells on the way down, so the obvious reading is that a
+// thinned-out flow quenches more water than it is worth: an 800-cell blob
+// dropped into a pond fires ~944 reactions. A `min_fill` gate on the
+// reactant was built, swept at 250 / 500 / 750 on `filmstrip
+// scene=lavadrop` (rebuilding between points), and **it does not reduce
+// the water loss at all** -- it only moves it between mechanisms:
+//
+// | min_fill | reacted | boiled | froze | standing water |
+// |---|---|---|---|---|
+// | 0 | 944 | 33 | 5 | 11,021 |
+// | 250 | 820 | 181 | 122 | 10,988 |
+// | 500 | 810 | 193 | 131 | 10,983 |
+// | 750 | 781 | 208 | 152 | 10,995 |
+//
+// The thin lava that no longer quenches crusts instead, and the water it
+// would have flashed boils a moment later off the hot stone. Reverted, and
+// recorded here because the reasoning that motivates it is sound and will
+// occur to someone again.
+//
+// The premise was also weaker than it looked once measured: 944 reactions
+// for 800 cells of lava is 1.18 water per lava, and the whole event banks
+// 924 cell-equivalents -- close to one cell of water per cell of lava,
+// which is the ratio that was wanted. What made it *look* like four times
+// that was a separate bug: the quench crust used to lid the pond instead
+// of sinking, and the boil/condense loop churned underneath it.
+//
+// # Stone does not melt back
+//
+// **Deliberately off**: `stone.ron` has no `melting_point`/`melts_into`,
+// so there is no stone -> lava direction and the cycle is one-way. Adding
+// it is a one-line content change, and it is left undone on purpose --
+// stone is the single most numerous solid in the world, and a finite
+// `melting_point` takes every stone cell off the thermally-inert fast
+// path for a transition that essentially never fires (nothing in the world
+// reaches 1200C except lava itself, which is already stone's *product*).
+// Revisit when there is a heat source that is meant to melt terrain.
+(
+    name: "lava",
+    display: "Lava",
+    kind: Liquid,
+    // Molten rock, and the number does real work: 2.7 sinks through water
+    // (1.0) and through sand (1.6), so lava poured into a pond goes to the
+    // bottom and quenches from below rather than skating across the
+    // surface. Stone is `Solid` and never displaced regardless.
+    density: 2.7,
+    // Viscous. Water runs at 1000 (i.e. uncapped -- see water.ron for why
+    // that is deliberate there); lava is the material that should visibly
+    // *crawl*, and this is the knob that says so.
+    //
+    // Swept 20/40/80 on `filmstrip scene=lavapour`, rebuilding between
+    // points (this file is `include_str!`'d -- identical output across a
+    // sweep means the knob was never connected; these three differ, so it
+    // was). **The honest result is that the three are hard to tell apart by
+    // eye on that scene**, because its ramp is steep enough that the pour
+    // is dominated by falling rather than by horizontal transfer, and
+    // flow_rate only governs the latter. What did separate them was the
+    // quench count: `reacted` at frame 1500 came to 749 / 803 / 685 for
+    // 20 / 40 / 80, i.e. 40 delivers the most lava into the water over the
+    // run, with 20 leaving a thicker residual film stalled on the ramp and
+    // 80 thinning the front out. Kept at 40 on that, not on a look
+    // judgement nobody could actually make from the sheet. Re-sweep it on a
+    // *flat* pour, where horizontal transfer is the whole story, if the
+    // crawl ever needs to be tuned for its own sake.
+    flow_rate: 40,
+    // Well above water's 16: lava is allowed to stop levelling while still
+    // visibly uneven, which is both what molten rock looks like and one
+    // less pool shuffling fill forever to keep its chunks awake (a pinned
+    // material's chunks are expensive to keep awake -- see the note above).
+    //
+    // What it trades, since two knobs here move the same number in
+    // different currencies: this is also the knob that decides how thick
+    // the residual film stranded on a slope is, because horizontal
+    // transfer stops exactly when neighbouring fills come within it.
+    // Under the pin that film was a permanent cost (every stranded cell
+    // stayed molten forever); under the cooling model it is a look --
+    // the film crusts into the stone scab the flow leaves along its path,
+    // and this number is how thick that scab runs.
+    min_transfer: 60,
+    // Explicit, against the surrounding default: lava must not dry up in
+    // the open the way a puddle does. It leaves by quenching or by
+    // crusting, never by evaporating.
+    evaporates: false,
+    // This is lava's *cooling rate*, and its smallness is the whole
+    // character of the material -- it does NOT throttle how fast lava
+    // heats other things (each cell warms using its own conductivity, so
+    // wood at 0.15 and water at 0.08 heat just as fast off a 0.02 lava
+    // cell as off a 0.2 one). What it decides is how long lava itself
+    // stays molten: an edge cell against open air loses roughly
+    // (neighbour_avg - 1000) * 0.02 ≈ 10C a visit and crusts in tens of
+    // frames, while an interior cell surrounded by other lava feels
+    // almost no pull and stays searing until the flow thins -- so a pour
+    // skins over at its face and stays molten in the body, and a stranded
+    // film (all edge, no body) is the *first* thing to freeze rather than
+    // the thing that never does.
+    heat_conductivity: 0.002,
+    // Born at 1000C -- once, on first visit, not re-pinned (see
+    // `MaterialDef::intrinsic_temperature` for the measured cost of the
+    // pin this replaced: 195 stranded molten cells and 9/40 chunks awake
+    // forever on `scene=lavapour`). From birth it only cools.
+    intrinsic_temperature: 1000.0,
+    // The cooling model's floor: below 700C molten rock stops being
+    // molten. Uses the same downward phase machinery as water -> ice,
+    // stipple-gated per visit, so a cooling front crusts in over a few
+    // frames rather than drawing a line. Stone is born at ~700 and hands
+    // its remaining heat back through its own conductivity, so a finished
+    // flow's chunks genuinely sleep.
+    cooling_point: 700.0,
+    cools_into: "stone",
+    // Zero, against water's 900 default: the fill gate exists to conserve
+    // volume around the freeze/thaw *loop*, and lava -> stone is one-way
+    // (stone never melts back). A stranded partial-fill film crusting into
+    // a thin stone scab along the slope is the look a finished flow owes,
+    // and the modest volume gain becomes inert terrain rather than
+    // circulating water.
+    freeze_min_fill: 0,
+    reactions: [
+        (with: "water", produces: ("stone", "steam"), chance: 0.8),
+    ],
+    // Deep reds and oranges rather than the bright yellow lava is usually
+    // drawn as: `render.rs`'s heat glow already blends a non-burning cell
+    // halfway toward its bright `FIRE_TINT_HIGH` (255, 210, 110) at this
+    // temperature, so a palette that started bright would clip to a flat
+    // cream. Starting dark leaves the glow somewhere to travel, and leaves
+    // the per-cell shade grain visible through it.
+    colors: [
+        (198, 72, 24),
+        (176, 52, 18),
+        (214, 96, 30),
+        (160, 40, 14),
+    ],
+)

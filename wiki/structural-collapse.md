@@ -1,6 +1,13 @@
 # Structural Collapse
 
-*Current as of: 2026-08-21. Where something breaks — at the neck, across
+*Current as of: 2026-08-22 (rock submerged in water sinks rather than
+hanging, and reaches the bottom as rock rather than as grit; how fast it
+sinks now depends on how big the piece is, so a slab leads and grit
+trails; so does rock left in steam or standing on debris that has since
+washed away; a quench crust comes apart in slabs; and a pile of rubble is
+now weight on whatever span it is sitting on, so a blasted roof comes down
+under its own muck a moment later). Where something
+breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building, and a very large collapse now arrives in stages that spread out
@@ -116,6 +123,50 @@ asked it to.** At the default that "except" never fires. At the tighter
 `F9` settings below it can, and that is the price of them; see that
 section.
 
+**Rock underwater still comes down.** A piece that has come loose is judged
+on whether it has anywhere to go, and water counts: a slab that loses its
+support in a pond sinks to the bottom rather than hanging where it was, and
+so does the fresh rock a lava flow leaves when it quenches mid-water. Steam
+counts the same way — rock falls through a cloud of it exactly as it falls
+through air, so the stone a quench mints in the middle of its own steam
+does not stay up there once the steam clears. What does *not* count is rock
+wedged in a hole its own shape, deep inside a mountain — that has genuinely
+nowhere to move, so it cracks where it stands instead. Something buoyant is
+the other exception: an ice sheet is held up by the water under it and
+stays there.
+
+**And it arrives as rock.** A chunk that goes into water sinks as the chunk
+it was, shoving the water it meets up and over itself, and lands on the
+bottom as a piece you can still see the shape of. It used to grind itself
+to gravel on the way down — a slab would enter the pond, come apart, and
+what reached the floor was a smooth dune of powder — because a piece that
+could not push the water aside stopped, was treated as having landed, and
+was broken up again, over and over. Now the deeper the water, the longer
+the fall; it does not cost the piece anything. A pile of rock on a pond
+floor is jagged.
+
+**And it sinks at a pace rather than accelerating.** Water pushes back: a
+piece slows as it goes under and settles to a steady sink instead of
+speeding up all the way to the bed.
+
+**Big pieces lead and grit follows.** How fast a piece settles depends on
+how big it is as well as how heavy — a boulder plummets, a fragment drifts
+down, and a stone barely denser than water only just sinks at all. So the
+debris from one break arrives spread out, largest first, over a few
+seconds rather than all at once. That is a change from the previous build,
+which sank everything at one speed to stop pieces outrunning each other;
+what that was really fixing was pieces *accelerating* to ten times the
+speed of their own grit, and the fix over-corrected into a world where a
+pebble and a slab fell alike.
+
+**And ground that goes away is noticed.** A piece can be held up by nothing
+but the loose material beneath it, and loose material moves: the gravel
+washes out, the debris sinks, the sand pours away downhill. When that
+happens the piece comes down too, within about a second rather than
+instantly — a short pause while it works out that its footing has gone,
+then it falls. It does not stay hanging in the space its support used to
+fill.
+
 **What you build is sound until something happens to it.** Placed stone is
 braced the same way the world's own rock is — the way a real cliff face is
 held up by the mass behind it — so a structure doesn't need to be
@@ -144,11 +195,19 @@ be part of the structure" rather than a material swap.
 Rubble is something rock can stand *on*. Loose material holds a piece up
 the way a gravel bed holds up a paving slab — it takes weight, and it takes
 it wherever the piece actually touches down — but it cannot hold anything
-*steady*. A piece whose weight sits over its footing rests on rubble
-indefinitely, however heavy it is; one reaching out past the edge of what
-it's standing on tips off, however light. Nothing in between is
-special-cased, and the same rule covers a boulder settling into a scree
-slope and a ledge that overhangs the pile beneath it.
+*steady*. And something has to hold the rubble up in
+turn: loose material only bears weight if it is itself standing on
+something — bedrock, on ground, or on more loose material. Debris caught
+*inside* a falling piece is filler, not footing, and a grain with nothing
+under it is on its way down like everything else.
+
+That sounds like a technicality and it is the difference between a boulder
+sinking to the bottom of a pond and a boulder parked in the sky above it,
+held there by two grains of its own debris. A piece whose weight sits over
+its footing rests on rubble indefinitely, however heavy it is; one reaching
+out past the edge of what it's standing on tips off, however light. Nothing
+in between is special-cased, and the same rule covers a boulder settling into
+a scree slope and a ledge that overhangs the pile beneath it.
 
 Rubble is also something rock can be *crushed by*. A pile standing on a
 span is weight on that span, exactly as more rock would be, and a deep one
@@ -165,6 +224,14 @@ One rough edge worth knowing: a pile that grows very slowly, a grain at a
 time, may not be noticed by the rock underneath until something else
 happens nearby. Anything that *arrives* — a slab landing, a blast, a
 blow — is noticed immediately.
+
+Water holds one thing up and one only: **ice** (see
+[Weather](weather.md#cold-snaps-freeze-standing-water)). A frozen crust on
+a pond is supported by the whole of the water under it, not by the shore it
+reaches back to, so a sheet does not care how wide the pond is — but it is
+still judged on what it is carrying, so a wide sheet under a deep enough
+drift breaks up, and it breaks into slush. Nothing else floats: a slab of
+rock dropped into a lake is as unsupported there as it would be in mid-air.
 
 What that rules out is the thing rubble used to do: a slab lying on debris
 from its own collapse was treated as though the debris were what held it
