@@ -270,6 +270,29 @@ screen covers generation but not the settle behind it.
 
 ## 7. Findings a future session should not have to re-derive
 
+- **The world is not wetter, and it took a census to know.** The real app,
+  screenshotted headlessly at 8192x2560 (`CLAUDE.md`'s recipe; it works, and
+  the HUD, rain and lighting all come up correctly at the new size), showed a
+  sheet of standing water wider than any 2048x640 render had. Ponds are not
+  something Phase 2 touched, so either the world had got wetter or a wider
+  world simply has wider hollows. Only a census separates those, and nothing
+  measured it — `probe_p2_how_much_of_the_world_is_water` does now:
+
+  | preset | 512x320 | 2048x640 | 8192x2560 |
+  |---|---|---|---|
+  | `rolling` | 2.08% | 0.27% | **0.30%** |
+  | `terraced` | 0.38% | 0.11% | **0.06%** |
+  | `arid` | 0.00% | 0.00% | **0.00%** |
+  | `flat` | 0.00% | 0.00% | **0.00%** |
+
+  (water as a percentage of the cells that are not empty, seed 1). The
+  fraction is flat from 2048x640 to 8192x2560 and `terraced` actually dries
+  out. What is on screen is one wide lake in one wide hollow, which is what a
+  lake looks like when the relief is unchanged and the world is four times
+  wider. `arid` and `flat` at exactly zero is the `table_offset` sentinel fix
+  in §2 doing its job — the handful of cells the probe attributes to `arid`
+  at the larger sizes are the aquifer waterline *inside cave chambers*, which
+  is deliberate.
 - **`vault_density` is the only density in the generator whose denominator is
   the whole world.** `pockets` is per 64x64, `residuals` per 256 columns,
   regions per 512-column window — all three scale for free. Vaults do not, and

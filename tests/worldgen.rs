@@ -1654,6 +1654,52 @@ fn probe_p2_does_the_lens_stress_move_cells_without_a_cave() {
     }
 }
 
+/// How much of a world is standing water, at each size, per preset.
+///
+/// The "look again after the fix, for what you did not measure" check
+/// (`CLAUDE.md`'s method, step 4). A screenshot of the real app at
+/// 8192x2560 showed a wider sheet of water than any 2048x640 render had, and
+/// a pond is not something Phase 2 touched -- so either the world is
+/// genuinely wetter at the new size or a wider world simply has wider
+/// hollows and the same *fraction* of water in them. Only a census
+/// distinguishes those, and nothing measured it.
+///
+/// Reports water as a fraction of the world and as a fraction of the
+/// non-empty world, because the second is the one that holds fixed if the
+/// answer is "same world, more of it".
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_much_of_the_world_is_water() {
+    let presets = presets();
+    let water_names = ["water"];
+    for (name, params) in &presets.presets {
+        for (size, bounds) in [("512x320", BOUNDS), ("2048x640", CAVE_BOUNDS), ("8192x2560", (8191, 2559))] {
+            let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
+            worldgen::generate_only(&mut world, Spec::Generated { params, seed: 1 });
+            let ids: Vec<_> = water_names.iter().filter_map(|n| world.materials.id_of(n)).collect();
+            let (mut water, mut filled) = (0usize, 0usize);
+            for y in 0..=bounds.1 {
+                for x in 0..=bounds.0 {
+                    let m = world.get(x, y).material;
+                    if m == material::EMPTY {
+                        continue;
+                    }
+                    filled += 1;
+                    if ids.contains(&m) {
+                        water += 1;
+                    }
+                }
+            }
+            let cells = (bounds.0 + 1) as f64 * (bounds.1 + 1) as f64;
+            println!(
+                "{name:9} {size:>10}: water {water:>9} = {:.3}% of the world, {:.3}% of what is in it",
+                100.0 * water as f64 / cells,
+                100.0 * water as f64 / filled.max(1) as f64
+            );
+        }
+    }
+}
+
 #[test]
 fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
