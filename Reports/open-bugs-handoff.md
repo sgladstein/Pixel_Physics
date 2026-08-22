@@ -11,7 +11,11 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### 0a. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
+**The `D` entries are the destruction/blasting group**, from the explosion-in-
+stone branch. Numbered apart because `0`, `0b`, `0c` and `0d` below are
+worldgen's and were here first.
+
+### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
 
 `World::record_disturbance` has exactly three production callers —
 `rigid::mine_swept`, `rigid::strike` and `explosion.rs`. The paint brush
@@ -32,7 +36,7 @@ under every other verb.
 an extent. That repairs rock's brush inertness at the same time. Deliberately
 not done on the explosion branch — it is a change to two unrelated verbs.
 
-### 0b. A room's collapse arrives at frame ~350 where it used to arrive at ~150
+### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
 
 `c089aa2` reshaped what a failing region is (boundary erosion, fragments
 separating along fissures). On `scene=room wall=5 dig=3` the ceiling's
@@ -55,7 +59,7 @@ arrive. It needs a playtest verdict, not another metric: if it reads as
 sluggish in the hand, the lever is `FRACTURE_CELLS_PER_TICK` and the staging
 interval, not the region shaping.
 
-### 0c. Near-surface blasts do not throw chunks into the air
+### D3. Near-surface blasts do not throw chunks into the air
 
 Reported from play: *"explosions in particles and explosions deep in the rock
 are close to satisfying, but explosions near the surface of rock should blast
@@ -87,6 +91,43 @@ magnitude an order of magnitude larger than the rim's — 2-4 cells/frame buys
 13-53 cells of rise against `MAX_SPEED_PER_AXIS` of 6.0. `Reports/
 explosion-stone-review.md` §4 already defers "explicit spall" by name.
 
+
+### D4. At a bounded reach a collapse can stop part way and leave a slab in open air
+
+`39d0978` clips a failing region to the licence, so at LOCAL and TIGHT a
+failure eats only the part of itself the leash covers. On `scene=ligament` at
+TIGHT that means **383 of the overhang's 4,400 cells come down** — the part
+inside the 33x33 box around the neck — and **4,017 stay standing, as a slab
+with air under it**, because the clip removed the middle of the connection
+and refused the rest.
+
+**This is a decision, not a bug**, and both halves of it are already written
+down. `wiki/structural-collapse.md` states the consequence in the player's
+language ("at the tighter settings a collapse can now stop part way and leave
+rock standing that is holding nothing up"). The older promise it replaced —
+*"nothing stops half way and leaves rock hanging in the air, and no setting
+anywhere makes the rest of it safe"* — is what
+`a_paced_remainder_falls_even_when_the_disturbance_cannot_reach_it` asserts,
+and the two cannot both be true at a bounded reach. That test is `#[ignore]`d
+with the full account in its own doc comment rather than edited, per
+`CLAUDE.md`'s "a revert keeps the knowledge": the reproduction is exact, and
+whichever way this is settled it is the scene that shows it.
+
+**Nothing is unguarded, only undecided.** The property that test was *named*
+for — the staged queue is work, never re-judged — is pinned by
+`a_paced_remainder_falls_even_after_its_licence_has_gone`, in a form the clip
+does not make vacuous.
+
+**The open question, in the words of the commit that created it:** *is a
+4,000-cell slab left hanging in open air at TIGHT better or worse than the
+unleashed cascade it replaces? It is not obviously better, and it is the one
+outcome the load model has spent four support models avoiding.*
+
+It needs a playtest verdict at LOCAL/TIGHT, not another metric. Note that
+SPREAD — the shipped default, and what acceptance and CI run — is untouched:
+`clip_region_to_licence` returns the region unchanged at `i32::MAX`. Full
+record: `Reports/explosion-stone-review.md` §17, and the test's doc comment
+at `src/sim/structural.rs`.
 
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 
