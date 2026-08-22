@@ -106,6 +106,26 @@
   .syncbox.bad { color: var(--bad); }
   .syncbox .err { display: block; margin-top: 4px; word-break: break-word;
                   font-family: ui-monospace, monospace; font-size: 11px; }
+  /* Full-screen viewer. A quarter of posted media is wider than the card pane
+     at 1:1 -- one real card is 3076x80, which `fit` renders about 33px tall --
+     so the card is for triage and this is for actually looking. */
+  #lightbox { position: fixed; inset: 0; background: #05070a; z-index: 50;
+              display: none; cursor: grab; overflow: hidden; }
+  #lightbox.on { display: block; }
+  #lightbox.dragging { cursor: grabbing; }
+  #lightbox img { position: absolute; transform-origin: 0 0;
+                  image-rendering: pixelated; image-rendering: crisp-edges;
+                  user-select: none; -webkit-user-drag: none; }
+  /* right padding keeps the hints clear of the Close button, which sits on top
+     of this bar and was cutting the last of them off. */
+  #lb-bar { position: absolute; left: 0; right: 0; top: 0; padding: 10px 100px 10px 14px;
+            display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+            background: linear-gradient(#05070ae6, #05070a00); pointer-events: none;
+            font-size: 13px; color: var(--dim); }
+  #lb-bar strong { color: var(--ink); }
+  #lb-bar .keys { margin-left: auto; }
+  #lb-close { position: absolute; top: 8px; right: 12px; z-index: 2; }
+  #lightbox .pin { position: absolute; }
   #toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
            background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
            padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -125,6 +145,7 @@
       <kbd>r</kbd> then <kbd>1</kbd>–<kbd>5</kbd> rate<br>
       <kbd>space</kbd> play frames<br>
       <kbd>z</kbd> zoom<br>
+      <kbd>f</kbd> full screen<br>
       <kbd>Ctrl+Enter</kbd> submit<br>
       <kbd>e</kbd> archive
     </div>
@@ -134,6 +155,17 @@
   <div id="feed"></div>
 </div>
 <div id="toast"></div>
+<div id="lightbox">
+  <img id="lb-img" alt="">
+  <div id="lb-bar">
+    <strong id="lb-title"></strong>
+    <span id="lb-zoom"></span>
+    <span class="keys">drag to pan · wheel or <kbd>+</kbd><kbd>-</kbd> zoom ·
+      <kbd>0</kbd> whole image · <kbd>1</kbd> 1:1 · click to pin ·
+      <kbd>Esc</kbd> close</span>
+  </div>
+  <button id="lb-close">Close</button>
+</div>
 
 <script>
 "use strict";
@@ -565,12 +597,13 @@ function renderAsk(card, d, order) {
   <div class="ask">
     ${choiceRow}${ratingRow}${pins}
     ${ask.comment ? `<textarea rows="3" data-act="comment" data-card="${card.id}"
-        placeholder="What you actually saw. Click any image to drop a pin on the pixel you mean."
+        placeholder="What you actually saw. Click an image to open it full screen, then click there to pin the pixel you mean."
         >${esc(d.comment)}</textarea>` : ""}
     <div class="row">
       <button data-act="submit" data-card="${card.id}">Submit</button>
       <button data-act="archive" data-card="${card.id}">Archive without answering</button>
       <button data-act="zoom" data-card="${card.id}">Zoom</button>
+      <button data-act="expand" data-card="${card.id}">Full screen</button>
       <span class="hint">${isBlind(card)
         ? "Labels are hidden until you submit." : ""}</span>
     </div>
@@ -655,6 +688,188 @@ function togglePlay(card) {
   if (btn) btn.textContent = v.playing ? "❚❚" : "▶";
 }
 
+// ---------------------------------------------------------------- lightbox
+
+// Integer rungs only at 1x and above: this is a pixel simulation, and a
+// fractional upscale shows uneven pixel sizes even under image-rendering:
+// pixelated. `fit` is the one allowed fractional factor, because seeing all of
+// a 38:1 strip at once is worth it.
+const LB_RUNGS = [1, 2, 3, 4, 6, 8, 12, 16];
+const lb = { card: null, item: 0, factor: "fit", x: 0, y: 0, drag: null, moved: 0 };
+
+const lbEl = () => document.getElementById("lightbox");
+const lbImg = () => document.getElementById("lb-img");
+
+function lbFit() {
+  const img = lbImg();
+  if (!img.naturalWidth) return 1;
+  return Math.min((window.innerWidth - 40) / img.naturalWidth,
+                  (window.innerHeight - 80) / img.naturalHeight);
+}
+
+const lbFactor = () => lb.factor === "fit" ? lbFit() : lb.factor;
+
+// Contain is the wrong opening move for an extreme aspect ratio: a real 3076x80
+// card contains at 0.44x, which renders an 80px strip 35px tall -- one pixel
+// better than the card it was opened from. When containing would shrink the
+// image, open at the factor that fills the *constrained* axis instead and let
+// it pan along the long one. That is what makes a 38:1 strip readable.
+function lbDefaultFactor() {
+  const img = lbImg();
+  if (!img.naturalWidth) return "fit";
+  const contain = lbFit();
+  const cover = Math.max((window.innerWidth - 40) / img.naturalWidth,
+                         (window.innerHeight - 80) / img.naturalHeight);
+  const rung = f => {
+    const under = LB_RUNGS.filter(r => r <= f + 1e-6);
+    return under.length ? under[under.length - 1] : null;
+  };
+  if (contain >= 1) return rung(contain) || "fit";
+  const c = rung(Math.min(cover, 8));
+  return c || "fit";
+}
+
+// Never let the image be dragged out of sight. When it is larger than the
+// viewport the edges stop at the viewport edges, which also makes arrow-panning
+// land exactly at an end instead of sailing past it.
+function lbClamp() {
+  const img = lbImg(), f = lbFactor();
+  const w = img.naturalWidth * f, h = img.naturalHeight * f;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  lb.x = w <= vw ? (vw - w) / 2 : Math.min(0, Math.max(vw - w, lb.x));
+  lb.y = h <= vh ? (vh - h) / 2 : Math.min(0, Math.max(vh - h, lb.y));
+}
+
+function openLightbox(card, itemIdx) {
+  const item = card.items[itemIdx];
+  const v = view(card.id);
+  const file = item.files[Math.min(v.frame, item.files.length - 1)];
+  lb.card = card; lb.item = itemIdx; lb.factor = "fit"; lb.x = 0; lb.y = 0;
+  const img = lbImg();
+  img.onload = () => { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); };
+  img.src = "/media/" + file;
+  document.getElementById("lb-title").textContent =
+    (isBlind(card) ? "Option " + String.fromCharCode(65 + itemIdx)
+                   : (item.label || card.title)) +
+    (item.files.length > 1 ? "  (frame " + (Math.min(v.frame, item.files.length - 1) + 1)
+                             + "/" + item.files.length + ")" : "");
+  lbEl().classList.add("on");
+  document.body.style.overflow = "hidden";
+  if (img.complete && img.naturalWidth) { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); }
+}
+
+function closeLightbox() {
+  lbEl().classList.remove("on");
+  document.body.style.overflow = "";
+  lb.card = null;
+}
+
+function lbCentre() {
+  const img = lbImg(), f = lbFactor();
+  lb.x = (window.innerWidth - img.naturalWidth * f) / 2;
+  lb.y = (window.innerHeight - img.naturalHeight * f) / 2;
+}
+
+function lbApply() {
+  lbClamp();
+  const img = lbImg(), f = lbFactor();
+  img.style.width = Math.max(1, Math.round(img.naturalWidth * f)) + "px";
+  img.style.left = Math.round(lb.x) + "px";
+  img.style.top = Math.round(lb.y) + "px";
+  document.getElementById("lb-zoom").textContent =
+    img.naturalWidth + "\u00d7" + img.naturalHeight + "  \u00b7  "
+    + (lb.factor === "fit" ? "fit " : "") + fmtFactor(f);
+  lbDrawPins();
+}
+
+// Zoom about a screen point, so the pixel under the cursor stays put.
+function lbZoomTo(next, cx, cy) {
+  const before = lbFactor();
+  lb.factor = next;
+  const after = lbFactor();
+  const k = after / before;
+  lb.x = cx - (cx - lb.x) * k;
+  lb.y = cy - (cy - lb.y) * k;
+  lbApply();
+}
+
+function lbStep(dir, cx, cy) {
+  const cur = lbFactor();
+  if (dir > 0) {
+    const next = LB_RUNGS.find(r => r > cur + 1e-6);
+    if (next) lbZoomTo(next, cx, cy);
+  } else {
+    const under = LB_RUNGS.filter(r => r < cur - 1e-6);
+    const fit = lbFit();
+    if (under.length && under[under.length - 1] > fit) lbZoomTo(under[under.length - 1], cx, cy);
+    else lbZoomTo("fit", cx, cy);
+  }
+}
+
+function lbDrawPins() {
+  const el = lbEl();
+  el.querySelectorAll(".pin").forEach(p => p.remove());
+  if (!lb.card) return;
+  const src = lb.card.status === "open" ? draft(lb.card.id).annotations
+                                        : ((lb.card.response || {}).annotations || []);
+  const img = lbImg(), f = lbFactor();
+  src.forEach((a, i) => {
+    if (a.item !== lb.item) return;
+    const pin = document.createElement("div");
+    pin.className = "pin";
+    pin.textContent = i + 1;
+    pin.style.left = (lb.x + a.x * img.naturalWidth * f) + "px";
+    pin.style.top = (lb.y + a.y * img.naturalHeight * f) + "px";
+    el.appendChild(pin);
+  });
+}
+
+lbEl().addEventListener("wheel", ev => {
+  ev.preventDefault();
+  lbStep(ev.deltaY < 0 ? 1 : -1, ev.clientX, ev.clientY);
+}, { passive: false });
+
+lbEl().addEventListener("mousedown", ev => {
+  if (ev.target.id === "lb-close") return;
+  lb.drag = { x: ev.clientX, y: ev.clientY, ox: lb.x, oy: lb.y };
+  lb.moved = 0;
+  lbEl().classList.add("dragging");
+});
+
+window.addEventListener("mousemove", ev => {
+  if (!lb.drag) return;
+  const dx = ev.clientX - lb.drag.x, dy = ev.clientY - lb.drag.y;
+  lb.moved = Math.max(lb.moved, Math.abs(dx) + Math.abs(dy));
+  lb.x = lb.drag.ox + dx; lb.y = lb.drag.oy + dy;
+  lbApply();
+});
+
+window.addEventListener("mouseup", ev => {
+  if (!lb.drag) return;
+  const wasDrag = lb.moved > 4;
+  lb.drag = null;
+  lbEl().classList.remove("dragging");
+  if (wasDrag || !lb.card) return;
+  // A click that did not drag: on the image it drops a pin -- at whatever zoom
+  // you are at, which is the point of pinning here rather than on the card.
+  // Anywhere else it closes, the usual lightbox convention.
+  if (ev.target.id !== "lb-img") { closeLightbox(); return; }
+  if (lb.card.status !== "open") return;
+  const img = lbImg(), f = lbFactor();
+  const x = (ev.clientX - lb.x) / (img.naturalWidth * f);
+  const y = (ev.clientY - lb.y) / (img.naturalHeight * f);
+  if (x < 0 || x > 1 || y < 0 || y > 1) return;
+  const note = prompt("Note for this spot:");
+  if (note === null || !note.trim()) return;
+  draft(lb.card.id).annotations.push({ item: lb.item, x, y, note: note.trim() });
+  lbDrawPins();
+  renderFeed();
+});
+
+document.getElementById("lb-close").addEventListener("click", closeLightbox);
+
+window.addEventListener("resize", () => { if (lb.card) lbApply(); });
+
 // ---------------------------------------------------------------- actions
 
 const cardById = id => state.cards.find(c => c.id === id);
@@ -725,23 +940,19 @@ document.addEventListener("click", async ev => {
       case "archive": return setStatus(card, "archived");
       case "reopen": return setStatus(card, "open");
       case "zoom": cycleZoom(card, v); return renderFeed();
+      case "expand": return openLightbox(card, 0);
       case "play": return togglePlay(card);
     }
   }
 
-  // Clicking an image drops a pin. "This edge is too clean" attached to the
-  // pixel it is about carries more than several paragraphs of prose.
+  // Clicking an image opens it full screen. Pinning moved in there: a quarter
+  // of posted media is wider than the pane at 1:1, so the card is too small to
+  // pin accurately on, and the lightbox lets you zoom to the exact pixel first.
   const img = ev.target.closest(".imgwrap img");
   if (img) {
     const card = cardById(img.dataset.card);
-    if (!card || card.status !== "open") return;
-    const rect = img.getBoundingClientRect();
-    const x = (ev.clientX - rect.left) / rect.width;
-    const y = (ev.clientY - rect.top) / rect.height;
-    const note = prompt("Note for this spot:");
-    if (note === null || !note.trim()) return;
-    draft(card.id).annotations.push({ item: Number(img.dataset.item), x, y, note: note.trim() });
-    return renderFeed();
+    if (card) openLightbox(card, Number(img.dataset.item));
+    return;
   }
 });
 
@@ -764,6 +975,23 @@ document.addEventListener("input", ev => {
 // ---------------------------------------------------------------- keyboard
 
 document.addEventListener("keydown", ev => {
+  // The lightbox owns the keyboard while it is open, or `z`, `j` and the digits
+  // would be quietly re-arranging the queue behind it.
+  if (lb.card) {
+    const cx = window.innerWidth / 2, cy = window.innerHeight / 2;
+    if (ev.key === "Escape") { closeLightbox(); return; }
+    if (ev.key === "+" || ev.key === "=") { lbStep(1, cx, cy); return; }
+    if (ev.key === "-" || ev.key === "_") { lbStep(-1, cx, cy); return; }
+    if (ev.key === "0") { lb.factor = "fit"; lbCentre(); lbApply(); return; }
+    if (ev.key === "9") { lb.factor = lbDefaultFactor(); lbCentre(); lbApply(); return; }
+    if (ev.key === "1") { lbZoomTo(1, cx, cy); return; }
+    const pan = ev.shiftKey ? 400 : 120;
+    if (ev.key === "ArrowLeft")  { lb.x += pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowRight") { lb.x -= pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowUp")    { lb.y += pan; lbApply(); ev.preventDefault(); return; }
+    if (ev.key === "ArrowDown")  { lb.y -= pan; lbApply(); ev.preventDefault(); return; }
+    return;
+  }
   const typing = /^(TEXTAREA|INPUT)$/.test(document.activeElement.tagName);
   if (typing && !(ev.key === "Enter" && (ev.ctrlKey || ev.metaKey))) return;
   const card = state.cards[state.active];
@@ -776,6 +1004,7 @@ document.addEventListener("keydown", ev => {
   if (ev.key === "Enter" && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); return submit(card); }
   if (ev.key === " ") { ev.preventDefault(); return togglePlay(card); }
   if (ev.key === "z") { cycleZoom(card, v); return renderFeed(); }
+  if (ev.key === "f") { openLightbox(card, 0); return; }
   if (ev.key === "e") return setStatus(card, "archived");
   if (ev.key === "r") { v.ratingArm = true; return toast("rate 1–5"); }
   if (/^[1-5]$/.test(ev.key)) {
