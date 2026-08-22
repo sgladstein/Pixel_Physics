@@ -1,0 +1,43 @@
+{
+  "id": "20260822T062153396Z-f90b63",
+  "created": "2026-08-22T06:21:53Z",
+  "board": "inbox",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-phase-changes-ki6g8c",
+    "commit": "d1282c8",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The square is back, and here is what a much bigger bubble looks like",
+  "question": "Does LARGE read as bubbles, or is the small square still the better of the two? Both clips are the same pan at the same moment.",
+  "context_md": "*\"I guess this is just a limit of our resolution unless you made much bigger bubbles. You went from squares to crosses. That is worse.\"*\n\nBoth halves acted on, and you were right about the first one. A three-cell site with its corners dark draws a five-pixel **plus**, not a disc. There is no arrangement of lit pixels three cells across that reads as round, so the square is back exactly as it was and the reasoning against re-deriving it is now written into the source so nobody tries again.\n\n**The second half is the new mode: LARGE.** Six cells across, masked to a twenty-four-cell octagon -- a shape with enough pixels to actually curve -- and deliberately **half as many of them**, because \"much bigger bubbles\" is a request for fewer and bigger rather than the same amount of boil in wider marks.\n\nTwo things it needed that the small one does not, both found by looking at the artifact before measuring it:\n\n- **The whole bubble is lit or not by the water at its foot.** A pool is hot at the bottom and cool at the top, so a six-cell mark straddles the ramp: its lower rows clear the threshold, its upper rows do not, and the disc gets sliced into a flat lens. It read as cloud streaks. A bubble forms at the hot floor and rises intact, so the site asks the cell under its own centre-bottom instead.\n- **A smooth top-to-bottom brightness ramp** rather than the hard bright-half/dim-half split the two-cell bubble uses. On a six-cell disc that split reads as two stacked half-moons.\n\nCosts nothing measurable: a forced full-screen redraw of this pan is 14.5 ms with bubbles off, 13.8 with small, 16.1 with large, against a run-to-run spread wider than the gap.\n\n**`H` cycles OFF, RISING (the default, the square you picked), LARGE, COLUMNS, SURFACE.** This pan is only two large-bubble rows deep, so on it they sometimes sit next to each other; on a real pond they scatter.\n\nZoomed 6x and at true speed.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "small (the default, restored)",
+      "files": [
+        "20260822T062153396Z-f90b63/000-card_bub_square.gif"
+      ],
+      "caption": "2x2 squares, exactly as they were before I rounded them.",
+      "meta": {}
+    },
+    {
+      "label": "large",
+      "files": [
+        "20260822T062153396Z-f90b63/001-card_bub_large.gif"
+      ],
+      "caption": "6x6 sites masked to a 24-cell disc, half as many of them.",
+      "meta": {}
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
