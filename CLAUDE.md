@@ -616,6 +616,21 @@ consider it at all.
   bit-identical "runs" — three of them, once, before anyone noticed the
   knob was not connected. Identical output across settings is the tell;
   rebuild between sweep points.
+- **`cargo build --release` does not rebuild the examples**, and every
+  measurement in this repo comes out of an example. It builds the lib and the
+  bin; `--examples` builds them all, `--example NAME` builds one — and a
+  stale `target/release/examples/foo` runs happily, prints plausible numbers,
+  and has a *newer mtime than the source you just edited*, so the obvious
+  sanity check says it is fresh. This bit one session three times in an
+  afternoon: a `viewshot` render that showed round-7 formations after the
+  4x-formation change had landed; a lens-shape before/after that came back
+  **byte-identical** because only the "before" had been rebuilt; and a
+  `scale_probe` cell count identical to the pre-change one for the same
+  reason. The tell is the same one the `include_str!` gotcha above has:
+  **identical output across a change that must have moved something.** When
+  you see it, suspect the binary before the code — and prefer
+  `cargo build --release --examples` over naming one, because the pass you
+  are about to measure with is rarely the only example you will run.
 - **A structural check scheduled mid-organism amputates it.** The organism
   support search is hop-bounded, so a check fired high in a crown reads
   everything past the span limit as unsupported and converts it to
