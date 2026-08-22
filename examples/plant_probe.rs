@@ -57,9 +57,42 @@ fn main() {
             let d = common::PlantScene::default();
             d.width * (trees as i32).max(1) / d.trees as i32
         });
-    let scene = common::PlantScene { ground_y: ground_y(), trees, width, ..Default::default() };
+    let species: String = std::env::args().find_map(|a| a.strip_prefix("species=").map(str::to_string)).unwrap_or_else(|| "tree".to_string());
+    // Soil depth, so the paired deep-vs-thin comparison is one flag rather
+    // than a recompile -- see `PlantScene::soil_depth`.
+    let soil_depth: i32 = std::env::args()
+        .find_map(|a| a.strip_prefix("soil=").map(|v| v.parse().expect("soil")))
+        .unwrap_or(common::SOIL_DEPTH);
+    let scene = common::PlantScene { ground_y: ground_y(), trees, width, species, soil_depth, ..Default::default() };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
+    // Different worlds grow different individuals: genotypes are drawn
+    // from (world seed, germination coordinate), so a genetic-variability
+    // study replicates by varying this. Applied before any stepping --
+    // germination, where draws happen, has not run yet.
+    if let Some(seed) = std::env::args().find_map(|a| a.strip_prefix("worldseed=").map(|v| v.parse().expect("worldseed"))) {
+        w.seed = seed;
+    }
+
+    // **Echo what this run was actually given, first line of every log.**
+    //
+    // A three-and-a-half hour megastudy — 3 species x 8 world seeds x 16
+    // plants x 45,000 frames — produced eight *byte-identical* logs per
+    // species, because it ran a release binary built fourteen minutes
+    // before `worldseed=` was added to this file. An unknown argument is
+    // silently ignored, so the study looked exactly like a study: 24 runs,
+    // 24 logs, sensible numbers, and 3 distinct populations in place of 24.
+    //
+    // `CLAUDE.md` already carries the asset-side form of this ("editing a
+    // `.ron` does nothing until the next build; identical output across
+    // settings is the tell"). This is the same rule one level up — the
+    // *harness* is as stale-able as the assets it reads — and the cheap
+    // defence is not discipline, it is this line: a log that does not name
+    // its own seed was written by a binary that never had one.
+    println!(
+        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={}",
+        scene.species, w.seed, scene.soil_depth
+    );
 
     let mut awake_frames = 0u64;
     for _ in 0..frames {
@@ -178,6 +211,107 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         }
     }
 
+    // **Population first, and the ensemble only over *established* plants.**
+    //
+    // Reproduction changed what `per_organism` contains. A stand of 8 planted
+    // trees now holds hundreds of organisms, most of them single-cell seeds
+    // lying on the ground waiting for light -- so every ensemble statistic
+    // taken over the raw map reports the seed bank, not the trees. It read
+    // `cells median 1` on a run whose canopy was plainly full.
+    //
+    // A seed is an organism and should be counted as one; it is just not a
+    // *plant* yet, and mixing the two answers neither question. Population
+    // and generations are reported on their own below, and the ensemble is
+    // filtered to anything that actually grew.
+    const ESTABLISHED: usize = 20;
+    {
+        let seeds = per_organism.values().filter(|v| v.0 < ESTABLISHED).count();
+        let grown = per_organism.len() - seeds;
+        let mut gens: std::collections::BTreeMap<u16, usize> = std::collections::BTreeMap::new();
+        for id in per_organism.keys() {
+            if let Some(st) = w.organism_state(*id) {
+                *gens.entry(st.generation).or_insert(0) += 1;
+            }
+        }
+        let total_seeds: u32 = per_organism.keys().filter_map(|id| w.organism_state(*id).map(|s| s.seeds_set)).sum();
+        println!(
+            "
+population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds} seeds or seedlings; {total_seeds} seeds set in total",
+            per_organism.len()
+        );
+        let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
+        println!("  generations  [{}]", hist.join(", "));
+
+        // **Epiphytes: plants rooted above the ground.** A seed is a
+        // `Powder`, so it falls -- but it comes to rest on the first thing
+        // that stops it, and in a closed stand that is very often a branch.
+        // It then germinates there and grows from a collar high in another
+        // plant's canopy, which reads on a sheet as "a tree growing out of a
+        // tree" and is not something any rule intends.
+        //
+        // Counted rather than eyeballed because the two readings a contact
+        // sheet cannot separate are "a tall tree behind a short one" and "a
+        // tree standing on one". A collar well above the soil surface
+        // settles it.
+        let ground = ground_y();
+        let mut epiphytes = 0usize;
+        let mut deep = 0usize;
+        // Established plants only. Counting every organism included seeds
+        // still lying in the branches they landed on, which is a different
+        // fact -- a perched seed is not an epiphyte until it germinates,
+        // and conflating them made the fix look like it had done nothing.
+        for (id, v) in per_organism.iter() {
+            if v.0 < ESTABLISHED {
+                continue;
+            }
+            if let Some(collar) = w.organism_state(*id).and_then(|s| s.collar_y) {
+                if collar < ground - 3 {
+                    epiphytes += 1;
+                    if collar < ground - 25 {
+                        deep += 1;
+                    }
+                }
+            }
+        }
+        println!("  rooted above ground: {epiphytes} organisms ({deep} of them more than 25 rows up)");
+
+        // **The clustering readout, and the whole point of discrete loci.**
+        //
+        // A continuous genome gives a Gaussian cloud however long it runs --
+        // a spectrum, which is exactly what was not wanted. Discrete alleles
+        // are supposed to make a population sit on a few combinations. That
+        // claim is only checkable as a *distribution over genotypes*: a
+        // healthy result is a handful of combinations holding most of the
+        // population, and the failure it must distinguish is every
+        // combination present in roughly equal numbers, which is a smear
+        // wearing integers.
+        //
+        // Counted over established plants only -- the seed bank is mostly
+        // one generation of unselected offspring and would swamp whatever
+        // selection has actually kept.
+        let mut morphs: std::collections::BTreeMap<[u8; organism::DISCRETE_LOCI], usize> = std::collections::BTreeMap::new();
+        for (id, v) in per_organism.iter() {
+            if v.0 < ESTABLISHED {
+                continue;
+            }
+            if let Some(st) = w.organism_state(*id) {
+                *morphs.entry(st.alleles).or_insert(0) += 1;
+            }
+        }
+        let mut ranked: Vec<_> = morphs.iter().collect();
+        ranked.sort_by(|a, b| b.1.cmp(a.1));
+        let established_total: usize = ranked.iter().map(|(_, n)| **n).sum();
+        println!(
+            "  morphs among established plants: {} distinct of {} plants  [foliage, angle, internode, sympodial, tropism]",
+            ranked.len(),
+            established_total
+        );
+        for (alleles, n) in ranked.iter().take(8) {
+            println!("    {alleles:?}  x{n}");
+        }
+    }
+    per_organism.retain(|_, v| v.0 >= ESTABLISHED);
+
     if trees > 1 {
         let sizes: Vec<usize> = per_organism.values().map(|v| v.0).collect();
         let leaves: Vec<usize> = per_organism.values().map(|v| v.1).collect();
@@ -226,6 +360,98 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         println!("  per-tree heights   {heights:?}");
         println!("  per-tree thickness {thicks:?}");
 
+        // **Shape, not size — and until now this harness measured only
+        // size.** Every figure above is a magnitude: cells, height,
+        // thickness, leaves. Three species that differ *only* in scale
+        // score as three clearly different species on all of them, which
+        // is precisely why the numbers could neither confirm nor refute
+        // the owner's reading that "the shrub is a small version of the
+        // same tree". A study cannot answer a question it does not
+        // measure, and the genetic-variability megastudy was built
+        // without these.
+        //
+        // Two descriptors, both **scale-free by construction** — ratios
+        // taken within one individual, so neither can be satisfied by
+        // growing the plant bigger:
+        //
+        //  - **crown profile**: foliage width in five height bands, top
+        //    band first, each as a percentage of that plant's widest band.
+        //    A fir is wide at the bottom (descending), a bare-boled
+        //    broadleaf is top-heavy (ascending), a shrub is flat.
+        //  - **foliage centre**: mean leaf height as a fraction of the
+        //    plant's own vertical span, 0 at the collar and 1 at the apex.
+        //    A bole-then-crown tree sits high; a mound sits mid.
+        //  - **foliage share**: leaves as a percentage of the plant's
+        //    cells. Not a shape number, but the one that governs whether
+        //    the silhouette is set by foliage or by twig, and it was
+        //    measured at 3-6% across all three species.
+        const BANDS: usize = 5;
+        let mut profile: std::collections::BTreeMap<u16, [(i32, i32, usize); BANDS]> = std::collections::BTreeMap::new();
+        let mut leaf_centre: std::collections::BTreeMap<u16, (i64, usize)> = std::collections::BTreeMap::new();
+        for y in 0..height {
+            for x in 0..width {
+                let c = w.get(x, y);
+                let id = c.organism_id();
+                if id == 0 || organism::cell_type(c.aux()) != Some(organism::CellType::Leaf) {
+                    continue;
+                }
+                // **The span is the *shoot*, collar to apex -- not the whole
+                // organism.** `per_organism`'s max_y is taken over every cell
+                // the organism owns, which includes its roots, so the five
+                // bands used to run from canopy top to root tip and the
+                // bottom one or two were underground. That is why every
+                // species reported exactly 0 in the last band: a constant
+                // across three species with different habits was the tell,
+                // and it was the metric measuring the wrong object rather
+                // than a shared bare bole.
+                let Some(&(_, _, min_y, _)) = per_organism.get(&id) else { continue };
+                let Some(collar) = w.organism_state(id).and_then(|s| s.collar_y) else { continue };
+                if y > collar {
+                    continue;
+                }
+                let span = (collar - min_y + 1).max(1);
+                // y grows downward, so band 0 is the top of the plant.
+                let band = (((y - min_y) * BANDS as i32) / span).clamp(0, BANDS as i32 - 1) as usize;
+                let slot = profile.entry(id).or_insert([(i32::MAX, i32::MIN, 0); BANDS]);
+                slot[band].0 = slot[band].0.min(x);
+                slot[band].1 = slot[band].1.max(x);
+                slot[band].2 += 1;
+                let centre = leaf_centre.entry(id).or_insert((0, 0));
+                centre.0 += (collar - y) as i64;
+                centre.1 += 1;
+            }
+        }
+        // Median across the ensemble of each plant's own normalised
+        // profile — a mean would let one huge individual write the shape.
+        let mut per_band: [Vec<usize>; BANDS] = Default::default();
+        for slot in profile.values() {
+            let widest = slot.iter().map(|&(lo, hi, _)| if hi >= lo { (hi - lo + 1) as usize } else { 0 }).max().unwrap_or(0).max(1);
+            for (b, &(lo, hi, _)) in slot.iter().enumerate() {
+                let wide = if hi >= lo { (hi - lo + 1) as usize } else { 0 };
+                per_band[b].push(100 * wide / widest);
+            }
+        }
+        let med = |v: &mut Vec<usize>| {
+            v.sort_unstable();
+            if v.is_empty() { 0 } else { v[v.len() / 2] }
+        };
+        let shape: Vec<usize> = per_band.iter_mut().map(med).collect();
+        println!("  crown profile (top->bottom, % of each plant's widest band, median): {shape:?}");
+        let mut centres: Vec<usize> = per_organism
+            .keys()
+            .map(|k| {
+                let Some(&(sum, n)) = leaf_centre.get(k) else { return 0 };
+                let Some(&(_, _, min_y, _)) = per_organism.get(k) else { return 0 };
+                let Some(collar) = w.organism_state(*k).and_then(|s| s.collar_y) else { return 0 };
+                let span = (collar - min_y + 1).max(1) as i64;
+                if n == 0 { 0 } else { (100 * sum / (n as i64 * span)) as usize }
+            })
+            .collect();
+        let foliage_share: Vec<usize> = per_organism.values().map(|v| 100 * v.1 / v.0.max(1)).collect();
+        let mut share = foliage_share.clone();
+        println!("  foliage centre (0 = collar, 100 = apex, median): {}", med(&mut centres));
+        println!("  foliage share  (% of cells that are leaf, median): {}", med(&mut share));
+
         // **One run is a population now, and that is worth more than a
         // parameter sweep.** `genotype_variance` gives every individual its
         // own draw on four traits, so a stand of N trees is N genomes
@@ -235,40 +461,105 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
         // see *interactions* between them; a one-knob-at-a-time sweep
         // structurally cannot.
         //
-        // Slots match `genotype_variance`'s own order: 0 branch_chance,
-        // 1 upward_weight, 2 plastochron, 3 turgor_per_cell, 4 pipe_ratio,
-        // 5 light_weight.
-        let variance = w
-            .species
-            .get(w.species.id_of("tree").expect("tree"))
-            .behaviors(organism::CellType::GrowingTip)
-            .iter()
-            .find_map(|b| match b {
-                organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
-                _ => None,
-            })
-            .unwrap_or([0.0; 6]);
+        // Slots follow `organism::GENOTYPE_TRAITS`' map (positional
+        // forever): 0 shoot branch, 1 root branch, 2 plastochron, 3
+        // turgor, 4 pipe, 5 root tropism gain, 6 allocation bias, 7
+        // stomatal closure, 8 penetration. Each column's variance comes
+        // from the vector its consumer actually reads -- the shoot Grow
+        // for 0/2/3/4/6/7, the RootTip Grow for 1/5/8 -- and from the
+        // run's own species: this used to hardcode "tree", so every
+        // conifer and shrub table printed multipliers scaled by the
+        // wrong widths.
+        let table_species = w.species.id_of(&scene.species).expect("species is compiled in");
+        let vector_of = |ct: organism::CellType| {
+            w.species
+                .get(table_species)
+                .behaviors(ct)
+                .iter()
+                .find_map(|b| match b {
+                    organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                    _ => None,
+                })
+                .unwrap_or([0.0; organism::GENOTYPE_TRAITS])
+        };
+        let shoot_v = vector_of(organism::CellType::GrowingTip);
+        let root_v = vector_of(organism::CellType::RootTip);
+        let variance: Vec<f32> =
+            (0..organism::GENOTYPE_TRAITS).map(|s| if matches!(s, 1 | 5 | 8) { root_v[s] } else { shoot_v[s] }).collect();
         println!("
   per-tree genotype and outcome (variance {variance:?}):");
-        println!("  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}", "id", "branch", "up", "plast", "turgor", "pipe", "light", "cells", "leaves", "height", "stem");
+        println!(
+            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
+            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "cells", "leaves", "height", "stem"
+        );
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
-                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
                 g(0),
                 g(1),
                 g(2),
                 g(3),
                 g(4),
                 g(5),
+                g(6),
+                g(7),
+                g(8),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
                 thickest_above_base.get(&id).copied().unwrap_or(0),
             );
         }
+
+        // **The morph census.** Allele frequencies per discrete locus,
+        // counts by allele index -- a cluster shows here long before any
+        // sheet can show it, and a column that never moves across a long
+        // breeding run is a lever selection is not pulling. Loci in slot
+        // order (organism::LOCUS_*): economy, angle, internode, sympody,
+        // tropism, density.
+        let mut allele_counts = [[0u32; 3]; organism::DISCRETE_LOCI];
+        for id in per_organism.keys() {
+            if let Some(s) = w.organism_state(*id) {
+                for (locus, &a) in s.alleles.iter().enumerate() {
+                    allele_counts[locus][(a as usize).min(2)] += 1;
+                }
+            }
+        }
+        let census: Vec<String> = allele_counts
+            .iter()
+            .zip(["economy", "angle", "internode", "sympody", "tropism", "density"])
+            .map(|(c, name)| format!("{name} {}/{}/{}", c[0], c[1], c[2]))
+            .collect();
+        println!("  alleles: {}", census.join("  "));
+
+        // The architectural event counters, printed beside the picture
+        // because a sheet cannot show whether a mechanism fired -- a
+        // sympodial run whose counter reads zero is a monopodial tree that
+        // happened to fork, and a "conifer" with zero plagiotropic steps
+        // is a mislabelled poplar.
+        let mut ids: Vec<u16> = per_organism.keys().copied().collect();
+        ids.sort_unstable();
+        let counters: Vec<String> = ids
+            .iter()
+            .filter_map(|&id| {
+                w.organism_state(id).map(|s| {
+                    // The *achieved* mean departure angle, not a count of
+                    // how often the scoring ran -- see
+                    // `OrganismState::departure_angle_sum`. An 8-neighbour
+                    // lattice cannot always give a species the angle it
+                    // asked for, and this is the number that says so.
+                    let mean_angle = if s.lateral_departures > 0 { s.departure_angle_sum / s.lateral_departures as f32 } else { 0.0 };
+                    format!(
+                        "{id}: gen {} seeds {} forks {} plag {} rigid {} lat {} angle {mean_angle:.0}deg",
+                        s.generation, s.seeds_set, s.sympodial_forks, s.plagiotropic_steps, s.rigid_steps, s.lateral_departures
+                    )
+                })
+            })
+            .collect();
+        println!("  architecture events  [{}]", counters.join(", "));
     }
 
     println!("\n{} organism cells", cells.len());
@@ -284,6 +575,37 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     }
     for (ty, n) in &counts {
         println!("  {ty:<20} {n:>5}");
+    }
+
+    // **The palette-band counter, and it exists because a picture cannot
+    // answer "did this fire".** A banded stand and an unbanded one differ
+    // by a few colour bytes per cell; at the zoom a contact sheet is read
+    // at they are indistinguishable, which is the exact failure mode that
+    // once had a collapse read as "chunks are working" while the body
+    // count was zero for the whole run. If a species declares
+    // `foliage_bands: (first: 4, count: 2)` and this prints one band, the
+    // draw is not reaching the cells.
+    let mut band_counts: std::collections::BTreeMap<(String, u8), usize> = std::collections::BTreeMap::new();
+    for y in 0..height {
+        for x in 0..width {
+            let c = w.get(x, y);
+            if c.organism_id() == 0 {
+                continue;
+            }
+            let mat = w.materials.get(c.material);
+            // **The band a cell actually renders as**, which is not
+            // `shade / PALETTE_BAND`: `render.rs` wraps the shade modulo the
+            // palette length, so on a four-entry palette (`rootwood`) band 1
+            // draws exactly band 0's colours. Reporting the unwrapped index
+            // would show `rootwood` split across two bands it does not have
+            // and read as a bug in a mechanism that is behaving correctly.
+            let effective = (c.shade as usize % mat.palette.len().max(1)) as u8 / organism::PALETTE_BAND;
+            *band_counts.entry((mat.name.clone(), effective)).or_insert(0) += 1;
+        }
+    }
+    println!("  palette bands in use (material, band -> cells):");
+    for ((name, band), n) in &band_counts {
+        println!("    {name:<10} band {band:>2}  {n:>6}");
     }
     if let (Some(min_x), Some(max_x), Some(min_y), Some(max_y)) = (
         cells.iter().map(|c| c.0).min(),
@@ -331,6 +653,208 @@ since it is dispatched from the CA sweep and the sweep skips settled chunks",
     };
     println!("  thickest contiguous run, above ground: {} cells", widest_run(0..ground_y()));
     println!("  thickest contiguous run, below ground: {} cells (roots spread by design)", widest_run(ground_y()..height));
+
+    // **The root readout, and why "thickest run below ground" was not it.**
+    // That number is a *horizontal* run, so a root system that sprawls
+    // sideways in the top three rows and one that also goes down report the
+    // same 54 cells. The grove sheets show roots as pale lateral fences
+    // hugging the surface and nothing had ever measured whether that
+    // reading is right -- `CLAUDE.md`'s "an image says what and where; only
+    // a number says how much". The band histogram is the one that settles
+    // it: if every root cell lands in the top band, depth is the problem
+    // and no amount of tuning lateral behaviour touches it.
+    //
+    // Root tissue is identified the same way `organism_upkeep` does it --
+    // `reinforces_powder` (i.e. `rootwood`) or a live `RootTip` -- because a
+    // retired root and a retired branch are both `MatureBody` and cell type
+    // alone cannot tell them apart.
+    {
+        const ESTABLISHED: usize = 20;
+        let surface = ground_y();
+        let mut per_plant: std::collections::BTreeMap<u16, (usize, usize, i32, i32, i32, usize)> = std::collections::BTreeMap::new();
+        let mut depth_bands = [0usize; 5];
+        let mut root_total = 0usize;
+        let mut depths: Vec<i32> = Vec::new();
+        let (mut buried_seeds, mut surface_seeds) = (0usize, 0usize);
+        for y in 0..height {
+            for x in 0..width {
+                let c = w.get(x, y);
+                let id = c.organism_id();
+                if id == 0 {
+                    continue;
+                }
+                let is_root = w.materials.get(c.material).reinforces_powder
+                    || organism::cell_type(c.aux()) == Some(organism::CellType::RootTip);
+                // **Buried seeds, and whether they are a real leak.**
+                // `Reproduce` runs on every `MatureBody` cell, and a retired
+                // root cell is one -- so on the face of it a tree scatters
+                // seed underground, where light is ~0 and germination can
+                // never fire. `set_seed` needs an *empty* 8-neighbour
+                // though, and underground every neighbour is soil, so the
+                // path may be vacuous. Counted rather than reasoned about:
+                // an exactly-zero reading means the gate already closes it.
+                if organism::cell_type(c.aux()) == Some(organism::CellType::Seed) {
+                    if y >= surface {
+                        buried_seeds += 1;
+                    } else {
+                        surface_seeds += 1;
+                    }
+                }
+                let e = per_plant.entry(id).or_insert((0, 0, i32::MAX, i32::MIN, i32::MIN, 0));
+                e.0 += 1; // every cell, so root:shoot has a denominator
+                if !is_root {
+                    continue;
+                }
+                e.1 += 1;
+                e.2 = e.2.min(x);
+                e.3 = e.3.max(x);
+                e.4 = e.4.max(y);
+                // **Width, and the first version of this counted the wrong
+                // thing.** "Has a root cell to its left or right" reads
+                // *100%* for a purely horizontal one-cell filament, which is
+                // the shape in question -- it measures continuity along the
+                // run, not thickness across it. `CLAUDE.md`: ask what a
+                // metric counts when nothing is wrong.
+                //
+                // The 4-neighbour root count separates them without knowing
+                // which way the run points: an interior cell of a
+                // one-cell-wide filament has exactly 2 whichever direction
+                // it runs, an end has 1, and only a genuinely thickened root
+                // has 3 or 4. This is the quantity `thicken` is supposed to
+                // move.
+                let neighbours = [(-1i32, 0i32), (1, 0), (0, -1), (0, 1)]
+                    .iter()
+                    .filter(|&&(dx, dy)| {
+                        let n = w.get(x + dx, y + dy);
+                        n.organism_id() == id && w.materials.get(n.material).reinforces_powder
+                    })
+                    .count();
+                if neighbours >= 3 {
+                    e.5 += 1;
+                }
+                // Soil rows only. A cell past the soil bed would otherwise
+                // clamp into the bottom band and read as "deep roots" when
+                // it is a root that has left the soil entirely.
+                if y >= surface && y < surface + soil_depth {
+                    let band = (((y - surface) * 5) / soil_depth).clamp(0, 4) as usize;
+                    depth_bands[band] += 1;
+                    root_total += 1;
+                }
+                depths.push(y - surface);
+            }
+        }
+        per_plant.retain(|_, v| v.0 >= ESTABLISHED);
+        if !per_plant.is_empty() && root_total > 0 {
+            let stat = |mut v: Vec<i64>| {
+                v.sort_unstable();
+                let sum: i64 = v.iter().sum();
+                (v[0], v[v.len() / 2], v[v.len() - 1], sum as f32 / v.len() as f32)
+            };
+            let roots = stat(per_plant.values().map(|v| v.1 as i64).collect());
+            let frac = stat(per_plant.values().map(|v| (v.1 * 100 / v.0.max(1)) as i64).collect());
+            let depth = stat(per_plant.values().map(|v| (v.4 - surface + 1) as i64).collect());
+            let spread = stat(per_plant.values().map(|v| (v.3 - v.2 + 1) as i64).collect());
+            let wide: usize = per_plant.values().map(|v| v.5).sum();
+            let root_cells: usize = per_plant.values().map(|v| v.1).sum();
+            println!("\nroot system ({} established plants, soil is {} rows deep):", per_plant.len(), common::SOIL_DEPTH);
+            println!("  root cells        min {:>4}  median {:>4}  max {:>4}  mean {:>7.1}", roots.0, roots.1, roots.2, roots.3);
+            println!("  root share of plant  min {:>3}%  median {:>3}%  max {:>3}%  mean {:>5.1}%", frac.0, frac.1, frac.2, frac.3);
+            println!("  deepest row below surface  min {:>3}  median {:>3}  max {:>3}  mean {:>5.1}", depth.0, depth.1, depth.2, depth.3);
+            println!("  lateral spread (cells)     min {:>3}  median {:>3}  max {:>3}  mean {:>5.1}", spread.0, spread.1, spread.2, spread.3);
+            depths.sort_unstable();
+            println!(
+                "  median root cell sits {} rows down; quartiles {} / {}",
+                depths[depths.len() / 2],
+                depths[depths.len() / 4],
+                depths[depths.len() * 3 / 4]
+            );
+            println!(
+                "  root cells with 3+ root neighbours: {}% (a 1-cell-wide run reads ~0 whichever way it points)",
+                wide * 100 / root_cells.max(1)
+            );
+            let pct = |n: usize| n * 100 / root_total.max(1);
+            println!(
+                "  depth histogram, surface->bedrock (% of all root cells): [{}, {}, {}, {}, {}]",
+                pct(depth_bands[0]),
+                pct(depth_bands[1]),
+                pct(depth_bands[2]),
+                pct(depth_bands[3]),
+                pct(depth_bands[4])
+            );
+            println!("  seeds standing: {surface_seeds} above the surface, {buried_seeds} buried (buried can never germinate)");
+
+            // **The water balance, per organism, as a standing state.**
+            // `CLAUDE.md`: when the complaint is about something visible
+            // and persistent, measure the standing state rather than the
+            // event rate. The stomatal term is the number that decides
+            // whether roots matter at all -- it multiplies every credit --
+            // so it is reported directly rather than inferred from mass.
+            let mut stocks: Vec<f32> = Vec::new();
+            let mut statuses: Vec<f32> = Vec::new();
+            let mut uptakes: Vec<f32> = Vec::new();
+            let mut demands: Vec<f32> = Vec::new();
+            for id in per_plant.keys() {
+                if let Some(st) = w.organism_state(*id) {
+                    stocks.push(st.water);
+                    statuses.push(st.water_status);
+                    uptakes.push(st.water_uptake);
+                    demands.push(st.water_demand);
+                }
+            }
+            if !statuses.is_empty() {
+                let q = |v: &mut Vec<f32>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).expect("finite"));
+                    (v[0], v[v.len() / 2], v[v.len() - 1], v.iter().sum::<f32>() / v.len() as f32)
+                };
+                let (smin, smed, smax, smean) = q(&mut stocks);
+                let (wmin, wmed, wmax, wmean) = q(&mut statuses);
+                println!("
+water balance, per established plant:");
+                println!("  stock          min {smin:>7.1} median {smed:>7.1} max {smax:>7.1} mean {smean:>7.1}");
+                println!("  stomatal term  min {wmin:>7.2} median {wmed:>7.2} max {wmax:>7.2} mean {wmean:>7.2}   (1.0 = demand fully met)");
+                let (umin, umed, umax, umean) = q(&mut uptakes);
+                let (dmin, dmed, dmax, dmean) = q(&mut demands);
+                println!("  uptake/tick    min {umin:>7.2} median {umed:>7.2} max {umax:>7.2} mean {umean:>7.2}");
+                println!("  demand/tick    min {dmin:>7.2} median {dmed:>7.2} max {dmax:>7.2} mean {dmean:>7.2}");
+            }
+
+            // **What `support` actually reads on a healthy tree.** The
+            // number changed meaning when the search was turned around to
+            // run from the anchors outward: it used to answer "is there
+            // ground within N hops of me" and now answers "how far out
+            // along my own load path do I sit". `max_unsupported_span` is
+            // read against it and was calibrated against the old meaning,
+            // so this distribution is what a new value has to be set from.
+            let mut supports: Vec<u16> = Vec::new();
+            let mut unreached = 0usize;
+            for y in 0..height {
+                for x in 0..width {
+                    if w.get(x, y).organism_id() == 0 {
+                        continue;
+                    }
+                    if let Some(c) = w.organism_cell(x, y) {
+                        if c.support == u16::MAX {
+                            unreached += 1;
+                        } else {
+                            supports.push(c.support);
+                        }
+                    }
+                }
+            }
+            if !supports.is_empty() {
+                supports.sort_unstable();
+                let at = |q: f32| supports[((supports.len() - 1) as f32 * q) as usize];
+                println!(
+                    "  support (cantilever reach from anchors): p50 {}  p90 {}  p99 {}  max {}; {} unreached",
+                    at(0.5),
+                    at(0.9),
+                    at(0.99),
+                    supports[supports.len() - 1],
+                    unreached
+                );
+            }
+        }
+    }
 
     if std::env::args().any(|a| a == "dump") {
         println!("{:>5} {:>5}  {:<12} {:>9} {:>9}", "x", "y", "type", "resource", "canopy");

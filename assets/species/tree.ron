@@ -42,6 +42,19 @@
 // terrain rather than "how close to y=20 is the floor."
 (
     name: "tree",
+    // Mid green through yellow-green, on mid-to-red brown. Band 2 is the
+    // original leaf palette and band 0 the original wood one, so an
+    // individual drawing the low end of both ranges is exactly the tree
+    // this file grew before bands existed -- the change adds neighbours,
+    // it does not move the species.
+    foliage_bands: (first: 2, count: 2),
+    bark_bands: (first: 0, count: 2),
+    // Stock fraction below which stomata start closing -- the drought-
+    // caution policy genotype slot 7 multiplies per individual. 0.2 is a
+    // first pass: at a fifth of a tank the plant starts trading growth
+    // for endurance. 0.0 is the pre-closure engine exactly, and what any
+    // species that does not declare this gets.
+    stomatal_reserve: 0.2,
     cell_types: [
         (Seed, [
             Germinate(
@@ -162,10 +175,44 @@
                 // OrganismCell::heading -- scoring continuation against a
                 // one-cell local read is why growth looked erratic.
                 heading_inertia: 0.85,
+                // **Limbs leave the trunk wide and finer branches leave
+                // shallower**, which is the real pattern and also the one
+                // that opens a crown: a lateral departing at 70 degrees is
+                // out of the trunk's own column immediately.
+                //
+                // Index 0 is read by a *trunk* cell making a limb, so this
+                // list is "the angle at which each tier throws its
+                // children", not "the angle this tier left at".
+                branch_angle: [70.0, 60.0, 50.0, 45.0],
+                // The trunk gets **no** straightness budget on purpose: it
+                // should keep answering to light and gravity every step,
+                // which is what stands it up. Everything else holds its
+                // departure direction for a real run first -- that is the
+                // difference between a limb and a meander, and without it
+                // `branch_angle` is undone on the lateral's next step.
+                internode: [0, 6, 4, 3],
                 // A 2D cross-section shows every twig, so one leaf cell per
                 // node renders as a bare skeleton with green specks. See
                 // Behavior::Grow::leaf_cluster.
-                leaf_cluster: 5,
+                // **Raised 5 -> 10, and it is a pure appearance knob now.**
+                // Foliage measured 5% of a plant's cells across all three
+                // species, so the silhouette was set by brown twig and no
+                // architectural lever could reach it (Reports/plant-
+                // appearance-design.md §2.1).
+                //
+                // Raising this used to be unaffordable: it quintupled income
+                // and fused the stand. The node currency ended that -- income
+                // (`intercepted / l_node`), the bud-break gate and the pipe
+                // ratio (`q_peak / l_node`) are *all* normalised by
+                // `leaf_cluster`, so a bigger cluster is more leaf cells at
+                // the same economy. That normalisation was done to end the
+                // constant treadmill; this is a dividend of it.
+                //
+                // Not free, and the two costs are real: every leaf cell
+                // deposits canopy density, so crowding rises, and a denser
+                // crown shades its own interior harder. Both are measured
+                // paired against 5 rather than argued.
+                leaf_cluster: 10,
                 juvenile_size: 60,
                 juvenile_plastochron: 0.25,
                 juvenile_branch: 1.5,
@@ -225,7 +272,19 @@
                 // a width: branch_chance should be high while juvenile and
                 // low once established, which ByOrder cannot express,
                 // because order is position in the plant and not age.
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0),
+                //
+                // **Re-mapped 2026-08-18** (Reports/plant-genome-design.md,
+                // owner-signed): slots 1/5 now belong to the ROOT -- its
+                // own vector on the RootTip entry carries them, they stay
+                // 0.0 here and the shoot no longer reads them at all --
+                // and three whole-plant slots extend the vector: 6
+                // allocation bias, 7 stomatal closure (both read from
+                // this vector by the passes that consume them), 8
+                // penetration (root vector). Every study quoted above
+                // remains true of slots 0/2/3/4, whose meanings did not
+                // move; nothing else survives the re-map and the
+                // megastudy re-baselines.
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
@@ -236,14 +295,42 @@
                 // shedding pressure belongs to the Leaf entry below, and a
                 // GrowingTip is the frontier itself.
                 shade_death: 0.0,
+                // Transpirational demand per tick at full light. A live tip
+                // is foliage too and pays like one.
+                transpiration: 0.05,
+                // A tip is the frontier, not sheddable foliage -- the same
+                // reasoning `shade_death: 0.0` above carries.
+                drought_death: 0.0,
             ),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
-            Transpire(rate: 1.0),
+            // **No `Transpire` here any more.** It drained adjacent soil
+            // and credited nothing, which was the right stand-in while
+            // water was not a currency -- it was the only thing making a
+            // stand dry the ground at all.
+            //
+            // It is a double count now. Transpiration is a single path,
+            // soil -> root -> leaf -> air: `Absorb` moves soil into the
+            // plant and the foliage's `transpiration` demand moves it out
+            // to the air. A second uncredited soil->air drain alongside
+            // that corresponds to nothing, and it would make the ground dry
+            // faster than the plants actually use it.
+            //
+            // If the resulting drawdown is too weak to steer roots
+            // hydrotropically, the honest lever is the foliage demand, not
+            // a phantom drain.
+
             Grow(
                 cost: 0.25,
-                branch_chance: [0.04],
+                // **Superseded by `branch_priming` below.** A root tip's
+                // in-tick branch roll demanded a second step's carbon in
+                // the tick the first was paid; it cleared that twice in
+                // twelve thousand frames and fired zero times. Zero here
+                // rather than left at its old value so nothing reads as a
+                // live knob that no longer runs -- see
+                // `Behavior::Grow::branch_priming`.
+                branch_chance: [0.0],
                 continuation_weight: 0.7,
                 light_weight: [0.0],
                 wind_weight: 0.0,
@@ -270,6 +357,18 @@
                 // Roots grow by the same rule and must never leaf
                 // underground. One value, so every order agrees.
                 plastochron: [0],
+                // Steps between primed lateral sites, swept at landing over
+                // 1/2/3/6/12/24: root mass falls monotonically as the
+                // interval widens (755 cells at 1, 336 at 6) because a
+                // sparser mark leaves the conversion with nothing available
+                // to pick most ticks. 3 rather than 1 because 1 stops being
+                // an oscillator -- it primes every cell, and the walk then
+                // re-scans 82,487 primed cells over a run against 1,160 at
+                // 3, for a stand-scale cost the mechanism does not need.
+                // 3 also puts genotype slot 1 on the responsive part of the
+                // curve, which is what lets the trait order an outcome at
+                // all.
+                branch_priming: [3],
                 // **Roots read as small balls without this.** They run the
                 // same Grow as a shoot, so they had the same one-cell
                 // heading read and the same wandering -- but underground,
@@ -283,10 +382,34 @@
                 // 0.2-1.5 MPa; 1.2 puts this tree through loose soil (0.8)
                 // and sand (1.4 -- refused), and never through gravel
                 // (3.5) or any Solid. See Material::penetration_resistance.
+                // With slot 8 below, that refusal is per *individual* now:
+                // the strongest draws reach 1.5 and root in sand, and hard
+                // ground bills extra carbon either way
+                // (plant::penetration_cost_mult).
                 penetration_force: 1.2,
+                // **The root's own genome vector -- non-zero for the first
+                // time.** Slots 1/5/8 are the root traits (the slot map on
+                // organism::GENOTYPE_TRAITS is the contract): root branch
+                // chance, root tropism gain (how hard it drives down and
+                // toward water versus wandering), penetration. First-pass
+                // widths for the paired sweeps: 1 matches the shoot's
+                // branching width; 8's 0.25 keeps the weakest draw's force
+                // at 0.9 -- above soil's 0.8, so no individual is locked
+                // out of ordinary ground -- while the strongest reaches
+                // 1.5, past sand's 1.4.
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
             ),
         ]),
         (MatureBody, [
+            // **Set seed.** The rate is per mature cell, so a plant's
+            // fecundity is its canopy size times this -- size buys
+            // offspring with no rule saying so, which is what makes
+            // selection on every other trait mean anything.
+            //
+            // Rates are a first pass and explicitly untuned against an
+            // outcome: they want a sweep once a population has run long
+            // enough to measure generations per unit time.
+            Reproduce(seed_cost: 0.3, seed_chance: 4e-05, seed_maturity: 600),
             // **Nodes of foliage per cell of stem width** -- the pipe model
             // gate, in the `L_node` currency (`plant::INCOME_PER_NODE`'s
             // doc has the unit). 5.5 is the previous operating point
@@ -313,10 +436,25 @@
             // trunk width by lowering this.
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
-            // Mature root tissue transpires. Harmless on canopy MatureBody
-            // cells, which never have a soil neighbour to draw from -- see
-            // Behavior::Transpire.
-            Transpire(rate: 1.0),
+            // **Mature root tissue drinks.** This was `Transpire(rate:
+            // 1.0)`, which pulled water out of the soil and credited it to
+            // nothing -- correct while water was not a currency, and the
+            // reason a stand could sit on a soil bed for 108,000 frames and
+            // leave its median cell still at field capacity.
+            //
+            // `Absorb` here is what lets water income scale with root
+            // *mass*. It was a `RootTip`-only behaviour, and root tips are
+            // capped at 10 per plant, so income was bounded by a constant
+            // while demand grows with a canopy of over a thousand leaves --
+            // no constant balances that, because one side does not scale.
+            //
+            // Harmless on canopy MatureBody cells, which have no
+            // water-bearing neighbour to draw from and so pay only the
+            // four-neighbour look. Same rate as the tips: suberised tissue
+            // really does take up less per cell, but there is far more of
+            // it, and splitting the rate is a tuning question for the
+            // economy sweep rather than a structural one.
+            Absorb(rate: 1.5),
         ]),
         // The bud bank -- CellType::DormantBud's own doc has why extension
         // depositing buds, and nothing else depositing them, is the whole
@@ -385,7 +523,28 @@
             // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
             // tufted at the crown, the first sheet where wood reads as
             // wood.
-            Photosynthesize(rate: 0.35, shade_death: 0.03),
+            Photosynthesize(
+                rate: 0.35,
+                shade_death: 0.003,
+                // **Transpirational demand -- the charge that makes a root
+                // worth having.** Before it, `Absorb` credited the same
+                // pool `Photosynthesize` filled, so a rootless plant ran no
+                // deficit and grew on light alone; that is what filled the
+                // canopy with epiphytes.
+                //
+                // A first value, set gently on purpose so the mechanism can
+                // be measured before it is tuned -- `CLAUDE.md`'s "run the
+                // control that isolates it, at its gentlest setting". The
+                // sweep that sets it properly is the economy re-derivation,
+                // together with INCOME_PER_NODE and Grow.cost.
+                transpiration: 0.05,
+                // Drought shedding, the counterpart of shade_death and the
+                // same order of magnitude. This is what makes a plant that
+                // cannot reach soil thin out and die rather than stand
+                // there inert -- the epiphyte's own death, from the economy
+                // instead of from a germination guard.
+                drought_death: 0.003,
+            ),
         ]),
     ],
 )

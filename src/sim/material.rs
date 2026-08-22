@@ -460,6 +460,32 @@ pub struct MaterialDef {
     /// reaches."
     #[serde(default = "default_never_u16")]
     pub max_unsupported_span: u16,
+    /// **How far an organism-owned cell may reach out along its own load
+    /// path before it breaks in bending.** `u16::MAX` (the default) opts
+    /// the material out of the rule entirely.
+    ///
+    /// Deliberately *not* `max_unsupported_span`, though it began as that
+    /// field, because the two paths measure different quantities and
+    /// sharing one number made them contradict each other:
+    ///
+    /// - On the inert path, `max_unsupported_span` is reinterpreted as a
+    ///   **capacity**, `(span as i64).pow(2) / 2` (`load::capacity`). Wood's
+    ///   8 means a capacity of 32.
+    /// - On the organism path it is compared against
+    ///   `OrganismCell::support`, the cell's weighted **reach** from its
+    ///   plant's anchors, measured by `plant::anchor_support`.
+    ///
+    /// Those numbers are not on the same scale, and the measurement says so.
+    /// A healthy 8-tree stand at 30,000 frames reads support p50 17, p90 36,
+    /// p99 51, **max 77** -- so any organism value low enough to be a
+    /// sensible capacity destroys the stand (span 8 took it from 31,731
+    /// cells to 500), and any value high enough for real branches makes
+    /// hand-painted wood nearly unbreakable on the inert path.
+    ///
+    /// Set from that measurement with headroom, per `CLAUDE.md`: never from
+    /// an aspiration, and never sitting on the measured value.
+    #[serde(default = "default_never_u16")]
+    pub max_cantilever_reach: u16,
     /// What an unsupported cell becomes once it breaks free, or empty to
     /// leave it Solid regardless of `max_unsupported_span` (the same
     /// unset-name-is-a-no-op pattern `melts_into`/`burns_into` use). Loose
@@ -677,6 +703,8 @@ pub struct Material {
     pub melting_point: f32,
     pub boiling_point: f32,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::max_cantilever_reach`.
+    pub max_cantilever_reach: u16,
     /// See `MaterialDef::attached_span_bonus`. Always >= 1.
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
@@ -919,6 +947,7 @@ impl From<MaterialDef> for Material {
             melting_point: def.melting_point,
             boiling_point: def.boiling_point,
             max_unsupported_span: def.max_unsupported_span,
+            max_cantilever_reach: def.max_cantilever_reach,
             // Floored at 1: 0 would silently make attached rock *weaker*
             // than loose material, which is never what a content author
             // means by leaving a field small.
@@ -1086,6 +1115,7 @@ impl MaterialRegistry {
             burns_into: String::new(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
@@ -1124,6 +1154,7 @@ impl MaterialRegistry {
             // that breaks free, so this stays unset regardless of what any
             // other material's span is.
             max_unsupported_span: u16::MAX,
+            max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
             attached_span_bonus: 1,
             fragment_rungs: 5,

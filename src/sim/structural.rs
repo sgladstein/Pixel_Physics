@@ -112,6 +112,7 @@ use std::collections::BinaryHeap;
 use super::cell::Cell;
 use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
+use super::organism;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -514,21 +515,42 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
 /// — the branch `tick` routes to instead of the aux-cached relaxation
 /// above, whose cache `aux` no longer holds once it's carrying a cell-type
 /// tag and resource scalar instead (`Reports/organism-substrate-
-/// design.md` §2/§5). No per-cell cached distance to relax incrementally
-/// — `organism_is_supported` below runs a fresh bounded BFS every call
-/// instead, from `(x, y)` outward rather than from a stored anchor list
-/// (`OrganismState` still doesn't track one — real future work, not faked
-/// here with a placeholder that wouldn't mean anything yet). Cheap enough
-/// for now: `max_span` bounds the search radius, and organisms stay small
-/// (this session's own live-verification tops out in the tens of cells).
+/// design.md` §2/§5).
+///
+/// **The distance is cached, just not in `aux`.** It lives on the organism
+/// sidecar as `OrganismCell::support` and is recomputed from the anchors
+/// outward once per organism tick by `plant::anchor_support`, so this
+/// function is a field read and a comparison. It used to run a fresh
+/// bounded BFS outward from `(x, y)` on every single check — see
+/// `OrganismCell::support` for why that was wrong twice over, and why the
+/// fix was the *direction* of the search rather than its budget.
+///
 /// A no-op for a material with no finite span (moss's own, still — this
-/// only actually does anything for tree.ron's wood so far).
+/// only actually does anything for tree.ron's wood and rootwood so far).
 fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Vec<ActiveSite> {
     let material = world.materials.get(cell.material);
-    let max_span = material.max_unsupported_span;
-    if max_span == u16::MAX {
-        return Vec::new(); // this species' material doesn't participate at all (e.g. moss)
-    }
+    // **`max_cantilever_reach`, not `max_unsupported_span`.** The inert
+    // path reinterprets that field as a capacity (`span^2 / 2`, see
+    // `load::capacity`), and the two are not on the same scale -- see
+    // `MaterialDef::max_cantilever_reach` for the measurement that forced
+    // them apart.
+    //
+    // Scaled by the individual's wood density -- the strength half of
+    // `WOOD_DENSITY_ALLELES` (the price half is on `Grow.cost`): dense
+    // wood holds a longer reach under more load before snapping to
+    // deadwood, cheap wood grows faster and loses more of itself.
+    // **The no-finite-span sentinel is read off the *material*, never off
+    // the scaled span.** `u16::MAX` is leaf.ron's (and moss's) opt-out
+    // from the cantilever rule entirely, and it is a sentinel value, not a
+    // large number: 65535 x 0.75 is 49151, which is not the sentinel, so
+    // scaling first silently enrolled every pioneer-allele plant's foliage
+    // in a rule the opt-out exists to keep it out of. Latent today only
+    // because 49151 still dwarfs any real support distance -- and "latent"
+    // is what the leaf span was before checks started firing and took the
+    // stand from 31,731 cells to 7,171.
+    let unbounded = material.max_cantilever_reach == u16::MAX;
+    let density = world.organism(cell.organism_id()).map_or(1.0, |s| organism::wood_density(&s.alleles));
+    let max_span = ((material.max_cantilever_reach as f32 * density) as u32).min(u16::MAX as u32) as u16;
     let organism_id = cell.organism_id();
     // **Load shortens the span a branch can hold.** `PLAN.md` treats "too
     // much weight breaks a branch" as already in scope, and it was only
@@ -545,7 +567,39 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // (which branch breaks, and when) is emergent from what the player
     // actually piled on it.
     let effective_span = max_span.saturating_sub(supported_load(world, x, y, organism_id) / LOAD_PER_SPAN_UNIT);
-    if organism_is_supported(world, x, y, organism_id, effective_span) {
+    // **A field read, where this used to be a fresh BFS per check.**
+    // `plant::anchor_support` computes every cell's weighted distance to
+    // its organism's anchors once per organism tick, from the anchors
+    // outward; see `OrganismCell::support` for the two defects the old
+    // outward-from-here search had. `0` for a cell with no sidecar: an
+    // organism that has not been walked yet must defer, never fail, because
+    // the action this decides is destructive.
+    let support = world.organism_cell(x, y).map_or(0, |c| c.support);
+    // Two questions off one number, and they are genuinely different.
+    // `u16::MAX` is **attachment** -- nothing this cell connects to reaches
+    // the ground, so the piece it is part of has come off, however short
+    // its own distance would otherwise have been. Anything else is
+    // **cantilever** -- how far out along its own load path it sits, against
+    // what the material can hold with the load currently on it.
+    let detached = support == u16::MAX;
+    // **Attachment applies to every organism material; cantilever only to
+    // the ones that carry load.** Keeping the two apart is what lets
+    // `leaf.ron` opt out of the span rule (`u16::MAX`) and still fall when
+    // the twig it hangs on is cut -- the early return this replaced tested
+    // the span first and so exempted foliage from *both*.
+    //
+    // A leaf must opt out, and the reason is a measurement: `leaf.ron`'s
+    // span was **1**, written to mean "a leaf holds up nothing but itself"
+    // under the old rule, where the number was hops-to-nearest-ground and
+    // nothing ever scheduled a check on a leaf anyway. Under the anchor
+    // pass the number is reach along the load path, which for any leaf in a
+    // crown is tens of cells, so the first run with checks actually firing
+    // destroyed every leaf in the stand -- median leaves per tree 1,376 to
+    // **1**, and with the income gone the stand fell from 31,731 cells to
+    // 7,171. `leaf.ron`'s own doc already says a leaf must not be a load
+    // path; this is that sentence enforced instead of asserted.
+    let over_span = !detached && !unbounded && support > effective_span;
+    if !detached && !over_span {
         // Supported and, unlike the aux-cached path, always an exact
         // answer rather than one still converging -- nothing more to do
         // until something else disturbs this organism's own structure.
@@ -560,17 +614,6 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
-/// Whether `(x, y)` — a `Plant` cell belonging to `organism_id` — is
-/// within `max_span` connected same-organism `Plant` hops of ground: a
-/// cell (this one, or one reached through the search) touching a `Solid`-
-/// kind neighbour. The direct generalization of the aux-cached path's own
-/// `is_anchor` (touches `BEDROCK`) to a tree: a trunk resting on stone is
-/// exactly as anchored as a stone span touching bedrock is, and a root
-/// pressed against solid ground counts the same way. Growing *through*
-/// soil (not yet possible — `Grow`'s candidates are gated on `is_empty`,
-/// PLAN.md's own recorded gap) will extend this the same way once it
-/// exists; nothing here needs to change for that, since "touches Solid"
-/// stays true for a root embedded in solid-kind ground either way.
 /// How many cells of piled-up load cost one cell of allowable span.
 ///
 /// Four, so `wood`'s span of 8 survives a light dusting and a genuinely
@@ -615,41 +658,6 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
         }
     }
     load
-}
-
-fn organism_is_supported(world: &World, x: i32, y: i32, organism_id: u16, max_span: u16) -> bool {
-    let touches_solid_ground = |px: i32, py: i32| {
-        NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.kind(world.get(px + dx, py + dy).material) == MaterialKind::Solid)
-    };
-    if touches_solid_ground(x, y) {
-        return true; // distance 0 -- this cell is itself the trunk base, or a root against bare ground
-    }
-
-    let mut visited = std::collections::HashSet::new();
-    let mut queue = std::collections::VecDeque::new();
-    visited.insert((x, y));
-    queue.push_back(((x, y), 0u16));
-    while let Some(((cx, cy), dist)) = queue.pop_front() {
-        if dist >= max_span {
-            continue; // do not expand past the span -- nothing beyond could still be in bounds
-        }
-        for (dx, dy) in NEIGHBOURS_4 {
-            let next @ (nx, ny) = (cx + dx, cy + dy);
-            if visited.contains(&next) {
-                continue;
-            }
-            let neighbour = world.get(nx, ny);
-            if neighbour.organism_id() != organism_id || world.materials.kind(neighbour.material) != MaterialKind::Plant {
-                continue; // a different organism, or non-Plant material, is a wall -- same convention diffuse_resource's own is_wall uses
-            }
-            visited.insert(next);
-            if touches_solid_ground(nx, ny) {
-                return true;
-            }
-            queue.push_back((next, dist + 1));
-        }
-    }
-    false
 }
 
 /// The organism-owned mirror of `schedule_solid_neighbours` — an organism
@@ -1706,6 +1714,36 @@ mod tests {
         );
     }
 
+    /// `run`, plus the per-organism passes — i.e. what production actually
+    /// executes, via `World::step_active_sites`.
+    ///
+    /// **Every organism test has to use this**, and the reason is the whole
+    /// point of the support rewrite. A cell's distance to its anchors is no
+    /// longer searched for at check time; `plant::anchor_support` computes
+    /// it from the anchors outward once per organism tick, and
+    /// `organism_structural_tick` reads the result. A harness that drives
+    /// only `scheduler::step` never runs that pass, so every cell keeps
+    /// `OrganismCell::support`'s default of 0 — "anchored" — and nothing
+    /// can ever fail.
+    ///
+    /// That is not a weakening of these tests, it is them driving the real
+    /// path: three of the four failed the moment the new mechanism landed,
+    /// which is exactly what `CLAUDE.md` asks for when a mechanism is
+    /// replaced ("deliberately break the replacement and confirm the old
+    /// tests fail — if they still pass, delete them rather than porting
+    /// them"). They did fail, so they were testing something, and they get
+    /// ported.
+    ///
+    /// Organisms tick on `(frame + organism_id) % ORGANISM_TICK_INTERVAL`,
+    /// so a frame count below ~45 can miss the pass entirely.
+    fn run_organisms(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            w.begin_step();
+            w.step_active_sites();
+            w.end_step();
+        }
+    }
+
     #[test]
     fn overlapping_schedule_structural_check_around_calls_do_not_duplicate() {
         // `Reports` code-review-findings item #2: `schedule_structural_
@@ -2457,6 +2495,40 @@ mod tests {
     // since growth's own direction is randomized and irrelevant to what's
     // being tested here.
 
+    /// Pin `wood`'s cantilever reach for one test world.
+    ///
+    /// **A test about the mechanism must not depend on the shipped
+    /// constant.** `max_cantilever_reach` is set from a measurement of a
+    /// real stand (support max 77, so 96 with headroom) and will be
+    /// re-derived again when the load model grows the plant's own weight.
+    /// The beams below are 6 and 12 cells, so against the shipped value
+    /// every one of them would sit comfortably inside the limit and these
+    /// tests would pass while exercising nothing -- the exact failure
+    /// `CLAUDE.md` describes as a superseded mechanism's tests still
+    /// passing.
+    ///
+    /// Same synthetic-reload route `editing_max_unsupported_span_while_
+    /// running_changes_what_stands` uses, since that is the only public way
+    /// content changes at runtime.
+    fn pin_wood_reach(w: &mut World, reach: u16) {
+        // Unique per call: the tests run in parallel and three of them pin
+        // the same reach, so a name keyed only on the value had them
+        // deleting the directory out from under each other mid-reload.
+        static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("pixel-physics-organism-reach-{reach}-{seq}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("wood.ron"),
+            format!(
+                "(name: \"wood\", kind: Plant, density: 0.9, colors: [(92,64,40)],                  max_unsupported_span: 8, max_cantilever_reach: {reach}, breaks_into: \"deadwood\")"
+            ),
+        )
+        .unwrap();
+        w.materials.reload(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
@@ -2467,6 +2539,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let organism_id = w.push_organism(tree_species);
+        pin_wood_reach(&mut w, 8);
         // Anchored at the left end by a stone cell directly below it --
         // organism_is_supported's own generalization of "touches BEDROCK"
         // to "touches Solid ground". 6 cells, within wood's span of 8.
@@ -2476,7 +2549,7 @@ mod tests {
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(5, 30); // the far end, distance 5
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         for x in 0..6 {
             assert_eq!(w.get(x, 30).organism_id(), organism_id, "an anchored, in-span organism beam broke (or lost its organism_id) at x={x}");
@@ -2488,15 +2561,16 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let organism_id = w.push_organism(tree_species);
+        pin_wood_reach(&mut w, 8);
         w.set(0, 31, Cell::new(material::STONE, 0));
-        // 12 cells -- longer than wood's span of 8, so the far end (distance
+        // 12 cells -- longer than the reach pinned above, so the far end (distance
         // 11) is unsupported once actually checked.
         for x in 0..12 {
             let cell = organism_wood_cell(&mut w, organism_id);
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(11, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         let deadwood = w.materials.id_of("deadwood").unwrap();
         assert_eq!(w.get(11, 30).material, deadwood, "an over-span organism-owned wood cell should have broken into deadwood");
@@ -2523,7 +2597,7 @@ mod tests {
             w.set(x, 30, cell);
         }
         w.schedule_structural_check(13, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
         assert_eq!(w.get(13, 30).organism_id(), organism_id, "test setup: the intact, anchored beam should not have broken yet");
 
         // Cut the anchor itself -- every cell in the beam is now
@@ -2532,7 +2606,7 @@ mod tests {
         w.set(10, 31, Cell::EMPTY);
         w.schedule_structural_check_around(10, 31);
         w.schedule_structural_check(10, 30);
-        run(&mut w, 200);
+        run_organisms(&mut w, 200);
 
         assert_ne!(w.get(13, 30).organism_id(), organism_id, "the far end of the organism beam never collapsed after its only anchor was cut");
     }
@@ -2550,6 +2624,9 @@ mod tests {
             let mut w = test_world();
             let wood = w.materials.id_of("wood").expect("wood is compiled in");
             let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            // Pinned so the load term is what decides, not the shipped
+            // reach -- a 9-cell branch is far inside the real 96.
+            pin_wood_reach(&mut w, 8);
             // A trunk on the ground, and a cantilever reaching out from it.
             for y in 30..40 {
                 w.set(10, y, Cell::new(material::STONE, 0));
@@ -2581,8 +2658,8 @@ mod tests {
 
         let mut bare = build(false);
         let mut loaded = build(true);
-        run(&mut bare, 200);
-        run(&mut loaded, 200);
+        run_organisms(&mut bare, 200);
+        run_organisms(&mut loaded, 200);
 
         assert!(
             surviving(&loaded) < surviving(&bare),
@@ -2592,4 +2669,81 @@ mod tests {
         );
     }
 
+
+    /// **The strength half of the wood-density allele, on the scene the
+    /// load model already trusts.**
+    ///
+    /// Same beam, same sand, same pinned reach as
+    /// `a_loaded_branch_breaks_at_a_shorter_span_than_a_bare_one` — the
+    /// only difference between the two runs is the individual's density
+    /// allele, so nothing but the multiplier can explain the outcome. The
+    /// pinned reach of 8 is chosen so the tip's distance (8) falls
+    /// *between* the two alleles' effective spans: the pioneer's
+    /// `⌊8 × 0.75⌋ − 1 = 5` cannot hold it and the dense allele's
+    /// `⌊8 × 1.35⌋ − 1 = 9` can. Against the shipped reach of 96 both
+    /// would stand and this would test nothing, which is exactly what
+    /// `pin_wood_reach` exists for.
+    ///
+    /// The price half lives on `Grow.cost` and is measured on a stand, not
+    /// here — one number for both, so tuning cannot turn the trade into a
+    /// free lunch.
+    #[test]
+    fn dense_wood_holds_a_longer_loaded_branch() {
+        let build = |allele: u8| -> World {
+            let mut w = test_world();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            if let Some(state) = w.organism_mut(organism) {
+                state.alleles[organism::LOCUS_WOOD_DENSITY] = allele;
+            }
+            pin_wood_reach(&mut w, 8);
+            for y in 30..40 {
+                w.set(10, y, Cell::new(material::STONE, 0));
+            }
+            for x in 11..=19 {
+                w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
+            }
+            // Sand on the branch, the same pile the load test uses. The
+            // load term is what the density multiplier has to compose
+            // with -- §4.1's claim is about a branch under piled load, not
+            // a bare one -- and it is what puts the as-authored allele on
+            // the failing side too (see the third run below).
+            for x in 11..=19 {
+                w.set(x, 29, Cell::new(material::SAND, 0));
+            }
+            w.schedule_structural_check_around(19, 30);
+            w
+        };
+
+        let surviving = |w: &World| -> usize {
+            let wood = w.materials.id_of("wood").unwrap();
+            (11..=19).filter(|&x| w.get(x, 30).material == wood).count()
+        };
+
+        let mut pioneer = build(0);
+        let mut authored = build(1);
+        let mut dense = build(2);
+        run_organisms(&mut pioneer, 200);
+        run_organisms(&mut authored, 200);
+        run_organisms(&mut dense, 200);
+
+        assert_eq!(surviving(&dense), 9, "the dense allele's effective span (9) covers the whole beam and it should stand intact; kept {}", surviving(&dense));
+        assert!(
+            surviving(&pioneer) < surviving(&dense),
+            "cheap wood must break back further under the same load: pioneer kept {} cells, dense kept {}",
+            surviving(&pioneer),
+            surviving(&dense)
+        );
+        // **The middle allele is the control that says the multiplier did
+        // the work.** As authored (x1.0) the effective span is 7 against a
+        // tip at 8, so this beam fails too -- the dense run above is not
+        // standing because the scene is easy, it is standing because 1.35
+        // bought it two more cells of reach.
+        assert!(
+            surviving(&authored) < surviving(&dense),
+            "the as-authored allele should break here as well, or the dense run proves nothing: authored kept {} cells, dense kept {}",
+            surviving(&authored),
+            surviving(&dense)
+        );
+    }
 }

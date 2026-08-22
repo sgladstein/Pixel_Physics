@@ -208,6 +208,26 @@ pub enum Behavior {
     /// idle" signal saturates simultaneously when growth stops, which is
     /// exactly how the earlier bud-break attempt ran away.
     BudBreak {
+        /// Where along the plant buds preferentially break — **acrotony
+        /// against basitony**, the single scalar the botany review found
+        /// flips a plant between tree and shrub *habit* at whole-plant
+        /// scale (Barthélémy & Caraglio 2007: "two fundamental phenomena
+        /// underlying, respectively, the arborescent or bushy growth
+        /// habit").
+        ///
+        /// Scales a bud's flush score by `1 + acrotony * (elevation − 0.5)`
+        /// where elevation runs 0 at the root collar to 1 at the shoot's
+        /// top. Positive prefers high buds (acrotony — crowns keep
+        /// renewing at the top, a tree), negative prefers basal ones
+        /// (basitony — the base keeps throwing new axes, a thicket).
+        /// `0.0` is indifferent and is the old behaviour.
+        ///
+        /// A basitonous species should also raise `thickening_survival`:
+        /// its preferred buds sit on the oldest, most-thickened wood, and
+        /// the literature's resprouters are exactly the plants whose
+        /// epicormic buds track the cambium for decades.
+        #[serde(default)]
+        acrotony: f32,
         /// Carbon a flush spends to turn the bud into a tip. A price, not
         /// a threshold: it comes out of the same pool `Grow` draws on, so
         /// flushing competes with extending rather than being free.
@@ -312,6 +332,32 @@ pub enum Behavior {
         /// non-programmer would plausibly tune it, and it is one of the
         /// clearest silhouette levers a species file has.
         plastochron: ByOrder<u8>,
+        /// **Steps between primed lateral sites** — the branching
+        /// oscillator, `0` disables it.
+        ///
+        /// The sibling of `plastochron` and deliberately a second field
+        /// rather than a reuse of it: a root must never leaf underground,
+        /// so `plastochron: 0` is load-bearing there, and folding priming
+        /// into the same counter would make one number mean "place a leaf"
+        /// and "mark a branch site" at once.
+        ///
+        /// **`0` keeps the in-tick branch roll; non-zero replaces it.** A
+        /// shoot tip photosynthesises, so it can genuinely hold two steps'
+        /// carbon in one tick and its `branch_chance` roll works as
+        /// written. A root tip cannot, and measured, that gate opened twice
+        /// in twelve thousand frames — see `OrganismCell::primed` for the
+        /// measurement and `PLAN.md`'s M16 note for why periodic priming is
+        /// also the better model. Set this on the cell type whose economy
+        /// cannot fund a same-tick second purchase; leave it `0` where the
+        /// existing roll already works.
+        ///
+        /// Multiplied per individual by genotype slot 1, as a *rate* — a
+        /// high draw shortens the interval and primes more densely, so the
+        /// slot keeps the direction its name has always implied (`Reports/
+        /// plant-genome-design.md` §5). The slot is re-pointed, not
+        /// renumbered.
+        #[serde(default)]
+        branch_priming: ByOrder<u8>,
         /// How strongly a shoot keeps its existing heading, `0.0`..`1.0`.
         ///
         /// The child's heading is `normalize(parent * inertia + step *
@@ -424,17 +470,25 @@ pub enum Behavior {
         /// `0.0` disables it, and that is a real value: moss has no use
         /// for individuality, and a test that wants a reproducible single
         /// tree wants the written numbers and not a draw around them.
-        /// Indexed by trait: **0 branch chance, 1 upward weight, 2
-        /// plastochron, 3 turgor cost, 4 pipe ratio, 5 light weight.** All
-        /// zeroes disables jitter.
+        /// Indexed by trait — **`GENOTYPE_TRAITS`' own doc holds the slot
+        /// map and is the contract.** All zeroes disables jitter. The
+        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7 are borrowed
+        /// from the same vector by the passes that consume them — one
+        /// plant, one genotype); the root's `Grow` reads 1/5/8 from the
+        /// RootTip entry's own vector, which is what lets root and shoot
+        /// diverge within one individual.
         ///
         /// **Slots are positional and must never be renumbered** — the slot
         /// index selects which stored draw a trait reads, so moving a trait
         /// silently rewrites every genome ever measured. Retire a dead trait
-        /// by setting its width to `0.0`, not by removing its slot. Slot 1
-        /// is exactly that case: upward weight measured inert across 1,024
-        /// genomes even at ±40% (quintile means 1310, 1460, 1396, 1388,
-        /// 1457 cells — flat), so it is held at 0.0 rather than deleted.
+        /// by setting its width to `0.0`, not by removing its slot; a slot
+        /// dead by measurement in *every* species may be re-purposed once
+        /// (see `GENOTYPE_TRAITS`). Slots 1 and 5 are exactly that case:
+        /// upward weight measured inert across 1,024 genomes even at ±40%
+        /// (quintile means 1310, 1460, 1396, 1388, 1457 cells — flat),
+        /// light weight at ±50% and for a structural reason (the sky cast
+        /// leaves no lateral gradient to steer by), so both now carry the
+        /// root traits instead.
         ///
         /// **One number for all four was wrong, and it was measured wrong.**
         /// At a flat ±15%, a 64-genome population showed only turgor doing
@@ -452,6 +506,76 @@ pub enum Behavior {
         /// clear their own quantization.
         #[serde(default)]
         genotype_variance: [f32; GENOTYPE_TRAITS],
+        /// Whether a **fork on this tier replaces the axis instead of
+        /// decorating it** — monopodial vs sympodial branching, another of
+        /// the Hallé–Oldeman–Tomlinson discriminating axes, and nearly
+        /// free here because `Grow` already retires its apex every step:
+        /// monopodiality was only ever the *labelling* (the primary child
+        /// inherits order and heading, the lateral starts a new tier).
+        ///
+        /// `true` on a tier means a branch event there makes *both*
+        /// children laterals — both take `order + 1` and a fresh heading —
+        /// so the axis is built of stacked equivalent modules. `ByOrder`'s
+        /// saturation then gives Leeuwenberg's model for free: after a few
+        /// forks everything runs on the last tier's parameters, a plant of
+        /// repeated equal modules, which is what a lilac or a frangipani
+        /// is. A `false` trunk under `true` outer tiers is Scarrone's
+        /// (mango); all-`false` is the monopodial tree this engine has
+        /// always grown.
+        #[serde(default = "all_monopodial")]
+        sympodial: ByOrder<bool>,
+        /// Which way each tier's axes want to point — see [`Tropism`].
+        /// Orthotropic everywhere reproduces the old hardcoded `(0, -1)`.
+        #[serde(default = "all_orthotropic")]
+        tropism: ByOrder<Tropism>,
+        /// **The angle, in degrees, at which a new lateral leaves its
+        /// parent axis** — measured between the parent's `heading` and the
+        /// step the lateral takes.
+        ///
+        /// Branch angle is a top-tier silhouette parameter in every prior
+        /// art for procedural trees (L-systems, Weber–Penn, space
+        /// colonization) and this engine had **no parameter for it at
+        /// all**: the lateral was `alt[rng.below(alt.len())]`, a uniform
+        /// draw over whatever open neighbours were left. Branching *rate*
+        /// was per-order species data; branching *angle* was noise. See
+        /// `Reports/plant-appearance-design.md` §2.3.
+        ///
+        /// Growth is on an 8-neighbourhood, so the achievable angles are
+        /// multiples of 45° and this is a *target* that the candidate set
+        /// is scored against, not a value that can be hit exactly. It is
+        /// still a weighted sample and never an argmax — a deterministic
+        /// best-direction pick is what would curve-fit a silhouette, which
+        /// is the objection the candidate loop's own doc raises.
+        ///
+        /// `0.0` means unset and restores the uniform draw.
+        ///
+        /// **Useless without `internode`**, which is why they landed
+        /// together: a lateral that leaves at 90° is re-scored against
+        /// `upward_weight` and the tier reference on its very next step and
+        /// bends straight back alongside the trunk. That is the
+        /// parallel-ropes look, and an angle alone does not touch it.
+        #[serde(default)]
+        branch_angle: ByOrder<f32>,
+        /// **How many steps a fresh lateral holds its departure direction**
+        /// before the light, wind and tropism terms get a vote.
+        ///
+        /// The straightness budget, and the missing shape primitive: this
+        /// engine models a branch as a biased random walk and nothing in it
+        /// represented a branch as an *object* with a length and a
+        /// direction. Coefficients change the statistics of a meander; they
+        /// cannot change what a meander is (§2.4 of the same report). An
+        /// internode is a straight run, and a crown of straight runs
+        /// leaving at an angle is what a tree looks like.
+        ///
+        /// Counted in the lineage step the active site already carries, so
+        /// this costs **no new per-cell state**: a lateral is rescheduled
+        /// with `plastochron: 0`, so its lineage step *is* its age in
+        /// cells.
+        ///
+        /// `0` means unset and restores the old always-score-everything
+        /// behaviour.
+        #[serde(default)]
+        internode: ByOrder<u8>,
         /// Mechanical resistance, in MPa, this cell type can force its way
         /// through — a `RootTip` converts a `Powder` neighbour whose
         /// `Material::penetration_resistance` is *below* this into root
@@ -552,6 +676,45 @@ pub enum Behavior {
         /// that foliage sits above it.
         #[serde(default)]
         shade_death: f32,
+        /// **Transpirational demand**: water this cell spends per organism
+        /// tick at full light, scaled by the light it actually reads.
+        /// `0.0` disables it, which is what every species that has not
+        /// opted in gets.
+        ///
+        /// This is the charge that makes roots matter. Before it, `Absorb`
+        /// credited the same pool `Photosynthesize` filled and nothing
+        /// consumed water at all, so a plant with no soil contact ran no
+        /// deficit and grew on light alone — which is why a canopy filled
+        /// with epiphytes and why a germination guard had to forbid what
+        /// the economy should have made fatal.
+        ///
+        /// **Driven by foliage, not by root count**, which is what
+        /// `plant::TRANSPIRATION_PER_ROOT_CELL`'s own doc says it should
+        /// have been all along: "real transpiration is driven by *leaf*
+        /// area and evaporative demand, not by root count — the canopy is
+        /// the pump… driving it from a real leaf count needs the
+        /// whole-organism totals Decision 2's sidecar introduces". The
+        /// sidecar is here now.
+        ///
+        /// Scaled by light because stomata open in light: a leaf at night
+        /// spends almost nothing, which keeps the day/night oscillator out
+        /// of the *decisions* while leaving it real in the flow.
+        #[serde(default)]
+        transpiration: f32,
+        /// Shedding **pressure** under drought, the exact counterpart of
+        /// `shade_death` and cubed for the same reason: the chance per tick
+        /// that a leaf with no water is shed, falling away steeply as its
+        /// water store fills. `0.0` disables it.
+        ///
+        /// Graded rather than a threshold, because a threshold on a
+        /// quantity that recovers between ticks culls a whole crown on one
+        /// bad tick — the same failure the light threshold had, recorded
+        /// above. It is also what makes drought *visible*: a starving plant
+        /// thins out over many ticks rather than freezing in place, and a
+        /// seedling germinated in a canopy with no soil to reach dies
+        /// rather than merely stopping.
+        #[serde(default)]
+        drought_death: f32,
     },
     /// Pulls water out of adjacent soil and loses it to the air — the
     /// transpiration stream — crediting no resource at all.
@@ -586,6 +749,40 @@ pub enum Behavior {
     /// derivation, `pipe_ratio` deliberately a per-species parameter
     /// rather than a universal constant per that section's own discussion
     /// of the theory's documented limits.
+    /// **Set seed.** The heredity channel: a mature plant spends carbon
+    /// to place a `Seed` cell carrying its own genome, drifted by
+    /// `plant::MUTATION_SIGMA`.
+    ///
+    /// A whole-organism event expressed per cell on purpose. It runs on
+    /// every `MatureBody` cell, so a plant's seed rate is its canopy
+    /// size times `seed_chance` -- a big tree out-breeds a small one
+    /// with no rule saying so, and no whole-plant query either.
+    Reproduce {
+        /// **Carbon price of setting one seed.** Paid out of the cell that
+        /// sets it, like every other growth cost, so a plant that cannot
+        /// afford to reproduce does not.
+        #[serde(default)]
+        seed_cost: f32,
+        /// Chance per organism tick that an eligible cell sets a seed.
+        ///
+        /// Small on purpose: this runs on every `MatureBody` cell of every
+        /// plant, so the *organism's* seed rate is this times its canopy
+        /// size — which is the coupling wanted. A big tree should out-breed
+        /// a small one without a rule saying so.
+        ///
+        /// `0.0` disables reproduction, which is the default and what moss
+        /// and any species predating this get.
+        #[serde(default)]
+        seed_chance: f32,
+        /// Shoot cells a plant needs before it sets any seed at all.
+        ///
+        /// Without it a seedling reproduces on its first mature cell and
+        /// the world fills with dynasties of two-cell plants that never
+        /// pay the cost of growing up — selection for instant reproduction,
+        /// which is a real evolutionary attractor and a boring one.
+        #[serde(default)]
+        seed_maturity: u32,
+    },
     SecondaryThicken { pipe_ratio: f32 },
     /// A `Seed` cell's transition to `GrowingTip`/`RootTip`, checked on a
     /// schedule against local field readings. `instant: true` is a
@@ -605,9 +802,68 @@ pub enum Behavior {
 /// run on it. `Vec<(CellType, Vec<Behavior>)>` rather than a map keyed on
 /// `CellType` — simpler RON syntax, and no species is expected to have
 /// enough cell types for linear lookup to matter.
+/// How many consecutive palette entries make one **band** — one hue, in the
+/// four tonal steps `render.rs` already uses as material grain.
+///
+/// Colour is not physics, so a conifer's needles are not a new *material*:
+/// `leaf.ron`'s own doc states this engine's test for when a material is
+/// warranted ("its *physics* genuinely differ on numbers that already
+/// exist"), and a fir and an oak differ on none of them. What differs is
+/// hue, so hue is what varies — a band range per species, one band per
+/// individual inside it, one tonal step per cell.
+pub const PALETTE_BAND: u8 = 4;
+
+/// A species' slice of a material's palette: `count` bands starting at
+/// `first`. An individual draws one band from this range at germination, so
+/// the range is the *species'* colour and the draw is the *individual's*.
+///
+/// **`count: 0` means unset and restores the pre-band behaviour** — a shade
+/// drawn uniformly from the whole palette. That is what every species
+/// without a declared range gets (moss, and any asset set that predates
+/// this), so adding bands cost no existing species its look.
+#[derive(Clone, Copy, Deserialize, Default, Debug, PartialEq, Eq)]
+pub struct PaletteBands {
+    pub first: u8,
+    pub count: u8,
+}
+
 #[derive(Deserialize)]
 pub struct SpeciesDef {
     pub name: String,
+    /// Which bands of `leaf`'s palette this species' foliage draws from.
+    #[serde(default)]
+    pub foliage_bands: PaletteBands,
+    /// Which bands of `wood`'s palette this species' stems draw from.
+    #[serde(default)]
+    pub bark_bands: PaletteBands,
+    /// The stock fraction below which this species starts closing its
+    /// stomata — 0.0 (the default) never closes early, which is exactly
+    /// the pre-closure engine: the settle in `plant::organism_upkeep`
+    /// draws `min(stock, demand)` and desiccation equals `1 − status`
+    /// identically, so a species that does not opt in cannot be moved by
+    /// this field or by genotype slot 7, which multiplies it.
+    #[serde(default)]
+    pub stomatal_reserve: f32,
+    /// **What this species is made of** — the three materials seeded at
+    /// germination and at leaf placement, defaulted to the tree set so
+    /// every shipped `.ron` is untouched.
+    ///
+    /// These are the *seeds*, not a cell-type-to-material table: growth
+    /// still propagates a parent's material to its child, which is what
+    /// makes a whole root system rootwood from one seeded cell. Moving
+    /// these three constants from code to data is the entire engine
+    /// change behind "a plant that is not a tree" — before it, a `Grow`
+    /// species was brown stem and green leaf by construction, whatever
+    /// its numbers said (`Reports/plant-evolution-design.md` §3c).
+    ///
+    /// An unknown name falls back to the parent cell's own material,
+    /// exactly as the hardcoded lookups did for a stripped asset set.
+    #[serde(default = "default_shoot_material")]
+    pub shoot_material: String,
+    #[serde(default = "default_root_material")]
+    pub root_material: String,
+    #[serde(default = "default_leaf_material")]
+    pub leaf_material: String,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// Everything only a *creature* species needs. `#[serde(default)]` so
     /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
@@ -767,8 +1023,25 @@ pub struct CreatureDef {
     pub hidden_outputs: Vec<super::brain::OutputWire>,
 }
 
+fn default_shoot_material() -> String {
+    "wood".to_string()
+}
+fn default_root_material() -> String {
+    "rootwood".to_string()
+}
+fn default_leaf_material() -> String {
+    "leaf".to_string()
+}
+
 pub struct Species {
     pub name: String,
+    pub foliage_bands: PaletteBands,
+    pub bark_bands: PaletteBands,
+    pub stomatal_reserve: f32,
+    /// See `SpeciesDef::shoot_material`.
+    pub shoot_material: String,
+    pub root_material: String,
+    pub leaf_material: String,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
     pub creature: Option<CreatureDef>,
     /// The authored genome, expanded once at load rather than per spawn.
@@ -791,7 +1064,18 @@ impl Species {
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
         let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs)).unwrap_or_default();
-        Self { name: def.name, cell_types: def.cell_types, creature: def.creature, genome }
+        Self {
+            name: def.name,
+            foliage_bands: def.foliage_bands,
+            bark_bands: def.bark_bands,
+            stomatal_reserve: def.stomatal_reserve,
+            shoot_material: def.shoot_material,
+            root_material: def.root_material,
+            leaf_material: def.leaf_material,
+            cell_types: def.cell_types,
+            creature: def.creature,
+            genome,
+        }
     }
 }
 
@@ -882,6 +1166,92 @@ pub struct OrganismState {
     /// whole-plant property, and no local rule can compute "am I mostly
     /// root". Kept as counts rather than a ratio so a caller can apply its
     /// own threshold.
+    /// **The plant's water stock — the second currency, held per organism
+    /// rather than per cell.**
+    ///
+    /// `Reports/plant-substrate-v2-design.md` §3c sketched `water: f32` on
+    /// `OrganismCell` and §9 item 12 sanctioned symmetric transport for it.
+    /// **That was built, measured, and does not work at tree scale**, which
+    /// is worth recording because the design record says otherwise:
+    ///
+    /// Water entered at the roots and never arrived. On the standard probe
+    /// the stand fell to 64 cells, with root tissue at the cap (4.0) and
+    /// foliage median **0.00** — a mean stomatal term of 0.15. The reason
+    /// is not tuning. Diffusion spreads as the square root of the substep
+    /// count: 45 substeps at `DIFFUSION_RATE` move a front a handful of
+    /// cells, and a mature tree is ~130 rows from root to crown, needing
+    /// thousands. Carbon only crosses that distance because canalization
+    /// builds polar strands that carry it; the one `carbon_conductance`
+    /// array cannot also serve water, because xylem and phloem run in
+    /// *opposite* directions — that is exactly what §9 item 12 says.
+    ///
+    /// So the balance lives on the organism, which is the object the
+    /// question is actually about: "can this plant supply its canopy" is a
+    /// whole-plant question, and `allocate_to_frontier` already pools and
+    /// distributes carbon income at exactly this scale. Ask which object a
+    /// rule evaluates — a cell, a section, or a whole piece — and water
+    /// status is a property of the piece.
+    ///
+    /// Capacity is proportional to root mass (`plant::water_capacity_of`),
+    /// so a deep, wide root system buys a real drought buffer and a
+    /// shallow one does not. That is the coupling that makes root traits
+    /// worth selecting on, and the same quantity anchorage will read.
+    pub water: f32,
+    /// How much of this tick's transpirational demand the stock could
+    /// actually meet, `0.0..=1.0` — the **stomatal term** that multiplies
+    /// every photosynthetic credit and every leaf's contribution to
+    /// intercepted light.
+    ///
+    /// Computed once per organism tick in `plant::organism_upkeep`'s
+    /// existing whole-plant walk, beside `root_cells`/`shoot_cells`, and
+    /// read per cell after. Storing it rather than recomputing per cell is
+    /// what keeps the two income gates (`allocate_to_frontier` and
+    /// `break_buds`) reading the identical number.
+    pub water_status: f32,
+    /// Water actually taken up over the last organism tick, and the demand
+    /// it was measured against — the two halves of the balance, kept so a
+    /// deficit can be attributed rather than inferred from stand mass.
+    ///
+    /// Sums, not counts: `CLAUDE.md` prefers a continuous quantity over a
+    /// count of starving cells, because counts give knife-edge margins.
+    pub water_uptake: f32,
+    pub water_demand: f32,
+    /// The live accumulator behind `water_uptake`.
+    ///
+    /// Two fields rather than one because the first version reset the
+    /// counter in the same statement that reported it, so every probe read
+    /// the post-reset zero and the readout said uptake was **0.00** for
+    /// every plant in the stand -- while the stomatal term said 0.16, which
+    /// is impossible with no uptake at all. A counter that disagrees with
+    /// the quantity it is supposed to explain is measuring its own
+    /// bookkeeping.
+    pub water_uptake_acc: f32,
+    /// The **desiccation term** — how short of demand this plant would
+    /// have fallen with stomata fully open, `0.0..=1.0`. What
+    /// `drought_death` reads, where earning reads `water_status`.
+    ///
+    /// Two numbers because prudence must not read as thirst: an
+    /// individual that closes its stomata early (`stomatal_reserve` ×
+    /// genotype slot 7) spends less water and *earns* less — that is the
+    /// real price — but its leaves are not drying out while the tank
+    /// still holds. Shedding keyed on the spent-side term would make the
+    /// conservative allele shed hardest while protecting its stock, and
+    /// the stomatal locus would select against itself
+    /// (`Reports/plant-genome-design.md` §4.3). With `stomatal_reserve`
+    /// at 0 the two terms are identical by construction.
+    pub water_desiccation: f32,
+    /// Carbon the parent packed into this individual's seed —
+    /// `Reproduce.seed_cost`, handed to the seedling as its starting
+    /// stake at germination instead of vanishing at the deduction site.
+    /// The seed *is* its provisions. 0 for a planted seed, which starts
+    /// broke exactly as scenes and tests have always assumed.
+    ///
+    /// Species-level plumbing today, deliberately: the seed-strategy
+    /// locus that would vary it is **deferred** until the
+    /// endowment→establishment response is measured — assigning a slot
+    /// to an unmeasured trade is how slots 1 and 5 died the first time
+    /// (`Reports/plant-genome-design.md` §4.8).
+    pub endowment: f32,
     pub root_cells: u32,
     pub shoot_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
@@ -980,13 +1350,254 @@ pub struct OrganismState {
     /// creature, empty for plants until the plant migration adopts the
     /// shared mechanism (`Reports/creature-direction.md` §7a).
     pub genome: Vec<f32>,
+
+    // --- plant fields ---------------------------------------------------
+    /// The highest row this organism's shoot tissue reaches, refreshed in
+    /// the same upkeep walk as `collar_y`. With the collar it gives the
+    /// shoot's vertical span, which is what `acrotony` positions a bud
+    /// against. `None` until the first upkeep pass.
+    pub shoot_top_y: Option<i32>,
+    /// **Event counters, because a contact sheet cannot show whether a
+    /// mechanism fired.** A collapse was once read as "chunks are working"
+    /// while the body counter said zero for the whole run; every discrete
+    /// architectural event gets a counter printed beside the picture for
+    /// exactly that reason. Stored, not derived — events cannot be
+    /// reconstructed from world state after the fact.
+    pub sympodial_forks: u32,
+    /// Growth steps taken under a plagiotropic reference — says whether a
+    /// species' `tropism` tiers ever actually ran.
+    pub plagiotropic_steps: u32,
+    /// Growth steps taken inside a lateral's `internode` straightness
+    /// budget — zero means the budget never bound and the shape is still
+    /// the old free meander.
+    pub rigid_steps: u32,
+    /// Laterals launched, and the sum of the angles they actually left at.
+    ///
+    /// **The mean of these two is the counter that matters for
+    /// `branch_angle`**, and it is deliberately the *achieved* angle rather
+    /// than a count of how often the scoring ran. Growth is on an
+    /// 8-neighbourhood, so a species asking for 90° cannot always get it;
+    /// a counter that only said "the angle code executed 400 times" would
+    /// be true and useless, which is the failure this project keeps
+    /// rediscovering. A mean of 47° against a target of 90° says the lever
+    /// is weak — which no contact sheet could tell you.
+    pub lateral_departures: u32,
+    pub departure_angle_sum: f32,
+    /// **This individual's colour**, as absolute band indices into the
+    /// `leaf` and `wood` palettes — drawn once at germination by
+    /// `plant::seed_genotype`, from the same (world seed, germination
+    /// coordinate) key the genotype uses and for the same reason: colour
+    /// should be a property of the plant, not of the world's planting
+    /// order.
+    ///
+    /// Stored rather than recomputed because the germination coordinate is
+    /// not kept anywhere else, and resolved to an absolute index here
+    /// rather than an offset so the read at every cell-creation site is a
+    /// field access and not a species lookup plus a modulo.
+    ///
+    /// Both are 0 until germination, which is the first band of whatever
+    /// palette the material has — the pre-band look.
+    pub foliage_band: u8,
+    pub bark_band: u8,
+    /// **This individual's genome came from a parent, not from where it
+    /// landed.** `plant::seed_genotype` redraws a genotype from
+    /// `(world seed, germination coordinate)` — which is right for a seed
+    /// the player or a scene planted, and *destroys heredity* for a seed
+    /// another plant set. This flag is what tells the two apart, and it is
+    /// the whole difference between a population that evolves and one that
+    /// re-rolls itself every generation.
+    pub inherited: bool,
+    /// How many ancestors deep this individual is. 0 for anything planted;
+    /// a seed's parent's value plus one otherwise.
+    ///
+    /// Purely diagnostic and worth the two bytes: "did reproduction happen"
+    /// is exactly the kind of discrete event a contact sheet cannot show,
+    /// and a stand that looks lush while every plant reads generation 0 is
+    /// a stand where nothing has bred.
+    pub generation: u16,
+    /// Seeds this organism has set. The other half of the same question.
+    pub seeds_set: u32,
+    /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
+    /// small integer per locus, inherited whole and mutated by *jumping*
+    /// rather than drifting, which is what makes a population clump instead
+    /// of smearing.
+    ///
+    /// For a planted seed these are seeded from the species file, so an
+    /// authored species is the *starting point* a population diverges from
+    /// rather than a fixed identity it is stuck with.
+    pub alleles: [u8; DISCRETE_LOCI],
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
 /// both `Behavior::Grow::genotype_variance` and
 /// `OrganismState::genotype_draws`, which must agree because one indexes
 /// the other.
-pub const GENOTYPE_TRAITS: usize = 6;
+///
+/// **The slot map, positional forever** (`Reports/plant-genome-design.md`,
+/// signed off 2026-08-18). Slots 0/2/3 are read by the shoot's `Grow`,
+/// 1/5/8 by the root's `Grow` (from the RootTip entry's own vector — that
+/// separation is what lets root and shoot diverge within one individual),
+/// 4/6/7 by whole-plant passes that borrow the shoot vector:
+///
+///   0 shoot branch chance        5 root tropism gain
+///   1 root branch chance         6 root:shoot allocation bias
+///   2 shoot plastochron          7 stomatal closure point
+///   3 turgor per cell            8 root penetration force
+///   4 pipe ratio
+///
+/// Slots 1 and 5 were `upward_weight` and `light_weight`, measured inert
+/// across 1,024 genomes at ±40% / ±50% and held at zero width in every
+/// species that grows. **A slot dead by measurement in every species may
+/// be re-purposed once, with the measurement record re-baselined; a live
+/// slot, never** — a draw that never expressed rewrites no measured
+/// phenotype, which is the property the never-renumber rule below exists
+/// to protect. The megastudy re-baselines at this re-map; only slots
+/// 0/2/3/4, whose meanings did not move, are comparable across it.
+pub const GENOTYPE_TRAITS: usize = 9;
+
+/// **Discrete genes, and why a continuous genome cannot produce species.**
+///
+/// `genotype_draws` jitters nine scalars around a species mean. Run a
+/// population on that and you get a Gaussian cloud — *a spectrum*, by
+/// construction, however long it runs and however hard selection pushes.
+/// There is no setting of a continuous genome that yields two clumps.
+///
+/// Clusters need a locus that takes one of a few values and mutates by
+/// *jumping* between them. Then a population sits on a value, spreads
+/// continuously around it via `genotype_draws`, and occasionally throws an
+/// individual onto a neighbouring value — which either establishes and
+/// becomes a second cluster or does not. That is the shape of a species.
+///
+/// This is also what the botany says. `Reports/tree-architecture-variety-
+/// review.md` §3.0: Hallé's 23 architectural models are enumerated by a
+/// handful of *categorical* choices — monopodial/sympodial,
+/// orthotropic/plagiotropic — not by tuning scalars. The discrete axes were
+/// already in the engine as authored per-species constants; making them
+/// heritable alleles is what lets the simulation find combinations nobody
+/// wrote down.
+pub const DISCRETE_LOCI: usize = 6;
+
+/// **Leaf construction economics** — the acquisitive↔conservative axis,
+/// and the foliage band the individual wears; one allele, both meanings.
+/// Allele 0 is the expensive leaf (more carbon per unit light, more water
+/// per tick — `LEAF_RATE_ALLELES` / `LEAF_TRANSPIRATION_ALLELES`), allele
+/// 1 the cheap one; Liebig decides who wins where. The band mapping is
+/// the exact consumer this locus had when it was purely cosmetic
+/// (`LOCUS_FOLIAGE`), so the colour is now the visible face of a real
+/// gene rather than a free one — a dark tree is dark because its leaves
+/// are expensive (`Reports/plant-appearance-design.md` §7,
+/// `plant-genome-design.md` §4.2). Whether allele 0 reads *darker* on
+/// screen is the species' own palette ordering; shrub's runs the other
+/// way, which is accepted rather than papered over.
+pub const LOCUS_LEAF_ECONOMY: usize = 0;
+/// Departure angle class — scales the species' `branch_angle`.
+pub const LOCUS_BRANCH_ANGLE: usize = 1;
+/// Straightness-budget class — scales the species' `internode`.
+pub const LOCUS_INTERNODE: usize = 2;
+/// Monopodial (0) or sympodial (1), overriding the species default.
+pub const LOCUS_SYMPODIAL: usize = 3;
+/// Orthotropic (0) or plagiotropic (1) on non-trunk tiers.
+pub const LOCUS_TROPISM: usize = 4;
+/// **Wood density** — the pioneer↔dense strategy axis, the best-studied
+/// trade in tree ecology. One multiplier (`WOOD_DENSITY_ALLELES`) scales
+/// the branch-holding strength (`Material::max_cantilever_reach`, applied
+/// per individual in `structural::organism_structural_tick`) and the
+/// carbon price of every `Grow` step together: cheap wood outgrows dense
+/// wood and loses more of itself to load. The bark band derives from this
+/// allele (`bark_band_for_density`), so bark tone is a readout of a real
+/// gene, exactly as foliage tone is.
+pub const LOCUS_WOOD_DENSITY: usize = 5;
+
+/// How many alleles each locus has.
+///
+/// `LOCUS_LEAF_ECONOMY` is 2, matching the two foliage bands every
+/// species declares. It was 6 ("bounded by the palette") while the locus
+/// was cosmetic, and that shape carried a latent bias: mutation drew
+/// uniformly over six alleles while the consumer clamped to the species'
+/// two bands, so a jump landed on the top band five times as often as
+/// the bottom one. Two alleles for two strategies removes the bias by
+/// construction.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3];
+
+/// Multipliers on the species' `branch_angle`, one per allele of
+/// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*
+/// different plants and not three tunings of one — on `tree`'s 70° trunk
+/// value these give roughly 28°, 70° and 112°: a fastigiate column, the
+/// species as authored, and a splayed low crown.
+pub const BRANCH_ANGLE_ALLELES: [f32; 3] = [0.4, 1.0, 1.6];
+
+/// Multipliers on the species' `internode`. A short budget lets the
+/// environment steer a lateral almost immediately (a meandering, twiggy
+/// habit); a long one holds it straight for a real run.
+pub const INTERNODE_ALLELES: [f32; 3] = [0.4, 1.0, 2.0];
+
+/// Photosynthetic-rate multiplier per `LOCUS_LEAF_ECONOMY` allele:
+/// acquisitive, then conservative. Never varied alone — it is paired with
+/// `LEAF_TRANSPIRATION_ALLELES` at every consumer, because a free rate
+/// axis would be selection candy with no bill attached. First-pass
+/// values; the paired wet/dry sweep is what sets them.
+pub const LEAF_RATE_ALLELES: [f32; 2] = [1.2, 0.85];
+
+/// Transpirational-demand multiplier per `LOCUS_LEAF_ECONOMY` allele —
+/// the bill for `LEAF_RATE_ALLELES`. Income is min(light, water)-bounded
+/// (Liebig, `plant::allocate_to_frontier`), so the expensive leaf wins
+/// where light is the binding constraint and the cheap one where water
+/// is. That crossover is the whole reason this locus exists.
+pub const LEAF_TRANSPIRATION_ALLELES: [f32; 2] = [1.5, 0.7];
+
+/// Strength-and-price multiplier per `LOCUS_WOOD_DENSITY` allele:
+/// pioneer, as-authored, dense. Applied to `max_cantilever_reach` and to
+/// the shoot/root `Grow.cost` together — one number for both on purpose,
+/// so tuning cannot quietly turn the trade into a free lunch. Secondary
+/// thickening pays no carbon today, so the price binds on extension
+/// only; recorded in `Reports/plant-genome-design.md` §4.1 rather than
+/// hidden.
+pub const WOOD_DENSITY_ALLELES: [f32; 3] = [0.75, 1.0, 1.35];
+
+/// The strength-and-price multiplier this genome's density allele selects.
+///
+/// **One accessor, because the multiplier has to reach every site that
+/// budgets against the cost it scales, not just the site that spends it.**
+/// It landed on `Grow`'s own gate first and nowhere else, and the three
+/// places that stake or cap a frontier *in units of that cost* went on
+/// using the unscaled number: a dense plant's re-initiated root tip and
+/// flushed bud were staked below their own first step (so the courtesy
+/// their comments promise inverted into a guaranteed failure), and
+/// `break_buds`' income-over-price tip cap let dense plants open a
+/// frontier they could not feed while capping pioneers below what they
+/// could. `CLAUDE.md`: when a fix changes what a number *means*,
+/// re-deriving what reads it is part of the fix.
+///
+/// Clamps rather than indexes blindly -- stale state carrying a widened
+/// allele must not walk off the table.
+pub fn wood_density(alleles: &[u8; DISCRETE_LOCI]) -> f32 {
+    WOOD_DENSITY_ALLELES[(alleles[LOCUS_WOOD_DENSITY] as usize).min(WOOD_DENSITY_ALLELES.len() - 1)]
+}
+
+/// Which bark band a density allele wears, inside the species' declared
+/// range — proportional, so the dense end of the allele range takes the
+/// top band. With today's two-band ranges and three alleles this reads
+/// `[first, first, first + 1]`: pioneer and as-authored share the low
+/// band and dense stands out. Judged on a sheet like every colour call;
+/// `count == 0` (moss, anything pre-band) keeps the pre-band 0, exactly
+/// as the old free draw did.
+pub fn bark_band_for_density(bands: PaletteBands, allele: u8) -> u8 {
+    if bands.count == 0 {
+        return 0;
+    }
+    let n = LOCUS_ALLELES[LOCUS_WOOD_DENSITY].max(1) as u16;
+    bands.first + ((allele.min(n as u8 - 1) as u16 * bands.count as u16) / n) as u8
+}
+
+/// Chance that one locus jumps to a different allele when a seed is set.
+///
+/// **Much rarer than continuous drift, and that asymmetry is the mechanism.**
+/// `MUTATION_SIGMA` moves every trait a little every generation, which is
+/// what gives a cluster its internal spread; this fires seldom, which is
+/// what lets a cluster *persist* long enough to be one. Make it common and
+/// the discrete loci smear into just another continuous axis, which is the
+/// exact failure this whole construction exists to avoid.
+pub const DISCRETE_MUTATION_CHANCE: f32 = 0.03;
 
 /// Re-exported so `world.rs` can size `OrganismState::brain_state`
 /// without importing `brain` for one constant.
@@ -1003,6 +1614,13 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/species/worm.ron"),
     include_str!("../../assets/species/ant.ron"),
     include_str!("../../assets/species/beetle.ron"),
+    // Appended, never inserted — the same convention `material.rs`'s
+    // EMBEDDED list states and for the weaker version of the same reason:
+    // a species resolves by name (`id_of`), so there is no id contract to
+    // break here, but keeping one arrival order across both registries is
+    // what stops the next merge having to reason about it again.
+    include_str!("../../assets/species/conifer.ron"),
+    include_str!("../../assets/species/shrub.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
@@ -1161,6 +1779,43 @@ fn one_u8() -> u8 {
     1
 }
 
+/// Which way an axis of a given branch order wants to point — the
+/// orthotropic/plagiotropic distinction, which is one of the four
+/// discriminating axes of the Hallé–Oldeman–Tomlinson architectural
+/// models and the single biggest silhouette lever the engine had no way
+/// to express.
+///
+/// **Orthotropic** axes grow toward the vertical (a poplar's everything, a
+/// fir's trunk). **Plagiotropic** axes grow *outward*, holding the
+/// direction they left their parent in — a fir's branch tiers, and the
+/// building block of Troll's model, which the literature calls the
+/// commonest architecture of the temperate broadleaf flora. The reference
+/// direction a plagiotropic axis holds is its own stored `heading`'s
+/// horizontal sense, so the data this needs has existed since momentum
+/// landed; this enum only lets a species point different tiers different
+/// ways.
+///
+/// `upward_weight` weights the pull toward whichever reference the tier
+/// selects — for a plagiotropic tier it is an *outward* weight, the name
+/// notwithstanding; renaming a field every genome salt table references
+/// was judged worse than one doc line here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, serde::Deserialize)]
+pub enum Tropism {
+    Orthotropic,
+    Plagiotropic,
+}
+
+/// `serde` default: every tier orthotropic, which is exactly the old
+/// hardcoded behaviour.
+fn all_orthotropic() -> ByOrder<Tropism> {
+    ByOrder::uniform(Tropism::Orthotropic)
+}
+
+/// `serde` default: no tier forks sympodially — the old behaviour.
+fn all_monopodial() -> ByOrder<bool> {
+    ByOrder::uniform(false)
+}
+
 /// A `Grow` parameter that varies with **branch order** — the number of
 /// lateral branchings between a tip and the seed.
 ///
@@ -1203,6 +1858,16 @@ impl<T: Copy> ByOrder<T> {
     }
 }
 
+/// Every tier at `T`'s own default — what `#[serde(default)]` on a
+/// `ByOrder` field means, and for `branch_angle`/`internode` the zero is
+/// deliberately the "unset, keep the old behaviour" value rather than a
+/// neutral one.
+impl<T: Copy + Default> Default for ByOrder<T> {
+    fn default() -> Self {
+        Self::uniform(T::default())
+    }
+}
+
 impl<'de, T> Deserialize<'de> for ByOrder<T>
 where
     T: Deserialize<'de> + Copy,
@@ -1237,6 +1902,15 @@ where
 /// job — bounding what `Photosynthesize` and `Absorb` may accumulate —
 /// and changing it no longer changes the resolution of anything.
 pub const RESOURCE_SCALE: f32 = 4.0;
+
+/// Behavioural cap on how much water one cell may hold, on its own scale.
+///
+/// Mirrors `RESOURCE_SCALE` deliberately: the two currencies are compared
+/// only as *fractions of their own cap* (`water / WATER_SCALE` is the
+/// stomatal term), never against each other, so keeping the caps equal
+/// means a reading of "half full" means the same thing in both and no
+/// conversion constant has to exist.
+pub const WATER_SCALE: f32 = 4.0;
 
 /// Pack a `CellType` into bits 0-3 of `aux`.
 ///
@@ -1334,6 +2008,37 @@ pub struct OrganismCell {
     /// `Reports/tree-rewrite-design.md` §2b's crowding signal, clamped to
     /// `CANOPY_DENSITY_SCALE`.
     pub canopy_density: f32,
+    /// **Weighted distance to this organism's nearest structural anchor**,
+    /// recomputed once per organism tick by `plant::anchor_support`.
+    /// `u16::MAX` means *unreached* — nothing this cell is connected to
+    /// touches the ground, so the piece it belongs to has come off.
+    ///
+    /// This replaced `structural::organism_is_supported`, which ran a fresh
+    /// bounded BFS **outward from the cell being checked** on every check.
+    /// That was wrong twice, and neither was tuning:
+    ///
+    /// - It was bounded by `max_unsupported_span` (8 for `wood`) measured
+    ///   from the checked cell, so on a 150-cell tree any check fired in the
+    ///   crown could not reach the ground within the budget and read
+    ///   "unsupported". Scheduling one mid-organism amputated the canopy —
+    ///   772 cells against 20,213 from that single line — which is why
+    ///   growth and abscission both deliberately scheduled no checks at all.
+    /// - It traversed `NEIGHBOURS_4` while `Grow` places children at 8, so
+    ///   a diagonally-grown branch read as disconnected. Same rule
+    ///   `reachable_from_anchors` was already fixed for.
+    ///
+    /// Computing it **from the anchors outward**, once per organism, fixes
+    /// both: there is no span budget to run out of, a severed crown is
+    /// unreached however far away it is, and the per-check cost drops to a
+    /// field read.
+    ///
+    /// Two distinct questions come off this one number, and keeping them
+    /// distinct is the point: `== u16::MAX` is *attachment* (is this cell
+    /// still part of a piece that reaches ground), and `> effective_span` is
+    /// *cantilever* (is it too far out along its own load path for the load
+    /// it carries). A bare reachability bit would have silently superseded
+    /// the second rule while leaving its test green.
+    pub support: u16,
     /// Per-face carbon **efflux** conductance, indexed in `NEIGHBOURS_4`
     /// order — Decision 6 (`Reports/plant-substrate-v2-design.md` §7b).
     ///
@@ -1405,6 +2110,58 @@ pub struct OrganismCell {
     /// read, which is correct for a cell that has just germinated and has
     /// no history to carry.
     pub heading: (f32, f32),
+    /// **Hydraulic path length from the collar, in cells** — how far sap has
+    /// actually had to travel to reach here, not how high up it is.
+    ///
+    /// This replaces `collar - y` in `Grow`'s turgor gate, and the reason is
+    /// a measured gap rather than a preference for realism. The vertical
+    /// form bounds *height* and bounds width not at all: a cell two hundred
+    /// columns sideways at collar height reads `height = 0` and full margin.
+    /// A single tree planted with twenty rows of sky therefore never stops
+    /// growing — 24,946 cells and still climbing at frame 295,000 — because
+    /// it cannot go up, so it goes sideways forever. With 190 rows it
+    /// plateaus at frame 180,000. Self-shading was the only thing bounding
+    /// width, and it is enough in a tall scene and nothing in a shallow one.
+    /// See `Reports/branch-angle-and-the-width-bound.md`.
+    ///
+    /// Path length bounds both axes with the mechanism already there, and it
+    /// is what the biology says anyway: water potential falls with the
+    /// hydraulic path the xylem has to push through, not with altitude, so a
+    /// 200-cell horizontal limb is under the same constraint as a 200-cell
+    /// trunk (`Reports/tree-extension-biology.md` §2c's own source is about
+    /// path resistance).
+    ///
+    /// **Propagated at creation — parent + 1 — not recomputed.** A plant is
+    /// acyclic and does not move, so a cell's distance from the collar is
+    /// fixed the moment it exists; there is no pass and no per-tick cost. It
+    /// also strictly improves on the property that made height attractive
+    /// (`collar_y`'s doc: the one signal that does not equalize when growth
+    /// stops) — height is recomputed against a collar that can move, and
+    /// this never changes at all.
+    pub path_len: u16,
+    /// **A primed lateral site** — this cell has been marked by the tip
+    /// that grew past it as a place a branch may later start.
+    ///
+    /// The repair for a gate that could not open. Root branching used to be
+    /// a second `Grow` in the *same tick* as the primary step, so a tip had
+    /// to hold two steps' carbon at once; measured, it cleared that bar
+    /// twice in twelve thousand frames and the 0.04 roll fired zero times
+    /// (`Reports/plant-genome-design.md` §8a). The economy is not the
+    /// defect — a root tip cannot photosynthesise, lives on allocation and
+    /// spends at first affordance, which is intended — the *shape of the
+    /// purchase* was. Priming splits the decision from the bill: the tip
+    /// marks a site for free as it passes, and the site buys its own
+    /// lateral later, out of the carbon that reaches it, whenever that
+    /// clears a step's cost.
+    ///
+    /// `PLAN.md`'s own M16 research note prescribes exactly this and says
+    /// why it is also the better biology: real laterals are primed by an
+    /// oscillator in the tip that marks roughly evenly spaced sites, and
+    /// only later does local resource decide which ones actually branch —
+    /// so spacing comes out regular instead of noisy.
+    ///
+    /// Sidecar, not a `Cell` bit: all sixteen aux bits are spoken for.
+    pub primed: bool,
 }
 
 impl Default for OrganismCell {
@@ -1417,7 +2174,36 @@ impl Default for OrganismCell {
     /// therefore perfectly isotropic and differentiates only from flux it
     /// actually carried.
     fn default() -> Self {
-        Self { carbon: 0.0, canopy_density: 0.0, carbon_conductance: [CONDUCTANCE_MIN; 4], order: 0, q_peak: 0.0, heading: (0.0, 0.0) }
+        // **`support` starts at 0 — "anchored" — and the opposite default
+        // is the dangerous one here.** `World::set` inserts a `default()`
+        // sidecar for every organism cell as it is created
+        // (`reindex_organism_cell`), so every cell a tree grows carries this
+        // value until its organism's next tick, up to
+        // `ORGANISM_TICK_INTERVAL` frames later. Defaulting to `u16::MAX`
+        // would mean *unreached*, which `organism_structural_tick` reads as
+        // "this piece has come off" — so any structural check landing in
+        // that window would shatter tissue that had simply not been walked
+        // yet.
+        //
+        // This is the mirror image of the terrain case
+        // `structural::compute_world_distances` records, where `aux = 0` on
+        // untouched rock was "a lie that happened to look right" and made
+        // the world immune. There, 0 meant *immune*; here, `u16::MAX` means
+        // *destroy on sight*. A rule whose action is destructive has to be
+        // biased toward the answer that defers, not the one that fires: an
+        // unwalked cell reads supported and is corrected within one organism
+        // tick, so failure is delayed, never falsely triggered.
+        Self {
+            carbon: 0.0,
+            canopy_density: 0.0,
+            support: 0,
+            carbon_conductance: [CONDUCTANCE_MIN; 4],
+            order: 0,
+            q_peak: 0.0,
+            heading: (0.0, 0.0),
+            path_len: 0,
+            primed: false,
+        }
     }
 }
 
@@ -2750,6 +3536,46 @@ mod tests {
             assert!(reached.contains(&(x, 10)), "({x}, 10) should be reachable from the anchor");
         }
         assert!(!reached.contains(&(20, 10)), "the disconnected wood cell should not be reachable");
+    }
+
+    /// **Bark is a readout of the density allele, and a readout that
+    /// does not move is not one.**
+    ///
+    /// A pure-function test on purpose: the alternative — growing a stand
+    /// and looking at it — cannot tell a band that never changed from a
+    /// recolour too small to see at contact-sheet zoom, which is exactly
+    /// the trap `CLAUDE.md` records against magnitude-scaled overlays.
+    /// The sheet judgement is the *aesthetic* question; this is the
+    /// mechanical one, and it belongs in a test.
+    ///
+    /// The mapping is proportional over the allele range, so with today's
+    /// three alleles and two declared bands it reads
+    /// `[first, first, first + 1]`: pioneer and as-authored share the low
+    /// band, dense stands out. `count: 0` (moss, and any species that
+    /// predates bands) keeps the pre-band 0, exactly as the free bark
+    /// draw this replaced did.
+    #[test]
+    fn bark_band_tracks_the_density_allele() {
+        let bands = PaletteBands { first: 0, count: 2 };
+        let mapped: Vec<u8> = (0..3).map(|a| bark_band_for_density(bands, a)).collect();
+        assert_eq!(mapped, vec![0, 0, 1], "three density alleles over two bands should read [low, low, high]");
+
+        // Offset ranges are the common case -- every species but `tree`
+        // declares one -- and the band is inside the species' own range,
+        // never a raw allele index.
+        let shrub_like = PaletteBands { first: 2, count: 2 };
+        assert_eq!(
+            (0..3).map(|a| bark_band_for_density(shrub_like, a)).collect::<Vec<u8>>(),
+            vec![2, 2, 3],
+            "the derived band must sit inside the species' declared range"
+        );
+
+        assert_eq!(bark_band_for_density(PaletteBands { first: 0, count: 0 }, 2), 0, "an unset range must stay at the pre-band 0");
+        assert_eq!(bark_band_for_density(PaletteBands { first: 3, count: 0 }, 1), 0, "`count: 0` means unset -- `first` is not a band then");
+
+        // An allele past the table (a widened `LOCUS_ALLELES` read by
+        // stale state) clamps rather than walking off the palette.
+        assert_eq!(bark_band_for_density(bands, 200), 1, "an out-of-range allele must clamp to the top band");
     }
 
     #[test]

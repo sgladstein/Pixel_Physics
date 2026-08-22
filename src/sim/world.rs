@@ -695,6 +695,16 @@ impl World {
         self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
     }
 
+    /// Read-only view of one organism's whole-plant state, for probes.
+    ///
+    /// The crate-internal `organism()` stays the working accessor; this
+    /// exists because `examples/plant_probe.rs` prints the architectural
+    /// event counters (`sympodial_forks`, `plagiotropic_steps`) beside the
+    /// per-tree table, and an example crate cannot see `pub(crate)`.
+    pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
+        self.organism(organism_id)
+    }
+
     /// Every live organism's encoded id.
     ///
     /// Collected rather than iterated in place because the caller needs
@@ -946,6 +956,13 @@ impl World {
     /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
+            water: 0.0,
+            water_status: 1.0,
+            water_uptake: 0.0,
+            water_demand: 0.0,
+            water_uptake_acc: 0.0,
+            water_desiccation: 0.0,
+            endowment: 0.0,
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
@@ -963,6 +980,18 @@ impl World {
             since_nest: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
+            shoot_top_y: None,
+            sympodial_forks: 0,
+            plagiotropic_steps: 0,
+            foliage_band: 0,
+            bark_band: 0,
+            inherited: false,
+            generation: 0,
+            seeds_set: 0,
+            alleles: [0; organism::DISCRETE_LOCI],
+            rigid_steps: 0,
+            lateral_departures: 0,
+            departure_angle_sum: 0.0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
@@ -1055,6 +1084,11 @@ impl World {
     /// *reuse*, so bumping here as well would advance it twice per
     /// life-cycle and burn the 4-bit space at double rate. One bump per
     /// reuse, in exactly one place.
+    ///
+    /// **`plant::step_organisms` is the second caller**, releasing plant
+    /// organisms whose cell list has gone empty — the one liveness
+    /// definition that cannot orphan a standing cell, since a cell still
+    /// referring to the organism is exactly what makes the list non-empty.
     pub(crate) fn free_organism(&mut self, organism_id: u16) {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
@@ -1068,6 +1102,18 @@ impl World {
         }
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+    }
+
+    /// How many organism slots are currently allocated, and how many of
+    /// those are live — the high-water reading the 4,095 ceiling is judged
+    /// against.
+    ///
+    /// The live half is `live_organism_count` rather than a second copy of
+    /// the same filter: the two accessors arrived independently on the two
+    /// merged lines, and one of them counting differently from the other
+    /// later is exactly the kind of drift nobody would think to check.
+    pub fn organism_slot_usage(&self) -> (usize, usize) {
+        (self.organisms.len(), self.live_organism_count())
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -1722,6 +1768,23 @@ impl World {
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
     /// the reading callers of the old packed field expect, since an
     /// unregistered or inert cell held a zeroed scalar field.
+    /// The **water stock** of the organism owning this cell, and its
+    /// stomatal term — see `OrganismState::water` for why the balance is
+    /// held per organism rather than per cell.
+    pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+    }
+
+    /// The open-stomata shortfall of the organism owning this cell — what
+    /// drought shedding reads. Deliberately not `water_status`: see
+    /// `OrganismState::water_desiccation` for why prudence must not read
+    /// as thirst.
+    pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or(0.0, |s| s.water_desiccation)
+    }
+
     pub fn carbon_at(&self, x: i32, y: i32) -> f32 {
         self.organism_cell(x, y).map_or(0.0, |c| c.carbon)
     }

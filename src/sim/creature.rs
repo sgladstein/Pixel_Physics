@@ -2515,7 +2515,18 @@ mod tests {
         let soil = w.materials.id_of("soil").expect("soil is compiled in");
         for x in 0..200 {
             for y in 150..160 {
-                w.set(x, y, Cell::new(soil, 0));
+                // **Damp, not bone dry, and that is a merge repair rather
+                // than a tuning.** This scene was written when a plant ran
+                // on one currency, so `Cell::new(soil, 0)` -- `aux == 0` is
+                // *dry* on a `Powder` -- still grew a tree. Water is a real
+                // second currency now (`plant::absorb_water`, which arrived
+                // with the plant line and did not exist here), and a root
+                // in dry soil has no income at all: the tree grew wood and
+                // never a leaf, so the `find` below failed on a scene
+                // error rather than on the thing this test is named for.
+                // Matches `plant::tests::plant_tree_on_ground`, which has
+                // always dampened its bed for the same reason.
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
             }
         }
         w.plant_tree(100, 149);

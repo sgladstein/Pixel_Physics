@@ -289,6 +289,51 @@ is settled.
 
 ## Awaiting a decision
 
+### ~~The plant model bounds height and does not bound width~~ **FIXED**
+
+**Resolved by path-length turgor** (`OrganismCell::path_len`): the gate now
+reads hydraulic distance from the collar, stamped at creation, instead of
+`collar - y`. `a_tree_eventually_stops_growing` passes in 61s where it
+previously ran its whole 120,000-frame budget and failed. `plant-branch-angle`
+is merged. Kept below because the measurements are the reproduction, and
+because the *reason* it went unnoticed for so long is reusable.
+
+---
+
+
+Found by measurement while building branch angle and the internode
+straightness budget, which sit **unmerged** on branch `plant-branch-angle`
+with `Reports/branch-angle-and-the-width-bound.md` beside them.
+
+`plant.rs`'s turgor gate is `let height = (collar - y).max(0)`. That is
+purely vertical, so a cell two hundred columns sideways at collar height has
+`height = 0` and full margin. **Nothing in the model bounds lateral
+extent** — width is limited only by self-shading and crowding, which is
+enough in a tall scene and nothing in a shallow one:
+
+| single tree | outcome |
+|---|---|
+| planted with 20 rows of sky (what `a_tree_eventually_stops_growing` uses) | **never plateaus** — +180–400 wood per window at frame 295,000, 24,946 cells |
+| planted with 190 rows | plateaus at frame 180,000, flat for six windows |
+| `PlantScene`, 200 rows | `MatureBody` identical at 120k / 200k / 300k |
+
+Wide branch angles did not create this; they made lateral spread efficient
+enough to reach it. It matters more once M10 streaming makes worlds wide.
+
+**The fix it argues for** is bounding turgor by *path length from the
+collar* rather than by height: water potential falls with the hydraulic path,
+not with altitude, so a 200-cell horizontal limb is under the same
+constraint as a 200-cell trunk, and one quantity change bounds both axes
+with the mechanism already in place. The cost is that path length is not
+tracked per cell today, and the property that made height attractive — it
+never equalises when growth stops — has to be shown to hold for path length
+too (it plausibly does; that is an argument, not a measurement).
+
+Blocks: merging `plant-branch-angle`, which otherwise measures well and
+appears to fix the conifer lean (handoff §4).
+
+---
+
 Five `GrainMode` variants are prototyped behind a runtime switch, default
 unchanged, with GIFs generated for comparison (`examples/filmstrip.rs`,
 `grain=`). They address the report that a pool reads as *static* in the

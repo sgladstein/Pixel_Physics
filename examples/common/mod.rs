@@ -77,13 +77,26 @@ pub struct PlantScene {
     pub height: i32,
     pub ground_y: i32,
     pub trees: usize,
+    /// Which species the stand plants -- Phase 2 grew real architectural
+    /// alternatives (`conifer`, `shrub`), and a harness that can only grow
+    /// `tree` cannot show them.
+    pub species: String,
+    /// Rows of soil above the stone floor.
+    ///
+    /// A parameter rather than the `SOIL_DEPTH` constant because the
+    /// paired comparison the water economy needs is *deep soil against a
+    /// thin skin over rock, same seeds* -- and with soil depth compiled in,
+    /// that experiment could not be run at all. A shallow bed holds less
+    /// water and gives a root system nowhere to go, so it is the case where
+    /// having roots is supposed to stop being free.
+    pub soil_depth: i32,
 }
 
 impl Default for PlantScene {
     fn default() -> Self {
-        // 200 is the best available compromise and is **not** a good one --
-        // see `PlantScene`'s doc. It leaves about 3 rows of clearance.
-        Self { width: 512, height: 320, ground_y: 200, trees: 8 }
+        // 200 leaves the turgor bound, not the world edge, as the limit --
+        // see `PlantScene`'s doc.
+        Self { width: 512, height: 320, ground_y: 200, trees: 8, species: "tree".to_string(), soil_depth: SOIL_DEPTH }
     }
 }
 
@@ -92,10 +105,10 @@ impl PlantScene {
         let mut w = World::new(Rect::new(0, 0, self.width - 1, self.height - 1));
         let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
         for x in 0..self.width {
-            for y in (self.ground_y + SOIL_DEPTH)..(self.ground_y + SOIL_DEPTH + STONE_DEPTH) {
+            for y in (self.ground_y + self.soil_depth)..(self.ground_y + self.soil_depth + STONE_DEPTH) {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
-            for y in self.ground_y..(self.ground_y + SOIL_DEPTH) {
+            for y in self.ground_y..(self.ground_y + self.soil_depth) {
                 w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
             }
         }
@@ -106,7 +119,7 @@ impl PlantScene {
         let spacing = self.width / (self.trees as i32 + 1);
         for i in 0..self.trees {
             let x = spacing * (i as i32 + 1);
-            w.plant_tree(x, self.ground_y - SEED_DROP);
+            w.plant_tree_species(x, self.ground_y - SEED_DROP, &self.species);
         }
         w
     }

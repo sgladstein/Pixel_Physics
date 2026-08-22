@@ -281,6 +281,23 @@ evaluate — a cell, a section, or a whole piece?** — and check that the
 quantities it needs (a centroid, a contact width, a tipping moment) are even
 defined for that object.
 
+### Ask which *pixels* a lever moves, before ranking it by silhouette
+
+The sibling of the question above, and it has now cost a whole phase. Three
+discrete architectural levers — sympody, tropism, acrotony — were built,
+ranked "very high" and "high" on silhouette impact by a botany review, and
+all three demonstrably *fired*: 46–186 sympodial forks per shrub, 1,797–2,750
+plagiotropic steps per conifer, counters printed beside the sheets exactly as
+this file demands. The owner's reading of those sheets was that nothing had
+changed, and the composition numbers agreed — the three species differed in
+height and mass and in nothing else. All three levers change **which cell
+gets a label**: the order a child inherits, the reference vector it scores
+against, which bud flushes. The silhouette was set by two things none of them
+touch — every species was ~90% wood and ~5% leaf, and every plant in the
+world drew from one four-brown palette and one four-green one. A lever that
+relabels a cell cannot move a silhouette that texture and colour set. See
+`Reports/plant-appearance-design.md`.
+
 ### Resolve an ambiguous complaint before building anything
 
 "Flatness at rest" was read as the surface texture and turned out to mean a screen-wide
@@ -597,6 +614,17 @@ consider it at all.
   bit-identical "runs" — three of them, once, before anyone noticed the
   knob was not connected. Identical output across settings is the tell;
   rebuild between sweep points.
+- **The harness is as stale-able as the assets it reads, and an unknown
+  argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
+  8 world seeds x 16 plants x 45,000 frames) produced eight *byte-identical*
+  logs per species: the release binary was built fourteen minutes before
+  `worldseed=` was added to `plant_probe.rs`, so every run took the default
+  seed and the study was 3 populations wearing 24 logs. It looked exactly
+  like a study. **Rebuild before launching anything long, and make the
+  harness echo its own parameters** — `plant_probe`'s first line now names
+  species/trees/frames/worldseed, so a log that does not name its seed was
+  written by a binary that never had one. A knob nobody can see the value of
+  is a knob nobody can tell is disconnected.
 - **A structural check scheduled mid-organism amputates it.** The organism
   support search is hop-bounded, so a check fired high in a crown reads
   everything past the span limit as unsupported and converts it to
