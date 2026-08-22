@@ -83,6 +83,13 @@ cargo run --release --example filmstrip -- scene=fall gif=1 out=/tmp/fall.gif \
     start=100 every=6 count=20 zoom=1 crop=0,140,256,110
 ```
 
+**`gif=1` is not optional when the output is named `.gif`.** Without it the
+contact-sheet branch runs and `image::save_buffer` picks its encoder from the
+extension, writing the whole sheet as a **single-frame GIF**: a valid file, an
+animation's name, and no motion. Two cards shipped that way while the agents
+reported posting animations. `filmstrip` now refuses the combination, and
+`post --gif` refuses a one-frame GIF and tells you this is why.
+
 `start` is the first frame sampled, `every` the interval between samples,
 `count` how many. Frame delay follows `every` (`every*1000/60` ms, floored at
 16). Drop `gif=1` and the same command writes a contact-sheet PNG instead.

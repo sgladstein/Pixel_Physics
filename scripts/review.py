@@ -118,6 +118,7 @@ def build_card(root: Path, spec: dict) -> dict:
         })
         if items[-1]["focus"]:
             check_focus_fits(items[-1]["focus"], root, stored[0])
+        check_animation(items[-1], item, root, stored)
 
     ask = spec.get("ask") or {}
     return {
@@ -185,6 +186,36 @@ def check_focus_fits(focus, root: Path, stored_rel: str) -> None:
             "--focus %d,%d,%d,%d falls outside the %dx%d image. The focus rect is "
             "in the *rendered image's* pixels, not world coordinates."
             % (x, y, fw, fh, w, h))
+
+
+def check_animation(stored_item: dict, spec_item: dict, root: Path, stored) -> None:
+    """Record a GIF's frame count, and refuse a still posted as an animation.
+
+    A one-frame GIF looks like an animation by name, size and header, and is
+    exactly what `filmstrip out=x.gif` writes when `gif=1` is left off: the
+    contact-sheet branch calls `image::save_buffer`, which picks its encoder
+    from the extension and stores the whole sheet as a single frame. Nothing
+    errors. The agent reports an animation, the owner sees a still, and neither
+    can tell why -- which is precisely what happened.
+
+    Refused for `--gif`, where the intent is explicit; a warning for `--image`,
+    which stays the escape hatch for deliberately posting a still.
+    """
+    if len(stored) != 1 or not stored[0].lower().endswith(".gif"):
+        return
+    n = rl.gif_frames(rl.media_dir(root) / stored[0])
+    if n is None:
+        return
+    stored_item["gif_frames"] = n
+    if n > 1:
+        return
+    msg = ("%s is a GIF with a single frame, so it cannot animate. The usual "
+           "cause is running filmstrip with out=*.gif but WITHOUT gif=1 -- that "
+           "writes the contact sheet as a one-frame GIF. Re-run with gif=1."
+           % (spec_item.get("files") or ["?"])[0])
+    if spec_item.get("_gif_flag"):
+        raise SystemExit(msg)
+    print("review: " + msg, file=sys.stderr)
 
 
 def parse_item_flag(value: str) -> dict:
@@ -284,7 +315,8 @@ def cmd_post(args) -> int:
             if not path.lower().endswith(".gif"):
                 print("review: --gif was given %s, which is not a .gif. Posting it "
                       "anyway; use --image for stills." % path, file=sys.stderr)
-            spec.setdefault("items", []).extend([{"files": [path], "focus": focus}])
+            spec.setdefault("items", []).extend(
+                [{"files": [path], "focus": focus, "_gif_flag": True}])
     if args.item:
         spec.setdefault("items", []).extend(
             dict(parse_item_flag(v), focus=focus) for v in args.item)
