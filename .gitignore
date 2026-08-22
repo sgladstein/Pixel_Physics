@@ -1,5 +1,6 @@
 /target
 **/*.rs.bk
+__pycache__/
 # Session-local agent state: worktrees (see CLAUDE.md "Working alongside
 # another session"), workflow scripts, and per-machine permission settings.
 # None of it is project content, and a worktree swept into a commit would

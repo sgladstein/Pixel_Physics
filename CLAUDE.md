@@ -73,6 +73,7 @@ already changed decisions:
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/fracture-mechanics-design.md` | Why rock breaks the way it does, and why three earlier support models were wrong |
 | `Reports/load-model-handoff.md` | **The next step on destruction**, written up to be picked up cold |
+| `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when
@@ -86,14 +87,71 @@ cargo test                                       # unit + integration
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
+python3 scripts/review.py serve --open      # the owner's review queue; see below
 ```
 
 `filmstrip` writes a contact-sheet PNG — several frames of one run in a grid —
-so an artifact can be judged by eye without a window. For the real app, press
+so an artifact can be judged by eye without a window. Add `gif=1 out=x.gif` and
+it encodes an animation instead, still with no window and no GPU: reach for that
+when the question is whether something *moves* right, which a grid of stills
+cannot answer. For the real app, press
 `F7` to the `flat` preset — dead-level bare rock with 200 rows of sky, the
 structural test bed — or set
 `PIXEL_PHYSICS_CAPTURE_SEQUENCE=<start>,<interval>,<count>`; frames and a GIF
 land under `%TEMP%`.
+
+**Having rendered something, show it — don't describe it.** See *Getting the
+owner's judgement* below; it is not an occasional tool.
+
+## Getting the owner's judgement
+
+**`scripts/review.py` is the primary way to get feedback from the owner, and it
+is meant to be used constantly — not saved for big moments.** Everything this
+project optimises for is judged by eye: whether a collapse *feels* like
+destruction, whether a fall reads as sand, whether a pool looks flat while it is
+still moving. None of that is a test result. Describing it in chat has
+repeatedly failed — three separate models were overturned only by the owner's
+playtest reports, and nearly every fix judged by test output alone left the
+screen unchanged.
+
+So when a change is visible, **post it rather than describe it**. "This looks
+better" is precisely the claim the owner has to check, and a sentence is not
+checkable.
+
+Post when:
+
+- a change alters anything on screen — including one you are confident about;
+- you are about to claim something looks, moves or feels better;
+- a complaint could mean two things — render both readings and ask which one it
+  is, rather than spending the whole detour on the wrong one;
+- a step is "judge by eye" — post *before* declaring it done, not after;
+- you are choosing between approaches and the difference is visual: post a blind
+  A/B (`review.py ab --blind`) instead of arguing it out. Blinding costs you
+  nothing, because the stored verdict names the real option.
+
+Posting is **fire-and-forget**: post, carry on, and collect the verdict with
+`review.py inbox` later or in a later session — run it when you pick a thread
+back up, including at the start of a new one. Do not stall a session waiting.
+`--wait` exists for one case only: a wrong guess would waste the work you are
+about to do. A `--wait` that times out changes nothing — the card stays queued
+and answerable — so it is only ever your own time at risk.
+
+Two house rules, both from failures already paid for here:
+
+- **Put the discrete event count in the card's `meta`.** The page renders it
+  directly under the image. A collapse once read as "chunks are working" from a
+  picture whose body count was zero for the whole run; an image says *what* and
+  *where*, and only the number says *whether it fired*.
+- **Prefer a paired comparison** over one run against a remembered impression.
+  Outcomes here have enormous spread, so a single run is a sample from a wide
+  distribution.
+
+The queue is shared by every worktree of the clone, so a card posted from
+`.claude/worktrees/foo` and one from the main checkout land in the same place,
+and an answer outlives the session — and the worktree — that asked for it. The
+owner views it with the `serve` command above; it does not need to be running
+for you to post. Full protocol, including the JSON card spec, in
+`.claude/skills/review/SKILL.md`.
 
 ## Working alongside another session
 
@@ -125,9 +183,9 @@ cannot compile is the window you created.
 
 If you find yourself needing to commit while a contested file holds
 somebody else's unfinished work, do **not** try to stage around it. Add a
-worktree at `origin/master`, re-apply your own change there, verify, commit
+worktree at `origin/main`, re-apply your own change there, verify, commit
 and push from it, then bring the main tree's branch pointer forward with
-`git reset --mixed origin/master` — which moves the branch and leaves their
+`git reset --mixed origin/main` — which moves the branch and leaves their
 working tree untouched.
 
 **That reset strands stale files whenever the main tree was *behind*.** It
