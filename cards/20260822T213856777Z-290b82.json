@@ -1,0 +1,44 @@
+{
+  "id": "20260822T213856777Z-290b82",
+  "created": "2026-08-22T21:38:56Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "7120741",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "It comes from a pool now — and here it is moving",
+  "question": "Does this read as a waterfall now: a pool that spills over an edge, falls, and lands in another pool? And is the fall itself still too thin?",
+  "context_md": "You said it looked like it came from nowhere and went nowhere. Both halves are now built.\n\n**Finding a source pool was impossible, so the pass cuts one.** And the measurement that killed the search is what made cutting work. Requiring the ground to *drop* behind a cliff lip matched nothing in 24 worlds — which means the opposite is true: the shelf behind a rim stands at or above the lip for a median 107–120 columns. That is exactly the back wall a pool needs. So `springs` now walks that shelf, cuts a tapered bowl into it, and fills it to the brim. The pool has two ways out — the cliff right there, and the far end of the shelf a hundred columns away — and it reaches the cliff first.\n\n**The GIF** is a whole 512-wide world at 1:1, so it is one screen of play. **The still** is the same feature at the shipped size and 6x, where you can see the spray going over the lip: carved tarn on the right, spill in the middle, plunge pool at the foot on the left.\n\nWhat I would still call unfinished: the fall is narrow, and I have not touched that. `render.rs` dims a liquid toward black by fill, so a thin sheet reads darker than it should. Tell me if it bothers you and I will go at it directly rather than guessing.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "canyon, one screen, running",
+      "files": [
+        "20260822T213856777Z-290b82/000-spill.gif",
+        "20260822T213856777Z-290b82/001-carved.png"
+      ],
+      "caption": "GIF: seed 11 at 1:1, 24 frames. Still: seed 7 at the shipped size, 6x, gnome for scale.",
+      "meta": {
+        "springs per world (canyon)": 1.0,
+        "emitted / drained (fill units, 900 frames)": "4500000 / 4044780",
+        "throttled": 0,
+        "source pool width (columns of standing water)": 38,
+        "same, on the version you rejected": 8,
+        "standing cost": "+2.645 ms/frame at 8192x2560"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
