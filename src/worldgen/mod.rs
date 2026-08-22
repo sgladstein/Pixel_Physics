@@ -177,6 +177,7 @@ const PASSES: &[Pass] = &[
     // They are the first honest `GLOBAL` entries in this table and the debt
     // the coarse map is for.
     Pass { name: "ponds", margin: GLOBAL, weight: 1, run: passes::ponds },
+    Pass { name: "springs", margin: passes::SPRINGS_MARGIN, weight: 1, run: passes::springs },
     Pass { name: "soil_moisture", margin: GLOBAL, weight: 118, run: passes::soil_moisture },
     Pass { name: "moisture_init", margin: GLOBAL, weight: 2, run: passes::moisture_init },
     // Last, so it can see the finished ground -- including whether a column

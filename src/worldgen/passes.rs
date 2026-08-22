@@ -2983,6 +2983,269 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
     }
 }
 
+/// Minimum columns between two springs. A world that spent its whole budget
+/// on one escarpment would read as a leak, not as a country with rivers in
+/// it -- and every column along an escarpment is its own `cliff_edges`
+/// candidate, so without this the budget goes to six adjacent faces.
+const SPRING_SPACING: i32 = 900;
+
+/// How far downhill the pass walks looking for the basin its fall feeds.
+///
+/// This is the *drain*'s reach, and the drain is the whole point of placing
+/// one: without a sink the pool rises until it drowns its own outlet and the
+/// river stops being a river. `PLAN.md` asks for "a real source ... and a
+/// real sink"; this is how far the sink is allowed to be from the source.
+///
+/// Bounded rather than global, and the bound is what keeps this a
+/// finite-margin pass. `viewshot`'s hand-placed spring drains at the *world's*
+/// lowest column, which is a global read and also does not work: in `ascii`'s
+/// river-cost scene the drain sits 2030 columns from the outlet and the
+/// ledger reports `drained 0` after 1400 frames -- the water never gets
+/// there. Placed within reach instead, the same mechanism drains 83% of what
+/// it emits.
+const SPRING_DRAIN_REACH: i32 = 150;
+
+/// How far a spring stays clear of either world edge.
+const SPRING_EDGE_MARGIN: i32 = 64;
+
+/// Air below the outlet needed before a face counts as a fall rather than a
+/// damp patch. Cheap insurance against the failure mode `World::add_spring`
+/// cannot catch: it validates nothing about position, so an outlet inside
+/// ground is not an error -- it is permanently `walled`, emits zero forever,
+/// and shows only as a rising `throttled` count.
+const SPRING_MIN_AIR: i32 = 12;
+
+/// Columns beyond the ones it decides for that `springs` reads.
+///
+/// `RUN_FAR` for the same cliff detection `brows` and `talus` do, `MAX_FALL`
+/// down to the foot of the face, then `SPRING_DRAIN_REACH` along the falling
+/// side for the basin -- the deepest of the three, and they compose rather
+/// than overlap, so the sum is the honest bound. `MAX_SPAN` covers the
+/// emission columns themselves hanging off the rim.
+pub const SPRINGS_MARGIN: i32 =
+    RUN_FAR + MAX_FALL + SPRING_DRAIN_REACH + crate::sim::spring::MAX_SPAN;
+
+/// Topmost occupied cell of a column in the built world, or `h` if the column
+/// is empty all the way down. The plan's `surface_y` is not this: `talus`,
+/// `brows`, `residuals` and `ponds` all write after it.
+fn world_top(world: &World, x: i32, h: i32) -> i32 {
+    (0..h).find(|&ty| world.get(x, ty).material != material::EMPTY).unwrap_or(h)
+}
+
+/// Springs where the water table daylights on a cliff face, each with a drain
+/// in the basin its fall feeds.
+///
+/// **The pass owns all geometric validity.** `World::add_spring` validates
+/// nothing about position (`world.rs`) -- its only rejections are a span
+/// outside `1..=MAX_SPAN` and the summed-span budget, and
+/// `add_spring(-9999, -9999, 1)` returns `true`. An outlet seated in rock is
+/// therefore not an error anywhere downstream; it is a spring that emits
+/// nothing for the life of the world and reports it only as a climbing
+/// `throttled` count. So every candidate is checked against the *finished*
+/// world before it is registered, and a failure moves to the next candidate
+/// rather than aborting.
+///
+/// Runs after `ponds`, because the drowned-spring throttle reads the standing
+/// pool level and `ponds` writes into EMPTY only; and before `soil_moisture`,
+/// because that pass builds its saturated zone from the liquid cells actually
+/// present and its own doc warns that a pool over dry soil "spends its
+/// opening minutes drinking its own bed and banks".
+///
+/// Returns 0 cells always: it registers emitters, it does not write terrain.
+/// `every_pass_writes_something` asserts that explicitly rather than skipping
+/// the pass, for the reason `vaults` and `boulders` get the same treatment --
+/// an exclusion that stops being true should fail loudly.
+pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
+    let p = ctx.terrain.params;
+    let mut budget = p.spring_flow.round() as i32;
+    if budget <= 0 {
+        return 0;
+    }
+    let (w, h) = (ctx.terrain.w, ctx.terrain.h);
+    let plans = &ctx.plans;
+    let seed = ctx.terrain.seed;
+
+    // **Scan from a seed-dependent origin, wrapping.** `cliff_edges` returns
+    // candidates in x order, and taking the first that qualifies put every
+    // world's waterfall in its first thousand columns -- measured across six
+    // canyon seeds at x = 1, 392, 409, 505, 873 and 1035, in a world 8192
+    // wide, with one of them literally against the world edge. Rotating the
+    // scan costs nothing, stays a pure function of the seed, and does not
+    // spend any of the scarce candidates the way a sparse acceptance draw
+    // does (that was tried: it cut placement from 1.0 springs per world to
+    // 0.2, because after the real gates a world offers only a handful).
+    let origin = (noise::unit(seed, Purpose::Spring, 0, 0) * w as f32) as i32;
+    let mut candidates = cliff_edges(plans, w);
+    let split = candidates.partition_point(|&(x, _, _)| x < origin);
+    candidates.rotate_left(split);
+
+    let mut placed_at: Vec<i32> = Vec::new();
+    // Why candidates are refused, printed under `SPRING_DEBUG=1`. Kept
+    // because placement here is a chain of gates over the *built* world, and
+    // "0 springs placed" is the same output for six different causes -- three
+    // successive models were told apart only by these counts. `probe_p1_
+    // where_can_a_spring_go` is the probe that reads them.
+    let (mut n_cand, mut n_spacing, mut n_soil) = (0usize, 0usize, 0usize);
+    let (mut n_table, mut n_edge, mut n_blocked) = (0usize, 0usize, 0usize);
+    let mut n_placed = 0usize;
+    for (rim, dir, _drop) in candidates {
+        n_cand += 1;
+        if budget <= 0 {
+            break;
+        }
+        if placed_at.iter().any(|&px| (rim - px).abs() < SPRING_SPACING) {
+            n_spacing += 1;
+            continue;
+        }
+        let plan = plans[rim as usize];
+        // A loose Powder top is not rock for water to weep from -- the same
+        // test `brows` makes, and for the same reason.
+        if plan.soil_depth > 0 {
+            n_soil += 1;
+            continue;
+        }
+        // The dry-preset gate, the same one `moisture_init` uses: `arid` and
+        // `flat` put the table past the world floor, so no face intersects it
+        // and the pass falls out for free rather than by a special case.
+        if plan.table_y >= h {
+            n_table += 1;
+            continue;
+        }
+        // The table is a gate on *whether*, not on where -- see the seating
+        // comment below for why these are perched springs.
+        //
+        // An earlier version also required the table to lie between the rim's
+        // ground and the foot of the face, the literal reading of "the aquifer
+        // daylights here". Dropped, because it is the wrong question once the
+        // outlet is perched, and it was doing real damage: it rejected 65-92%
+        // of every preset's candidates and **all** of `canyon`'s, which ships
+        // `table_offset: 70` and so keeps its table below even its valley
+        // floors. Canyon is the preset with the best waterfall faces in the
+        // game; a gate that switches it off entirely was measuring the wrong
+        // thing.
+        if plan.table_y <= plan.surface_y {
+            n_table += 1;
+            continue;
+        }
+        let span = budget.min(crate::sim::spring::MAX_SPAN);
+        // **The outlet is perched, and it is seated against the world rather
+        // than against the plan.**
+        //
+        // Two readings were tried and measured before this one. Seating it at
+        // `table_y` -- the literal "aquifer daylights on the face" -- cannot
+        // work, because `ponds` runs first and fills every cell where the
+        // ground has dropped below the table: the table's exposure surface
+        // *is* the pond surface, and every candidate that reached the check
+        // was rejected for an occupied outlet, 26 of 26 on one seed and 1:1 on
+        // the rest. A spring seated there is a permanently drowned spring,
+        // which the throttle reports only as a climbing `throttled` count.
+        //
+        // Seating it a fixed depth under the plan's `surface_y` fails for a
+        // different reason: the face is *rough*. `talus` has piled scree
+        // against it, `brows` has hung a lip off it, and rock country now
+        // stands pillars on it, so a run of columns that the plan says is
+        // clear is occupied in the built world -- 331 of 339 candidate faces.
+        //
+        // So: take the rim's real top from the finished world and hang the
+        // sheet just past the rim on the falling side, which is `viewshot`'s
+        // hand-placed rule and the one that demonstrably runs (it emits 5.0M
+        // fill units and drains 4.2M of them). The table still decides
+        // *whether* -- `table_y < h`, and it has to reach this valley -- just
+        // not *where*. That makes these perched springs, which
+        // `worldgen-design.md` §7 names as what a water table that is a field
+        // rather than one global level buys: "perched springs, flooded
+        // caverns, and dry-next-to-wet moisture gradients".
+        // A free fn rather than a closure: the closure would hold `world`
+        // borrowed across `add_spring`/`add_drain`, which need it mutably.
+        let y = world_top(world, rim, h);
+        let x0 = if dir > 0 { rim + 1 } else { rim - span };
+        // Off the world edge. A fall hard against x = 0 pours down the
+        // boundary itself, where there is no far bank for it to land on and
+        // nothing beyond it for the eye to read the drop against -- seed 1
+        // placed one at x = 1 before this.
+        if x0 < SPRING_EDGE_MARGIN || x0 + span > w - SPRING_EDGE_MARGIN || y >= h {
+            n_edge += 1;
+            continue;
+        }
+        // Every emission column clear, and a real fall under the sheet. This
+        // is the check `World::add_spring` does not do: it validates nothing
+        // about position, so an outlet in rock is not an error anywhere
+        // downstream -- it is a spring that emits nothing for the life of the
+        // world.
+        let outlet_clear = (0..span).all(|d| world.get(x0 + d, y).material == material::EMPTY);
+        if !outlet_clear {
+            n_blocked += 1;
+            continue;
+        }
+        let air_below = (1..=SPRING_MIN_AIR)
+            .all(|d| y + d < h && world.get(x0 + span / 2, y + d).material == material::EMPTY);
+        if !air_below {
+            n_blocked += 1;
+            continue;
+        }
+        let ex = x0;
+        if !world.add_spring(x0, y, span) {
+            // The engine's own budget refused it. Nothing further will fit
+            // either, since every remaining span is at least this wide.
+            break;
+        }
+
+        // **The sink, in the plunge pool -- not at the world's low point.**
+        // Lowest *world* ground on the falling side within reach, and the
+        // drain sits in the air cell directly on top of it, which is where
+        // water stands.
+        //
+        // Both halves of that were got wrong first and measured. Reading
+        // `surface` (the plan) instead of the built world puts the drain
+        // inside talus, where it never sees a liquid cell and the ledger
+        // reports `drained 0`. And reaching far puts it somewhere the water
+        // never arrives: `viewshot`'s hand-placed drain goes to the *world's*
+        // lowest column, and in `ascii`'s river-cost scene that lands 2030
+        // columns from the outlet and drains nothing in 1400 frames. The fall
+        // makes its pool at the foot, so that is where the sink belongs.
+        // Nested reaches, because "where the water ends up" is not one place.
+        // A fall makes a plunge pool at its foot, and what that pool overflows
+        // runs on to the next low ground; which of the two a given world's
+        // water actually settles in depends on terrain the pass is not going
+        // to simulate. Draining both is cheap -- a drain only ever removes
+        // work, so there is no budget on them the way there is on springs --
+        // and it is the difference between a river and a rising bath. Seed 7
+        // emitted 4.2M fill units into a single-reach drain and returned
+        // `drained 0`.
+        let mut seen = [i32::MIN; 2];
+        for (n, reach) in [MAX_FALL / 3, SPRING_DRAIN_REACH].into_iter().enumerate() {
+            let mut basin = ex;
+            for d in 1..=reach {
+                let x = (ex + dir * d).clamp(0, w - 1);
+                if world_top(world, x, h) > world_top(world, basin, h) {
+                    basin = x;
+                }
+            }
+            if seen.contains(&basin) {
+                continue;
+            }
+            seen[n] = basin;
+            for d in 0..span {
+                let dx = (basin + d - span / 2).clamp(0, w - 1);
+                let dy = world_top(world, dx, h) - 1;
+                if dy >= 0 {
+                    world.add_drain(dx, dy);
+                }
+            }
+        }
+        budget -= span;
+        placed_at.push(rim);
+        n_placed += 1;
+    }
+    if std::env::var("SPRING_DEBUG").is_ok() {
+        println!(
+            "  springs: {n_cand} cliff candidates -> refused {n_spacing} too close, {n_soil} soil-topped, \
+             {n_table} no groundwater, {n_edge} at the world edge, {n_blocked} outlet blocked; PLACED {n_placed}"
+        );
+    }
+    0
+}
+
 pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
     let mut n = 0;
     let w = ctx.terrain.w as usize;

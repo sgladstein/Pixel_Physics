@@ -157,6 +157,12 @@ tried?"*.
   here for the 4x world.** What round 7's performance work landed, the one
   target it missed and why, the question waiting on the owner, and Phases
   2-5 written to be picked up cold. Phase 2 is done; Phases 3-5 stand.
+- [springs-in-generated-worlds.md](springs-in-generated-worlds.md) —
+  **shipped; look still open.** Why no generated world had ever had a river
+  (nothing placed one), the measured +2.645 ms/frame standing bill, and the
+  three placement models — two of which were dead on arrival, one drowned by
+  `ponds` and one buried in talus. Carries the owner's standing request to
+  explore sources beyond cliff faces.
 - [world-scale-phase-2.md](world-scale-phase-2.md) — **shipped.** The world
   at 8192x2560 and the caves scaled into it: what was re-derived, what
   deliberately was not and why the handoff's own list is not self-consistent,

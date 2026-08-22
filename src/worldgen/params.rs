@@ -302,6 +302,29 @@ pub struct WorldgenParams {
     /// so this is authored placement, not a rate this pass tunes toward.
     pub residual_density: f32,
 
+    /// Columns of spring emission to spend on this world -- the engine's own
+    /// budget unit (`sim::spring::MAX_TOTAL_SPAN`), not an invented one, so
+    /// the number here and the number the simulation enforces are the same
+    /// number. `5.0` is one waterfall; `sim::spring::MAX_SPAN` (6) caps a
+    /// single outlet, so a larger budget buys more *places*, not a wider
+    /// sheet.
+    ///
+    /// `0.0` switches the pass off and leaves the world byte-identical --
+    /// the same contract `residual_density`, `pocket_density` and
+    /// `vault_density` make. `arid` and `flat` ship `0.0` explicitly, and
+    /// would place nothing anyway: both put the water table past the world
+    /// floor, so no cliff face can intersect it.
+    ///
+    /// **The measured price of switching it on**, at 8192x2560, from
+    /// `ascii`'s river-cost scene (the instrument the rivers track was
+    /// opened with): a spring, its fall and its pool cost **+2.645 ms/frame**
+    /// standing -- 7.135 -> 9.780 ms over 1400 frames -- and take the world
+    /// from **0 awake chunks to 7** of 5120. That is over the 2.0 ms bar the
+    /// harness prints and under the ~3.5 ms wind-revert class. It is a
+    /// standing cost with no end: the world never sleeps again while a
+    /// spring runs.
+    pub spring_flow: f32,
+
     // ---- history ----
     /// How much simulated history the terrain has been through, `0` none.
     ///
@@ -382,6 +405,7 @@ impl Default for WorldgenParams {
             region_variation: 0.75,
             palette_field: 0.30,
             residual_density: 1.4,
+            spring_flow: 5.0,
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,

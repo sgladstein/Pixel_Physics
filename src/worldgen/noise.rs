@@ -214,6 +214,11 @@ pub enum Purpose {
     /// uniform `residual_density: 0.45` thinning the owner rejected. A
     /// country has to be bigger than the view to read as a country.
     RockCountry = 33,
+    /// Which of a world's many cliff faces the aquifer actually daylights
+    /// on. Sparse by design: a world offers hundreds of qualifying faces and
+    /// wants one or two springs, and picking "the first one scanning left to
+    /// right" would put every world's waterfall near x = 0.
+    Spring = 34,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

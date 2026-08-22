@@ -106,6 +106,13 @@ fn generated_terrain_is_already_at_rest() {
     // "at rest" and never should be. Flora presence has its own test
     // (`the_world_arrives_with_both_moss_and_trees_in_it`); this one is
     // about whether the generated terrain itself holds still.
+    //
+    // `spring_flow` is off for exactly the same reason, and it is the same
+    // kind of thing: a spring is a live process, not a placement defect. A
+    // world with a running waterfall is never at rest and never should be,
+    // and the spring has its own test
+    // (`a_generated_world_grows_a_spring_that_actually_runs`) asserting the
+    // stronger property -- that water both arrives and leaves.
     let presets = presets();
     let mut worst = 0usize;
     let mut report = String::new();
@@ -113,6 +120,7 @@ fn generated_terrain_is_already_at_rest() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.spring_flow = 0.0;
         let params = &params;
         for seed in SEEDS {
             let mut world = build(params, seed);
@@ -331,6 +339,17 @@ fn every_pass_writes_something() {
         // true should fail loudly, not silently stop checking.
         if *name == "boulders" {
             assert_eq!(*cells, 0, "boulders placed a cluster at world_age 0.0, which erosion must no-op at");
+            continue;
+        }
+        // `springs` writes no cells *by construction*, unlike the two above,
+        // which write none only here: it registers emitters on `World` and
+        // never touches terrain. Asserted zero rather than skipped, for the
+        // same reason as those two -- an exclusion that stops being true
+        // should fail loudly. That it *fired* is a different question, and a
+        // cell count could never have answered it; the ledger does, in
+        // `a_generated_world_grows_a_spring_that_actually_runs`.
+        if *name == "springs" {
+            assert_eq!(*cells, 0, "springs wrote terrain; it is supposed to register emitters only");
             continue;
         }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
@@ -1518,6 +1537,12 @@ fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
         vault_min_depth: 40,
         tree_density: 0.0,
         moss_density: 0.0,
+        // Off for the same reason as the two above: these worlds are settled
+        // and then compared against a control, so anything that is still a
+        // *process* after generation shows up as a difference and is read as
+        // a vault cell. A running spring writes water down a face for as long
+        // as the test steps.
+        spring_flow: 0.0,
         ..base.clone()
     }
 }
@@ -3018,11 +3043,22 @@ fn every_local_pass_declares_the_margin_it_reaches() {
     // from the constants rather than read from the same expression the table
     // uses, so the test is an independent statement of the arithmetic and
     // not a tautology over it.
-    let cases: [(&str, i32, &str); 4] = [
+    let cases: [(&str, i32, &str); 5] = [
         ("brows", passes::BROWS_MARGIN, "RUN_FAR of detection + MAX_BROW_REACH of writing"),
         ("talus", passes::TALUS_MARGIN, "RUN_FAR + MAX_FALL to the foot + 2 * MAX_TALUS_PEAK of apron"),
         ("residuals", residual::RESIDUALS_MARGIN, "MAX_HEIGHT / MIN_ASPECT / 2, the widest half-footprint"),
         ("vaults", passes::MAX_CAVE_HALF_W + passes::VAULT_RIND, "MAX_CAVE_HALF_W + VAULT_RIND"),
+        // Spelled out from the private constants deliberately, per the note
+        // above: RUN_FAR (20) of the same cliff detection `brows` and `talus`
+        // do, MAX_FALL (120) down to the foot, SPRING_DRAIN_REACH (150) along
+        // the falling side for the plunge pool, and MAX_SPAN for the emission
+        // columns hanging off the rim. They compose rather than overlap, so
+        // the sum is the honest bound.
+        (
+            "springs",
+            20 + 120 + 150 + pixel_physics::sim::spring::MAX_SPAN,
+            "RUN_FAR + MAX_FALL to the foot + SPRING_DRAIN_REACH to the basin + MAX_SPAN of sheet",
+        ),
     ];
     for (name, reach, why) in cases {
         let margin = declared(name);
@@ -3326,4 +3362,151 @@ fn residual_landforms_are_confined_to_rock_country() {
          thinned world wearing a gate's clothes",
         gain_in / gain_out.max(0.001)
     );
+}
+
+/// Does the springs pass find anywhere to put a spring, and how many places
+/// did it have to choose from?
+///
+/// `SPRING_CHANCE` is set from this. A world offers hundreds of cliff faces
+/// and wants one waterfall, so the acceptance draw has to be calibrated
+/// against the real candidate density rather than guessed -- and "how many
+/// candidates" is not a number any existing harness reports.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 1 spring placement)"]
+fn probe_p1_where_can_a_spring_go() {
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["rolling", "terraced", "canyon", "wetland", "arid", "flat"] {
+        let params = presets.get(name).expect("preset");
+        let (mut placed, mut spans, mut drains) = (0usize, 0i32, 0usize);
+        for seed in [1u64, 3, 7, 19, 42, 24301] {
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+            for sp in &world.springs {
+                println!("    {name} seed {seed}: spring span {} at ({}, {})", sp.span, sp.x, sp.y);
+            }
+            placed += world.springs.len();
+            spans += world.springs.iter().map(|s| s.span).sum::<i32>();
+            drains += world.drains.len();
+        }
+        println!(
+            "{name:9} spring_flow {:>4}: {placed} springs over 6 seeds ({:.1}/world), {spans} emission columns, {drains} drains",
+            params.spring_flow,
+            placed as f32 / 6.0
+        );
+    }
+}
+
+/// A generated world's spring runs, and the water it makes leaves again.
+///
+/// **Asserts the ledger, not the list.** That a `Spring` is in `world.springs`
+/// proves only that the pass pushed a struct: `World::add_spring` validates
+/// nothing about position, so an outlet seated in rock registers happily and
+/// then emits nothing for the life of the world. Three successive placement
+/// models got that far and were dead on arrival here -- one seated at
+/// `table_y` (drowned by `ponds`, which fills that exact cell), one at a fixed
+/// depth under the plan surface (buried in talus on 331 of 339 faces).
+///
+/// `drained > 0` is the second half and the one that makes it a river rather
+/// than a rising bath: `PLAN.md` asks for "a real source ... and a real sink",
+/// and a spring with no reachable sink fills its basin until the pool drowns
+/// the outlet and the fall stops. `ascii`'s river-cost scene shows the failure
+/// -- its hand-placed drain sits 2030 columns from the outlet and reports
+/// `drained 0` after 1400 frames.
+#[test]
+fn a_generated_world_grows_a_spring_that_actually_runs() {
+    let presets = presets();
+    // `canyon` is the preset with the faces: measured 1.0 springs per world
+    // over six seeds, against 0.8 rolling, 0.5 terraced and 0.0 wetland (which
+    // has 8 cliff candidates in a whole world and is waterlogged besides).
+    let params = presets.get("canyon").expect("canyon preset");
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let mut ran = 0;
+    let mut report = String::new();
+    for seed in [1u64, 7, 42] {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        if world.springs.is_empty() {
+            report.push_str(&format!("seed {seed}: no spring placed\n"));
+            continue;
+        }
+        for _ in 0..900 {
+            parallel::step(&mut world);
+        }
+        let l = world.spring_ledger;
+        report.push_str(&format!(
+            "seed {seed}: {} springs, emitted {} drained {} throttled {}\n",
+            world.springs.len(),
+            l.emitted,
+            l.drained,
+            l.throttled
+        ));
+        assert!(l.emitted > 0, "seed {seed}: a spring is registered but emitted nothing -- a walled outlet\n{report}");
+        assert!(l.drained > 0, "seed {seed}: the spring runs but nothing reaches the drain -- no sink\n{report}");
+        // The outlet is air with a fall under it, stated as the quantity that
+        // would actually move if it were not. A walled outlet throttles on
+        // *every* firing, so the ratio is the discriminator and an absolute
+        // count is not: some throttling is correct and wanted -- it is the
+        // fall's own backwash reaching the outlet, and the same graded lever
+        // the player gets by damming it. Measured 4.4% worst over these
+        // seeds; the bar is set well clear of that and nowhere near the 100%
+        // a seated-in-rock outlet gives.
+        //
+        // Folded in here rather than given its own test because it is a claim
+        // about the same three worlds, and building an 8192x2560 world costs
+        // ~5.5 s -- a separate test would pay that again to assert one more
+        // field of the same ledger.
+        let firings = 900 * world.springs.iter().map(|s| s.span).sum::<i32>() as u64;
+        let ratio = l.throttled as f64 / firings as f64;
+        assert!(
+            ratio < 0.25,
+            "seed {seed}: {} of {firings} firings throttled ({:.0}%) -- an outlet seated in rock \
+             throttles on every one of them\n{report}",
+            l.throttled,
+            ratio * 100.0
+        );
+        ran += 1;
+    }
+    println!("{report}");
+    assert!(ran >= 2, "only {ran}/3 canyon seeds grew a running spring:\n{report}");
+}
+
+/// Where the spring's water actually ends up, in columns — so a render can be
+/// aimed at it. An image cannot answer "is the water there"; this can.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 1 spring render aiming)"]
+fn probe_p1_where_does_the_water_go() {
+    let presets = presets();
+    let params = presets.get("canyon").expect("canyon");
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for seed in [7u64, 42] {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let springs: Vec<_> = world.springs.clone();
+        let drains: Vec<_> = world.drains.clone();
+        let water = world.materials.id_of("water").expect("water");
+        let census = |world: &World| -> Vec<(i32, usize)> {
+            let mut per = std::collections::BTreeMap::new();
+            for x in 0..w {
+                let n = (0..h).filter(|&y| world.get(x, y).material == water).count();
+                if n > 0 {
+                    *per.entry(x / 128 * 128).or_insert(0usize) += n;
+                }
+            }
+            let mut v: Vec<_> = per.into_iter().collect();
+            v.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+            v.truncate(6);
+            v
+        };
+        let before = census(&world);
+        for _ in 0..500 {
+            parallel::step(&mut world);
+        }
+        println!("seed {seed}: springs {springs:?} drains {drains:?}");
+        println!("  water by 128-col bucket, before: {before:?}");
+        println!("  after 500 frames:                {:?}", census(&world));
+    }
 }

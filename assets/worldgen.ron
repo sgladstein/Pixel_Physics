@@ -55,6 +55,7 @@
             lens_roughness: 1.0,
             talus_max_height: 12.0,
             residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.8,
             table_damping: 0.35,
             table_offset: 12.0,
@@ -105,6 +106,7 @@
             lens_roughness: 1.0,
             talus_max_height: 14.0,
             residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.9,
             table_damping: 0.35,
             table_offset: 26.0,
@@ -153,6 +155,7 @@
             lens_roughness: 1.0,
             talus_max_height: 18.0,
             residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.9,
             table_damping: 0.3,
             table_offset: 70.0,
@@ -202,6 +205,7 @@
             lens_roughness: 1.0,
             talus_max_height: 8.0,
             residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.5,
             table_damping: 0.35,
             table_offset: 8.0,
@@ -264,6 +268,7 @@
             lens_roughness: 1.0,
             talus_max_height: 16.0,
             residual_density: 1.4,
+            spring_flow: 0.0,
             brow_chance: 0.85,
             table_damping: 0.35,
             table_offset: 4000.0,
@@ -362,6 +367,7 @@
             // `formation` is `1.0`, not `0.0` -- so this has to be spelled
             // out explicitly or the "dead-level bare rock" bed grows tors.
             residual_density: 0.0,
+            spring_flow: 0.0,
             // Dead-level bare rock stays dead-level: erosion is a plan-space
             // history the structural test bed must not have, or its control
             // renders drift out from under the destruction workstream. Every
