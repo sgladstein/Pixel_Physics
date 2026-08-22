@@ -172,10 +172,43 @@ builds for 7-11 s is a very different proposition from blocking them for
 143 s. If TRUSTED runs need to be routine, this is the thing to build, and it
 should be agreed with the other sessions before a line of it is written.
 
-**`examples/filmstrip.rs` does not take the lock either**, so
-`scripts/acceptance.sh` — eighteen filmstrip invocations — can trample a
-measurement in progress. Small to fix; left alone because both files are on
-the structural work's contested list.
+**`examples/filmstrip.rs` locks only on an explicit `lock=1`.** The first
+attempt keyed it off `max_frame_ms=`, on the reasoning that this is the one
+filmstrip expectation which can fail for a reason other than the simulation.
+That reasoning was wrong on a fact: **all sixteen acceptance cases set
+`max_frame_ms`**, so the conditional locked every one of them and the comment
+claiming otherwise was false.
+
+The corrected view is that acceptance is *load*, in the same category as
+another session's `cargo build` — what `Machine` is built to notice, not what
+`TimingLock` is built to serialise. Its frame bars are deliberately
+contention-proof (60 ms against 3-14 ms measured, min-of-`repeat`, sized to
+catch a 6,556 ms catastrophe); they do not want a quiet machine, they want to
+be immune to a busy one. Pass `lock=1` when a filmstrip run *is* the
+measurement.
+
+### The acceptance suite's frame bars are not as contention-proof as they claim
+
+Two consecutive runs of `scripts/acceptance.sh`, same binary, same seeds: the
+first reported **one case failed**, the second reported all sixteen passing.
+
+Every other gate in that suite is a deterministic count on a fixed seed —
+`min_overloaded`, `max_failures`, `min_cave`, `min_bodies` — and determinism
+is required same-build. By elimination the flake was a `max_frame_ms` bar.
+
+This is a wall-clock gate, in a suite CI runs, on a box that has been sampled
+at 15.09x. `acceptance.sh`'s own comment argues the bars cannot flake because
+they check the *minimum* of `repeat=` runs and "contention can only make a
+frame slower" — which is true, and insufficient: min-of-2 still needs one of
+two runs to land in a quiet window, and this box is quiet 8% of the time.
+
+Not fixed here, because `acceptance.sh` is on the structural work's contested
+list and its bar tuning is theirs to set. The cheap mitigation is a larger
+`repeat=` (min of 3 rather than 2) at the cost of a longer run; the honest one
+is the same conclusion this whole document reaches everywhere else — a
+wall-clock number should be reported and a load-invariant one should gate. No
+counter equivalent exists for "a frame took 6,556 ms", which is exactly why
+that bar is still worth having.
 
 **No global `cargo` job cap and no build-priority wrapper.** A cap taxes the
 solo build all the time to mitigate a sometimes-problem, and does not fix

@@ -1069,6 +1069,24 @@ struct Args {
     /// only ever make a frame *slower*, so the fastest observed run is the
     /// closest thing to the machine's actual cost. The spread is printed
     /// beside it so a sample that is all noise is visible as such.
+    /// `lock=1` -- take the machine-wide timing lock for this run.
+    ///
+    /// Off by default, and that is the considered choice rather than the lazy
+    /// one. `scripts/acceptance.sh` sets `max_frame_ms=` on all sixteen of its
+    /// cases, so keying the lock off *that* would serialise the entire
+    /// acceptance run against any measurement in progress -- for bars that are
+    /// deliberately contention-proof already (60 ms against 3-14 ms measured,
+    /// `repeat=` min-of-runs, sized to catch a 6,556 ms catastrophe). Those
+    /// bars do not want a quiet machine; they want to be immune to a busy one.
+    ///
+    /// So acceptance is *load*, in the same category as another session's
+    /// `cargo build`: the thing `perf::Machine` is built to notice, not the
+    /// thing `perf::TimingLock` is built to serialise. An `examples/ascii`
+    /// measurement running through an acceptance sweep correctly reports
+    /// `competing: filmstrip` and stamps itself UNTRUSTED.
+    ///
+    /// Pass `lock=1` when the filmstrip run *is* the measurement.
+    lock: bool,
     repeat: usize,
     /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
     /// run produced at least / at most that many structural failures. See
@@ -1215,6 +1233,7 @@ fn parse() -> Args {
         cuts: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
+        lock: false,
         repeat: 1,
         min_overloaded: None,
         max_failures: None,
@@ -1282,6 +1301,7 @@ fn parse() -> Args {
                     "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
+            "lock" => a.lock = v != "0",
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
@@ -1758,19 +1778,10 @@ fn check_expectations(world: &World, args: &Args, best_ms: f64, peak_bodies: usi
 fn main() {
     let args = parse();
 
-    // Take the machine-wide timing lock only when this run is actually going
-    // to *judge* a timing -- `max_frame_ms=` is the one thing here that can
-    // fail for a reason that is not about the simulation.
-    //
-    // Not unconditionally, deliberately. `scripts/acceptance.sh` makes
-    // eighteen filmstrip invocations, and most of them gate on failure counts
-    // and cell censuses, which are exact under any load. Locking those would
-    // serialise the whole acceptance run behind any measurement in progress
-    // and buy nothing. Locking the frame-budget cases costs seconds and stops
-    // this harness trampling `examples/ascii`'s measurement, or being trampled
-    // by it -- which it silently was until now.
-    let _lock = args.max_frame_ms.map(|_| pixel_physics::perf::lock("examples/filmstrip"));
-    if args.max_frame_ms.is_some() {
+    // See `Args::lock` for why this is opt-in rather than keyed off
+    // `max_frame_ms=`, which every acceptance case sets.
+    let _lock = args.lock.then(|| pixel_physics::perf::lock("examples/filmstrip"));
+    if args.lock {
         println!("{}", pixel_physics::perf::Machine::probe().banner());
     }
 
