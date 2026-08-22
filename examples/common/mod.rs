@@ -81,6 +81,38 @@ pub struct PlantScene {
     /// alternatives (`conifer`, `shrub`), and a harness that can only grow
     /// `tree` cannot show them.
     pub species: String,
+    /// **How wet the bed starts**, on `SOIL_SATURATED`'s scale.
+    ///
+    /// A parameter for the same reason `soil_depth` is one, and the file's
+    /// own history says why: a comparison that cannot be expressed cannot
+    /// be run. The two settings that matter are already named --
+    /// `Self::default()` is ideal growing ground at field capacity, and
+    /// `Self::dormant()` is below the wilting point, where
+    /// `plant_available_fraction` is exactly zero and a seed waits.
+    ///
+    /// One builder with a knob rather than two scenes, deliberately: two
+    /// independent scenes drifting apart is the exact failure this module
+    /// was created to end.
+    pub soil_moisture: u16,
+    /// **The frame the world starts on**, which pins the weather.
+    ///
+    /// `weather::at` is a pure function of `(seed, frame)` and both CA
+    /// drivers call `weather::step`, so a scene that does not pin its frame
+    /// window is at the mercy of rain -- and at the default seed the first
+    /// rain lands at frame 14,400, which is inside the window a long run
+    /// uses. A dormancy comparison is meaningless if the dry arm gets
+    /// rained on.
+    ///
+    /// **Note a dry pin is not a calm pin**: gusts fire before the
+    /// precipitation early-return, and `organism::wind_lean_dir` steers
+    /// growth off the velocity they inject. Pinning this makes rain
+    /// reproducible, not absent.
+    ///
+    /// Multiples of `DAY_NIGHT_PERIOD_FRAMES` (3600) are worth preferring:
+    /// 3600 = 80 x 45, so a multiple pins the day phase, the rendered sky
+    /// and every organism's `(frame + id) % ORGANISM_TICK_INTERVAL` tick
+    /// offset at once.
+    pub start_frame: u64,
     /// Rows of soil above the stone floor.
     ///
     /// A parameter rather than the `SOIL_DEPTH` constant because the
@@ -92,24 +124,46 @@ pub struct PlantScene {
     pub soil_depth: i32,
 }
 
+impl PlantScene {
+    /// The same bed, below the permanent wilting point -- the dormancy arm.
+    ///
+    /// `plant_available_fraction` is exactly zero at or under
+    /// `SOIL_WILTING_POINT`, so nothing germinates here until the ground is
+    /// wetted. Paired with `default()` it is the two-arm comparison the
+    /// seed-dormancy work needs, from one builder.
+    pub fn dormant() -> Self {
+        Self { soil_moisture: material::SOIL_WILTING_POINT, ..Self::default() }
+    }
+}
+
 impl Default for PlantScene {
     fn default() -> Self {
         // 200 leaves the turgor bound, not the world edge, as the limit --
         // see `PlantScene`'s doc.
-        Self { width: 512, height: 320, ground_y: 200, trees: 8, species: "tree".to_string(), soil_depth: SOIL_DEPTH }
+        Self {
+            width: 512,
+            height: 320,
+            ground_y: 200,
+            trees: 8,
+            species: "tree".to_string(),
+            soil_depth: SOIL_DEPTH,
+            soil_moisture: material::SOIL_FIELD_CAPACITY,
+            start_frame: 0,
+        }
     }
 }
 
 impl PlantScene {
     pub fn build(&self) -> World {
         let mut w = World::new(Rect::new(0, 0, self.width - 1, self.height - 1));
+        w.frame = self.start_frame;
         let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
         for x in 0..self.width {
             for y in (self.ground_y + self.soil_depth)..(self.ground_y + self.soil_depth + STONE_DEPTH) {
                 w.set(x, y, Cell::new(material::STONE, 0));
             }
             for y in self.ground_y..(self.ground_y + self.soil_depth) {
-                w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(material::SOIL_FIELD_CAPACITY));
+                w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(self.soil_moisture));
             }
         }
         // Evenly spaced across the world so spacing is a function of tree

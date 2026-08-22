@@ -362,7 +362,14 @@ fn build(args: &Args) -> World {
         "grove" => {
             let base = common::PlantScene::default();
             let plants = if args.plants > 0 { args.plants } else { base.trees };
-            return common::PlantScene { species: args.species.clone(), trees: plants, ..base }.build();
+            return common::PlantScene {
+                species: args.species.clone(),
+                trees: plants,
+                soil_moisture: args.soil_moisture,
+                start_frame: args.frame0,
+                ..base
+            }
+            .build();
         }
         // `grove`, plus a gnome who walks the length of it once the trees
         // are actually trees. The one question it exists to answer: does he
@@ -1019,6 +1026,15 @@ struct Args {
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
     species: String,
+    /// `moisture=N` -- how wet `scene=grove` starts, on `SOIL_SATURATED`'s
+    /// scale. Field capacity by default; below `SOIL_WILTING_POINT` gives
+    /// the dormancy arm, where seeds wait rather than germinate.
+    soil_moisture: u16,
+    /// `frame0=N` -- the frame the world starts on, which pins the weather
+    /// (`weather::at` is pure in seed and frame). Prefer multiples of 3600:
+    /// that pins the day phase, the sky and every organism's tick offset at
+    /// once.
+    frame0: u64,
     /// `plants=N` -- how many founders `scene=grove` plants, evenly
     /// spaced. Defaults to `PlantScene`'s own 8, which is tree spacing.
     ///
@@ -1265,6 +1281,8 @@ fn parse() -> Args {
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
         seed: 1,
         species: "tree".into(),
+        soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
+        frame0: 0,
         // 0 means "leave `PlantScene`'s own default alone".
         plants: 0,
         ignitions: Vec::new(),
@@ -1315,6 +1333,8 @@ fn parse() -> Args {
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
             "species" => a.species = v.into(),
+            "moisture" => a.soil_moisture = v.parse().expect("moisture"),
+            "frame0" => a.frame0 = v.parse().expect("frame0"),
             "plants" => a.plants = v.parse().expect("plants"),
             "ignite" => {
                 let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();

@@ -63,7 +63,25 @@ fn main() {
     let soil_depth: i32 = std::env::args()
         .find_map(|a| a.strip_prefix("soil=").map(|v| v.parse().expect("soil")))
         .unwrap_or(common::SOIL_DEPTH);
-    let scene = common::PlantScene { ground_y: ground_y(), trees, width, species, soil_depth, ..Default::default() };
+    // Wet/dry is a flag rather than a recompile, and the frame pin makes
+    // the weather reproducible -- see `PlantScene::soil_moisture` and
+    // `start_frame` for why each matters.
+    let soil_moisture: u16 = std::env::args()
+        .find_map(|a| a.strip_prefix("moisture=").map(|v| v.parse().expect("moisture")))
+        .unwrap_or(pixel_physics::sim::material::SOIL_FIELD_CAPACITY);
+    let start_frame: u64 = std::env::args()
+        .find_map(|a| a.strip_prefix("frame0=").map(|v| v.parse().expect("frame0")))
+        .unwrap_or(0);
+    let scene = common::PlantScene {
+        ground_y: ground_y(),
+        trees,
+        width,
+        species,
+        soil_depth,
+        soil_moisture,
+        start_frame,
+        ..Default::default()
+    };
     let (width, height) = (scene.width, scene.height);
     let mut w = scene.build();
     // Different worlds grow different individuals: genotypes are drawn
