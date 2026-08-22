@@ -2629,24 +2629,6 @@ pub fn advance_staged_fractures(world: &mut World) {
 /// diamond, not enough to let the slice grow holes.
 const JITTER_STEPS: u32 = 16;
 
-/// Convert one cell to its material's `breaks_into`, returning whether it
-/// actually converted.
-///
-/// The return value is the grit half of the "did anything move" pair, and
-/// it is a return value rather than a `record_shattered` call in here for
-/// one reason: **two of this function's three callers are destruction and
-/// the third is a tree dying.** The conversion is identical in all three --
-/// same `breaks_into` lookup, same unattached result -- but a limb that
-/// lost its anchor becoming deadwood is not rock coming apart, and it fires
-/// on its own schedule all through any world with vegetation in it. Counted
-/// here it would swamp the number on exactly the generated worlds the
-/// counter exists to judge. So the two destruction callers record what this
-/// tells them and the organism path deliberately drops it; see
-/// `FailureCounts::shattered_cells`.
-///
-/// A cell whose material has no configured debris is left alone rather than
-/// deleted, and reports `false`: counting a decline would make grit look
-/// like it happened.
 /// Retain only the cells of a failing region the current `chain_reach`
 /// licenses.
 ///
@@ -2699,6 +2681,24 @@ fn record_damage_reach_over(world: &mut World, cells: &[(i32, i32)]) {
     }
 }
 
+/// Convert one cell to its material's `breaks_into`, returning whether it
+/// actually converted.
+///
+/// The return value is the grit half of the "did anything move" pair, and
+/// it is a return value rather than a `record_shattered` call in here for
+/// one reason: **two of this function's three callers are destruction and
+/// the third is a tree dying.** The conversion is identical in all three --
+/// same `breaks_into` lookup, same unattached result -- but a limb that
+/// lost its anchor becoming deadwood is not rock coming apart, and it fires
+/// on its own schedule all through any world with vegetation in it. Counted
+/// here it would swamp the number on exactly the generated worlds the
+/// counter exists to judge. So the two destruction callers record what this
+/// tells them and the organism path deliberately drops it; see
+/// `FailureCounts::shattered_cells`.
+///
+/// A cell whose material has no configured debris is left alone rather than
+/// deleted, and reports `false`: counting a decline would make grit look
+/// like it happened.
 #[must_use]
 fn break_free(world: &mut World, x: i32, y: i32) -> bool {
     // Resolved per cell rather than passed in by the caller, because a

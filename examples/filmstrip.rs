@@ -2276,6 +2276,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
     // cut on construction: the dig is part of what the run costs.
     let cells_before = census(&world);
     let cave_before = roofed_void(&world);
+    // The whole material grid, not a total. `census` answers *how much* was
+    // lost; this answers *where*, which is the containment question and the
+    // one nothing in the engine could answer honestly -- see
+    // `damage_radius`. One `Vec<MaterialId>` over a 512x320 world is 320 kB
+    // and is taken once per run.
+    let materials_before: Vec<material::MaterialId> = (0..HEIGHT).flat_map(|y| (0..WIDTH).map(move |x| (x, y))).map(|(x, y)| world.get(x, y).material).collect();
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.organism_overlay = args.organism_overlay;
@@ -2511,11 +2517,24 @@ fn run_once(args: &Args, render: bool) -> (f64, World, usize, (i64, i64), i64) {
         // other. The reach is named rather than printed raw: `i32::MAX` as a
         // number is unreadable, and a sheet that does not say which mode
         // produced it cannot be compared to the one beside it.
+        // ...and the number that *was* meant to be the containment measure.
+        // **It cannot report a containment failure, and it is kept only so
+        // the two can be read side by side.** It is recorded exclusively at
+        // sites downstream of `clip_region_to_licence`, and for any cell
+        // that clip retains `within_disturbance` guarantees a live
+        // disturbance within `chain_reach + extent` while
+        // `distance_to_live_disturbance` takes the *min* over disturbances
+        // of `distance - extent` -- so it is `<= chain_reach` by arithmetic.
+        // A run reading exactly 48 at LOCAL and exactly 16 at TIGHT is a
+        // saturated ceiling. See `damage_radius`, printed beneath it, which
+        // reads none of that machinery.
         println!(
-            "    furthest damage landed from a live disturbance: {} cells (chain_reach = {})",
+            "    furthest damage landed from a live disturbance: {} cells (chain_reach = {}) -- CEILING, see below",
             f.max_damage_reach,
             chain_reach_name(world.chain_reach)
         );
+        let (blast_reach, blast_past) = damage_radius(&world, &materials_before, &fired);
+        println!("    furthest cell this run actually changed, from the charge that made it: {blast_reach} cells ({blast_past} past that charge's own radius)");
         // R3a's "did it fire at all" counter. A failure too big for one
         // tick comes down over several, and the `bodies` line above shows
         // that as a *series* of bursts -- but a series of bursts is also
@@ -2852,6 +2871,83 @@ fn cracked_world_census(world: &World) -> u32 {
         }
     }
     n
+}
+
+/// **Containment, measured without asking the thing that enforces it.**
+///
+/// How far from the charge that made it the furthest cell of **rock that
+/// stopped being rock** sits, over every charge fired in the run, in cells
+/// past that charge's own radius. A cell is attributed to its nearest
+/// charge, so two blasts do not blame each other.
+///
+/// # Why this exists, and what it replaces
+///
+/// `FailureCounts::max_damage_reach` cannot report a containment failure.
+/// It is recorded only at sites downstream of `clip_region_to_licence`, and
+/// for any cell that clip retains, `within_disturbance` guarantees some live
+/// disturbance within `chain_reach + extent` while
+/// `distance_to_live_disturbance` takes the **min** over disturbances of
+/// `distance - extent`. So the recorded value is `<= chain_reach` by
+/// arithmetic, at every site. A table reading "LOCAL 48, TIGHT 16, NONE 0"
+/// against leashes of 48, 16 and 0 is a saturated ceiling, not a
+/// measurement, and `CLAUDE.md` names the shape: *a debug readout must not
+/// be a function of the thing it debugs.*
+///
+/// This reads none of that machinery -- not `chain_reach`, not
+/// `World::disturbances`, not `within_disturbance`, not `licence_radius`,
+/// and not the `chain_window` age test. It compares two material grids and
+/// measures a distance. It can therefore return 200 at TIGHT, which is the
+/// entire point of having it.
+///
+/// # Two numbers, and the difference matters
+///
+/// `(furthest, past_radius)`. The first is measured from the epicentre and
+/// includes the crater the charge is *supposed* to make; the second nets
+/// that off, and is the one to compare against a leash, since `chain_reach`
+/// leashes the chain beyond the wound rather than the wound itself
+/// (`structural::Disturbance`). Reported as `-1` when nothing changed at
+/// all, never `0`: `CLAUDE.md` asks what a metric says when nothing is
+/// wrong, and "perfectly contained" and "nothing happened" must not share a
+/// reading.
+fn damage_radius(world: &World, before: &[material::MaterialId], fired: &[FiredCharge]) -> (i32, i32) {
+    if fired.is_empty() {
+        return (-1, -1);
+    }
+    let (mut furthest, mut past) = (-1i32, -1i32);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let idx = (y * WIDTH + x) as usize;
+            let was = before[idx];
+            // **Rock that stopped being rock**, and nothing else. The first
+            // draft of this counted any changed cell and read 296 on a
+            // single charge -- almost all of it smoke drifting to the far
+            // edge of the world and debris grains landing. Both are real
+            // changes and neither is damage, and `CLAUDE.md` has the rule
+            // this broke: the whisker hunt's metric counted every droplet
+            // in the world because its definition was what falling water
+            // looks like. So: the cell was `Solid` before, and is not the
+            // same material now. Deposition is excluded on purpose -- a
+            // grain landing on a hillside is the blast's litter, not its
+            // reach.
+            if world.materials.kind(was) != MaterialKind::Solid || world.get(x, y).material == was {
+                continue;
+            }
+            // Nearest charge, so a cell that two blasts could both claim is
+            // charged to the one it is actually near.
+            let mut best = i32::MAX;
+            let mut best_past = i32::MAX;
+            for c in fired {
+                let d = (x - c.x).abs().max((y - c.y).abs());
+                if d < best {
+                    best = d;
+                    best_past = d - c.radius;
+                }
+            }
+            furthest = furthest.max(best);
+            past = past.max(best_past);
+        }
+    }
+    (furthest, past)
 }
 
 /// **The owner's first complaint, as a number.**
