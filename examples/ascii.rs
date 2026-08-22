@@ -214,6 +214,12 @@ fn main() {
     structural_scene("M17: cutting a bridge's far support collapses the far span", 30, 15);
 
     terrain_generation_cost();
+    // Harness size first (the historical series), then THE SHIPPED WORLD
+    // SIZE — the second is the number that actually decides the rivers
+    // track, because the field-step's per-sleeping-tile clone grows with
+    // world area while the river's own awake ring does not.
+    river_cost_scene(512, 320);
+    river_cost_scene(pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
 
     // M18: a worm burrows through a sand field (should visibly relocate from
     // its seed position over the run), then a fire is lit nearby partway
@@ -877,6 +883,161 @@ fn terrain_generation_cost() {
         big_without_pass.as_secs_f64() * 1000.0,
         (big_with_pass.saturating_sub(big_without_pass)).as_secs_f64() * 1000.0,
         if cost_ratio > area_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly" },
+    );
+}
+
+/// The instrument that decides the rivers track (`Reports/world-review-2026-08.md`
+/// §4): what a spring held at steady state actually costs, measured, before
+/// any river mechanics are built. A budgeted emitter pours water onto real
+/// generated canyon terrain; it falls, pools, and a capped drain at the
+/// basin floor removes it — the plausible-flux shape, harness-local (nothing
+/// here is a shipped mechanic). Paired same-session against the identical
+/// world with the spring off, per the compare-two-runs convention.
+///
+/// What it prints, and why each number:
+/// - **worst/mean frame over the steady window** (CA + field combined, the
+///   app's real per-frame work): the paired delta is the standing bill. The
+///   pre-registered kill criterion reads it: a delta in the class of the
+///   reverted global wind (~3.5 ms standing) kills the approach.
+/// - **awake chunks and unsettled field tiles**: the second kill criterion —
+///   if the awake set does not stabilize at a bounded handful, continuous
+///   inflow is re-levelling the pool forever (open bug §4's O(width²)) and
+///   continuous emission is dead regardless of the frame numbers.
+/// - **emitted / drained / standing census**: volume, not cell counts (the
+///   recorded metric trap), and the three must reconcile — a leak here means
+///   the harness is measuring something other than what it claims.
+///
+/// The spring throttles itself while its outlet cell is occupied (the
+/// drowned-spring guard), so a blocked fall self-limits instead of flooding
+/// the measurement.
+fn river_cost_scene(w: i32, h: i32) {
+    println!("\n=== river-cost at {w}x{h}: a spring, a fall and a pool held at steady state (world review §4) ===");
+    let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
+    if let Some(e) = err {
+        println!("worldgen presets unavailable ({e}); skipping river-cost scene");
+        return;
+    }
+    let Some(params) = presets.get("canyon") else {
+        println!("no canyon preset; skipping river-cost scene");
+        return;
+    };
+    let spec = || pixel_physics::worldgen::Spec::Generated { params, seed: 1 };
+    const SETTLE_FRAMES: usize = 600;
+    const MEASURE_FRAMES: usize = 1400;
+
+    // The geography is a pure function of the seed, so one probe world
+    // serves both arms. Ground is Solid|Powder — the same definition the
+    // renderer's skyline uses; water and plants are not ground.
+    let mut probe = World::new(Rect::new(0, 0, w - 1, h - 1));
+    pixel_physics::worldgen::generate(&mut probe, spec());
+    let surf: Vec<i32> = (0..w)
+        .map(|x| {
+            (0..h)
+                .find(|&y| {
+                    matches!(
+                        probe.materials.kind(probe.get(x, y).material),
+                        material::MaterialKind::Solid | material::MaterialKind::Powder
+                    )
+                })
+                .unwrap_or(h)
+        })
+        .collect();
+    // The spring stands on the high side of the steepest drop an 8-column
+    // window finds — a brow over a fall, which is the geometry the review
+    // says this terrain already supplies. The drain sits at the lowest
+    // basin floor in the world. Both printed, so the same spot can be
+    // rendered with `filmstrip scene=worldgen preset=canyon seed=1` and a
+    // crop.
+    let mut spring_edge = 8usize;
+    let mut best_drop = 0i32;
+    for x in 8..(w as usize - 16) {
+        let drop = surf[x + 8] - surf[x];
+        if drop.abs() > best_drop.abs() {
+            best_drop = drop;
+            spring_edge = x;
+        }
+    }
+    let sx = if best_drop > 0 { spring_edge as i32 } else { spring_edge as i32 + 8 };
+    let sy = surf[sx as usize] - 1;
+    let dx = (0..w).max_by_key(|&x| surf[x as usize]).expect("world has columns");
+    println!(
+        "spring at ({sx}, {sy}) over a {}-cell drop; drain in column {dx} (floor y {})",
+        best_drop.abs(),
+        surf[dx as usize],
+    );
+
+    let run = |spring: bool| {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        pixel_physics::worldgen::generate(&mut world, spec());
+        let census_start = update::liquid_volume(&world, material::WATER);
+        let mut emitted = 0u64;
+        let mut drained = 0u64;
+        let mut worst = std::time::Duration::ZERO;
+        let mut total = std::time::Duration::ZERO;
+        let mut awake_max = 0usize;
+        let mut awake_sum = 0usize;
+        for frame in 0..SETTLE_FRAMES + MEASURE_FRAMES {
+            let started = std::time::Instant::now();
+            parallel::step(&mut world);
+            world.step_fields();
+            if spring {
+                // Emit one full cell per frame while the outlet is clear —
+                // roughly the whole-world creation rate of a maximum storm
+                // concentrated at one lip.
+                if world.get(sx, sy).material == material::EMPTY {
+                    world.set(sx, sy, Cell::new(material::WATER, 0));
+                    emitted += material::LIQUID_FULL as u64;
+                }
+                // Drain: the topmost water standing in the drain column,
+                // capped at one cell per frame — the spring's exact inverse.
+                let floor = surf[dx as usize];
+                for y in (floor - 60).max(0)..=floor.min(h - 1) {
+                    let c = world.get(dx, y);
+                    if c.material == material::WATER {
+                        drained += update::liquid_fill(c) as u64;
+                        world.set(dx, y, Cell::EMPTY);
+                        break;
+                    }
+                }
+            }
+            let dt = started.elapsed();
+            if frame >= SETTLE_FRAMES {
+                worst = worst.max(dt);
+                total += dt;
+                let awake = world.active_chunk_count();
+                awake_max = awake_max.max(awake);
+                awake_sum += awake;
+            }
+        }
+        let census_end = update::liquid_volume(&world, material::WATER);
+        (worst, total, awake_max, awake_sum, world.unsettled_field_tiles(), emitted, drained, census_start, census_end, world.chunk_count())
+    };
+
+    let (c_worst, c_total, c_awake_max, c_awake_sum, c_tiles, _, _, _, _, chunks) = run(false);
+    println!(
+        "spring OFF: worst {:.3} ms, mean {:.3} ms over {MEASURE_FRAMES} frames; awake chunks max {c_awake_max} mean {:.1} of {chunks}; unsettled field tiles at end {c_tiles}",
+        c_worst.as_secs_f64() * 1000.0,
+        c_total.as_secs_f64() * 1000.0 / MEASURE_FRAMES as f64,
+        c_awake_sum as f64 / MEASURE_FRAMES as f64,
+    );
+    let (s_worst, s_total, s_awake_max, s_awake_sum, s_tiles, emitted, drained, census_start, census_end, _) = run(true);
+    println!(
+        "spring ON:  worst {:.3} ms, mean {:.3} ms over {MEASURE_FRAMES} frames; awake chunks max {s_awake_max} mean {:.1} of {chunks}; unsettled field tiles at end {s_tiles}",
+        s_worst.as_secs_f64() * 1000.0,
+        s_total.as_secs_f64() * 1000.0 / MEASURE_FRAMES as f64,
+        s_awake_sum as f64 / MEASURE_FRAMES as f64,
+    );
+    let delta_ms = (s_total.as_secs_f64() - c_total.as_secs_f64()) * 1000.0 / MEASURE_FRAMES as f64;
+    println!(
+        "standing bill: mean delta {delta_ms:.3} ms/frame (kill bar: wind-revert class ~3.5 ms; pre-registered 2.0 ms)"
+    );
+    // Volume, not cell counts, and the ledger must close: what went in is
+    // what came out plus what is standing.
+    let standing = census_end as i64 - census_start as i64;
+    let leak = emitted as i64 - drained as i64 - standing;
+    println!(
+        "water ledger: emitted {emitted}, drained {drained}, standing delta {standing}, unaccounted {leak} \
+         (evaporation and infiltration legitimately absorb some; a large residual means the harness lies)"
     );
 }
 

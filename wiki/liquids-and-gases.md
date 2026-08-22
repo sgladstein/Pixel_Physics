@@ -1,10 +1,17 @@
 # Liquids & Gases
 
-*Current as of: this build.*
+*Current as of: 2026-08-21.*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
+
+**Moving water runs white.** Water in motion — falling, pouring, spreading,
+splashing — draws pale and foamy, and goes back to its deep still colour
+the moment it comes to rest. So a fall reads as a bright ribbon into a
+dark pool, a draining basin churns pale at the outlet, and you can tell at
+a glance which part of a body of water is doing something and which part
+is simply sitting there.
 
 - **Water** settles quickly and cleanly into a flat pool, and left in the
   open it slowly dries up — see [Weather](weather.md) for why a puddle goes
@@ -28,7 +35,7 @@ it sits rather than becoming a permanent grey lid on the room. Sealed in
 completely, with no way out at all, it still goes; it just has to fade
 rather than drift.
 
-Smoke can be placed like any other material — but nothing in the
-simulation currently produces it on its own; an explosion's crater, for
-instance, is left clean and empty once the dust settles rather than
-smoke-filled.
+Smoke can be placed like any other material, and the world produces it on
+its own too: an explosion backfills part of its crater with smoke, so a
+blast site hazes and drifts for a while rather than sitting clean — see
+[Explosions](explosions.md).

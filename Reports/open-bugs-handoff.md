@@ -11,6 +11,237 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
+
+`ponds` fills any hollow that reaches the open surface, and an overhang
+(`brows` lip, or now an erosion-shaped shelf) over a flooded hollow can
+leave water standing both above and below a rock shelf — water buried
+under stone that the guards `generated_water_is_full_and_never_inside_
+the_ground` / `every_solid_is_anchored_and_no_liquid_carries_a_stale_
+fill` only catch at their 1 hardcoded seed each, so they pass by luck.
+Present at `world_age 0` on a majority of seeds for several presets —
+pre-existing, surfaced (not caused) by round 4's age flip; the full
+measurement is finding **R4-3** in
+`Reports/worldgen-implementation-tasks-2026-08.md`. Two narrow `brows`
+guards shipped in round 4 close the paths that broke the structural
+suite; the pattern itself needs a `ponds`-focused session with a real
+seed sweep, not another guard clause. Do not widen the two named tests'
+seed lists as a "fix" — they would go red on the standing defect.
+
+
+### 0b. The deep massif reads as television static, and it is a per-cell palette dither (worldgen) — **FIXED**
+
+> **Fixed 2026-08-21**, along the direction this entry names.
+> `palette_family` now compares against fBm on the same `Purpose::Palette`
+> stream instead of a per-cell `noise::unit` draw, so the boundary wanders
+> because the field does. Measured, canyon seed 1, deep-rock crop, paired
+> in one tree: **luma MAD 5.612 -> 2.216 (-61%), chroma MAD 1.775 -> 0.318
+> (-82%)**.
+>
+> `FAMILY_DITHER_WAVELENGTH` = 40, chosen by eye from a three-point sweep:
+> 14 reads as camouflage blotches, 96 as a bare curve, 40 as a coastline.
+>
+> **`FAMILY_DITHER_CONTRAST` is the part that would have been missed.**
+> `noise::unit` is uniform on 0..1; a normalised three-octave fBm spans
+> roughly 0.30..0.60, so thresholds tuned for the tails of a uniform draw
+> stopped firing and `wetland` seed 1 came out with every rock cell in one
+> family. Caught by `a_varied_world_uses_more_than_one_rock_family`, not by
+> the author. Re-deriving the constants that read a changed quantity is
+> part of the fix.
+>
+> **Still open, deliberately:** `strata_shade`'s separate "12% of cells jump
+> a tone" rule, which this entry asks to be re-judged in the same pass. It
+> is the same shape at much smaller amplitude -- brightness only, no hue --
+> and now reads as rock texture rather than noise. Left rather than change
+> two things at once; it is a one-line follow-up if the owner disagrees.
+>
+> **Measurement note, because it cost three invalid readings:** piping a
+> render into `grep -q` closes the pipe on the first match and can kill the
+> producer before it writes its PNG, leaving the previous run's file on
+> disk. That produced a byte-identical image across three wavelengths --
+> which reads exactly like "the knob was never connected" -- and a
+> cross-worktree baseline no clean build could reproduce. Redirect, never
+> pipe, and prefer a paired `git stash` comparison inside one tree.
+
+The original entry, kept for the diagnosis and the mis-attribution:
+
+
+Every cave render at 4x zoom shows the surrounding rock as full-contrast
+salt-and-pepper speckle — louder than any cave feature in the frame, and
+directly against the two things a cave picture is composed on (darkness
+preserved; rock with grain and *flow* rather than noise). Images:
+`Reports/img/cave-anatomy/`.
+
+**Attributed wrong the first time, and the wrong attribution is the
+useful part.** The obvious suspect was `render.rs`'s `JITTER_STRENGTH
+0.12` — a per-pixel proportional brightness jitter applied at full
+strength to deep rock. It was measured by setting the new
+`DEEP_GRAIN_FLOOR` to **zero** (grain entirely off below the depth
+ramp) and re-rendering the same crop. The picture barely moved.
+`examples/pixel_stat` apportions it (canyon s1, deep-rock crop):
+
+| | luma MAD | chroma MAD |
+|---|---|---|
+| shipped | 3.017 | 1.374 |
+| grain floor 1/3 (now shipped) | 2.325 | — |
+| grain **off** at depth | 2.090 | 1.301 |
+
+So the render grain is **31% of the luma speckle and 5% of the chroma
+speckle**. Sixty-nine per cent of it survives with the grain switched
+off. On `rolling` seed 7 the chroma MAD (3.43) is *larger* than the luma
+MAD (2.34) — the speckle there is predominantly a **hue** dither, which
+the grain cannot produce at all (it scales all three channels by one
+factor).
+
+**The mechanism is `passes::palette_family`** (`src/worldgen/passes.rs`):
+it draws `u = noise::unit(seed, Purpose::Palette, x, y)` **per cell** and
+compares it against a family probability. Wherever that probability is
+mid-range — which is most of the world, by design — the result is a
+per-cell Bernoulli dither between two palette families that differ by
+~40 brightness points *and* a large hue shift (neutral grey `128,128,132`
+against warm sandstone `168,146,112`). At play scale that is confetti,
+not a boundary.
+
+**It is doing exactly what it was built to do**, which is why no test
+sees it: the round-1 comment calls this "the dither band" and records
+that the aridity ramps were deliberately *widened* to make it broader,
+because a narrow ramp gave "solid blocks of one family" with the
+families interleaving over only a few columns. The intent — a meandering
+boundary between differently-coloured countries — is right. The
+implementation puts the meander in white noise per cell instead of in
+the field, so what should be a wandering coastline is dithered surf
+everywhere.
+
+**Direction, not yet built**: decide the family from a *continuous*
+field — threshold the existing `PaletteField` fBm (plus the smoothstep
+on `Character`) against a smooth spatial value rather than against a
+fresh per-cell white-noise draw — so the boundary meanders because the
+field does. If an interleave at the boundary is still wanted, an ordered
+or blue-noise dither confined to a narrow band around the threshold
+gives it without spraying the interior. Note `strata_shade`'s separate
+"12% of cells jump a tone" rule is the same shape at smaller amplitude
+(brightness only, inside one family) and should be re-judged in the same
+pass.
+
+**Owner's verdict, 2026-08-21, on a blind A/B of the grain grade**: *"I
+see no difference. The problem is the big sharp squares that look like
+giant white gray pixels."* Two things follow. The grain grade was
+**reverted** — it measured a real 23% cut in luma speckle and bought
+nothing anyone can see, which is the outcome the card was posted to test
+(`DEEP_GRAIN_FLOOR`, reverted in the same session it landed; do not
+re-attempt it as a standalone change). And the deep-rock texture
+complaint is now **two** defects, not one: this per-cell palette dither,
+*and* the light field's 8-cell quantisation (see 0c below), which is what
+"giant white gray pixels" names. Fix 0c first — it was picked out by
+name, unprompted, on a card that was not about it.
+
+**Owned by the worldgen data track** (`passes.rs`), which is why this is
+recorded rather than fixed: round 5 is mid-flight in that file. Do not
+race it. **Scheduled: round 6, immediately after round 5 merges**
+(owner's ruling, 2026-08-20), so the cave strips get judged twice — once
+with the static and once without — and the round-5 bars are not measured
+against a moving palette. `DEEP_GRAIN_FLOOR` shipped anyway on the render side — a
+measured 23% cut for nothing, skip-safe — but it is **not** the fix and
+must not be reported as one.
+
+**Sanity note for whoever picks this up**: `pixel_stat` reports mean
+absolute deviation from the 3x3 neighbourhood mean, not variance, so a
+smooth large-scale gradient (a strata band, the depth ramp) scores near
+zero and only per-pixel departure counts. Check it against a region you
+know is clean before trusting it about one you don't.
+
+
+### 0c. Cave light is quantised to 8-cell squares (render) — **FIXED**
+
+> **Fixed 2026-08-21** by the near-field glow term this entry asks for, in
+> `render.rs`'s `rebuild_near_glow`/`near_glow_at`. Every cell with
+> `Material::glow > 0` splats a squared-linear falloff over
+> `NEAR_GLOW_RADIUS` (14 cells) into a per-chunk, per-cell buffer;
+> `glow_at` returns `coarse.max(near)`, gated on the coarse field being
+> non-zero so the term inherits the field's blocking rather than shining
+> through rock. Shipped behind `GlowShape` (`'` in the app,
+> `glow=field|near` in `viewshot`) with the **new** behaviour as default,
+> since this was a reported bug rather than an open question of taste.
+>
+> The cost trigger took a correction worth keeping: keying the rebuild on
+> `glow_unsettled` rebuilt on every draw (9 in 9, measured), because the
+> day/night cycle means a tile with any sky in it never settles. The splat
+> depends on world cells only, so the trigger is `touched`.
+> `a_settled_glow_does_not_rebuild_its_halo_every_frame` guards it.
+>
+> **Residual, deliberately not chased:** beyond the radius the coarse
+> field's own blocks are still faintly legible on a large halo. They are
+> much dimmer there; growing the radius until they leave the screen would
+> cost the whole point of a *short*-range term.
+>
+> Note for 0b, which is still open: with the light blocks gone, what is
+> left to look at in a cave is the palette static. The two were named
+> together and only one of them is done.
+
+The original entry, kept because the diagnosis is the load-bearing part:
+
+
+`FIELD_SCALE = 8`: the light channel holds one value per 8x8 cells and
+`field_at_bilinear` smooths between those. So a glow's smallest possible
+feature is **8 cells**, its gradient is smeared over ~16, and it aligns
+to the field lattice rather than to the emitter. A 1-2 cell crystal
+therefore lights a **rectangle** of rock, offset to one side, with hard
+vertical edges.
+
+Named independently by the owner on two different cards: *"The
+rectangular lighting looks bad"* and — on a card about something else
+entirely — *"the problem is the big sharp squares that look like giant
+white gray pixels"*. That is the strongest signal in the session: it was
+volunteered against the question being asked.
+
+**An earlier note in this repo called this "glow halo block-edge
+softening, low priority" and was aimed at the wrong thing.** The halo is
+not too hard-edged for want of smoothing; it is too *coarse* to have a
+shape at all. Smoothing a 16-cell-wide blob harder makes it a vaguer
+16-cell-wide blob.
+
+**Do not fix by raising `FIELD_SCALE`** — the field is deliberately
+coarse because pressure and light are low-frequency, and a finer grid is
+64x the work for detail nothing else reads. The fix is a **short-range
+term computed from the emitting cells themselves**, evaluated only in
+chunks that contain one (`Renderer::glow_tiles` already gates exactly
+this), with the coarse field left to carry the far falloff. That reads
+neighbour cells, so it inherits landmine §7.22 — touched-chunk screen
+rects must widen by one cell or it ships a stale-pixel class — and it is
+not free; price it before building it.
+
+**Also reverted here, so it is not retried**: an emissive-core term
+(`EMISSIVE_RESTORE`) that drew a cell with `Material::glow > 0` at its
+own unlit palette brightness. It gave the crystal a bright core and the
+owner chose *against* it in a blind A/B, correctly: crystal's four tones
+are luma ~205/224/240/250, all in the top fifth of the range, so pulling
+them toward full brightness **collapses them into one white** and removes
+the only facet variation the object had. Their words on the pane they
+preferred: *"mostly the texture on the crystal."* A brightness lift for
+an emitter has to preserve the tone spread, not compress it — and
+crystal's spread is too narrow and too pale to survive one. See the
+cave beauty review's round-5 verdict for the general rule (a shape needs
+coherent shading; this codebase assigns per-cell random tone almost
+everywhere).
+
+
+### 0d. The organism support search asks the wrong question — see `Reports/felling-blockers.md`
+
+Not new, but newly written up. `structural::organism_is_supported` anchors
+on `MaterialKind::Solid` (soil is a `Powder`, so it anchors nothing) and
+searches outward from the cell under test bounded by
+`max_unsupported_span`, so it answers "am I within 8 hops of stone" rather
+than "can I reach a root". Any structural check fired mid-crown therefore
+amputates the tree — measured at 772 cells against 20,213 (`plant.rs`'s
+`shed_stranded_leaves`).
+
+It is latent rather than live only because every organism path
+deliberately schedules no check: growth, germination, abscission and
+`player::shake` all say so in place. It goes live the moment anything
+does, and it is the blocker under felling. The fix, the cost, and the six
+paths that would trigger it are in `Reports/felling-blockers.md`.
+
+
 ### 1. Whiskers on a spreading front (the remaining half of "banding")
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a

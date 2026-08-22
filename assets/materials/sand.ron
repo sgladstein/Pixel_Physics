@@ -14,10 +14,32 @@
     // to a free face -- see Material::blast_resistance. Loose and easily
     // pushed through, well under stone's 1.0.
     blast_resistance: 0.35,
+    // Three families of four tones, `family * 4 + tone`, keyed by the
+    // region's aridity at genesis, with family 0 the palette this file
+    // shipped with and the only one a *random* pick may use (`base_colors`;
+    // `stone.ron` carries the full reasoning).
+    //
+    //   0  the reference sand
+    //   1  pale cool sand -- the wet slot, which is not dead weight: the
+    //      soil pass drops sand on wet valley floors as well as in deserts,
+    //      and a lakeshore beach the colour of a dune reads as imported
+    //   2  warm desert sand -- oranger, for the driest country
     colors: [
+        // 0: reference
         (222, 196, 128),
         (212, 184, 116),
         (232, 208, 142),
         (204, 176, 110),
+        // 1: pale cool shore sand
+        (206, 198, 168),
+        (196, 187, 157),
+        (218, 210, 180),
+        (188, 178, 148),
+        // 2: warm desert sand
+        (226, 180, 110),
+        (216, 168, 99),
+        (238, 194, 124),
+        (208, 158, 92),
     ],
+    base_colors: 4,
 )

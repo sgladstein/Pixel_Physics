@@ -37,15 +37,44 @@
     // cells are partial, but they are all at the surface, and their fill
     // ranges widely enough to draw anywhere from ~54% to 100% brightness.
     // Live-tunable with `O`.
-    fill_dimming: 0.0,
+    //
+    // Restored from 0.0 (2026-08): the zero sat here through the whole world
+    // review, was flagged as an open owner question, and the owner's answer
+    // was "no idea" -- leftover sweep state, not a choice. Back to the value
+    // this comment has always named.
+    fill_dimming: 0.65,
     // Standing water dries up into the air above it -- see evaporation.rs
     // for why a puddle goes and a lake does not without anything measuring
     // the size of either. Opt-in per material: lava and oil keep their
     // volume, and the flag is read at the sweep's own dispatch site.
     evaporates: true,
+    // **Four tones, and the fourth exists to fix a weighting bug rather than
+    // to add a colour.** `worldgen::passes::ponds` writes shades 0..3 (its
+    // `loose_shade` draws against `TONES = 4`), so against a three-entry list
+    // `render.rs`'s `palette[shade % len]` folded shade 3 back onto entry 0
+    // and that entry drew twice as often as the other two -- a resting pool
+    // was 50% one tone and 25% each of the others, where it was meant to be
+    // even thirds.
+    //
+    // The fourth is an **interpolation between the existing entries, not a
+    // new hue**: exactly the midpoint of (64, 116, 208) and (72, 126, 218).
+    // The set now runs 58 / 64 / 68 / 72 in red, which is the same range the
+    // three always spanned with the gap between the two lightest filled in.
+    // Water's look is unchanged; only how often each tone is drawn is.
+    //
+    // Note this also gives the brush four water tones instead of three
+    // (`world.rs`'s `paint_stroke` draws its entry from `base_shades`, which
+    // is the whole list for any material without a `base_colors` cap). That
+    // is the same evenly-weighted set, so painted water matches generated
+    // water, which it did not quite do before.
+    //
+    // `fill_dimming` above is deliberately untouched: it is 0.0, that is a
+    // real finding of its own (round 1, finding 1c), and it is an open owner
+    // question rather than this task's.
     colors: [
         (64, 116, 208),
         (58, 108, 198),
         (72, 126, 218),
+        (68, 121, 213),
     ],
 )

@@ -1,13 +1,16 @@
 # Explosions
 
-*Current as of: this build (a blast breaks rock along the grain the rock
+*Current as of: 2026-08-22. A blast breaks rock along the grain the rock
 already has, rather than drawing a star of fissures across it, and as of
 this build so does every collapse that follows it — that is the newest
 part of this page and the half most likely to change again; see also the
 note at the top of [Structural Collapse](structural-collapse.md), and
 confinement, the crack halo and per-material blast resistance. New this
 build: shallow and surface charges crack a visible web instead of almost
-nothing, and a charge going off in mid-air marks the ground under it.)*
+nothing, and a charge going off in mid-air marks the ground under it. Newer still:
+what falls in after the bang now comes apart on the same size ladder a
+hammer blow uses, so a big collapse calves blocks where it used to shed
+chips.*
 
 **Rock has a grain, and a blast finds it.** Stone is not uniform: it is
 disposed to part along particular planes, and where those planes run is a
@@ -103,5 +106,7 @@ the point: a blast through a wall doesn't just leave a hole, it leaves the
 structure around the hole having to hold itself up without the part that's
 now missing, so what happens next is often bigger than the crater.
 
-Once the dust and glow settle, the crater is left open and empty —
-nothing currently fills it back in.
+Once the glow fades, the crater is not left clean: part of it is
+backfilled with smoke, which rises out of the hole and pools under
+whatever roof it finds, so a blast site visibly smokes for a while after
+the event itself is over.

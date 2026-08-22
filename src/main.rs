@@ -6,12 +6,13 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use pixel_physics::app::{App, HEIGHT, WIDTH};
 use pixel_physics::sim::material::ASSET_DIR;
+use pixel_physics::hud;
 use pixel_physics::sim::organism;
 use pixels::{Pixels, SurfaceTexture};
 use winit::application::ApplicationHandler;
@@ -48,6 +49,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
+    /// `Some` while the real world is being generated on a worker thread;
+    /// `app` holds an empty placeholder until it lands.
+    loading: Option<Loading>,
     app: App,
 
     /// Leftover simulation time not yet consumed by a tick.
@@ -116,15 +120,153 @@ struct HeldKeys {
     right: bool,
     jump: bool,
     down: bool,
+    /// Shift: hold on to a tree. See `player::step`'s climb gate for why
+    /// climbing needs a key of its own rather than riding on `jump`.
+    grab: bool,
+}
+
+/// Paint the loading screen into a framebuffer.
+///
+/// Split from `draw_loading` so it can be rendered without a window --
+/// `the_loading_screen_draws_a_bar_that_fills` writes a PNG of it, because
+/// this is a thing the player looks at and a test that only asserts about
+/// bytes would not have caught the caption running off the edge or the bar
+/// sitting behind the text.
+fn paint_loading(frame: &mut [u8], stage: Stage) {
+    for px in frame.chunks_exact_mut(4) {
+        px.copy_from_slice(&[10, 10, 14, 255]);
+    }
+    let w = WIDTH as i32;
+    let mid = HEIGHT as i32 / 2;
+    let title = "GENERATING WORLD";
+    hud::draw_text(frame, WIDTH, HEIGHT, (w - hud::text_width(title)) / 2, mid - 24, title, [220, 220, 230, 255]);
+
+    // Sized off the stage count rather than off elapsed time, so it never has
+    // to guess how long is left and never runs backwards.
+    let (bar_w, bar_h) = (w * 2 / 3, 6);
+    let (bar_x, bar_y) = ((w - bar_w) / 2, mid - 6);
+    let filled = (bar_w as f32 * stage.fraction.clamp(0.0, 1.0)) as i32;
+    for y in bar_y..bar_y + bar_h {
+        for x in bar_x..bar_x + bar_w {
+            if x < 0 || y < 0 || x >= w || y >= HEIGHT as i32 {
+                continue;
+            }
+            let i = ((y as u32 * WIDTH + x as u32) * 4) as usize;
+            let lit = x - bar_x < filled;
+            frame[i..i + 4].copy_from_slice(if lit { &[150, 190, 240, 255] } else { &[40, 40, 50, 255] });
+        }
+    }
+
+    let caption =
+        format!("{}  {:.0}%", stage.name.to_uppercase().replace('_', " "), stage.fraction * 100.0);
+    hud::draw_text(
+        frame,
+        WIDTH,
+        HEIGHT,
+        (w - hud::text_width(&caption)) / 2,
+        mid + 8,
+        &caption,
+        [140, 140, 160, 255],
+    );
+}
+
+/// Which generation stage the worker is on, shared with the frame loop.
+#[derive(Clone, Copy)]
+struct Stage {
+    /// 0..1, weighted by measured stage cost rather than by stage count.
+    fraction: f32,
+    name: &'static str,
+}
+
+/// A world being generated on a worker thread while the window shows a bar.
+///
+/// **Why a thread rather than staging generation across frames.** The owner
+/// chose a loading screen over generating around the camera and filling in
+/// behind, so the world is not playable until it is finished either way --
+/// which means the only thing the main thread has to do meanwhile is draw a
+/// bar and keep the window answering the OS. A thread does that without
+/// turning the generator into a resumable state machine, and generation
+/// itself stays exactly as correct, and as deterministic, as it was: one
+/// call, on one thread, in the same order.
+struct Loading {
+    handle: std::thread::JoinHandle<pixel_physics::app::App>,
+    stage: Arc<Mutex<Stage>>,
+    started: Instant,
 }
 
 impl Handler {
+    /// Take the finished world if the worker has one, and report whether the
+    /// app is still loading.
+    ///
+    /// `is_finished` rather than a blocking `join`: the frame loop must keep
+    /// drawing, and a join here would freeze the window for the rest of
+    /// generation -- the thing this whole mechanism exists to avoid.
+    fn poll_loading(&mut self) -> bool {
+        let Some(loading) = &self.loading else { return false };
+        if !loading.handle.is_finished() {
+            return true;
+        }
+        let loading = self.loading.take().expect("checked above");
+        let took = loading.started.elapsed();
+        match loading.handle.join() {
+            Ok(app) => {
+                self.app = app;
+                self.app.show_toast(format!("WORLD READY IN {:.1}S", took.as_secs_f32()));
+            }
+            // A panic in the generator is a bug worth surfacing, not worth
+            // taking the window down for: the placeholder app is a usable
+            // (if empty) world, so say so and carry on.
+            Err(_) => self.app.show_toast("WORLD GENERATION FAILED"),
+        }
+        self.last_frame = Instant::now();
+        self.accumulator = Duration::ZERO;
+        false
+    }
+
+    /// The loading screen: a caption, a bar, and the stage name.
+    fn draw_loading(&mut self, event_loop: &ActiveEventLoop) {
+        let stage = self.stage_snapshot();
+        let render_error = match &mut self.pixels {
+            Some(pixels) => {
+                paint_loading(pixels.frame_mut(), stage);
+                pixels.render().err()
+            }
+            None => None,
+        };
+        if let Some(err) = render_error {
+            self.fail(event_loop, format!("render failed: {err}"));
+        }
+    }
+
+    fn stage_snapshot(&self) -> Stage {
+        match &self.loading {
+            Some(l) => *l.stage.lock().expect("stage mutex poisoned only by a panicking worker"),
+            None => Stage { fraction: 1.0, name: "done" },
+        }
+    }
+
     fn new() -> Self {
         let (watcher, material_events) = watch_materials();
+        // Generation starts immediately and runs alongside window creation,
+        // so the several seconds it takes overlap with work that had to
+        // happen anyway rather than following it.
+        let stage = Arc::new(Mutex::new(Stage { fraction: 0.0, name: "starting" }));
+        let sink = Arc::clone(&stage);
+        let loading = Loading {
+            handle: std::thread::spawn(move || {
+                App::new_reporting(&mut |fraction, name| {
+                    *sink.lock().expect("stage mutex poisoned only by a panicking worker") =
+                        Stage { fraction, name };
+                })
+            }),
+            stage,
+            started: Instant::now(),
+        };
         Self {
             window: None,
             pixels: None,
-            app: App::new(),
+            app: App::new_pending(),
+            loading: Some(loading),
             accumulator: Duration::ZERO,
             last_frame: Instant::now(),
             fps: 0.0,
@@ -189,6 +331,13 @@ impl Handler {
     }
 
     fn frame(&mut self, event_loop: &ActiveEventLoop) {
+        // Nothing else in this function is meaningful on a world that does
+        // not exist yet: `App::new_pending` leaves it empty, so ticking it
+        // would sweep nothing and drawing it would draw sky.
+        if self.poll_loading() {
+            self.draw_loading(event_loop);
+            return;
+        }
         let now = Instant::now();
         let elapsed = now.duration_since(self.last_frame);
         self.last_frame = now;
@@ -209,8 +358,20 @@ impl Handler {
         self.app.player_input.right = self.held.right;
         self.app.player_input.jump_held = self.held.jump;
         self.app.player_input.down = self.held.down;
+        self.app.player_input.grab = self.held.grab;
         self.app.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
         self.app.player_input.aim = self.cursor.map(|(x, y)| self.app.renderer.screen_to_world(x, y));
+
+        // The *other* reading of those same four keys: with no gnome in the
+        // world they scroll the view instead of running him. Assembled here,
+        // beside the character's own input, so the two readings of `WASD` sit
+        // in one place rather than looking like unrelated features.
+        //
+        // The gate is `App::pan_camera`'s, not this function's -- one gate on
+        // the operation, per `paint_now`'s note below. It reports back whether
+        // the view was free, so a scroll held while a gnome owns the camera
+        // ends its gesture instead of banking a carry behind a closed gate.
+        self.pan(elapsed);
 
         self.accumulator += elapsed;
         let mut ticks = 0;
@@ -297,6 +458,33 @@ impl Handler {
             None => self.app.paint(pos.0, pos.1, erase),
         }
         self.last_paint = Some(world_pos);
+    }
+
+    /// Turn held `WASD` into one frame's worth of map scroll.
+    ///
+    /// Time-based rather than per-frame, so the view covers the same ground on
+    /// a slow machine as a fast one — and clamped to the same catch-up ceiling
+    /// `frame`'s tick loop uses: after a stall, `MAX_TICKS_PER_FRAME` stops the
+    /// world simulating the whole missing interval at once, and letting the
+    /// view teleport several screens instead would be that same mistake with
+    /// the same cause.
+    ///
+    /// The rate, the sub-cell carry and the zoom-stride quantisation all live
+    /// in `Renderer::pan`, which is where `zoom` and `zoom_out_stride` are;
+    /// this only says which way and for how long.
+    fn pan(&mut self, elapsed: Duration) {
+        // `held.jump` is the `W` key and `held.down` is `S` — named for the
+        // character, who is the other thing those keys drive.
+        let dir = (
+            i32::from(self.held.right) - i32::from(self.held.left),
+            i32::from(self.held.down) - i32::from(self.held.jump),
+        );
+        // Nothing held, or a gnome holding the camera: end the gesture so the
+        // next one starts without a fraction of a cell carried over from it.
+        let dt = elapsed.as_secs_f32().min(TICK.as_secs_f32() * MAX_TICKS_PER_FRAME as f32);
+        if dir == (0, 0) || !self.app.pan_camera(dir, dt) {
+            self.app.renderer.end_pan();
+        }
     }
 
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
@@ -402,6 +590,17 @@ impl Handler {
             // what caught the collision, not a runtime symptom.
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
+            // Both look-toggles carry a second, punctuation binding because
+            // macOS owns their function keys at the system level -- F11 is
+            // Show Desktop and F10 is often Exposé, so the app never sees
+            // them there. Reported from a real playtest on a Mac; keep any
+            // future binding off F9-F12 for the same reason.
+            KeyCode::F10 | KeyCode::Semicolon => self.app.renderer.cycle_terrain_light(),
+            // `'` because every letter and digit is spoken for and macOS
+            // owns F9-F12; see the F10 double-binding that `unreachable_
+            // patterns` caught after the tree merge.
+            KeyCode::Quote => self.app.renderer.cycle_glow_shape(),
+            KeyCode::F11 | KeyCode::Digit0 => self.app.renderer.reveal_voids = !self.app.renderer.reveal_voids,
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
@@ -414,6 +613,14 @@ impl Handler {
             KeyCode::F4 => self.app.cycle_water_feel(),
             KeyCode::F2 => self.app.cycle_spoil_mode(),
             KeyCode::F9 => self.app.cycle_chain_mode(),
+            // Tree depth is on a comma, not F10. Two branches independently
+            // chose F10 -- the depth light here, this there -- and the merge
+            // kept both, which the unreachable-pattern warning caught rather
+            // than any runtime symptom. F10 stays with the light because it
+            // shipped first; this takes the one remaining mac-safe key, since
+            // every letter and digit is already bound and F9-F12 are owned by
+            // macOS at the system level (see the note above).
+            KeyCode::Comma => self.app.cycle_tree_depth(),
             KeyCode::Tab => self.app.toggle_palette(),
             KeyCode::Slash => self.app.toggle_help(),
             KeyCode::KeyO => self.app.toggle_tunables(),
@@ -515,6 +722,9 @@ impl ApplicationHandler for Handler {
                             }
                         }
                         KeyCode::KeyS => self.held.down = pressed,
+                        // Either shift, so it does not matter which hand
+                        // is on the movement keys.
+                        KeyCode::ShiftLeft | KeyCode::ShiftRight => self.held.grab = pressed,
                         _ => {}
                     }
                     if pressed && !event.repeat {
@@ -918,5 +1128,42 @@ mod capture_sequence_tests {
         let s = CaptureSequence::from_env().expect("valid spec should parse");
         assert_eq!(s.interval, 1);
         unsafe { std::env::remove_var("PIXEL_PHYSICS_CAPTURE_SEQUENCE") };
+    }
+
+    /// The loading screen renders, and the bar tracks the stage.
+    ///
+    /// Writes a PNG next to the assertions rather than only asserting,
+    /// because this is a screen the player reads: a bar that fills correctly
+    /// and a caption that runs off the edge both pass any byte-count test.
+    #[test]
+    fn the_loading_screen_draws_a_bar_that_fills() {
+        let mut widths = Vec::new();
+        for pct in [0u32, 50, 99] {
+            let mut frame = vec![0u8; (super::WIDTH * super::HEIGHT * 4) as usize];
+            super::paint_loading(
+                &mut frame,
+                super::Stage { fraction: pct as f32 / 100.0, name: "stone_massif" },
+            );
+
+            // How many pixels of the bar row are lit, measured off the row the
+            // bar is drawn on.
+            let row = super::HEIGHT / 2 - 4;
+            let lit = (0..super::WIDTH)
+                .filter(|x| {
+                    let i = ((row * super::WIDTH + x) * 4) as usize;
+                    frame[i..i + 4] == [150, 190, 240, 255]
+                })
+                .count();
+            widths.push(lit);
+
+            if let Ok(dir) = std::env::var("LOADING_PNG_DIR") {
+                let path = std::path::PathBuf::from(dir).join(format!("loading-{pct}.png"));
+                image::save_buffer(&path, &frame, super::WIDTH, super::HEIGHT, image::ColorType::Rgba8)
+                    .expect("write the loading-screen png");
+            }
+        }
+        assert!(widths[0] < widths[1] && widths[1] < widths[2], "the bar does not fill: {widths:?}");
+        assert!(widths[0] == 0, "the bar starts part-full: {widths:?}");
+        assert!(widths[2] > 0, "the bar never lights: {widths:?}");
     }
 }

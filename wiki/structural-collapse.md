@@ -1,6 +1,6 @@
 # Structural Collapse
 
-*Current as of: this build. Where something breaks — at the neck, across
+*Current as of: 2026-08-21. Where something breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
 building, and a very large collapse now arrives in stages that spread out
@@ -229,4 +229,3 @@ was asked, and it is also the thing most likely to look wrong: rock in the
 air is a strong signal, and whether it is a worse artifact than the
 unravelling hillside it replaces is the open question on this page.
 
-*Current as of: this build.*

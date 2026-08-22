@@ -27,7 +27,8 @@ as wrong, the game has moved past this page, not the other way round.
 - [**Day, Night, and Decay**](world-cycles.md) — the day/night cycle, and
   how burnt ground slowly turns back into something that can support life.
 - [**The Gnome**](the-gnome.md) — the summonable character: running,
-  jumping, what holds him up, and what happens when the world falls on him.
+  jumping, climbing, what holds him up (and what he walks straight
+  through), and what happens when the world falls on him.
 - [**Ants**](ants.md) — the colony: what they walk on, the two smells they
   leave behind, and why they dig and build without ever being told to.
 

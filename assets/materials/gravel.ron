@@ -13,10 +13,39 @@
     // See Material::blast_resistance -- coarse and loose, well under
     // stone's 1.0.
     blast_resistance: 0.4,
+    // **Two families of four tones**, `family * 4 + tone`, and the split is
+    // about *context* rather than about region -- see
+    // `worldgen::passes::BURIED_FAMILY`.
+    //
+    // Family 0 is what this file has always shipped and what everything that
+    // just wants gravel gets: the brush, the scree aprons `passes::talus`
+    // heaps at cliff feet, and the stony base of a soil profile. Those are
+    // read against sky, rock face and soil, and their near-stone greys are
+    // right there -- scree is broken rock and should look like it.
+    //
+    // Family 1 is for a lens sealed *inside* the massif, which is read
+    // against solid stone and against nothing else. At family 0 that is
+    // grey-on-grey and simply invisible: the world review found the pockets
+    // pass firing at full count with nothing legible on screen. Warmer and a
+    // little darker, so a lens reads as a conglomerate bed in the rock --
+    // and deliberately *not* bright or saturated, because the same review
+    // found the pockets reading as ore, which is a promise this game does
+    // not keep.
+    //
+    // Recolouring the material outright was the alternative and was rejected
+    // rather than untried: it fixes the lens by making every talus apron
+    // stop reading as broken rock.
     colors: [
+        // 0: scree -- unchanged, and what a random shade pick uses
         (122, 116, 108),
         (140, 133, 124),
         (104, 99, 92),
         (131, 124, 114),
+        // 1: buried lens -- warmer and darker against grey stone
+        (112, 97, 80),
+        (128, 111, 92),
+        (98, 84, 69),
+        (120, 104, 86),
     ],
+    base_colors: 4,
 )

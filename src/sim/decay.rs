@@ -68,7 +68,11 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let Some(soil_id) = world.materials.id_of("soil") else {
         return Vec::new(); // soil isn't loaded -- nothing to decay into
     };
-    let shades = world.materials.get(soil_id).palette.len().max(1) as u32;
+    // `base_shades`, not `palette.len()`: soil ships three region families
+    // now (`worldgen::passes::palette_family`), and ash that decayed into a
+    // random one of them would speckle a wet bank with desert-pale soil.
+    // Decay has no region to consult, so it stays in the first family.
+    let shades = world.materials.get(soil_id).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
     world.set(x, y, Cell::new(soil_id, shade));
 

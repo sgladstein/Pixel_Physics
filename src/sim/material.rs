@@ -345,6 +345,20 @@ pub struct MaterialDef {
     /// first. Flagged rather than done.
     #[serde(default)]
     pub water_capacity: u16,
+    /// Light this material emits into the field's light channel, in the
+    /// channel's own units (`field::MAX_LIGHT` is 4.0, noon under open
+    /// sky). `0.0` — the default, and every material but crystal today —
+    /// emits nothing.
+    ///
+    /// **The game's first local light source**, decided by the owner for
+    /// the sealed-chamber discovery moment (2026-08: "discovered chambers
+    /// justify building the game's first true local light source").
+    /// Emission is a *static floor* recomputed in `field::rebuild_blocked`'s
+    /// existing per-block scan, so a glowing block converges and sleeps
+    /// like any other authored floor — a torch later is this same field on
+    /// another material, no new mechanism.
+    #[serde(default)]
+    pub glow: f32,
     /// Whether standing cells of this `Liquid` dry up into the air above
     /// them — `evaporation.rs`.
     ///
@@ -403,7 +417,93 @@ pub struct MaterialDef {
     /// the neighbour already resolves to is a `Vec` index instead.
     #[serde(default)]
     pub reinforces_powder: bool,
+    /// Whether the character walks *through* this material rather than into
+    /// it, and can climb it — living foliage and stems, which read as
+    /// scenery to move past the way a tree does in a 3D game.
+    ///
+    /// **Only ever true of a cell that belongs to a living organism**; the
+    /// dispatch site (`player::footing`) tests `Cell::organism_id() != 0`
+    /// alongside this. Material alone cannot separate a grown tree from a
+    /// `wood` wall someone painted, and both must stay possible — so the
+    /// flag says *what kind of stuff this is* and the organism id says
+    /// *whether this particular cell is alive*. `CLAUDE.md`'s "when a rule
+    /// must tell apart two things that can look identical, state the
+    /// difference as data", which four support models learned the long way.
+    ///
+    /// A flag rather than a `kind` test for the same reason
+    /// `reinforces_powder` is one: `MaterialKind::Plant` is every plant,
+    /// and a thorn hedge or a cactus has to be able to say "I stop you"
+    /// without a code change. Read off the `Material` the predicate already
+    /// resolves — a `Vec` index, not a string hash.
+    ///
+    /// Deliberately a *player* property. Nothing in the CA sweep, the light
+    /// field, or the structural search reads it: powder still rests on a
+    /// branch, a canopy still casts shade, and a trunk still holds itself
+    /// up.
+    #[serde(default)]
+    pub climbable: bool,
+    /// Whether the character walks *through* this material without climbing
+    /// it — cave formations, and anything else that is scenery rather than
+    /// architecture.
+    ///
+    /// **`climbable`'s sibling, deliberately not the same flag.** That one
+    /// is ANDed with `Cell::organism_id() != 0`, because a grown tree and a
+    /// `wood` wall someone painted are the same material and must behave
+    /// differently. A speleothem has no such twin: it is its own material
+    /// (`flowstone`, `spar`), written by worldgen and nothing else, so the
+    /// material alone is a complete answer and no per-cell gate is needed.
+    /// Giving one an `organism_id` to reuse `climbable` would be actively
+    /// wrong — that routes it into `organism_structural_tick`, the
+    /// amputating path `Reports/felling-blockers.md` documents.
+    ///
+    /// Separate from `climbable` rather than folded into it because `grip`
+    /// tests `Footing::Climb` exactly, and a gnome hauling himself up a
+    /// stalagmite is not what "you walk past it" means.
+    ///
+    /// A **player** property, like `climbable`: nothing in the CA sweep,
+    /// the light field, the structural search or the mining path reads it.
+    /// A formation is still solid to powder, still anchors its ceiling, and
+    /// is still dug out with the pick — mining gates on `organism_id`
+    /// (`rigid::mine_swept`), which is zero here, so breakability comes for
+    /// free rather than needing a second mechanism.
+    #[serde(default)]
+    pub scenery: bool,
+    /// How much of a falling character's downward speed this material takes
+    /// off per tick, at full immersion. 0 (the default) catches nothing.
+    ///
+    /// Foliage, not wood: dropping into a crown should be *caught* by it,
+    /// and sliding past a bare trunk should not be. On the material rather
+    /// than as one number in `player::Tuning` for the ordinary reason
+    /// (`design-philosophy.md` §2a) — a bush, a hay bale or a snowdrift
+    /// each want their own value, and none of them wants a code change to
+    /// say so. Hot-reloadable with `F5` like every other material number.
+    ///
+    /// Graded by *how much of him* is in it rather than applied as a flag:
+    /// clipping the top of a crown barely registers, going through the
+    /// middle of one arrests him. The same shape as the wade, and for the
+    /// same reason recorded there — a binary version reads as a debuff,
+    /// not as a depth.
+    #[serde(default)]
+    pub fall_drag: f32,
     pub colors: Vec<[u8; 3]>,
+    /// How many leading entries of `colors` a *random* shade may pick from.
+    /// `0` (the default) means all of them, which is what every material
+    /// that has only one family wants.
+    ///
+    /// Worldgen bakes a region's rock/soil family into `Cell::shade` at
+    /// genesis (`worldgen::passes::palette_family`), so `stone`, `soil` and
+    /// `sand` ship several four-tone families in one `colors` list and the
+    /// *family* is chosen by the generator, never at random. Anything that
+    /// just wants "a tone of this material" -- the brush, ash decaying into
+    /// soil -- has to stay inside the first family, or painting a wall of
+    /// stone comes out as confetti of grey, sandstone and bleached cap-rock.
+    ///
+    /// This is the constant that had to be re-derived when the palettes
+    /// widened: `palette.len()` used to mean both "how many entries" and
+    /// "how many a random pick may use", and widening split those two
+    /// meanings apart.
+    #[serde(default)]
+    pub base_colors: usize,
 
     // --- M14: heat, combustion, phase change and reactions -----------------
     //
@@ -764,15 +864,31 @@ pub struct Material {
     pub penetration_resistance: f32,
     /// See `MaterialDef::water_capacity`.
     pub water_capacity: u16,
+    /// See `MaterialDef::glow` — light emitted into the field, 0 for all
+    /// but the glowing materials.
+    pub glow: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
     /// See `MaterialDef::dissipation`.
     pub dissipation: f32,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
+    /// See `MaterialDef::climbable`.
+    pub climbable: bool,
+    /// See `MaterialDef::scenery`.
+    pub scenery: bool,
+    /// See `MaterialDef::fall_drag`.
+    pub fall_drag: f32,
     /// Per-cell colour variation. A cell picks one entry when it is created and
     /// keeps it, which gives bulk material visible grain instead of a flat slab.
+    ///
+    /// May hold several four-tone *families* -- see [`Self::base_shades`] and
+    /// `MaterialDef::base_colors`. `render.rs` indexes it with
+    /// `shade % palette.len()`, so the family is simply higher entries.
     pub palette: Vec<[u8; 4]>,
+    /// How many leading `palette` entries a random shade may pick from.
+    /// See `MaterialDef::base_colors`; never zero.
+    pub base_shades: usize,
 
     pub flammability: f32,
     pub ignition_temperature: f32,
@@ -1015,6 +1131,7 @@ impl From<MaterialDef> for Material {
             fill_dimming: def.fill_dimming,
             penetration_resistance: def.penetration_resistance,
             water_capacity: def.water_capacity,
+            glow: def.glow,
             evaporates: def.evaporates,
             // Clamped rather than trusted: a negative value would be a
             // silent "never" (`Rng::chance` returns false at or below 0),
@@ -1022,11 +1139,23 @@ impl From<MaterialDef> for Material {
             // is created, which reads as the material not existing at all.
             dissipation: def.dissipation.clamp(0.0, 1.0),
             reinforces_powder: def.reinforces_powder,
+            climbable: def.climbable,
+            scenery: def.scenery,
+            fall_drag: def.fall_drag,
             palette: def
                 .colors
                 .iter()
                 .map(|c| [c[0], c[1], c[2], 255])
                 .collect(),
+            // Clamped to the palette rather than trusted: a `base_colors`
+            // larger than the list would let a random pick run off the end
+            // of the first family and into the next one, which is the exact
+            // failure the field exists to prevent.
+            base_shades: if def.base_colors == 0 {
+                def.colors.len().max(1)
+            } else {
+                def.base_colors.clamp(1, def.colors.len().max(1))
+            },
 
             flammability: def.flammability,
             ignition_temperature: def.ignition_temperature,
@@ -1152,6 +1281,20 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant.ron"),
     include_str!("../../assets/materials/nest.ron"),
     include_str!("../../assets/materials/beetle.ron"),
+    // Appended, per the rule stated three times above: never inserted among
+    // the others, because the well-known constants (`STONE` through `SMOKE`,
+    // and `RUBBLE = 15`) are positions in this array and inserting anywhere
+    // but the end renumbers every material after the insertion point at
+    // runtime rather than in a test.
+    //
+    // The round-2 vault pass's pair. `crystal` before `shard` because that is
+    // the order they are written in -- a lining, and what the lining breaks
+    // into -- and neither has a pinned constant, so nothing depends on which
+    // of the two comes first beyond keeping this list readable.
+    include_str!("../../assets/materials/crystal.ron"),
+    include_str!("../../assets/materials/shard.ron"),
+    include_str!("../../assets/materials/flowstone.ron"),
+    include_str!("../../assets/materials/spar.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1202,10 +1345,15 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             dissipation: 0.0,
             reinforces_powder: false,
+            climbable: false,
+            scenery: false,
+            fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,
@@ -1241,10 +1389,15 @@ impl MaterialRegistry {
             fill_dimming: default_fill_dimming(),
             penetration_resistance: default_penetration_resistance(),
             water_capacity: 0,
+            glow: 0.0,
             evaporates: false,
             dissipation: 0.0,
             reinforces_powder: false,
+            climbable: false,
+            scenery: false,
+            fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
+            base_colors: 0,
             flammability: 0.0,
             ignition_temperature: f32::INFINITY,
             burn_temperature: f32::INFINITY,
