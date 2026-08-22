@@ -231,7 +231,25 @@ const BUBBLE_DENSITY: f32 = 0.16;
 /// less its lower half gets. The split is what makes a two-pixel bubble
 /// read as *domed* rather than as a square — a bright top over a dimmer
 /// bottom is the cheapest possible specular highlight.
-const BUBBLE_LIFT: f32 = 0.72;
+///
+/// # A near-replace, because a blend of steam's colour is not steam's colour
+///
+/// Reported from play: the bubbles *"are not the color of steam"*. Checked,
+/// and `BUBBLE_TINT` already **is** steam's colour — `[225, 238, 248]`
+/// against `steam.ron`'s own `(222, 228, 236)`. What was wrong was the
+/// blend: at the old 0.72 crown and 0.30 underside, most of a bubble pixel
+/// was still the blue water behind it, and a mark that is 70% pond reads as
+/// tinted water however well-chosen the other 30% is.
+///
+/// This is the same mistake the field overlays made and
+/// `FieldOverlay`'s notes already record — *a magnitude-scaled blend read as
+/// blank; make it a full replace on a fixed ramp*. Bubbles are the third
+/// place in this file to learn it.
+///
+/// Not a *full* replace: a hard 1.0 everywhere loses the dome, and the dome
+/// is what stops a 2x2 site being a white square. The crown replaces and
+/// the underside keeps enough water to shade against it.
+const BUBBLE_LIFT: f32 = 1.0;
 
 /// The side of an ordinary bubble's site, in cells.
 ///
@@ -300,7 +318,11 @@ fn large_bubble_disc(sx: i32, sy: i32) -> (f32, i32) {
 const BUBBLE_LARGE_RARITY: f32 = 0.5;
 
 
-const BUBBLE_UNDERSIDE: f32 = 0.30;
+/// `BUBBLE_LIFT` for the shaded half of a bubble. See that constant for why
+/// both numbers moved up together: at 0.30 the underside was 70% pond water
+/// and the bubble read as a tinted patch of the liquid rather than as gas
+/// sitting in it.
+const BUBBLE_UNDERSIDE: f32 = 0.72;
 
 /// Whether `(ix, iy)` within a `BubbleMode::Large` site of squared radius
 /// `radius_sq` falls inside its disc. See `BUBBLE_LARGE_DISCS`.
@@ -316,7 +338,11 @@ fn large_bubble_covers(ix: i32, iy: i32, radius_sq: f32) -> bool {
 /// bubble halfway up a warm column then draws at half strength and reads as
 /// grain, so exactly the population the threshold was lowered to reach
 /// arrives invisible. A bubble either is there or is not.
-const BUBBLE_FLOOR: f32 = 0.5;
+///
+/// Raised with `BUBBLE_LIFT` for the same reason: at 0.5 a bubble in
+/// half-boiling water drew at 75% of an already-diluted blend, which is the
+/// invisibility this constant exists to prevent, arriving by the other door.
+const BUBBLE_FLOOR: f32 = 0.85;
 
 /// How far below a surface cell `BubbleMode::Surface` looks for the heat
 /// that made the bubble.
@@ -3206,6 +3232,70 @@ mod tests {
             // Sparse, and that is the other half of the claim: a mode that
             // lit a third of the pool would be foam, not boiling water.
             assert!(drawn < 4096 / 3, "{} bubbled {drawn} of 4096 pixels, which is foam rather than boiling", mode.label());
+        }
+    }
+
+    /// Squared distance between two RGB triples. Squared because nothing
+    /// here compares a distance to anything but another distance.
+    fn colour_gap(a: [f32; 3], b: [f32; 3]) -> f32 {
+        (0..3).map(|i| (a[i] - b[i]).powi(2)).sum()
+    }
+
+    /// A drawn bubble has to be nearer steam than the water it sits in.
+    ///
+    /// # The guard the colour complaint needed and did not have
+    ///
+    /// Reported from play: the bubbles *"are not the color of steam"*. Every
+    /// bubble test in this file passed through that, and none of them could
+    /// have caught it -- they count *which* pixels light and what shape the
+    /// lit set is, and the complaint was about the colour of the pixels that
+    /// were already lighting in the right places.
+    ///
+    /// `BUBBLE_TINT` was steam's colour the whole time. What was wrong was
+    /// the blend fraction: at the old `BUBBLE_LIFT`/`BUBBLE_UNDERSIDE` a lit
+    /// pixel came out **44 from the pond and 166 from steam** (RGB units, on
+    /// `scene=simmer`) -- numerically a shade of water. It now sits 150 from
+    /// the pond and 60 from steam, on the other side of the line, and this
+    /// asserts the side rather than the number so a re-tune of either
+    /// constant is free until it crosses back.
+    #[test]
+    fn a_bubble_is_drawn_nearer_steam_than_water() {
+        let world = World::new(Rect::new(0, 0, 1, 1));
+        let steam = world.materials.id_of("steam").expect("steam is a built-in");
+        let tint = world
+            .materials
+            .get(steam)
+            .palette
+            .iter()
+            .map(|c| colour_gap(BUBBLE_TINT, [c[0] as f32, c[1] as f32, c[2] as f32]))
+            .fold(f32::INFINITY, f32::min);
+        // The doc on `BUBBLE_TINT` claims it *is* steam's colour, and the
+        // whole fix rests on that claim, so it is asserted rather than
+        // asserted-in-prose: 20 units covers the spread of steam's own three
+        // palette entries and nothing wider.
+        assert!(tint < 20.0 * 20.0, "BUBBLE_TINT is {:.0} RGB units from steam's nearest palette colour", tint.sqrt());
+
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        for mode in [BubbleMode::Rising, BubbleMode::Large, BubbleMode::Columns, BubbleMode::Surface] {
+            let on = boiling_pool_frame(mode, 95);
+            let (mut lit, mut nearer_steam) = (0usize, 0usize);
+            for (water, bubble) in off.chunks(4).zip(on.chunks(4)) {
+                if water == bubble {
+                    continue;
+                }
+                lit += 1;
+                let w = [water[0] as f32, water[1] as f32, water[2] as f32];
+                let b = [bubble[0] as f32, bubble[1] as f32, bubble[2] as f32];
+                if colour_gap(b, BUBBLE_TINT) < colour_gap(b, w) {
+                    nearer_steam += 1;
+                }
+            }
+            let share = nearer_steam as f32 / lit as f32;
+            println!("{}: {nearer_steam} of {lit} lit pixels nearer steam than water ({:.0}%)", mode.label(), share * 100.0);
+            // Not all of them: a bubble's shaded underside is *meant* to keep
+            // some water in it, and `Columns` is a stream rather than a
+            // bubble. The bar is that the effect as a whole reads as gas.
+            assert!(share > 0.75, "{} drew {:.0}% of its pixels nearer water than steam", mode.label(), (1.0 - share) * 100.0);
         }
     }
 
