@@ -1759,6 +1759,117 @@ fn probe_p2_how_sheer_is_the_ground() {
     }
 }
 
+/// How many standing rock features a player crosses per screen, and how tall
+/// they are.
+///
+/// The owner, on a Phase 2 render: *"Either spire would be ok as an
+/// occational geological feature, but they shouldn't be common. They are a
+/// very unusual rock formation and shouldn't be dominate."* That is a claim
+/// about a **rate**, and nothing measured one -- `viewshot` reports
+/// prominence as an order statistic over columns, which says how tall the
+/// tallest thing is and never how many there are.
+///
+/// A standing feature is a maximal run of columns whose actual top sits at
+/// least `PROUD` rows above the eroded plan surface. Counted per
+/// 512-column screen, because "common" is a per-screen judgement -- the
+/// player sees one screen at a time, and a world-total is the number that
+/// hides exactly the clustering the complaint is about.
+///
+/// **Paired against `residual_density: 0.0`**, so the difference is the
+/// residual pass and not `boulders`, `brows` or a talus apron also standing
+/// proud. A bare count would attribute all of them to the thing being tuned.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_common_are_standing_features() {
+    const PROUD: i32 = 8;
+    const SCREEN: i32 = 512;
+    /// What counts as a spire rather than a bump: tall enough to break the
+    /// skyline and narrow enough to read as a tower. Measured off the image
+    /// the owner judged, where the six he was looking at were 2-9 columns
+    /// wide and stood 12-57 rows above their flanks.
+    const SPIRE_TALL: i32 = 12;
+    const SPIRE_WIDE: i32 = 16;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let density: f32 = std::env::var("RESIDUAL_DENSITY").ok().and_then(|v| v.parse().ok()).unwrap_or(-1.0);
+
+    let census = |params: &WorldgenParams, seed: u64| -> (Vec<usize>, Vec<i32>) {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let terrain = {
+            let soil = world.materials.id_of("soil").expect("soil");
+            let sand = world.materials.id_of("sand").expect("sand");
+            let st = world.materials.get(soil).friction_angle.to_radians().tan();
+            let sn = world.materials.get(sand).friction_angle.to_radians().tan();
+            pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, st, sn)
+        };
+        let plans = terrain.plan_all();
+        let top = |x: i32| (0..h).find(|&y| world.get(x, y).material != material::EMPTY).unwrap_or(h);
+        let proud: Vec<i32> = (0..w).map(|x| plans[x as usize].surface_y - top(x)).collect();
+        let mut per_screen = vec![0usize; (w / SCREEN) as usize];
+        let mut heights = Vec::new();
+        let mut x = 0;
+        while x < w {
+            if proud[x as usize] < PROUD {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            let mut tallest = 0;
+            while x < w && proud[x as usize] >= PROUD {
+                tallest = tallest.max(proud[x as usize]);
+                x += 1;
+            }
+            // **Only the ones the complaint is about.** A "spire" is tall
+            // *and* narrow; the 8-row bar alone counts every boulder, brow
+            // lip and proud talus toe, and the paired control below showed
+            // those are half of them on `canyon` and nearly all of them on
+            // `rolling`. Tuning `residual_density` against the unfiltered
+            // number would have been tuning against `boulders`.
+            let width = x - start;
+            if tallest >= SPIRE_TALL && width <= SPIRE_WIDE {
+                let slot = ((start / SCREEN) as usize).min(per_screen.len() - 1);
+                per_screen[slot] += 1;
+                heights.push(tallest);
+            }
+        }
+        (per_screen, heights)
+    };
+
+    for name in ["canyon", "rolling"] {
+        let base = presets.get(name).expect("preset");
+        let with = WorldgenParams {
+            residual_density: if density >= 0.0 { density } else { base.residual_density },
+            ..base.clone()
+        };
+        let without = WorldgenParams { residual_density: 0.0, ..with.clone() };
+        let (mut all, mut hts) = (Vec::new(), Vec::new());
+        let mut control = Vec::new();
+        for seed in [1u64, 3, 7] {
+            let (a, hh) = census(&with, seed);
+            let (b, _) = census(&without, seed);
+            all.extend(a);
+            hts.extend(hh);
+            control.extend(b);
+        }
+        all.sort_unstable();
+        control.sort_unstable();
+        hts.sort_unstable();
+        let q = |v: &Vec<usize>, f: f32| v[((v.len() as f32 - 1.0) * f) as usize];
+        let qh = |v: &Vec<i32>, f: f32| if v.is_empty() { 0 } else { v[((v.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:8} residual_density {:>4}: SPIRES (>={SPIRE_TALL} tall, <={SPIRE_WIDE} wide) per 512-col screen over {} screens -- \
+             med {} p90 {} max {}   (control, residuals off: med {} p90 {} max {})   heights med {} p90 {} max {}",
+            with.residual_density,
+            all.len(),
+            q(&all, 0.5), q(&all, 0.9), all[all.len() - 1],
+            q(&control, 0.5), q(&control, 0.9), control[control.len() - 1],
+            qh(&hts, 0.5), qh(&hts, 0.9), hts.last().copied().unwrap_or(0)
+        );
+    }
+}
+
 #[test]
 fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens

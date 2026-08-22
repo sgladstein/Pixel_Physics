@@ -251,7 +251,35 @@ pub struct WorldgenParams {
     // ---- residual landforms ----
     /// Expected residual sites (tors, stacks, pinnacles) per 256-column
     /// region, before the region's own `Character::formation` multiplies
-    /// it up or down. Zero disables the pass entirely and leaves the world
+    /// it up or down.
+    ///
+    /// **1.4 -> 0.45 on the Phase 2 review**, and set from a sweep rather
+    /// than from arithmetic. The owner, shown a render: *"Either spire would
+    /// be ok as an occational geological feature, but they shouldn't be
+    /// common. They are a very unusual rock formation and shouldn't be
+    /// dominate."* The screen he was looking at held six.
+    ///
+    /// Measured with `probe_p2_how_common_are_standing_features` -- spires
+    /// per 512-column screen over 48 screens, **paired against
+    /// `residual_density: 0.0`** so the count is the residual pass and not
+    /// `boulders`, `brows` or a proud talus toe (which turned out to be half
+    /// of them on `canyon` and nearly all of them on `rolling`; tuning
+    /// against the unpaired number would have been tuning `boulders`):
+    ///
+    /// | density | canyon med/p90/max | rolling med/p90/max |
+    /// |---|---|---|
+    /// | 1.4 | 1 / 3 / 5 | 1 / 2 / 3 |
+    /// | 0.7 | 1 / 2 / 4 | 0 / 2 / 2 |
+    /// | **0.45** | **0 / 2 / 4** | **0 / 1 / 2** |
+    /// | 0.3 | 0 / 2 / 4 | 0 / 1 / 2 |
+    ///
+    /// (controls: canyon 0 / 2 / 3, rolling 0 / 1 / 2.)
+    ///
+    /// 0.45 is the knee: both presets have come down to their control at the
+    /// median, so a screen no longer *has* a spire by default, while
+    /// `canyon`'s max stays above its control -- a coarse-`formation` region
+    /// still produces the occasional group, which is the axis doing its job.
+    /// 0.3 measures identically, so this is not sitting on a cliff. Zero disables the pass entirely and leaves the world
     /// byte-identical -- the same contract `pocket_density` and
     /// `vault_density` make.
     ///
@@ -342,7 +370,7 @@ impl Default for WorldgenParams {
             aridity_table_drop: 90.0,
             region_variation: 0.75,
             palette_field: 0.30,
-            residual_density: 1.4,
+            residual_density: 0.45,
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
