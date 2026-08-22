@@ -207,10 +207,17 @@ pub fn residuals(ctx: &Ctx, world: &mut World) -> usize {
             // Size: one continuous heavy-tailed draw weighted small, never a
             // common-tier-plus-rare-landmark scheme -- the owner's directive
             // verbatim. `ch.formation` scales the *ceiling*, not just the
-            // count: a smooth region's rare residual is still a small one.
+            // count, so the ceiling now discriminates *within* rock country:
+            // modest country gets modest monuments, coarse country gets the
+            // full height. It used to have a second job -- keeping a smooth
+            // region's rare residual small -- which the region gate has since
+            // taken over outright, because a smooth region no longer draws
+            // one at all. See `region::FORMATION_FULL_CEILING` for why the
+            // divisor is that and not the 1.5 this line carried.
             let u_size = noise::unit(seed, Purpose::ResidualShape, cx, 0);
-            let ceiling = (MIN_HEIGHT + (MAX_HEIGHT - MIN_HEIGHT) * (ch.formation / 1.5).clamp(0.0, 1.0))
-                .clamp(MIN_HEIGHT, MAX_HEIGHT);
+            let ceiling = (MIN_HEIGHT
+                + (MAX_HEIGHT - MIN_HEIGHT) * (ch.formation / super::region::FORMATION_FULL_CEILING).clamp(0.0, 1.0))
+            .clamp(MIN_HEIGHT, MAX_HEIGHT);
             let height = (MIN_HEIGHT + (ceiling - MIN_HEIGHT) * u_size.powf(SIZE_SKEW)).round() as i32;
             if height < 4 {
                 continue;

@@ -97,11 +97,18 @@ every spire. Their shape is inherited from the rock that made them: a
 resistant band gives blocky, square-shouldered stone, a softer one gives
 rounded whalebacks.
 
-**And which kind of rock country you are in changes as you walk.** One
-stretch is strewn with boulders, the next carries two or three monuments
-over otherwise bare ground, another is smoothed down to nothing much at
-all. This is a property of the region, not a single world-wide setting, so
-a long walk crosses several kinds of country rather than more of one.
+**But standing rock is a place you travel to, not a texture on the whole
+world.** Most country has none of it at all — mesas, benches and boulders,
+and nothing rising off the skyline. Then the ground changes and you are in
+**rock country**: several screens of it, thick with tors and pinnacles, and
+after a while it thins out and stops again. A world usually holds one or two
+such stretches, and it is possible to walk a long way without meeting one.
+
+Within a stretch the density still varies — one part strewn, another
+carrying two or three monuments over bare ground — and the coarser the
+country, the taller the tallest thing in it. What you will not find is a
+world with a spire every few screens everywhere: that reads as scenery
+rather than as a landmark, and a landmark is what these are for.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which

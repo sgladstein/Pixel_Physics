@@ -3046,3 +3046,284 @@ fn a_cave_cannot_reach_past_its_declared_margin() {
          (MAX_CAVE_HALF_W + VAULT_RIND)"
     );
 }
+
+/// What the residual pass actually *sees* when it asks a region whether it is
+/// rock country -- sampled at the exact positions `residual::residuals` samples.
+///
+/// Written because the gate on `Character::formation` moved the spire census
+/// not at all while visibly changing the monument heights, which is the
+/// signature of a change that fired somewhere other than where it was read.
+/// A downstream statistic could not tell "the gate is not working" from "the
+/// gate works and the screen metric cannot resolve it"; this asks the gate
+/// directly.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 0 formation gate)"]
+fn probe_p0_what_formation_does_the_residual_pass_see() {
+    const RESIDUAL_REGION: i32 = 256; // `residual::REGION`, which is private.
+    // Sixteen seeds, because the question is an order statistic over worlds:
+    // "how often does a world come out with no rock country at all" cannot be
+    // asked of three.
+    const SEED_LIST: [u64; 16] = [1, 3, 7, 11, 19, 23, 42, 97, 128, 256, 511, 1024, 2048, 4096, 24301, 65535];
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["canyon", "rolling"] {
+        let params = presets.get(name).expect("preset");
+        let (mut zero_blocks, mut all_blocks) = (0usize, 0usize);
+        let mut vals: Vec<f32> = Vec::new();
+        let mut expected_sites = 0.0f32;
+        // How far a stretch of rock country runs, in columns. This is the
+        // statistic the per-screen spire census could not see: a country
+        // shorter than the 512-column view reads as a cluster, and measures
+        // the same as a world with fewer spires spread evenly.
+        let mut runs: Vec<i32> = Vec::new();
+        let mut empty_worlds = 0usize;
+        for seed in SEED_LIST.iter().copied() {
+            let terrain = {
+                let soil = params_material_tan(name, "soil");
+                let sand = params_material_tan(name, "sand");
+                pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+            };
+            for rx in 0..w.div_euclid(RESIDUAL_REGION) + 1 {
+                let mx = (rx * RESIDUAL_REGION + RESIDUAL_REGION / 2).clamp(0, w - 1);
+                let f = terrain.character(mx).formation;
+                all_blocks += 1;
+                if f <= 1e-6 {
+                    zero_blocks += 1;
+                }
+                vals.push(f);
+                expected_sites += params.residual_density * f;
+            }
+            // Run lengths at column resolution, not block resolution: the
+            // question is how far the country reaches, and quantising it to
+            // 256-column blocks would round every answer to the scale the
+            // measurement is trying to compare against.
+            let mut run = 0;
+            for x in 0..w {
+                if terrain.character(x).formation > 1e-6 {
+                    run += 1;
+                } else {
+                    if run > 0 {
+                        runs.push(run);
+                    }
+                    run = 0;
+                }
+            }
+            if run > 0 {
+                runs.push(run);
+            }
+            if !(0..w).any(|x| terrain.character(x).formation > 1e-6) {
+                empty_worlds += 1;
+            }
+            // Where, not just how long -- so a render can be aimed at a rock
+            // country and at a barren stretch of the *same* world, which is
+            // the only comparison that holds everything else constant.
+            if std::env::var("DUMP_RUNS").is_ok() {
+                let mut start = None;
+                let mut spans: Vec<(i32, i32)> = Vec::new();
+                for x in 0..=w {
+                    let rock = x < w && terrain.character(x).formation > 1e-6;
+                    match (rock, start) {
+                        (true, None) => start = Some(x),
+                        (false, Some(s0)) => {
+                            spans.push((s0, x - 1));
+                            start = None;
+                        }
+                        _ => {}
+                    }
+                }
+                println!("  {name} seed {seed}: rock country at {spans:?}");
+            }
+        }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let rock: Vec<f32> = vals.iter().copied().filter(|&f| f > 1e-6).collect();
+        let q = |v: &Vec<f32>, f: f32| {
+            if v.is_empty() {
+                0.0
+            } else {
+                v[((v.len() as f32 - 1.0) * f) as usize]
+            }
+        };
+        runs.sort_unstable();
+        let rq = |f: f32| if runs.is_empty() { 0 } else { runs[((runs.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:8} formation as the residual pass samples it, {all_blocks} blocks x {} seeds -- \
+             BARREN {:.0}% of blocks  |  among ROCK blocks: p50 {:.2} p90 {:.2} max {:.2}  |  \
+             WORLDS WITH NO ROCK COUNTRY {}/{}  |  run length (columns): n {} med {} p90 {} max {}  |  \
+             expected sites/world {:.1}",
+            SEED_LIST.len(),
+            100.0 * zero_blocks as f32 / all_blocks as f32,
+            q(&rock, 0.50), q(&rock, 0.90), q(&rock, 1.0),
+            empty_worlds, SEED_LIST.len(),
+            runs.len(), rq(0.5), rq(0.9), rq(1.0),
+            expected_sites / SEED_LIST.len() as f32
+        );
+    }
+}
+
+/// Friction tangent for a named material, the way the worldgen harnesses build
+/// a `Terrain` outside the generator.
+fn params_material_tan(_preset: &str, material_name: &str) -> f32 {
+    let world = World::new(Rect::new(0, 0, 15, 15));
+    let id = world.materials.id_of(material_name).expect("material");
+    world.materials.get(id).friction_angle.to_radians().tan()
+}
+
+/// Residual landforms belong to rock country, and to nowhere else.
+///
+/// **A rate cannot pass this test, and that is exactly why it exists.** The
+/// complaint it guards was not "too many spires" -- it was *"Spires should not
+/// just be thinned out ... I didn't mean a uniform decrease in spires."* So the
+/// property is a **contrast between two parts of one world**, which no count of
+/// spires-per-screen can express, however it is sliced. Measured while building
+/// this: a per-region gate at 87% barren and the rejected uniform
+/// `residual_density: 0.45` produced the *same* per-screen census on both
+/// presets (canyon 0/2/4, rolling 0/1/2) from completely different worlds. The
+/// statistic that was supposed to tell them apart was blind to the only thing
+/// that differed.
+///
+/// So both halves are asserted separately, and a regression says which broke:
+/// residuals must be **absent** outside rock country, and **present** inside.
+///
+/// Paired against `residual_density: 0.0` throughout, because `boulders`,
+/// `brows` and a proud talus toe stand above the plan surface too -- half the
+/// standing features on `canyon` and nearly all of them on `rolling`. An
+/// unpaired count would be measuring `boulders` and calling it this.
+///
+/// Swept over seeds and gated on the aggregate rather than asserted per seed:
+/// 1 world in 16 draws no rock country at all, so a fixed-seed version of this
+/// is one reseed away from either flaking or passing vacuously.
+#[test]
+fn residual_landforms_are_confined_to_rock_country() {
+    // Set from the measurement with headroom, not from an aspiration.
+    // Measured over these six seeds: inside 3.104/1000 (66 spires against 14
+    // with residuals off), outside 0.031/1000 (44 against 43), a 100x
+    // contrast. The bars sit far enough below that a seed reshuffle cannot
+    // rubber-stamp them, and the whole set was checked against the artifact it
+    // replaces rather than only against the one it blesses: restoring the old
+    // ungated `raw * raw * 2.2` skew at the rejected `residual_density: 0.45`
+    // fails here, on the barren-share assertion first, because that draw never reaches
+    // zero and so classifies the entire world as rock country (49152 columns
+    // inside, 0 outside).
+    const BAR_IN: f64 = 1.5;
+    const BAR_OUT: f64 = 0.30;
+    const CONTRAST: f64 = 8.0;
+    const PROUD: i32 = 8;
+    const SPIRE_TALL: i32 = 12;
+    const SPIRE_WIDE: i32 = 16;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let params = presets.get("canyon").expect("canyon preset");
+    let bare = WorldgenParams { residual_density: 0.0, ..params.clone() };
+
+    // Spire runs, keyed by whether their start column sits in rock country.
+    let census = |p: &WorldgenParams, seed: u64, rock: &[bool]| -> (u32, u32) {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params: p, seed });
+        let terrain = {
+            let soil = params_material_tan("canyon", "soil");
+            let sand = params_material_tan("canyon", "sand");
+            pixel_physics::worldgen::column::Terrain::new(seed, p, w, h, soil, sand)
+        };
+        let plans = terrain.plan_all();
+        let top = |x: i32| (0..h).find(|&y| world.get(x, y).material != material::EMPTY).unwrap_or(h);
+        let proud: Vec<i32> = (0..w).map(|x| plans[x as usize].surface_y - top(x)).collect();
+        let (mut inside, mut outside) = (0u32, 0u32);
+        let mut x = 0;
+        while x < w {
+            if proud[x as usize] < PROUD {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            let mut tallest = 0;
+            while x < w && proud[x as usize] >= PROUD {
+                tallest = tallest.max(proud[x as usize]);
+                x += 1;
+            }
+            if tallest >= SPIRE_TALL && x - start <= SPIRE_WIDE {
+                if rock[start as usize] {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                }
+            }
+        }
+        (inside, outside)
+    };
+
+    let (mut in_cols, mut out_cols) = (0u64, 0u64);
+    let (mut in_with, mut in_without) = (0u32, 0u32);
+    let (mut out_with, mut out_without) = (0u32, 0u32);
+    let mut worlds_with_country = 0;
+    for seed in [1u64, 7, 19, 42, 256, 24301] {
+        let terrain = {
+            let soil = params_material_tan("canyon", "soil");
+            let sand = params_material_tan("canyon", "sand");
+            pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+        };
+        let rock: Vec<bool> = (0..w).map(|x| terrain.character(x).formation > 1e-6).collect();
+        let n_rock = rock.iter().filter(|&&r| r).count() as u64;
+        if n_rock > 0 {
+            worlds_with_country += 1;
+        }
+        in_cols += n_rock;
+        out_cols += w as u64 - n_rock;
+        let (a, b) = census(params, seed, &rock);
+        let (c, d) = census(&bare, seed, &rock);
+        in_with += a;
+        out_with += b;
+        in_without += c;
+        out_without += d;
+    }
+
+    // Per 1000 columns of the zone, so the two zones are comparable even though
+    // rock country is roughly a third of the world.
+    let rate = |n: u32, cols: u64| n as f64 * 1000.0 / cols.max(1) as f64;
+    let gain_in = rate(in_with, in_cols) - rate(in_without, in_cols);
+    let gain_out = rate(out_with, out_cols) - rate(out_without, out_cols);
+    println!(
+        "residuals vs rock country over 6 canyon seeds: \
+         INSIDE {in_cols} cols, {in_with} spires vs {in_without} bare -> gain {gain_in:.3}/1000 | \
+         OUTSIDE {out_cols} cols, {out_with} vs {out_without} bare -> gain {gain_out:.3}/1000 | \
+         worlds with rock country {worlds_with_country}/6"
+    );
+
+    // Most of the world has none. First, because it is the half of the verdict
+    // the other assertions cannot see: a draw that never reaches zero puts
+    // every column "inside" and leaves the outside zone empty, at which point
+    // an absence bar over zero columns is vacuously true.
+    assert!(
+        out_cols > in_cols,
+        "rock country covers {in_cols} of {} columns -- it is supposed to be the exception, and an \
+         empty barren zone makes the absence bar below vacuous",
+        in_cols + out_cols
+    );
+    assert!(
+        worlds_with_country >= 4,
+        "only {worlds_with_country}/6 canyon seeds drew any rock country -- the gate has swung shut, \
+         and the two assertions below would then be comparing an empty set against the whole world"
+    );
+    // The "some biomes should have them" half.
+    assert!(
+        gain_in >= BAR_IN,
+        "residuals add {gain_in:.3} spires/1000 columns inside rock country, under the {BAR_IN} bar -- \
+         rock country has stopped being rock country"
+    );
+    // The "not at all in most biomes" half. Not exactly zero: a site is placed
+    // at a column and drawn with width, so one seated against the last block of
+    // a country can lean a few columns past where `formation` reaches zero.
+    assert!(
+        gain_out <= BAR_OUT,
+        "residuals add {gain_out:.3} spires/1000 columns OUTSIDE rock country, over the {BAR_OUT} bar -- \
+         they are leaking into barren country, which is the uniform sprinkle this replaced"
+    );
+    // The contrast itself, which is the thing neither half can state alone.
+    assert!(
+        gain_in >= CONTRAST * gain_out.max(0.001),
+        "inside:outside contrast is {:.1}x, under the {CONTRAST}x bar -- a world this flat is a \
+         thinned world wearing a gate's clothes",
+        gain_in / gain_out.max(0.001)
+    );
+}

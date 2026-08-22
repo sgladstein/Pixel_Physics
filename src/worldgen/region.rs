@@ -129,6 +129,93 @@ const COMPOSITION_WINDOW: f32 = 512.0;
 /// honest rather than this comment.
 const MAX_TOTAL_REGIONS: i32 = 320;
 
+/// Rock country is a *place*, not a rate — the constants below.
+///
+/// `formation` was drawn as `raw * raw * 2.2 * variation`: a skew toward the
+/// low end, which the comment at the draw site described as "mostly smooth
+/// with occasional coarse, monument-strewn country". Squaring does not
+/// deliver that, because **`raw²` never reaches zero**. Measured over 400k
+/// draws at the shipped `region_variation: 0.75`, only 17% of regions came
+/// out effectively barren and the *median* region had standing rock — which
+/// is "some formations everywhere", the exact shape the comment forbids.
+///
+/// The owner's verdict on a uniform thinning of `residual_density`
+/// (1.4 -> 0.45), which is what that shape invites you to reach for:
+/// *"Spires should not just be thinned out. They should be part of a
+/// specific biome. They should not exist at all in most biomes but some
+/// biomes should have them and they can be more regular. I didn't mean a
+/// uniform decrease in spires."* The thinning also measured as a **deletion**
+/// rather than a thinning: on `rolling` at 0.45 the spire census was
+/// identical to a residuals-off control, so the pass had stopped
+/// contributing anything at all, and the monuments shrank with it
+/// (`heights` p90 33 -> 23).
+///
+/// So: a **hard gate, not a skew** — and the gate is read off a field far
+/// coarser than a region. Below `FORMATION_BARREN` a region draws exactly
+/// `0.0` and gets no residuals at all; `residual::residuals` needs no branch
+/// for this, because a density of zero already floors to zero whole sites and
+/// `unit(..) < 0.0` is never true.
+///
+/// **Why the gate is not read off the region's own draw**, which was tried
+/// first and is the obvious implementation: a region here is 102-256 columns,
+/// a fifth to a half of one screen (`MIN_REGIONS`/`MAX_REGIONS` are per
+/// *window*). Gating on it makes a rock country smaller than the view, so it
+/// reads as a cluster rather than as a place — and it measures that way too.
+/// At 87% of regions barren the per-screen spire census came back canyon
+/// 0/2/4, rolling 0/1/2, which is **the same census the rejected uniform
+/// thinning gave**. Two very different worlds, one statistic, because the
+/// thing that was supposed to distinguish them was smaller than the window it
+/// was measured in. `Purpose::RockCountry` is the coarse field instead.
+///
+/// The knob and the gate own different questions: the gate decides *whether*
+/// there is rock country here, `residual_density` decides how emphatic it is
+/// where there is.
+const FORMATION_BARREN: f32 = 0.70;
+
+/// How wide rock country is, in columns of world — the wavelength of the
+/// `Purpose::RockCountry` field.
+///
+/// Sized in *screens*, not in regions, because that is the scale the question
+/// is asked at: a country the player crosses in under a screen-width is a
+/// cluster. At `COMPOSITION_WINDOW` = 512 this is a little over three screens
+/// per feature, so a rock country spans several regions and each of them
+/// draws its own intensity within it.
+const ROCK_COUNTRY_SCALE: f32 = 1700.0;
+
+/// The weakest rock country that is still rock country. Not near zero: a
+/// region that survives the gate and then draws a formation of 0.05 is a
+/// barren region with extra steps, and re-introduces by the back door the
+/// smooth continuum the gate exists to break.
+const FORMATION_FLOOR: f32 = 0.9;
+
+/// The coarsest. `residual_density * FORMATION_PEAK * variation` is the site
+/// count per `residual::REGION` columns in boulder-strewn country.
+const FORMATION_PEAK: f32 = 2.4;
+
+/// Within rock country, still weighted toward the floor: "a few monuments"
+/// should be commoner than "boulder-strewn". This is the *shape* the old
+/// squaring was reaching for, applied where it belongs — inside the regions
+/// that have rock — rather than across all of them, where it only ever
+/// produced a sprinkle everywhere.
+const FORMATION_SKEW: f32 = 1.5;
+
+/// The `formation` value at which a region draws residuals at the full
+/// `residual::MAX_HEIGHT` ceiling — the coarsest country there is.
+///
+/// **Re-derived with the gate above, not carried over.** The old divisor was
+/// `1.5`, chosen against the old `raw * raw * 2.2 * variation` draw whose
+/// maximum at the shipped `region_variation: 0.75` was `1.65`. So the ceiling
+/// was only ever approached by the top ~5% of *all* regions, and the biggest
+/// monuments were rarer than reading the constant suggests. A gated draw tops
+/// out at `FORMATION_PEAK * variation` instead, which is what this tracks.
+///
+/// The `0.75` is the shipped default `region_variation` (`params.rs`), and it
+/// is a *reference point*, not a claim that every preset uses it: a preset
+/// asking for more regional variation gets more regions at the full ceiling,
+/// which is the right direction for a knob named "how different are these
+/// places from each other".
+pub(super) const FORMATION_FULL_CEILING: f32 = FORMATION_PEAK * 0.75;
+
 /// How far apart the highest and lowest region must sit, in units of
 /// `elev`. The composition guarantee: below this the world is a plain, and
 /// a plain every fifth seed is not variety, it is a dud.
@@ -183,14 +270,47 @@ impl RegionMap {
         let windows = (w as f32 / COMPOSITION_WINDOW).max(1.0);
         let count = ((per_window as f32 * windows).round() as i32).clamp(MIN_REGIONS, MAX_TOTAL_REGIONS);
 
+        // Centres first, and the country field over them, because the rock
+        // country gate needs the whole world's draws before it can decide its
+        // threshold -- see the guarantee below.
+        //
+        // Evenly spaced, jittered by up to a third of a region so the
+        // boundaries do not fall on a grid. Even spacing alone would be its
+        // own kind of sameness.
+        let centre_x: Vec<f32> = (0..count)
+            .map(|i| {
+                let nominal = (i as f32 + 0.5) / count as f32;
+                let jitter = (noise::unit(seed, Purpose::Region, i, 1) - 0.5) * 0.66 / count as f32;
+                (nominal + jitter).clamp(0.02, 0.98) * w as f32
+            })
+            .collect();
+        let country: Vec<f32> = centre_x
+            .iter()
+            .map(|&cx| noise::value_1d(seed, Purpose::RockCountry, cx / ROCK_COUNTRY_SCALE))
+            .collect();
+
+        // **The rock-country guarantee, enforced rather than hoped for** --
+        // the same shape as the elevation-spread guarantee further down, and
+        // for the same reason. A world with no standing rock anywhere is not
+        // variety, it is a missing feature, and rejecting the draw outright
+        // would bias the distribution; dropping the bar to the best draw keeps
+        // the shape that was drawn and only fixes the range.
+        //
+        // Two cases need it, and only one of them is exotic. At the 512-column
+        // test size the world is narrower than a third of one period of the
+        // country field, so it samples what is essentially a single value and
+        // a world either is rock country or has none --
+        // `every_pass_writes_something` failed on exactly that, reporting
+        // "pass residuals never wrote a cell across 5 seeds". At the shipped
+        // 8192 it is not exotic at all: measured over 16 seeds, 1 world in 16
+        // drew no country. That is rare enough to look like bad luck in
+        // testing and common enough for a player to meet.
+        let best = country.iter().copied().fold(f32::MIN, f32::max);
+        let gate = FORMATION_BARREN.min(best);
+
         let mut centres = Vec::with_capacity(count as usize);
         for i in 0..count {
-            // Evenly spaced centres, jittered by up to a third of a region so
-            // the boundaries do not fall on a grid. Even spacing alone would
-            // be its own kind of sameness.
-            let nominal = (i as f32 + 0.5) / count as f32;
-            let jitter = (noise::unit(seed, Purpose::Region, i, 1) - 0.5) * 0.66 / count as f32;
-            let cx = (nominal + jitter).clamp(0.02, 0.98) * w as f32;
+            let cx = centre_x[i as usize];
 
             // Each axis drawn independently, so a region can be dry *and*
             // rugged, or wet and smooth, rather than sliding along one
@@ -203,17 +323,31 @@ impl RegionMap {
                 aridity: (p.aridity + draw(4) * 0.55 * variation).clamp(0.0, 1.0),
                 resistance: (1.0 + draw(5) * 0.9 * variation).max(0.0),
                 sediment: (1.0 + draw(6) * 0.8 * variation).max(0.05),
-                // Skewed toward the low end, unlike the symmetric axes
-                // above: the owner's directive is regions that are mostly
-                // smooth with occasional coarse, monument-strewn country,
-                // not a bell curve centred on "some formations everywhere".
-                // `raw` is 0..1 uniform; squaring pulls the mass down while
-                // keeping the occasional near-1 draw that becomes a coarse
-                // region. Slot 7, freshly claimed here (0-6 were already
-                // spoken for).
+                // Gated, not skewed, and the only axis here that is: most
+                // country has no standing rock *at all*, and the rest has it
+                // properly. See `FORMATION_BARREN` for why a skew could not
+                // deliver that and what the uniform-thinning alternative
+                // measured as. Slot 7, claimed when this axis landed (0-6
+                // were already spoken for).
                 formation: {
+                    // The gate is the *country* field, sampled at this
+                    // region's own centre so the region blend carries it;
+                    // the per-region draw only sets intensity within a
+                    // country that already exists. See `FORMATION_BARREN`
+                    // for why gating on `raw` instead measured as a
+                    // uniform thinning.
                     let raw = noise::unit(seed, Purpose::Region, i, 7);
-                    (raw * raw * 2.2 * variation).max(0.0)
+                    if country[i as usize] < gate {
+                        0.0
+                    } else {
+                        // `raw` is unconditioned here -- the gate spent the
+                        // country field, not this one -- so it runs the full
+                        // 0..1 and `FORMATION_SKEW` shapes rock country end
+                        // to end.
+                        let strength =
+                            FORMATION_FLOOR + (FORMATION_PEAK - FORMATION_FLOOR) * raw.powf(FORMATION_SKEW);
+                        (strength * variation).max(0.0)
+                    }
                 },
             };
             centres.push((cx, character));

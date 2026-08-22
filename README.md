@@ -1550,11 +1550,34 @@ The features underground grew with it: a cave system's envelope reaches
 800 x 320 cells against 200 x 80, and a stalagmite's base is 12-32 cells
 wide against 3-8, which took the median formation across a 16-seed census
 from 3 cells to 11. The macro surface deliberately did **not** scale —
-regions stay one screen wide, so crossing the world still changes country at
-the same rate — and `Reports/world-scale-phase-2.md` sets out why those two
-halves cannot both scale, along with what the growth cost: a cave's void is
-now split across many more disjoint walkable pockets, which is the honeycomb
-that the next round of cave-shape work exists to replace.
+region *density* is held constant at two to five per screen-width, so
+crossing the world still changes country at the same rate — and
+`Reports/world-scale-phase-2.md` sets out why those two halves cannot both
+scale, along with what the growth cost: a cave's void is now split across
+many more disjoint walkable pockets, which is the honeycomb that the next
+round of cave-shape work exists to replace.
+
+**Standing rock became a place rather than a rate**, on the owner's verdict
+that Phase 2's answer had missed: *"They should not exist at all in most
+biomes but some biomes should have them and they can be more regular. I
+didn't mean a uniform decrease in spires."* Phase 2 had cut
+`residual_density` 1.4 -> 0.45 uniformly, and measurement afterwards showed
+that was worse than a thinning — on `rolling` the spire census at 0.45 was
+*identical to a residuals-off control*, so the pass had stopped contributing
+at all, and the monuments shrank with it (`heights` p90 33 -> 23).
+
+Whether a stretch of world grows residuals is now a low-frequency
+**rock-country field** (`region::ROCK_COUNTRY_SCALE`, ~1700 columns per
+feature) rather than the per-region `formation` draw, because a region is
+102-256 columns — a fifth to a half of one screen — and a country smaller
+than the view reads as a cluster. Measured: gating per region at 87% barren
+gave *the same* per-screen census as the rejected uniform thinning. With the
+country field, 64% of the world is barren, rock country runs a median 1572
+columns, and residuals add 3.1 spires per 1000 columns inside it against
+0.031 outside — a 100x contrast, guarded by
+`residual_landforms_are_confined_to_rock_country`, which fails for the old
+draw. Every world gets at least one such stretch, enforced the same way the
+elevation-spread guarantee is.
 
 Streaming itself — chunks loading and unloading past the bounds — has not
 started; `ChunkCoord`'s reserved slice-identifier (issue #11) is the one
