@@ -1,0 +1,127 @@
+{
+  "id": "20260822T022354739Z-67d9e1",
+  "created": "2026-08-22T02:23:54Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-mechanic-stone-review-yksmi8",
+    "commit": "b9a514b",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The thick lines are gone - before | after, all ten",
+  "question": "Are the late thick lines fixed, and does #3 now do enough?",
+  "context_md": "The same ten, each one **before on the left and after on the right, playing together**. Same seed, same framing, same noon lighting.\n\n**The thick lines are gone, and they were one mechanism.** Three things in the game draw cracks: the new fabric draws one cell wide, the pick and chisel draw one cell wide, and one old path drew *two* - it marked an edge and its mirror. That path also wandered by 0.9 radians per cell (the scribble you rejected), fired hundreds of frames late off a wavefront crawling at one cell per five frames, and drew its whole star in a *single frame*. Thick, scribbly, late, and popping in rather than spreading - your four descriptions were one bug. It now reveals the same grain everything else does.\n\nI proved it before changing anything, using a switch that already ships: with that path off, cracked cells in the world fell 610 to 145, unsupported judgements 2,365 to 29, and *more* material moved. It was almost pure noise.\n\n**#3 should now do something** - surface and shallow shots were starved because confinement *gated* how much rock cracked. It now scales instead, so buried still cracks more but a surface shot cracks a real web. Buried-to-surface went from 5.8:1 to 1.8:1, and every already-good buried charge is bit-identical (#1, #6, #7, #8, #9, #10 unchanged). An airburst still does **not** dice the ground under it - I checked, since that was the obvious way to get this wrong.\n\n**Where it settles matters more than any single frame.** The old path never terminated: promoted cells at frames 900/1100/1300 were 2,184 / 2,226 / 2,710 and still climbing. Now it is 1,213 / 1,213 / 1,213 - settled. Across four seeds the *worst* case for material actually moving is up 50% (6,043 to 9,042), and the worst frame went 104ms to 73ms.\n\n**Two honest costs.** A heavy pick blow on a hillside now removes more rock than it did last week - back to roughly where this branch started, having dipped in between. And the crack pattern still arrives in one frame rather than growing; there is far less of it and it is aligned to the grain, but 'spreads rather than pops' is only half done.\n\nIgnore the trees and the grain.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1. deep, standard",
+      "files": [
+        "20260822T022354739Z-67d9e1/000-01-deep-standard-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "606 -> 606"
+      }
+    },
+    {
+      "label": "2. shallow crater",
+      "files": [
+        "20260822T022354739Z-67d9e1/001-02-shallow-crater-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "144 -> 461"
+      }
+    },
+    {
+      "label": "3. surface burst - you said 'not much happening'",
+      "files": [
+        "20260822T022354739Z-67d9e1/002-03-surface-burst-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "105 -> 335"
+      }
+    },
+    {
+      "label": "4. seabed, water overhead",
+      "files": [
+        "20260822T022354739Z-67d9e1/003-04-seabed-water-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "376 -> 507"
+      }
+    },
+    {
+      "label": "5. bigger charge",
+      "files": [
+        "20260822T022354739Z-67d9e1/004-05-big-charge-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "1318 -> 1539"
+      }
+    },
+    {
+      "label": "6. small charge",
+      "files": [
+        "20260822T022354739Z-67d9e1/005-06-small-charge-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "222 -> 222"
+      }
+    },
+    {
+      "label": "7. finer grain",
+      "files": [
+        "20260822T022354739Z-67d9e1/006-07-fine-grain-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "950 -> 950"
+      }
+    },
+    {
+      "label": "8. coarser grain",
+      "files": [
+        "20260822T022354739Z-67d9e1/007-08-coarse-grain-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "341 -> 341"
+      }
+    },
+    {
+      "label": "9. bolder seams",
+      "files": [
+        "20260822T022354739Z-67d9e1/008-09-bolder-seams-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "606 -> 606"
+      }
+    },
+    {
+      "label": "10. wider halo",
+      "files": [
+        "20260822T022354739Z-67d9e1/009-10-wider-halo-lite.gif"
+      ],
+      "caption": "left: what you reviewed | right: now",
+      "meta": {
+        "joints woken, before -> after": "1154 -> 1154"
+      }
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
