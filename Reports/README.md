@@ -153,6 +153,10 @@ tried?"*.
   **review.** Why the caves do not look good, ahead of rounds 5 and 6.
 - [pass-interference-2026-08.md](pass-interference-2026-08.md) —
   **investigation.** Which worldgen passes overwrite each other.
+- [world-scale-handoff.md](world-scale-handoff.md) — **handoff; start
+  here for the 4x world.** What round 7's performance work landed, the one
+  target it missed and why, the question waiting on the owner, and Phases
+  2-5 written to be picked up cold.
 - [worldgen-round6-handoff.md](worldgen-round6-handoff.md) — **handoff.**
   What round 6 landed, what was ruled, and what the owner then rejected on
   the review cards. The starting point for rounds 7+.
