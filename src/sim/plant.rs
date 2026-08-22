@@ -7562,6 +7562,44 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         }
     }
 
+    /// **The seed sweep `root_and_shoot_branching_read_different_slots`
+    /// should have been from the start.**
+    ///
+    /// That guard pairs a single seed at draws -1 and +1 and asserts the
+    /// ordering. On a system where twelve identical trees from one genome
+    /// span 31 to 153 cells, one seed per arm cannot tell "the lever broke"
+    /// from "this seed reshuffled" -- and after the plant-line merge it
+    /// reads 371 against 315, inverted from the 336/448 it was calibrated
+    /// on. This prints the same pairing across seeds so the question is
+    /// answerable: if the ordering holds on the mean and the per-seed signs
+    /// are mixed, the guard's shape was wrong; if it is inverted across the
+    /// board, the lever is genuinely broken.
+    ///
+    /// House convention for a guard over a procedural system is an order
+    /// statistic over N seeds, not one seed (`CLAUDE.md`, Conventions).
+    #[test]
+    #[ignore]
+    fn print_root_branch_slot_seed_sweep() {
+        let (mut lows, mut highs, mut agree) = (Vec::new(), Vec::new(), 0usize);
+        println!("seed   root(-1)  root(+1)   ratio  ordered");
+        for seed in 1u64..=8 {
+            let (low, _) = root_slot_run(seed, 1, -1.0, 12_000);
+            let (high, _) = root_slot_run(seed, 1, 1.0, 12_000);
+            let ratio = high as f32 / low.max(1) as f32;
+            let ok = high as f32 > low as f32 * 1.10;
+            if ok {
+                agree += 1;
+            }
+            println!("{seed:>4}   {low:>8}  {high:>8}   {ratio:>5.2}  {}", if ok { "yes" } else { "NO" });
+            lows.push(low as f32);
+            highs.push(high as f32);
+        }
+        let mean = |v: &Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+        let (ml, mh) = (mean(&lows), mean(&highs));
+        println!("mean   {ml:>8.1}  {mh:>8.1}   {:>5.2}", mh / ml.max(1.0));
+        println!("seeds where +1 beat -1 by the guard's 10%: {agree}/8");
+    }
+
     /// A deep, wide, walled soil bed — root branching needs somewhere to
     /// express itself, and `plant_tree_on_ground`'s 17x8 bed bounds the
     /// root system by the scene rather than by the genome.

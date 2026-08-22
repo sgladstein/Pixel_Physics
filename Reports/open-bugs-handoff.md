@@ -330,9 +330,29 @@ on the close-up that looks like a mistake — twelve thousand cells of it and
 it barely separates from the ground. Posted to the review queue; if it does
 not read, the fix is the palette, not the mechanism.
 
-### NEW. Plants grow nothing on generated terrain — **OPEN, BLOCKING, 2026-08-22**
+### NEW. ~~Plants grow nothing on generated terrain~~ — **FIXED 2026-08-22**
 
-**This is the one finding here that should stop a merge to `main`.** It was
+**FIXED.** `examples/ascii` passes (exit 0), with the foraging scene showing
+**739 deliveries by frame 12,000** where it showed zero. The fix is the
+aridity-shaped soil baseline in the worldgen moisture pass. Measured against
+a control with the baseline disabled (same build, same seed, frame 10,800):
+
+| preset | living tissue, before -> after | decay events |
+|---|---|---|
+| wetland | 4,950 -> 24,160 | 113 -> 554 |
+| rolling | **12 -> 14,166** | 0 -> 260 |
+| canyon | **7 -> 6,064** | 0 -> 58 |
+
+Rolling's control total of **12** living cells is exactly its `life_scatter`
+count of 12, and canyon's **7** is exactly its 7: every seed the generator
+scattered was still sitting there ungerminated after 10,800 frames. Those
+biomes were not sparse before — they were **inert**. Judge-by-eye card for
+the result posted 2026-08-22 (`plants` board, "Four biomes, after the
+worldgen soil baseline").
+
+**Historical, from when this was open:** it read as follows.
+
+**~~This is the one finding here that should stop a merge to `main`.~~** It was
 found by the second integration (bringing `origin/main` at `98ac541`, 144
 commits, onto the plant lines), and it fails `examples/ascii`, which CI
 runs.
@@ -692,6 +712,31 @@ programme, not a merge repair.
 
 ### X. A desert with no desert plants — **DESIGN DIRECTION, 2026-08-22. Do not "fix" this by watering deserts.**
 
+**CORRECTED 2026-08-22: the stated mechanism below was wrong, and the
+correction changes what a fix would have to be.** This section originally
+said an arid column lands near **50** against a wilting point of **180**, so
+plant-available water is zero. The number is right and the *reason* is not.
+Measured on the generator: arid lays a blanket of **7,411 cells** and the
+moisture pass writes **0 cells** into it — because in arid country that
+blanket is **sand, not soil**. `is_sandy` is `aridity > SAND_ARIDITY` (0.62,
+`column.rs:78,92`) and arid's per-column aridity runs ~0.92, so essentially
+every column is sandy; and **`soil.ron` is the only material in the whole
+asset directory that declares a `water_capacity` at all**, so sand's is 0.
+
+**Why that matters more than a factor of fifty.** An arid column is not dry
+soil that a thirstier species could drink from — it is ground with **no
+water-holding capacity whatever**. So the well-shaped fix recorded below
+(make the wilting point a species trait) **would do nothing at all for the
+desert**, which is the one biome it was proposed for: no wilting point,
+however low, extracts water from a material whose capacity is zero. It
+remains worth doing for the *gradient* between wetland and canyon, where the
+ground really is soil at differing wetness. But a desert plant needs one of
+three other things instead — sand given a small capacity, a root that
+reaches the water table, or water stored from rain — and choosing between
+those is the actual design question. **The tree being unable to live there
+is still correct; the lever named below is simply not the one that opens the
+niche.**
+
 The worldgen soil baseline now scales `0 -> SOIL_FIELD_CAPACITY` by
 `1 - aridity`, so an arid column lands near **50** against a wilting point
 of **180** — plant-available water of **exactly zero**. Arid country is
@@ -816,7 +861,50 @@ leaves before and zero leaves after. The 10x soak cut does not touch it —
 but it does make the intended fix roughly ten times more expensive: crossing
 the wilting point from bone-dry goes from ~2 strikes to ~18.
 
-### A. The slot-1 root spread has collapsed, and the first two explanations were both wrong — **OPEN, 2026-08-22**
+### A. The slot-1 root spread has collapsed — **OPEN. Three explanations tried; the third was wrong too, and the lever now measures as dead.**
+
+**Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
+move the bar.** My third explanation was that the test is single-seed
+(`root_slot_run(1, 1, ±1.0, 12_000)` — seed 1 both arms) over a system whose
+spread is famously enormous, and so could not tell "the lever broke" from
+"this seed reshuffled". House convention wants an order statistic over N
+seeds. That reasoning was sound and the answer came back the other way.
+`print_root_branch_slot_seed_sweep` (ignored probe, `plant.rs`), 8 seeds,
+both draws, 12,000 frames each:
+
+| seed | root(-1) | root(+1) | ratio |
+|---|---|---|---|
+| 1 | 371 | 315 | 0.85 |
+| 2 | 444 | 421 | 0.95 |
+| 3 | 395 | 362 | 0.92 |
+| 4 | 397 | 457 | **1.15** |
+| 5 | 628 | 390 | 0.62 |
+| 6 | 491 | 422 | 0.86 |
+| 7 | 469 | 508 | 1.08 |
+| 8 | 253 | 236 | 0.93 |
+| **mean** | **431.0** | **388.9** | **0.90** |
+
+**1 of 8 seeds** clears the guard's 10% ordering. Mean of the per-seed
+ratios is **0.92, SE 0.056** — that is 1.4 SE from 1.0, so the data are
+**consistent with the lever being dead**, and 7 SE from the calibrated
+**1.33**, which they firmly exclude. Whether it is exactly dead or slightly
+inverted cannot be resolved at n=8; either way it does not do what it is
+asserted to do.
+
+**Do not read the draws' non-identical output as "the lever is connected".**
+Before the primed-site repair both draws were *bit-identical* at 352. They
+now differ per seed — but changing a genotype draw also perturbs the RNG
+stream, so scatter alone is not evidence the mechanism responds. The
+calibrated 33% ordering is the evidence, and it is gone.
+
+**What this costs, stated plainly:** re-deriving `tree.ron` against the
+current quantity is the shape of fix `CLAUDE.md` describes ("fixing a bug
+often exposes a constant that was compensating for it"), but that is model
+work over procedural content, and per house rule it needs the seed sweep
+built *before* the change — which now exists. Original diagnosis follows.
+
+**(was) The slot-1 root spread has collapsed, and the first two explanations
+were both wrong — OPEN, 2026-08-22**
 
 **Found by the merge that brought the plant lines onto `main`, not by a
 playtest.** Two of the plant line's own tests fail after the merge and pass
