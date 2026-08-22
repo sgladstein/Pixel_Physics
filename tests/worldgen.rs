@@ -1700,6 +1700,65 @@ fn probe_p2_how_much_of_the_world_is_water() {
     }
 }
 
+/// How sheer the finished ground actually is, column to column, at the
+/// shipped size.
+///
+/// The owner's Phase 2 review said of a render: *"there are sharp vertical
+/// faces (could sometimes be ok if done naturally. look horrible here)"*.
+/// Nothing in the engine could say whether the *ground* has any, so the
+/// complaint could not be attributed without one -- and the picture it was
+/// filed against turned out to be three non-contiguous camera positions
+/// stitched together, whose seams are a 61-row step in one column that no
+/// worldgen mechanism produced.
+///
+/// This measures the real thing: `|surface_y(x) - surface_y(x+1)|` over every
+/// adjacent pair, for every preset, at `app::WORLD_WIDTH`. Reported as an
+/// order statistic per `CLAUDE.md`, and as a count of columns past several
+/// bars, because "how many" is the question and a max alone hides whether it
+/// is one freak column or a thousand.
+///
+/// Note what it does and does not see. `ColumnPlan::surface_y` is the
+/// *eroded plan surface*, so this is the silhouette the land itself makes.
+/// It is blind to anything written standing on top of it -- residual tors,
+/// `brows` lips, boulders -- which is deliberate: those are features, and
+/// separating "the ground is a cliff" from "there is a tower on the ground"
+/// is the whole point of measuring here rather than off a render.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_sheer_is_the_ground() {
+    use pixel_physics::worldgen::column::Terrain;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    // The real angles from the material files, not a literal: a generator
+    // that assumed a value the material no longer has is the failure
+    // `Terrain::new` takes them as arguments to avoid.
+    let world = World::new(Rect::new(0, 0, 8, 8));
+    let soil_tan = world.materials.get(world.materials.id_of("soil").expect("soil")).friction_angle.to_radians().tan();
+    let sand_tan = world.materials.get(world.materials.id_of("sand").expect("sand")).friction_angle.to_radians().tan();
+    println!("adjacent |d surface_y| over {w} columns, per preset, seed 3");
+    for (name, params) in &presets.presets {
+        let terrain = Terrain::new(3, params, w, h, soil_tan, sand_tan);
+        let plans = terrain.plan_all();
+        let mut d: Vec<i32> = (0..plans.len() - 1)
+            .map(|i| (plans[i + 1].surface_y - plans[i].surface_y).abs())
+            .collect();
+        d.sort_unstable();
+        let q = |f: f32| d[((d.len() as f32 - 1.0) * f) as usize];
+        let past = |bar: i32| d.iter().filter(|&&v| v >= bar).count();
+        println!(
+            "  {name:9}: med {:>2} p90 {:>2} p99 {:>2} max {:>3}   columns >=6: {:>4}  >=10: {:>4}  >=20: {:>4}",
+            q(0.5),
+            q(0.9),
+            q(0.99),
+            d[d.len() - 1],
+            past(6),
+            past(10),
+            past(20)
+        );
+    }
+}
+
 #[test]
 fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
