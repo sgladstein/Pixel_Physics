@@ -3510,3 +3510,86 @@ fn probe_p1_where_does_the_water_go() {
         println!("  after 500 frames:                {:?}", census(&world));
     }
 }
+
+/// Is there a pool behind the cliff for a spring to come out of?
+///
+/// The owner wants a fall that *"originate[s] in depressions so they fill up
+/// and spill out into a waterfall"*, rather than out of a bare face. Whether
+/// that can be built on top of what `ponds` already places, or has to make its
+/// own source pool in a dry hollow, is a question about how common perched
+/// basins are next to cliffs -- and nothing in the engine reports that.
+///
+/// Measured before the placement rule is rewritten, because the last round
+/// built three placement models and threw two away.
+#[test]
+#[ignore = "probe: prints, never asserts (source-pool census)"]
+fn probe_p1_is_there_a_pool_behind_the_cliff() {
+    /// How far back from the lip the source hollow may start. A spring meant
+    /// to spill over *this* cliff has to be in the catchment of *this* lip.
+    const BEHIND: i32 = 120;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["canyon", "rolling", "terraced"] {
+        let params = presets.get(name).expect("preset");
+        let (mut rims, mut with_hollow) = (0usize, 0usize);
+        let (mut depth, mut width) = (Vec::new(), Vec::new());
+        for seed in [1u64, 3, 7, 19, 42, 24301] {
+            let terrain = {
+                let soil = params_material_tan(name, "soil");
+                let sand = params_material_tan(name, "sand");
+                pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+            };
+            let plans = terrain.plan_all();
+            let g = |x: i32| plans[x.clamp(0, w - 1) as usize].surface_y;
+            let mut last = i32::MIN / 2;
+            for x in 0..w {
+                for dir in [1, -1] {
+                    // A cliff: the ground falls >= 20 rows within 20 columns
+                    // on the falling side. `CLIFF_DROP_FAR` over `RUN_FAR`,
+                    // the same bar `cliff_edges` uses at its far scale.
+                    if (1..=20).map(|d| g(x + dir * d)).max().unwrap_or(g(x)) < g(x) + 20 {
+                        continue;
+                    }
+                    if x - last < 300 {
+                        continue;
+                    }
+                    last = x;
+                    rims += 1;
+                    // Walk *back* from the lip, away from the fall. The
+                    // source hollow is the first run of ground below the
+                    // lip's own level -- a puddle the lip would spill out
+                    // of. Not the deepest hollow in the catchment: that is
+                    // usually the canyon floor a hundred rows down, which a
+                    // spring would spend the whole run filling.
+                    let back = -dir;
+                    let mut d = 1;
+                    while d <= BEHIND && g(x + back * d) <= g(x) {
+                        d += 1;
+                    }
+                    if d > BEHIND {
+                        continue;
+                    }
+                    let start = d;
+                    let mut deepest = 0;
+                    while d <= BEHIND && g(x + back * d) > g(x) {
+                        deepest = deepest.max(g(x + back * d) - g(x));
+                        d += 1;
+                    }
+                    with_hollow += 1;
+                    depth.push(deepest);
+                    width.push(d - start);
+                }
+            }
+        }
+        depth.sort_unstable();
+        width.sort_unstable();
+        let q = |v: &Vec<i32>, f: f32| if v.is_empty() { -1 } else { v[((v.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:9} over 6 seeds: {rims} cliff rims | {with_hollow} have a hollow starting within {BEHIND} cols behind the lip | \
+             its depth below the lip (rows): p10 {} p50 {} p90 {} max {} | its width (cols): p50 {} p90 {}",
+            q(&depth, 0.1), q(&depth, 0.5), q(&depth, 0.9), q(&depth, 1.0),
+            q(&width, 0.5), q(&width, 0.9)
+        );
+    }
+}

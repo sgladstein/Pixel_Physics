@@ -1,7 +1,8 @@
 # Springs in generated worlds
 
-*Written 2026-08-22, when the pass landed. Status: shipped; the visual
-quality is with the owner (review card `20260822T180743652Z-e79163`).*
+*Written 2026-08-22, when the pass landed; updated the same day with the
+review verdict. Status: shipped. The sink half of the verdict is done; the
+source half is a recorded dead end with an untried route out.*
 
 ## Why there were no rivers
 
@@ -111,14 +112,44 @@ Over three canyon seeds, 900 frames each: emitted 2.6-4.5M fill units,
 a river rather than a rising bath (`PLAN.md`: "a real source ... and a real
 sink").
 
-## Open: it does not yet look like a waterfall
+## The card came back: "it comes from nowhere and goes nowhere"
 
-The numbers are right and the picture is not. The fall hugs the rock face and
-renders nearly black, because `render.rs` dims a liquid toward black by
-*fill* and the drains take the water almost as fast as it lands, so no cell is
-ever near full — 421 water cells standing after 500 frames. The first lever to
-try is moving the near drain further from the foot so a pool actually stands
-under the fall. With the owner on the card above.
+> *"It is too thin, but i think the biggest issue is that it looks like it
+> comes from nowhere and goes nowhere. spring should originate in depressions
+> so they fill up and spill out into a waterfall. So it comes from a pool.
+> Ideally it should also end in a pool. Not sure how we do that because the
+> water in should equal the water out so we don't flood the world, but how do
+> you get it to pool at the bottom first?"*
+
+**The sink half shipped** (`f5f3b19`). The answer to his question is the
+drain's *height*, not its rate: `spring::step` takes only from a drain cell
+that currently holds a liquid, so a drain above the waterline is inert.
+Nothing leaves until the pool has risen to it, and then it takes at most
+`DRAIN_FILL` per frame -- which equals `EMIT_FILL`, so one drain balances one
+emission column and the pool settles *at the drain's height* with the
+throughput passing through. Conservation was never in tension with a standing
+pool; the outlet just had to be at the lip instead of on the floor. Measured
+over 500 frames, water standing in the fall's own 128-column bucket: seed 7
+421 -> 630, seed 42 293 -> 761.
+
+**The source half is a dead end as a search**, recorded in `dead-ends.md`.
+Finding a basin that spills over a given cliff requires that cliff's lip to be
+the basin's lowest exit, and that landform does not occur here: a cliff edge
+is a local high point, so the ground behind it rises. Requiring it honestly
+placed **zero springs across four presets and six seeds**. About half of all
+rims do have a hollow within 120 columns behind them (canyon 49/92, rolling
+33/70, terraced 29/63, median 12 rows deep, ~50 wide) -- but behind
+intervening high ground, so a spring put in one fills a pond that never moves
+toward the cliff. `probe_p1_is_there_a_pool_behind_the_cliff` is the census.
+
+**The open route is to author the basin rather than look for one** -- excavate
+a small hollow immediately behind the rim and fill it, the way `ponds`,
+`residuals` and `vaults` all author what they need. Not attempted; it is a
+different change and the owner should choose whether it is worth it.
+
+Still open too: the fall is thin. Some of that was the drains taking water as
+fast as it landed, which the sink fix addresses; the rest is that `render.rs`
+dims a liquid toward black by *fill*.
 
 ## Explicitly deferred, at the owner's request
 
