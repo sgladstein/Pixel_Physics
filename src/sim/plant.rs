@@ -2504,6 +2504,36 @@ pub fn step_organisms(world: &mut World) {
         // `water_status`, which is what this gates on.
         break_root_tips(world, organism_id);
         organism_upkeep(world, organism_id);
+        // **Reclaim the slot of an organism that has no cells left.**
+        //
+        // `Cell::organism_id` spends twelve bits on the slot index, so
+        // there are 4,095 of them and `push_organism` never got any back:
+        // its own doc said "nothing populates that list yet in this pass".
+        // Every seed that is set allocates a slot, and a seed that is
+        // eaten, buried, burned or germinates-and-dies never returned one,
+        // so the ceiling was on *cumulative* organisms rather than live
+        // ones -- a leak with a hard stop at the end of it, and the reason
+        // `pixel-physics-issues.md` #8 exists.
+        //
+        // **Empty cell list, not a liveness search, and that is measured
+        // rather than assumed.** The scoped fix was a BFS finding no live
+        // tip, leaf or root; counted on a real stand at 30,000 frames, 20
+        // of 31 slots held *no cells at all* while exactly one held cells
+        // with nothing alive in them. The BFS buys that single slot, costs
+        // a traversal per organism per tick, and orphans the cells it
+        // frees -- they would point at a dead slot while still standing.
+        // An empty cell list cannot orphan anything by construction: no
+        // cell refers to the organism, which is what makes it empty. The
+        // standing-dead-trunk case is left, deliberately and visibly, to
+        // whoever decides what a dead tree's wood should *be*.
+        //
+        // Safe against a newly planted organism whose cell is not set yet:
+        // `push_organism` and the `World::set` that gives it its first
+        // cell happen inside one call (`plant_tree_species`, `set_seed`),
+        // and this pass only runs between frames.
+        if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) {
+            world.free_organism(organism_id);
+        }
     }
 }
 
@@ -6979,6 +7009,115 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             "slot 1 is a ROOT slot and must not move the shoot: {shoot_low} against {shoot_high} is {:.0}%              (measured 2%). A shoot moving with it means the draw is reaching slot 0's consumer.",
             shoot_spread * 100.0
         );
+    }
+
+    /// **A dead plant gives its slot back, and its old id stays dead.**
+    ///
+    /// `Cell::organism_id` spends twelve bits on the slot index, so there
+    /// are 4,095 of them, and until now `free_organism_slots` was popped
+    /// but never pushed — every seed ever set consumed a slot permanently.
+    /// The ceiling was on *cumulative* organisms rather than live ones
+    /// (`pixel-physics-issues.md` #8).
+    ///
+    /// The half that matters more than the recycling is the second
+    /// assertion: a stale id must resolve to `None` rather than silently
+    /// reading whatever organism has since taken the slot. That is the
+    /// whole reason the id carries a generation, and it was never
+    /// exercised against a real free/reuse cycle before — only against
+    /// hand-encoded ids, because nothing freed anything.
+    #[test]
+    fn a_dead_plants_slot_is_reused_and_its_old_id_stays_dead() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 50, 20);
+        let doomed = w.get(50, 20).organism_id();
+        assert_ne!(doomed, 0, "test setup: the planted seed should own its cell");
+        let (slots_before, live_before) = w.organism_slot_usage();
+
+        // Kill it outright: erase every cell it owns, which is what a
+        // burned or dug-out plant leaves behind.
+        let b = w.bounds().unwrap();
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                if w.get(x, y).organism_id() == doomed {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+        }
+        // One organism pass is what notices.
+        run(&mut w, ORGANISM_TICK_INTERVAL as usize * 2);
+
+        assert!(w.organism_state(doomed).is_none(), "a plant with no cells left should have given its slot back");
+        let (_, live_after) = w.organism_slot_usage();
+        assert!(live_after < live_before, "the live-slot count should have fallen: {live_before} -> {live_after}");
+
+        // The slot is reused rather than the table growing.
+        plant_tree_on_ground(&mut w, 120, 20);
+        let reborn = w.get(120, 20).organism_id();
+        let (slots_after, _) = w.organism_slot_usage();
+        assert_eq!(slots_after, slots_before, "a freed slot must be reused before the table grows: {slots_before} -> {slots_after}");
+
+        // **The generational check, against a real reuse.** Same slot
+        // index, different generation, so the old id is not the new plant.
+        assert_ne!(reborn, doomed, "the reused slot must hand out a different id");
+        assert!(w.organism_state(doomed).is_none(), "the stale id must not resolve to the organism that took its slot");
+        assert!(w.organism_state(reborn).is_some(), "the new plant's id must resolve");
+
+        // A stale scheduled site must not resurrect anything or panic.
+        w.schedule_active_site(reschedule_organism(50, 20, doomed, 0, 0, w.frame + 1));
+        run(&mut w, 4);
+        assert_eq!(w.get(50, 20).material, material::EMPTY, "a stale site must not regrow a dead plant's cell");
+        assert!(w.organism_state(doomed).is_none(), "a stale site must not revive the dead id");
+    }
+
+    /// Scratch for WP-D: which liveness rule would actually reclaim a slot?
+    ///
+    /// Two candidates. "No cells at all" cannot orphan anything and needs
+    /// no traversal; "no live tip/leaf/root" also catches a standing dead
+    /// trunk, but freeing that leaves its cells pointing at a dead slot.
+    /// Which is worth building depends on which case actually occurs, so
+    /// this counts both on a real stand before either is written.
+    ///
+    /// ```text
+    /// cargo test --lib print_dead_organism_shapes -- --ignored --nocapture
+    /// ```
+    #[test]
+    #[ignore]
+    fn print_dead_organism_shapes() {
+        let mut w = test_world();
+        for x in [40, 90, 140] {
+            plant_tree_on_ground(&mut w, x, 60);
+        }
+        run_with_fields(&mut w, 30_000);
+
+        let (mut no_cells, mut cells_no_live, mut live, mut total) = (0, 0, 0, 0);
+        let mut stranded_cells = 0usize;
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism_state(id) else { continue };
+            total += 1;
+            let cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+            if cells.is_empty() {
+                no_cells += 1;
+                continue;
+            }
+            let any_live = cells.iter().any(|&(x, y)| {
+                w.get(x, y).organism_id() == id
+                    && matches!(
+                        organism::cell_type(w.get(x, y).aux()),
+                        Some(CellType::GrowingTip) | Some(CellType::Leaf) | Some(CellType::RootTip) | Some(CellType::Seed)
+                    )
+            });
+            if any_live {
+                live += 1;
+            } else {
+                cells_no_live += 1;
+                stranded_cells += cells.len();
+            }
+        }
+        println!("organism slots after 30,000 frames, 3 trees:");
+        println!("  total live slots            {total}");
+        println!("  with no cells at all        {no_cells}   <- free-able with zero orphan risk");
+        println!("  cells but nothing alive     {cells_no_live}   ({stranded_cells} cells would be orphaned)");
+        println!("  genuinely alive             {live}");
     }
 
     /// Scratch for §8e: **where** does the stomatal reserve actually close?

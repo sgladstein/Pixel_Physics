@@ -55,6 +55,11 @@ fn decode_organism_id(organism_id: u16) -> (u16, u8) {
     (slot_index, generation)
 }
 
+/// How many times an organism slot's 4-bit generation has wrapped — see
+/// `push_organism`. Debug builds only.
+#[cfg(debug_assertions)]
+pub static ORGANISM_GENERATION_WRAPS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 struct OrganismSlot {
     generation: u8,
     /// `None` when this slot is on the free list — kept rather than
@@ -655,6 +660,16 @@ impl World {
             // -- see `encode_organism_id`'s own doc for why this bound was
             // accepted rather than widening `Cell` a third time.
             slot.generation = (slot.generation + 1) & GENERATION_MASK;
+            // **Counted, not asserted.** A wrap is expected after sixteen
+            // reuses of one slot and is not an error -- but it is the
+            // moment a *stale* id could alias a live organism again, which
+            // is the one hole in the generational scheme. Debug builds
+            // keep a running count so a run that leans on slot churn can
+            // say how close it came; release pays nothing.
+            #[cfg(debug_assertions)]
+            if slot.generation == 0 {
+                ORGANISM_GENERATION_WRAPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
             slot.state = Some(state);
             encode_organism_id(slot_index, slot.generation)
         } else {
@@ -701,21 +716,42 @@ impl World {
         slot.state.as_mut()
     }
 
-    // `free_organism` (return a slot to `free_organism_slots`, the other
-    // half of issue #8's actual fix) is not here yet, deliberately: no
-    // species retrofitted so far needs it. Moss's `Divide` never
-    // touches `OrganismState` after creation (its resource scalar lives
-    // entirely in `Cell::aux`, not here), and detecting "this organism has
-    // no cells left" cheaply needs a real anchor/tip list to search from
-    // (`reachable_from_anchors`) or a live cell count — both real,
-    // deliberately deferred work for the tree retrofit (which already
-    // needs exactly this, generalizing `reclaim_if_tree_is_fully_dead`).
-    // Adding either method now with no caller would be dead code by this
-    // crate's own standard, not a head start; `decode_organism_id`'s
-    // generation check is already fully exercised by `organism`'s own
-    // tests above, so the one thing actually worth verifying now — that a
-    // stale id can never silently alias a reused slot — has real coverage
-    // regardless of when `free_organism` itself lands.
+    /// Return an organism's slot to the free list — the other half of
+    /// issue #8's fix, and the relief valve on the 4,095-slot ceiling
+    /// `Cell::organism_id`'s twelve index bits impose.
+    ///
+    /// **Deliberately says nothing about liveness.** The caller decides
+    /// what "dead" means; this only recycles the slot. `plant::
+    /// step_organisms` calls it for organisms whose cell list is empty,
+    /// which is the one definition that cannot orphan anything — see
+    /// there for the measurement behind that choice.
+    ///
+    /// The generation bump happens on *reuse*, in `push_organism`, not
+    /// here: a freed slot keeps its generation until something claims it,
+    /// so an id held by a stale reference resolves through the same
+    /// `slot.state.is_none()` path either way and never reads another
+    /// organism's state.
+    pub(crate) fn free_organism(&mut self, organism_id: u16) {
+        let (slot_index, generation) = decode_organism_id(organism_id);
+        if slot_index == 0 {
+            return;
+        }
+        let Some(slot) = self.organisms.get_mut((slot_index - 1) as usize) else { return };
+        // A stale id must not free the organism that has since taken the
+        // slot -- the same generational test every other accessor makes.
+        if slot.generation != generation || slot.state.is_none() {
+            return;
+        }
+        slot.state = None;
+        self.free_organism_slots.push(slot_index);
+    }
+
+    /// How many organism slots are currently allocated, and how many of
+    /// those are live — the high-water reading the 4,095 ceiling is judged
+    /// against.
+    pub fn organism_slot_usage(&self) -> (usize, usize) {
+        (self.organisms.len(), self.organisms.iter().filter(|s| s.state.is_some()).count())
+    }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
     // design.md`, step 1 of §11's build order: the ownership substrate and
