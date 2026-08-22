@@ -1,0 +1,78 @@
+{
+  "id": "20260822T224226904Z-783187",
+  "created": "2026-08-22T22:42:26Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "7a186d0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two ways to animate: does either one move for you?",
+  "question": "Which of these actually moves — the gif, the frame sequence, both, or neither? (For the sequence, press space, or drag the scrubber.) If the sequence moves, I will use that from now on and stop sending gifs.",
+  "context_md": "Diagnostic card. Same question posed two ways, because I cannot reproduce the frozen gif from my side and I would rather find out than keep guessing.\n\n**What I verified about the gif:** 24 frames, 14 of them distinct payloads, 60 ms delays, a `NETSCAPE2.0` loop block, stored with its `.gif` extension and served as `image/gif`, inside a plain `<img>` that the page does not re-source. By every check available here it should animate in a browser.\n\n**Pane 1 is the gif** — the older small-world build, included *only* as an animation test. Ignore its content.\n\n**Pane 2 is the current code as a frame sequence**, which the page animates with its own timer rather than relying on the browser's gif decoding. This is also the version worth judging: the basin now has to sit in level ground.\n\nYou were right that it was a weird cut. My shelf test accepted ground *at or above* the lip — including well above — and since the carve clears each column from the sky down, siting a basin on rising ground gouged a trench through a hillside. Requiring the ground within 8 rows of the lip fixes it, and it *improved* placement rather than costing any: rolling 0.2 -> 0.8, terraced 0.5 -> 0.8, canyon still 1.0.\n\nOne correction: I thought for a while the dark columns were a rendering bug. They are not — that was my own measurement error, comparing a crop's skyline against high sky. They are residual pillars, the tall thin rocks you have already told me you want reworked.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — gif (older build; animation test only)",
+      "files": [
+        "20260822T224226904Z-783187/000-spill.gif"
+      ],
+      "caption": "Valid animated gif by every check I can run here. Content is not the point.",
+      "meta": {
+        "frames": 24,
+        "distinct payloads": 14,
+        "delay per frame (ms)": 60,
+        "loops": "forever"
+      },
+      "focus": null
+    },
+    {
+      "label": "2 — frame sequence, current code",
+      "files": [
+        "20260822T224226904Z-783187/001-seq-00.png",
+        "20260822T224226904Z-783187/002-seq-01.png",
+        "20260822T224226904Z-783187/003-seq-02.png",
+        "20260822T224226904Z-783187/004-seq-03.png",
+        "20260822T224226904Z-783187/005-seq-04.png",
+        "20260822T224226904Z-783187/006-seq-05.png",
+        "20260822T224226904Z-783187/007-seq-06.png",
+        "20260822T224226904Z-783187/008-seq-07.png",
+        "20260822T224226904Z-783187/009-seq-08.png",
+        "20260822T224226904Z-783187/010-seq-09.png",
+        "20260822T224226904Z-783187/011-seq-10.png",
+        "20260822T224226904Z-783187/012-seq-11.png",
+        "20260822T224226904Z-783187/013-seq-12.png",
+        "20260822T224226904Z-783187/014-seq-13.png",
+        "20260822T224226904Z-783187/015-seq-14.png",
+        "20260822T224226904Z-783187/016-seq-15.png",
+        "20260822T224226904Z-783187/017-seq-16.png",
+        "20260822T224226904Z-783187/018-seq-17.png",
+        "20260822T224226904Z-783187/019-seq-18.png",
+        "20260822T224226904Z-783187/020-seq-19.png",
+        "20260822T224226904Z-783187/021-seq-20.png",
+        "20260822T224226904Z-783187/022-seq-21.png",
+        "20260822T224226904Z-783187/023-seq-22.png",
+        "20260822T224226904Z-783187/024-seq-23.png"
+      ],
+      "caption": "canyon seed 1 at the shipped size, 4 sim frames apart. Press space to play.",
+      "meta": {
+        "frames": 24,
+        "all distinct": true,
+        "springs per world": "canyon 1.0, rolling 0.8, terraced 0.8",
+        "basin ground tolerance (rows from lip)": 8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
