@@ -1,0 +1,57 @@
+{
+  "id": "20260822T043610755Z-878349",
+  "created": "2026-08-22T04:36:10Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-handoff-phase-2-scsenh",
+    "commit": "699bbdf",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Phase 2: the caves at 4x, same seed, same camera zoom",
+  "question": "Is this the size you meant by \"caves should be bigger\"? Specifically: is B's chamber about right, too much, or still not enough?",
+  "context_md": "`canyon` seed 1, the 8192x2560 world in both panes, `viewshot vault=1 scale=2` — the camera finds each world's own best cave and frames it, so this is the same world at the same zoom with only the cave constants differing.\n\n**A** is what the 4x world looked like with round 7's cave sizes left alone. **B** is Phase 2: the cave envelope 4x, and the stalagmite/stalactite base width from 3-8 cells to 12-32.\n\nWhat I already measured, over 8 seeds x 7 presets (`cave_probe`), so you do not need to judge it by eye:\n\n- Cave void went from **0.591%** of the deep massif at the old 2048x640 world, to **0.041%** at 4x with the old cave sizes (pane A — five of eight worlds had no cave at all), back to **0.605%** in B. The handoff said a feature that stays the same size becomes \"4x less significant\"; measured it is fourteen times, because significance is area.\n- Median formation base width 3 cells -> 11. That is the \"1-2 pixels wide\" complaint and I believe it is answered.\n\n**What I am unsure of, and what I would like you to look at:** whether B is *too* big. Every cave in B is now at least 440 cells across — most of a screen — because I scaled the minimum along with the maximum. Small caves have gone. You asked for \"a variety of sizes\" as well as bigger, and I may have spent the variety.\n\n**Please ignore** the honeycomb look of the passages branching off to the right in B. That is the Worley lattice and it is exactly what Phase 3 replaces; the handoff predicts Phase 2 alone makes it larger rather than better, and it did (disjoint walkable regions per system went from at most 5 to as many as 92).",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - 4x world, round-7 caves",
+      "files": [
+        "20260822T043610755Z-878349/000-rv-before.png"
+      ],
+      "caption": "the control: only the world grew",
+      "meta": {
+        "deep air cells in the whole world": 776,
+        "tallest chamber rows": 32,
+        "cave void % of deep massif": 0.041,
+        "median formation base width": 3,
+        "walkable regions per system (max)": 5
+      },
+      "focus": null
+    },
+    {
+      "label": "B - Phase 2",
+      "files": [
+        "20260822T043610755Z-878349/001-rv-after.png"
+      ],
+      "caption": "cave envelope and formations 4x",
+      "meta": {
+        "deep air cells in the whole world": 15513,
+        "tallest chamber rows": 68,
+        "cave void % of deep massif": 0.605,
+        "median formation base width": 11,
+        "walkable regions per system (max)": 92
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
