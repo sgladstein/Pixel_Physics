@@ -395,6 +395,21 @@ pub struct World {
     /// that lands on damp ground and sprouts immediately is the old
     /// behaviour and is not evidence of anything.
     pub seeds_germinated_after_waiting: u32,
+
+    /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
+    /// field humidity was on when the roll was made.
+    ///
+    /// Split rather than totalled, because the question these were added for
+    /// is not "how much rotted" but **"which rate is the world running on"**.
+    /// The two chances differ 25x (`decay::DECAY_CHANCE_DAMP` 0.05 against
+    /// `DECAY_CHANCE_DRY` 0.002), so a total conflates a little damp ground
+    /// with a lot of dry ground and cannot tell them apart -- which is the
+    /// distinction the worldgen soil baseline moved, and the reason anyone is
+    /// looking. A picture cannot show it either: rotted litter and unrotted
+    /// litter are the same few pixels at contact-sheet zoom.
+    pub decayed_damp: u32,
+    /// Counterpart to `decayed_damp`; see it for why these are separate.
+    pub decayed_dry: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -651,6 +666,8 @@ impl World {
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
+            decayed_damp: 0,
+            decayed_dry: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,

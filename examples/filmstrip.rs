@@ -2283,6 +2283,55 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
         );
         println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
+        // **Which rate the world is rotting at, and how much of it qualifies.**
+        //
+        // The worldgen soil baseline moved ground that used to sit at `aux ==
+        // 0` up to a climate value, and `field.rs` forces humidity from soil
+        // wetness -- so the damp gate that used to trip only near water may
+        // now trip nearly everywhere. Damp decay is 25x dry decay, and that
+        // is invisible on a contact sheet: rotted litter and litter that
+        // simply never landed are the same absence of pixels. Only the split
+        // says which.
+        //
+        // The census is over the cells that can *actually* decay -- the ones
+        // with a `decays_into` -- because that is precisely the population
+        // the gate is sampled over, one sample per cell at its own position.
+        //
+        // An earlier version censused *exposed soil* instead and was
+        // quietly confounded: a wetter world grows more plants, more plants
+        // cover more ground, so the denominator moved with the treatment
+        // (175 exposed cells down to 65 on the same preset) and the
+        // percentage compared two different populations. Count the thing the
+        // rule evaluates, not a proxy that the treatment also moves.
+        let gate = pixel_physics::sim::decay::DECAY_MOISTURE_THRESHOLD;
+        let (mut decayable, mut above) = (0usize, 0usize);
+        for x in 0..WIDTH {
+            for y in 0..HEIGHT {
+                if world.materials.get(world.get(x, y).material).decays_into.is_none() {
+                    continue;
+                }
+                decayable += 1;
+                if world.field_at(x, y).moisture > gate {
+                    above += 1;
+                }
+            }
+        }
+        let pct = if decayable == 0 { 0.0 } else { 100.0 * above as f32 / decayable as f32 };
+        // Living tissue beside the dead, because the two move together and
+        // the interesting failure is the ratio: a world with plenty of
+        // standing litter and no plants left is a world that rotted faster
+        // than it grew, which no single count can show.
+        let living: usize = (0..WIDTH)
+            .flat_map(|x| (0..HEIGHT).map(move |y| (x, y)))
+            .filter(|&(x, y)| world.get(x, y).organism_id() != 0)
+            .count();
+        println!("    living plant tissue: {living} cells");
+        println!(
+            "    decay: {} damp + {} dry = {} events; of {decayable} decayable cells standing, {above} are above the {gate} damp gate ({pct:.0}%)",
+            world.decayed_damp,
+            world.decayed_dry,
+            world.decayed_damp + world.decayed_dry,
+        );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
         // A picture cannot answer this: a collapse at a cliff edge and one

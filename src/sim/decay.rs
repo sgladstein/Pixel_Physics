@@ -47,7 +47,12 @@ const DECAY_CHANCE_DRY: f32 = 0.002;
 /// counts as wet" reading, kept as its own constant rather than shared
 /// since the two channels' thresholds are free to diverge later and
 /// shouldn't be coupled just because they happen to start equal.
-const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
+/// Public so a harness can census how much of a world sits above this gate
+/// without duplicating the number -- `examples/filmstrip.rs` reports the
+/// fraction beside each captured frame. A copied 0.3 in an example would go
+/// stale the first time this is retuned, which is exactly the retune this
+/// constant is currently under review for.
+pub const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
 /// Chance a newly-formed soil cell reseeds plant growth in the empty cell
 /// directly above it, checked once at the moment of decay rather than
 /// scheduled to keep trying — succession happens, but not on every patch of
@@ -79,6 +84,17 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let chance = if damp { DECAY_CHANCE_DAMP } else { DECAY_CHANCE_DRY };
     if !world.rng.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
+    }
+    // Counted *here*, past the roll, so these are decays that happened rather
+    // than checks that were made -- a site is rescheduled every
+    // `DECAY_TICK_INTERVAL` whether or not it fires, so counting at the top
+    // would mostly measure how many sites exist. Split by `damp` because the
+    // two chances differ 25x and the world's *rate* is the question; see
+    // `World::decayed_damp`.
+    if damp {
+        world.decayed_damp += 1;
+    } else {
+        world.decayed_dry += 1;
     }
 
     // `base_shades`, not `palette.len()`: soil ships three region families
