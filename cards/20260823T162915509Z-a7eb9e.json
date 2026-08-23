@@ -1,0 +1,57 @@
+{
+  "id": "20260823T162915509Z-a7eb9e",
+  "created": "2026-08-23T16:29:15Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/pp-main",
+    "branch": "HEAD",
+    "commit": "9f165ec",
+    "agent": null,
+    "session_id": "e59fb03a-5c98-5cd5-8e8e-4aadf33f39ad",
+    "user": null,
+    "cwd": "/home/user/pp-main"
+  },
+  "title": "A fallback world's rock country: one stretch at region size, or at country size",
+  "question": "This world's country draw cleared no bar anywhere, so the guarantee grants it its best stretch anyway. Should that stretch be sized like a region (about half a screen, left pane at each position) or like a country (about two screens, right pane)? Which reads as 'a place you travel to'?",
+  "context_md": "Same world both sides: rolling seed 3, the 1-in-16 whose draw finds no rock country. Two camera positions per side, same cameras both sides (world x 7400 and 7900).\n\nThis is the §L fix: the old fallback admitted exactly the argmax region, which on the foraging scene's 512-wide world deleted the residual towers the colony forages over (98 round trips -> 2, the known-red-ascii job). Widening the fallback to the country field's own scale restores the scene (100 trips, bar 14) and, on shipped-size fallback worlds like this one, turns a half-screen cluster into the band you see. Gated worlds (15 of 16 seeds) are untouched.\n\nIf the band reads wrong, the scene fix needs a different lever -- say so and I will not argue.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "region-size stretch (old fallback)",
+      "files": [
+        "20260823T162915509Z-a7eb9e/000-main-7400.png",
+        "20260823T162915509Z-a7eb9e/001-main-7900.png"
+      ],
+      "caption": "world x 7400, then 7900",
+      "meta": {
+        "rock country columns": 217,
+        "expected residual sites/world": 18.0,
+        "barren blocks (16 seeds)": "64%"
+      },
+      "focus": null
+    },
+    {
+      "label": "country-size stretch (the fix)",
+      "files": [
+        "20260823T162915509Z-a7eb9e/002-fix-7400.png",
+        "20260823T162915509Z-a7eb9e/003-fix-7900.png"
+      ],
+      "caption": "world x 7400, then 7900",
+      "meta": {
+        "rock country columns": 1035,
+        "expected residual sites/world": 18.3,
+        "barren blocks (16 seeds)": "63%",
+        "foraging scene trips": "2 -> 100 (bar 14)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
