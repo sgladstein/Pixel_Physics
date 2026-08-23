@@ -42,6 +42,29 @@
 # only alongside a measurement taken on the runner itself.
 BUDGET_MS=60
 
+# **These cases run at the shipped `chain_reach`, which is `TIGHT`.**
+#
+# That is deliberate and it has a trap in it. TIGHT only licenses a
+# structural failure near something that reported itself disturbed
+# (`World::record_disturbance`), so a scene that hand-places geometry and
+# asserts *nothing fails* passes on the leash rather than on the load
+# model -- vacuously, and it would stop catching the regression it exists
+# for. Two scenes broke outright when TIGHT landed -- `ligament` reported 0
+# overload failures on the case that exists to show a neck snapping, and
+# `rockdrop` left 600 cells of slab hanging in the air -- and both now
+# record the disturbance their own construction implies.
+#
+# `capped` was checked for the *opposite* failure and does not have it:
+# run with the leash off (`chain_reach=spread`) it still measures 0
+# failures, so the model is what holds that column up, not the policy. It
+# records a disturbance anyway, so the case cannot quietly acquire the
+# dependency later. If a new "must stand" case is added, check it the same
+# way: run it at `chain_reach=spread` and confirm the verdict does not
+# move.
+#
+# `chain_reach=NAME` on a `run` line takes the leash off for a case that
+# genuinely wants the model unlimited. Nothing here needs it today.
+
 set -uo pipefail
 
 FILM="cargo run --release --quiet --example filmstrip --"
@@ -102,6 +125,15 @@ run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max
 #    does cutting the wall bring the room down -- and `CLAUDE.md` prefers a
 #    sum over a count for exactly this reason. Measured 2,713; the bar is
 #    1,800.
+#
+#    **Headroom is now thin, and that is recorded rather than tuned away.**
+#    `TIGHT` became the default `chain_reach` and this case measures 1,975
+#    against the same 1,800 bar -- 10% clear, where it was 50%. The number
+#    still means what it meant (cells that failed when the wall was cut);
+#    the room simply comes down less completely when consequences stay near
+#    the cut, which is what the setting is for. Lowering the bar to restore
+#    the old margin would be setting it from an aspiration; if it starts
+#    flaking, re-derive it from a measurement at the shipped default.
 #
 #    A bigger budget than the rest, and not a tuning fudge: the room is the
 #    largest structure any scene here builds and the only one that is mostly

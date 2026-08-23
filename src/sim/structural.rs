@@ -1832,10 +1832,55 @@ impl World {
     /// able to *cause* a collapse has to report itself here.
     ///
     /// Deliberately coarse. The ring holds only the most recent few,
-    /// because anything older has fallen outside `chain_window` and a
-    /// player cannot disturb dozens of places in the same second.
+    /// because anything older has fallen outside `chain_window`.
+    ///
+    /// # Why a new record coalesces into an overlapping one
+    ///
+    /// The original version pushed unconditionally, on the reasoning that
+    /// *"a player cannot disturb dozens of places in the same second"*.
+    /// True of a player, and false of the world: a forest fire burns out
+    /// hundreds of cells a frame and every one of them is a disturbance
+    /// (a burnout removes structural material, which is exactly the thing
+    /// this licenses failures for). Unbounded pushes would evict the
+    /// player's own dig within one frame of a fire starting, and the
+    /// licence would then track whatever burned most recently rather than
+    /// what anyone did.
+    ///
+    /// So a record close enough to an existing one **refreshes that one's
+    /// frame instead of taking a slot**. The ring then holds disturbances
+    /// proportional to the *spatial extent* of what is happening rather
+    /// than to the number of cells involved, which is the quantity
+    /// `chain_reach` is about.
+    ///
+    /// # Why the merge radius is half the reach and not the reach
+    ///
+    /// A coalesced record keeps the **older** point, so the box it
+    /// licenses is off-centre from the event that refreshed it by up to
+    /// the merge radius. Merging at the full `chain_reach` would let that
+    /// offset reach `chain_reach` too, and `TIGHT` would quietly license
+    /// failures 32 cells from a blow rather than 16. Half bounds the
+    /// effective reach at 1.5x the setting, which is slop a coarse policy
+    /// can carry.
+    ///
+    /// Keeping the older point rather than moving it to the new one is the
+    /// deliberate direction of that error: over-licensing shows up as a
+    /// collapse reaching slightly further than the label promises, and
+    /// under-licensing shows up as *"I hit it and nothing happened"* --
+    /// which is the failure this whole leash has to avoid being.
     pub fn record_disturbance(&mut self, x: i32, y: i32) {
         let frame = self.frame;
+        let reach = self.chain_reach;
+        if reach != i32::MAX {
+            let merge = reach / 2;
+            if let Some(d) = self
+                .disturbances
+                .iter_mut()
+                .find(|&&mut (dx, dy, _)| (x - dx).abs().max((y - dy).abs()) <= merge)
+            {
+                d.2 = frame;
+                return;
+            }
+        }
         self.disturbances.push_back((x, y, frame));
         while self.disturbances.len() > MAX_DISTURBANCES {
             self.disturbances.pop_front();
@@ -1859,11 +1904,27 @@ impl World {
     }
 }
 
-/// How many recent disturbances are remembered. A player cannot disturb
-/// more places than this inside one `chain_window`, and a blast that wants
-/// a wider licence should raise `chain_reach` rather than report itself
-/// many times.
-const MAX_DISTURBANCES: usize = 16;
+/// How many recent disturbances are remembered.
+///
+/// Was 16, on the reasoning that a player cannot disturb more places than
+/// that inside one `chain_window`. Still true of a player, and the world
+/// is not a player: since fire burnouts and structural phase changes
+/// report themselves too, a fire front or a lava pour writes disturbances
+/// along its whole length. `record_disturbance` coalesces those at
+/// `chain_reach / 2` -- 8 cells at the default -- so 64 slots cover a
+/// ~512-cell span of simultaneous activity before the ring starts
+/// evicting, which is a scene-wide fire rather than an ordinary one.
+///
+/// What eviction would cost is specific and is why this is not left small:
+/// the oldest entry goes first, and the oldest entry is the player's dig
+/// from nine seconds ago -- exactly the delayed cave-in `chain_window` is
+/// generous in order to preserve. A blast that wants a wider licence
+/// should still raise `chain_reach` rather than report itself many times.
+///
+/// The cost of the larger ring is a linear scan of it, paid once per
+/// record and once per cell that has *already reached a failing verdict*
+/// (`within_disturbance`) -- never per cell per frame.
+const MAX_DISTURBANCES: usize = 64;
 
 /// How long a disturbance keeps licensing failures near it, in frames —
 /// ten seconds at 60Hz.
@@ -1884,8 +1945,11 @@ pub const CHAIN_WINDOW_FRAMES: u64 = 600;
 /// modes behind one key settled in minutes what no amount of still images
 /// had.
 ///
-/// Ordered from the shipped behaviour outward, so cycling is a tour from
-/// "as it is" to the far end.
+/// Ordered from the built default outward, so cycling is a tour that
+/// loosens the leash a step at a time to no limit at all, then jumps to
+/// the far opposite end before wrapping. `TIGHT` is first because the
+/// owner picked it by playtest; `SPREAD`, which shipped as the default
+/// before that, is two presses away.
 pub struct ChainMode {
     pub name: &'static str,
     pub note: &'static str,
@@ -1893,9 +1957,9 @@ pub struct ChainMode {
 }
 
 pub const CHAIN_MODES: [ChainMode; 4] = [
-    ChainMode { name: "SPREAD", note: "damage travels as far as the load says - costs nothing, chains furthest", reach: i32::MAX },
-    ChainMode { name: "LOCAL", note: "damage stays within a wide room of what you hit", reach: 48 },
     ChainMode { name: "TIGHT", note: "the wound and its surroundings only - undermining still bites", reach: 16 },
+    ChainMode { name: "LOCAL", note: "damage stays within a wide room of what you hit", reach: 48 },
+    ChainMode { name: "SPREAD", note: "damage travels as far as the load says - costs nothing, chains furthest", reach: i32::MAX },
     ChainMode { name: "NONE", note: "only what you struck ever fails - nothing collapses later", reach: 0 },
 ];
 
@@ -1907,8 +1971,11 @@ mod tests {
     use crate::sim::scheduler;
     use crate::sim::update;
 
+    /// The load model with no `chain_reach` leash -- see
+    /// `World::without_chain_limit` for why the model's own tests take it
+    /// off and the game does not.
     fn test_world() -> World {
-        World::new(Rect::new(0, 0, 63, 63))
+        World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
     }
 
     /// Whatever stone currently breaks into, read from the registry rather
@@ -2657,7 +2724,16 @@ mod tests {
         // fire brings the rest of it down too -- not just erasing/painting
         // the base (already covered by the beam tests above), but burning
         // it, which is the realistic way a tree's own base disappears.
-        let mut w = test_world();
+        // **Deliberately NOT `test_world()`**: this one keeps the shipped
+        // `chain_reach` leash on. The claim is end-to-end -- burning the
+        // base brings the rest down -- and half of that end is
+        // `fire.rs`'s burnout reporting itself via
+        // `CellSurface::record_disturbance`, without which `TIGHT` refuses
+        // the failure and the trunk hangs. Unleashing the world here would
+        // pass whether or not the burnout reports anything, which is
+        // exactly the vacuous guard `CLAUDE.md` warns about. The burn is
+        // at x=0 and the far end at x=11, inside TIGHT's 16.
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
         let wood = w.materials.id_of("wood").unwrap();
         // A 12-cell horizontal beam again (simpler to reason about than a
         // vertical trunk, and exercises the identical span/anchor logic),
@@ -2767,6 +2843,20 @@ mod tests {
         run(&mut w, 200);
 
         assert_eq!(w.get(3, 30).material, debris, "the far end of the bridge never collapsed after its support was cut");
+    }
+
+    /// `World::default` and `CHAIN_MODES[0]` are two copies of the same
+    /// number, and a drift between them would mean a fresh world does not
+    /// behave like the mode `F9` names on screen -- the same class of bug
+    /// `the_defaults_are_the_first_feel_of_each_list` guards for the
+    /// player tuning.
+    #[test]
+    fn the_default_chain_reach_is_the_first_chain_mode() {
+        assert_eq!(
+            World::new(Rect::new(0, 0, 63, 63)).chain_reach,
+            CHAIN_MODES[0].reach,
+            "a fresh world must start in the mode F9 reports as the first one"
+        );
     }
 
     /// A reach limit keeps damage near what was actually disturbed, and

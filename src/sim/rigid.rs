@@ -2262,8 +2262,11 @@ mod tests {
     use crate::sim::chunk::Rect;
     use crate::sim::material;
 
+    /// The load model with no `chain_reach` leash -- see
+    /// `World::without_chain_limit` for why the model's own tests take it
+    /// off and the game does not.
     fn test_world() -> World {
-        World::new(Rect::new(0, 0, 63, 63))
+        World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
     }
 
     /// A world with a pond deep enough that no empty cell is within
@@ -2271,7 +2274,7 @@ mod tests {
     /// `pond_top` leaves open air above so the displaced water has a
     /// surface to rise to.
     fn pond_world(pond_top: i32) -> World {
-        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        let mut w = World::new(Rect::new(0, 0, 127, 127)).without_chain_limit();
         for x in 0..128 {
             for y in 124..128 {
                 w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
@@ -2521,7 +2524,11 @@ mod tests {
     /// §1j.
     #[test]
     fn a_piece_with_no_water_under_it_never_takes_a_footprint() {
-        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        // Unleashed for the same reason `test_world` is: the slab is hand
+        // placed and no verb touched it, so at the shipped `chain_reach`
+        // nothing licenses it to come free and there is no body to ask
+        // about a footprint. See `World::without_chain_limit`.
+        let mut w = World::new(Rect::new(0, 0, 127, 127)).without_chain_limit();
         for x in 0..128 {
             for y in 124..128 {
                 w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));

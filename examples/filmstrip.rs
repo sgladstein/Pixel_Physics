@@ -978,7 +978,28 @@ fn build(args: &Args) -> World {
             // asked for -- the same way `capped` does it. Without this the
             // slab hangs there and the harness reports zero of everything,
             // which reads exactly like the splash being broken.
+            //
+            // And since `TIGHT` became the default `chain_reach`, asking
+            // for the check is no longer enough: the failure also has to
+            // be *licensed* by something disturbed nearby, or it is found
+            // and declined. Measured when that landed -- 600 loose cells
+            // still above row 195 and zero bodies in flight, i.e. exactly
+            // the "reads like the splash being broken" outcome this
+            // comment already warned about, arriving through a second
+            // door.
             w.schedule_structural_check_around(256, top + 5);
+            // Across the slab's width, not at one point in the middle of
+            // it. A single record licenses a box of `chain_reach` either
+            // side -- 32 cells at the default -- and this slab is 60 wide,
+            // so a centre-only record left its outer fourteen columns
+            // unlicensed and 231 cells of it hanging in the air after the
+            // rest had gone. `World::record_disturbance` coalesces
+            // spatially, so asking per column costs a handful of ring
+            // slots rather than sixty, and says the thing the scene
+            // actually means: the whole slab is loose.
+            for x in 226..286 {
+                w.record_disturbance(x, top + 5);
+            }
             println!("rockdrop: a {rock}-cell slab of unattached stone {} rows over an open pool 271 wide", args.fall);
         }
         // A dense blob dropped into a walled pool: the displacement striping.
@@ -1653,6 +1674,23 @@ fn build(args: &Args) -> World {
             }
             w.schedule_structural_check_around(200, 108);
             w.schedule_structural_check_around(312, 108);
+            // Disturbances as well as checks, and here it is the *guard*
+            // that needs them rather than the outcome. This case asserts
+            // `max_failures=0` -- the thick column stands -- and at the
+            // shipped `TIGHT` reach an undisturbed scene cannot fail
+            // whatever the load model thinks, so without this it could
+            // pass on the leash rather than on the model.
+            //
+            // **Measured, it does not: at `chain_reach=spread` this scene
+            // still reports 0 overload and 0 unsupported failures**, so
+            // the column was always being held up by the model. These are
+            // here so it cannot acquire that dependency later, not to
+            // repair one. They also make the scene what its comment above
+            // already claims it is -- what the stone brush lays down --
+            // since `World::paint_capsule` records a disturbance per
+            // structural cell it writes.
+            w.record_disturbance(200, 108);
+            w.record_disturbance(312, 108);
         }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
@@ -1698,9 +1736,22 @@ fn build(args: &Args) -> World {
                 }
             }
             pixel_physics::sim::structural::compute_world_distances(&mut w);
-            // One structural check at the neck, which is all a disturbance
-            // would do. Nothing is removed, nothing is struck.
+            // One structural check at the neck, and a disturbance to go
+            // with it.
+            //
+            // **This used to read "which is all a disturbance would do",
+            // and that stopped being true.** It was written when
+            // `chain_reach` defaulted to no limit, where the ring was
+            // never consulted and recording into it was genuinely a no-op.
+            // With `TIGHT` the default, a failure is refused unless
+            // something near it reported itself -- so the scheduled check
+            // ran, found the neck overloaded, and was declined: zero
+            // overload failures on the case that exists to show the
+            // owner's original ligament snapping. In play the neck is thin
+            // because someone cut it thin, and cutting records; this scene
+            // builds it thin instead, so it has to say so itself.
             w.schedule_structural_check_around(105, 152);
+            w.record_disturbance(105, 152);
         }
         // What a player actually builds, painted through the ordinary
         // brush at the radius they use (R2, so 5 cells thick).
@@ -2219,8 +2270,18 @@ struct Args {
     /// whole column above it again. The control for the arching change.
     arch: bool,
     /// `chain_reach=N` -- how far from something actually disturbed a
-    /// failure may happen, in cells. Unset means no limit, the shipped
-    /// behaviour. `0` is "only what you struck ever fails".
+    /// failure may happen, in cells. Also takes a `CHAIN_MODES` name --
+    /// `tight`, `local`, `spread`, `none` -- which is the spelling to
+    /// prefer, since the numbers move when the modes are retuned.
+    ///
+    /// **Unset means the shipped default**, which is `TIGHT` since the
+    /// playtest and was "no limit" before it. That change matters to any
+    /// scene asserting *nothing fails*: TIGHT only licenses a failure near
+    /// something that reported itself disturbed, so a hand-placed scene
+    /// that no verb touched passes on the leash rather than on the load
+    /// model -- the vacuous guard `CLAUDE.md` warns about.
+    /// `scripts/acceptance.sh` passes `chain_reach=spread` on exactly
+    /// those cases and says so at each one.
     chain_reach: Option<i32>,
 
 }
@@ -2420,7 +2481,20 @@ fn parse() -> Args {
             }
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
-            "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
+            "chain_reach" => {
+                a.chain_reach = Some(match v {
+                    // Named, so a scene says which *mode* it wants rather
+                    // than a number that moves when the modes are retuned.
+                    "tight" | "local" | "spread" | "none" => {
+                        pixel_physics::sim::structural::CHAIN_MODES
+                            .iter()
+                            .find(|m| m.name.eq_ignore_ascii_case(v))
+                            .expect("chain_reach name must be a CHAIN_MODES entry")
+                            .reach
+                    }
+                    _ => v.parse().expect("chain_reach"),
+                })
+            }
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "ice" => {

@@ -2225,3 +2225,178 @@ loses on cost anyway: 0.7 ms *per edit site* against a flat 2.3 ms, so it wins
 only below ~3 sites a frame, and a busy scene runs 16 of 40 chunks awake.
 
 ---
+
+### Four playtest defaults, and the one that turned out not to be a default
+
+Asked for four changes, framed as "maybe outside your scope but a simple
+fix": spoil to CLEAN, jump to FLOATY, water to DIVER, chaining to TIGHT.
+
+**Two were already done.** `MOVEMENT_FEELS[0]` has been FLOATY and
+`WATER_FEELS[0]` has been DIVER since the playtest that picked them, both
+mirrored into `Tuning::default` and guarded by
+`the_defaults_are_the_first_feel_of_each_list`. Worth saying out loud
+rather than silently doing nothing, because "I asked for it and nothing
+changed" and "it was already like that" look identical from the outside.
+
+**Spoil was a one-line default and a wrong comment.** `SPOIL_MODES`
+reordered so CLEAN is index 0, `Tuning::default().dig_yield` 0.35 -> 0.0.
+The field's doc had argued *against* this value on the grounds that
+vanishing rock is the no-debris failure `CLAUDE.md` records — a misreading,
+since `dig_yield` is consumed only by `rigid::mine` and no destruction path
+consults it. Rewritten to say so. Measured on `scene=tunnel`, 42 identical
+bites: CLEAN covers 120 cells of ground with the bore clear; DUST covers
+46, wades from bite 19, and buries him in his own spoil for 7 ticks. Two
+tests moved: `a_bite_opens_a_bore_and_removes_only_what_it_broke` pinned to
+DUST (both its assertions need spoil to exist), and a new
+`at_the_default_yield_a_bite_leaves_no_spoil_in_its_bore` covers the end
+that had none.
+
+#### Chaining was not a default. It was a gate nobody had switched on
+
+`World::chain_reach` defaulted to `i32::MAX`, and `within_disturbance`
+opens with `if self.chain_reach == i32::MAX { return true; }`. So the
+disturbance ring had never been read in a shipped run. Setting the default
+to `TIGHT` turned that early return off for the first time and the engine
+promptly stopped working in three places, because only `rigid::strike`,
+`rigid::mine` and `explosion` had ever called `record_disturbance`:
+
+- **The brush.** `World::paint_capsule` erasing a support scheduled a
+  structural check and licensed nothing, so undermining with the cursor
+  did precisely nothing.
+- **Fire.** A burnout removing a trunk's base: check scheduled, failure
+  found, failure declined, tree hangs there.
+- **Structural phase change.** Lava quenching into crust over open water:
+  the crust minted and never came apart.
+
+All three now record. Fire and phase change run inside the sweep with no
+`&mut World`, so this needed a `CellSurface::record_disturbance` that
+`ChunkView` queues and `run_pass` replays — the same shape
+`schedule_active_site` already had.
+
+Two sizing consequences fell out of that. The ring was 16 slots, sized by
+a comment reading *"a player cannot disturb dozens of places in the same
+second"* — true of a player, false of a fire front, which now writes a
+disturbance per burned-out cell. So `record_disturbance` coalesces
+spatially, and `MAX_DISTURBANCES` is 64. The merge radius is
+`chain_reach / 2` rather than `chain_reach`: a coalesced record keeps the
+older point, so merging at the full reach would let the licensed box sit a
+full reach off-centre and TIGHT would quietly behave like 32. Keeping the
+older point rather than moving it to the newer one is the deliberate
+direction of that error — over-licensing shows as a collapse reaching
+slightly far, under-licensing shows as "I hit it and nothing happened",
+which is the failure the whole leash must not be.
+
+#### What the leash actually buys, measured paired
+
+`scripts/seedsweep.sh dig=6`, 6 presets x 4 seeds, TIGHT against SPREAD on
+the same binary:
+
+| | TIGHT | SPREAD |
+|---|---|---|
+| cells lost, max / p90 | 297 / 177 | 297 / 193 |
+| rock destroyed, max / p90 | 40 / 5 | 135 / 8 |
+
+Material removed is essentially unchanged. What moves is **granularity**.
+On `rolling` seed 7, the seed where they diverge most: SPREAD fires 221
+overload failures of mean region 14.4 cells, 217 of them in the 8-15
+bucket; TIGHT fires 41 of mean region 41.6, 27 of them in 16-63. Same
+largest region (1096) either way.
+
+**And then the owner looked at it and said "there is nothing happening in
+either of these images", which was right, and chasing that is the most
+useful thing in this entry.** Measured after the fact:
+
+- final frame, that same seed: **0.3%** of pixels differ;
+- mid-collapse (frame 120), cropped to the cut: **0.8%**;
+- awake chunks track each other 7-9/40 across 1,300 frames, so there is no
+  "it keeps rotting for another thousand frames" signature either;
+- `strike=12 seed=24301`: **bit-identical**;
+- `dig=6 tunnel=8`, the compounding case: **bit-identical**, same 20
+  overload failures and the same 425 cells, both settings.
+
+The arithmetic behind that: the harness prints `furthest a failure landed
+from its trigger` at **7-8 cells** on these scenes, and TIGHT's radius is
+16. The leash is not binding. It binds on the minority of cases where a
+failure would have landed past 16 — `next-session-handoff.md` measured
+`max_chain_reach` at 13-22 — and rolling/7 is one of them.
+
+So the claim that survives is "fewer, chunkier failure events where a
+failure would otherwise have landed past 16 cells", not "visibly less
+rotting", and the honest report to the owner is that the harness cannot
+reproduce a visible difference and his playtest is the authority on
+whether one exists. This is `CLAUDE.md`'s *ask which pixels a lever moves*
+in its purest form: the counters moved 5x, three separate levers all
+demonstrably fired, and the silhouette did not move at all. It also means
+the substantive work in switching TIGHT on was the three unwired verbs,
+not the leash.
+
+Frame cost unchanged: `ascii` mean over 12,000 frames 3.770 ms against a
+3.746 ms baseline re-measured in the same session on the same machine.
+(The stress-scene worst-frame numbers swung *both* directions between the
+two trees — 87 vs 101 ms on one scene, 21 vs 13 on the next — which is
+this machine's documented noise, not a signal.)
+
+#### The method failures, which are the part worth carrying
+
+- **A default is not a tuning value when it gates a fast path.** Every
+  behaviour downstream of `chain_reach` had been dead code. Reading the
+  diff, this looked like four constants; running it, it was a feature
+  being switched on for the first time. Before changing a default, check
+  whether the code that reads it has an early return for the current one.
+- **Two guards were vacuous in opposite directions and only measurement
+  told them apart.** `ligament` and `rockdrop` broke outright (0 overload
+  failures on the case that exists to show a neck snapping; 600 cells of
+  slab left hanging). `capped` was *assumed* to have gone vacuous and had
+  not — run at `chain_reach=spread` it still measures 0 failures, so the
+  model was holding that column up all along. The comment written before
+  that check said it "would pass on the leash rather than on the model";
+  it was corrected to what was measured. Assuming a guard went vacuous is
+  as wrong as assuming it did not.
+- **A scene comment can go false without the scene changing.**
+  `ligament` read *"one structural check at the neck, which is all a
+  disturbance would do"* — accurate when written, because the ring was
+  never consulted, and silently false afterwards. `rockdrop`'s comment had
+  even predicted its own failure mode ("the slab hangs there and the
+  harness reports zero of everything, which reads exactly like the splash
+  being broken") and then hit it through a second door.
+- **One disturbance does not cover an object wider than the reach.**
+  `rockdrop`'s first fix recorded at the slab's centre and left 231 of 600
+  cells hanging, because the slab is 60 wide and a record licenses 32.
+  Fixed by recording per column and letting the coalescing do the work —
+  which is also the honest statement of what the scene means.
+- **Unleashing a test helper is right for the model's own tests and wrong
+  for the feature's.** `World::without_chain_limit` went into three
+  `test_world()` helpers, and deliberately *not* into
+  `burning_a_trees_base_collapses_the_rest_of_the_trunk` or the quench
+  crust case — those two now pass only because the fire and phase-change
+  fixes are real, which is the whole point of keeping them leashed.
+
+#### TRACE, and a card posted with placeholders in it
+
+The owner's verdict on the spoil pair was *"most of the options produce
+too much dust... if there was a 10% option that would be interesting, but
+1/3 is even too much"*. `SPOIL_MODES` stepped 0 -> 0.35 -> 0.55 -> 1.0
+with nothing in the gap, so `TRACE` (0.10) went in at index 1, one `F2`
+press off the default. Measured on `scene=tunnel`: 90 cells of ground
+covered against CLEAN's 120 and DUST's 46, 140 cells of spoil left
+underfoot against 1,108, and never buried.
+
+Two process notes from the same round, both mine:
+
+- **The first spoil card cropped 40 rows above the gnome.** He works at
+  y≈300 and the crop was y 180-260, so both panes showed identical
+  untouched rock — which is exactly what the owner reported. Same class of
+  error as the seam card earlier in this branch. `pixel_stat diff=1` was
+  built during that earlier failure precisely to catch this, and was not
+  reached for until after the second complaint. **Diff the two images
+  before posting them**, every time; it is one command.
+- **The replacement card went out with `"see counter below"` in two
+  `meta` fields** because the TRACE run had not been measured yet. Posted,
+  measured, reposted with real numbers and a line saying which card it
+  supersedes. A card's `meta` is the half the owner is asked to trust.
+
+`ascii` also panics on an ant moisture-gradient assertion. Verified
+identical at the baseline commit in a separate worktree, with identical
+counters — pre-existing, alongside
+`plant::root_and_shoot_branching_read_different_slots` and acceptance's
+`wood` case.

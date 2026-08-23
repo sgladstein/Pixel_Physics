@@ -613,7 +613,9 @@ pub struct World {
     pub arch_relief: bool,
     /// How far from something that was actually disturbed a structural
     /// failure is allowed to happen, in cells, and for how long. See
-    /// `ChainMode`; `i32::MAX` is the shipped behaviour (no limit).
+    /// `ChainMode`. **16 is the default**, `CHAIN_MODES[0]` (`TIGHT`),
+    /// chosen by playtest; `i32::MAX` removes the leash entirely and is
+    /// what shipped before that.
     ///
     /// # Why this is a policy and not a deletion
     ///
@@ -818,6 +820,38 @@ impl FailureCounts {
 }
 
 impl World {
+    /// Take the leash off `chain_reach`, restoring the pre-playtest
+    /// behaviour in which the load model alone decides what fails.
+    ///
+    /// # Why the load-model tests want this and the game does not
+    ///
+    /// `chain_reach` is a **policy layered over** the load model: the model
+    /// works out that a cell cannot carry what is on it, and the policy
+    /// then decides whether the consequence is allowed to happen here. The
+    /// default is `TIGHT` because a playtest picked it, and TIGHT means
+    /// "near something that reported itself disturbed" -- which a unit test
+    /// that hand-places geometry and calls `schedule_structural_check`
+    /// directly never does, because no verb was involved.
+    ///
+    /// Left at the default those tests do not exercise a stricter model,
+    /// they exercise *nothing*: an empty disturbance ring refuses every
+    /// failure, so a beam that should snap simply stands and the assertion
+    /// fails for a reason that has nothing to do with what it is named
+    /// for. `CLAUDE.md`'s "a superseded mechanism's tests keep passing
+    /// while testing nothing" trap, run in reverse.
+    ///
+    /// So the model's own tests say so out loud here, and the policy keeps
+    /// its own paired test (`structural::tests::
+    /// a_reach_limit_keeps_damage_near_what_was_disturbed`), which sets a
+    /// reach explicitly and runs both sides. **Nothing outside `#[cfg(test)]`
+    /// should call this** -- a harness that wants the shipped behaviour
+    /// (`filmstrip`, `ascii`, `acceptance.sh`) must take the default, or it
+    /// stops measuring what the player sees.
+    pub fn without_chain_limit(mut self) -> Self {
+        self.chain_reach = i32::MAX;
+        self
+    }
+
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
             chunks: HashMap::new(),
@@ -857,7 +891,9 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
-            chain_reach: i32::MAX,
+            // Mirrors CHAIN_MODES[0] (TIGHT), chosen by playtest. Kept in
+            // sync by `the_default_chain_reach_is_the_first_chain_mode`.
+            chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
@@ -2605,6 +2641,15 @@ impl World {
                     continue;
                 }
                 self.schedule_structural_check_around(x, y);
+                // And it is a *disturbance*, not just a reason to re-check:
+                // laying stone under an overhang or cutting it out from
+                // under one is the player doing something to the world,
+                // and `World::chain_reach` only licenses failures near
+                // something that happened. Invisible while the default was
+                // no limit; the moment `TIGHT` became the default, a brush
+                // that scheduled checks but recorded nothing meant erasing
+                // a support did precisely nothing.
+                self.record_disturbance(x, y);
                 // Cutting rock costs its neighbours their backing, which is
                 // what lets mining produce anything at all -- see
                 // `structural::detach_exposed_neighbours`. Erasing only:
@@ -3088,6 +3133,11 @@ impl CellSurface for World {
     #[inline]
     fn schedule_active_site(&mut self, site: ActiveSite) {
         World::schedule_active_site(self, site)
+    }
+
+    #[inline]
+    fn record_disturbance(&mut self, x: i32, y: i32) {
+        World::record_disturbance(self, x, y)
     }
 
     #[inline]

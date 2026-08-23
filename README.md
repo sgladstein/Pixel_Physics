@@ -50,7 +50,7 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
 | `F6` / `F8` | New world from a fresh seed / back to the previous seed |
 | `F7` | Cycle the worldgen preset, keeping the seed — rolling → terraced → canyon → wetland → arid → legacy → flat (the structural test bed) |
-| `F9` | Cycle how far structural damage may travel from a blow: SPREAD → LOCAL → TIGHT → NONE; named in the title bar off the default. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
+| `F9` | Cycle how far structural damage may travel from a blow: TIGHT (the default, set by playtest) → LOCAL → SPREAD → NONE; named in the title bar off the default. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
 | `L` | Cycle the organism overlay — per-cell organism channels on a fixed dark→bright ramp |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
@@ -1132,6 +1132,62 @@ canalization doc-vs-code gap above:
 
 ## M17 status
 
+**The chaining leash is on by default (`TIGHT`), and switching it on wired
+up three verbs that had never reported themselves.** `World::chain_reach`
+refuses a structural failure that is not within its radius of something
+recently disturbed, and it shipped defaulting to `i32::MAX` -- for which
+`within_disturbance` has a literal `return true` at the top, so in every
+run the engine had ever done the disturbance ring was never read. A
+playtest picked `TIGHT`, and making it the default turned that early
+return off for the first time: only `rigid::strike`, `rigid::mine` and
+`explosion` had ever called `record_disturbance`, so the brush erasing a
+support, fire burning through a trunk, and lava quenching into crust all
+scheduled a structural check that was then found and declined. Each now
+records, reachable from inside the parallel sweep through a new
+`CellSurface::record_disturbance` that `ChunkView` queues and `run_pass`
+replays, the same shape as `schedule_active_site`.
+
+Two sizing consequences came with it. `record_disturbance` **coalesces
+spatially at `chain_reach / 2`** -- half, so a coalesced record's box is
+off-centre by at most that and the effective reach stays under 1.5x the
+setting -- and `MAX_DISTURBANCES` went 16 to 64. The old 16 was sized by a
+comment reading *"a player cannot disturb dozens of places in the same
+second"*, which is true of a player and false of a fire front; without
+coalescing, a burning wood would have evicted the player's own dig within
+a frame, and that dig is exactly what `chain_window`'s ten seconds exist
+to keep alive.
+
+**Measured, TIGHT is close to a no-op on every harness scene, and that is
+worth knowing before anyone tunes it.** The reason is arithmetic: the
+harness reports `furthest a failure landed from its trigger` at **7-8
+cells** on these scenes, and TIGHT's radius is 16, so the leash is simply
+not binding most of the time. Over the 24-run seed sweep
+(`scripts/seedsweep.sh dig=6`) material removed is unchanged (p90 177
+cells against 193, max 297 both); on the compounding tunnel case
+(`dig=6 tunnel=8`) the two settings are **bit-identical**; and on
+`strike=12 seed=24301`, also bit-identical.
+
+Where it does bind -- `rolling` seed 7, `dig=6` -- it is a large change in
+the counters and a small one on screen: SPREAD fires 221 overload failures
+of mean region 14.4 cells (217 in the 8-15 bucket), TIGHT fires 41 of mean
+region 41.6 (27 in 16-63), and yet only **0.3% of pixels differ** on the
+final frame and awake-chunk counts track each other 7-9/40 across 1,300
+frames. So the honest claim is "fewer, chunkier failure events on the
+minority of cases where a failure would have landed past 16 cells", not
+"visibly less rotting". Two review cards asserting the latter came back
+from the owner as *"there is nothing happening in either of these
+images"*, correctly.
+
+That also means the default is low-risk, and that the substantive part of
+switching it on was the three verbs above, not the leash itself. Frame
+cost is unchanged (`ascii` mean over 12,000 frames: 3.770 ms against a
+3.746 ms baseline re-measured the same session).
+
+The trap it leaves for anyone adding a scene: at TIGHT, a hand-placed
+scene that no verb touched **cannot fail**, so an acceptance case
+asserting *nothing fails* can pass on the leash rather than on the model.
+`scripts/acceptance.sh` says so at the top and names how to check.
+
 Built: destructible building with no polygon solver (`structural.rs`). Every
 `Solid` cell can store, in `Cell::aux`, its distance in cells to the nearest
 anchor — bedrock, or the world edge (the `Cell::OUT_OF_BOUNDS` sentinel
@@ -1595,6 +1651,27 @@ with tap-for-hop, hold-for-height (`W`), wades powder slowed in proportion
 to how deep he is in it, swims with a surface-exit window, is buried and
 digs out, rides a falling chunk body rather than being left behind by it,
 and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
+
+**All three selectors now default to what the playtest picked** -- `FLOATY`
+jump, `DIVER` water, and (since 2026-08-23) `CLEAN` spoil, each sitting at
+index 0 of its list so `Tuning::default` and the named mode stay one thing
+(`the_defaults_are_the_first_feel_of_each_list` guards the mirror).
+
+`CLEAN` is `dig_yield = 0.0`, and an earlier version of that field's doc
+argued against exactly this value -- that rock simply vanishing is the
+no-debris failure this project has already rejected. That was a misreading
+of the rule: `dig_yield` is the **mining verb's** number and nothing else
+consults it, so a collapse still fractures and still throws its graded
+debris at any setting. What 0.35 actually bought was spoil underfoot, and
+measured on `scene=tunnel` it bought rather more than that: over an
+identical 42 bites the gnome wades from bite 19, is **buried in his own
+rubble for 7 ticks**, and covers 46 cells of ground against CLEAN's 120.
+
+That measurement also opened a gap in the list. It stepped 0 -> 0.35 ->
+0.55 -> 1.0, with nothing between "no rubble at all" and a third — and a
+third is what buries him. `TRACE` (0.10) sits in that gap, added on the
+owner's verdict that *"most of the options produce too much dust... 1/3 is
+even too much"*; it is one `F2` press off the default.
 
 The feel is data, not code: `player::Tuning` behind `O` -> PLAYER
 (persisted to `assets/player.ron`), with the three whole-feel families that

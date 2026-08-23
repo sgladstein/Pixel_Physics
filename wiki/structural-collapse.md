@@ -14,7 +14,10 @@ is **how big a room you can build**: a wide, thin-walled one can still
 fail to hold its own roof up the moment you finish it, and the exact width
 at which that starts is not yet where anyone wants it. Also unsettled, and
 the thing to watch when playing: whether collapse now happens **too
-rarely** on open terrain, having spent a long time happening far too much.*
+rarely** on open terrain, having spent a long time happening far too much.
+Since 2026-08-23: the chaining default is **TIGHT** rather than SPREAD,
+picked by playtest — so a blow's consequences now stay near it unless you
+press `F9`.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -194,16 +197,19 @@ rotting.
 So how far consequences may travel from what you actually hit is a setting,
 cycled with `F9`, named in the title bar whenever it is not the default:
 
-- **SPREAD** (default) — damage travels as far as the structure says it
-  should. Nothing is held back.
+- **TIGHT** (default) — the wound and its surroundings only. Undermining
+  still brings things down, but a hillside stops unravelling.
 - **LOCAL** — consequences stay within a wide room of the blow.
-- **TIGHT** — the wound and its surroundings only. Undermining still brings
-  things down, but a hillside stops unravelling.
+- **SPREAD** — damage travels as far as the structure says it should.
+  Nothing is held back. This was the default until a playtest picked
+  TIGHT over it.
 - **NONE** — only what you struck is ever destroyed. Nothing collapses
   afterwards, at all.
 
 The whole range is one number, so it is worth trying the ends rather than
 reasoning about them. Note what the tighter settings cost: a delayed
 cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
-a mountain and it will sit there.
+a mountain and it will sit there. TIGHT keeps that mechanic; what it gives
+up is the long-range consequence, so a blow on one side of a hill no
+longer finds something to break on the other.
 
