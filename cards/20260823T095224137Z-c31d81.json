@@ -1,0 +1,60 @@
+{
+  "id": "20260823T095224137Z-c31d81",
+  "created": "2026-08-23T09:52:24Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "322bae4",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A generated world with four woody species in it, instead of one",
+  "question": "Crossing this world, does the vegetation now change as the country changes — or does it just read as more of the same green?",
+  "context_md": "`life_scatter` sowed moss and the hardcoded string `\"tree\"` for the whole life of this project. Conifer, shrub and creeper existed in `assets/species/` and had **never been planted in a generated world**. Nothing measured it, because the pass reports a cell total and every woody plant is made of `wood`.\n\nBoth panes: the shipped 8,192 x 2,560 world, **seed 1**, same 3,000 frames, same four camera positions across the width. Only the sowing rule differs.\n\nEach species is a weight over ground the generator already describes — no biome table, no new terrain field:\n\n- **tree** — damp country on a real depth of soil\n- **conifer** — the upland band (regional elevation, so it arrives as a *belt* several stands wide)\n- **shrub** — the dry margin, where the blanket is thinning\n- **creeper** — a skin of soil over rock, where nothing else can root\n\nEach draws its own cluster field, so one species' clearings are where another's thicket sits.\n\n**What I am not asking you to judge here**: whether the four species look different from each other close up — that is a separate card. This one is about the world.\n\n**What I am unsure of**: the density. Total plant cells went up 50% and the world reads noticeably fuller. That may be right — the preset budget is now split between four species instead of paid to one — or it may be too much. If it looks crowded, say so; it is one divisor.\n\nGrass is deliberately still absent: it has no way to die, so a world that seeded it would leak organism slots.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — one species",
+      "files": [
+        "20260823T095224137Z-c31d81/000-flora_before.png"
+      ],
+      "caption": "origin/main: moss and \"tree\"",
+      "meta": {
+        "tree established": 87,
+        "conifer established": 0,
+        "shrub established": 0,
+        "creeper established": 0,
+        "moss": 65,
+        "total plant cells": 37297
+      },
+      "focus": null
+    },
+    {
+      "label": "after — four species",
+      "files": [
+        "20260823T095224137Z-c31d81/001-flora_after.png"
+      ],
+      "caption": "sown by aridity, elevation and blanket depth",
+      "meta": {
+        "tree established": 49,
+        "conifer established": 30,
+        "shrub established": 28,
+        "creeper established": 28,
+        "moss": 65,
+        "total plant cells": 55782
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
