@@ -140,6 +140,39 @@ def test_media_outlives_source(root: Path) -> None:
           "artifact still readable after its source directory is deleted")
 
 
+def test_an_animation_cannot_share_an_item(root: Path, art: Path) -> None:
+    """A gif beside a still in one `files` list is a silently dead animation.
+
+    `files` is the frame-sequence field, so the two render as a two-frame strip
+    and the motion is gone -- while the card looks correct from the posting
+    side, which is how it reached the owner. Refused at build time now, and
+    this is what keeps it refused.
+    """
+    print("\nan animation cannot share an item")
+    tmp = Path(tempfile.mkdtemp())
+    gif = tmp / "moving.gif"
+    gif.write_bytes(b"GIF89a" + b"\x00" * 32)
+    both = json.dumps({"title": "t", "question": "q",
+                       "items": [{"label": "both", "files": [str(gif), str(art)]}]})
+    out = run("post", "--json", "-", root=root, stdin=both, expect=None)
+    check(out.returncode != 0, "a gif sharing an item is refused")
+    said = (out.stdout + out.stderr).lower()
+    check("item of its own" in said or "--gif" in said,
+          "the refusal names the fix", said.strip()[:160])
+
+    # The two shapes it must NOT refuse: a real frame sequence of stills, and
+    # a gif that has an item to itself.
+    frames = json.dumps({"title": "t", "question": "q",
+                         "items": [{"files": [str(art), str(art)]}]})
+    check(run("post", "--json", "-", root=root, stdin=frames).returncode == 0,
+          "a frame sequence of stills still posts")
+    apart = json.dumps({"title": "t", "question": "q",
+                        "items": [{"files": [str(gif)]}, {"files": [str(art)]}]})
+    check(run("post", "--json", "-", root=root, stdin=apart).returncode == 0,
+          "a gif in its own item still posts")
+    shutil.rmtree(tmp)
+
+
 def test_blind_resolves_to_real_label(root: Path, art_a: Path, art_b: Path) -> None:
     """Blinding must cost the agent nothing: the stored verdict names the real
     option, not the shuffled slot the owner clicked."""
@@ -787,6 +820,7 @@ def main() -> int:
         test_concurrent_posts(base / "q1", art_a)
         test_crash_safety(base / "q2")
         test_media_outlives_source(base / "q3")
+        test_an_animation_cannot_share_an_item(base / "q3b", art_a)
         test_blind_resolves_to_real_label(base / "q4", art_a, art_b)
         test_wait_degrades(base / "q5", art_a)
         test_inbox_is_never_silently_empty(base / "q4", art_a)

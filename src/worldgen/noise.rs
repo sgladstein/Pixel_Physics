@@ -192,6 +192,33 @@ pub enum Purpose {
     /// whether it happened to get placed at all, the correlation every
     /// purpose tag exists to prevent.
     ResidualShape = 31,
+    /// The outline of a `pockets` lens: its lobing and its edge grain.
+    ///
+    /// Its own stream rather than more coordinates on `Pocket`, for the
+    /// reason every purpose tag exists -- sharing would tie how ragged a
+    /// lens is to where it was placed and how big it drew, so a big lens
+    /// would always be ragged the same way, which is the correlation that
+    /// makes a generator legible.
+    PocketEdge = 32,
+    /// Where rock country *is* — the low-frequency mask that decides which
+    /// stretches of world grow residual landforms at all.
+    ///
+    /// Its own stream, and at a far coarser scale than anything else here,
+    /// because it answers a question no per-region draw can. A `RegionMap`
+    /// region is 102-256 columns at the shipped world size — a fifth to a
+    /// half of one screen — so gating `Character::formation` on the region's
+    /// own draw makes "rock country" something the player crosses in a few
+    /// seconds, and it measures identically to a world that simply has fewer
+    /// spires everywhere. Measured: a per-region gate at 87% barren gave the
+    /// same per-screen spire census (canyon 0/2/4, rolling 0/1/2) as the
+    /// uniform `residual_density: 0.45` thinning the owner rejected. A
+    /// country has to be bigger than the view to read as a country.
+    RockCountry = 33,
+    /// Which of a world's many cliff faces the aquifer actually daylights
+    /// on. Sparse by design: a world offers hundreds of qualifying faces and
+    /// wants one or two springs, and picking "the first one scanning left to
+    /// right" would put every world's waterfall near x = 0.
+    Spring = 34,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

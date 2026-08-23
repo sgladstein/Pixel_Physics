@@ -44,7 +44,7 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
 | `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height) — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking a plant **shakes** it rather than cutting it (the ring turns green): loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
-| `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world in about six seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is four screens wide and two deep, so there is a good deal to see — the bottom-left readout shows where the view is |
+| `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world's pannable width (7680 cells) in about 30 seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is sixteen screens wide and eight deep, so there is a good deal to see — the bottom-left readout shows where the view is |
 | `F10` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode |
 | `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
@@ -216,8 +216,18 @@ src/worldgen/  M10's worldgen half: a playable 2D slice cut from coarse 3D
                width), column.rs (per-column shaping), passes.rs (the pass
                pipeline), erosion.rs (plan-space erosion, which is what
                makes the mesas and benches), residual.rs (tors and stacks),
-               spring.rs (spring placement), legacy.rs (the old hand-built
-               practice terrain)
+               legacy.rs (the old hand-built practice terrain),
+               passes::springs (spring and drain placement, added after the
+               note below was written)
+src/sim/spring.rs
+               springs and drains -- water entering and leaving the 2D
+               slice. The mechanism; `worldgen::passes::springs` is what
+               puts one in a world. **It did not until 2026-08-22**, which
+               is why nobody had seen a river: every caller of
+               `World::add_spring` was a unit test or
+               `examples/viewshot.rs spring=`, and this map had listed the
+               module under `src/worldgen/` as "spring placement", which is
+               where the belief that worlds already had rivers came from.
 src/render.rs  cells to pixels; dirty-region skipping, overlays, grain
 src/sky.rs     the sky: day/night gradient, dawn and dusk, stars, the moon,
                storm dimming -- and the ground lit by time of day
@@ -1837,9 +1847,74 @@ it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
+**The world ships at 8192 x 2560 cells** — sixteen viewport-widths across
+and eight deep, 4x linear on the 2048x640 it shipped at through round 7 and
+sixteen times the cells. That is the owner's call, taken because round 6's
+renders were rejected for having no room in them: *"everything needs to be
+bigger, the whole world, the caves. You cannot create good looking crystals
+or stalagmites and stalactites that are only 1-2 pixels wide."* A feature
+only has a silhouette, a taper and an interior if it is many cells across,
+and there was no room for a many-cells-across cave in a world four screens
+wide.
+
+It costs 9.0 s to generate (behind the loading screen) at 359 MiB of peak
+RSS, with the field solve at 51.8 ms on its worst settled frame;
+`examples/scale_probe.rs` is the instrument and
+`Reports/field-settling-2026-08.md` holds the performance work that made the
+size affordable. The one target not met — 4 ms amortised over a day/night
+cycle, against 16.7 measured — is recorded as a gap in
+`Reports/world-scale-handoff.md` rather than relabelled away.
+
+The features underground grew with it: a cave system's envelope reaches
+800 x 320 cells against 200 x 80, and a stalagmite's base is 12-32 cells
+wide against 3-8, which took the median formation across a 16-seed census
+from 3 cells to 11. The macro surface deliberately did **not** scale —
+region *density* is held constant at two to five per screen-width, so
+crossing the world still changes country at the same rate — and
+`Reports/world-scale-phase-2.md` sets out why those two halves cannot both
+scale, along with what the growth cost: a cave's void is now split across
+many more disjoint walkable pockets, which is the honeycomb that the next
+round of cave-shape work exists to replace.
+
+**Standing rock became a place rather than a rate**, on the owner's verdict
+that Phase 2's answer had missed: *"They should not exist at all in most
+biomes but some biomes should have them and they can be more regular. I
+didn't mean a uniform decrease in spires."* Phase 2 had cut
+`residual_density` 1.4 -> 0.45 uniformly, and measurement afterwards showed
+that was worse than a thinning — on `rolling` the spire census at 0.45 was
+*identical to a residuals-off control*, so the pass had stopped contributing
+at all, and the monuments shrank with it (`heights` p90 33 -> 23).
+
+Whether a stretch of world grows residuals is now a low-frequency
+**rock-country field** (`region::ROCK_COUNTRY_SCALE`, ~1700 columns per
+feature) rather than the per-region `formation` draw, because a region is
+102-256 columns — a fifth to a half of one screen — and a country smaller
+than the view reads as a cluster. Measured: gating per region at 87% barren
+gave *the same* per-screen census as the rejected uniform thinning. With the
+country field, 64% of the world is barren, rock country runs a median 1572
+columns, and residuals add 3.1 spires per 1000 columns inside it against
+0.031 outside — a 100x contrast, guarded by
+`residual_landforms_are_confined_to_rock_country`, which fails for the old
+draw. Every world gets at least one such stretch, enforced the same way the
+elevation-spread guarantee is.
+
+**Accepted provisionally.** The owner's verdict on the render: *"This is fine
+for now ... My overall desire is for rocks be of all different shapes and sizes
+not rock country with these unusual tall pillar rocks and then barren with no
+boulders, but we can revise the rock formation generation in the future."* The
+distribution question is answered; the open one is **variety of rock form**,
+which lives in `residual.rs`'s aspect draw (the pillars are thin because
+`MIN_ASPECT`/`MAX_ASPECT` make them so) and in `boulders`, whose output is
+driven by `erosion::Deposits` and so leaves quiet regions bare. See
+`region::FORMATION_BARREN`'s comment for the full verdict.
+
 Streaming itself — chunks loading and unloading past the bounds — has not
 started; `ChunkCoord`'s reserved slice-identifier (issue #11) is the one
-piece of it already spoken for, and it must land before the save format.
+piece of it already spoken for, and it must land before the save format. The
+pass margins are the contract it will plan against, and they are now
+*expressions* over the constants that produce them (`passes::TALUS_MARGIN`
+and friends) rather than numbers restated by hand — every one of the four
+had been silently wrong at least once.
 
 ## Weather status
 

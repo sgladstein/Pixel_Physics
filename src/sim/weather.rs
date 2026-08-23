@@ -202,11 +202,17 @@ const MAX_COLUMNS_PER_FRAME: f32 = 24.0;
 /// Without this, a fixed column count is a fixed *rate*, so rain gets denser
 /// the narrower the world: 24 columns a frame across 128 columns soaks every
 /// one of them every five frames, and a test world drowned under 2232 water
-/// cells while the shipped 2048-wide world saw an ordinary shower. The
-/// number that should be constant is drops per column per second; the cap
-/// then bounds work on worlds larger than this, at the price of rain that
-/// thins out on them -- which is the right trade, because frame cost is a
-/// hard constraint and rain density is a feel.
+/// cells while the 2048-wide world that shipped at the time this was
+/// measured saw an ordinary shower. The number that should be constant is
+/// drops per column per second; the cap then bounds work on worlds larger
+/// than this, at the price of rain that thins out on them -- which is the
+/// right trade, because frame cost is a hard constraint and rain density is
+/// a feel. The world that ships now (8192 wide) is already well past this
+/// reference width, so it is already living in the "thinned out, capped at
+/// `MAX_COLUMNS_PER_FRAME`" regime this paragraph describes rather than the
+/// linear-scaling one below it -- deliberately, not an oversight, but worth
+/// knowing before reading the arithmetic below as if it still applied at
+/// 1:1.
 const REFERENCE_WIDTH: f32 = 2048.0;
 
 /// The bank balance, in liquid-water cell-equivalents, at which a storm runs

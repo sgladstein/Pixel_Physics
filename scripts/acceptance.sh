@@ -72,8 +72,27 @@ OUT="${OUT_DIR:-target/filmstrips}"
 mkdir -p "$OUT"
 fails=0
 
+# `SKIP_CASES` / `ONLY_CASES` are space-separated case names. They exist so CI
+# can gate the healthy cases while a case with a *known, recorded* failure
+# still runs somewhere visible, instead of the whole suite being marked
+# non-blocking and taking sixteen working guards down with it. Neither
+# variable is set by a normal local run: `bash scripts/acceptance.sh` with no
+# environment runs everything, exactly as before.
+#
+# The rule these serve, from the workflow that uses them: a gate that is
+# permanently red teaches everyone to ignore it, which is the same defect as
+# a gate that never runs -- and this repo has already paid for that once, when
+# `capped` was recorded as passing for two commits while the structure it
+# guards had never been evaluated at all.
+#
+# A skipped case is announced rather than silently dropped, so a reader of the
+# log can never mistake a filtered run for a full one.
 run() {
   local name="$1"; shift
+  case " ${SKIP_CASES:-} " in *" $name "*) echo "--- $name (SKIPPED via SKIP_CASES)"; return 0 ;; esac
+  if [ -n "${ONLY_CASES:-}" ]; then
+    case " $ONLY_CASES " in *" $name "*) ;; *) return 0 ;; esac
+  fi
   echo "--- $name"
   # shellcheck disable=SC2086
   if ! $FILM "$@" out="$OUT/acceptance-$name.png"; then

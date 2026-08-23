@@ -76,10 +76,11 @@
 //! does, and a lake that retired the first time it read as sheltered could
 //! never resume when the air dried out. The cost is bounded by the exposed
 //! surface area of the world's water divided by `CHECK_INTERVAL` — for a
-//! lake spanning the whole 2048-wide world, about thirty-four reads per
-//! frame — and it buys the guarantee that this mechanic has no permanent
-//! off-state it can fall into silently, which is the failure it was rebuilt
-//! to avoid.
+//! lake spanning the whole 8192-wide world this ships at, about 136 reads
+//! per frame (8192 / 60; it was about thirty-four at the 2048-wide world
+//! this was written against) — and it buys the guarantee that this
+//! mechanic has no permanent off-state it can fall into silently, which is
+//! the failure it was rebuilt to avoid.
 //!
 //! # Water spread thin over a flat floor never dries
 //!
@@ -682,10 +683,12 @@ fn warmth(world: &World, x: i32, y: i32) -> f32 {
 /// frames. Traced on seed 12345: the channel crosses at frame 11460 and the
 /// air over a lake goes 2.31 -> 0.23 within ten frames and stays there,
 /// because advection back-traces two field blocks up into dry air faster
-/// than diffusion can rebuild the humid layer. On the full 2048x640 world it
-/// is slower and no better in the end — 2.31 -> 0.42 by frame 14000 with the
-/// lake down to 39% of its volume, and an 800-cell lake behaves exactly like
-/// a 240-cell one. Every lake in the world would go in a gale.
+/// than diffusion can rebuild the humid layer. On the full 2048x640 world —
+/// the size this was traced at; the world has since grown to 8192x2560 and
+/// this has not been re-traced there — it is slower and no better in the
+/// end — 2.31 -> 0.42 by frame 14000 with the lake down to 39% of its
+/// volume, and an 800-cell lake behaves exactly like a 240-cell one. Every
+/// lake in the world would go in a gale.
 ///
 /// No function of humidity can fix that, because a gale mixes the whole
 /// atmosphere: over a puddle and over a lake the air is equally dry, so a

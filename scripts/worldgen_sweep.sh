@@ -47,9 +47,10 @@
 #   PRESETS="canyon arid" SEEDS="1 2 3" scripts/worldgen_sweep.sh
 #
 # Sixteen seeds x six presets is 96 runs of a **512x320** generation, about
-# 25 seconds. Do not sweep at the shipped 2048x640: it is 16x the work for
-# the same answer, because what is being compared is a ratio against the
-# same size on both sides.
+# 25 seconds. Do not sweep at the shipped 8192x2560: it is 128x the work
+# (generation scales with area, and 8192x2560 is 16x the width and 8x the
+# height of 512x320) for the same answer, because what is being compared is
+# a ratio against the same size on both sides.
 set -uo pipefail
 
 MODE="${1:-run}"

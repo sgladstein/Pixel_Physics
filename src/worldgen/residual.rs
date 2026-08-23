@@ -96,6 +96,23 @@ const SIZE_SKEW: f32 = 2.4;
 const MIN_ASPECT: f32 = 1.1;
 const MAX_ASPECT: f32 = 2.6;
 
+/// Columns of context the `residuals` pass reads beyond the ones it writes.
+///
+/// A site's footprint reaches at most its own half-width, and the widest a
+/// residual can draw is the tallest it can draw over the squattest aspect it
+/// can draw: `MAX_HEIGHT / MIN_ASPECT`, halved for a half-width, plus a
+/// column of slack. There is also a floor of 6 on `width` for very short
+/// draws, which is far inside this.
+///
+/// **Derived rather than restated, because the restatement had already gone
+/// stale.** The pass table declared 80 and explained it as "aspect >= 0.8
+/// (width >= height/3), so the widest possible footprint is 120/0.8/2 = 75
+/// columns" -- and `MIN_ASPECT` has been 1.1 since the 0.8 experiment was
+/// measured prominence-inert and withdrawn. The margin stayed safe by
+/// accident; anyone re-deriving it from that comment would have re-derived
+/// it from a number that no longer exists.
+pub const RESIDUALS_MARGIN: i32 = (MAX_HEIGHT / MIN_ASPECT / 2.0) as i32 + 1;
+
 /// A residual's silhouette, decided from the hardness this specific site's
 /// rock actually has over the height it is about to stand -- never
 /// authored, per `Reports/design-philosophy.md` §2b's test that a visible
@@ -190,10 +207,17 @@ pub fn residuals(ctx: &Ctx, world: &mut World) -> usize {
             // Size: one continuous heavy-tailed draw weighted small, never a
             // common-tier-plus-rare-landmark scheme -- the owner's directive
             // verbatim. `ch.formation` scales the *ceiling*, not just the
-            // count: a smooth region's rare residual is still a small one.
+            // count, so the ceiling now discriminates *within* rock country:
+            // modest country gets modest monuments, coarse country gets the
+            // full height. It used to have a second job -- keeping a smooth
+            // region's rare residual small -- which the region gate has since
+            // taken over outright, because a smooth region no longer draws
+            // one at all. See `region::FORMATION_FULL_CEILING` for why the
+            // divisor is that and not the 1.5 this line carried.
             let u_size = noise::unit(seed, Purpose::ResidualShape, cx, 0);
-            let ceiling = (MIN_HEIGHT + (MAX_HEIGHT - MIN_HEIGHT) * (ch.formation / 1.5).clamp(0.0, 1.0))
-                .clamp(MIN_HEIGHT, MAX_HEIGHT);
+            let ceiling = (MIN_HEIGHT
+                + (MAX_HEIGHT - MIN_HEIGHT) * (ch.formation / super::region::FORMATION_FULL_CEILING).clamp(0.0, 1.0))
+            .clamp(MIN_HEIGHT, MAX_HEIGHT);
             let height = (MIN_HEIGHT + (ceiling - MIN_HEIGHT) * u_size.powf(SIZE_SKEW)).round() as i32;
             if height < 4 {
                 continue;
@@ -574,7 +598,21 @@ mod tests {
         use crate::sim::{parallel, structural};
         let presets = presets();
         let base = presets.presets.get("canyon").expect("canyon preset");
-        let params = WorldgenParams { residual_density: 3.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+        // `spring_flow` off beside the life densities, and for the same
+        // reason: this is a claim about whether *placed stone* holds still,
+        // and a spring is a live process. A world with a waterfall running
+        // through it is never at rest and never should be -- the spring has
+        // its own test (`a_generated_world_grows_a_spring_that_actually_runs`)
+        // asserting the stronger property, that water both arrives and
+        // leaves. It became load-bearing here when springs learned to cut
+        // their own source basin, which is what let them place at this size.
+        let params = WorldgenParams {
+            residual_density: 3.0,
+            tree_density: 0.0,
+            moss_density: 0.0,
+            spring_flow: 0.0,
+            ..base.clone()
+        };
         let bounds = (511, 319);
         let mut checked = 0;
         for seed in 1u64..=20 {
@@ -629,7 +667,21 @@ mod tests {
         use crate::sim::{parallel, structural};
         let presets = presets();
         let base = presets.presets.get("canyon").expect("canyon preset");
-        let params = WorldgenParams { residual_density: 3.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+        // `spring_flow` off beside the life densities, and for the same
+        // reason: this is a claim about whether *placed stone* holds still,
+        // and a spring is a live process. A world with a waterfall running
+        // through it is never at rest and never should be -- the spring has
+        // its own test (`a_generated_world_grows_a_spring_that_actually_runs`)
+        // asserting the stronger property, that water both arrives and
+        // leaves. It became load-bearing here when springs learned to cut
+        // their own source basin, which is what let them place at this size.
+        let params = WorldgenParams {
+            residual_density: 3.0,
+            tree_density: 0.0,
+            moss_density: 0.0,
+            spring_flow: 0.0,
+            ..base.clone()
+        };
         let bounds = (511, 319);
         let mut checked = 0;
         let (mut collapsed, mut anchored, mut floating) = (0, 0, 0);

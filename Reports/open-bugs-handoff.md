@@ -1747,6 +1747,90 @@ Verify it stayed closed with the same command that found it:
 every=1500 count=4` — the standing census under each tile should show
 zero cells ≥100°C from the first tile and the run fully asleep.
 
+### 0h. Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen)
+
+Surfaced by Phase 2 moving the cave tests from 512x320 to 2048x640
+(`Reports/world-scale-phase-2.md` §3), because a 4x cave will not fit in a
+512-row world at all.
+
+**Reproduction, kept and runnable:**
+`cargo test --release --test worldgen probe_p2_does_the_lens_stress_move_
+cells_without_a_cave -- --ignored --nocapture`. It builds the lens-stress
+world -- `rolling`, `pocket_density: 20.0` against a shipped 0.6, trees and
+moss off -- at both sizes, with vaults on and off, and counts what leaves its
+position over 120 frames.
+
+**Measured**, seeds 1..5:
+
+| | 512x320 | 2048x640 |
+|---|---|---|
+| with vaults | 0 | 0, 0, 0, 0, **25** (seed 5) |
+| **no vaults** | 0 | 0, 0, 0, 0, **25** (seed 5) |
+
+**The cave is not the cause.** The same 25 cells move with
+`vault_density: 0.0` and no chamber carved anywhere in the world. They are
+gravel and water in a compact blob near the *surface* -- first three
+`(332,141) water, (341,132) gravel, (337,132) gravel` -- hundreds of columns
+and a hundred rows from where any system sits.
+
+**What has been ruled out:** the cave pass (paired control above); tree and
+moss growth (`vault_test_params` zeroes both); the size alone (0 at 512x320,
+same params). What is left is `pockets` at 33x the shipped density on a world
+eight times the area, interacting with standing water. Four of five seeds are
+clean, so it is a seed-specific placement, not a systematic one.
+
+**Not a live defect at shipped densities.** `pocket_density` ships at 0.6 and
+`generated_terrain_is_already_at_rest` asserts **zero** cells move across
+every preset and seed at that density. This is a stress reproduction escaping
+its own subject.
+
+`a_cave_system_survives_a_pocket_lens_inside_its_envelope` now asserts at-rest
+within 16 cells of the carved system rather than over the whole world, so it
+tests the thing it is named for; the probe above is what keeps the finding.
+**Do not "fix" it by lowering `pocket_density` in that test** -- 20 is what
+guarantees a lens lands inside a cave envelope, which is the entire
+reproduction.
+
+### 0i. Terrace risers are inert: erosion deletes them at any nonzero `world_age` (worldgen)
+
+Found while attributing the Phase 2 review's "sharp vertical faces"
+(`Reports/world-scale-phase-2.md` §7a).
+
+`column.rs`'s `riser_roughness` term adds a second, much larger detail term
+near a terrace riser, and carries a long justification for why a riser needs
+breaking up: *"a riser is a single-column jump of `terrace_step * mask` rows
+-- up to 34 on `canyon` -- and `detail_amplitude` is 2.5 to 3.0, which is
+nowhere near enough to break a face that tall."* It reads as current.
+
+**Measured, it never reaches the screen.** Pre-erosion, the largest adjacent
+`|d elev|` is 19.93 rows in a single column (canyon seed 3, x 2937), and
+those columns are entirely the riser term. `erosion.rs` caps every adjacent
+pair at `THERMAL_STABLE_SOFT + hard * THERMAL_STABLE_HARD_BONUS` = 0.55 +
+4.5 = 5.05 rows/column, and canyon ships `world_age: 1.0` (600 iterations).
+Post-erosion, `probe_p2_how_sheer_is_the_ground` over all 8192 columns:
+
+  canyon: med 0, p90 1, p99 3, max 5; columns >=6: 0, >=10: 0, >=20: 0
+
+Every shipped preset except `flat` carries a nonzero `world_age`, and `flat`
+zeroes `terrace_strength` anyway. So the roughening term fires only in a
+configuration nothing ships.
+
+**Not necessarily a defect** -- round-4 task 4 turned age on deliberately
+after the riser work landed, and a subdued world may be what is wanted. What
+is wrong is that the source says otherwise at length, so the next session to
+read it will believe a mechanism is live that cannot be. Either the comment
+gets the measurement, or the term gets removed, or `world_age` stops eating
+it -- but the three cannot all stay as they are.
+
+Related, same investigation, also unasked: **the palette-family thresholds
+are gated on x only** (`passes.rs`'s `palette_family_for` takes them from
+`character(x)`; only the comparison value and bias are 2-D). Measured on
+canyon seed 3, the steepest ramp sweeps 0 to 1 in **11 columns** and shows in
+the shipped render as warmth going -1.3 to +27.2 across world x 1358-1390,
+coherent from the skyline to the bottom of the frame. That is a genuine
+near-vertical colour seam and it may be a second referent for the owner's
+*"the patterns don't flow"*. Untested by eye; nobody has been asked.
+
 ### 1. ~~Whiskers on a spreading front~~ — **CLOSED in the movement rule, and the render-side successor is falsified with it**
 
 One-cell-tall sheets of water with open air above *and* below, drawing as a
