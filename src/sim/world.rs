@@ -666,6 +666,15 @@ pub struct World {
     /// not. Being able to run the *same binary* both ways is what makes a
     /// before/after a measurement rather than a memory of an older build.
     pub arch_relief: bool,
+    /// Whether a column is judged at the worst of its section rather than
+    /// on its own single load path. See `load::evaluate_within`; `true` is
+    /// the shipped behaviour.
+    ///
+    /// A switch for the same reason the two above are: this one redraws the
+    /// stress field of every solid structure in the world, and "is the
+    /// one-pixel line gone" is a question best answered by one binary run
+    /// twice rather than by two builds an hour apart.
+    pub section_share: bool,
     /// How far from something that was actually disturbed a structural
     /// failure is allowed to happen, in cells, and for how long. See
     /// `ChainMode`; `i32::MAX` is the shipped behaviour (no limit).
@@ -818,6 +827,26 @@ pub struct FailureCounts {
     /// stays at zero on every scene, the mechanism has nothing to fix.
     pub confined: u32,
     pub confined_cells: u32,
+    /// Failing regions that `rigid::fracture_failing_region` **declined**,
+    /// because they were smaller than `MIN_FRACTURE_CELLS`, and the cells
+    /// they took. Those fall through to per-cell `break_free` -- which is
+    /// powder.
+    ///
+    /// # Why this is its own counter and not read off the mean
+    ///
+    /// `largest_failure`'s note above says the mean and the max together
+    /// say whether pieces or grit came out. They do not, quite, and an
+    /// independent review found the gap: a mean of 4.1 against a threshold
+    /// of 6 *suggests* the typical event is dust and cannot show it, because
+    /// a mean is equally consistent with a handful of big chunks beside a
+    /// swarm of singles. That is the same shape as the metric traps in
+    /// `CLAUDE.md`, one level up.
+    ///
+    /// This counts the thing itself. Read `crumbled_cells` against
+    /// `overloaded_cells + unsupported_cells`: it is the fraction of failed
+    /// material that never got the chance to become a chunk.
+    pub crumbled: u32,
+    pub crumbled_cells: u32,
     /// The deepest any confined failure was buried, in cells from the
     /// nearest air. Separates "one row under a surface that is itself
     /// coming apart" from "the middle of a mountain", which is the only
@@ -1048,6 +1077,7 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
+            section_share: true,
             chain_reach: i32::MAX,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),

@@ -1,13 +1,15 @@
 # The Gnome
 
-*Current as of: 2026-08-22. New since the last pass: living plants are
+*Current as of: 2026-08-23. New since the last pass: loose grains at
+chest height no longer wall him, living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
 lip at the top of a jump is mantled, the sprite faces where it's going,
-holding `W` out of water puts him on the bank, left-clicking a plant
-shakes it, and with nobody summoned WASD scrolls the map instead. Cutting
-a tree down is deliberately not in yet.*
+holding `W` out of water puts him on the bank, left-clicking **a plant
+you are pointing at** shakes it while the pick sees straight through
+living wood to the rock behind, and with nobody summoned WASD scrolls the
+map instead. Cutting a tree down is deliberately not in yet.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -79,9 +81,12 @@ way through is a thing you can do.
 
 ## Shaking a tree
 
-Left-clicking a plant shakes it instead of cutting it, and the ring turns
-green so you know which of the two you're about to do before you press.
-Pointing at rock still digs.
+Left-clicking a plant shakes it instead of cutting it. It has to be a
+plant you are actually **pointing at** — a tree merely standing between
+you and where you clicked doesn't take the blow, and the pick sees
+straight through living wood to the rock behind, so you can dig in a wood
+and dig while standing inside a tree. There's no marker beforehand; the
+shake marks itself where it lands, for a moment, as it happens.
 
 A shake does three things and takes nothing structural. Whatever was
 resting on the branches — snow, sand, your own spoil — comes off them.
@@ -134,6 +139,18 @@ Deeper than that and it stops being wading: material up to his chest holds
 him where he is, and material all around him is the burial described
 below.
 
+What stops him is a *bank*, though, not a grain. A few loose cells lying
+across his chest — dirt caught in a canopy, the spatter from a dig, the
+litter of a forest floor — he shoulders past without slowing. It takes
+several of them abreast, the way the face of a drift is several abreast,
+before they read as something to stop against. Before that distinction
+existed a single grain of soil lodged in a tree could pen him in
+completely, and in a grown wood that happened constantly.
+
+Deep banks in a forest floor are still a wall he has no way over: he
+sinks to the knee and stops, and he cannot climb *onto* loose material
+the way he steps up onto rock. Dig through it, or go round.
+
 Water he swims in. Falling in, he goes under with whatever speed he
 arrived with, the water eats that speed quickly, and how he behaves after
 that is the water feel you've picked — by default he sinks unless you swim.
@@ -158,14 +175,18 @@ he comes off it like anything else would.
 
 Summoning him puts you in his dig tool, and a yellow ring shows exactly
 where the next bite will land and how big it will be. Left-click to cut.
-(Point at a living plant instead and the ring turns green — that is the
-shake, described above, on the same button.) He faces the way you send
+(Point at a living plant instead and there's no ring at all — that is
+the shake, described above, on the same button, and the absence is the
+tell: no ring means no bite is coming.) He faces the way you send
 him, and leans into a swing when he cuts, so a blow reads as a blow rather
 than as something the cursor did.
 He works the **first rock face along the line you point at** — not the
 spot under the cursor — so pointing deep into a hillside cuts the near
 wall of it, the way swinging a pick would, and pointing past what his
-arms reach cuts at arm's length in that direction. Loose material doesn't
+arms reach cuts at arm's length in that direction. A tree standing in the
+way is not a rock face: his aim goes straight through living wood to the
+stone behind, so you can dig in a wood, and dig while standing inside a
+trunk. Loose material doesn't
 stop the aim: he'll reach over a heap of his own spoil to the stone
 behind it rather than chewing the muck again.
 
