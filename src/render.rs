@@ -884,11 +884,26 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// moss and leaf, which are already green, and against corpse, which is
 /// already dull red.
 const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
-/// Distinct again from `SCALAR_RAMP_FOOD`: the two get switched between
-/// while asking one question ("can this animal eat that cell"), and reading
-/// a gut sheet as a food sheet is exactly the confusion two neighbouring
-/// ramps invite. Orange against food's cyan.
-const SCALAR_RAMP_GUT: [f32; 3] = [255.0, 150.0, 60.0];
+/// **The two halves of the signed gut ramp**, plant end and flesh end —
+/// the same shape as the temperature pair above and for the same reason,
+/// which this channel learned the hard way.
+///
+/// It shipped first as *one* ramp with `(bias + 1) / 2` mapped onto it, on
+/// the reasoning that "the floor is a herbivore, not a missing value". The
+/// shipped ant is authored at exactly `-1.0`, so the entire colony landed
+/// on `t == 0` — `SCALAR_RAMP_FLOOR`, 18% brightness — and rendered as
+/// dark specks against dark soil. The overlay built to prove the mechanism
+/// fires showed a world in which nothing had. That is `CLAUDE.md`'s
+/// ramp-floor misreading arriving one step earlier than usual: not an
+/// overlay misread as blank, an overlay that genuinely *was*.
+///
+/// Signed instead, so **both ends of the axis are bright and only a
+/// generalist is dim** — which is the honest picture, because a gut at
+/// zero is the one that has committed to nothing. Green for plant matter,
+/// red for flesh, matching the palette lerp below so the overlay and the
+/// creature's own colour cannot tell different stories.
+const SCALAR_RAMP_GUT_PLANT: [f32; 3] = [110.0, 245.0, 90.0];
+const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
 
 /// **What a specialised gut looks like from across the world**, herbivore
 /// and carnivore ends of `OrganismState::traits[TRAIT_GUT_BIAS]`.
@@ -3539,11 +3554,13 @@ impl Renderer {
             if state.chain.is_empty() {
                 return base;
             }
-            // `-1..=1` onto `0..=1`: the ramp floor is a herbivore rather
-            // than a missing reading, and the guard above is what keeps
-            // "not a creature" distinguishable from "eats plants".
-            let t = (state.traits[organism::TRAIT_GUT_BIAS] + 1.0) / 2.0;
-            let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_GUT);
+            // **Magnitude on the ramp, sign on the hue** -- see
+            // `SCALAR_RAMP_GUT_PLANT`. `|bias|` is how committed the gut is
+            // and picks the brightness; which end it is committed *to*
+            // picks the colour. A specialist of either kind is bright, and
+            // the dim cells are the undecided ones.
+            let bias = state.traits[organism::TRAIT_GUT_BIAS];
+            let ramp = scalar_ramp(bias.abs().clamp(0.0, 1.0), if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT });
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
