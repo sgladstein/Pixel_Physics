@@ -1,0 +1,43 @@
+{
+  "id": "20260823T104411499Z-963f8d",
+  "created": "2026-08-23T10:44:11Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-c",
+    "branch": "claude/pixel-physics-lane-c-wp8-9-byuvop",
+    "commit": "147c077",
+    "agent": null,
+    "session_id": "43e361e1-6da3-5d35-91b1-5cf42cd7a522",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-c"
+  },
+  "title": "S5 made ants stop scavenging. Keep it, or widen the food economy?",
+  "question": "Ants can no longer eat corpses at all. Is that the colony you want, or should the economy widen so an omnivore is viable?",
+  "context_md": "S5 replaces the ant's `food: [\"corpse\", \"seed\", \"leaf\", \"moss\", \"litter\"]` list with one heritable number, `gut_bias`, scored against each material's position on a plant..flesh axis:\n\n    yield = worth * (1 - |gut_bias - food_class| / 2)^2\n\n**The measurement that forced the decision.** One ant, an inexhaustible wall of leaf, nothing to do but eat — intake over cost-of-living, and whether it lived:\n\n| gut | leaf yield | intake/cost | survived |\n|---|---|---|---|\n| **-1.0** | 120.0 | 0.946 | **yes** |\n| -0.9 | 108.3 | 0.993 | yes |\n| -0.8 | 97.2 | 0.781 | no |\n| -0.5 | 67.5 | 0.793 | no |\n| 0.0 (omnivore) | 30.0 | 0.706 | no |\n\nA **perfectly matched** grazer already runs at 0.95 — below the 1.0 that would pay for its own existence. The margin is negative before any digestive penalty, so every point of mismatch comes out of a deficit, and the viable band is one tenth of the axis wide. **There is no omnivore at this economy.** That is a fact about the economy, not about the diet model.\n\nSo the ant ships at -1.0, which keeps the plant economy *bit-identical* to before (`ascii` diffs on nothing but timing lines). The cost is that corpse is at the far end of the axis, the filter reads 0.0 against it, and **no threshold can rescue it** — a detritivore ant simply cannot digest meat.\n\n**Two readings, both live, which is why this is your call and not mine:**\n\n- *Against:* `wiki/ants.md` promises in as many words that \"ants that die in a fire become the next colony's dinner\". That stops being true.\n- *For:* §13i measured that corpse-eating is exactly the sit-still attractor — \"a starved ant feeds the ants around it and a colony sustains itself on its own dead without foraging at all\" — which is the thing behind your \"I don't want ants sitting in one spot eating fallen leaves\".\n\nThe picture is the new `channel=gutbias` overlay: every creature cell painted by its gut, green at the plant end. It is here as proof the channel is live and to show where the 17 ants actually are — they are 1-2 cells each and invisible without it.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "gut overlay, 3 frames",
+      "files": [
+        "20260823T104411499Z-963f8d/000-gut_overlay.png"
+      ],
+      "caption": "every creature painted by gut_bias; green = plant end",
+      "meta": {
+        "ants placed": 17,
+        "ant gut_bias": -1.0,
+        "corpse yield at that gut": 0.0,
+        "eat threshold": 12.0,
+        "leaf yield": 120.0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
