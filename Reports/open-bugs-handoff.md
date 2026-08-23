@@ -1122,7 +1122,9 @@ the wilting point from bone-dry goes from ~2 strikes to ~18.
 > | + creatures-m18 merge | — | — | — | *green* |
 > | + `LITTER_FALL_REACH` 64 -> 512 | 354 | 378 | 6.8% | **red** |
 >
-> The sign never changes and neither does the failure mode; only the margin
+> The sign never changes and neither does the failure mode (**superseded:
+> the 2026-08-23 re-sweep above measures the sign flipping, 0.90 -> 1.035**);
+> only the margin
 > moves, and it moves by a couple of points either side of the bar as the
 > volume of litter on the floor changes. **The green in the middle row is not
 > a fix and must not be read as one** — it is one sample from a distribution
@@ -1133,6 +1135,52 @@ the wilting point from bone-dry goes from ~2 strikes to ~18.
 > weak enough that an unrelated change to ground cover moves it across the
 > acceptance threshold. Any future attempt on this bug should **sweep seeds
 > and report an order statistic** before believing either a red or a green.
+
+> **2026-08-23, re-swept on `main` with litter in the world (the sweep §A
+> asked for and had never had). The lever still measures as dead — and the
+> claim below that "the sign never changes" does not survive.**
+>
+> `print_root_branch_slot_seed_sweep`, 8 seeds, both draws, 12,000 frames,
+> one machine, one session, on `main` at `a0fa433` (these 18 commits touch
+> neither `src/sim/plant.rs` nor `assets/species/`):
+>
+> | seed | root(-1) | root(+1) | ratio | clears the 10% bar |
+> |---|---|---|---|---|
+> | 1 | 354 | 378 | 1.07 | no |
+> | 2 | 395 | 334 | 0.85 | no |
+> | 3 | 308 | 346 | 1.12 | **yes** |
+> | 4 | 285 | 300 | 1.05 | no |
+> | 5 | 322 | 380 | 1.18 | **yes** |
+> | 6 | 239 | 252 | 1.05 | no |
+> | 7 | 254 | 239 | 0.94 | no |
+> | 8 | 335 | 341 | 1.02 | no |
+> | **mean** | **311.5** | **321.2** | **1.035** | **2 of 8** |
+>
+> Mean of the per-seed ratios **1.035, sd 0.102, SE 0.036**. That is **0.97 SE
+> from 1.0** — still consistent with the lever being dead — 1.8 SE from the
+> guard's 1.10, and **8.2 SE from the calibrated 1.33**, which it excludes as
+> firmly as the 2026-08-22 sweep did. So the conclusion is unchanged and the
+> quarantine stands.
+>
+> **What has changed is the sign, and the sentence below saying it never does
+> is now wrong.** The 2026-08-22 sweep read a mean ratio of **0.90** —
+> inverted, root(-1) beating root(+1) — and this one reads **1.035**, weakly
+> the right way round. Seed 1 alone went 371/315 (0.85) then and 354/378
+> (1.07) now. The direction is not a stable property of the bug; it wanders
+> with the same ground-cover changes the margin does. **Neither a red nor a
+> green nor a *sign* here means anything from one seed.** The guard itself is
+> red at seed 1 as recorded (354 vs 378 = 6.8% against a 10% bar), which
+> reproduces `5a9e594`'s figures exactly.
+>
+> Also down, and not obviously part of this bug: **absolute root cell counts
+> fell about a fifth** across the sweep, mean 431.0 → 311.5 at draw -1
+> (−27.7%) and 388.9 → 321.2 at draw +1 (−17.4%), same probe and same frame
+> budget. Recorded here because it is the sort of thing that later reads as
+> having always been true.
+>
+> Time-boxed per the implementation handoff's WP-3 and stopping here: the
+> remaining fix is the plant genome's primed-site repair, which is model work
+> over procedural content and belongs to whoever owns the plant line.
 
 **Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
 move the bar.** My third explanation was that the test is single-seed
