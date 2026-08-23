@@ -747,12 +747,24 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // split it draws puts a stand the owner reads as four distinct trees
         // on the *fused* side.
         //
-        // **Why no column census can fix this.** A gap is a fully empty
-        // column. The eye separates crowns that overlap, using trunk
-        // position and crown outline — cues that live in the *shape* of the
-        // occupancy, not in whether any column is empty. At 102 cells apart
-        // these crowns touch and are still four obvious trees. That is a
-        // structural limit, not a threshold to retune.
+        // **Why the census misses it: guessed, then asked, and the guess
+        // was wrong.** This block used to argue that no column census can
+        // ever fix this -- a gap is a fully empty column, these crowns touch
+        // at 102 cells apart, so the eye must be reading trunk position and
+        // crown outline. Card 20260823T150917441Z-d236fd asked the owner
+        // what his eye was using. He said: "The gaps of sky. The two on the
+        // left are starting to merge but still read seperate. The two on the
+        // right are clearly seperated with no touching. I think the piles of
+        // soil are making it hard to read."
+        //
+        // So the cue *is* sky and that argument is withdrawn. The census is
+        // not doomed, it is reading the wrong rows: it kills a gap on any
+        // occupied cell anywhere in the column, which asks "is this column
+        // clear from the ground to the sky" where the eye asks "is there sky
+        // between these two crowns". The next thing to try is a canopy-band
+        // restriction -- census only the rows the foliage occupies -- scored
+        // against the owner's 2, 4, 3. Do NOT add a third gap-width
+        // threshold; both of those made it worse. Reasoning in §Z.
         //
         // **The raw gap count is the least bad of the three and is still
         // wrong.** Gaps + 1 scores 2, 2, 3 against the owner's 2, 4, 3 —
@@ -795,7 +807,8 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         println!(
             "  (CALIBRATION FAILED against the owner's eye, 2026-08-23: on the three stands he counted,\n   \
 these read 2 / 2 / 3 where he read 2 / 4 / 3, and fusion called the 4-founder stand 100% ONE MASS\n   \
-when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z has the table.)"
+when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z has the table.\n   \
+   He later said the cue IS sky gaps, read at canopy level -- so census the canopy band next, not the whole column.)"
         );
     }
 

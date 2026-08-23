@@ -60,6 +60,14 @@
     burn_temperature: 520.0,
     burn_duration: 25,
     burns_into: "ash",
+    // **Grass throws flame; that is what a grassfire is.** A blade is thin
+    // and cured, so it burns out fast (25 frames above) and while it does
+    // it is almost all flame -- the fuel itself is a wisp and what a player
+    // sees is the fire standing over it. Highest rate of any fuel here for
+    // that reason, and it is the reason a burning meadow reads as a front
+    // rather than as a row of orange pixels. See `flame.ron`.
+    flame_into: "flame",
+    flame_chance: 0.18,
     heat_conductivity: 0.2,
     // Trampled, grazed or cut grass becomes ground litter, not a branch.
     // This is the plant side feeding the material the creature branch will

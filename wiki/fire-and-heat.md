@@ -1,15 +1,36 @@
 # Fire & Heat
 
-*Current as of: 2026-08-22 (boiling costs the heat it takes; a quench
-crust breaks up into slabs rather than grit; warm water shows bubbles, in
-small or large, and its surface spits).*
+*Current as of: 2026-08-23 (fire has flames of its own and a smoke plume
+off them; how wet the ground is decides whether a fire spreads).*
 
-Fire spreads by contact: a material touching something already burning has
-a chance, each moment it stays in contact, to catch as well. That chance
-depends on the material — oil catches almost as often as a coin flip,
-while deadwood and a corpse catch less readily. Wet material resists
-catching fire strongly; soak something enough and a nearby flame mostly
-stops being able to ignite it.
+**Fire has a body.** Something burning throws flames into the air around
+it — real, moving fire that rises, leans downwind, sets light to whatever
+it touches, and thins into smoke as it dies, so a burn has a front standing
+over it and a plume coming off the top rather than being a coloured patch
+on the thing that is alight. Flames are the reason a fire crosses gaps:
+they reach into the empty space beside a burning clump, which is how a fire
+gets from one tuft of grass to the next one over. Not everything throws
+them — grass throws a great many, because a grass fire is nearly all flame
+and very little fuel.
+
+Fire spreads by contact: a material touching something already burning —
+or touching a flame — has a chance, each moment it stays in contact, to
+catch as well. That chance depends on the material — oil catches almost as
+often as a coin flip, while deadwood and a corpse catch less readily.
+
+**And it depends on how wet the ground is.** Dry ground carries fire and
+wet ground stops it, and the difference is not a matter of degree: a meadow
+standing on parched ground burns end to end, and the same meadow standing
+on well-watered ground takes light where the flame was put and goes out
+within a few paces of it. Waterlogged ground refuses to let a fire spread
+at all. Heat is the exception, and deliberately so — a fire big enough to
+boil the water out of what it is trying to burn will still set it alight,
+so wet ground is a firebreak against a spreading fire and not armour
+against a large one.
+
+That is what makes weather matter to a fire. Rain soaks into the ground and
+stays there for a long time, so a burnt landscape is one that was dry when
+something lit it, and a wet season is one where nothing catches.
 
 The living world is where fire really lives, and it has a clear ladder.
 **Leaves catch easiest of anything in the world** — a canopy is tinder,

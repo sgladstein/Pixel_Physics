@@ -2270,7 +2270,7 @@ impl Renderer {
         // precipitation below, so the two cannot disagree about what the
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
-        let weather = crate::sim::weather::at(world.seed, world.frame);
+        let weather = world.weather();
         // **The drawn storm and the landing storm have to be the same
         // storm.** Falling precipitation is drawn straight from
         // `weather::at` and is never simulated -- `weather::step` puts water
