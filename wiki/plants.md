@@ -12,10 +12,12 @@ destroying the water they did not drink and the forest floor stopped
 keeping rain off the ground under it; and again when worlds started arriving
 with four woody species in them instead of one. Updated again the same day,
 when the pick and the chisel started being able to touch a tree at all — see
-**Cutting a plant down**, which is new and is the part most worth playing —
-and again when plants started dying of ordinary causes and seeds stopped
-lasting for ever. One plant-economy number is unsettled and its cause is
-still open — see `Reports/open-bugs-handoff.md`.*
+**Cutting a plant down**, which is new and is the part most worth playing;
+again when plants started dying of ordinary causes and seeds stopped lasting
+for ever; and again when leaf fall was slowed to a quarter across all four
+woody species, so the floor stopped burying the world. One plant-economy
+number is unsettled and its cause is still open — see
+`Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -219,11 +221,21 @@ holding rather more water after a storm than bare ground does, which is
 what mulch is for. It used to do the opposite and seal the ground it lay
 on, and the blanket is deepest exactly where the roots are.
 
-It does not pile up forever. Litter **rots back into soil**, faster where the
-ground is damp, so a standing wood reaches a floor of roughly constant depth
-instead of burying itself. That is what makes the floor a cycle rather than an
-accumulator — and it is why a wood costs no more to simulate the longer it
-stands.
+The *litter* does not pile up forever: it **rots back into soil**, faster
+where the ground is damp, so the visible drift under a standing wood stays
+roughly constant depth. The soil it rots into is a slower story — nothing
+carries soil away yet, so a very old stand does slowly raise the ground it
+lives on. A mature tree sheds sparingly (a leaf has to be deep in shade or
+drying out before it goes), which keeps that rise to a creep rather than
+the burial it once was; a wood should read as standing *on* its floor, not
+sinking into it.
+
+That is currently true of **the tree and not yet of its neighbours**. Worlds
+arrive with four woody species in them, and only the tree has had its leaf
+fall slowed so far, so a conifer belt, a scrub margin or a run of creeper
+still drops leaves at the older, faster rate and still builds floor under
+itself the way the whole world used to. Expect the burial look to survive in
+those stands until the same change reaches them.
 
 Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the

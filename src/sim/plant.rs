@@ -4122,6 +4122,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                         if rng.chance(shade_death * darkness * darkness * darkness) {
+                            world.shed_shade += 1;
                             shed_to_litter(world, cx, cy);
                             // Reclaim any spray this stranded. NOT a
                             // structural check -- see
@@ -4155,6 +4156,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // trade-inversion this split prevents.
                         let thirst = world.desiccation_at(cx, cy).clamp(0.0, 1.0);
                         if rng.chance(drought_death * thirst * thirst * thirst) {
+                            world.shed_drought += 1;
                             shed_to_litter(world, cx, cy);
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
@@ -4573,6 +4575,7 @@ pub(crate) fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_i
         }
         if !anchored && !overflowed {
             for &(lx, ly) in &component {
+                world.shed_stranded += 1;
                 shed_to_litter(world, lx, ly);
             }
         }
