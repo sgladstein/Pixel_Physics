@@ -1,0 +1,73 @@
+{
+  "id": "20260823T161006584Z-6ecbab",
+  "created": "2026-08-23T16:10:06Z",
+  "board": "economy",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/wp11-economy-retune",
+    "commit": "b2660dd",
+    "agent": null,
+    "session_id": "ce630915-92f0-555b-aa66-29ed6dc385a4",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "Leaf-fall rate: the abscission half of the economy retune",
+  "question": "Pick the leaf-fall rate: at which arm does the floor stop reading as a giant soil pile before the canopy starts reading as overstuffed?",
+  "context_md": "Your verdict was: leaves fall too fast -> too much food and a giant pile of soil. The lever is `tree.ron`'s abscission pressure (a new counter attributes 88% of all leaf fall to `shade_death`; drought is 2%). Same scene, same seed, 12,000 frames, four tiles each; only the abscission rate differs.\n\n- **A** current rate (0.003)\n- **B** half (0.0015)\n- **C** quarter (0.00075)\n\nWhat the counters say: soil manufacture (decay events) falls 6,331 -> 3,443 -> 1,800, standing floor litter 1,081 -> 569 -> 321. One honest caveat: total colony-band food *energy* does not fall -- retained foliage means more low standing leaf within ant reach (medians 70k -> 82k -> 91k over 3 census seeds), so this lever fixes the floor, not total abundance. If what bothers you is the pile and the rot, B or C deliver it; if it is total food, say so and the next lever is different (leaf worth or canopy size, a separate card).\n\nCrown separation held by eye at C (the risk was re-fused crowns, last measured breaking only at rate 0.0). Ignore the ants: wetland founding places 18 of 52 in every arm alike -- known scene behaviour, not part of this question. The 4x omnivore food-scale restoration already landed and is untouched here.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - current 0.003",
+      "files": [
+        "20260823T161006584Z-6ecbab/000-baseline.png"
+      ],
+      "caption": "frames 1200/4800/8400/12000",
+      "meta": {
+        "decay events (soil written)": 6331,
+        "leaves shed (shade/drought/stranded)": "6556/175/690",
+        "standing litter": 1081,
+        "living plant cells": 24033,
+        "colony-band food median (3 seeds)": 70080
+      },
+      "focus": null
+    },
+    {
+      "label": "B - half 0.0015",
+      "files": [
+        "20260823T161006584Z-6ecbab/001-half.png"
+      ],
+      "caption": "frames 1200/4800/8400/12000",
+      "meta": {
+        "decay events (soil written)": 3443,
+        "leaves shed (shade/drought/stranded)": "3662/59/297",
+        "standing litter": 569,
+        "living plant cells": 25503,
+        "colony-band food median (3 seeds)": 81600
+      },
+      "focus": null
+    },
+    {
+      "label": "C - quarter 0.00075",
+      "files": [
+        "20260823T161006584Z-6ecbab/002-quarter.png"
+      ],
+      "caption": "frames 1200/4800/8400/12000",
+      "meta": {
+        "decay events (soil written)": 1800,
+        "leaves shed (shade/drought/stranded)": "1948/23/151",
+        "standing litter": 321,
+        "living plant cells": 26166,
+        "colony-band food median (3 seeds)": 90720
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
