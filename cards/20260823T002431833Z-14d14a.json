@@ -1,0 +1,72 @@
+{
+  "id": "20260823T002431833Z-14d14a",
+  "created": "2026-08-23T00:24:31Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "da1faf0",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Dark bands: overhangs and objects fixed, the dig left as agreed",
+  "question": "Panels 1 and 2 are what you signed off — do the overhang and the suspended slab now read as outdoors to you, and is the pit in panel 3 acceptable to leave black for now?",
+  "context_md": "The per-cell genesis map landed: one bit per cell, \"was this enclosed when the world was made\", seeded by a flood fill at generation. `dead-ends.md` §977's *store more history, never infer* — no width threshold anywhere, and a dug shaft still stays a tunnel at any width.\n\n**Before images are on the previous card** (`20260822T235306955Z-ac8c28`), same scenes, same crops.\n\nMeasured: rescues 149/156, 406/408, 192/197 of the false-cave cells on seeds 1-3. The remainder were rock at genesis and are air now — dark by the same rule as a dug shaft. Costs **+0.3 to +0.7 ms on a ~11.5 ms full redraw**, measured interleaved against a worktree at the parent commit because the machine drifted upward during the run.\n\n**One residual I did not fix, and it is visible in panel 2:** the rock *under* the slab is still over-darkened — a faint band across the pool floor. The decision is now per cell but the *depth* still comes from the per-column datum, and the notch-clipping only clips dips, not spikes. The honest fix is a depth measured from the nearest outdoors cell, which is the same distance transform the pit case needs, so I left it to go with that work rather than bolting it on.\n\nOn your \"better solution\" for the pit — prior art written up in `Reports/prior-art-underground-lighting.md`. Terraria does exactly what you described wanting: a per-tile **wall** layer decides whether sky light can enter (mining does not remove the wall, so your tunnel stays dark), and then light *propagates* at 0.91 per air tile and 0.56 per solid tile. That second half is what makes a wide pit bright at the top and dark at the bottom with no threshold. Noita does the opposite — no classification at all, everything dark until lit, via a coarse 32x32 fog of war that they had to **blur** because as plain tiles it read as a grid (which is our own open bug 0c, exactly). We already compute the Beer-Lambert channel Terraria's half needs, in `field.rs`, and nothing draws it.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — natural cliff brow (real world, seed 1)",
+      "files": [
+        "20260823T002431833Z-14d14a/000-brow_after.png"
+      ],
+      "caption": "Second tile. The hard-edged darker patch of sky off the lip is gone.",
+      "meta": {
+        "false-cave cells rescued (seed 1)": "149 of 156",
+        "left dark (were ground at genesis)": 7,
+        "p90 across seeds 1-6, before": "408 cells"
+      },
+      "focus": [
+        480,
+        60,
+        480,
+        420
+      ]
+    },
+    {
+      "label": "2 — slab suspended at genesis (scene=rockdrop, frame 1)",
+      "files": [
+        "20260823T002431833Z-14d14a/001-rockdrop1_after.png"
+      ],
+      "caption": "The band through the air and through the pond is gone. The faint darkening still on the pool floor at the bottom is the residual described above.",
+      "meta": {
+        "bodies in flight": 0,
+        "band through air": "gone",
+        "band through water (the depth grade)": "gone",
+        "band on the pool floor": "still there — known residual"
+      },
+      "focus": null
+    },
+    {
+      "label": "3 — the open-cast pit, left black on purpose",
+      "files": [
+        "20260823T002431833Z-14d14a/002-quarry_after.png"
+      ],
+      "caption": "64 wide, 40 deep, nothing overhead. Unchanged: those cells were rock at genesis.",
+      "meta": {
+        "false-cave cells": 1207,
+        "at full UNDERGROUND": 436,
+        "rescued by the per-cell map": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
