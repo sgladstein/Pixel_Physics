@@ -745,7 +745,87 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
-### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
+### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
+
+> **Closed by WP-5 of the creature handoff.** Reproduced first, then fixed,
+> then broken deliberately in both directions to prove the guards bite.
+>
+> **The reproduction, which this entry said had never been done.** A slab of
+> `corpse` stamped 1,020 per cell, blasted at radius 20 through the real
+> `explosion::trigger` path (`sim::particle::tests::
+> a_blasted_corpse_lands_worth_what_it_was_worth`): **114 cells thrown, and
+> every one landed worth 120.** The census over the survivors read **254.3
+> per cell against 1,020** — arithmetic that resolves exactly to "the 20
+> cells never thrown kept their stamp and all 114 thrown ones lost it".
+> **102,600 energy destroyed by one blast**, and the estimate in this entry
+> was right on the nose: 8.5x, on the one material whose value is per-cell.
+>
+> **The fix.** `Particle` gains `aux: u16`, taken from the source cell at
+> spawn and written back by `land` **only when the landing material declares
+> `Material::worth_in_aux`** — gated on the *flag*, not on the value, because
+> an unstamped corpse (`aux == 0`) is a real case that `fire.rs`'s burnout
+> writes deliberately, and `creature::food_value` should stay the only place
+> that turns a 0 back into the material fallback.
+>
+> The cell-sourced entry point takes the **`Cell` itself** (`spawn_from_cell`)
+> rather than an `aux` parameter: every caller that had this bug already held
+> the `Cell` and passed two of its three fields, so a parameter would have
+> been exactly as easy to forget again. Three callers source from a live
+> cell — `explosion.rs:1639` and `:1826`, plus the splash path at
+> `particle.rs`'s `throw_splashes`, which this entry did not list. The
+> brush's debug burst (`app.rs::spawn_burst`) has no source cell and keeps
+> the plain `spawn`.
+>
+> **`rigid.rs`'s `BodyCell` is left alone, as this entry says it should be**,
+> and the reason is now recorded in `Particle::aux`'s own doc comment so the
+> asymmetry is not "fixed" by symmetry later: a body only ever holds
+> `Solid`/`Plant`, where `aux` is the organism packing, so carrying it would
+> let a landing body silently re-attach.
+>
+> **Both guards, and both were made to fail.** The corpse case above, and its
+> opposite — `a_blasted_grain_does_not_land_carrying_its_moisture`, because
+> the artifact a fix like this *introduces* is over-copying: on soil `aux` is
+> saturation on `SOIL_SATURATED`'s scale, so an unconditional copy lands
+> every blasted grain soaking wet. Deleting the gate fires the moisture
+> guard (a grain landed carrying `aux` 1000); reverting the whole fix fires
+> the corpse guard (254.3 against 1,020); with both in place the pair is
+> green.
+>
+> **The first version of that second guard was vacuous and is worth
+> recording.** It asserted through `creature::food_value`, which *already*
+> gates on `worth_in_aux` — so it reported soil's flat `food_energy`
+> whatever the stamp said, could not fail, and duly passed with the gate
+> deleted. It was measuring the gate it existed to guard, through a second
+> copy of that gate. It only showed up because the fix was deliberately
+> broken; on green alone it would have shipped. Rewritten to assert the raw
+> `aux` on grains that landed *outside* the original slab footprint, which
+> are the only ones that can have been thrown.
+>
+> **Nothing on screen changed, and that is the sharpest thing about this
+> bug.** A corpse's *shade* is baked in at death by `creature_dies`
+> (`creature.rs:1907`, a ramp over the animal's `start_energy`) and rides on
+> `Particle::shade`, which was always carried. Only `aux` was dropped. So a
+> blasted corpse landed **still drawn pale, as a fresh kill, while being
+> worth 120** — the picture said rich and the number said carrion, and the
+> picture was the one a person would have checked. `CLAUDE.md`'s division of
+> labour, in the flesh: an image tells you *what* and *where*, and only a
+> census tells you *how much*. No review card was posted for this fix,
+> because there is nothing to look at; the evidence is the census.
+>
+> Determinism pair green on both drivers — a new field on `Particle` does
+> not perturb replay. `ParticleSystem::step` runs once per frame from
+> `App::update`, outside the CA sweep, so this path is driver-independent by
+> construction rather than by test.
+>
+> **What is still open, and is WP-6's:** this preserves the worth of a
+> corpse the blast *throws*. A corpse the blast *consumes* still books
+> nothing (`world.rs`'s `meat_lost` seam), so `max_standing_meat` remains an
+> upper bound rather than a bound. The two are deliberately separate fixes;
+> the total falling in the test above is legitimate for exactly that reason,
+> which is why its bar is worth *per surviving cell* rather than on the sum.
+
+**The original entry, kept as the record of what was inferred and what it
+cost:**
 
 Found by inspection during the `creatures-m18` merge review, **not created by
 it**. `Particle` carries `material` and `shade` but not `aux`, and landing

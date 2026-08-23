@@ -1636,7 +1636,7 @@ impl Blast {
                 if dist2 > vaporize2 && world.rng.chance(tuning.debris_fraction) {
                     let (vx, vy) = debris_velocity(world, x, y, self.cx, self.cy, self.strength, tuning);
                     let pierce = pierce_budget(self.strength, tuning);
-                    particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce);
+                    particles.spawn_from_cell((x as f32, y as f32), (vx, vy), cell, pierce);
                 }
                 let was_structural = matches!(world.materials.kind(cell.material), material::MaterialKind::Solid | material::MaterialKind::Plant);
                 world.set(x, y, Cell::EMPTY);
@@ -1823,7 +1823,7 @@ impl Blast {
                 if world.rng.chance(chance * tuning.debris_fraction) {
                     let (vx, vy) = debris_velocity(world, x, y, self.cx, self.cy, self.strength, tuning);
                     let pierce = pierce_budget(self.strength, tuning);
-                    particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce);
+                    particles.spawn_from_cell((x as f32, y as f32), (vx, vy), cell, pierce);
                     world.set(x, y, Cell::EMPTY);
                 }
             }

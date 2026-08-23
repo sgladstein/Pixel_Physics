@@ -97,6 +97,13 @@ and a bigger animal is worth more than a smaller one. A body burnt to a
 cinder is worth the least of all, because nothing was left to record what it
 had been.
 
+That worth now survives being **thrown**, which it did not before. A body
+caught in an explosion and flung across the map lands still worth what the
+animal was made of, instead of arriving as anonymous meat — so a blast that
+scatters a colony's dead leaves the same dinner, in a different place. It
+does not survive being *destroyed*: a body inside the heart of a blast is
+gone, and what the blast throws clear is what is left to eat.
+
 You can see a little of this — corpses are shaded by what they are worth,
 dark for a starved one and pale for a fresh kill, and a body burnt to a
 cinder is drawn at the poor end because that is what it is. But a corpse is
