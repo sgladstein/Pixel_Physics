@@ -96,7 +96,31 @@ constraint asks for.
 That is the strongest argument for doing it, and it is a different argument
 from the one the proposal was made on.
 
-## 5. What this does not answer
+## 5. The question this report was posted with is still open, and the card is why
+
+Posted as a card asking: *take the cost anyway for the 51-79% spread it
+exposes, or does the brake have to come from somewhere else?* It came back
+answered with **a pane selection and no comment** — `choice: 1`, "slot 5
+high (gain 0.84) at 43,200".
+
+**That is not an answer to the question, and the fault is the card's.** It
+was posted as a `before_after`, whose affordance is *pick a pane*, while the
+question in its text was an either/or about a mechanism. The two panes were
+illustrations of one phenomenon, not options. So the only structured reply
+available was to choose a picture, for a question that was not about
+pictures — `CLAUDE.md`'s "ask one answerable question", failed by choosing a
+card kind that could not carry it.
+
+**Do not read `choice: 1` as a decision.** The cost-versus-brake question is
+untouched, and the owner's own standing position on it is the earlier
+verdict: *"We should evaluate both. Not sure which makes sense to do
+first."*
+
+The lesson generalises past this card: a *design* question with no visual
+component does not belong in the review queue at all, whose job is judgement
+by eye. This one belonged in the PR and the report, where it now is.
+
+## 6. What this does not answer
 
 - **Whether a priced interior changes the grown shape at all.** A flat tax
   might simply shrink every root system by a third and leave the form
