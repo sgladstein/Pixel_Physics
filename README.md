@@ -1014,6 +1014,58 @@ mat. All of it, with the controls that produced each number, is in
 `Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
 do not trust a plant constant without re-measuring it first.
 
+## The generation loop: plants die, seeds expire, slots come back
+
+**Package P3 of the plant implementation split.** Three things that were
+each individually survivable and together meant a plant world could only
+ever accumulate.
+
+**Plants can die of ordinary causes.** Shade and drought abscission both
+gated on `CellType::Leaf`, which is right for every woody species and
+vacuous for one whose photosynthetic surface *is* its shoot: grass has
+`plastochron: [0, 0]`, so it has no `Leaf` cell and therefore had no shade
+death, no drought death and no age death at all
+(`Reports/open-bugs-handoff.md` §F4). The predicate now asks the question
+per *species* — a species with a leaf stage sheds leaves, one without sheds
+shoot tissue that earns — and excludes root tissue, which matters because
+grass retires its root tips into the same `MatureBody` that declares its
+`Photosynthesize`.
+
+**A plant with nothing left that can earn is dead, and its remains rot.**
+Slot reclamation keyed on an empty cell list, so a plant that lost all its
+foliage kept its stem, its roots and its `organism_id` for ever. An organism
+holding no cell that can photosynthesise, germinate or flush a bud is now
+marked `senescent` — one-way — and its remaining cells go to litter at a
+species half-life, from where the existing decay path returns them to soil.
+The flag is deliberately shaped to be gated by a *cause* other than
+starvation, which is what the herb package's post-fruiting annual death will
+set.
+
+**Seeds expire.** A dormant seed was rescheduled for ever: 160 standing at
+60,000 frames on the eight-tree stand and still climbing, every one a slot.
+Viability is now a per-species half-life — a constant hazard rather than a
+lifespan, so the bank *thins* to a level set by how fast seed arrives rather
+than emptying on a cliff, which is the reservoir role
+`Reports/population-dynamics-research.md` §3 asks the seed bank to play.
+Grass seed outlasts tree seed two to one, the ruderal-versus-woody axis
+stated as data.
+
+**The 4,095-slot ceiling is a real check.** `Cell::organism_id` gives 12
+bits to the slot index and the encoder does not mask, so a 4,096th organism
+silently became a live one in release builds; the only guard was a
+`debug_assert`. `World::push_organism` now returns `Option` — refusing the
+birth, counting it in `organisms_refused`, and letting the compiler make
+every caller decide — which is `population-dynamics-research.md` 9g's ask in
+its own words.
+
+**Known limitation.** `drought_death` still cannot fire on a mature grass
+plant: transpirational demand is summed over `Leaf` and `GrowingTip` cells
+only, and a tussock that has retired every tip has demand exactly zero, so
+`settle_water` hands it desiccation 0.0 whatever the soil is doing. Shade is
+grass's live mortality arm. Widening the demand sum is an economy change and
+belongs to the single re-derivation pass, not here. The grass economy is
+written down in full in `assets/species/grass.ron`'s header.
+
 ## M16 status
 
 Built: the active-site scheduler (`scheduler.rs`) and plant growth

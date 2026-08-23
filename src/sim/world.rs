@@ -28,9 +28,13 @@ use super::surface::CellSurface;
 
 /// Bits of `Cell::organism_id` given to the slot index (the rest, high 4
 /// bits, are generation). 4095 concurrently-live organisms — generous for
-/// anything this engine plays at real-time rates, and `push_organism`'s
-/// own debug assertion catches the day that stops being true rather than
-/// silently wrapping into a valid-looking but wrong id.
+/// anything this engine plays at real-time rates.
+///
+/// **The bound is enforced in release, not by a debug assertion.** It used
+/// to be the latter, and `encode_organism_id` below does not mask, so a
+/// 4,096th slot index set bit 12 — the generation's low bit — and the new
+/// organism silently *became* an existing live one. `push_organism` now
+/// refuses the birth and counts it (`World::organisms_refused`) instead.
 const ORGANISM_INDEX_BITS: u32 = 12;
 const ORGANISM_INDEX_MASK: u16 = (1 << ORGANISM_INDEX_BITS) - 1;
 /// 4 bits: a slot wraps back to generation 0 after 16 reuses, at which
@@ -642,6 +646,22 @@ pub struct World {
     /// interesting.
     organisms_born: u64,
     organisms_died: u64,
+    /// **Germinations refused because every organism slot was live** — the
+    /// other half of making the 4,095 ceiling a real check rather than a
+    /// `debug_assert` (see `push_organism`).
+    ///
+    /// A counter rather than a panic because refusing one birth is a
+    /// recoverable, in-world outcome — a seed that finds no room is a seed
+    /// that does not sprout — while a panic would take the session down for
+    /// a condition a dense world can legitimately reach. But a refusal that
+    /// nobody counts is indistinguishable from a world where nothing
+    /// happened to breed this frame, which is the *other* half of `§F4`'s
+    /// severity: the corruption was silent and so would the fix be.
+    ///
+    /// Always-on, on the same reasoning as `organisms_born` above: this
+    /// number only gets interesting in a long release run, which is exactly
+    /// where a `#[cfg(test)]` counter cannot see.
+    organisms_refused: u64,
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -1332,6 +1352,7 @@ impl World {
             free_organism_slots: Vec::new(),
             organisms_born: 0,
             organisms_died: 0,
+            organisms_refused: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
@@ -1731,8 +1752,44 @@ impl World {
     /// a reference to a slot between the free and the reuse that the free
     /// alone would have invalidated.
     ///
-    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
-    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
+    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`,
+    /// or **`None` when the 4,095 slots are all live** — see
+    /// `organisms_refused`. Every caller has a refusal path already (they
+    /// all check the target cell is free first and return early when it is
+    /// not); the `Option` is what makes the compiler insist they use it,
+    /// which is the whole reason the signature changed rather than a
+    /// sentinel being returned. A sentinel `0` would stamp an *ownerless*
+    /// organism cell onto the grid at the ceiling — softer than corrupting
+    /// an identity, still a leak of exactly the kind this allocator exists
+    /// to end.
+    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<u16> {
+        // **The ceiling is a real check now, not a `debug_assert`.**
+        //
+        // `Cell::organism_id` gives 12 bits to the slot index, so there are
+        // 4,095 of them, and `encode_organism_id` does not mask: a 4,096th
+        // slot index would set bit 12, which is the *generation*'s low bit.
+        // In a release build that is silent — the new organism reads as a
+        // different, live organism, and every cell that already pointed at
+        // that identity now points at this one. `Reports/open-bugs-
+        // handoff.md` §F4 names it "silent organism identity corruption in
+        // release"; `Reports/population-dynamics-research.md` 9g asks for
+        // exactly this fix in exactly these words ("Add a release-mode
+        // check, not a `debug_assert`").
+        //
+        // **The failure mode is refusal, and refusal is counted.** A
+        // germination that cannot get a slot simply does not happen, which
+        // is a bounded, visible loss of one seed; nothing on the grid is
+        // written, so nothing is left half-allocated. `organisms_refused`
+        // is what stops that being invisible — a world quietly refusing
+        // every birth and a world where nothing is breeding look identical
+        // in every other readout.
+        //
+        // Checked before `organisms_born` is incremented so the born count
+        // stays "organisms that exist", not "attempts".
+        if self.free_organism_slots.is_empty() && self.organisms.len() >= ORGANISM_INDEX_MASK as usize {
+            self.organisms_refused += 1;
+            return None;
+        }
         self.organisms_born += 1;
         let state = OrganismState {
             water: 0.0,
@@ -1781,6 +1838,7 @@ impl World {
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
             departure_angle_sum: 0.0,
@@ -1804,14 +1862,19 @@ impl World {
                 self.organism_generation_wraps += 1;
             }
             slot.state = Some(state);
-            encode_organism_id(slot_index, slot.generation)
+            Some(encode_organism_id(slot_index, slot.generation))
         } else {
+            // The guard at the top of this function is what makes the index
+            // below in range; this assertion is the second pair of eyes on
+            // it, and it is the only thing left that a `debug_assert` is
+            // the right tool for -- an internal invariant, not a runtime
+            // condition the world can reach.
             debug_assert!(
                 self.organisms.len() < ORGANISM_INDEX_MASK as usize,
                 "organism index would overflow the 12 bits Cell::organism_id reserves for it"
             );
             self.organisms.push(OrganismSlot { generation: 0, state: Some(state) });
-            encode_organism_id(self.organisms.len() as u16, 0)
+            Some(encode_organism_id(self.organisms.len() as u16, 0))
         }
     }
 
@@ -1918,6 +1981,30 @@ impl World {
     /// later is exactly the kind of drift nobody would think to check.
     pub fn organism_slot_usage(&self) -> (usize, usize) {
         (self.organisms.len(), self.live_organism_count())
+    }
+
+    /// **The high-water mark of concurrently-live organisms**, and it is
+    /// the *same number* as `organism_slot_usage`'s first element rather
+    /// than a second tally — which is worth stating, because it looks like
+    /// it should need one.
+    ///
+    /// `push_organism` pops `free_organism_slots` before it ever grows
+    /// `organisms`, so the vector lengthens only on a birth that found no
+    /// free slot — i.e. only when the live count is about to exceed every
+    /// value it has ever held. `organisms.len()` is therefore exactly
+    /// max-over-time of the live count, for free, with no per-frame
+    /// bookkeeping. The `ceiling` it is judged against is the 12-bit slot
+    /// index's own bound.
+    pub fn organism_slot_high_water(&self) -> (usize, usize) {
+        (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
+    }
+
+    /// Births refused at the slot ceiling — see `organisms_refused`. Zero
+    /// on every world that has not reached 4,095 live organisms, which is
+    /// every world measured to date; a non-zero reading means the ceiling
+    /// is now a live design constraint and not a footnote.
+    pub fn organisms_refused(&self) -> u64 {
+        self.organisms_refused
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -3960,7 +4047,7 @@ mod tests {
     fn organism_ids_round_trip_and_encode_a_nonzero_generation() {
         let mut w = test_world();
         let species = SpeciesId(0);
-        let id = w.push_organism(species);
+        let id = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(id, 0, "0 is reserved for \"no organism\"");
         assert_eq!(w.organism(id).unwrap().species, species);
     }
@@ -3982,8 +4069,8 @@ mod tests {
         let mut w = test_world();
         let species_a = SpeciesId(0);
         let species_b = SpeciesId(1);
-        let a = w.push_organism(species_a);
-        let b = w.push_organism(species_b);
+        let a = w.push_organism(species_a).expect("an organism slot is free");
+        let b = w.push_organism(species_b).expect("an organism slot is free");
         assert_ne!(a, b, "two live organisms must not share an id");
         assert_eq!(w.organism(a).unwrap().species, species_a);
         assert_eq!(w.organism(b).unwrap().species, species_b);
