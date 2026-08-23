@@ -743,7 +743,26 @@ const GUST_RADIUS: i32 = 26;
 /// Each cell down gets less, so the profile is damp at the surface fading
 /// with depth rather than a uniform slab -- a slab reads as a different
 /// material lying on top of the soil.
-const SOAK_DEPTH: i32 = 5;
+pub(crate) const SOAK_DEPTH: i32 = 5;
+
+/// How many cells of *ground cover* a drop will cross on its way to soil,
+/// before giving up — `Reports/open-bugs-handoff.md` §F1's reach.
+///
+/// The soak loop used to stop at the first cell with no `water_capacity`,
+/// which is correct for rock and wrong for the litter, grass and ash that
+/// lie on top of soil declaring none. This is the budget for crossing that
+/// blanket; the `SOAK_DEPTH` profile then starts at the soil, so a mulched
+/// column and a bare one wet the same *profile* rather than the mulched one
+/// wasting its top rows on leaves.
+///
+/// **Set from the blanket it has to cross, with headroom.** Measured on the
+/// littered arm of `rain_soaks_through_a_litter_blanket`'s paired storm and
+/// on a 12,000-frame stand: a forest floor's litter stands at most 5 cells
+/// deep over any one column (mean 1.4), because `decay.rs` rots it where it
+/// lies. Twelve is well clear of that and still bounds the walk — this runs
+/// once per drop per frame, so an unbounded search down a column would be
+/// a per-frame cost paid over every storm.
+const SOAK_COVER_REACH: i32 = 12;
 
 /// How often a storm gets a chance at a strike, in frames. Roughly every
 /// four seconds at 60Hz; whether the chance is taken is a separate roll, so
@@ -1022,19 +1041,50 @@ pub fn step(world: &mut World) {
         // holds. The day soil genuinely stores and releases water, this line
         // joins the ledger and `evaporation` grows a second credit path;
         // until then, pretending would be worse than not accounting.
-        for d in 0..if w.kind == Precipitation::Rain { SOAK_DEPTH } else { 0 } {
-            let y = surface_y + d;
-            if y > bounds.max_y {
+        // `depth` counts only the cells actually wetted, so a blanket of
+        // ground cover costs the drop reach but not its profile -- see
+        // `SOAK_COVER_REACH`.
+        let (mut depth, mut crossed) = (0i32, 0i32);
+        for y in surface_y..=bounds.max_y {
+            if w.kind != Precipitation::Rain || depth >= SOAK_DEPTH {
                 break;
             }
             let cell = world.get(x, y);
-            // Stops at the first thing that cannot hold water, so a puddle
-            // on bare rock does not wet the rock beneath it and a thin soil
-            // cap over stone soaks only as deep as the soil goes.
             if world.materials.get(cell.material).water_capacity == 0 {
+                // **Ground cover is crossed; bedrock is not.** This was a
+                // plain `break` at the first zero-capacity cell, explained
+                // as "a puddle on bare rock does not wet the rock beneath
+                // it" -- which is right about rock and wrong about
+                // everything that merely *lies on* the soil. `litter.ron`
+                // and `grassblade.ron` declare no `water_capacity`, so a
+                // forest floor took **zero** soak: mulch sealed the ground
+                // instead of conserving its moisture, and the blanket
+                // deepens fastest exactly over rooted ground
+                // (`Reports/open-bugs-handoff.md` §F1).
+                //
+                // The distinction is stated as *kind* rather than as a new
+                // material field because it is already there and already
+                // means this: a `Powder` or a `Plant` cell is loose or
+                // living matter lying on the ground, and rain goes through
+                // both. `Solid` is rock, `Liquid` is standing water (the
+                // puddle keeps its own rule -- rain joining a pond is
+                // handled below, not here), and `Gas` and `Empty` are a
+                // gap, which means this drop is over a cave mouth or
+                // inside a canopy rather than on a floor. Those stop it.
+                //
+                // **Canopy interception is deliberately left alone.** A
+                // treed column's `surface_under_sky` is the crown, and the
+                // cell under a leaf is air, so a drop stops in the canopy
+                // exactly as it did before. Changing that is a rain model,
+                // not a bug fix.
+                let kind = world.materials.kind(cell.material);
+                if crossed < SOAK_COVER_REACH && matches!(kind, MaterialKind::Powder | MaterialKind::Plant) {
+                    crossed += 1;
+                    continue;
+                }
                 break;
             }
-            let share = soak / (d as u16 + 1);
+            let share = soak / (depth as u16 + 1);
             let wetter = cell.aux().saturating_add(share).min(material::SOIL_SATURATED);
             let added = wetter - cell.aux();
             // **Charged to the bank, now that held water is on the books.**
@@ -1056,6 +1106,7 @@ pub fn step(world: &mut World) {
                 world.set(x, y, cell.with_aux(wetter));
                 super::evaporation::schedule_damp_soil(world, x, y);
             }
+            depth += 1;
         }
         // **Rain does not stack on standing water.** If the topmost thing in
         // this column is already a liquid, the drop joins it as moisture and
@@ -1796,6 +1847,144 @@ mod tests {
         assert!(
             roofed_after <= roofed_before + 0.001,
             "ground under a roof got wetter ({roofed_before:.3} -> {roofed_after:.3});              rain is reaching through solid rock"
+        );
+    }
+
+    /// A dry soil bed, optionally under a blanket of shed litter. Returns
+    /// the summed soil `aux` after `frames` of the same storm — §F1's
+    /// specified measure ("paired storm over littered vs bare soil, summing
+    /// soil `aux` after one epoch").
+    ///
+    /// Two worlds rather than two halves of one, because `at(seed, frame)`
+    /// is a pure function of seed and frame: the same seed rains on the
+    /// same columns at the same intensity in both, so the pairing cancels
+    /// the weather completely. Half-and-half would instead compare two
+    /// different sets of columns.
+    fn storm_over_soil(litter_rows: i32, frames: usize) -> (u64, u64, i32) {
+        const GROUND: i32 = 100;
+        const SOIL_ROWS: i32 = 10;
+        let seed = 4;
+        let start = a_rainy_frame(seed);
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        w.seed = seed;
+        w.frame = start;
+        let soil = w.materials.id_of("soil").expect("soil must exist");
+        let litter = w.materials.id_of("litter").expect("litter must exist");
+        for x in 0..128 {
+            // **Floored.** Soil is a `Powder`, and an unsupported bed
+            // avalanches out of the world over the first few hundred frames
+            // -- `CLAUDE.md`'s own recorded scene error, and it read here
+            // exactly as "the storm soaked nothing".
+            w.set(x, GROUND + SOIL_ROWS, Cell::new(material::STONE, 0));
+            // **Starts at the wilting point, not at field capacity.** A bed
+            // already full has nowhere to put the soak, so both arms would
+            // read identically and this would pass on a sealed floor.
+            for d in 0..SOIL_ROWS {
+                w.set(x, GROUND + d, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+            }
+            for d in 1..=litter_rows {
+                w.set(x, GROUND - d, Cell::new(litter, 0));
+            }
+        }
+        // **Two regions, because litter `decays_into: "soil"`.** Part of the
+        // blanket becomes water-holding ground *above* `GROUND` during a
+        // long storm, and holds water of its own -- so a world-wide sum
+        // reads the littered arm at 146% of bare and flatters the fix,
+        // while the original bed's rows read 13% and understate it (the
+        // soak profile then starts at the rotted cell, above the bed).
+        // §F1's claim is about the bed, so the bed is what is asserted on;
+        // both are returned so neither reading can be taken for the other.
+        let region = |w: &World, from: i32, to: i32| -> u64 {
+            (0..128)
+                .flat_map(|x| (from..to).map(move |y| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == soil)
+                .map(|(x, y)| super::super::update::soil_moisture(w.get(x, y)) as u64)
+                .sum()
+        };
+        let bed_before = region(&w, GROUND, GROUND + SOIL_ROWS);
+        let all_before = region(&w, 0, 128);
+        // The blanket rots where it lies (`litter.ron`'s own decay rates),
+        // so what matters is how deep it stood *during* the storm.
+        let standing = |w: &World| {
+            (0..128)
+                .map(|x| (1..=40).filter(|&d| w.get(x, GROUND - d).material == litter).count() as i32)
+                .max()
+                .unwrap_or(0)
+        };
+        let deepest = standing(&w);
+        for _ in 0..frames {
+            parallel::step(&mut w);
+            w.step_active_sites();
+        }
+        (
+            region(&w, GROUND, GROUND + SOIL_ROWS).saturating_sub(bed_before),
+            region(&w, 0, 128).saturating_sub(all_before),
+            deepest.max(standing(&w)),
+        )
+    }
+
+    /// **Mulch must not seal the ground it lies on — `open-bugs-handoff.md`
+    /// §F1.**
+    ///
+    /// `weather::step`'s soak loop stopped at the first cell whose
+    /// `water_capacity == 0`, explained as "a puddle on bare rock does not
+    /// wet the rock beneath it". `litter.ron` declares no capacity, so a
+    /// column topped by shed litter took **zero** soak — and cell `aux` is
+    /// the only channel roots drink from. Real mulch conserves soil
+    /// moisture; this did the opposite, and the blanket deepens fastest
+    /// exactly over rooted ground.
+    ///
+    /// Paired, per `CLAUDE.md`: one storm, two beds differing only in the
+    /// blanket. Measured over 400 frames of seed 4's rain, same session,
+    /// same machine, with and without the pass-through:
+    ///
+    /// | soil `aux` gained | before | after |
+    /// |---|---|---|
+    /// | bare bed | 4,295 | 4,295 |
+    /// | littered, the bed's own ten rows | **15 (0.3%)** | **1,073 (25%)** |
+    /// | littered, every soil cell in the world | 3,829 | 5,352 |
+    ///
+    /// **Read the middle row; the bottom one is why.** World-wide, the
+    /// littered arm was *already* taking 89% of the bare arm's water before
+    /// the fix — because litter rots into soil where it lies, and a rotted
+    /// cell has capacity, so the column soaks into the blanket's own
+    /// remains while the ground beneath stays sealed. A world-wide metric
+    /// therefore reports this bug as nearly absent. The bed is the thing
+    /// §F1 says takes zero, and it took 0.3%.
+    ///
+    /// **25% and not 100%, deliberately.** `share = soak / (depth + 1)`
+    /// starts the profile at the first water-holding cell, which after some
+    /// rot is one to three rows *above* the original bed — so the bed now
+    /// gets the tail of the profile rather than its head. That is the right
+    /// behaviour (the top of the ground is the top of the ground), and it
+    /// is why the after figure is a quarter rather than a whole. The
+    /// littered column ends up holding *more* total water than the bare one
+    /// (5,352 against 4,295), which is what mulch is supposed to do.
+    ///
+    /// The bar is a *fraction of the bare arm* rather than an absolute,
+    /// because the absolute moves with `SOIL_SOAK_PER_DROP` or the storm
+    /// scaling and neither is what this guards. A tenth sits between the
+    /// measured 25% and the 0.3% it has to catch, touching neither.
+    #[test]
+    fn rain_soaks_through_a_litter_blanket() {
+        const FRAMES: usize = 400;
+        let (bare_bed, bare_all, _) = storm_over_soil(0, FRAMES);
+        let (litter_bed, litter_all, deepest) = storm_over_soil(3, FRAMES);
+        println!(
+            "one storm, soil aux gained -- bed rows: bare {bare_bed}, under litter {litter_bed} ({:.0}%); \
+world-wide: bare {bare_all}, under litter {litter_all}; deepest blanket {deepest} cells",
+            100.0 * litter_bed as f64 / bare_bed.max(1) as f64
+        );
+        assert!(bare_bed > 0, "test setup: the bare bed should have taken soak at all");
+        assert!(
+            litter_bed * 10 >= bare_bed,
+            "a litter blanket is sealing the ground: bare soil gained {bare_bed} of soil aux in its own rows, \
+littered soil {litter_bed} (measured 4,295 against 1,073 with the pass-through, 4,295 against 15 without)"
+        );
+        assert!(
+            deepest <= SOAK_COVER_REACH,
+            "the blanket ({deepest} cells) is deeper than SOAK_COVER_REACH ({SOAK_COVER_REACH}), so the reach \
+is what this measures rather than the rule"
         );
     }
 
