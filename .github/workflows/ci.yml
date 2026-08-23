@@ -135,18 +135,20 @@ jobs:
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
   # --- Known-red quarantine -------------------------------------------------
-  # **One** gate is red on `main` today for a reason that has nothing to do
-  # with whatever branch is being pushed: the `ascii` foraging scene, where
-  # the colony has gone sessile -- 2 round trips against a bar of 14 set from
-  # 98 on the same scene. It is recorded in `Reports/open-bugs-handoff.md`
-  # (§H2) and quarantined by name in `known-red-ascii` below.
+  # **No named quarantine remains** -- every known-red job below is gone,
+  # each by the mechanism working as intended, though not all by closing:
   #
-  # **Bug Y closed and bug H closed**, and their jobs are gone -- the
-  # mechanism working as intended, twice. Bug H's closure is the more
-  # instructive one: the whole `ascii` job was non-blocking because the
-  # example could not exclude one scene by name, and the foraging regression
-  # landed behind that blanket and went unseen for two commits. `ascii` gates
-  # again now, with `skip=foraging`. Quarantine by name, never in bulk.
+  # **Bug Y closed and bug H closed**, and their jobs went first. Bug H's
+  # closure is the more instructive one: the whole `ascii` job was
+  # non-blocking because the example could not exclude one scene by name,
+  # and the foraging regression landed behind that blanket and went unseen
+  # for two commits. Quarantine by name, never in bulk.
+  #
+  # **The `ascii` foraging scene (bug L, the colony gone sessile) closed**
+  # when the rock-country fallback was widened from an argmax region to a
+  # country -- the world-scale merge had deleted the residual towers the
+  # colony forages over. Its `known-red-ascii` job and `skip=foraging`
+  # exclusion are gone, and `ascii` gates all 31 scenes.
   #
   # **Bug A's exclusion and its paired job are gone, and its bug is NOT
   # closed** -- read this before assuming it was. The guard asserted a 10%
@@ -166,10 +168,13 @@ jobs:
   # One caution that no exclusion covers: `tests/worldgen.rs`'s
   # `a_forced_vault_world_is_sealed_and_arrives_at_rest` and
   # `generated_terrain_is_already_at_rest` are both red on `main` itself
-  # (§H3, and both are *water* failing to settle), so a perfectly healthy
-  # branch shows a red `test` job. Attribute against `main` before touching
-  # it -- and note `cargo test --lib` does not run `tests/`, so a local
-  # `--lib` gate will not see them.
+  # (§H3 / §M, both generated *water* failing to settle), so a perfectly
+  # healthy branch shows a red `test` job. Attribute against `main` before
+  # touching it -- and note `cargo test --lib` does not run `tests/`, so a
+  # local `--lib` gate will not see them. The §L fix moves their counts
+  # (the worst natural mover is now wetland seed 3, and the forced-vault
+  # stress case collapses a spire over its artificially shallow chambers);
+  # §M's entry records the shift.
   #
   # Turning branch CI on without doing something about them would show every
   # agent four red jobs on push one, and a permanently-red signal teaches
@@ -177,11 +182,13 @@ jobs:
   # which this repo has already paid for (`capped` passed its acceptance case
   # for two commits while the structure was frozen and never evaluated).
   #
-  # So each known red is *excluded by name* from the gating job and re-run in
-  # its own `continue-on-error` job below. Nothing is skipped, hidden or
-  # deleted: the guard still executes and its output is still in the log. The
-  # only thing that changes is whether it blocks. Delete the exclusion the day
-  # its bug closes -- and the paired job is what tells you that day arrived.
+  # So the standing mechanism, for the next known red: *exclude it by name*
+  # from the gating job and re-run it in its own `continue-on-error` job.
+  # Nothing is skipped, hidden or deleted: the guard still executes and its
+  # output is still in the log. The only thing that changes is whether it
+  # blocks. Delete the exclusion the day its bug closes -- and the paired job
+  # is what tells you that day arrived. No such job exists as of 2026-08-23;
+  # the paragraphs above record how the last three went.
   test:
     name: cargo test (release)
     runs-on: ubuntu-latest
@@ -220,18 +227,17 @@ jobs:
     # this is the same worst-frame-timing scene suite used to judge
     # performance regressions locally, run headless here as a smoke test.
     #
-    # **Gating again, and quarantined by name rather than in bulk.** This job
-    # was `continue-on-error` over bug H, for the stated reason that "ascii
-    # has no scene selection, so bug H cannot be excluded by name". It has
-    # selection now (`scene=`/`skip=`, matched against the title a scene
-    # prints), so the blanket comes off and one named scene stays behind in
-    # `known-red-ascii` below -- the same shape as bug A's `--skip`.
+    # **Gating again, all 31 scenes.** This job was `continue-on-error` over
+    # bug H, for the stated reason that "ascii has no scene selection, so bug
+    # H cannot be excluded by name". It has selection now (`scene=`/`skip=`,
+    # matched against the title a scene prints), so the blanket came off --
+    # and the foraging scene, quarantined by name over bug L (the sessile
+    # colony) from the day the blanket lifted, rejoined when that bug closed.
     #
-    # Taking the blanket off matters more than it sounds. While it was on,
+    # Taking the blanket off mattered more than it sounds. While it was on,
     # `forage_loop_scene` went red and nobody saw it for two commits: a
     # quarantine wide enough to hide the bug it was opened for is wide enough
-    # to hide the next one, and it did. 30 of the 31 scenes run green here in
-    # 2m59s.
+    # to hide the next one, and it did.
     #
     # Bug H itself is closed on the basis this comment used to ask for -- the
     # scene now genuinely contains a gradient (a maintained spring, asserted
@@ -243,7 +249,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo run --release --example ascii --locked -- skip=foraging
+      - run: cargo run --release --example ascii --locked
 
   acceptance:
     # The structural acceptance cases, run rather than remembered. Each
@@ -280,33 +286,3 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
         continue-on-error: true
-
-  # --- The known reds, run where they cannot block ---------------------------
-  # Each pairs with an exclusion above. They exist so a recorded bug stays
-  # *visible and executing* rather than being skipped into invisibility -- and
-  # so that the day one starts passing, something says so. A green tick here is
-  # the signal to delete both the job and its exclusion.
-
-  known-red-ascii:
-    # `forage_loop_scene`: the colony has gone sessile. Excluded from `ascii`
-    # above by `skip=foraging`; run alone here.
-    #
-    # Measured on main: 2 round trips of 8+ cells against a bar of 14 that was
-    # set in da252dc from 98 on this same scene, and a reach profile of
-    # [689, 22, 8, 2, 0, 0, 0, 0] against the [3858, 475, 185, 98, 1, 0, 0, 0]
-    # README's M18 status still quotes. Deterministic, not noise -- identical
-    # counters on contended and solo runs.
-    #
-    # Not attributed to a commit yet, and the bar is deliberately not moved.
-    # The scene's own food census says 88% of the colony's food is leaf on
-    # standing trees and the stock triples over the run while the ants eat 0,
-    # so "how scarce should the floor be" is on the owner's queue as
-    # 20260823T091259637Z-9a41e4 -- the target is a game-feel call, not a
-    # number to tune here.
-    name: "known red: the colony has gone sessile (ascii forage scene)"
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo run --release --example ascii --locked -- scene=foraging

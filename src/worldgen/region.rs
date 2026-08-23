@@ -327,7 +327,40 @@ impl RegionMap {
         // drew no country. That is rare enough to look like bad luck in
         // testing and common enough for a player to meet.
         let best = country.iter().copied().fold(f32::MIN, f32::max);
-        let gate = FORMATION_BARREN.min(best);
+        // When the guarantee fires, the best sample *defines* the country --
+        // and a country is a place with extent, not an argmax. The first
+        // version of the fallback set `gate = best` and kept the `>= gate`
+        // test, which admits exactly the one region that drew the maximum:
+        // a knife-edge, and on a world narrower than the country field's
+        // period it selects between samples the field itself cannot tell
+        // apart. Measured on the foraging scene's 512x120 world (rolling,
+        // seed 1): two regions, country 0.4141 vs 0.4691, both far under
+        // `FORMATION_BARREN` -- "essentially a single value", as the
+        // paragraph above says -- yet only cx=459 passed, so the colony's
+        // home range at cx=47 lost the residual towers its foraging bars
+        // were measured on (`Reports/open-bugs-handoff.md` §L, 98 round
+        // trips -> 2). On the shipped 8192 world the knife-edge is wrong
+        // the same way: one 102-256-column region is "a fifth to a half of
+        // one screen", the exact cluster-not-a-country shape the
+        // `FORMATION_BARREN` comment records as rejected. So membership in
+        // the fallback country is distance to the best draw's centre, at
+        // the field's own scale: everything within half a
+        // `ROCK_COUNTRY_SCALE` of the peak is the same country. A 512 world
+        // becomes rock country whole; an 8192 fallback world gets one
+        // country-sized band instead of one region-sized cluster.
+        let best_cx = centre_x[country
+            .iter()
+            .enumerate()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(i, _)| i)
+            .unwrap_or(0)];
+        let in_country = |i: usize| {
+            if best >= FORMATION_BARREN {
+                country[i] >= FORMATION_BARREN
+            } else {
+                (centre_x[i] - best_cx).abs() <= ROCK_COUNTRY_SCALE * 0.5
+            }
+        };
 
         let mut centres = Vec::with_capacity(count as usize);
         for i in 0..count {
@@ -358,7 +391,7 @@ impl RegionMap {
                     // for why gating on `raw` instead measured as a
                     // uniform thinning.
                     let raw = noise::unit(seed, Purpose::Region, i, 7);
-                    if country[i as usize] < gate {
+                    if !in_country(i as usize) {
                         0.0
                     } else {
                         // `raw` is unconditioned here -- the gate spent the

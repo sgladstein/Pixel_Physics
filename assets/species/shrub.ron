@@ -18,10 +18,17 @@
 // read as a stunted tree instead of a thicket.
 (
     name: "shrub",
-    // Olive foliage on grey-brown stems -- the scrubby end of both axes,
-    // and disjoint from both `tree` and `conifer`. A hedge of these should
-    // read as a different plant at a glance and not as a short tree, which
-    // is the whole complaint this range exists to answer.
+    // Olive foliage on grey-brown stems -- the scrubby end of both axes.
+    // A hedge of these should read as a different plant at a glance and not
+    // as a short tree, which is the whole complaint this range exists to
+    // answer.
+    //
+    // **Unchanged on 2026-08-23 while the other three moved**, and that is
+    // the point of the pass rather than an omission: `shrub` and `tree`
+    // were the only pair already disjoint on foliage, so the cheapest way
+    // to reach four disjoint ranges was to move `conifer`'s bark and give
+    // `creeper` -- which had been wearing this species' exact two ranges on
+    // both axes -- a pair of its own.
     foliage_bands: (first: 4, count: 2),
     bark_bands: (first: 2, count: 2),
     // See tree.ron: the stock fraction where stomata start closing,
@@ -66,9 +73,23 @@
                 // height budget doing it alone.
                 branch_angle: [50.0, 45.0],
                 internode: [2, 3],
-                // 4 -> 8, with tree.ron and conifer.ron -- see tree.ron's
-                // note on why cluster size is now economically neutral.
-                leaf_cluster: 8,
+                // **The leaf-area-per-node axis, spread across the four
+                // woody species on 2026-08-23 (item C2).** Height budget and
+                // cluster size now run opposite ways -- conifer 150 rows at
+                // 6, tree 120 at 10, shrub 40 at 12, creeper 8 at 14 -- so a
+                // species is a *point on a trade* rather than another name
+                // for the same economy: what a plant cannot spend on height
+                // it spends on leaf area at each node it does make.
+                //
+                // Affordable for exactly the reason tree.ron's note gives:
+                // income (`intercepted / l_node`), the bud-break gate and
+                // the pipe ratio are all normalised by `leaf_cluster`, so a
+                // bigger cluster is more leaf cells at the same economy.
+                // The two real costs -- canopy density, and a crown shading
+                // its own interior -- are what stop this being free, and
+                // both were measured here rather than argued: see the
+                // establishment and cell counts in the PR body.
+                leaf_cluster: 12,
                 juvenile_size: 30,
                 juvenile_plastochron: 0.4,
                 juvenile_branch: 1.3,
