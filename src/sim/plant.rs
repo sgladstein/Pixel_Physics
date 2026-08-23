@@ -2540,15 +2540,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 /// Organisms are staggered by id so they do not all fall due on one frame.
 pub fn step_organisms(world: &mut World) {
     for organism_id in world.live_organism_ids() {
+        // Which kind of organism this is, resolved *before* the cadence gate
+        // rather than after it -- see the long note below for what the
+        // distinction means, and this paragraph for why it has to be known
+        // this early.
+        //
+        // **A creature is gated on the creature knob, a plant on the growth
+        // knob**, because this one loop does two jobs: the plant economy
+        // inside the guard below, and organism-slot reclamation outside it,
+        // which is genuinely for every organism. Gating the whole loop on
+        // `growth_slowdown` -- as the first version did -- meant the *plant*
+        // knob throttled how fast a dead ant's slot came back. At
+        // `growth_slowdown: 30` a colony's slots would return every 1,350
+        // frames, which with a busy nest is a slot-exhaustion path opened by
+        // a knob that has nothing to do with creatures. Found by review, not
+        // by a test; there is no guard that would have shown it.
+        let is_creature =
+            world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         // Spread the load: each organism keeps the same cadence as the
         // active-site schedule, on its own offset.
-        // Scaled by `clock.growth_slowdown`, exactly like the active-site
-        // reschedules -- this pass *is* the plant economy (photosynthesis,
-        // transport, upkeep, thickening), so running it on a different
-        // cadence from the growth rolls it funds would make a slowed tree a
-        // rich one rather than a slow one. See `sim::clock::Clock::
-        // growth_slowdown`, which is the whole argument for one knob.
-        if !(world.frame + organism_id as u64).is_multiple_of(world.clock.organism_interval(ORGANISM_TICK_INTERVAL)) {
+        //
+        // Scaled, exactly like the active-site reschedules -- for a plant
+        // this pass *is* the economy (photosynthesis, transport, upkeep,
+        // thickening), so running it on a different cadence from the growth
+        // rolls it funds would make a slowed tree a rich one rather than a
+        // slow one. See `sim::clock::Clock::growth_slowdown`, which is the
+        // whole argument for one knob per subsystem.
+        let interval = if is_creature {
+            world.clock.creature_interval(ORGANISM_TICK_INTERVAL)
+        } else {
+            world.clock.organism_interval(ORGANISM_TICK_INTERVAL)
+        };
+        if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
         }
         // **The plant passes are for plants.** Creatures share this
@@ -2578,7 +2601,6 @@ pub fn step_organisms(world: &mut World) {
         // `collar_y`/`shoot_cells`/`shoot_top_y` onto the creature's own
         // state. A `collar_y` guard would switch itself off on the second
         // tick and look like it was working.
-        let is_creature = world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         if !is_creature {
             // Transport first, then upkeep. The order matters and is the same
             // order the two had before this pass existed: transport ran on the

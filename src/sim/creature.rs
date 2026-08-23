@@ -210,7 +210,7 @@ pub fn plant_worm_seed(world: &mut World, x: i32, y: i32) -> Option<ActiveSite> 
         // length is 1 except `worm_tick`'s own 4-neighbour candidate set.
         state.chain = vec![(x, y)];
     }
-    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL })
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(WORM_TICK_INTERVAL) })
 }
 
 /// Dispatch a due `ActiveKind::Creature` site to `worm_tick`. `scheduler::step`
@@ -318,7 +318,7 @@ fn worm_tick(world: &mut World, x: i32, y: i32, organism: u16) -> Vec<ActiveSite
     // if the move regresses to a `Cell::new` rebuild. See
     // `a_moving_worm_carries_its_whole_cell`, which is the guard that can.
     if cell.is_burning() {
-        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(WORM_TICK_INTERVAL) }];
     }
 
     // C. elegans-style thermotaxis: read the local ambient field, and if
@@ -562,7 +562,7 @@ fn apply_energy_delta(world: &mut World, x: i32, y: i32, organism: u16, delta: f
         die(world, x, y, organism);
         return Vec::new();
     }
-    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + WORM_TICK_INTERVAL }]
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(WORM_TICK_INTERVAL) }]
 }
 
 /// Turn a starved worm into matter and give its slot back.
@@ -706,7 +706,7 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     }
     world.creature_stats.spawned += 1;
     world.energy_ledger.granted += def.start_energy as f64;
-    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval })
+    Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -831,7 +831,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if cell.is_burning() {
         // Same deferral the worm makes, for the same reason: let fire.rs
         // finish deciding this creature's fate first.
-        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }];
     }
 
     // Something may have eaten, burned or erased part of this creature
@@ -1451,7 +1451,7 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
         creature_dies(world, organism);
         return Vec::new();
     }
-    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval }]
+    vec![ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) }]
 }
 
 /// Every cell of the chain becomes `corpse`, and the slot comes back.

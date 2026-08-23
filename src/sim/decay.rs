@@ -83,7 +83,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
     let chance = if damp { DECAY_CHANCE_DAMP } else { DECAY_CHANCE_DRY };
     if !world.rng.chance(chance) {
-        return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
+        return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.organism_due(DECAY_TICK_INTERVAL) }];
     }
     // Counted *here*, past the roll, so these are decays that happened rather
     // than checks that were made -- a site is rescheduled every

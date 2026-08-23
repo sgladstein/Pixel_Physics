@@ -411,8 +411,20 @@ impl Pheromones {
     /// Run a pass on both planes. Callers call this every frame; the
     /// interval gate lives here so no caller has to know about it —
     /// the same shape `World::step_fields` already uses.
-    pub fn step(&mut self, frame: u64) {
-        if !frame.is_multiple_of(PHEROMONE_INTERVAL) {
+    ///
+    /// **`interval` is [`PHEROMONE_INTERVAL`] scaled by the creature clock**
+    /// (`World::step_pheromones`), and it has to move with the creature tick
+    /// rather than stay put. Ant deposits happen per *tick*; decay and
+    /// diffusion happen per *pass*. Slow the ants alone and a trail gets N
+    /// times fewer reinforcements per evaporation — the "0 deliveries, total
+    /// channel A at 100" collapse this constant's own doc records, arriving
+    /// by another route. Scaling the interval keeps the passes-per-tick ratio
+    /// exact, which is also the only thing that keeps its 255-pass
+    /// trail-lifetime ceiling argument true: both sides of that ratio move
+    /// together. `DECAY_RHO`, `DIFFUSE`, `DEPOSIT` and `build_decay_lut`'s
+    /// floor are all per-pass and are deliberately untouched.
+    pub fn step(&mut self, frame: u64, interval: u64) {
+        if !frame.is_multiple_of(interval.max(1)) {
             return;
         }
         self.stats.passes += 1;
@@ -424,6 +436,47 @@ impl Pheromones {
 
 #[cfg(test)]
 mod tests {
+    /// **A scaled interval must actually change how often a pass runs.**
+    ///
+    /// The eleven tests below all drive `step` on multiples of the raw
+    /// `PHEROMONE_INTERVAL`, so every one of them would keep passing at any
+    /// `creature_slowdown` while exercising nothing about it — the
+    /// "superseded tests keep passing while testing nothing" shape `CLAUDE.md`
+    /// warns about, and the reason this one exists.
+    ///
+    /// The ratio is what the creature knob has to preserve: ant deposits are
+    /// per tick and decay is per pass, so passes-per-tick must not move when
+    /// the tick rate does. Here that is asserted as passes-per-real-frame
+    /// falling by exactly the scale factor, which is the same statement with
+    /// the tick rate divided out.
+    #[test]
+    fn scaling_the_interval_scales_how_often_a_pass_runs() {
+        let passes_over = |interval: u64| {
+            let mut p = Pheromones::new(Rect::new(0, 0, 63, 63));
+            for frame in 0..FRAMES {
+                p.step(frame, interval);
+            }
+            p.stats.passes
+        };
+        const FRAMES: u64 = 1_200;
+        assert_eq!(passes_over(PHEROMONE_INTERVAL), 100, "1,200 frames at one pass per 12 is 100");
+        for scale in [2, 4, 8] {
+            let interval = PHEROMONE_INTERVAL * scale;
+            // `div_ceil`, not `baseline / scale`: frame 0 is itself a pass, so
+            // the count is the number of multiples of `interval` in
+            // `0..FRAMES`, and that only equals the scaled-down baseline when
+            // the interval happens to divide the window. Asserting the exact
+            // analytic count says the same thing without the artifact -- and
+            // the artifact is real, 13 against 12 at 8x, which is what this
+            // assertion caught on its first run.
+            assert_eq!(
+                passes_over(interval),
+                FRAMES.div_ceil(interval),
+                "at {scale}x the plane must decay {scale}x less often, or a slowed colony starves"
+            );
+        }
+    }
+
     use super::*;
 
     fn plane_world() -> Pheromones {
@@ -434,7 +487,7 @@ mod tests {
     /// actually lets each one through.
     fn passes(p: &mut Pheromones, n: usize) {
         for i in 0..n {
-            p.step(i as u64 * PHEROMONE_INTERVAL);
+            p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         }
     }
 
@@ -479,7 +532,7 @@ mod tests {
                     }
                 }
             }
-            p.step(i as u64 * PHEROMONE_INTERVAL);
+            p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         }
 
         let (mut px, mut py) = (34i32, 80i32);
@@ -531,7 +584,7 @@ mod tests {
                     }
                 }
             }
-            p.step(step as u64 * PHEROMONE_INTERVAL);
+            p.step(step as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         }
         (on_trail as f32 / steps as f32, (furthest - 34) as f32 / (219.0 - 34.0))
     }
@@ -552,7 +605,7 @@ mod tests {
             let mut p = Pheromones::with_params(Rect::new(0, 0, 255, 191), diffuse, DECAY_RHO);
             p.deposit(Channel::A, 128, 96, 200);
             for i in 0..12 {
-                p.step(i as u64 * PHEROMONE_INTERVAL);
+                p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             }
             print!("  {diffuse:<10.2}");
             for d in 0..10 {
@@ -568,7 +621,7 @@ mod tests {
                 for x in 40..220 {
                     p.deposit(Channel::A, x, 96, DEPOSIT);
                 }
-                p.step(i as u64 * PHEROMONE_INTERVAL);
+                p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             }
             print!("  {diffuse:<10.2}");
             for d in 0..10 {
@@ -639,7 +692,7 @@ mod tests {
         // 255 forced decrements is the worst case even if diffusion did
         // nothing at all, so this bound cannot be the thing that fails.
         for pass in 0..400 {
-            p.step(pass * PHEROMONE_INTERVAL);
+            p.step(pass * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             let now = p.plane(Channel::A).max();
             assert!(now <= previous, "pass {pass}: plane max rose from {previous} to {now}");
             previous = now;
@@ -676,7 +729,7 @@ mod tests {
         // Let it drain completely, then confirm it goes back to sleep
         // rather than staying awake forever once disturbed.
         for pass in 0..600 {
-            p.step(pass * PHEROMONE_INTERVAL);
+            p.step(pass * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         }
         assert_eq!(p.plane(Channel::A).max(), 0);
         let before = p.stats.tiles_processed;
@@ -705,7 +758,7 @@ mod tests {
                 p.deposit(Channel::A, 63, y, DEPOSIT);
                 p.deposit(Channel::B, 64, y, DEPOSIT);
             }
-            p.step(i as u64 * PHEROMONE_INTERVAL);
+            p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         }
 
         for d in 0..8 {
@@ -763,7 +816,7 @@ mod tests {
             for i in 0..20 {
                 p.deposit(Channel::A, 40 + i * 3, 90 + (i % 7), 90);
                 p.deposit(Channel::B, 200 - i * 2, 120, 70);
-                p.step(i as u64 * PHEROMONE_INTERVAL);
+                p.step(i as u64 * PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
             }
             let a: Vec<u8> = (0..256).map(|x| p.sample(Channel::A, x, 90)).collect();
             let b: Vec<u8> = (0..256).map(|x| p.sample(Channel::B, x, 120)).collect();
@@ -803,10 +856,10 @@ mod tests {
         let mut p = plane_world();
         p.deposit(Channel::A, 100, 100, 200);
         for frame in 1..PHEROMONE_INTERVAL {
-            p.step(frame);
+            p.step(frame, PHEROMONE_INTERVAL);
         }
         assert_eq!(p.stats.passes, 0, "off-interval frames must not run a pass");
-        p.step(PHEROMONE_INTERVAL);
+        p.step(PHEROMONE_INTERVAL, PHEROMONE_INTERVAL);
         assert_eq!(p.stats.passes, 1);
     }
 }

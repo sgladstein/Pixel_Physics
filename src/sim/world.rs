@@ -1002,7 +1002,8 @@ impl World {
     /// `PHEROMONE_INTERVAL` gate lives inside, so no caller has to know
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
-        self.pheromones.step(self.frame);
+        let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
+        self.pheromones.step(self.frame, interval);
     }
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
@@ -3031,7 +3032,7 @@ impl World {
         // that settles repeatedly stacking sites and turning the decay rate
         // into a function of how often the ground was disturbed.
         for (x, y) in settled_decayables {
-            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.organism_due(decay::DECAY_TICK_INTERVAL) });
         }
     }
 
@@ -3109,6 +3110,10 @@ impl CellSurface for World {
     #[inline]
     fn frame(&self) -> u64 {
         self.frame
+    }
+
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        World::organism_due(self, base_interval)
     }
 
     #[inline]

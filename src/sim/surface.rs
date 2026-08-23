@@ -119,6 +119,19 @@ pub trait CellSurface {
     /// decay). See `World::frame`.
     fn frame(&self) -> u64;
 
+    /// An organism-schedule interval scaled by the world clock's
+    /// `growth_slowdown`, as an absolute frame to be due on — `World::
+    /// organism_due` reached through the trait.
+    ///
+    /// Exists because `fire::tick_burn` schedules a burnout's first ash-decay
+    /// check, and decay rides the growth knob: litter and ash are *produced*
+    /// per organism tick but weathered per real frame, so an unscaled decay
+    /// leaves a slowed forest holding 1/N the standing litter. Computing it
+    /// as `frame() + DECAY_TICK_INTERVAL` here would have quietly opted this
+    /// one scheduling site out of that. See `sim::clock::Clock::
+    /// growth_slowdown`.
+    fn organism_due(&self, base_interval: u64) -> u64;
+
     /// Report that a denser cell just displaced near-full liquid at `(x, y)`
     /// with open air above it — a **candidate** splash site, not a splash.
     ///
