@@ -1756,43 +1756,62 @@ single re-derivation rather than to this package.
 **§Z / C4: a metric that can fail, and it does.** §Z's two candidates — canopy
 components at the field's resolution, and sky-gap width — are built in
 `examples/plant_probe.rs` and calibrated against the answered cards. Swept over
-founder spacing, default 512-wide stand, frame 28,800:
+founder spacing, default 512-wide stand, frame 28,800, current build:
 
-| trees | spacing | components | largest component's share | interior gaps found / possible | `thickest contiguous run` |
+| trees | spacing | **canopy fusion** | sky-gap widths | gaps >= 8 cells | `thickest contiguous run` |
 |---|---|---|---|---|---|
-| 8 | 56 | 1 | **100%** | **0 / 7** | 38 |
-| 5 | 85 | 1 | **100%** | **0 / 4** | 43 |
-| 4 | 102 | 1 | **100%** | **0 / 3** | 43 |
-| 3 | 128 | 5 | 38% | 2 / 2 | 39 |
-| 2 | 170 | 2 | 58% | 1 / 1 | 36 |
+| 8 | 56 | **99%** | [1] | 0 | 51 |
+| 4 | 102 | **100%** | [4] | 0 | 43 |
+| 3 | 128 | 38% | [1, 32] | 1 | 39 |
+| 2 | 170 | 58% | [13] | 1 | 36 |
+
+"Canopy fusion" is the largest connected component's share of the blocks that
+hold any foliage, counted 8-connected at `field::FIELD_SCALE`.
 
 **Calibrated against the absolute card, and it agrees.** On the 8-founder stand
 — the one the owner judged "everything has merged together into a big mass, I
-cannot identify individual trees" — the metric reads one component holding
-**100%** of canopy blocks and **zero of seven** interior sky gaps. §Z's
-requirement was a metric that can fail where the eye fails; this one does.
+cannot identify individual trees" — it reads **99% fusion and no crown-scale
+gap in seven**. §Z's requirement was a metric that can fail where the eye
+fails; this one does. And it splits in exactly one place: **>= 99% on every
+stand that reads as one mass, <= 58% on every stand that reads as separate
+trees**, boundary between 102 and 128 cells of spacing.
 
-**And the last column is the point.** `thickest contiguous run` — the number §Z
-records as having been believed once and overturned — reads **36 to 43 across
-the entire range**, and is *highest* on the stands that are completely fused.
-It cannot distinguish an eight-tree mass from two separate trees. That is not a
-tuning problem; it is measuring whether crowns *touch*.
+**The last column is the point.** `thickest contiguous run` — the number §Z
+records as having been believed once and overturned — reads **36 to 51 across
+the entire range**, and is *highest* (51) on the stand that is most completely
+fused. It cannot distinguish an eight-tree mass from two separate trees. That
+is not a tuning problem; it measures whether crowns *touch*.
 
-Two cautions, both from the sweep rather than from theory:
+Three cautions, each measured rather than assumed, and two of them are mistakes
+this session made and caught by looking at the render:
 
-- **Read the largest component's share, not the component count.** The count
-  reads 5 for 3 founders, because a sparse crown breaks into separate blocks.
-  More components than founders means gappy foliage, not extra trees.
-- **The fusion threshold sits between 102 and 128 cells of spacing** on the
-  current tree. Both readings flip together there, which is what makes them
-  one finding rather than two.
+- **The gap census must count foliage, not any plant cell.** The first version
+  reported *zero* gaps on the 4-founder stand whose render plainly shows sky
+  between crowns, because the shed litter and root mound at the foot of a stand
+  is continuous across every column — it was measuring the forest floor.
+- **Its threshold must be absolute, not a fraction of founder spacing.** A gap
+  counted as real only if it cleared a quarter of the spacing scored the
+  2-founder stand — two obviously separate trees with a 13-cell strip of sky
+  between them — at **zero**, because a quarter of 170 is 42. A 13-cell strip
+  of sky is as visible at 170 spacing as at 60. It is one field block now.
+- **Do not read the component count on its own.** It goes *above* the founder
+  count on a widely spaced stand, because a sparse crown breaks into separate
+  blocks. More components than founders means gappy foliage, not extra trees.
+
+Even fixed, the gap census under-counts by construction: the 3-founder stand
+shows two separations to the eye and scores one, because two of its crowns
+touch at a single point. **Fusion is the headline; the gap census is supporting
+evidence.** Fusion also needed no threshold, which is why it is the one to
+trust.
 
 **Not calibrated against the blind A/B card's "partial" verdict**, and this is
 the honest limit: that card's other arm is `plant-substrate-v2`, a branch this
-package cannot run. What the sweep shows instead is that the metric is not
-stuck at "fused" — it moves across the spacing range — so a partial stand is
-representable. Whether it reads *partial* the way the owner reads partial is
-untested. A card was posted asking exactly that.
+package cannot run. The sweep shows the metric is not stuck at "fused" — it
+moves across the spacing range — so a partial stand is representable. Whether
+it reads *partial* the way the owner reads partial is untested, and card
+`20260823T092919055Z-ac816a` asks exactly that: three strips at 56, 102 and 128
+spacing, with the question "how many separate trees can you count in each",
+and the founder counts deliberately withheld.
 
 **Lineage turnover (Phase 0d), printed for the first time.** Over 28,800 frames
 on the 8-tree stand: **72 organisms born, 0 died**, and **0 of 8 established

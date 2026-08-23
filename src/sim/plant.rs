@@ -7567,13 +7567,13 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     /// `SHOOT_SPREAD_BAR` stays at the original guard's 20% — what changes is
     /// that it now stands on a sweep instead of one seed. Measured over all
     /// eight: per-seed spreads 1, 3, 0, 8, 2, 0, 0, 13 %, mean **4.8%, SE
-    /// 1.8%**. Over this guard's own four: **mean 3.0%, worst 8%**. So the bar
-    /// is far above the quantity it tests on either reading, and clear of the
-    /// worst seed in the whole population — which is what stops it flaking the
-    /// way §A's root half did.
+    /// 1.8%**. Over this guard's own four: **mean 3.2%, worst seed 8.5%**. So
+    /// the bar is far above the quantity it tests on either reading, and clear
+    /// of the worst seed in the whole population — which is what stops it
+    /// flaking the way §A's root half did.
     ///
     /// `ROOT_INVERSION_BAR` is the *other* side of the dead lever. The mean
-    /// ratio measures **0.994, SE 0.046** over eight seeds (1.02 over this
+    /// ratio measures **0.994, SE 0.046** over eight seeds (1.022 over this
     /// guard's four) — 0.1 SE from exactly no effect — so a two-sided bar is
     /// impossible and a *forward* bar is unreachable. A floor at 0.85 catches
     /// slot 1 coming back **backwards** (three SE below the measurement)
@@ -8140,10 +8140,17 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
     ///
     /// The seed count is. §A's whole record is measured at 12,000 frames, so
     /// the guard stays there and pays for the sweep with seeds instead: four
-    /// rather than eight, which is 90 s in release and still an order
-    /// statistic rather than the single seed that let this guard flip red and
-    /// green on unrelated changes to ground cover. The reproduction and
-    /// `print_root_branch_slot_seed_sweep` keep all eight.
+    /// rather than eight, and still an order statistic rather than the single
+    /// seed that let this guard flip red and green on unrelated changes to
+    /// ground cover. The reproduction and `print_root_branch_slot_seed_sweep`
+    /// keep all eight.
+    ///
+    /// Measured cost, so the next person does not have to guess before
+    /// widening it: **108 s in a debug build, ~90 s in release** (the 8-seed
+    /// sweep is 181 s release). Debug is only 1.2x release here rather than
+    /// the usual multiple, which is why this can run in *both* CI test jobs
+    /// — and it must, because the debug job is the only place this repo's
+    /// `debug_assert!` invariants are compiled at all.
     const GUARD_FRAMES: usize = 12_000;
     const GUARD_SEEDS: u64 = 4;
 

@@ -717,35 +717,58 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             gaps.len(),
             trees.saturating_sub(1)
         );
-        // **A one-cell gap is not a gap.** §Z's own lesson: "crowns interleave
-        // with one- and two-cell gaps: every row breaks, and the eye still
-        // reads one mass". The raw count above finds a 1-cell gap in the
-        // fused 8-founder stand; graded against the founder spacing it finds
-        // none, which is what the owner reported seeing.
-        let real_gaps = gaps.iter().filter(|&&g| g as i32 * 4 >= spacing).count();
-        println!("  founder spacing is {spacing} cells; gaps at least a quarter of it: {real_gaps}");
-        // **The two readings to trust, and the one not to.** Swept over
+        // **A one-cell gap is not a gap, and the threshold must not scale
+        // with spacing.** §Z's own lesson is the first half: "crowns
+        // interleave with one- and two-cell gaps: every row breaks, and the
+        // eye still reads one mass". The raw count above duly finds a 1-cell
+        // gap in the fused 8-founder stand.
+        //
+        // The second half was got wrong first and the sweep caught it. A
+        // gap counted as real if it cleared *a quarter of the founder
+        // spacing* scored the 2-founder stand — two obviously separate
+        // trees, 170 apart, with a clear 13-cell strip of sky between them —
+        // at **zero**, because a quarter of 170 is 42. That is backwards: a
+        // 13-cell strip of sky is exactly as visible whether the founders
+        // are 60 cells apart or 170. The threshold is absolute.
+        //
+        // One field block, matching the resolution the components are
+        // counted at, so the two readings answer at the same scale. Measured
+        // gap widths across the spacing sweep: `[1]` at 8 founders, `[4]` at
+        // 4, `[1, 32]` at 3, `[13]` at 2 — so this reads 0, 0, 1, 1, which is
+        // the split the renders show.
+        const CROWN_GAP: usize = 8;
+        let real_gaps = gaps.iter().filter(|&&g| g >= CROWN_GAP).count();
+        println!("  founder spacing is {spacing} cells; gaps at least {CROWN_GAP} cells wide: {real_gaps}");
+        // **The reading to trust is the fusion percentage.** Swept over
         // founder spacing on the default 512-wide stand at 28,800 frames:
         //
-        //   trees  spacing  components  largest  gaps found/possible  old run
-        //     8      56          1       100%          0 / 7            38
-        //     5      85          1       100%          0 / 4            43
-        //     4     102          1       100%          0 / 3            43
-        //     3     128          5        38%          2 / 2            39
-        //     2     170          2        58%          1 / 1            36
+        //   trees  spacing  fusion  gap widths  crown-scale gaps  old run
+        //     8      56       99%      [1]             0            51
+        //     4     102      100%      [4]             0            43
+        //     3     128       38%      [1, 32]         1            39
+        //     2     170       58%      [13]            1            36
         //
-        // The **largest component's share** and the **gap census** both flip
-        // cleanly between 102 and 128 cells of spacing, which is where the
-        // stand stops being one mass. The **component count** does not: it
-        // reads 5 for 3 trees, because a sparse crown breaks into separate
-        // blocks — more components than founders means gappy foliage, not
-        // extra trees, so the count alone is not the number to read.
+        // Fusion splits cleanly and in one place: **>= 99% on every stand
+        // that reads as one mass, <= 58% on every stand that reads as
+        // separate trees**, with the boundary between 102 and 128 cells of
+        // spacing. Nothing has to be chosen to read it.
+        //
+        // The gap census is supporting evidence, not the headline. It
+        // under-counts by construction — the 3-founder stand shows two
+        // separations to the eye and scores one, because two of its crowns
+        // touch at a single point — and it needed a threshold, which fusion
+        // did not.
+        //
+        // Do **not** read the component count on its own: it goes above the
+        // founder count on a widely spaced stand, because a sparse crown
+        // breaks into separate blocks. More components than founders means
+        // gappy foliage, not extra trees.
         //
         // And the last column is `thickest contiguous run`, the metric §Z
-        // records as having lied: **36 to 43 across the whole range**,
-        // highest on the stands that are completely fused. It cannot tell an
-        // eight-tree mass from two separate trees. That is the comparison
-        // this block exists to make.
+        // records as having lied: **36 to 51 across the whole range**, and
+        // *highest* on the stand that is most completely fused. It cannot
+        // tell an eight-tree mass from two separate trees. That is the
+        // comparison this block exists to make.
         let largest_share = 100 * components(1).1 / blocks_with_any.max(1);
         println!(
             "  --> canopy fusion {largest_share}% (100% = one mass), {real_gaps} of {} crown-scale gaps found \
