@@ -196,7 +196,8 @@ pub struct App {
     /// persistent `Vec<Tunable>` on `App` to keep in sync with material
     /// hot-reload, deliberately; see `tunables_list`'s own doc.
     tunables_selected: usize,
-    /// Which menu the tunables panel is showing. `PageUp`/`PageDown`.
+    /// Which menu the tunables panel is showing. `Tab` (or `PageUp`/
+    /// `PageDown`, which not every keyboard has).
     tunables_group: TunableGroup,
     /// The tunable currently pinned for live adjustment with the panel
     /// *closed* — `Enter` in the panel sets it and closes.
@@ -879,7 +880,10 @@ impl App {
         out
     }
 
-    /// `PageUp`/`PageDown` — switch which menu the panel shows. Resets the
+    /// `Tab` — switch which menu the panel shows. `PageUp`/`PageDown` do
+    /// the same and came first, but they are missing from 60% and many
+    /// laptop keyboards, which left the `WORLD` menu unreachable there.
+    /// Resets the
     /// selection, since an index into one group means nothing in another.
     pub fn tunables_cycle_group(&mut self) {
         self.tunables_group = self.tunables_group.next();
@@ -1465,7 +1469,7 @@ impl App {
             HEIGHT,
             left + 8,
             top + 16,
-            "PGUP/PGDN MENU   UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER PIN+CLOSE   S SAVE",
+            "TAB MENU   UP/DOWN SELECT   LEFT/RIGHT ADJUST   ENTER PIN+CLOSE   S SAVE",
             DIM,
         );
         if list.is_empty() {
@@ -1776,7 +1780,7 @@ impl App {
                 Key("F5", "RELOAD ASSETS"),
                 Blank,
                 Head("TUNING"),
-                Key("O", "TUNABLES PANEL"),
+                Key("O", "TUNABLES PANEL (TAB: MENU)"),
                 Key("K", "A/B EXPERIMENT"),
                 Key("/ ESC", "THIS HELP / CLOSE"),
             ],

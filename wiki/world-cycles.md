@@ -12,9 +12,10 @@ A full day used to take one minute of real time and could not be changed.
 It is a **setting** now, and so are four other paces, each independent of the
 others: how long a **day** lasts, how fast **plants grow**, how fast the
 **weather** changes its mind, how fast **creatures** act, and how fast the
-**gnome** moves. They live under `O` → WORLD (`PageUp`/`PageDown` to reach
-the menu), and each one is a whole multiple of its normal speed — 8 means
-eight times slower. The day is named on the title bar at every setting.
+**gnome** moves. They live under `O` → WORLD (`Tab` cycles between the
+panel's menus), and each one is a whole multiple of its normal speed — 8
+means eight times slower. The day is named on the title bar at every
+setting.
 
 **Slowing the world does not slow the world's physics.** Sand falls at the
 same rate, water flows at the same rate, a collapse comes down at the same

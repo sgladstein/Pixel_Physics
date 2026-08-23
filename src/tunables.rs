@@ -85,9 +85,17 @@ impl TunableGroup {
         }
     }
 
+    /// **Kept an exact inverse of [`Self::next`], and guarded as one.** This
+    /// read `Physics => Player` for as long as `World` existed: the world-speed
+    /// menu was added to `next` and to `all`, and this direction was missed.
+    /// Nothing caught it because `prev` has no caller yet -- an unused `pub fn`
+    /// is not dead code to clippy -- so the bug was waiting for whoever first
+    /// wired a "previous menu" key, which is exactly the reader least able to
+    /// tell a wrong answer from a right one. `next_and_prev_are_inverses`
+    /// fails now if a new variant updates only one direction.
     pub fn prev(self) -> Self {
         match self {
-            TunableGroup::Physics => TunableGroup::Player,
+            TunableGroup::Physics => TunableGroup::World,
             TunableGroup::Visual => TunableGroup::Physics,
             TunableGroup::Explosion => TunableGroup::Visual,
             TunableGroup::Player => TunableGroup::Explosion,
@@ -646,6 +654,39 @@ fn format_value(v: f32, integral: bool) -> String {
 mod tests {
     use super::*;
     use crate::sim::material;
+
+    /// **`next` and `prev` must be exact inverses, in both directions and
+    /// over every variant.** The bug this replaces is the one a `match` over
+    /// an enum invites: `World` was added, `next` and `all` were updated, and
+    /// `prev` was left mapping `Physics` to `Player` -- correct before the
+    /// variant existed, silently skipping it after. It survived because
+    /// nothing calls `prev` yet, so no test and no lint had any reason to
+    /// look at it.
+    ///
+    /// Asserted as a round trip rather than as a table of expected pairs: a
+    /// table has to be edited when a variant is added, which is the very
+    /// thing that went wrong, whereas a round trip over `all()` simply grows.
+    #[test]
+    fn next_and_prev_are_inverses() {
+        for g in TunableGroup::all() {
+            assert_eq!(g.next().prev(), g, "{:?}.next().prev() left the cycle", g);
+            assert_eq!(g.prev().next(), g, "{:?}.prev().next() left the cycle", g);
+        }
+        // ...and `next` alone must visit every group, or a menu exists that
+        // no amount of pressing the cycle key can reach. `WORLD` is the one
+        // that matters today: every world-speed knob lives behind it.
+        let mut seen = vec![TunableGroup::Physics];
+        let mut g = TunableGroup::Physics;
+        for _ in 1..TunableGroup::all().len() {
+            g = g.next();
+            assert!(!seen.contains(&g), "cycling revisited {:?} before covering every group", g);
+            seen.push(g);
+        }
+        assert_eq!(g.next(), TunableGroup::Physics, "the cycle must close");
+        for want in TunableGroup::all() {
+            assert!(seen.contains(&want), "{:?} is unreachable by cycling the panel key", want);
+        }
+    }
 
     #[test]
     fn every_group_is_reachable_and_visual_changes_nothing_in_the_simulation() {
