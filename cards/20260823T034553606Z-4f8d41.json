@@ -1,0 +1,65 @@
+{
+  "id": "20260823T034553606Z-4f8d41",
+  "created": "2026-08-23T03:45:53Z",
+  "board": "tooling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "main",
+    "commit": "5515071",
+    "agent": null,
+    "session_id": "7ff60202-d78e-52c7-ad3a-0602bd46abb2",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The review queue on a phone",
+  "question": "Is this usable on your phone, or does something need to be bigger, closer to the thumb, or out of the way?",
+  "context_md": "`python3 scripts/review.py serve --lan` prints a tappable link with a key in it; anything on the same Wi-Fi can open it.\n\n- The **header scrolls away** rather than sticking — it was 155px of an 844px screen, and the artifact is what the screen is for.\n- **Send verdicts**, the queue path and the sync state sit one tap behind the ☰, so a thumb cannot brush the button that pings every agent.\n- Images stay small on the card and are meant to be opened full screen, where they **pinch, pan, double-tap between fit and 1:1, and take a pin where you tap**.\n\nThe desktop page is unchanged — 54 shared elements in the same place as before this landed.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Phone — feed",
+      "files": [
+        "20260823T034553606Z-4f8d41/000-phone-feed.png"
+      ],
+      "caption": "390x844. Two open cards; filters as chip rows.",
+      "meta": {
+        "viewport css px": "390x844",
+        "page width at 390": "390 (was 1272)",
+        "browser checks passing": 20,
+        "js errors during a full touch review": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "Phone — the ☰ sheet",
+      "files": [
+        "20260823T034553606Z-4f8d41/001-phone-menu.png"
+      ],
+      "caption": "Send verdicts, queue path and sync state, one tap deep.",
+      "meta": {
+        "taps to send verdicts": 2
+      },
+      "focus": null
+    },
+    {
+      "label": "Desktop — unchanged",
+      "files": [
+        "20260823T034553606Z-4f8d41/002-desktop-new.png"
+      ],
+      "caption": "1440x900, for comparison against what you already use.",
+      "meta": {
+        "elements compared against the old page": 54,
+        "elements that moved": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
