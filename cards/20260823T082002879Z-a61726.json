@@ -1,0 +1,48 @@
+{
+  "id": "20260823T082002879Z-a61726",
+  "created": "2026-08-23T08:20:02Z",
+  "board": "character",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-tree-interaction-l87ijo",
+    "commit": "32d545a",
+    "agent": null,
+    "session_id": "060d8a08-e471-5cb8-a7aa-a5b77289f8c3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Walking through a wood: the chest rule, per row vs per rect",
+  "question": "He is holding right the whole time in both. Which reads like a gnome walking through a wood — and does the one that goes further ever look like he is cheating through solid ground?",
+  "context_md": "DISCRETE COUNTS. Cells travelled over the 600 ticks after he sets off: A=98, B=357 (acceptance bar 200). On main today he stops permanently at x=107 from frame 6,600 to 18,000 — the blocker is ONE soil cell at (108,194), rejected at every step-up lift because lifting slides the offender DOWN his body and it needed one row more than step_up reaches. Sweep over 6 start frames (min/median cells): 0 -> 1/44, 2 -> 44/93, 3 -> 49/94, 4 -> 50/161, 5 -> 51/166, 6 -> 47/47 (6 is a cliff: he sinks into the floor). 849 tests pass, clippy clean. STILL OPEN, not fixed here: at the worst window he stops against a soil bank 5 cells abreast at chest height with nothing hard in it — the wade model has no way over a powder face.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shoulder_grains=0 (main today)",
+      "files": [
+        "20260823T082002879Z-a61726/000-walk0.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 22
+    },
+    {
+      "label": "shoulder_grains=4 (per row)",
+      "files": [
+        "20260823T082002879Z-a61726/001-walk4.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 22
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
