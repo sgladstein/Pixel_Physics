@@ -890,6 +890,28 @@ const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 /// ramps invite. Orange against food's cyan.
 const SCALAR_RAMP_GUT: [f32; 3] = [255.0, 150.0, 60.0];
 
+/// **What a specialised gut looks like from across the world**, herbivore
+/// and carnivore ends of `OrganismState::traits[TRAIT_GUT_BIAS]`.
+///
+/// Green and red rather than two browns, and pulled 45% of the way rather
+/// than a few bytes, **because the subtle version has already been tried
+/// and judged**: the corpse-worth ramp moves red from 84 to 104 over the
+/// whole range, the owner's verdict on widening it was "pretty minor", and
+/// the canopy-density sheet that shifted one colour byte by 16 read as
+/// blank. Two pixels cannot carry a *quantity* -- that is
+/// `OrganismOverlay::GutBias`'s job -- but they can carry an *identity*,
+/// and telling two ancestors apart on sight is the whole visible payload of
+/// S5 shipping before reproduction does.
+///
+/// The lerp is signed and anchored at zero, so a **neutral gut is drawn
+/// exactly as it always was**: the shipped ant does not change colour, and
+/// only an animal that has actually specialised is tinted. That keeps this
+/// from being a repaint of existing content.
+const GUT_TINT_PLANT: [f32; 3] = [90.0, 200.0, 90.0];
+const GUT_TINT_FLESH: [f32; 3] = [210.0, 70.0, 70.0];
+/// How far toward the tint a fully specialised gut is pulled.
+const GUT_TINT_STRENGTH: f32 = 0.45;
+
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
 /// glance, high enough that a zero cell still has a visible silhouette.
@@ -3019,6 +3041,24 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
+        // **A specialised gut wears its diet.** Gated in three widening
+        // steps so the cost lands only on the cells it is about: an
+        // `organism_id` bit test (every cell), a cell-type decode (organism
+        // cells only -- and it must come *after* the id test, because `aux`
+        // is a tagged union and a soil cell's water would decode as a
+        // nonsense cell type), and only then the organism lookup. A tree is
+        // thousands of cells and pays the two bit tests; the ~150 creature
+        // cells in a colony pay the lookup.
+        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+            if let Some(state) = world.organism(cell.organism_id()) {
+                let bias = state.traits[organism::TRAIT_GUT_BIAS].clamp(-1.0, 1.0);
+                let tint = if bias < 0.0 { GUT_TINT_PLANT } else { GUT_TINT_FLESH };
+                let t = bias.abs() * GUT_TINT_STRENGTH;
+                for (c, target) in base.iter_mut().take(3).zip(tint) {
+                    *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
         // Fractured rock draws dark along the break. Cracks are edge state
         // (`FLAG_CRACK_RIGHT`), and at 1:1 an edge has no pixels of its own
         // to draw into -- so the *cell* owning the crack is darkened

@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, Carried, CellType, CreatureDef};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef, SpeciesId, TRAIT_GUT_BIAS};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1051,7 +1051,12 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
     inputs[I::TempAboveAmb as usize] =
         ((field::noon_equivalent_temperature(here) - AMBIENT_TEMPERATURE as f32) / TEMP_INPUT_SCALE).clamp(-1.0, 1.0);
 
-    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, x, y, def).is_some() { 1.0 } else { 0.0 };
+    // **The same predicate the eat verb rolls against, deliberately.** If
+    // the eye used a wider test than the mouth, an animal would steer at
+    // food it cannot digest and the gene would be nutritional bookkeeping
+    // rather than a behaviour -- which is the whole difference S5 exists to
+    // make. A meat gut stops *seeing* leaves.
+    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, x, y, gut_of(world, organism, def)).is_some() { 1.0 } else { 0.0 };
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
@@ -1093,16 +1098,121 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
     inputs
 }
 
-/// The first food cell in the head's 8-neighbourhood, if any.
-fn adjacent_food(world: &World, x: i32, y: i32, def: &CreatureDef) -> Option<(i32, i32, material::MaterialId)> {
+/// **What one cell is worth to *this gut*** — S5's matched filter, and the
+/// only definition of it.
+///
+///     yield = food_value(cell) * (1 - |gut_bias - food_class| / 2)^2
+///
+/// A gut tuned for cellulose is bad at flesh, so specialising costs
+/// something and there is no free lunch. No transcendental, and — the
+/// reason it is one scalar and not a per-class vector (E4) — **no free
+/// dimension**: a normalised vector's overall magnitude is scale-invariant,
+/// so nothing selects on it, it drifts, and a histogram of its alleles
+/// measures that drift and reads as a result.
+///
+/// Squared rather than linear so the falloff is gentle near a match and
+/// steep far from one: a small mis-specialisation should be survivable and
+/// a large one should not, which linear cannot express.
+///
+/// Built on `food_value` rather than beside it, so a corpse's per-cell
+/// stamp still sets the scale and the `FoodValue` overlay, the probe and
+/// this cannot disagree about what is standing in a world.
+pub fn diet_yield(world: &World, cell: Cell, gut_bias: f32) -> f32 {
+    let worth = food_value(world, cell);
+    if worth <= 0.0 {
+        return 0.0;
+    }
+    let class = world.materials.get(cell.material).food_class;
+    // Clamped rather than assumed in range: both operands are authored
+    // f32s today and will be *mutated* f32s at S6, and a gut that drifted
+    // past +-1 would otherwise make the squared term climb again past the
+    // far end of the axis -- a carnivore at +3 rating leaves better than a
+    // carnivore at +1. Clamping the quality, not the gene, keeps the
+    // arithmetic honest without silently rewriting anybody's genome.
+    let quality = (1.0 - (gut_bias - class).abs() / 2.0).clamp(0.0, 1.0);
+    worth * quality * quality
+}
+
+/// **The yield below which a mouthful is not food at all**, and the number
+/// that makes the gene change *behaviour* rather than only bookkeeping: a
+/// meat-gut animal literally stops seeing leaves, because `FoodAdjacent`
+/// and the eat verb read this same predicate.
+///
+/// 12.0 — a tenth of the 120 every authored food in the world carries.
+/// Derived from the filter's own arithmetic rather than measured, and the
+/// gap is left visible per `CLAUDE.md` rather than relabelled away:
+///
+///   gut     plant (class -1)     flesh (class +1)     reads as
+///   0.0     120 * 0.25 =  30     worth * 0.25         generalist, sees both
+///  -0.8     120 * 0.81 =  97     120  * 0.01 =  1.2   blind to carrion
+///  +0.8     120 * 0.01 = 1.2     120  * 0.81 =  97    blind to plants
+///
+/// The bar has to sit below a generalist's 30 and above a specialist's
+/// 1.2; a tenth of a mouthful is the round number in that gap. **It wants
+/// re-deriving from WP-8's survival-versus-`gut_bias` sweep** once Lane A's
+/// instruments land — a threshold set from an argument is exactly the shape
+/// this project has been bitten by, and it is recorded as such here rather
+/// than presented as measured.
+pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
+
+/// A creature's diet, resolved **once** at a site that already holds the
+/// organism rather than per neighbour cell.
+///
+/// This replaces `CreatureDef::food`, a `Vec<String>` resolved by name
+/// against the material registry for every one of the eight neighbours,
+/// every tick — ~32 string hashes per creature-tick, and the saving S3
+/// promised and could not bank because the list was still the only thing
+/// keeping ants off each other.
+#[derive(Clone, Copy)]
+struct Gut {
+    bias: f32,
+    /// Whose flesh counts as kin — see `is_living_kin`.
+    species: SpeciesId,
+    eats_kin: bool,
+}
+
+fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
+    Gut {
+        bias: world.organism(organism).map_or(0.0, |s| s.traits[TRAIT_GUT_BIAS]),
+        species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
+        eats_kin: def.eats_kin,
+    }
+}
+
+/// Whether `cell` is living tissue of `species`.
+///
+/// **The diet axis provably cannot answer this, which is why it is asked
+/// separately.** `ant` material is `food_class: 1.0` worth 120, and a
+/// *starved* ant's corpse cell is `food_class: 1.0` worth `body_energy +
+/// 0/cells` — also exactly 120. Same class, same number. No `gut_bias` and
+/// no threshold separates them, so the handoff's "set the threshold so
+/// ant-flesh lands below it" would take the starved corpse off the menu
+/// with the nestmate — and the starved corpse is precisely the case S3's
+/// structural stamp exists to keep edible, since an animal dead at zero
+/// has no leftover to be worth.
+///
+/// So the difference gets stated as data, per `CLAUDE.md`, and the data
+/// already existed: `creature_dies` writes a corpse **without** an organism
+/// id. Live tissue belongs to somebody; carrion belongs to nobody.
+///
+/// Same species rather than any creature, so beetle-eats-ant predation
+/// keeps working by construction rather than by a second exemption. It also
+/// stops an animal eating its own tail — `adjacent_food` scans the head's
+/// 8-neighbourhood, which contains the next link of its own chain, and the
+/// name list was the only thing preventing that too.
+fn is_living_kin(world: &World, cell: Cell, species: SpeciesId) -> bool {
+    world.organism(cell.organism_id()).is_some_and(|s| s.species == species)
+}
+
+/// The first cell in the head's 8-neighbourhood this gut will take, with
+/// what it is worth to *this* animal.
+fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(i32, i32, material::MaterialId)> {
     NEIGHBOURS_8.iter().find_map(|&(dx, dy)| {
-        let m = world.get(x + dx, y + dy).material;
-        // Resolved by name per tick rather than cached on the species: a
-        // handful of hash lookups per creature per tick (~50 a frame at 100
-        // ants) against the alternative, which is a resolved-id cache that
-        // has to be invalidated on every F5 material reload. Cheap enough
-        // that the simpler mechanism wins.
-        def.food.iter().any(|name| world.materials.id_of(name) == Some(m)).then_some((x + dx, y + dy, m))
+        let cell = world.get(x + dx, y + dy);
+        if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
+            return None;
+        }
+        (diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD).then_some((x + dx, y + dy, cell.material))
     })
 }
 
@@ -1156,8 +1266,9 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
 
     // --- eat / pick up --------------------------------------------------
+    let gut = gut_of(world, organism, def);
     if carrying.is_none() {
-        if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, def) {
+        if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, gut) {
             if draw.unit_f32() < feed_urge {
                 // **What the mouthful is worth, read off the mouthful.**
                 // This is the keystone: it used to be `def.eat_energy`, a
@@ -1170,7 +1281,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **Two numbers, and conflating them is a bug in both
+                // directions.** `worth` is what the mouthful is worth to
+                // anybody -- it is what goes back into the world if this
+                // is a pickup rather than a bite, because *carrying food
+                // does not digest it* and a leaf ferried by a carnivore
+                // must not arrive at the nest devalued. `gain` is what
+                // this gut gets out of swallowing it, which since S5 is
+                // the matched filter and not the cell's face value.
+                //
+                // Gating on the filter without paying it was the first
+                // version of this change, and `ascii` said so in the way
+                // `CLAUDE.md` warns is the tell: byte-identical output
+                // across a change that had to move something. Every food
+                // still cleared the threshold at the shipped neutral gut,
+                // so the menu did not move -- and nothing else could,
+                // because the eat verb was still crediting face value.
                 let worth = food_value(world, bite);
+                let gain = diet_yield(world, bite, gut.bias);
                 let banked = world.materials.get(bite.material).worth_in_aux;
                 let shade = bite.shade;
                 // If the mouthful belonged to somebody, tell them. Without
@@ -1183,17 +1311,31 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 }
                 if hungry {
                     if let Some(state) = world.organism_mut(organism) {
-                        state.energy += worth;
+                        state.energy += gain;
                     }
                     // **Two accounts, because they are two different
                     // things.** Meat came out of a stock something paid
                     // for; plant matter is still free, and saying so in the
                     // census is the only reason the sealed-box test can
                     // tell a closed loop from the sun.
+                    //
+                    // **Booked at `gain`, not at `worth`, and which one it
+                    // is decides which identity survives S5.** The live
+                    // identity is an equality and catches charges that do
+                    // not land, so it has to see exactly what the animal
+                    // received; booking face value against a gut that only
+                    // absorbed a quarter of it would conjure the rest. The
+                    // meat identity is already an upper bound (see
+                    // `EnergyLedger`), and under-subtracting from it leaves
+                    // it a *valid* bound, just looser -- the digestive loss
+                    // joins the `meat_lost` seam as slack rather than
+                    // breaking anything. If that slack is ever wanted
+                    // tight, it needs its own sink term beside
+                    // `meat_lost`, which is WP-6's file and not this one's.
                     if banked {
-                        world.energy_ledger.harvested_corpse += worth as f64;
+                        world.energy_ledger.harvested_corpse += gain as f64;
                     } else {
-                        world.energy_ledger.harvested_plant += worth as f64;
+                        world.energy_ledger.harvested_plant += gain as f64;
                     }
                     world.creature_stats.eats += 1;
                 } else {
@@ -1238,15 +1380,19 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // carry the next one.
     if let (Some(held), true) = (carrying, hungry) {
         if draw.unit_f32() < feed_urge {
-            let worth = food_value(world, held.into_cell(world));
+            // The gut applies here too: swallowing what you are holding is
+            // still swallowing. The stored `worth` stays face value because
+            // the *other* exit from this branch puts the cell back in the
+            // world (see `Carried`), and only this one digests it.
+            let gain = diet_yield(world, held.into_cell(world), gut.bias);
             if let Some(state) = world.organism_mut(organism) {
-                state.energy += worth;
+                state.energy += gain;
                 state.carrying = None;
             }
             if world.materials.get(held.material).worth_in_aux {
-                world.energy_ledger.harvested_corpse += worth as f64;
+                world.energy_ledger.harvested_corpse += gain as f64;
             } else {
-                world.energy_ledger.harvested_plant += worth as f64;
+                world.energy_ledger.harvested_plant += gain as f64;
             }
             world.creature_stats.eats += 1;
             return;
@@ -2718,7 +2864,14 @@ mod tests {
     fn verbs_scene(feed: f32, dig: f32) -> (u64, u64) {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
-        let corpse = w.materials.id_of("corpse").expect("corpse");
+        // **A leaf, and it used to be a corpse.** This test is about the
+        // Feed/Dig split and the food is incidental to it -- but S5 made
+        // the shipped ant a detritivore that cannot digest carrion at all,
+        // so the corpse arm stopped feeding and the failure read as "Feed
+        // no longer eats". Swapped for a food this species actually eats,
+        // rather than overriding the gut here: a wiring test should not
+        // have to know about diet, and it does not now.
+        let food = w.materials.id_of("leaf").expect("leaf");
         for cx in 90..130 {
             w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
         }
@@ -2730,7 +2883,7 @@ mod tests {
         // but can never be the dig target -- otherwise the dig arm would
         // excavate the corpse and book it as a dig.
         w.set(101, 100, Cell::new(soil, 0).with_attached(true));
-        w.set(101, 99, Cell::new(corpse, 0));
+        w.set(101, 99, Cell::new(food, 0).with_attached(true));
 
         let species = w.species.id_of("ant").expect("ant species");
         let def = w.species.get(species).creature.as_ref().expect("creature").clone();
@@ -2953,11 +3106,15 @@ mod tests {
 
     #[test]
     fn a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it() {
-        // **Nothing in the engine knows what "predator" means.** `food:` is
-        // a list of material names, "ant" is a material, and the existing
-        // eat verb does the rest -- the same verb that eats corpses and
-        // leaves. This was found by accident: an isolation test put a
-        // beetle and an ant in one world and the ant vanished.
+        // **Nothing in the engine knows what "predator" means.** It used
+        // to be that `food:` was a list of material names and "ant" was a
+        // material; since S5 it is a carnivore `gut_bias` against `ant`
+        // material's `food_class: 1.0`, and the existing eat verb still
+        // does the rest -- the same verb that eats corpses and leaves.
+        // Predation also survives the `eats_kin` default for free, because
+        // a beetle's kin is a beetle and an ant is somebody else's flesh.
+        // This was found by accident: an isolation test put a beetle and an
+        // ant in one world and the ant vanished.
         //
         // The other half is `reconcile_chain`: a bite removes one cell, and
         // an organism only released itself when *every* cell was gone, so
@@ -3004,6 +3161,240 @@ mod tests {
         let ant_material = w.materials.id_of("ant").unwrap();
         let leftovers = (92..112).flat_map(|x| (96..101).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == ant_material).count();
         assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
+    }
+
+    /// Set one species' gut for the duration of a test.
+    fn set_gut(w: &mut World, species: &str, bias: f32) {
+        let id = w.species.id_of(species).expect("species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.traits[TRAIT_GUT_BIAS] = bias;
+        w.species.set_creature(id, def);
+    }
+
+    /// **A meat gut stops *seeing* leaves**, which is the whole difference
+    /// between S5 being a behaviour and S5 being bookkeeping.
+    ///
+    /// Read through `probe`, so it asserts on the input the *brain* gets
+    /// rather than on the eat verb's private predicate: the plan's
+    /// requirement is that `BrainInput::FoodAdjacent` and the mouth read
+    /// the same gene-dependent test, and an animal that steers at food it
+    /// cannot digest has the gene without the behaviour.
+    ///
+    /// Paired -- the same ant, the same leaf, the same cell -- so the only
+    /// thing that differs between the two readings is the gut. A single
+    /// arm here would be a sample of one against a remembered number.
+    #[test]
+    fn a_meat_gut_stops_seeing_leaves() {
+        let leaf_beside_an_ant = |bias: f32| -> f32 {
+            let mut w = test_world();
+            for x in 90..110 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            set_gut(&mut w, "ant", bias);
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            w.set(101, 100, Cell::new(leaf, 0));
+            let def = w.species.get(w.organism(ant).unwrap().species).creature.as_ref().unwrap().clone();
+            let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+            inputs[brain::BrainInput::FoodAdjacent as usize]
+        };
+
+        // A leaf is `food_class: -1.0` worth 120. Against a neutral gut the
+        // filter reads 0.25 -> 30, over the bar of 12; against +0.9 it
+        // reads 0.0025 -> 0.3, under it.
+        assert_eq!(leaf_beside_an_ant(0.0), 1.0, "a generalist must see a leaf it is standing next to");
+        assert_eq!(leaf_beside_an_ant(0.9), 0.0, "a meat gut must not see a leaf as food -- the gene has to change what the animal perceives");
+    }
+
+    /// **A colony does not eat itself** — asserted on the predicate, not
+    /// on whether two ants happen to meet.
+    ///
+    /// The first version of this ran two ants in a sealed chamber for 1,200
+    /// frames and asserted survival, with the cannibal arm as its control.
+    /// **The control failed**, and that is why it was there: a `Chain(2)`
+    /// ant spawned four cells from another walks away long before it
+    /// decides anything, and an ant has no way to sense a nestmate as food
+    /// at range — the identical scene error the predation test above
+    /// records paying for. A survival assertion in that world passes
+    /// whatever the kin rule does, which is `CLAUDE.md`'s superseded-test
+    /// failure written fresh. So this asks `adjacent_food` directly, where
+    /// the answer is deterministic and both arms can fail.
+    ///
+    /// This is the regression net for §13i, whose measured failure was that
+    /// a colony eating its own sustains itself without foraging at all —
+    /// and for the specific way a future fix is likely to break it, which
+    /// is by reaching for a yield threshold. See `is_living_kin`: live ant
+    /// flesh and a starved ant's corpse are the same class *and* the same
+    /// number, so a threshold that hides one hides the other.
+    #[test]
+    fn an_ant_will_not_bite_a_living_nestmate_unless_its_species_says_it_may() {
+        // A carnivore gut, so the *only* thing under test is the kin rule:
+        // ant flesh is `food_class: 1.0` worth 120, which at +1.0 yields
+        // the full 120 and is edible on yield alone. If the kin rule were
+        // absent, both arms would return `Some`.
+        let nestmate_seen_as_food = |eats_kin: bool| -> bool {
+            let mut w = test_world();
+            for x in 90..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.traits[TRAIT_GUT_BIAS] = 1.0;
+            def.eats_kin = eats_kin;
+            w.species.set_creature(id, def.clone());
+
+            // `Chain(2)`, laid out to the left of the head: A takes 100 and
+            // 99, B takes 102 and 101. B's tail is then A's head's east
+            // neighbour, so the nestmate is genuinely in reach at frame 0
+            // and no walking has to happen for the question to be asked.
+            let a = spawn(&mut w, "ant", 100, 100);
+            let b = spawn(&mut w, "ant", 102, 100);
+            assert!(w.organism(a).is_some() && w.organism(b).is_some(), "both ants must place");
+            let ant_material = w.materials.id_of("ant").expect("ant material");
+            assert_eq!(w.get(101, 100).material, ant_material, "the scene must actually contain a nestmate in reach -- a mechanism looks inert when the scene lost the situation");
+
+            adjacent_food(&w, 100, 100, gut_of(&w, a, &def)).is_some()
+        };
+
+        assert!(!nestmate_seen_as_food(false), "with eats_kin off, a living nestmate is not food");
+        assert!(nestmate_seen_as_food(true), "with eats_kin on it must be -- if this fails, the arm proves nothing and the test above it is vacuous");
+    }
+
+    /// **The eat verb pays the filter, not the cell's face value** — the
+    /// half of S5 that is easy to leave out, and was.
+    ///
+    /// The first version of this change wired `gut_bias` into the two
+    /// *predicates* (the eye and the menu) and left both credit sites
+    /// reading `food_value`. Every shipped food still cleared the threshold
+    /// at the shipped neutral gut, so the menu did not move — and with the
+    /// payout unchanged, nothing else could either. `ascii` reported it in
+    /// the form `CLAUDE.md` names as the tell: output byte-identical to
+    /// `main` across a change that had to move something.
+    ///
+    /// Measured through the ledger rather than through an energy delta,
+    /// because metabolism drains the bank between bites and would make the
+    /// comparison a subtraction of two moving numbers. `harvested_plant`
+    /// over `eats` is exactly the per-bite gain: both eat paths book to it
+    /// and both bump `eats`.
+    ///
+    /// Paired across two guts on one scene, so the filter's *ratio* is the
+    /// assertion and nothing about the scene has to be held constant by
+    /// hand.
+    #[test]
+    fn the_eat_verb_pays_the_filter_not_the_face_value() {
+        let gain_per_bite = |bias: f32| -> f64 {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 70..150 {
+                for y in 111..120 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // An inexhaustible wall of leaf, row 109 left clear for the ant
+            // -- burying the animal reports "the scene lost the situation"
+            // rather than measuring anything.
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            for x in 100..122 {
+                for y in [104, 105, 106, 107, 108, 110] {
+                    w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                }
+            }
+            set_gut(&mut w, "ant", bias);
+            run(&mut w, 2_000);
+            let ant = spawn(&mut w, "ant", 110, 109);
+            assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
+            // Start it hungry: `act` takes the eat branch only below
+            // `hunger_fraction`, and a full ant picks one leaf up and then
+            // has no reason to eat again.
+            w.organism_mut(ant).expect("live").energy = 300.0;
+            run(&mut w, 20_000);
+            let st = w.creature_stats;
+            assert!(st.eats > 0, "no bite was taken at gut {bias}, so this arm measures nothing");
+            w.energy_ledger.harvested_plant / st.eats as f64
+        };
+
+        // Leaf is `food_class: -1.0` worth 120. A herbivore gut matches it
+        // exactly (filter 1.0); a neutral gut is half the axis away
+        // (filter 0.25).
+        let herbivore = gain_per_bite(-1.0);
+        let generalist = gain_per_bite(0.0);
+        assert!((herbivore - 120.0).abs() < 0.5, "a matched gut should get a leaf's whole 120, got {herbivore:.2}");
+        assert!((generalist - 30.0).abs() < 0.5, "a neutral gut should get a quarter of it, got {generalist:.2}");
+    }
+
+    /// **And not its own tail either.** `adjacent_food` scans the head's
+    /// 8-neighbourhood, which always contains the next link of the animal's
+    /// own chain, so "will not eat kin" has to cover "will not eat me".
+    ///
+    /// The `food` name list was the only thing preventing this before S5 —
+    /// by the accident that "ant" was not on the ant's own menu — and
+    /// deleting it without the kin rule would have had every carnivorous
+    /// ant in the world eating itself from the tail forward.
+    #[test]
+    fn a_creature_does_not_eat_its_own_tail() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.traits[TRAIT_GUT_BIAS] = 1.0;
+        w.species.set_creature(id, def.clone());
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+        assert_eq!(w.get(99, 100).material, ant_material, "the chain's second cell should be west of the head");
+        assert_eq!(diet_yield(&w, w.get(99, 100), 1.0), 120.0, "its own tail is nutritious on the diet axis alone -- which is exactly why liveness has to be asked separately");
+
+        assert!(adjacent_food(&w, 100, 100, gut_of(&w, ant, &def)).is_none(), "an ant must not see its own tail as food");
+    }
+
+    /// **A starved nestmate's corpse is still dinner**, which is the case a
+    /// threshold-based cannibal fix would have deleted.
+    ///
+    /// A starved animal dies at exactly 0, so its corpse cell is worth its
+    /// `body_energy` and nothing more -- 120, the same number as the live
+    /// flesh the test above forbids. The separation is liveness, not worth,
+    /// and this asserts the half that has to keep working: S3's structural
+    /// stamp exists so that closing §13l's pump did not also delete the
+    /// scavenger niche, and a gut that cannot eat a starved corpse deletes
+    /// it after all.
+    #[test]
+    fn a_starved_nestmates_corpse_is_still_dinner() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+            w.set(x, 96, Cell::new(material::STONE, 0));
+        }
+        for y in 96..102 {
+            w.set(92, y, Cell::new(material::STONE, 0));
+            w.set(111, y, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let body_energy = {
+            let id = w.species.id_of("ant").expect("ant");
+            w.species.get(id).creature.as_ref().expect("creature").body_energy
+        };
+        // The starved stamp exactly: `body_energy * cells + 0` over cells.
+        let starved = Cell::new(corpse, 0).with_aux(body_energy.round() as u16);
+        assert_eq!(diet_yield(&w, starved, 0.0), 30.0, "a starved corpse at a neutral gut is a quarter of 120 -- if this moved, the filter or the stamp did");
+        assert!(diet_yield(&w, starved, 0.0) > EAT_YIELD_THRESHOLD, "and it has to clear the bar, or the scavenger niche is gone");
+
+        // **The gut is set here, not inherited from the species.** The
+        // shipped ant is a detritivore (`ant.ron` records why) and cannot
+        // digest carrion at all, so running this on the authored value
+        // would measure that decision rather than the rule under test. The
+        // rule is that *worth* cannot separate a nestmate from a corpse and
+        // liveness must, and it has to hold for every gut that can eat
+        // meat at all -- including the one an evolved scavenger would have.
+        set_gut(&mut w, "ant", 0.0);
+        let ant = spawn(&mut w, "ant", 100, 100);
+        for x in 101..104 {
+            w.set(x, 100, starved);
+        }
+        let before = w.creature_stats.eats + w.creature_stats.pickups;
+        run(&mut w, 1200);
+        assert!(w.creature_stats.eats + w.creature_stats.pickups > before, "the ant should have taken the carrion it is standing in");
+        assert!(w.organism(ant).is_some(), "and should not have starved doing it");
     }
 
     #[test]
@@ -3477,6 +3868,43 @@ mod tests {
         w.organism_mut(ant).expect("live").energy = 300.0;
         run(&mut w, frames);
         w
+    }
+
+    /// **Where does a gut stop being able to feed the animal that has it?**
+    /// A measurement, not a guard — the number the ancestral `gut_bias`
+    /// has to be chosen against, taken on the one scene in the suite that
+    /// can answer it (an inexhaustible larder, so the only variable left is
+    /// digestion).
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn print_grazer_viability_against_gut_bias() {
+        println!("  gut   leaf yield   ratio   survived");
+        for bias in [-1.0f32, -0.9, -0.8, -0.7, -0.6, -0.5, -0.4, -0.2, 0.0] {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 70..150 {
+                for y in 111..120 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            let leaf = w.materials.id_of("leaf").expect("leaf");
+            for x in 100..122 {
+                for y in [104, 105, 106, 107, 108, 110] {
+                    w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                }
+            }
+            set_gut(&mut w, "ant", bias);
+            run(&mut w, 2_000);
+            let ant = spawn(&mut w, "ant", 110, 109);
+            w.organism_mut(ant).expect("live").energy = 300.0;
+            let yield_per_leaf = diet_yield(&w, Cell::new(leaf, 0), bias);
+            run(&mut w, 60_000);
+            println!(
+                "  {bias:>4.1}   {yield_per_leaf:>10.1}   {:>5.3}   {}",
+                grazing_ratio(&w),
+                if w.live_organism_count() > 0 { "yes" } else { "no" }
+            );
+        }
     }
 
     /// Intake over cost-of-living for a finished grazer run. **A ratio of

@@ -1050,14 +1050,26 @@ pub struct CreatureDef {
     /// narrow one. This vector is the body-side half of that call.
     #[serde(default)]
     pub trait_variance: [f32; CREATURE_TRAITS],
-    /// Materials this species will eat and carry, by name.
+    /// Whether this species will bite a **living** member of its own
+    /// species.
     ///
-    /// Owner open question #2: herbivory on live plants from day one, or
-    /// detritus only until the plant-damage interaction has been watched
-    /// once? The difference is one string in this list — herbivory works
-    /// with no new code at all, because a `Leaf` cell is just a cell and
-    /// the plant finds out through its own connectivity check.
-    pub food: Vec<String>,
+    /// **Data, because the diet axis cannot express it.** `ant` material is
+    /// `food_class: 1.0` worth 120 and a starved ant's corpse cell is
+    /// `food_class: 1.0` worth 120 — the same point on the axis and the
+    /// same number — so no `gut_bias` and no threshold tells a nestmate
+    /// from carrion. See `creature::is_living_kin`, which holds the full
+    /// account; this is the species-side opt-in, defaulting to the answer
+    /// that keeps a colony from eating itself.
+    ///
+    /// It replaces what `CreatureDef::food`'s name list was *really* doing
+    /// by the end. That list carried two separate claims — what is
+    /// nutritious, and whom it is acceptable to bite — and only the first
+    /// is a gut. S5 takes the first (`gut_bias` and the matched filter) and
+    /// this takes the second, which is why the list could finally go: the
+    /// plan's §2.3 note "the list stays as the selectivity gate until that
+    /// trait exists" was one trait short, not one stage short.
+    #[serde(default)]
+    pub eats_kin: bool,
     /// The material a nest is built from — what `AtNest` senses.
     pub nest: String,
     /// How hard this species can dig, against a material's
@@ -3084,7 +3096,7 @@ mod tests {
 
         let ant = reg.get(reg.id_of("ant").expect("ant.ron should define \"ant\""));
         let ant = ant.creature.as_ref().expect("ant is a creature");
-        assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors a neutral gut");
+        assert_eq!(ant.traits[TRAIT_GUT_BIAS], -1.0, "ant.ron authors a detritivore gut -- see that file for the viability sweep behind the value");
     }
 
     #[test]

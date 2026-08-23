@@ -3,10 +3,14 @@
 // difference is `body: Rigid(...)` below. No code anywhere knows what a
 // beetle is.
 //
-// It eats ants. That needed no new mechanism either: `food:` is a list of
-// material names and "ant" is a material, so the existing eat verb does it.
-// Losing a cell to a bite is handled by `creature::reconcile_chain` --
-// an ant that loses its head dies, one that loses a segment is injured.
+// It eats ants, and that still needs no mechanism of its own -- only the
+// spelling changed at S5. It used to be `food: ["ant", "corpse"]`, a list
+// of material names against a material called "ant"; it is now a carnivore
+// gut (`traits` below) against `ant.ron`'s `food_class: 1.0`, which reaches
+// the same two foods and no plant. Predation survives the `eats_kin`
+// default because a beetle's kin is a beetle: an ant is somebody else's
+// flesh. Losing a cell to a bite is handled by `creature::reconcile_chain`
+// -- an ant that loses its head dies, one that loses a segment is injured.
 //
 // `dig_force: 0.3` is below soil's `penetration_resistance` of 0.8, so a
 // beetle cannot dig. An ant can (1.0). That asymmetry plus the width is
@@ -43,8 +47,6 @@
         // such.
         body_energy: 200.0,
         hunger_fraction: 0.8,
-        food: ["ant", "corpse"],
-
         // Pure carnivore: both foods on this menu sit at `food_class: 1.0`,
         // so `+1.0` is the faithful translation and it costs the beetle
         // nothing -- the filter reads 1.0 against flesh, which is the same
