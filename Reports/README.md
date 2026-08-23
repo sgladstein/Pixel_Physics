@@ -163,6 +163,16 @@ tried?"*.
   from, and **§6 is item B1's answer**: shallow-fibrous against
   deep-fibrous is reachable on genome slot 5 alone, measured, with the
   sign of the axis the opposite of the obvious reading.
+- [grass-sowing-and-divergence-2026-08-23.md](grass-sowing-and-divergence-2026-08-23.md)
+  — **implemented.** The grass half of A1 and the whole of A4. Grass is sown
+  as its own layer rather than a fifth woody species, weighted by the
+  *unclamped* woody sum — the clamped one saturates at p10, which is the
+  measurement that chose the rule. Paired against main, all four woody
+  species come out bit-identical. The second half is
+  `examples/divergence.rs`, the two-patch instrument
+  `physical-trees-design-2026-08-23.md` §11.6 is waiting on: same founders,
+  one axis, scored on root:shoot and slenderness, with an exact
+  identical-patch control and §7's list of what it takes to point it at wind.
 
 The genome and appearance set, merged from `plant-substrate-v2` /
 `plant-genome`. Two of its claims did not survive contact with main's
