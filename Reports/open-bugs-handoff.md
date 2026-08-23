@@ -847,6 +847,16 @@ So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
 as description, labelled as having failed calibration, so nobody spends the
 round trip discovering this again.
 
+**The open question for whoever tries again**, put to the owner as card
+`20260823T150917441Z-d236fd`: *what is the eye using* on the 4-founder
+stand? The crowns touch, so it is not sky. If the answer is "the trunks",
+that is countable and a third candidate exists — count distinct
+trunk columns crossing a band above the litter line, which is a
+*shape* question the column census cannot ask but a per-organism one can.
+If the answer is crown outline, it is much harder, and worth knowing that
+before anyone spends a week on it. Do not start a third metric before that
+card is answered.
+
 ### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
 
 Found by inspection during the `creatures-m18` merge review, **not created by
