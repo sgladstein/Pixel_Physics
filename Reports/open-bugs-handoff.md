@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
-### 0-a. Dark bands under overhangs, objects and open-cast digs (render) — **two of three FIXED; the dig is open**
+### 0-a. Dark bands under overhangs, objects and open-cast digs (render) — **CLOSED, all three**
 
 Reported from play as *"dark bands under any overhangs or objects or when
 I'm mining"*, with the guess that it is either the frozen background
@@ -50,25 +50,26 @@ at genesis and are air now, so they stay dark by the same rule that keeps a
 dug shaft a tunnel. Costs +0.3–0.7 ms on a ~11.5 ms full redraw, measured
 interleaved against a worktree at the parent commit.
 
-**Still open, deliberately: the open-cast dig.** Those cells really were
-rock, so no per-cell classification can help — the owner's call was *"we can
-start with the fix for 1 and 3... but I do want a better solution"*. What it
-needs is propagation, not a better boolean, and the prior art is in
-`Reports/prior-art-underground-lighting.md`: Terraria answers exactly this
-with a per-tile wall layer (which the landed fix is the first bit of) plus a
-0.91-per-air-tile light flood, so a pit is bright at the top and dark at the
-bottom with no threshold anywhere. `field.rs` already computes the
-Beer-Lambert channel that would drive it and nothing draws it; the three
-things a proposal must answer are the 8-cell quantisation (§0c — Noita hit
-the same wall and solved it by blurring, not refining), the 20:1 day/night
-oscillation, and the per-pixel cost that killed fake AO.
+**The open-cast dig is fixed too**, by propagation rather than a better
+boolean — sky light seeded only where a cell was outdoors at genesis and
+spread at Terraria's 0.91 per air cell / 0.56 per solid over a 4-cell block
+grid, on `F12` with /4 the default. A pit is bright at its rim and dark at
+the floor; a shaft still goes dark at any width, because the seeding refuses
+it, not because of any threshold. `Reports/sky-light-design.md` has the
+measurements, including why `field.rs`'s own light channel could *not* drive
+it (it hands a block-aligned 8-wide shaft full daylight 100 cells down) and
+why a stored per-pixel field was tested and rejected.
 
-**Second residual, smaller:** rock *under* a suspended object is still
-over-darkened, because the decision is now per cell while the depth still
-comes from the per-column `light_datum`. Visible as a faint band across
-`scene=rockdrop`'s pool floor once the air and water bands are gone. Same fix
-as the dig case (depth from the nearest outdoors cell), so it should go with
-it rather than be patched separately.
+**The second residual is fixed as well**: rock under an overhang was
+over-darkened because the depth came from the per-column skyline, which a
+brow sets. `World::ground_datum` — the top of the lowest run of cells the sky
+cannot reach — replaces it as the shading datum.
+
+**One thing changed underneath all of it:** the terrain depth grade is **off
+by default** now, on a playtest (*"no question grade off is better"*). So the
+`ground_datum` fix renders nothing unless someone presses `F10`. It is still
+correct and still guarded, with the guard forcing the mode explicitly so it
+cannot pass vacuously.
 
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 

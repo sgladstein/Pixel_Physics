@@ -2131,3 +2131,97 @@ task in front of this session, but the tool to do it already exists.
 
 ---
 
+
+### Dark bands under overhangs, objects and digs — one wrong question, asked per column
+
+Reported from play as *"dark bands under any overhangs or objects or when I'm
+mining"*, with the guess that it was either the frozen background baseline or
+a lighting shadow. It was the baseline, and it could not have been a shadow:
+`sky::apply_light` takes one scalar for the whole screen, and the fake-AO
+experiment was measured at ~10 ms/frame and cut years ago.
+
+`World::sky_surface` asks *"is there anything `Solid` or `Powder` above me in
+this **column**, as of frame one"*. That single question cannot tell a cave
+roof from a cliff brow, a hillside from a rock standing in the sky at genesis,
+or rock you removed from rock that was never there — which is why one bug wore
+three costumes. Measured with a new `examples/underground_probe.rs`: 156–408
+cells of open air per 2048x640 world drawn as cave, and 1,363 once a 64-wide
+pit is dug.
+
+Fixed in four steps, each judged by the owner before the next:
+
+1. **Per-cell genesis map** (`World::freeze_underground_map`) — one bit,
+   seeded by a flood fill at generation. `dead-ends.md` §977's *store more
+   history, never infer*, so no width threshold anywhere and a dug shaft stays
+   a tunnel at any width. Rescues 149/156, 406/408, 192/197 on seeds 1–3.
+2. **Sky light** (`SkyLight`, `F12`) — the dig case needed propagation, not a
+   better boolean. Seeded only where a cell was outdoors at genesis, then
+   spread at Terraria's 0.91 per air cell / 0.56 per solid over four
+   directional sweeps. /4 blocks, ~2.3 ms on a frame where something changed
+   and **zero on a settled one**.
+3. **`World::ground_datum`** — the top of the lowest run of cells the sky
+   cannot reach, replacing the skyline as the *shading* datum. A brow set the
+   skyline and so shaded its whole column to bedrock: a vertical tone seam,
+   2,990 cells on seed 5, a single 494-cell column on seed 7.
+4. **The terrain depth grade went off by default**, on a playtest — *"no
+   question grade off is better"* — after a blind A/B went the same way. That
+   overturns the 2026-08 world review's single most consistent graphics
+   finding. Cost was ~0.44 ms of 15.3 and is *not* the reason. It also makes
+   step 3 inactive in the default build, which is stated in the report rather
+   than left implied.
+
+Prior art in `Reports/prior-art-underground-lighting.md`: Terraria gates sky
+light on a per-tile **wall** (mining does not remove it, so a tunnel stays
+dark) and then floods light with distance decay; Noita does not classify at
+all and blurs a coarse 32x32 fog. The landed per-cell bit is the wall layer's
+first bit, and 0.91 reaching a tenth in 24 cells matches `CAVE_FADE_DEPTH`,
+set by eye here independently.
+
+#### The method failures, which are the part worth carrying
+
+Six, and every one of them was a case of *the measurement or the picture not
+containing what the words said it did*:
+
+- **A metric that became a tautology and read as a triumph.** After the
+  `ground_datum` fix the probe reported **0 over-darkened cells on every
+  seed** — because it compared the grade's depth against the walk-up depth,
+  and the new datum is *defined* as the top of the walk-up run. Same
+  arithmetic twice. It reports the size of the *correction* now.
+- **A guard that sampled where the ramp is flat and passed with the bug in.**
+  Depths plainly wrong (115 against 55), brightnesses 241 against 248 — under
+  3%, green. The grade is a smoothstep flat at both ends, so a sixty-row error
+  costs ~1.6% near the floor and **~36% ten rows down**. Moved to ten rows
+  down it reads 237 against 378.
+- **A before/after posted as a contact sheet, on a card asking about a
+  vertical seam** — whose tile join is a hard vertical edge at the focused
+  region's border. The reply, "there is still a clear seam", was a correct
+  reading of what was on screen.
+- **A verification crop that missed the artifact entirely.** Aiming at world
+  x 335 clamps the camera to 0, so viewport 180..300 is world 180..300 while
+  the patch is at 332..337. Both renders looked identical because the changed
+  region was in neither, and the fix was nearly reported as doing nothing.
+- **A cost prediction contradicted by its own report.** `sky-light-design.md`
+  said the block scan "must not be charged to this approach" because the
+  engine already has occupancy — then the implementation built it with a
+  `World::get` per cell and measured **+7.5 ms on a 13.2 ms redraw**, fifty
+  times the prediction. `CHUNK_SIZE` is 64 and blocks never straddle one, so
+  one lookup covers a block: +2.3 ms.
+- **An accuracy claim measured only at sample points.** The four-sweep
+  approximation agreed with an exact solve to three decimals *at the cells
+  sampled*, and put a comb of vertical stripes down every pit between them.
+  Fixed by running the sweeps twice. A handful of cells cannot see a comb.
+
+Two instruments came out of it and both are reusable: `viewshot aim=N` (one
+tile centred on a world x, no contact-sheet joins in it) and `pixel_stat
+diff=1` (mean/max luma difference plus a per-column profile — a seam is a step
+there and nearly nothing in a whole-image mean).
+
+Also rejected, with numbers rather than argument: a **stored, incrementally
+maintained** per-pixel field. It works, including the hard direction — light
+*falls* when a cell is filled, handled by a bounded local re-solve, checked
+against a full recompute after plugging a lit shaft — and its influence radius
+was swept (30 → visibly wrong, 59 → just under 1/255, 90 → comfortable). It
+loses on cost anyway: 0.7 ms *per edit site* against a flat 2.3 ms, so it wins
+only below ~3 sites a frame, and a busy scene runs 16 of 40 chunks awake.
+
+---

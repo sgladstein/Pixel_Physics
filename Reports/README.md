@@ -59,17 +59,21 @@ tried?"*.
 - [underground-definition.md](underground-definition.md) — **settled,
   implemented.** What "underground" means, fixed at worldgen time; the
   wiki's world-cycles page describes the visible result.
-- [dark-bands-diagnosis.md](dark-bands-diagnosis.md) — **diagnosis;
-  overhangs and objects fixed, digs deliberately not.** Why they drew dark
-  bands: the per-*column* baseline `underground-definition.md` settled,
-  measured (`examples/underground_probe.rs`) and replaced by a per-cell
-  genesis map. Extends that report rather than superseding it — its
-  rejection of *inference* stands, and this stores more history instead.
-- [sky-light-design.md](sky-light-design.md) — **design round, nothing
-  built.** Measures the three candidates for the still-open open-cast-dig
+- [dark-bands-diagnosis.md](dark-bands-diagnosis.md) — **diagnosis, all
+  three cases fixed.** Overhangs, objects and open-cast digs: the
+  per-*column* baseline `underground-definition.md` settled, measured
+  (`examples/underground_probe.rs`) and replaced by a per-cell genesis map
+  plus a `ground_datum` for shading. Extends that report rather than
+  superseding it — its rejection of *inference* stands, and this stores more
+  history instead. Its postscript records the depth grade going off by
+  default on a playtest, and two framing errors in how a fix was shown.
+- [sky-light-design.md](sky-light-design.md) — **design round; shipped on
+  `F12`, /4 the default.** Measures the candidates for the open-cast-dig
   case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
-  cannot drive it, why seeded propagation can, and why block size 4 rather
-  than `FIELD_SCALE`'s 8. Carries the options and a recommendation.
+  cannot drive it, why seeded propagation can, why block size 4 rather than
+  `FIELD_SCALE`'s 8, and — tested later — why a stored incrementally
+  maintained field is *not* worth it. Two of its own claims were wrong and
+  are corrected in place at the bottom.
 - [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
   **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
   propagation) and Noita (a coarse blurred fog of war, no classification at
