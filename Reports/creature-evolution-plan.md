@@ -1282,6 +1282,43 @@ never lost its terrain. The two-instruments-one-story paragraph above stays
 true, but its `ascii`-side witness is now the *closed* §L rather than a
 live red.
 
+**Re-run paired for the abscission retune (2026-08-23, evening, one cloud
+container, one session, both halves on the same merged tree — WP-11 part
+2).** The tree is this branch's merge of `main` at `7cd1357`, which carries
+the §L rock-country fix and PR #20's flora sowing; both change generated
+worlds, so the pre-merge figures above are *not* the right baseline for the
+retune and a fresh baseline half was measured beside the retuned one rather
+than quoted across trees. `creature_space mode=economy seeds=4
+frames=18000`, one binary per arm (assets are `include_str!`ed; the two
+binaries were checked distinct with `strings` before either was run).
+
+| arm | baseline (all species 0.003) | retuned (`tree` 0.00075) | delta |
+|---|---|---|---|
+| no moss, eat 120 | +0.468 (fed 0.74) | **+0.474** (fed 0.74) | +0.006 |
+| no moss, eat 700 | +0.485 (fed 0.74) | **+0.489** (fed 0.74) | +0.004 |
+| moss, eat 120 | +0.504 (fed 0.80) | **+0.514** (fed 0.81) | +0.010 |
+| moss, eat 700 | +0.540 (fed 0.80) | **+0.541** (fed 0.81) | +0.001 |
+
+`placed` reads 52 of 52 in all eight cells, and the immobile control reads
+**0.296 in all eight** — bit-stable across both trees, which is what rules
+the harness out as the source of any delta.
+
+**The retune does not move this guard, and that is the intended result
+rather than a null one.** Every delta is at most 0.010 against a seed-scale
+sd of ~0.1. Slowing leaf fall changes *where* the food is, not how much
+there is: a leaf that is not shed stays on the plant as standing leaf within
+an ant's reach, which is why the original card's own colony-band census rose
+(70,080 → 90,720 median) while the floor fell. The retune fixes the soil
+pile without touching whether foraging pays — so §13o's binding quantity,
+the fed fraction, moves by at most +0.01.
+
+**Also worth recording: the world changing did not move it either.** The
+baseline half above (+0.468/+0.485 no-moss) sits inside the spread of the
+pre-merge +0.470/+0.481, the post-§L +0.474/+0.466 and the original
++0.460/+0.479 — so neither the terrain fix nor four-species sowing shifted
+this guard, even though both demonstrably shifted the leaf-fall economy.
+That is what makes the retuned delta attributable to the retune.
+
 **Not re-derived here, deliberately:** the scarcity band. WP-4's step 4 —
 the target is a game-feel call (§2.4's third coupled call) and is on the
 owner's queue as card `20260823T091259637Z-9a41e4`. Measuring the current
