@@ -309,8 +309,17 @@ field rework — see `open-bugs-handoff.md`.
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
-- [felling-blockers.md](felling-blockers.md) — **investigation.** Why
-  cutting a tree down is not in yet.
+- [felling-blockers.md](felling-blockers.md) — **investigation; §1
+  superseded by the plant-line merge, §2 superseded by
+  `physical-trees-design-2026-08-23.md`.** Why cutting a tree down was not
+  in yet. §3's ordering still holds.
+- [physical-trees-design-2026-08-23.md](physical-trees-design-2026-08-23.md)
+  — **design, nothing built.** Sway, impact breakage and a tree that falls
+  over, from the owner's "it reads as a tree disintegrating into dust".
+  Carries the measurement that prices render-side sway at +8.0 ms/frame over
+  a grown stand, and the deleted prototype that takes a fell from 1.7% to
+  58% of the severed mass coming down as pieces. Supersedes
+  `felling-blockers.md` §2.
 
 ## Open working files
 
