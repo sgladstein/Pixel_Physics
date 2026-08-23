@@ -1,0 +1,60 @@
+{
+  "id": "20260823T155727949Z-b17b87",
+  "created": "2026-08-23T15:57:27Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/repo-bugs-review-vgss9i",
+    "commit": "d5e7af8",
+    "agent": null,
+    "session_id": "554a76df-f887-5938-8c9c-a0892e2a4e23",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Settled rubble after the rotation-fit probe was repaired",
+  "question": "Which pile reads as real broken rock? I am specifically asking about the mushroom-capped stems in one of them — is that shape a defect, or does it read as rubble bridging?",
+  "context_md": "`scene=worked`, frame 1500 (both fully settled), daylight pinned, identical seed and settings. **This scene is bit-identical across three runs of the same binary**, so the difference is the change and not run-to-run spread (`ligament` is *not*, and I have logged that separately as another instance of bug L).\n\nThe change is a bug fix, not a tuning knob: `rigid.rs`'s quarter-turn fit probe compared every cell against its own position, so it answered \"nothing blocks this rotation\" **unconditionally** — every tumbling body in the engine has been free to turn through walls for the life of the mechanism (open-bugs-handoff bug K / §1i, same defect logged twice). One side below is that behaviour; the other refuses a turn that does not fit.\n\nWhat I am unsure about, and why I am asking rather than declaring it better: refusing turns costs **40% of the promoted mass** (2,847 → 1,701 cells) because bodies that cannot turn stall and re-embed instead of cascading, and the pile settles at frame 388 instead of 741. Less rock comes off. I do not know whether that reads as *less destruction* in the hand.\n\nThe thin one-cell spires are in **both** sides and are not what I am asking about — they look like a separate defect to me.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T155727949Z-b17b87/000-ab-before-trim.png"
+      ],
+      "caption": "probe never fires: every turn allowed",
+      "meta": {
+        "bodies promoted": 76,
+        "cells promoted": 2847,
+        "cells to dust": 683,
+        "chunk by mass": "80%",
+        "quarter turns refused": "0 of 0 (probe vacuous)",
+        "all at rest by frame": 741
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T155727949Z-b17b87/001-ab-after-trim.png"
+      ],
+      "caption": "probe repaired: a turn that does not fit is refused",
+      "meta": {
+        "bodies promoted": 40,
+        "cells promoted": 1701,
+        "cells to dust": 577,
+        "chunk by mass": "74%",
+        "quarter turns refused": "5 of 48 (10%)",
+        "all at rest by frame": 388
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
