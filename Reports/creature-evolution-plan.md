@@ -1397,12 +1397,20 @@ than quoted across trees. `creature_space mode=economy seeds=4
 frames=18000`, one binary per arm (assets are `include_str!`ed; the two
 binaries were checked distinct with `strings` before either was run).
 
-| arm | baseline (all species 0.003) | retuned (`tree` 0.00075) | delta |
+| arm | baseline (all four at 0.003) | retuned (all four at 0.00075) | delta |
 |---|---|---|---|
-| no moss, eat 120 | +0.468 (fed 0.74) | **+0.474** (fed 0.74) | +0.006 |
+| no moss, eat 120 | +0.468 (fed 0.74) | **+0.477** (fed 0.74) | +0.009 |
 | no moss, eat 700 | +0.485 (fed 0.74) | **+0.489** (fed 0.74) | +0.004 |
-| moss, eat 120 | +0.504 (fed 0.80) | **+0.514** (fed 0.81) | +0.010 |
-| moss, eat 700 | +0.540 (fed 0.80) | **+0.541** (fed 0.81) | +0.001 |
+| moss, eat 120 | +0.504 (fed 0.80) | **+0.513** (fed 0.81) | +0.009 |
+| moss, eat 700 | +0.540 (fed 0.80) | **+0.547** (fed 0.81) | +0.007 |
+
+*(An intermediate half was measured against the retune on `tree` alone —
++0.474 / +0.489 / +0.514 / +0.541 — before the rate was carried to the
+other three species. It is recorded here and not in the table because the
+tree it describes is no longer in the branch, and a guard row naming a
+build nobody can check out is the cross-tree quoting this section exists
+to prevent. It changes nothing: the two retuned arms differ by at most
+0.006, itself inside the spread.)*
 
 `placed` reads 52 of 52 in all eight cells, and the immobile control reads
 **0.296 in all eight** — bit-stable across both trees, which is what rules
