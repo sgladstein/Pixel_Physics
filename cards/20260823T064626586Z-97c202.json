@@ -1,0 +1,78 @@
+{
+  "id": "20260823T064626586Z-97c202",
+  "created": "2026-08-23T06:46:26Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "b378488",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Spoil: CLEAN vs the new TRACE (10%) vs DUST — watch him tunnel",
+  "question": "Is TRACE the 10% you wanted — diggings you can see underfoot, without the bore closing behind you? And is CLEAN still right as the default, or should TRACE be?",
+  "context_md": "**Supersedes card 7cf7f0**, which went out with two placeholder counters in it — these are the measured ones.\n\nAnd my two cards before that were unreadable, which you were right about. The tunnel crop missed the gnome by 40 rows; the chaining pair genuinely has nothing to see in a still, which I measured afterwards — only 0.3% of pixels differ on the final frame. Redone as animation, cropped on him.\n\n`scene=tunnel`, identical gnome, identical 42 bites. Only `dig_yield` differs. 20 frames, 20 to 324.\n\n`TRACE` at 0.10 is new, added on your verdict. The old list stepped 0 → 0.35 → 0.55 → 1.0 with nothing in between, and 0.35 is worse than it sounds: he wades from bite 19, **goes under at frame 225 and digs out 7 ticks later**, and covers 46 cells of ground where CLEAN covers 120. TRACE covers 90 and never goes under, but he is wading by the end — so it is not free either, and that is the thing to judge.\n\nCLEAN is the default as you asked. TRACE is one `F2` press away; say the word and they swap.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "CLEAN — 0% stays (the default)",
+      "files": [
+        "20260823T064626586Z-97c202/000-tun-00.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.0,
+        "bites": 42,
+        "spoil left underfoot (cells)": 0,
+        "ground covered (cells)": 120,
+        "ticks buried in own spoil": 0,
+        "state at the end": "grounded"
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "TRACE — 10% stays (new)",
+      "files": [
+        "20260823T064626586Z-97c202/001-tun-010.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.1,
+        "bites": 42,
+        "spoil left underfoot (cells)": 140,
+        "ground covered (cells)": 90,
+        "ticks buried in own spoil": 0,
+        "state at the end": "wading"
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "DUST — 35% stays (the old default)",
+      "files": [
+        "20260823T064626586Z-97c202/002-tun-035.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.35,
+        "bites": 42,
+        "spoil left underfoot (cells)": 1108,
+        "ground covered (cells)": 46,
+        "ticks buried in own spoil": 7,
+        "state at the end": "wading"
+      },
+      "focus": null,
+      "gif_frames": 20
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
