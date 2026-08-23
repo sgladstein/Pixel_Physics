@@ -116,6 +116,32 @@ which is the only way it could have been judged.
 
 ## 4. Costs, re-measured in the same session
 
+**Measured twice, because `main` moved 50 commits mid-session** and
+`CLAUDE.md` is right that a baseline taken against a tree nobody else has
+does not transfer. The first pass isolates *this change* (`7cd1357` against
+`7cd1357` + T1); the second is the PR as it stands (`00d1551` against the
+merged branch). Both are reported.
+
+### 4a. On the merged tree, against `main` at `00d1551`
+
+- **`ascii`'s organism scene: mean 4.492 ms against `main`'s 4.634, worst
+  66.1 against 69.1**, 12,000 frames. The branch measures marginally
+  *faster*, which is noise in the direction that flatters it and is reported
+  as noise. No scene in `ascii` reports a FAIL on either arm.
+- **`seedsweep.sh`: order statistics identical.** `cells lost` max 324, p90
+  200, median 0, total 1,285 on both arms; `rock destroyed` total 1,100, max
+  837, p90 28, median 0 on both. 23 of the 24 rows byte-identical; `rolling
+  3` moves 11 cells on a run that gains ~780.
+- **`acceptance.sh` green, all cases.** `cargo test --release --locked --
+  --skip root_and_shoot_branching_read_different_slots` green throughout,
+  including `tests/worldgen.rs`, whose two water-at-rest failures `main`
+  fixed while this branch was open.
+- **Both drivers agree** on the felling scene: `driver=serial` reports 2,645
+  cells severed / 1,157 as pieces (44%) / 630 log standing, `driver=parallel`
+  2,648 / 1,160 (44%) / 617, peak 20 bodies either way.
+
+### 4b. Isolating the change, against `main` at `7cd1357`
+
 - **`ascii`'s organism scene: mean 4.603 ms against `main`'s 4.509, worst
   57.7 against 58.2**, 12,000 frames. Inside the spread the design report
   records for that scene (49.7 / 55.5 / 63.3 across three sessions on
