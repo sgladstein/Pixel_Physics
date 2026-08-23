@@ -2286,6 +2286,25 @@ Guard: `the_organism_slot_ceiling_refuses_a_birth_rather_than_aliasing_a_
 live_one`, which fills the table, checks the refusal is counted, and checks
 that a *differently-speciated* first organism still reads as itself.
 
+**§F4's named case is superseded, not fixed, and the reproduction is what
+found that.** §F4 says a grass seed landing on "a branch, a stone, a litter
+drift or a nest roof would germinate, never root, and stand forever". The
+obvious reading is that grass needs a *drought* death and that the way to get
+one is to widen `organism_upkeep`'s transpirational-demand sum past
+`Leaf | GrowingTip`. Reproduced first (`a_grass_seed_on_bare_rock_never_
+germinates_and_does_not_stand_for_ever`): **it never germinates.**
+`Behavior::Germinate` gates on the cell below declaring `water_capacity > 0`
+before it reads `plant_available_fraction`, and stone, litter and wood all
+declare none — so the seed-dormancy work already made §F4's *premise*
+unreachable and the entry predates it. What actually leaked was the
+**ungerminated seed**, rescheduled indefinitely on the rock it landed on, and
+the seed clock closes that.
+
+Recorded at this length because the fix the first reading pointed at would
+have been a speculative economy change to one species with no live case
+behind it — `CLAUDE.md`'s "reproduce before you fix", earning its keep in the
+direction that saves work rather than the one that finds a bug.
+
 **What P3 does NOT fix, and who owns it.**
 
 - **Adult tree mortality.** Nothing kills a healthy tree; a mature tree
@@ -2293,7 +2312,11 @@ that a *differently-speciated* first organism still reads as itself.
   cause arrives with P2's superlinear maintenance respiration, and this
   package is the plumbing that will carry it out.
 - **Grass drought death**, per the zero-demand finding above — an economy
-  change, P2's.
+  change, P2's, and now known to have no live case pushing on it (see the
+  bare-rock reproduction above). Grass's live mortality arm is shade, and
+  **there is no canopy over grass in any current scene**, so the arm is
+  proven by its paired guard rather than by an ensemble; putting a canopy
+  over a sward is W3's sowing package, whose own acceptance it will be.
 - **A dead *tree's* wood as an object.** Rot is what a starved plant does;
   what a *felled* one does is lane S's, and `BodyCell` carrying an organism
   id through promotion is S2's.

@@ -9032,4 +9032,70 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
         assert_eq!(w.organisms_refused(), 2, "a successful push must not count as a refusal");
     }
 
+
+    /// **§F4's own named case, reproduced before anything was built for
+    /// it — and the reproduction moved the diagnosis.**
+    ///
+    /// §F4 says "a grass seed landing on a branch, a stone, a litter drift
+    /// or a nest roof would germinate, never root, and stand forever,
+    /// holding an organism slot", and shade abscission cannot help: the
+    /// thing is standing on a rock in open sky, the brightest place in the
+    /// world. The obvious reading is that grass needs a *drought* death and
+    /// that the way to get one is to widen the transpirational-demand sum
+    /// (a tussock that has retired every tip has demand exactly zero, so
+    /// `drought_death` is inert on it).
+    ///
+    /// **It never germinates.** `Behavior::Germinate` gates on
+    /// `plant_available_fraction` of the cell below and on that cell
+    /// declaring `water_capacity > 0` first — stone does not, litter does
+    /// not, wood does not — so the seed-dormancy work already made §F4's
+    /// *premise* unreachable, and the entry predates it. What was really
+    /// leaking was the ungerminated seed, sitting on the rock for ever
+    /// because the not-ready branch reschedules it indefinitely. The seed
+    /// clock is what closes it.
+    ///
+    /// Recorded at this length because the fix the first reading pointed at
+    /// — widening the demand sum — would have been a speculative economy
+    /// change to grass with no live case behind it. It stays P2's.
+    #[test]
+    fn a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever() {
+        let mut w = test_world();
+        // Bare stone in open sky: nothing for a root to enter, so
+        // `germinate`'s `growable` check refuses the companion root and the
+        // plant is a shoot with no water supply at all.
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        assert!(w.plant_tree_species(50, 59, "grass"), "test setup: the seed should have been planted");
+        let id = w.get(50, 59).organism_id();
+        assert_ne!(id, 0, "test setup: the seed should own its cell");
+
+        run_with_fields(&mut w, 1_000);
+        assert!(w.organism_state(id).is_some(), "test setup: it should still be standing at 1,000 frames");
+        let stage = w
+            .organism_state(id)
+            .and_then(|s| s.cells.keys().next().copied())
+            .and_then(|(x, y)| organism::cell_type(w.get(x, y).aux()));
+        println!("on bare rock at 1,000 frames the grass organism is a {stage:?}");
+        // The half that says §F4's premise is superseded rather than fixed.
+        assert_eq!(
+            stage,
+            Some(CellType::Seed),
+            "germinating on a surface that holds no water is what §F4 describes; if this ever passes as a \
+GrowingTip again, the rootless-plant case is live and grass needs a drought death, not just a shade one"
+        );
+
+        run_with_fields(&mut w, 45_000);
+        let state = w.organism_state(id);
+        println!(
+            "the same seed at 46,000 frames: {}",
+            match state {
+                None => "gone".to_string(),
+                Some(s) => format!("still standing, {} cells, senescent {}", s.cells.len(), s.senescent),
+            }
+        );
+        // And the half that says the leak it named is closed anyway.
+        assert!(state.is_none(), "a seed with nowhere to go must not hold its slot for ever");
+    }
+
 }
