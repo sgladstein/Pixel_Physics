@@ -1,0 +1,68 @@
+{
+  "id": "20260823T005213673Z-68e25a",
+  "created": "2026-08-23T00:52:13Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "29fd989",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Sky light: the design round for the pit, and which resolution to buy",
+  "question": "Panel 2 is what I recommend building (0.13 ms/frame). Is it close enough to panel 1 to be worth it, or do you want the exact one at the cost of maintaining stored state?",
+  "context_md": "One test world holding every case at once — a 1-wide shaft, an 8-wide shaft, a 64-wide pit, a tunnel into a cliff, an overhanging lip, a sealed chamber. Dug parts cut **after** the surface freezes. Bright = sky light reaches here. Full report: `Reports/sky-light-design.md`.\n\n**First finding: the light channel we already compute cannot do this**, and it is not tuning. It casts sun straight *down* a column and attenuates only through occluders, so a block-aligned **8-wide shaft reads 1.00 at 100 cells down** — your old \"sunny sky all the way down\" bug exactly. It also has a width threshold at exactly FIELD_SCALE (1-wide shaft dims, 8-wide does not), and it cuts rather than fades at a cave mouth (0.14 to 0.00 in five cells).\n\n**Second finding: the fix is the seeding, not the propagation.** Seed sky light only where the cell is *outdoors* — the per-cell map that just shipped, which is the first bit of Terraria's wall layer — then spread with Terraria's own 0.91-per-air-cell, 0.56-per-solid decay. A shaft is not outdoors, so nothing is seeded in it and its light has to walk down from the mouth. Right on all seven geometries.\n\n**Third finding: \"Terraria does it per frame\" does not transfer, because a Terraria tile is sixteen pixels.** Their screen light map is ~8,400 cells; ours per-pixel would be 163,840. So this has to run on a coarse grid. Swept:\n\n| block | blocks | sweep | 1-wide shaft | tunnel mouth | pit rim |\n|---|---|---|---|---|---|\n| exact | 163,840 | 4.7 ms | 0.828 | 0.910 | 0.828 |\n| 4 | 10,240 | **0.13 ms** | 0.245 | 0.770 | 0.725 |\n| 8 (FIELD_SCALE) | 2,560 | 0.03 ms | 0.069 | 0.242 | 0.424 |\n\nFIELD_SCALE's 8 is too coarse — the 1-wide shaft vanishes completely (panel 3), so it would fix the pit and leave shafts and tunnels looking exactly like today. Block size 4 is 10,240 blocks, which is almost exactly Terraria's screen map size; the prior art matches on grid size, not just algorithm.\n\nOne number worth noting: 0.91 per cell reaches a tenth in **24 cells**, and CAVE_FADE_DEPTH is 24 — set by eye here, independently.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — exact, per pixel (the target look)",
+      "files": [
+        "20260823T005213673Z-68e25a/000-sl_exact.png"
+      ],
+      "caption": "Tapering wedges down both shafts, a gradient in the pit, a bright wedge into the tunnel, sealed chamber invisible. 4.7 ms per viewport — too slow per frame, fine as stored state.",
+      "meta": {
+        "8-wide shaft at 100 down": "0.000 (field channel says 1.00)",
+        "pit rim -> floor": "0.83 -> 0.02",
+        "tunnel 0 -> 60 cells in": "0.91 -> 0.003",
+        "cost": "4.7 ms/viewport, or ~45 ms once at genesis"
+      },
+      "focus": null
+    },
+    {
+      "label": "2 — block size 4 (what I recommend)",
+      "files": [
+        "20260823T005213673Z-68e25a/001-sl_c4.png"
+      ],
+      "caption": "All three structures survive: both shafts, the pit gradient, the tunnel wedge. Dimmer than exact, and the 1-wide shaft most of all.",
+      "meta": {
+        "cost": "0.129 ms per viewport per frame",
+        "share of a 16.7 ms frame": "0.8%",
+        "blocks": "10,240 (Terraria's screen map is ~8,400)",
+        "1-wide shaft top": "0.245 against 0.828 exact"
+      },
+      "focus": null
+    },
+    {
+      "label": "3 — block size 8, our existing FIELD_SCALE (too coarse)",
+      "files": [
+        "20260823T005213673Z-68e25a/002-sl_c8.png"
+      ],
+      "caption": "The 1-wide shaft has vanished entirely and the tunnel is a nub. This is the version that would have shipped if I had reused FIELD_SCALE without measuring.",
+      "meta": {
+        "cost": "0.034 ms per viewport per frame",
+        "1-wide shaft top": "0.069 — invisible",
+        "tunnel mouth": "0.242 against 0.910 exact"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
