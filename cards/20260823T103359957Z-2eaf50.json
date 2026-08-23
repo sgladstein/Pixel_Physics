@@ -1,0 +1,54 @@
+{
+  "id": "20260823T103359957Z-2eaf50",
+  "created": "2026-08-23T10:33:59Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-phase-2-review-vmn56t",
+    "commit": "bead20e",
+    "agent": null,
+    "session_id": "eab387e1-ddba-5bcb-aced-8377c185b0ac",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rock banding, judged from inside a cave this time",
+  "question": "Which of these reads as real rock to stand in? Same cave, same seed, same camera — only how thick the rock's banding is differs.",
+  "context_md": "You answered this once before and I am asking again, deliberately, because the last card could not show you the half that mattered.\n\nIn August you picked the thinner banding from a **surface** strip — a hillside seen from outside. The argument for the thicker one was always about *underground*: a cave is four times bigger than the banding was tuned for, so it cuts across four times as many bands as it used to. That half was never put in front of you, and the record says so.\n\nIt matters more now than it did then. The caves were rebuilt this week to **follow** the banding rather than ignore it — a cave now runs along one soft band of rock, so how thick those bands are decides how the passage lies, not just how the wall looks. The two caves here are genuinely different shapes for that reason; that is the change, not an accident of the render.\n\nNo wrong answer, and it is free either way: it is one number and it costs nothing to set.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "thin bands (shipped, 12)",
+      "files": [
+        "20260823T103359957Z-2eaf50/000-strata_12.png"
+      ],
+      "caption": "what ships today",
+      "meta": {
+        "band thickness": 12,
+        "tallest chamber (rows)": 287,
+        "deep air cells in world": 120577
+      },
+      "focus": null
+    },
+    {
+      "label": "thick bands (48)",
+      "files": [
+        "20260823T103359957Z-2eaf50/001-strata_48.png"
+      ],
+      "caption": "4x, matching the 4x world",
+      "meta": {
+        "band thickness": 48,
+        "tallest chamber (rows)": 206,
+        "deep air cells in world": 88387
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
