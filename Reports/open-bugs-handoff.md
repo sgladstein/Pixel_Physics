@@ -745,7 +745,66 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
-### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, BLOCKING, 2026-08-22**
+### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
+
+Found by inspection during the `creatures-m18` merge review, **not created by
+it**. `Particle` carries `material` and `shade` but not `aux`, and landing
+writes `Cell::new(particle.material, particle.shade)`. Since S3, a `corpse`
+cell carries what it is worth to eat in `aux` (`Material::worth_in_aux`), so a
+corpse thrown by an explosion lands unstamped and falls through to
+`corpse.ron`'s `food_energy` fallback: **a corpse worth 1,020 becomes worth
+120, an 8.5x silent loss** on the one material whose value is per-cell.
+
+**No existing guard can see it.** `EnergyLedger::max_standing_meat` is a `<=`
+bound, so meat quietly going missing passes it, and `creature_biomass` is
+asserted monotone non-increasing, which a loss also satisfies.
+
+**Why it is listed now rather than fixed now.** The gap predates the merge —
+`explosion.rs` was already throwing material at the merge base — but main is
+the branch that made blasts actually throw debris, so the merge is what makes
+it reachable in play. It has **not** been reproduced: nobody has measured how
+often a corpse is inside a blast radius, and that is the first step.
+
+The fix, when it is wanted: carry `aux: u16` on `Particle` and write it back
+only when the landing material has `worth_in_aux`, or a wet soil grain will
+land claiming to be food. `rigid.rs`'s `BodyCell` has the same shape and is
+**not** a bug: it only ever holds `Solid`/`Plant`, and its `aux = 0` is
+deliberate so a landing body does not silently re-attach.
+
+### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, 2026-08-23**
+
+> **UPDATE 2026-08-23, measured on the `creatures-m18` merge: the 34 below
+> no longer reproduces, and the litter attribution under it is now wrong.**
+>
+> Measured on `origin/main` (5515071) before touching anything, and again
+> after the merge and after the port that adds `Material::insubstantial`:
+>
+> | | travelled | bar |
+> |---|---|---|
+> | `origin/main`, baseline this session | **98** | 200 |
+> | + creatures-m18 merge (litter walks down, rots faster) | **98** | 200 |
+> | + `insubstantial` (the gnome runs through litter) | **98** | 200 |
+>
+> Three separate builds, one number. So:
+>
+> - **The 34 is stale.** Main's own plant work moved it to 98 at some point
+>   between this entry being written and 5515071, without anyone re-running
+>   the case. Anything downstream that quotes 34 — including this entry's
+>   own table, and the doc on `Material::insubstantial` as ijdlnp wrote it —
+>   is quoting a world that no longer exists.
+> - **`insubstantial` bought exactly 0 cells**, and that zero is recorded
+>   rather than hidden. It was ported on the owner's direct instruction
+>   ("make it so the gnome can run through leaf litter as if it was
+>   nothing"), which is a gameplay-feel call and stands on its own; it is
+>   simply not what this case measures.
+> - **The residual 102 cells are not litter.** Litter is now 8x less hung
+>   up (3,825 → 466 cells resting on plant tissue) and 81% of everything
+>   shed rots away, and the number did not move at all. The remaining
+>   attribution is tree architecture, as the section below already
+>   suspected.
+>
+> Still open, still red against its bar of 200. No longer blocking on the
+> ecology line.
 
 `scripts/acceptance.sh`'s `wood` case fails on the merged branch:
 
@@ -980,6 +1039,28 @@ but it does make the intended fix roughly ten times more expensive: crossing
 the wilting point from bone-dry goes from ~2 strikes to ~18.
 
 ### A. The slot-1 root spread has collapsed — **OPEN. Three explanations tried; the third was wrong too, and the lever now measures as dead.**
+
+> **2026-08-23, from the `creatures-m18` merge: this test flips with litter
+> volume, and has still never been seed-swept.** Three measurements in one
+> session, same machine, same build settings:
+>
+> | tree | draw -1 | draw +1 | spread | vs 10% bar |
+> |---|---|---|---|---|
+> | `origin/main` 5515071 (baseline) | 294 | 318 | 8.2% | **red** |
+> | + creatures-m18 merge | — | — | — | *green* |
+> | + `LITTER_FALL_REACH` 64 -> 512 | 354 | 378 | 6.8% | **red** |
+>
+> The sign never changes and neither does the failure mode; only the margin
+> moves, and it moves by a couple of points either side of the bar as the
+> volume of litter on the floor changes. **The green in the middle row is not
+> a fix and must not be read as one** — it is one sample from a distribution
+> straddling the bar, which is the exact shape `CLAUDE.md` warns about when a
+> bar is set near a measured value.
+>
+> What this adds to the section below: the lever is not merely weak, it is
+> weak enough that an unrelated change to ground cover moves it across the
+> acceptance threshold. Any future attempt on this bug should **sweep seeds
+> and report an order statistic** before believing either a red or a green.
 
 **Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
 move the bar.** My third explanation was that the test is single-seed

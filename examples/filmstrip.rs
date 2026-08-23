@@ -1292,6 +1292,49 @@ fn build(args: &Args) -> World {
         // the tiles differ by behaviour rather than by time of day:
         //
         //   cargo run --release --example filmstrip -- scene=colony         //     genome=r029 start=1200 every=3600 count=6 cols=3 zoom=2
+        // **Meat, at the size a corpse is actually seen.** A row of bodies
+        // laid out from starved to killed-in-its-prime, plus the one a fire
+        // left, so the question "can you tell rich meat from poor meat"
+        // gets asked at play scale instead of from a palette listing.
+        //
+        // Worths are stamped directly rather than by starving real ants:
+        // what is being judged is the *appearance ramp*, and driving it
+        // through a colony would make the sheet a picture of which ants
+        // happened to die well. `creature_dies` derives the same shade from
+        // the same numbers -- see `a_corpse_is_worth_what_the_animal_was_
+        // made_of` for the tie between them.
+        "carrion" => {
+            let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let floor = 150;
+            for x in 0..w.bounds().expect("bounded").max_x {
+                for y in floor..(floor + 8) {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // `ant.ron`: body_energy 120, start_energy 900, so a corpse runs
+            // from 120 (starved, dead at exactly zero) to 1020 (killed with
+            // a full bank). The shade ramp in `creature_dies` divides by
+            // that same 1020.
+            let full = 1020.0f32;
+            let shades = w.materials.get(corpse).palette.len().max(1) as u32;
+            for (i, worth) in [120u16, 320, 520, 760, 1020].into_iter().enumerate() {
+                let shade = ((worth as f32 / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+                let x = 24 + i as i32 * 24;
+                for dx in 0..2 {
+                    w.set(x + dx, floor - 1, Cell::new(corpse, shade).with_aux(worth));
+                }
+            }
+            // And the burnt one, which arrives with no stamp at all. Shade 0
+            // and `aux` 0 is exactly what `fire.rs`'s burnout now writes for
+            // a material whose shade is derived -- it used to draw at random,
+            // which put a burnt ant at the bright end one time in five once
+            // this ramp was wide enough to read. Priced by the material
+            // fallback, so it belongs at the dark end beside the starved one.
+            for dx in 0..2 {
+                w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
+            }
+        }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -2534,6 +2577,11 @@ fn parse() -> Args {
                 "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
                 "vein" => a.organism_overlay = OrganismOverlay::VeinConductance,
                 "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
+                // S3 built `OrganismOverlay::FoodValue` and specified this
+                // switch alongside it; only the render half landed, so the
+                // one readout that can answer "where is the food" was
+                // unreachable from the harness that judges by eye.
+                "foodvalue" => a.organism_overlay = OrganismOverlay::FoodValue,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -2541,7 +2589,7 @@ fn parse() -> Args {
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
             "daylight" => {
