@@ -1,0 +1,78 @@
+{
+  "id": "20260823T092247531Z-a33d82",
+  "created": "2026-08-23T09:22:47Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/s1-felling-instrument",
+    "commit": "a0fa433",
+    "agent": null,
+    "session_id": "69d1c6b8-6256-5993-854b-1489c0ccfba2",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "First felling: an axe brings a tree down",
+  "question": "The tree does come down. Does what comes down read as a tree being felled at all, or only as the tree being deleted?",
+  "context_md": "**S1 (D1+D2): the tools can now hurt a plant.** Before this branch nothing the player holds could damage a tree: `rigid::strike` and `mine_swept` both tested `MaterialKind::Solid`, and `wood` is `Plant`, so four blows across a 26-cell bole took **0 cells**. Now six bites of `strike` sever the bole, `plant::anchor_support` finds the crown unreached, and it comes down.\n\nWhat I am NOT asking about, because it is already known and is the next package (S2): the crown converts to single deadwood **powder** cells — `design-philosophy.md` §0a's uniform dissolve, verbatim. 2,360 of the 2,427 cells that came down went that way and only 67 left as pieces, all of them from the axe's own chip zone rather than from the falling crown. Fixing that is D3.\n\nWhat I am asking about is everything else: the **timing** (the crown stands for about 35 frames after the cut, then goes all at once), the fact that it dies in place and browns *before* it falls, and whether the cut at the foot reads as a cut.\n\nRun: `filmstrip scene=fell fell=6000`, both drivers agree (2,360 parallel / 2,398 serial).",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the fall, at speed",
+      "files": [
+        "20260823T092247531Z-a33d82/000-fell.gif"
+      ],
+      "caption": "20 frames, 4 apart, from just before the cut",
+      "meta": {
+        "bites of the axe": 6,
+        "cells the axe took": 134,
+        "cells severed by the support check": 2360,
+        "bodies promoted (cells)": "6 (67)",
+        "deadwood powder standing after": 2463,
+        "living tissue 2906 ->": 409
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "the same fall, scrubbable",
+      "files": [
+        "20260823T092247531Z-a33d82/001-f00.png",
+        "20260823T092247531Z-a33d82/002-f01.png",
+        "20260823T092247531Z-a33d82/003-f02.png",
+        "20260823T092247531Z-a33d82/004-f03.png",
+        "20260823T092247531Z-a33d82/005-f04.png",
+        "20260823T092247531Z-a33d82/006-f05.png",
+        "20260823T092247531Z-a33d82/007-f06.png",
+        "20260823T092247531Z-a33d82/008-f07.png",
+        "20260823T092247531Z-a33d82/009-f08.png",
+        "20260823T092247531Z-a33d82/010-f09.png",
+        "20260823T092247531Z-a33d82/011-f10.png",
+        "20260823T092247531Z-a33d82/012-f11.png",
+        "20260823T092247531Z-a33d82/013-f12.png",
+        "20260823T092247531Z-a33d82/014-f13.png",
+        "20260823T092247531Z-a33d82/015-f14.png",
+        "20260823T092247531Z-a33d82/016-f15.png",
+        "20260823T092247531Z-a33d82/017-f16.png",
+        "20260823T092247531Z-a33d82/018-f17.png",
+        "20260823T092247531Z-a33d82/019-f18.png",
+        "20260823T092247531Z-a33d82/020-f19.png"
+      ],
+      "caption": "same run, same instants, 750px",
+      "meta": {
+        "cut frame": 6000,
+        "crown starts going": 6032,
+        "all down by": 6044,
+        "peak chunk bodies in flight": 4
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
