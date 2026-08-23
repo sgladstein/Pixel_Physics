@@ -3681,6 +3681,61 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
 
+### Q. Settled debris stands in one-cell vertical needles that never topple — **OPEN, owner-reported 2026-08-23**
+
+The owner's verdict on review card `20260823T155727949Z-b17b87`, which asked
+which of two settled rubble piles read as real broken rock:
+
+> **"Neither. and it is because the long skiny vertical pieces should fall
+> over. instead of all standing upright"**
+
+**Worth recording how it was found, because the card asked the wrong
+question.** The card was a blind A/B on §K's rotation fix, and it explicitly
+told the owner the thin spires were *"in both sides and not what I am asking
+about ... a separate defect"*. They were the only thing he answered about.
+Both arms were rejected on a feature the poster had bracketed off — which is
+the `CLAUDE.md` "resolve an ambiguous complaint before building anything"
+lesson arriving from the other direction: the thing you set aside as
+background can be the whole of what a player sees.
+
+**Reproduction.** `filmstrip scene=worked start=1500 every=1 count=1
+crop=0,225,230,95 zoom=4 daylight=1.0` — any settled frame past ~800 shows
+them. Present *before and after* §K's fix, so it is neither caused nor cured
+by it, and visible in both panes of the card above.
+
+**Two candidate owners, and the first step is to tell them apart** — this is
+not yet measured and must not be treated as if it were:
+
+1. **Settled rigid bodies.** `rigid::settle` writes a landed body back as
+   `Cell::new(cell.material, cell.shade)`, i.e. **unattached** stone, and
+   `structural.rs` then asks only whether it reaches an anchor. A 1-wide,
+   20-tall column standing on the ground does. There is no slenderness
+   ratio, no tipping moment and no bearing width anywhere in the load model,
+   so a knife-edge column is indistinguishable from a wall. `worked`'s own
+   census agrees the model is content: **1** unattached cell reaches no
+   anchor in the whole scene.
+2. **Rubble that will not avalanche.** `rubble` is a `Powder`
+   (`rubble.ron`), stone `breaks_into` it, and powder takes no part in
+   `structural.rs` at all — it falls via `update::update_powder`. That
+   function tries straight down, then both diagonals, so a 1-wide column in
+   open air *should* topple on the next frame, every frame. If these are
+   rubble, something is refusing that diagonal and the bug is in the powder
+   rule or its `flowing`/repose hysteresis, not in the load model.
+
+**So the decisive first measurement is simply: what material is a standing
+needle made of?** Nothing in the harness reports it today. Until that is
+answered, do not tune either system — the two explanations want opposite
+fixes, and `CLAUDE.md`'s "a scene that contradicts the code will look like a
+bug in the code" applies to both readings.
+
+If it turns out to be (1), the shape of the fix is the question `CLAUDE.md`
+already names: **which object does this rule evaluate — a cell, a section,
+or a whole piece?** A bearing rule needs a contact width and a tipping
+moment, and neither is defined for a single cell. That is the same defect
+recorded there as "a slab lying on its own rubble was judged as many
+separate knife-edge footings", pointing the other way: here the knife edge
+is what stands.
+
 ### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
 
 *(Re-lettered from L at the 2026-08-23 lane landing: three unrelated bugs
@@ -3842,12 +3897,20 @@ Two things that are **not** evidence, recorded so they are not read as such.
 output* — so the timings in this environment are noise-dominated and **no
 performance claim is made here** in either direction.
 
-**Judged by eye, not settled here.** The baseline's debris pile is full of
-mushroom-capped one-cell stems — bodies that turned into places they could
-not have reached — and those are gone. But 40% less rock comes away, because
-a piece that cannot turn jams and re-embeds instead of cascading. Whether
-that reads as less destruction in the hand is the owner's call; posted blind
-as review card `20260823T155727949Z-b17b87` on the `fracture` board.
+**Judged by eye — and the verdict came back about something else.** The
+baseline's debris pile is full of mushroom-capped one-cell stems (bodies
+that turned into places they could not have reached) and those are gone; the
+cost is 40% less rock coming away, because a piece that cannot turn jams and
+re-embeds instead of cascading. Posted blind as review card
+`20260823T155727949Z-b17b87`. The owner rejected **both** arms — *"Neither.
+and it is because the long skiny vertical pieces should fall over. instead of
+all standing upright"* — on the artifact the card had explicitly bracketed
+off as not-the-question. That is filed as **§Q** and is present either side
+of this change, so it neither vindicates nor condemns the fix: **this
+repair is kept on correctness grounds** (bodies were passing through rock)
+and the thing the owner is actually looking at is a different bug. Re-ask
+the chunk-size question only once §Q is fixed, since until then the pile is
+dominated by an artifact neither arm controls.
 
 **Guarded by `a_wedged_body_will_not_rotate_through_the_wall`**, which was
 `#[ignore]`d against this bug and is live again, now asserting **both**
