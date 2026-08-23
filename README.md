@@ -50,7 +50,7 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
 | `F6` / `F8` | New world from a fresh seed / back to the previous seed |
 | `F7` | Cycle the worldgen preset, keeping the seed — rolling → terraced → canyon → wetland → arid → legacy → flat (the structural test bed) |
-| `F9` | Cycle how far structural damage may travel from a blow: SPREAD → LOCAL → TIGHT → NONE; named in the title bar off the default. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
+| `F9` | Cycle how far structural damage may travel from a blow: SPREAD (default) → LOCAL → TIGHT → NONE; named in the title bar off the default. TIGHT was tried as the default and backed out — it stops a room's ceiling coming down; see the M17 section. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
 | `L` | Cycle the organism overlay — per-cell organism channels on a fixed dark→bright ramp |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
@@ -1147,6 +1147,85 @@ canalization doc-vs-code gap above:
 
 ## M17 status
 
+**Three verbs that could never license a failure now can, and the leash
+default is unchanged.** `World::chain_reach`
+refuses a structural failure that is not within its radius of something
+recently disturbed, and it defaults to `i32::MAX` -- for which
+`within_disturbance` has a literal `return true` at the top, so on the
+default path the disturbance ring is never read. Building `TIGHT` as the
+default (asked for by playtest, and backed out again -- see below) turned
+that early return off for the first time and showed that only
+`rigid::strike`, `rigid::mine` and `explosion` had ever called
+`record_disturbance`. So the brush erasing a support, fire burning through
+a trunk, and lava quenching into crust each scheduled a structural check
+that was then found and *declined* at any setting but SPREAD --
+`Reports/open-bugs-handoff.md` D1 had this open, for rock and for trees.
+Each now records, reachable from inside the parallel sweep through a new
+`CellSurface::record_disturbance` that `ChunkView` queues and `run_pass`
+replays, the same shape as `schedule_active_site`.
+
+Two sizing consequences came with it. `record_disturbance` **coalesces
+spatially at `chain_reach / 2`** -- half, so a coalesced record's box is
+off-centre by at most that and the effective reach stays under 1.5x the
+setting -- and `MAX_DISTURBANCES` went 16 to 64. The old 16 was sized by a
+comment reading *"a player cannot disturb dozens of places in the same
+second"*, which is true of a player and false of a fire front; without
+coalescing, a burning wood would have evicted the player's own dig within
+a frame, and that dig is exactly what `chain_window`'s ten seconds exist
+to keep alive.
+
+**`TIGHT` was built as the default, measured, and backed out.** It breaks
+the acceptance pair that encodes *"cutting a wall brings the room down"*:
+on `scene=room wall=5 dig=3` the ceiling's failure drops from 1,959 cells
+to **244** and the roofed void stays at **100%** -- the room does not come
+down at all. That is not a bug. `licence_radius` is `chain_reach + extent`,
+a radius-3 chisel's extent is 5, and a 200-wide room's ceiling fails as one
+region reaching ~100 cells from the cut, so `clip_region_to_licence`
+correctly keeps only the part within reach. (Not
+`relicense_staged_fractures`, which fires only from `App::cycle_chain_mode`
+and so never runs in a harness scene built at a fixed reach.) `wiki/structural-collapse.md` already
+named this trade as its open question; making TIGHT the default makes it
+the default experience, which wants a playtest verdict. `LOCAL` (48) gives
+the containment without the cost -- 1,959 cells and 23% roof left, the same
+as SPREAD. Moving the default is one line in `CHAIN_MODES`.
+
+Those figures were **re-measured after `section_share` landed on `main`**,
+because a concurrent branch warned it would move the SPREAD baseline to
+2,733. On this scene it did not (1,959 with sharing on against 1,975
+without), and the verdict is unchanged either way -- but the warning was
+right in principle and checking it cost one command.
+
+**Elsewhere, TIGHT is close to a no-op, which is worth knowing before
+anyone tunes it.** The reason is arithmetic: the
+harness reports `furthest a failure landed from its trigger` at **7-8
+cells** on these scenes, and TIGHT's radius is 16, so the leash is simply
+not binding most of the time. Over the 24-run seed sweep
+(`scripts/seedsweep.sh dig=6`) material removed is unchanged (p90 177
+cells against 193, max 297 both); on the compounding tunnel case
+(`dig=6 tunnel=8`) the two settings are **bit-identical**; and on
+`strike=12 seed=24301`, also bit-identical.
+
+Where it does bind -- `rolling` seed 7, `dig=6` -- it is a large change in
+the counters and a small one on screen: SPREAD fires 221 overload failures
+of mean region 14.4 cells (217 in the 8-15 bucket), TIGHT fires 41 of mean
+region 41.6 (27 in 16-63), and yet only **0.3% of pixels differ** on the
+final frame and awake-chunk counts track each other 7-9/40 across 1,300
+frames. So the honest claim is "fewer, chunkier failure events on the
+minority of cases where a failure would have landed past 16 cells", not
+"visibly less rotting". Two review cards asserting the latter came back
+from the owner as *"there is nothing happening in either of these
+images"*, correctly.
+
+So the substantive part of this work is the three verbs above, not the
+leash setting. Frame
+cost is unchanged (`ascii` mean over 12,000 frames: 3.770 ms against a
+3.746 ms baseline re-measured the same session).
+
+The trap it leaves for anyone adding a scene: at TIGHT, a hand-placed
+scene that no verb touched **cannot fail**, so an acceptance case
+asserting *nothing fails* can pass on the leash rather than on the model.
+`scripts/acceptance.sh` says so at the top and names how to check.
+
 Built: destructible building with no polygon solver (`structural.rs`). Every
 `Solid` cell can store, in `Cell::aux`, its distance in cells to the nearest
 anchor — bedrock, or the world edge (the `Cell::OUT_OF_BOUNDS` sentinel
@@ -1732,6 +1811,37 @@ still stops him — swims with a surface-exit window, is buried and
 digs out, rides a falling chunk body rather than being left behind by it,
 and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
 
+**All three selectors now default to what the playtest picked** -- `FLOATY`
+jump, `DIVER` water, and (since 2026-08-23) `TRACE` spoil, each sitting at
+index 0 of its list so `Tuning::default` and the named mode stay one thing
+(`the_defaults_are_the_first_feel_of_each_list` guards the mirror).
+
+`CLEAN` is `dig_yield = 0.0`, and an earlier version of that field's doc
+argued against exactly this value -- that rock simply vanishing is the
+no-debris failure this project has already rejected. That was a misreading
+of the rule: `dig_yield` is the **mining verb's** number and nothing else
+consults it, so a collapse still fractures and still throws its graded
+debris at any setting. What 0.35 actually bought was spoil underfoot, and
+measured on `scene=tunnel` it bought rather more than that: over an
+identical 42 bites the gnome wades from bite 19, is **buried in his own
+rubble for 7 ticks**, and covers 46 cells of ground against CLEAN's 120.
+
+That measurement also opened a gap in the list. It stepped 0 -> 0.35 ->
+0.55 -> 1.0, with nothing between "no rubble at all" and a third — and a
+third is what buries him. `TRACE` (0.10) fills that gap, added on the
+verdict that *"most of the options produce too much dust... 1/3 is even too
+much"*, **and is now the default**: shown CLEAN, TRACE and DUST as
+animations of the same 42 bites, TRACE is what was picked. It covers 90
+cells of ground against CLEAN's 120 and DUST's 46, leaves 140 cells of
+spoil underfoot against 1,108, and never buries him.
+
+Worth noting how that went, because it is the argument for the review queue
+rather than for reasoning: **CLEAN was the answer to the coarser card and
+was overturned by the finer one.** Two still frames that turned out to be
+cropped forty rows above the gnome produced *"I see no difference in these
+images"*; the same question as three animations, cropped on him, produced a
+specific answer in one round.
+
 The feel is data, not code: `player::Tuning` behind `O` -> PLAYER
 (persisted to `assets/player.ron`), with the three whole-feel families that
 only play can settle behind named runtime selectors (`F3` movement, `F4`
@@ -1875,9 +1985,32 @@ read, dawn and dusk as watchable colour events, stars that come out as dusk
 deepens, a moon with a halo that climbs through the night, storm skies as
 the clear sky drained of colour; the whole ground tinted by time of day;
 underground darkness fixed at worldgen time with a gradual cave-mouth
-falloff (`Reports/underground-definition.md`); per-cell liquid grain behind
-the `G` selector and the continuous zoom (§9). The remaining tiers stay in
+falloff (`Reports/underground-definition.md`), recorded **per cell** rather
+than per column so a cliff brow or a rock standing over air no longer hangs a
+dark rectangle in the sky beneath it
+(`Reports/dark-bands-diagnosis.md`); per-cell liquid grain behind
+the `G` selector and the continuous zoom (§9).
+
+**The terrain depth grade shipped and has since been switched off by
+default**, on a playtest — *"no question grade off is better"* — after a
+blind A/B went the same way. The reasoning that put it there is still sound
+(the 2026-08 world review called the missing vertical light axis its single
+most consistent graphics finding) and lost in the hand anyway, which is the
+fourth time a playtest has overturned something that looked right in review.
+It costs ~0.44 ms of a 15.3 ms full redraw, and that is not why it is off.
+`F10` switches it back on. The remaining tiers stay in
 `PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
+
+That darkness is now **propagated rather than assumed**: sky light is seeded
+only where a cell was outdoors at genesis and spreads at Terraria's
+0.91-per-air-cell, 0.56-per-solid over a 4-cell block grid, so an open pit is
+bright at its rim and dark at the floor while a dug shaft still goes dark at
+any width — which is the property no rule based on shape could hold.
+`F12` cycles it against the old depth-based fade for comparison. Costs +2.3 ms
+on a frame where the world or camera changed, and nothing at all on a settled
+one. Design, prior art and the measurements in
+[`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
+[`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
 ## Performance
 

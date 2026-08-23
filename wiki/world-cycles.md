@@ -1,6 +1,6 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-21.*
+*Current as of: 2026-08-23.*
 
 ## The sky
 
@@ -26,9 +26,9 @@ halo, so it lights the piece of sky it is in rather than sitting on top of it
 like a sticker.
 
 Sky is only drawn where there is actually sky. Open space *inside* the ground
-— a cave, a blast cavity, the space under an overhang — is unlit rock, dark
-at noon as much as at midnight. Anything else would mean daylight showing
-through the middle of a mountain.
+— a cave, a blast cavity, a sealed chamber nobody has broken into — is unlit
+rock, dark at noon as much as at midnight. Anything else would mean daylight
+showing through the middle of a mountain.
 
 **Underground means below where the ground was when the world began**, and
 nothing you do afterwards moves it. Dig a shaft and it stays a dark shaft
@@ -36,22 +36,43 @@ however wide you make it — carve out a whole cavern and it is still a
 cavern, not a courtyard. That is the point of fixing it once: a mine should
 not fill with daylight because you widened a tunnel by one more swing.
 
-The same rule from the other side: **nothing you put in the air makes it
+The same rule from the other side: **nothing standing in the air makes it
 dark underneath**. A tree, a bridge, a roof, a stray block left floating —
 none of them turn the space below into a cave, because none of them are
 ground. So you see sky between the leaves of a tree, and the space under a
 platform you build reads as outdoors, because it is. Making a building read
 as *indoors* is a separate thing that does not exist yet.
 
-**The rock itself carries depth.** In any cross-section — a cliff face, the
-wall of your shaft, the cutaway the screen always is — the ground is
-brightest in a band at the surface, with the very top row catching the
-light, and dims gradually over roughly a viewport's descent to a settled
-deep-rock gloom. It never goes black: the layering stays readable at any
-depth, dimmer is not dark. This also keeps the world honest at night — the
-land now sits darker than the night sky instead of glowing in front of it.
-`F10` switches the whole effect off and back on, for comparing against the
-old evenly-lit look.
+That now holds for the landscape too, and it used to be the loudest thing
+wrong with it. **Stand under a cliff's overhanging lip and you are outdoors.**
+The sky beneath a brow, the air behind a leaning rock, the gap under a natural
+arch — all of it is open sky, because you can walk out of it sideways without
+moving a stone. Before, anything with rock above it in the same column read as
+cave whether or not it was one, so every overhang in the world hung a
+hard-edged dark rectangle in the sky beneath it, and a boulder standing over a
+pond drew a dark band straight down through the water to the bottom.
+
+**Ground you remove is still ground — but the light now finds its way in.**
+Dig an open pit into a hillside and it is bright at the rim and darkens toward
+the floor, the way a real quarry does; dig a shaft and it goes dark a room's
+depth down whatever width you make it; drive a tunnel in from a cliff face and
+the daylight reaches a little way past the mouth and no further. None of that
+is a rule about shape. The sky simply has to *get there*, falling off as it
+goes, and a shaft is a bad path where a pit is a wide open one.
+
+So the old trade is gone: a mine no longer fills with daylight as you widen
+it, and a quarry no longer reads as a black rectangle cut into a sunlit hill.
+
+**Rock is lit evenly at every depth.** A cliff face, the wall of your shaft,
+the cutaway the screen always is — the stone reads the same near the surface
+as it does deep down, and the strata layering stays fully legible all the way
+to the bottom of the world.
+
+It was not always. The ground used to be brightest in a band at the surface
+and dim gradually with depth, on the reasoning that a cross-section wants a
+vertical light axis or it reads as flat wallpaper. Played, the even version
+won and it was not close, so that is the one you get. `F10` switches the
+depth shading back on if you want to compare.
 
 **Being underground comes on gradually.** Go in under the surface and the
 light does not switch off at the doorway: it dims sharply in the first row

@@ -22,6 +22,7 @@
 fn main() {
     let mut files: Vec<String> = Vec::new();
     let mut crop: Option<(u32, u32, u32, u32)> = None;
+    let mut diff = false;
     for arg in std::env::args().skip(1) {
         match arg.split_once('=') {
             Some(("crop", v)) => {
@@ -29,11 +30,65 @@ fn main() {
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
                 crop = Some((n[0], n[1], n[2], n[3]));
             }
+            Some(("diff", v)) => diff = v != "0",
             Some((k, _)) => panic!("unknown argument {k:?}"),
             None => files.push(arg),
         }
     }
     assert!(!files.is_empty(), "give at least one png");
+
+    // **`diff=1` compares two renders cell by cell**, which is a different
+    // question from how noisy each is and the one that keeps coming up: did
+    // this change actually alter the picture? Added after a before/after
+    // pair was judged by eye, called identical, and needed a number to
+    // settle it — two images that differ by a few percent over a narrow band
+    // look the same and are not.
+    //
+    // Reports the mean and max absolute luma difference and, when there is
+    // one, the column profile of the difference — because an artifact that
+    // is a *vertical seam* shows up as a step in that profile and as almost
+    // nothing in a whole-image mean.
+    if diff {
+        assert_eq!(files.len(), 2, "diff=1 needs exactly two images");
+        let a = image::open(&files[0]).unwrap_or_else(|e| panic!("{}: {e}", files[0])).to_rgb8();
+        let b = image::open(&files[1]).unwrap_or_else(|e| panic!("{}: {e}", files[1])).to_rgb8();
+        assert_eq!(a.dimensions(), b.dimensions(), "images differ in size");
+        let (iw, ih) = a.dimensions();
+        let (x0, y0, w, h) = crop.unwrap_or((0, 0, iw, ih));
+        let luma = |p: &image::Rgb<u8>| p.0[0] as f32 * 0.299 + p.0[1] as f32 * 0.587 + p.0[2] as f32 * 0.114;
+        let (mut sum, mut max, mut max_at, mut changed) = (0.0f64, 0.0f32, (0u32, 0u32), 0u64);
+        let mut cols = vec![0.0f64; w as usize];
+        for y in 0..h {
+            for x in 0..w {
+                let d = (luma(a.get_pixel(x0 + x, y0 + y)) - luma(b.get_pixel(x0 + x, y0 + y))).abs();
+                sum += d as f64;
+                cols[x as usize] += d as f64;
+                if d > 0.5 {
+                    changed += 1;
+                }
+                if d > max {
+                    max = d;
+                    max_at = (x0 + x, y0 + y);
+                }
+            }
+        }
+        let n = (w * h) as f64;
+        println!(
+            "diff over {w}x{h}: mean {:.3} luma, max {max:.1} at {max_at:?}, {changed} of {} pixels differ by >0.5 ({:.1}%)",
+            sum / n,
+            n as u64,
+            changed as f64 * 100.0 / n
+        );
+        // Column profile, coarsened to keep it readable: a seam is a step
+        // here and invisible in the mean.
+        let step = (w / 24).max(1);
+        let profile: Vec<String> = (0..w)
+            .step_by(step as usize)
+            .map(|x| format!("{:.1}", cols[x as usize] / h as f64))
+            .collect();
+        println!("  per-column mean diff every {step} px from x={x0}: {}", profile.join(" "));
+        return;
+    }
 
     for path in &files {
         let img = image::open(path).unwrap_or_else(|e| panic!("{path}: {e}")).to_rgb8();
