@@ -1,6 +1,9 @@
 # Foraging range: the counter that was measuring loitering
 
-**Status: MEASURED, instrument landed, 2026-08-23.** The metric described
+**Status: MEASURED, instrument landed, 2026-08-23; §3 carries a dated
+correction from WP-9 arm 1's re-test** — the 55-ant row is a jammed scene, not
+the colony's range, and the "`>=32` at zero" baseline quoted from it was
+narrower than intended. The metric described
 here is built and on the `ascii` gate. The two findings it produced —
 a colony that works a 19-cell bubble, and litter that lands in the canopy
 — are measurements, not fixes. Nothing behavioural changed.
@@ -192,6 +195,34 @@ excursions in any scene reached 32. `wiki/ants.md` already said "ants do not
 range far from home"; nothing had ever put a number on it, and the number is
 much smaller than the prose suggests.
 
+> **CORRECTION, 2026-08-23 (WP-9 arm 1's re-test).** The bubble is real, but
+> **the 55-ant row above is partly an artefact of this probe's own scene** and
+> should not be quoted as the colony's range. `forage_probe` plants its ants
+> `20 + i * 2` — **2 cells apart**, shoulder to shoulder for a two-cell body,
+> which is exactly the arrangement dead ends 775/829 record as gridlock and
+> the reason `COLONY_ANT_SPACING` is **4**. The spacing was never chosen; it
+> was there because the scene existed to give the counter something to count.
+>
+> Varying it (the probe now takes `spacing=`), 8 seeds x 24,000 frames,
+> `climbs_over_kin` **off** in both columns, medians:
+>
+> | | spacing 2 | spacing 4 |
+> |---|---|---|
+> | deepest | 23.5 | **46** |
+> | `>=32` bucket | 0 | **4.5** |
+> | blocked/moves | 0.538 | **0.311** |
+> | round trips | 18.5 | **50** |
+>
+> So "*zero* excursions reached 32" is a statement about a jammed scene, not
+> about the colony: at the spacing a colony is actually founded at, the
+> unmodified ants already put ~4.5 excursions per seed past 32 cells. WP-9's
+> success condition was written against the jammed figure, which made it
+> easier to clear than intended — see `dead-ends.md`'s 775/829 entry for what
+> that did to the first reading of the climb-over result.
+>
+> The `ascii` rows in the table are unaffected: that scene plants at
+> `24 + i * 4` and was never jammed.
+
 **The old counter is off by two to three orders of magnitude, and in the
 flattering direction.** 13,502 against 16 on the double bridge is 844:1.
 
@@ -201,6 +232,13 @@ against 3.0. It also blocks 13,136 of 21,847 moves. They jam each other, and
 every verb counter stays healthy while it happens: `moves`, `pickups`,
 `drops` and `nest_visits` all climb. This is precisely the failure mode
 nothing could see.
+
+> **And the correction above is why this finding is the sharpest one here.**
+> A crowd *at 2-cell spacing* is worse than a single ant. That is not a
+> disappointing fact about crowds; it is the gridlock dead end 775/829
+> already recorded, reproduced faithfully by a scene that happened to be
+> built at the jamming spacing. Read it as a demonstration of the jam, which
+> it is, rather than as the colony's foraging range, which it is not.
 
 ### The guards now on the gate
 
