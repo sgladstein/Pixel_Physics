@@ -1,0 +1,54 @@
+{
+  "id": "20260823T104342401Z-25ec88",
+  "created": "2026-08-23T10:43:42Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-c",
+    "branch": "claude/pixel-physics-lane-c-wp8-9-byuvop",
+    "commit": "147c077",
+    "agent": null,
+    "session_id": "43e361e1-6da3-5d35-91b1-5cf42cd7a522",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-c"
+  },
+  "title": "Should a specialised gut change the animal's colour?",
+  "question": "Which reads better as ants on a forest floor — and can you find the ants at all in each?",
+  "context_md": "S5 gives every creature a heritable `gut_bias` (-1 plant .. +1 flesh). The plan asks for the creature palette to lerp by it, so two ancestors one number apart are visibly different animals.\n\nThe shipped ant is authored at **-1.0** (a detritivore — that value is forced by an economy measurement, see the PR), so it takes the *full* tint. Same scene, same seed, same 3 frames; the only difference is the tint.\n\n**What I already measured, and why I am not confident in my own change:** `assets/materials/ant.ron` records a deliberate decision — \"an ant is one or two cells at play zoom against soil and sand, and the readable signal at that size is **contrast against the ground rather than hue**\". My reading of these two is that the tinted arm is *worse*: the untinted ants read as dark specks on the pale nest band, and the tinted ones sink into the soil and the canopy, because the world's dominant colour is already green.\n\nIf that is your reading too, the fix is one constant (`GUT_TINT_STRENGTH`) or a different pair of hues — possibly a *brightness* axis rather than a hue axis, since brightness is the one channel that reads at 1-2 px.\n\nWhat to ignore: the terrain, the trees and the nest are identical in both and are not the question.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T104342401Z-25ec88/000-A_untinted.png"
+      ],
+      "caption": "no tint — shipped ant colour",
+      "meta": {
+        "ants placed": 17,
+        "gut_bias": -1.0,
+        "tint strength": 0.0
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T104342401Z-25ec88/001-B_tinted.png"
+      ],
+      "caption": "45% toward green at gut_bias -1",
+      "meta": {
+        "ants placed": 17,
+        "gut_bias": -1.0,
+        "tint strength": 0.45
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
