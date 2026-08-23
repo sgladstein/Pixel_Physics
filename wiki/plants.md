@@ -8,8 +8,10 @@ roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff; and again when roots stopped
 destroying the water they did not drink and the forest floor stopped
-keeping rain off the ground under it. One plant-economy number is unsettled
-and its cause is still open — see `Reports/open-bugs-handoff.md`.*
+keeping rain off the ground under it; and again (2026-08-23) when leaf
+fall was slowed to a quarter so the floor stopped burying the world. One
+plant-economy number is unsettled and its cause is still open — see
+`Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -181,11 +183,14 @@ holding rather more water after a storm than bare ground does, which is
 what mulch is for. It used to do the opposite and seal the ground it lay
 on, and the blanket is deepest exactly where the roots are.
 
-It does not pile up forever. Litter **rots back into soil**, faster where the
-ground is damp, so a standing wood reaches a floor of roughly constant depth
-instead of burying itself. That is what makes the floor a cycle rather than an
-accumulator — and it is why a wood costs no more to simulate the longer it
-stands.
+The *litter* does not pile up forever: it **rots back into soil**, faster
+where the ground is damp, so the visible drift under a standing wood stays
+roughly constant depth. The soil it rots into is a slower story — nothing
+carries soil away yet, so a very old stand does slowly raise the ground it
+lives on. Leaves are shed sparingly (a leaf has to be deep in shade or
+drying out before it goes), which keeps that rise to a creep rather than
+the burial it once was; a wood should read as standing *on* its floor, not
+sinking into it.
 
 Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the

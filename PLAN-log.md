@@ -2498,3 +2498,36 @@ identical at the baseline commit in a separate worktree, with identical
 counters — pre-existing, alongside
 `plant::root_and_shoot_branching_read_different_slots` and acceptance's
 `wood` case.
+
+### WP-11, the abscission half: leaf fall slowed to a quarter, chosen by the owner from a three-arm card (2026-08-23)
+
+The owner's diagnosis was taken at its word — *"leaves are just falling
+too fast which creates too much food and is creating a giant pile of
+soil"* — and the first move was to make the lever visible rather than to
+guess at it: three new shed-cause counters (`World::shed_shade` /
+`shed_drought` / `shed_stranded`, printed by `filmstrip` beside §O's
+decay line) put ~89% of all leaf fall on `shade_death`. Not litter decay:
+§O had already measured faster rot making the floor *worse*.
+
+Swept 0.003 / 0.0015 / 0.00075 on the colony scene (wetland seed 0,
+12,000 frames, one binary per arm — assets are `include_str!`ed), posted
+as one three-arm card with soil-writing decay events (6,331 / 3,443 /
+1,800), standing litter, living tissue and the colony-band food census in
+each pane's `meta`. Verdict: **"C is best"** — the quarter rate landed.
+Verified on the tree it landed on (post-water-book `main`): decay events
+1,862 against 6,653 paired baseline, −72%; standing litter 1,024 → 344;
+living tissue +10%; crowns still separate by eye.
+
+Two things the card said out loud rather than hiding: colony-band food
+*energy* does not fall with the rate (70k → 91k medians — retained
+foliage becomes low standing leaf within ant reach), so this fixes the
+floor, not total abundance; and 0.00075 sits in the previously unswept
+fusion gap above 0.0, so any further cut must re-measure the fused-run
+column. Soil still has no exit channel — the floor now creeps instead of
+burying, it does not stop (§O stays open, updated).
+
+The S5 diet sweep and the scarcity-band/guard re-derivation run on this
+retuned world next, paired against same-session baselines on the same
+merged tree — the pre-merge baselines were deliberately discarded when
+PR #19 (the water book) landed mid-session and changed the water economy
+under them.

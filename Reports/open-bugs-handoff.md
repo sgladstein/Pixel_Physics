@@ -3837,6 +3837,24 @@ over-production (88% of the colony's food is standing leaf, the stock triples,
 the colony has stopped ranging). One economy, three symptoms — sessile ants,
 a rising floor, and soil that does not match.
 
+**Update 2026-08-23 (WP-11): the named lever is pulled; the structural gap
+stands.** New shed-cause counters (`World::shed_shade/shed_drought/
+shed_stranded`, printed by `filmstrip` beside the decay line) attribute
+~89% of leaf fall to `shade_death`, so that is what moved: `tree.ron`'s
+leaf `shade_death`/`drought_death` went 0.003 → 0.00075, swept at
+0.003/0.0015/0.00075 (soil-writing events 6,331/3,443/1,800 on the arms'
+own tree) and chosen by the owner on card `20260823T161006584Z-6ecbab`
+("C is best"). Verified on the tree it landed on (post-water-book `main`):
+this same scene now reads **1,862 decay events at frame 12,000 against
+6,653 paired baseline (−72%)**, standing litter 1,024 → 344, living tissue
++10%. What this does **not** fix, kept open under this heading: soil still
+has no exit channel, so the count is still a monotone floor level — it
+rises at a quarter the rate, it does not stop; and colony-band food
+*energy* does not fall with the rate (census medians 70k/82k/91k across
+the arms — retained foliage becomes low standing leaf), so §L's abundance
+reading is not expected to move much. Both were on the card the owner
+chose from.
+
 ### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
 
 **Two** tests, not one, and neither is in any handoff's list — which records
