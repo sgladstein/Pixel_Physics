@@ -2888,6 +2888,80 @@ branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
 
+### M. `main`'s CI has been red on two **gating** jobs since the world-scale merge, and a local `cargo test` cannot see it — **OPEN, 2026-08-23**
+
+**Trunk is red, and it is not bug A.** `.github/workflows/ci.yml`'s
+`cargo test (release)` and `cargo test (debug)` — both **gating**, neither
+quarantined — have failed on every `main` run since `a0fa433`. Last green
+run on `main` was **#146 on `c6ffba2`**, the creature-line parent of that
+merge; #150 (`a0fa433`), #174 and #178 (`9b54be3`) are all red.
+
+Two tests, both in `tests/worldgen.rs`, both about **water failing to come
+to rest in generated terrain, both at seed 3**:
+
+```
+generated_terrain_is_already_at_rest            (tests/worldgen.rs:182)
+  terraced seed 3: 57 cells left their position;
+  first: (82,147) water, (83,147) water, (84,147) water, (84,148) water, ...
+
+a_forced_vault_world_is_sealed_and_arrives_at_rest   (tests/worldgen.rs:1794)
+  rolling seed 3: 47 cells left their position in a forced-vault world;
+  first [(1266,139,6), (1263,138,6), (1270,138,6), (1545,137,6), ...]
+```
+
+Material 6 is `water` in the second one too, so it is one finding wearing
+two test names, not two.
+
+**Reproduced on pristine `main` (`9b54be3`) in a clean worktree: byte
+identical** — same two tests, same seed, same 57 and 47, same first cells.
+Reproduced identically again on a feature branch whose diff is accounting
+only, which is what rules the branch out.
+
+**Why nobody has seen it, and this is the part worth keeping.** `cargo test`
+stops after the **first failing test binary**. Bug A lives in the *lib*
+target, so a local `cargo test` fails there and **never runs
+`tests/worldgen.rs` or `tests/determinism.rs` at all** — they do not appear
+in the output even as skipped. CI does not have this blind spot, because its
+`test` jobs pass `--skip root_and_shoot_branching_read_different_slots`: the
+lib target goes green and the integration binaries then run, and fail.
+
+So the quarantine that made CI honest about bug A simultaneously made
+**local** gate-running dishonest, and in the direction that hides failures.
+Measured on this session's own run: `cargo test --release --locked` printed
+exactly **one** `test result` line and no `Running tests/...` lines at all.
+
+> **Run the gate the way CI runs it**, or you are running a smaller one:
+>
+> ```
+> cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+> ```
+>
+> The tell that you have the short version is the *absence* of
+> `Running tests/worldgen.rs` from the output — not an error, which is why
+> it reads as a pass.
+
+This is the same lesson §H's own entry records one layer along (a red
+`cargo test` marked the later CI *steps* `skipped`, so "main is green" could
+not be concluded); here a red lib target hides the later *binaries* from a
+local run. **A red gate anywhere shortens what everything downstream of it
+even attempts.**
+
+**Where to look.** Not bisected further, and deliberately: this is worldgen,
+which is outside every lane of the creature handoff's split. But the same
+merge that did this did §L, and the hypothesis is cheap to test — the
+world-scale line brought in a springs/river pass (`4b044b2` "A generated
+world gets a river: the springs placement pass", `7120741` "The waterfall
+comes out of a pool now: springs cut their own source basin", `f5f3b19` "A
+fall now lands in a pool") immediately before merging. Water placed by a new
+pass that has not settled by the time the at-rest assertion samples is the
+shape of both failures. Start by running those two tests at seed 3 against
+`4b044b2^`.
+
+**Do not close this by moving the bar or by widening the settle budget**
+until that has been checked: "generated terrain arrives at rest" is a
+property, and the seed that violates it changed behaviour rather than
+drifting past a threshold — 0 cells to 57.
+
 ### L. `ascii` dies on a *foraging* assert long before it reaches bug H, and the bug-H quarantine is hiding it — **OPEN, 2026-08-23, bisected to the world-scale merge**
 
 **Read this before doing anything about bug H above.** `ascii` is red on
