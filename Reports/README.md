@@ -55,9 +55,18 @@ tried?"*.
   `structural.rs`.
 - [building-rethink.md](building-rethink.md) — **proposal, not built.**
   Building should not be a physics puzzle; from a direct playtest steer.
+- [load-concentration-review.md](load-concentration-review.md) — **merged,
+  and its numbers predate `main`.** The load-concentration change (handoff
+  §2d): a wall is judged at the worst of its cross-section, so both faces
+  carry the roof. Every figure in it was measured against `origin/master`
+  `0c7ad58`, before the powder-surcharge, starved-walk and staged-collapse
+  commits; §9 (a column's strength is quadratic in its width) is the
+  largest thing still open here.
 - [load-concentration-review-response.md](load-concentration-review-response.md)
-  — **review response.** Answers `load-concentration-review.md`, which is
-  *in flight* on branch `load-share` (`b4fb357`) and arrives at merge.
+  — **review response.** The second opinion on the above.
+- [load-concentration-review-reply.md](load-concentration-review-reply.md) —
+  **reply to the response**, and the shorter read of the two: what the
+  review changed, and the one finding it overturned.
 - [next-session-handoff.md](next-session-handoff.md) — **live handoff.**
   The unzip: what it was, what is left, what must not be retried.
 - [explosion-mechanics-diagnosis.md](explosion-mechanics-diagnosis.md) —
@@ -281,8 +290,6 @@ field rework — see `open-bugs-handoff.md`.
 When one of these merges, move its line into the sections above (docscheck
 flags the mismatch).
 
-- `load-concentration-review.md`, `load-concentration-review-reply.md` —
-  branch `load-share`.
 - `performance-audit.md` — worktree `perf-audit` (untracked).
 - `measurement-under-contention.md` — worktree `perf-lock` (untracked,
   with a CLAUDE.md edit adding `scripts/perf.sh`).
