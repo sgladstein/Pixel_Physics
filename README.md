@@ -1006,6 +1006,58 @@ mat. All of it, with the controls that produced each number, is in
 `Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
 do not trust a plant constant without re-measuring it first.
 
+## The generation loop: plants die, seeds expire, slots come back
+
+**Package P3 of the plant implementation split.** Three things that were
+each individually survivable and together meant a plant world could only
+ever accumulate.
+
+**Plants can die of ordinary causes.** Shade and drought abscission both
+gated on `CellType::Leaf`, which is right for every woody species and
+vacuous for one whose photosynthetic surface *is* its shoot: grass has
+`plastochron: [0, 0]`, so it has no `Leaf` cell and therefore had no shade
+death, no drought death and no age death at all
+(`Reports/open-bugs-handoff.md` §F4). The predicate now asks the question
+per *species* — a species with a leaf stage sheds leaves, one without sheds
+shoot tissue that earns — and excludes root tissue, which matters because
+grass retires its root tips into the same `MatureBody` that declares its
+`Photosynthesize`.
+
+**A plant with nothing left that can earn is dead, and its remains rot.**
+Slot reclamation keyed on an empty cell list, so a plant that lost all its
+foliage kept its stem, its roots and its `organism_id` for ever. An organism
+holding no cell that can photosynthesise, germinate or flush a bud is now
+marked `senescent` — one-way — and its remaining cells go to litter at a
+species half-life, from where the existing decay path returns them to soil.
+The flag is deliberately shaped to be gated by a *cause* other than
+starvation, which is what the herb package's post-fruiting annual death will
+set.
+
+**Seeds expire.** A dormant seed was rescheduled for ever: 160 standing at
+60,000 frames on the eight-tree stand and still climbing, every one a slot.
+Viability is now a per-species half-life — a constant hazard rather than a
+lifespan, so the bank *thins* to a level set by how fast seed arrives rather
+than emptying on a cliff, which is the reservoir role
+`Reports/population-dynamics-research.md` §3 asks the seed bank to play.
+Grass seed outlasts tree seed two to one, the ruderal-versus-woody axis
+stated as data.
+
+**The 4,095-slot ceiling is a real check.** `Cell::organism_id` gives 12
+bits to the slot index and the encoder does not mask, so a 4,096th organism
+silently became a live one in release builds; the only guard was a
+`debug_assert`. `World::push_organism` now returns `Option` — refusing the
+birth, counting it in `organisms_refused`, and letting the compiler make
+every caller decide — which is `population-dynamics-research.md` 9g's ask in
+its own words.
+
+**Known limitation.** `drought_death` still cannot fire on a mature grass
+plant: transpirational demand is summed over `Leaf` and `GrowingTip` cells
+only, and a tussock that has retired every tip has demand exactly zero, so
+`settle_water` hands it desiccation 0.0 whatever the soil is doing. Shade is
+grass's live mortality arm. Widening the demand sum is an economy change and
+belongs to the single re-derivation pass, not here. The grass economy is
+written down in full in `assets/species/grass.ron`'s header.
+
 ## M16 status
 
 Built: the active-site scheduler (`scheduler.rs`) and plant growth
@@ -1628,6 +1680,36 @@ the only counter that said so (`Reports/open-bugs-handoff.md` §L, closed
 2026-08-23; the scene reads 100 trips, mean depth 10.3, with the fixed
 fallback). `examples/forage_probe.rs` pairs the scene against a sessile control —
 one ant, a nest, no food — and neither arm is worth anything alone.
+
+**Ants climb over each other (WP-9 arm 1, `CreatureDef::climbs_over_kin`,
+default on for ants).** A living nestmate counts as a *foothold* — footing
+only, never passability, so two ants still cannot swap places. Measured with
+`forage_probe`, 8 seeds x 24,000 frames, at `COLONY_ANT_SPACING`: deepest
+excursion **46 → 84** cells, excursions past 32 cells **4.5 → 17.5**, past 64
+**0 → 4.5**, blocked moves **0.311 → 0.033**, with deliveries flat (6.5 vs
+6.0 on a per-seed spread of 0–49). Known limitation: falls roughly double on
+uneven ground (deaths stay 0), and on the `ascii` foraging scene — one seed —
+deliveries fall 643 → 270 with range unmoved, which every multi-seed
+instrument contradicts but which is the gated scene; the untested hypothesis
+is that climbing costs carried food to falls. That scene is the outlier
+rather than the rule, though: the double-bridge scene — real terrain, same
+spacing, same paired run — goes forage trips **22 → 233**, deepest **16 →
+74**, ≥32 bucket **0 → 21**, ≥64 **0 → 5**, blocked moves **24,764 → 4,264**,
+and pickups **41 → 218**. Two further costs from the same sweep: the
+excavation scene digs *less* (1,064 → 726 cells, on fewer blocked moves —
+climbing is an alternative to digging past a nestmate), and the double
+bridge's summed channel B on the short route falls 28.42 → 2.00, because a
+colony spread over more ground lays a thinner trail per cell (nothing gates
+on it; that scene already records route selection as undemonstrated).
+
+The probe now takes `climb=0|1` (forces the arm at runtime, so both arms come
+out of one binary and no rebuild can silently produce two identical "arms")
+and `spacing=` (cells between planted ants). The second exists because the
+probe's own 2-cell spacing is the gridlock dead ends 775/829 record: spacing
+alone, flag off, already moves deepest 23.5 → 46 and the ≥32 bucket 0 → 4.5,
+so the "≥32 at zero" baseline this feature's success condition was written
+against described that scene rather than a founded colony
+(`Reports/foraging-range-measurement.md` §3's correction).
 
 **`Material::insubstantial` bought zero cells on `wood`, and the zero is
 recorded.** The gnome runs through leaf litter with no wade drag, on the

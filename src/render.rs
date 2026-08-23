@@ -1026,6 +1026,20 @@ const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 /// zero is the one that has committed to nothing. Green for plant matter,
 /// red for flesh, matching the palette lerp below so the overlay and the
 /// creature's own colour cannot tell different stories.
+/// **And the midpoint has to be bright too**, which is the second time this
+/// channel has learned the same lesson from the opposite side. The signed
+/// version above fixed a `-1.0` ant rendering at the ramp floor; the owner
+/// then put the ant back at `0.0`, and `|bias| = 0` walked it straight into
+/// the floor again. A magnitude ramp makes *specialists* bright and
+/// *generalists* dim, and the only animal that ships is a generalist.
+///
+/// So it is a true **diverging** ramp: a visible neutral at the middle,
+/// green and red at the ends, and `|bias|` chooses how far from neutral
+/// rather than how bright. Every creature is now legible whatever its gut,
+/// which is the property a readout for "where are the animals and what do
+/// they eat" actually needs — the alternative is a channel that can only
+/// see the animals nobody has built yet.
+const SCALAR_RAMP_GUT_NEUTRAL: [f32; 3] = [225.0, 225.0, 215.0];
 const SCALAR_RAMP_GUT_PLANT: [f32; 3] = [110.0, 245.0, 90.0];
 const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
 
@@ -4145,13 +4159,19 @@ impl Renderer {
             if state.chain.is_empty() {
                 return base;
             }
-            // **Magnitude on the ramp, sign on the hue** -- see
-            // `SCALAR_RAMP_GUT_PLANT`. `|bias|` is how committed the gut is
-            // and picks the brightness; which end it is committed *to*
-            // picks the colour. A specialist of either kind is bright, and
-            // the dim cells are the undecided ones.
+            // **Diverging from a visible neutral** -- see
+            // `SCALAR_RAMP_GUT_NEUTRAL`. `|bias|` is how far from the middle
+            // to travel, not how bright to be, so a generalist reads as pale
+            // and a specialist as green or red. Nothing lands on the ramp
+            // floor, because there is no ramp floor on this channel.
             let bias = state.traits[organism::TRAIT_GUT_BIAS];
-            let ramp = scalar_ramp(bias.abs().clamp(0.0, 1.0), if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT });
+            let end = if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT };
+            let t = bias.abs().clamp(0.0, 1.0);
+            let ramp = [
+                SCALAR_RAMP_GUT_NEUTRAL[0] + (end[0] - SCALAR_RAMP_GUT_NEUTRAL[0]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[1] + (end[1] - SCALAR_RAMP_GUT_NEUTRAL[1]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[2] + (end[2] - SCALAR_RAMP_GUT_NEUTRAL[2]) * t,
+            ];
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
@@ -6838,7 +6858,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
-            .map(|_| world.push_organism(species))
+            .map(|_| world.push_organism(species).expect("an organism slot is free"))
             .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {
