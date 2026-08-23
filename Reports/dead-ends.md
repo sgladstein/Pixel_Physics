@@ -4,7 +4,9 @@
 and rejected, extracted by a ten-agent census (2026-08-21, 542 entries)
 over the source comments, the Reports, `README.md` and `PLAN.md` that
 record them; 549 after the plant-line merge of 2026-08-21 added five and
-its decay work added two more on 2026-08-22.
+its decay work added two more on 2026-08-22, and 561 after the gnome
+tree-interaction pass added a `character` section of twelve on
+2026-08-23.
 Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
@@ -1097,6 +1099,36 @@ the "a revert keeps the knowledge" convention, given an address.
   *Re-test when:* Re-evaluate only if someone actually produces that second proof; the current design needs none.
 - **src/sim/update.rs mod seam_cliffs (cause paragraph) and test chunking_the_sweep_does_not_change_where_a_pile_settles** - Three movement-rule hypotheses for seam cliffs were wrong first, including the recorded leading one (seam cells failing to get flowing() set — they do get it). The cause is the chunk-by-chunk sweep order making the seam column a one-grain-per-frame conveyor (33 straight-down slumps vs 0.9 sideways escapes/frame); the step_monolithic control is what found it.
   *Re-test when:* Any artifact aligned with the F1 chunk grid: suspect sweep decomposition before movement rules, and use the monolithic control.
+
+## character  (12 entries)
+
+The M9 gnome. Every entry here is from the tree-interaction pass
+(`claude/gnome-tree-interaction-l87ijo`); the citation is the record.
+
+- **src/sim/player.rs `step`'s climb gate (comment)** - Climbing keyed on `W`/`S` against a handhold, on the argument that the keyboard was full and the verb could ride the jump key for nothing. `W` is jump *and* climb, so jump-walking through a wood grabbed every trunk clipped at the top of an arc and kept lifting: reported from play as "if I am just jump walking in a forest, I can basically fly/hover". Replaced by an explicit grab key (Shift). The trade was "no new key" against "no accidental grab" and it picked wrong.
+  *Re-test when:* Never as stated. A verb that fires when the player did not ask for it is worse than a verb that costs a key; if the keyboard is ever the binding constraint again, take the key from something else.
+- **src/sim/player.rs `step`'s climb gate (comment); test `a_falling_gnome_does_not_catch_himself_on_a_tree_he_is_not_holding`** - Engaging the climb on contact alone, with no input required. A gnome falling *past* a tree caught himself on it — flypaper, not a climb. Measured arriving at row 48 against a floor at 88.
+  *Re-test when:* Holds as long as trees are walk-through; the grip needs an intent because contact is now the normal state, not a special one.
+- **src/sim/player.rs `step`'s climb gate (comment)** - Requiring `!grounded` so that feet-on-ground always jumps. Reads well and cannot be entered: `jump_pressed` is an edge, so walking up to a trunk with `W` held offers no second press to hop with, and he stood at the base of a tree he was inside. The root problem it guarded against is handled by `GRIP_ROWS` instead.
+  *Re-test when:* Moot under an explicit grab key; would return only if someone tried to make the grab implicit again.
+- **src/sim/player.rs `shake_target` (comment); commit "The green marker was a symptom"** - The shake aiming along a ray *from the gnome's centre*, taking the first living tissue on it. Standing in or beside a tree that is distance 1 in every direction, so the verb fired wherever you pointed: the marker was on permanently (reported as "a green square when near trees"), digging inside a tree was impossible, and a trunk between `shake_reach` and `dig_reach` was a dead click. Replaced by taking the cell under the cursor.
+  *Re-test when:* Holds. The pick wants the nearest thing it can cut; the shake wants the thing you are pointing at. They are different questions and must not share an aim.
+- **src/sim/player.rs `face_toward` (comment); test `the_pick_aims_through_a_tree_at_the_rock_behind_it`** - Stopping the pick's aim ray at living tissue, so the shake could aim at a tree in front of a cliff. `mine_swept` skips organism cells, so a tree the ray stopped at was a bite that did nothing — measured landing at (85, 83), on the trunk. Movement collision, aim collision and *cut* collision are three questions and this merged the last two.
+  *Re-test when:* Only if the pick ever becomes able to cut living tissue.
+- **src/sim/player.rs `SHAKE_CELLS` (comment)** - A 250-cell cap on how much of a plant one shake reaches. Grabbing the base of a 2,609-cell tree filled the flood with trunk before reaching one leaf: 43 shakes shed nothing and sowed nothing off a plant with plenty of both. A size cap must bound work, never gate whether something happens.
+  *Re-test when:* Raised to 3,000. Lower it only with a measurement showing the flood is a real frame cost, which it is not — one flood per `dig_cooldown` against a sweep doing 163,840 cells per frame.
+- **src/sim/player.rs `sow_from_crown` (comment)** - Sowing a shaken seed into the first open cell *below the shaken point*. Never fires: he shakes a trunk at chest height and every cell under that is the ground the tree stands in. Seed comes off the crown now, whichever part is shaken.
+  *Re-test when:* Holds while trees are rooted in ground.
+- **src/sim/player.rs `shake`'s dislodge pass (comment)** - Shaking loose material off every cell of the plant, with no test for whether the cell is in the open. Roots are part of the plant and the soil bed rests on them, so every root read as a laden branch: 1,235 cells "knocked loose" in 43 shakes, nearly all of it soil being stirred round a root system. Gated on the cell having air beside it: 429.
+  *Re-test when:* Holds while roots are `climbable` and grow through soil.
+- **src/sim/player.rs `shake`'s seed gate (comment)** - Sowing on a shake with no maturity gate. A sown seed germinates into a sapling that can immediately be shaken for more, so holding the button turned the ground into a thicket — measured on `scene=shake` as 199 shakes sowing 10 seeds and growing a bush around him. Gated on `shoot_cells >= SEED_BEARING_CELLS`.
+  *Re-test when:* Holds until a tree actually produces seed cells of its own, at which point the gate becomes the tree's business rather than the verb's.
+- **src/render.rs `OCCLUDED_ALPHA` (comment)** - Drawing the gnome through a tree in front of him at alpha 0.28, on the argument that a character who vanishes into a crown is a character you have lost. Overruled by playtest — "behind has too much transparency, the player character should be hidden" — so the concern was the author's and not real at this zoom. Now 0.0.
+  *Re-test when:* The constant and its branch are kept; restoring the ghost is one number. Worth revisiting at high zoom or with a busier canopy.
+- **src/sim/player.rs test `a_canopy_breaks_a_fall_without_stopping_it` (comment)** - Measuring the canopy's fall-catch by *peak* `vy` over the drop. Measured 2.80 against 2.25 and read as the mechanism barely working, because almost all of the peak was the thirty cells of open air above the crown, where nothing is meant to differ. Arrival speed is the quantity: 2.80 against 1.41.
+  *Re-test when:* Permanent measurement lesson — measure the quantity the mechanism changes, not the one that is easiest to sample.
+- **src/render.rs `last_player_pose` (comment); test `turning_on_the_spot_repaints_him`** - Keying the sprite's dirty-rect comparison on its screen *rectangle* alone. Turning on the spot or starting a swing changes every pixel of him without moving his rectangle, so the comparison skipped the repaint and left the old pose on screen. The key is the whole pose now.
+  *Re-test when:* Holds for any per-sprite state that changes appearance without changing extent.
 
 ## other  (17 entries)
 
