@@ -149,7 +149,7 @@ fn main() {
             "frames" => frames = v.parse().expect("frames"),
             "bins" => bins = v.parse().expect("bins"),
             "mode" => mode = v.to_string(),
-            other => panic!("unknown arg {other:?}; known: genomes, seeds, frames, bins, mode"),
+            other => panic!("unknown arg {other:?}; known: genomes, seeds, frames, bins, mode (genomes|seeds|threads|cost|noise|spawn|economy|diet)"),
         }
     }
 
@@ -188,6 +188,18 @@ fn main() {
     }
     if mode == "economy" {
         economy_sweep(seeds, frames);
+        return;
+    }
+    if mode == "diet" {
+        diet_sweep(seeds, frames);
+        return;
+    }
+    if mode == "census" {
+        // The S4 food census on its own, so an economy retune can quote
+        // the colony-band number without paying for the whole sweep.
+        // `CENSUS_PRESET=wetland` narrows it to one terrain;
+        // `CENSUS_SEEDS=N` still sweeps the generator.
+        scene_food_census(BASE_SEED);
         return;
     }
     println!("creature space: {genomes} random genomes + 2 references, {seeds} seeds x {frames} frames each");
@@ -617,7 +629,14 @@ fn scene_food_census(seed: u64) {
     // energy came from somewhere else and S4 is not what moved it.
     println!("(litter columns are the did-it-fire counter for S4; at shade_death 0.0 they must read exactly 0)");
     let mut summary: Vec<(String, Vec<f64>)> = Vec::new();
+    // `CENSUS_PRESET` narrows the census to one terrain: the economy retune
+    // only needs the colony scene's own preset, and paying for three others
+    // to get it is how an instrument stops being run at all.
+    let only = std::env::var("CENSUS_PRESET").ok();
     for preset in ["rolling", "wetland", "terraced", "canyon"] {
+        if only.as_deref().is_some_and(|p| p != preset) {
+            continue;
+        }
         let mut colony = Vec::new();
         for s in 0..seeds {
             colony.push(census_one(seed + s, preset));
@@ -1087,5 +1106,300 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
         depth: (depth_sum / depth_n.max(1.0)) as f32,
         eats: ate.len() as f32 / seen.len().max(1) as f32,
         placed,
+    }
+}
+
+// --- S5: survival against the authored gut, plan §2.5's measurement ------
+
+/// The gut settings §2.5 names, and the two ancestors its separation
+/// control compares.
+const DIET_BIASES: [f32; 5] = [-1.0, -0.5, 0.0, 0.5, 1.0];
+
+/// **Is diet a niche axis yet?** Plan §2.5's deferred measurement, run as
+/// three questions with their controls attached:
+///
+/// 1. Survival against authored `gut_bias` in a scene holding both litter
+///    and carrion must be **two-humped** — that is the operational
+///    definition of two niches. The carrion is *seeded*: the colony
+///    census reads `of which corpse 0`, because nothing preys on anything
+///    yet, and a mixed arm whose meat never existed measures litter
+///    scarcity twice (the plan's own falsifier note, found upstream).
+/// 2. The same sweep over a litter-only scene must be **single-peaked at
+///    the herbivore end** — a second hump there is a sweep bug, not a
+///    niche. The corpse columns become litter columns rather than gaps,
+///    so the two arms hold the same total energy and differ only in
+///    *class*.
+/// 3. Two cohorts at ±0.8 in a world whose plant food is all on one side
+///    and meat all on the other should pull apart; the same two cohorts
+///    **both at 0.0 must read separation ≈ 0** (they are the same animal
+///    and must mix). The bar for "apart" is the both-at-0 arm's own seed
+///    spread, not "two local maxima" — outcome sd here is ~0.1.
+///
+/// `placed` is printed in every arm because the spawn-layout trap has
+/// fired three times in this file alone; a survival number whose
+/// denominator quietly moved is not a survival number.
+fn diet_sweep(seeds: u64, frames: usize) {
+    println!("S5 diet sweep: survival vs authored gut_bias, {seeds} seeds x {frames} frames, paired (same seeds every arm)");
+    println!("scene: wetland, {ANTS} ants asked, no beetles, 2 trees, seeded floor food {DIET_FOOD_COLUMNS} columns x {DIET_FOOD_DEPTH} cells at authored worth\n");
+    for &carrion in &[true, false] {
+        let arm = if carrion { "mixed litter+carrion" } else { "litter-only control" };
+        println!("[{arm}]");
+        println!("{:>5} {:>10} {:>10} {:>10} {:>7} {:>8}", "gut", "survival", "min..max", "eats", "placed", "corpse@end");
+        for &bias in &DIET_BIASES {
+            let runs: Vec<(Sample, usize)> = (0..seeds).map(|s| diet_one(bias, carrion, frames, BASE_SEED + s)).collect();
+            let mut sv: Vec<f32> = runs.iter().map(|(r, _)| r.survival).collect();
+            sv.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let mean = sv.iter().sum::<f32>() / sv.len().max(1) as f32;
+            let eats = runs.iter().map(|(r, _)| r.eats).sum::<f32>() / runs.len().max(1) as f32;
+            let placed = runs.iter().map(|(r, _)| r.placed).sum::<f32>() / runs.len().max(1) as f32;
+            let corpse_end = runs.iter().map(|(_, c)| *c).sum::<usize>() / runs.len().max(1);
+            println!(
+                "{bias:>5.1} {mean:>10.3} {:>4.3}..{:<4.3} {eats:>9.2} {placed:>7.1} {corpse_end:>8}",
+                sv[0],
+                sv[sv.len() - 1]
+            );
+        }
+        println!();
+    }
+    println!("[separation] two cohorts, plant food west / meat east, |mean x(A) - mean x(B)| over the last quarter");
+    println!("{:>12} {:>10} {:>10} {:>16}", "cohorts", "mean", "min..max", "placed A+B (min)");
+    for &(a, b) in &[(-0.8f32, 0.8f32), (0.0, 0.0)] {
+        let runs: Vec<(f32, usize, usize)> = (0..seeds).map(|s| diet_separation(a, b, frames, BASE_SEED + s)).collect();
+        let mut sep: Vec<f32> = runs.iter().map(|r| r.0).collect();
+        sep.sort_by(|x, y| x.partial_cmp(y).unwrap());
+        let mean = sep.iter().sum::<f32>() / sep.len().max(1) as f32;
+        let pa = runs.iter().map(|r| r.1).min().unwrap_or(0);
+        let pb = runs.iter().map(|r| r.2).min().unwrap_or(0);
+        println!("{:>5.1}/{:<5.1} {mean:>10.1} {:>4.1}..{:<4.1} {:>10}+{:<5}", a, b, sep[0], sep[sep.len() - 1], pa, pb);
+    }
+}
+
+/// How many surface columns get a food cell, and how deep each stack is.
+/// Sized so the scene is scarce for the population rather than a larder:
+/// 52 ants at start energy 90 against ~100 cells of authored 480 is a
+/// world where feeding pays and camping one pile does not.
+const DIET_FOOD_COLUMNS: i32 = 104;
+const DIET_FOOD_DEPTH: i32 = 1;
+
+/// One paired run of the survival sweep. Returns the run's `Sample` plus
+/// the corpse cells still standing at the end — the "was the meat actually
+/// there" counter, because a mixed arm whose carrion rotted or sank in the
+/// first thousand frames is a litter arm wearing the wrong label.
+fn diet_one(bias: f32, carrion: bool, frames: usize, seed: u64) -> (Sample, usize) {
+    let (mut world, surface_at) = diet_scene(seed);
+    let (w, h) = (512i32, 160i32);
+    // **Ants before food.** The first run of this harness seeded the floor
+    // first, and the food cells sat exactly where `plant_creature_seed`
+    // wanted to put ants: `placed` read 17 of 52, which is the spawn-layout
+    // trap firing for the fourth time — caught by the `placed` column the
+    // plan insists on, before a single survival number was quoted.
+    let placed_ids = diet_place_ants(&mut world, &surface_at, 24, &[bias]);
+    // Food on the floor of the colony band, alternating class by column so
+    // neither gut has to travel further than the other. In the control the
+    // meat columns hold litter instead — same energy, one class.
+    let litter = world.materials.id_of("litter").expect("litter");
+    let corpse = world.materials.id_of("corpse").expect("corpse");
+    let worth = world.materials.get(litter).food_energy;
+    let mut placed_food = 0i32;
+    let mut x = 24i32;
+    while placed_food < DIET_FOOD_COLUMNS && x < w - 8 {
+        x += 2;
+        let y = surface_at[x as usize] - 1;
+        if y < 1 || !world.is_empty(x, y) {
+            continue;
+        }
+        let meaty = placed_food % 2 == 1;
+        for d in 0..DIET_FOOD_DEPTH {
+            let cell = if meaty && carrion {
+                Cell::new(corpse, 2).with_aux(worth.round() as u16)
+            } else {
+                Cell::new(litter, 0)
+            };
+            world.set(x, y - d, cell);
+        }
+        placed_food += 1;
+    }
+    let sample = diet_meter(&mut world, &surface_at, frames, &placed_ids);
+    let corpse_end = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == corpse).count();
+    (sample, corpse_end)
+}
+
+/// The separation control: cohort A (gut `bias_a`) interleaved with cohort
+/// B (`bias_b`) in the middle of the map, plant food banked to the west,
+/// meat to the east. Returns (separation, placed A, placed B).
+fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> (f32, usize, usize) {
+    let (mut world, surface_at) = diet_scene(seed);
+    let w = 512i32;
+    // Cohorts first (see `diet_one` — food on the spawn cells reads as a
+    // sparse colony), starting at 152 so the 52-ant line is centred in the
+    // gap between the two banks rather than sitting inside the west one.
+    let cohorts = diet_place_ants(&mut world, &surface_at, 152, &[bias_a, bias_b]);
+    let litter = world.materials.id_of("litter").expect("litter");
+    let corpse = world.materials.id_of("corpse").expect("corpse");
+    let worth = world.materials.get(litter).food_energy;
+    for x in (30..190).step_by(3) {
+        let y = surface_at[x as usize] - 1;
+        if y >= 1 && world.is_empty(x, y) {
+            world.set(x, y, Cell::new(litter, 0));
+        }
+    }
+    for x in (330..490).step_by(3) {
+        let y = surface_at[x as usize] - 1;
+        if y >= 1 && world.is_empty(x, y) {
+            world.set(x, y, Cell::new(corpse, 2).with_aux(worth.round() as u16));
+        }
+    }
+    let ant_material = world.materials.id_of("ant").expect("ant");
+    let h = 160i32;
+    // Mean |x(A) - x(B)| over the last quarter of the run: an end-state
+    // snapshot is one frame of a wandering quantity, and the whole point
+    // of the 0/0 arm is to know what that wander is worth.
+    let (mut sep_sum, mut sep_n) = (0.0f64, 0.0f64);
+    for frame in 0..frames {
+        parallel::step(&mut world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+        if frame % 6 != 0 || frame < frames * 3 / 4 {
+            continue;
+        }
+        let (mut ax, mut an, mut bx, mut bn) = (0.0f64, 0.0f64, 0.0f64, 0.0f64);
+        for x in 0..w {
+            for y in 0..h {
+                let c = world.get(x, y);
+                if c.material != ant_material || organism::cell_type(c.aux()) != Some(CellType::Head) {
+                    continue;
+                }
+                if cohorts[0].contains(&c.organism_id()) {
+                    ax += x as f64;
+                    an += 1.0;
+                } else if cohorts[1].contains(&c.organism_id()) {
+                    bx += x as f64;
+                    bn += 1.0;
+                }
+            }
+        }
+        if an > 0.0 && bn > 0.0 {
+            sep_sum += (ax / an - bx / bn).abs();
+            sep_n += 1.0;
+        }
+    }
+    ((sep_sum / sep_n.max(1.0)) as f32, cohorts[0].len(), cohorts[1].len())
+}
+
+/// The shared scene: wetland at `seed`, nest, two trees grown through the
+/// same 2,400-frame warmup `run_one` uses, **no beetles** — predation is a
+/// second selective force and this sweep is about diet alone.
+fn diet_scene(seed: u64) -> (World, Vec<i32>) {
+    let (w, h) = (512i32, 160i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    world.seed = seed;
+    let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
+    let params = presets.get(PRESET).expect("wetland preset");
+    pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed });
+    let surface = |world: &World, x: i32| -> i32 {
+        (0..h)
+            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            .unwrap_or(h - 1)
+    };
+    let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
+    let nest = world.materials.id_of("nest").expect("nest");
+    for x in 16..90 {
+        world.set(x, surface_at[x as usize], Cell::new(nest, 0).with_attached(true));
+    }
+    for i in 0..2 {
+        let x = 150 + i * 150;
+        world.plant_tree(x, surface_at[x as usize] - 1);
+    }
+    for _ in 0..2400 {
+        world.step_active_sites();
+        world.step_fields();
+    }
+    (world, surface_at)
+}
+
+/// Author the ant's gut for this run. Start energy is `START_ENERGY` for
+/// the same reason `run_one` sets it: at the .ron's 900 nobody can starve
+/// inside a run and every gut scores alike.
+fn set_ant_gut(world: &mut World, bias: f32) {
+    let species = world.species.id_of("ant").expect("ant species");
+    let mut def = world.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+    def.start_energy = START_ENERGY;
+    def.traits[organism::TRAIT_GUT_BIAS] = bias;
+    world.species.set_creature(species, def);
+}
+
+/// Place `ANTS` ants with `run_one`'s placement loop, cycling through
+/// `biases` per successful spawn (one entry = every ant alike; two = the
+/// separation cohorts, interleaved so neither starts nearer its food).
+/// Returns the organism ids per cohort — traits are byte-copied at spawn,
+/// so re-authoring the def between spawns is the seam that makes two
+/// cohorts of one species possible at all.
+fn diet_place_ants(world: &mut World, surface_at: &[i32], start_x: i32, biases: &[f32]) -> Vec<std::collections::HashSet<u16>> {
+    let w = 512i32;
+    let mut cohorts = vec![std::collections::HashSet::new(); biases.len()];
+    let mut planted = 0usize;
+    let mut x = start_x;
+    while planted < ANTS && x < w - 8 {
+        set_ant_gut(world, biases[planted % biases.len()]);
+        let (px, py) = (x, surface_at[x as usize] - 1);
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed(world, px, py, "ant") {
+            world.schedule_active_site(site);
+            cohorts[planted % biases.len()].insert(world.get(px, py).organism_id());
+            planted += 1;
+            x += 4;
+        } else {
+            x += 1;
+        }
+    }
+    cohorts
+}
+
+/// The run and its metering: survival / eats / placed, `run_one`'s
+/// definitions verbatim (mean live heads over the run against the heads
+/// the scene actually stood up; "ever above start energy" as the species-
+/// specific did-it-eat detector).
+fn diet_meter(world: &mut World, surface_at: &[i32], frames: usize, _cohorts: &[std::collections::HashSet<u16>]) -> Sample {
+    let (w, h) = (512i32, 160i32);
+    let ant_material = world.materials.id_of("ant").expect("ant");
+    let mut seen: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let mut ate: std::collections::HashSet<u16> = std::collections::HashSet::new();
+    let (mut pop_sum, mut pop_samples) = (0.0f64, 0.0f64);
+    let mut placed = 0.0f32;
+    let _ = surface_at;
+    for frame in 0..frames {
+        parallel::step(world);
+        world.step_active_sites();
+        world.step_fields();
+        world.step_pheromones();
+        if frame % 6 != 0 {
+            continue;
+        }
+        let mut alive = 0.0f32;
+        for x in 0..w {
+            for y in 0..h {
+                let c = world.get(x, y);
+                if c.material != ant_material || organism::cell_type(c.aux()) != Some(CellType::Head) {
+                    continue;
+                }
+                alive += 1.0;
+                let id = c.organism_id();
+                seen.insert(id);
+                if world.organism(id).is_some_and(|s| s.energy > START_ENERGY) {
+                    ate.insert(id);
+                }
+            }
+        }
+        if pop_samples == 0.0 {
+            placed = alive;
+        }
+        pop_sum += alive as f64;
+        pop_samples += 1.0;
+    }
+    Sample {
+        survival: (pop_sum / pop_samples.max(1.0)) as f32 / placed.max(1.0),
+        eats: ate.len() as f32 / seen.len().max(1) as f32,
+        placed,
+        ..Sample::default()
     }
 }

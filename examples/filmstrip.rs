@@ -5193,6 +5193,16 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
         );
+        // The decay events above are downstream of leaf fall, and leaf fall
+        // has three causes with separate knobs. The retune's lever question
+        // -- "which pressure is filling the floor" -- needs the split.
+        println!(
+            "    shed: {} shade + {} drought + {} stranded = {} leaves",
+            world.shed_shade,
+            world.shed_drought,
+            world.shed_stranded,
+            world.shed_shade + world.shed_drought + world.shed_stranded,
+        );
         // **How much of the failure became grit rather than pieces.** The
         // mean region size cannot answer this and was misread as answering
         // it -- see `FailureCounts::crumbled`.

@@ -661,6 +661,18 @@ pub struct World {
     pub decayed_damp: u32,
     /// Counterpart to `decayed_damp`; see it for why these are separate.
     pub decayed_dry: u32,
+    /// Leaves shed by the graded shade pressure (`tree.ron`'s
+    /// `shade_death`), the upstream half of §O's decay count. Split by
+    /// *cause* for the same reason the decay counters are split by rate:
+    /// the abscission retune has three levers -- shade, drought, and the
+    /// stranded-spray reclaim that rides on both -- and the decay total
+    /// cannot say which one manufactured the litter it rotted.
+    pub shed_shade: u32,
+    /// Counterpart to `shed_shade`: the drought pressure (`drought_death`).
+    pub shed_drought: u32,
+    /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
+    /// fired -- consequential fall, not a lever of its own.
+    pub shed_stranded: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -1235,6 +1247,9 @@ impl World {
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
             decayed_dry: 0,
+            shed_shade: 0,
+            shed_drought: 0,
+            shed_stranded: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
