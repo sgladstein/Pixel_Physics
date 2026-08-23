@@ -2499,6 +2499,36 @@ counters — pre-existing, alongside
 `plant::root_and_shoot_branching_read_different_slots` and acceptance's
 `wood` case.
 
+#### §L closed: the sessile colony was a worldgen argmax, not a movement rule (2026-08-23)
+
+The bisect said scene, and the scene said it in one look: the creature
+parent's foraging world has two residual stone towers standing inside the
+nest patch (x≈42–68), and the merge's world does not. The rock-country
+guarantee's fallback (`region.rs`) set its gate to the best country draw
+exactly, which admits only the argmax region — on the 512-column scene
+world that is a choice between 0.4141 and 0.4691, two samples of a field
+whose period is 1700 columns. The towers went, the freed soil columns grew
+worldgen trees, and the canopy edge moved from x≈88 to x≈64, inside the
+nest patch. Ablations (one build, same seed): towers alone 35 trips,
+doorstep food cleared alone 30 trips and 9 deliveries, both 245 trips and
+0 deliveries — no single lever restores the parent's 92; the balance of
+vertical home terrain plus food at the patch edge is what the bar
+measured.
+
+The fix widens the fallback from an argmax to a country: regions within
+half a `ROCK_COUNTRY_SCALE` of the best draw's centre belong to it. The
+scene reads 100 trips (bar 14, set from 98), nest-visits 3,792 against
+the parent's 3,598, mean depth 10.3 against 10.3, and its 2,000-frame
+counters are identical to the parent's run. On the gated path (best ≥
+0.70) nothing changes; a shipped-size fallback world (1 in 16 seeds) gets
+one country-sized band instead of one sub-screen cluster — the cluster
+shape is the exact failure `FORMATION_BARREN`'s comment records the owner
+rejecting. `known-red-ascii` and its `skip=foraging` exclusion are gone
+per that job's own instruction. Not §M: springs place zero in this
+scene's world (0 cliff candidates, measured), and §M's water-at-rest reds
+stand — though their counts move with the terrain (wetland seed 3: 87
+cells now fails first, was terraced 57 / rolling 47), recorded there.
+
 ### WP-11, the abscission half: leaf fall slowed to a quarter, chosen by the owner from a three-arm card (2026-08-23)
 
 The owner's diagnosis was taken at its word — *"leaves are just falling

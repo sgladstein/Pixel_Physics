@@ -27,21 +27,33 @@
     // solid as it ever was, and so is anything a body drops here.
     climbable: true,
     density: 0.9,
-    // **Four bark bands of four tonal steps** — see `organism::PALETTE_BAND`
+    // **Eight bark bands of four tonal steps** — see `organism::PALETTE_BAND`
     // and `leaf.ron`'s longer note. Band 0 is the original palette
     // unchanged; a species with no declared `bark_bands` still draws
     // uniformly over the whole thing, as before.
     //
-    // Bark carries less of the silhouette than foliage does, so this axis is
-    // shorter than leaf's on purpose — it separates species at the trunk
-    // without pulling attention off the crown.
+    // Bark carries less of the silhouette than foliage does, so this axis
+    // was deliberately kept shorter than leaf's — four bands against six.
+    // **Four is one band per species, and that is exactly too few**: with
+    // `count: 2` ranges, four species cannot be disjoint in four bands, and
+    // the shipped set overlapped on every pair (`tree` 0-1, `conifer` 1-2,
+    // `shrub` and `creeper` both 2-3). Halving the ranges to `count: 1`
+    // would have made them disjoint and is the wrong trade — `count` is
+    // what `bark_band_for_density` spends to show a dense individual apart
+    // from a pioneer *within* a species, and losing that costs more than
+    // four extra colours do. So the axis is eight now and the intent above
+    // is carried by hue instead of by length: the four new bands are quiet,
+    // not loud.
+    //
+    // 4-5 are conifer's, moved off band 1 so it stops sharing with `tree`;
+    // 6-7 are creeper's, which had no bark of its own at all.
     colors: [
         // 0: mid brown — the original palette
         (92, 64, 40),
         (105, 74, 46),
         (80, 55, 34),
         (114, 81, 51),
-        // 1: dark red-brown — conifer bark
+        // 1: dark red-brown — the dense end of `tree` (conifer moved to 4-5)
         (78, 48, 34),
         (92, 58, 42),
         (64, 38, 26),
@@ -56,6 +68,26 @@
         (128, 116, 98),
         (96, 85, 70),
         (142, 130, 112),
+        // 4: rust — a pine's warm, plated bark
+        (124, 76, 48),
+        (142, 90, 60),
+        (106, 62, 38),
+        (158, 106, 74),
+        // 5: plum-brown — the dense end of the same, spruce rather than pine
+        (92, 60, 52),
+        (106, 72, 62),
+        (76, 48, 42),
+        (120, 86, 76),
+        // 6: olive-drab — a green stem that has only just gone woody
+        (96, 92, 62),
+        (110, 106, 74),
+        (80, 76, 50),
+        (124, 120, 88),
+        // 7: pale green-grey — an old vine stem
+        (118, 118, 102),
+        (134, 134, 118),
+        (100, 100, 86),
+        (150, 150, 134),
     ],
     flammability: 0.25,
     // Autoignition, added with lava (the heat verb): until lava shipped

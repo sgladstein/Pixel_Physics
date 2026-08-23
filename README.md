@@ -1580,7 +1580,12 @@ profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
 the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
 `[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
 (a seventh of the count, under half the depth) because outcome spread here is
-large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+large. These numbers earned their keep once already: the world-scale merge
+collapsed the scene to **2 trips** — the rock-country gate's fallback had
+deleted the residual towers the colony forages over — and `forage_trips` was
+the only counter that said so (`Reports/open-bugs-handoff.md` §L, closed
+2026-08-23; the scene reads 100 trips, mean depth 10.3, with the fixed
+fallback). `examples/forage_probe.rs` pairs the scene against a sessile control —
 one ant, a nest, no food — and neither arm is worth anything alone.
 
 **`Material::insubstantial` bought zero cells on `wood`, and the zero is
@@ -1872,7 +1877,25 @@ with a real vertical profile that thins with slope; a water table with
 standing pools where the land dips below it; buried pockets, scree,
 overhangs; seeded plant cover, clustered rather than scattered. Worlds
 arrive settled and structurally real — nothing moves until something moves
-it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+it.
+
+**As of 2026-08-23 that plant cover is four woody species rather than one.**
+`life_scatter` sowed the hardcoded string `"tree"` and moss for the whole
+life of the project, so conifer, shrub and creeper had never appeared in a
+generated world at all — they existed only in probe scenes. Each species is
+now a *weight* over terrain the generator already describes (regional
+aridity, regional elevation, blanket depth), with its own offset into the
+same squared cluster noise, and `tree_density` is split between them rather
+than paid four times over. Measured on the shipped world at seed 1, paired
+against `origin/main` at the same seed and frame count: 87 standing plants
+become 135 — conifer 30, creeper 28, shrub 28 and tree 49, where before it
+was 87 trees and nothing else — at 50% more plant cells. Grass is deliberately still not sown — it has no
+mortality path, and a world that seeded it would leak organism slots.
+`tests/worldgen.rs`'s `every_woody_species_is_sown_across_a_seed_sweep` and
+`a_sown_woody_species_also_comes_up` guard it over a sixteen-seed sweep
+(worlds are procedural, so the guard sweeps the procedure and gates an order
+statistic); `examples/flora_census` is the instrument, and
+`Reports/world-flora-sowing-2026-08-23.md` holds the derivation. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
@@ -2011,6 +2034,47 @@ on a frame where the world or camera changed, and nothing at all on a settled
 one. Design, prior art and the measurements in
 [`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
+
+## Felling status — the verb exists, what it produces does not
+
+**A tool can damage a plant, and cutting through a bole brings the crown
+down.** Landed 2026-08-23 (`Reports/plant-project-review-2026-08-23.md` D1
+and D2; `Reports/open-bugs-handoff.md` §D1 carries the landing notes and the
+measurements).
+
+- `rigid::strike` and `rigid::mine_swept` tested `MaterialKind::Solid`, so
+  the pick and the chisel could not touch a tree at all — a gnome could bore
+  through granite and not through a sapling. `rigid::is_tool_target`
+  (`Solid | Plant`, bedrock still exempt) is what they ask now. Guarded by
+  `rigid.rs`'s `tool_target_tests`.
+- There was no felling scene and no severance measurement. `filmstrip
+  scene=fell` is the bed (one tree, fixed trunk x, room to fall); `fell=`
+  chops through the subject's own thinnest bole row wherever it currently is;
+  `chop=` aims a blow by hand; the per-tile felling census reports standing
+  tissue, where the bole is, detached-but-standing cells and body cells that
+  are plant material; and `FailureCounts::severed_organism_cells` is the "did
+  it fire" counter — nothing else in that struct moves when a crown comes
+  down. Gated by `acceptance.sh`'s `fell` case.
+
+The third gap this line found — the brush and fire's burnout licensing
+nothing, so an erased or burnt-through trunk left its crown standing — was
+**closed independently and better by the playtest-defaults line** (`CellSurface::
+record_disturbance`, with coalescing and a phase-change caller this branch did
+not have). Two sessions built it in parallel; that one won on the merge.
+
+**Known limitation, judged by the owner and now the head of the queue.** A
+felled crown converts to single `deadwood` powder cells rather than coming
+apart into pieces: measured 2,360 of 2,427 cells that way, with only 67
+leaving as bodies and all of those from the axe's own chip zone. Shown to the
+owner as a GIF, whose verdict was *"it reads as a tree disintegrating into
+dust"* — and, more consequentially, a request to stop and design for
+**physical, partially-rigid trees** (sway in wind, branches breaking under a
+fallen rock) rather than patch the fragment ladder. `ChunkBody` cannot express
+a hinge (`spin` accrues from *speed*, rotation is quarter-turn snaps), so this
+is a redesign and not a constant. Building D3 as originally scoped is
+**on hold** pending that design. A topped tree also does not resprout yet
+(D4). Play-facing:
+[`wiki/plants.md`](wiki/plants.md#cutting-a-plant-down).
 
 ## Performance
 
