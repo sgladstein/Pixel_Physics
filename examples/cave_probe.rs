@@ -42,8 +42,20 @@ struct System {
     /// the compression-and-release the cave photographs are built on.
     col_median: i32,
     col_p95: i32,
-    /// Widest uninterrupted horizontal run — the ceiling-span bound's own
-    /// quantity, kept because it is what `MAX_CEILING_SPAN` gates.
+    /// Widest uninterrupted horizontal run of void, in any row.
+    ///
+    /// **Not the ceiling-span bound's quantity, though this said it was.**
+    /// `MAX_CEILING_SPAN` gates a *roof* run — void with stone **directly
+    /// above it** — while this counts a run anywhere, including rows in the
+    /// middle of a chamber with more void overhead. So a system can report
+    /// 143 here against a bound of 36 and be in no violation at all, which
+    /// is exactly what the sweep shows.
+    ///
+    /// The two were told apart by adding a counter to the guard itself
+    /// (`ceiling teeth` in `vaults detail`): it reads **zero**, on every
+    /// system of every seed. A bound that never binds and a bound doing its
+    /// job are the same silence, and this column could not distinguish them
+    /// because it was never measuring the same thing.
     widest: i32,
     /// Percent of this system's void the player can actually reach.
     ///

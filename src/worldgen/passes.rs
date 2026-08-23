@@ -1635,7 +1635,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         };
         println!(
             "  vaults detail: systems {} chambers {} passages {} speleothems {} water {} \
-             | formations {} base-width med {} range {}-{} | {:.1}ms",
+             | formations {} base-width med {} range {}-{} | ceiling teeth {} | {:.1}ms",
             report.systems,
             report.chambers,
             report.passage_cells,
@@ -1645,6 +1645,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
             w_med,
             w_lo,
             w_hi,
+            CEILING_TEETH.with(|t| t.get()),
             report.build_ms
         );
     }
@@ -1741,6 +1742,31 @@ fn all_long_ceiling_runs(env: CaveEnv, void: &[bool]) -> Vec<(i32, i32, i32)> {
     runs
 }
 
+thread_local! {
+    /// Teeth the ceiling guard actually dropped, tallied for `vaults detail`.
+    ///
+    /// **Because a bound that never binds and a bound doing its job are the same
+    /// silence.** Measured 2026-08-23: it is **zero**, on every system of every
+    /// canyon seed tried — [`MAX_CEILING_SPAN`] has never fired in the shipped
+    /// configuration. A "roof run" needs void with stone *directly* above it for
+    /// 36 consecutive columns, i.e. a **flat** ceiling, and neither a Worley
+    /// boundary web nor a rasterised ellipse produces one: on a curved roof each
+    /// row contributes only the few columns where the curve sits at that exact
+    /// height. Disabling the guard entirely (span 100000) moved the census by
+    /// nothing — walkable regions max 92 -> 90, every other column identical.
+    ///
+    /// **This matters for Phase 3 rather than being a curiosity.** Dissolution
+    /// carves passages *along* bedding, which is precisely a long horizontal run
+    /// at constant height with stone above — so a guard that is dormant today
+    /// would begin firing hard the moment that lands, and would saw a trunk
+    /// passage into segments. Read this counter beside any cave-shape change.
+    ///
+    /// `cave_probe`'s "widest ceiling span" column cannot answer this: it
+    /// measures the widest void run in *any* row, with no condition on what is
+    /// above it. Two different quantities wearing one name.
+    static CEILING_TEETH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Collect a cave system's void as a boolean grid over the envelope.
 ///
 /// Worley `F2 - F1` under [`CAVE_THRESHOLD`], evaluated in a frame sheared
@@ -1808,7 +1834,7 @@ fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: 
         }
     }
 
-    settle_cave_void(ctx, env, world, cx, cy, &mut void);
+    let mut teeth = settle_cave_void(ctx, env, world, cx, cy, &mut void);
 
     // Round-5 task 3: one monumental chamber, grown around the point of
     // greatest clearance in the settled void, then the whole settle runs
@@ -1819,7 +1845,7 @@ fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: 
     // guarantee.
     let (requested, added) = grow_monumental_chamber(ctx, env, k, cx, &mut void);
     if requested > 0 {
-        settle_cave_void(ctx, env, world, cx, cy, &mut void);
+        teeth += settle_cave_void(ctx, env, world, cx, cy, &mut void);
         // Reported unconditionally, including the zero case: a chamber
         // eaten down to nothing by a nearby breach is exactly the "size cap
         // gates whether it happens" landmine in a new shape if it goes
@@ -1827,6 +1853,8 @@ fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: 
         let survived = added.iter().filter(|&&idx| void[idx]).count();
         println!("  chamber: requested {requested} cells, {survived} survived the re-settle");
     }
+
+    CEILING_TEETH.with(|t| t.set(t.get() + teeth));
 
     let count = void.iter().filter(|&&v| v).count();
     // Scaled to the envelope (round 6, A2): a flat 80 was 0.62% of the
@@ -1842,7 +1870,8 @@ fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: 
 /// fixed order). Factored out because round-5 task 3 has to run it twice:
 /// once on the raw carved field, and again after the monumental chamber's
 /// growth, which can breach or over-lengthen a span but never disconnect.
-fn settle_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) {
+fn settle_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, void: &mut [bool]) -> usize {
+    let mut teeth = 0usize;
     loop {
         keep_seed_component(env, void);
         // Every violation this round, not just the first (round-6 A0). The
@@ -1852,6 +1881,7 @@ fn settle_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, vo
         // the cut. Each round still removes at least one void cell, so this
         // terminates on the same argument as before.
         let runs = all_long_ceiling_runs(env, void);
+        teeth += runs.len();
         for &(y, x0, len) in &runs {
             // A stone tooth hung from the run's middle: three rows deep,
             // tapering 5-3-1 wide, so the splitter reads as rock coming down
@@ -1872,6 +1902,7 @@ fn settle_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, cx: i32, cy: i32, vo
             break;
         }
     }
+    teeth
 }
 
 /// Round-5 task 3: dilate the void's point of greatest clearance into one
