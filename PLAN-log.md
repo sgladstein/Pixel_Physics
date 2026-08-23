@@ -2561,3 +2561,53 @@ retuned world next, paired against same-session baselines on the same
 merged tree — the pre-merge baselines were deliberately discarded when
 PR #19 (the water book) landed mid-session and changed the water economy
 under them.
+
+### WP-11, part 1 completed: the owner's leaf-fall rate reaches all four woody species (2026-08-23)
+
+The abscission cut landed earlier today on `tree.ron` alone, chosen by the
+owner from a three-arm card (`20260823T161006584Z-6ecbab`: "C is best").
+Merging `main` before measuring anything showed that verdict had quietly
+been reduced to a quarter of its subject: PR #20 began sowing **four**
+woody species — creeper, shrub, conifer, tree, each into its own country —
+and `flora_census -- frames=4000` reads all four established in **8 of 8
+seeds**. `strings` on the built binary confirmed the other three still
+carried the pre-retune `0.003`.
+
+Measured on the colony scene, wetland seed 0, 12,000 frames, one binary
+per arm: soil-writing decay events **5,061** with none cut, **2,954** with
+`tree` alone cut, **1,532** with all four. So the lever the owner judged at
+−72% delivered −42% on the world PR #20 made, and about half the floor
+manufacture left after his retune came from species it never reached.
+
+**Carried to all four rather than treated as a new decision**, because the
+three specialists' `Photosynthesize` line was byte-identical to pre-retune
+`tree`'s (verified against `05a13f0^`): they inherited tree's leaf
+economics wholesale and not one had ever been tuned on its own, so the
+number he changed is the number they carry.
+
+**The card that asked him to confirm it failed, and the failure is the
+useful part.** Three stills of a stand, three arms, counters in `meta`
+exactly as the house rules demand — and the answer was *"What am i
+supposed to be looking at. I don't see an obvious difference between the
+images."* His complaint had been "a giant pile of soil": a **depth that
+accumulates**, which no grid of single moments can show. Two instruments
+were missing and are now in `filmstrip`: `floor:` (soil cells, and net
+change since the first sample — the standing depth, where the existing
+decay line counts only the writing events) and `composition:` (leaf
+against wood, because a silhouette is set by composition, not by which
+cell gets a label — `plant-appearance-design.md`'s recorded trap).
+
+Re-asked as an animation cropped to the ground line
+(`20260823T204413045Z-25c85d`): the floor runs 3,470 → **6,971** soil
+cells at the old rate and 3,429 → **3,358** at the new one. The cost went
+to its own card (`20260823T204815827Z-ffc290`): leaf share 50.2% → 58.7%
+with wood essentially unchanged, so every cell the change adds is leaf,
+and whether the crowns still read as separate stands is the owner's to
+say. Both cards were open at the time of writing.
+
+One correction worth keeping: the first version of `floor:` called the
+rise "manufactured by decay" and clamped negatives away. The retuned arm
+then ran −171, −265, −201, −114 before ending at +120 — soil leaves as
+well as arrives, and the column could never see decay's writes separately
+from whatever consumes them. Renamed to "net"; what removes soil is
+unidentified and is not this branch's to chase.
