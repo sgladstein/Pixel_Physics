@@ -951,6 +951,14 @@ it replaces.
 
 #### As built (2026-08-23), and two things this section got wrong
 
+*(A third verdict landed the same day and is recorded at the mechanism
+rather than here: the spec's "render.rs lerps the creature palette by it"
+went to a blind A/B and lost — **A, untinted** — matching `ant.ron`'s
+standing note that contrast, not hue, is the readable signal at 1–2 px.
+`render.rs`'s gut-tint constants carry the verdict and the card id; the
+readout for the trait is the signed `GutBias` overlay, not the body
+colour.)*
+
 Recorded here rather than silently deviated from, per the implementation
 handoff's own instruction: *if a WP's measurement contradicts this document,
 the measurement wins.* Both were found by arithmetic and by the suite, before

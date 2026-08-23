@@ -1,5 +1,18 @@
 # Creature line: implementation handoff for the next agent
 
+**Status update, 2026-08-23 (same day, after execution):** the three-lane
+run happened and landed — PRs #18 (Lane A: WP-1, WP-3, WP-4), #16 (Lane B:
+WP-2, WP-7, WP-5, WP-6) and #17 (Lane C: WP-8 steps 1–5, WP-9 arm 1
+default-off, plus the omnivore verdict applied as a 4x food-scale
+restoration). Bug H is closed and `ascii` gates again with `skip=foraging`;
+bug A's quarantine stands (re-swept with litter: lever still dead); E8 is
+in the plan's decision log and supersedes E5's exclusive choice. **Open
+work is now:** §L (the sessile colony, bisected to the world-scale merge),
+WP-11 below (the abscission half of the economy retune plus the band
+re-derivation and the S5 sweep), and WP-9's arm decision. WP-10's S6 gate
+has changed shape: E8 removed the watchability constraint, so read the
+plan's §8 answers before treating §2.6's E5 framing as current.
+
 **Status: execution plan, 2026-08-23.** Written to be executed cold by an
 implementation session that has read nothing else, in the style of the
 repo's other handoffs. It operationalises `Reports/creature-review-2026-08.md`
@@ -458,6 +471,35 @@ explicitly waiting for this).
   within a sensor offset of nonzero B (plan §5). Worth doing in an idle
   hour after WP-4; not before, since its verdict is only meaningful with
   honest harnesses.
+
+## WP-11 — The economy retune (added at landing, 2026-08-23; owner-directed)
+
+Three verdicts in one work package. The omnivore half already landed
+(`f8d80b0`: 4x food-scale restoration, measured by
+`print_omnivore_viability_against_food_scale`, ant back to neutral gut).
+What remains:
+
+1. **Slower leaf fall.** The owner's lever, in his words: *"I think leaves
+   are just falling too fast which creates too much food and is creating a
+   giant pile of soil."* That is abscission in `plant.rs`, not litter decay
+   — §O measured that rotting faster makes the floor *worse* (6,331 → 7,287
+   soil-writing events), and he picked the slower-rot arm on looks.
+   Coordinate with the plant line's open PRs before touching `plant.rs`,
+   and land small. Judged by eye: a stand+floor filmstrip at the new rate,
+   §O's decay-event counter in `meta`, posted as a paired card.
+2. **Re-derive `creature_space`'s scarcity band** (WP-4 step 4, gated until
+   now) and re-run the standing guards paired on the retuned world — the
+   current baselines (advantage +0.460/+0.479, ants fed 0.73/0.78) are
+   measurements of the over-fed world and will move.
+3. **The S5 sweep** (plan §2.5's measurement, deferred by Lane C): the
+   two-humped survival-vs-`gut_bias` curve needs carrion actually present —
+   the colony scene's census reads `of which corpse 0` — so seed carrion
+   into the mixed arm rather than waiting for something to die. The
+   litter-only control and the both-at-0 separation control ship with it.
+
+Throughout: the sealed-box guards (`a_sealed_world_…_runs_down`,
+`a_sealed_colony_never_grows_its_own_biomass`) and the moss-pump probe stay
+green — they pin the no-pump property the whole economy rests on.
 
 ## Sequencing
 
