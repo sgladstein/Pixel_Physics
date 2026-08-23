@@ -4018,8 +4018,38 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
                 upland: (character.elev + 1.0) * 0.5,
                 blanket: (plan.soil_depth as f32 / DEEP_BLANKET).clamp(0.0, 1.0),
             };
-            let weights = WOODY.map(|w| (w.weight)(&site));
-            let total = weights.iter().sum::<f32>().max(1.0);
+            // **Sharpened before they are shared out.** The raw weights are
+            // preferences, and preferences alone put a *lottery* in every
+            // column rather than a species in every country: measured on
+            // the shipped rule at `NICHE_SHARPNESS = 1`, a typical column
+            // scored tree 0.73, conifer 0.53, shrub 0.23, creeper 0.22, so
+            // the best-suited species took 43% of the draws and the worst
+            // still took 13%. Every species then appeared everywhere, and
+            // the owner's verdict on the first generated-world panorama was
+            // exactly that -- *"mostly more of the same"*. Raising each
+            // weight to a power before normalising leaves the *ordering*
+            // untouched and widens the gap between first and last, so a
+            // stand takes the species its ground actually suits.
+            let raw = WOODY.map(|w| (w.weight)(&site));
+            // **How much** vegetation this column carries is the *unsharpened*
+            // sum, exactly as before; **which species** gets it is the
+            // sharpened split. Keeping those two separate is not tidiness --
+            // sharpening alone shrinks every weight (they are all below 1, so
+            // a power shrinks them) and quietly thinned the world by 38% at
+            // the top of the first sweep, which then inflated the very
+            // run-length number the sharpening was being judged on. Two
+            // knobs moving one metric, and only one of them was the one
+            // under test (`CLAUDE.md`).
+            let budget = raw.iter().sum::<f32>().min(1.0);
+            let sharp = raw.map(|w| w.powf(NICHE_SHARPNESS));
+            let sharp_total = sharp.iter().sum::<f32>();
+            let weights = if sharp_total > 0.0 {
+                sharp.map(|w| w / sharp_total * budget)
+            } else {
+                sharp
+            };
+            // Already normalised to the column's budget above.
+            let total = 1.0f32;
             let mut planted = false;
             for (i, (species, weight)) in WOODY.iter().zip(weights).enumerate() {
                 if weight <= 0.0 {
@@ -4075,6 +4105,56 @@ fn cluster_moss(ctx: &Ctx, p: &crate::worldgen::WorldgenParams, x: i32) -> f32 {
 /// risks landing on whatever periodicity the lattice has. At this stride the
 /// four species' stands are independent draws of the same statistics.
 const SPECIES_CLUSTER_STRIDE: f32 = 137.4;
+
+/// How hard a column's best-suited species out-competes its rivals for that
+/// column, as an exponent on every weight before they are normalised.
+///
+/// `1.0` is the plain preference share this pass shipped with. Higher
+/// sharpens; the *ordering* never changes, so this cannot put a species
+/// somewhere its weight did not already favour -- it only decides how
+/// strongly the favourite is favoured.
+///
+/// Set from measurement over eight worlds (`flora_census -- mix=1`), reading
+/// the mean run of consecutive same-species plants, which is what "does the
+/// country change as I walk" actually is:
+///
+/// | sharpness | conifer | creeper | shrub | tree | conifer's share |
+/// |---|---|---|---|---|---|
+/// | 1.0 (first shipped) | 1.72 | 1.75 | 1.62 | 2.46 | 0.21 |
+/// | 2.0 | 1.80 | 1.83 | 2.04 | 2.65 | 0.19 |
+/// | 3.0 | 1.89 | 2.08 | 2.27 | 2.98 | 0.17 |
+/// | **4.0** | **1.97** | **2.26** | **2.70** | **3.33** | **0.16** |
+/// | 6.0 | 1.79 | 2.37 | 3.37 | 3.28 | 0.13 |
+/// | 8.0 | 1.81 | 2.33 | 3.35 | 3.53 | 0.12 |
+/// | 12.0 | 1.77 | 2.41 | 3.79 | 3.64 | 0.11 |
+///
+/// **It sits at 1.0, and the table above is why it is not higher.** The
+/// lever works -- every species' belts lengthen monotonically, and on the
+/// pooled eight-world numbers 4.0 looked like a free win (conifer's run
+/// peaks there at 1.97 before falling back). It is not free, and the
+/// sixteen-world guard is what said so: **at every setting from 2.0 up,
+/// `shrub` is missing from 2 of 16 generated worlds outright** -- counts
+/// `[0, 0, 2, 3, 5, ...]` at 2.0 against `[1, 2, 2, 3, ...]` at 1.0.
+///
+/// That is the exact failure this whole pass exists to end. Sharpening
+/// costs the *rarest* species its marginal columns first, and shrub is the
+/// rarest; buying longer belts by making a species vanish from an eighth of
+/// all worlds trades the thing that was broken for a prettier version of
+/// the same break. The gain being bought is small at the settings that
+/// survive at all (shrub's mean run 1.62 -> 2.04 at 2.0).
+///
+/// **And it is probably the wrong axis anyway.** The owner's two verdicts
+/// on this work land together: the panorama read as *"mostly more of the
+/// same"* and the four species read as *"different-ish -- the biggest
+/// differences are still size and color"*. Longer belts of four plants that
+/// look alike is still a world that reads as one plant. See
+/// `Reports/world-flora-sowing-2026-08-23.md` §9.
+///
+/// Kept as a documented, live knob rather than deleted, so the next session
+/// re-derives none of this: the sweep is above, the cost is measured, and
+/// `every_woody_species_is_sown_across_a_seed_sweep` is the test that
+/// catches raising it.
+const NICHE_SHARPNESS: f32 = 1.0;
 
 /// Per-species salt for the placement draw, so the four rolls are
 /// independent rather than four reads of one number (which would make every
