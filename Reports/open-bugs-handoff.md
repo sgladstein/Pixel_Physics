@@ -3437,7 +3437,71 @@ history, the local blind spot, and a starting commit:**
   this by widening the settle budget until that has been checked — 0 cells
   to 57 is a behaviour change, not a drift past a threshold.
 
-### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, found 2026-08-23; bisected to the world-scale merge (see the merged filing at the end of this entry)**
+**Counts moved with the §L fix (2026-08-23), bug unchanged.** The
+rock-country fallback widening (§L's close) changes terrain on fallback
+worlds, and the water that fails to rest moved with it:
+`generated_terrain_is_already_at_rest` now aborts at `wetland seed 3: 87
+cells` (was `terraced seed 3: 57`), still all water. Same claim broken,
+different world under it — recorded so the next reader does not bisect the
+count change to the wrong cause. Not the same root: §L's cause is the
+residuals/region gate; springs place zero in the foraging scene's world
+(0 cliff candidates, measured under `SPRING_DEBUG=1`), so the springs-pass
+lead above is untouched by §L's fix.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
+
+**Root cause, found by looking at the scene, exactly as the bisect predicted.**
+`region.rs`'s rock-country guarantee (`gate = FORMATION_BARREN.min(best)`)
+admits, when it fires, only the single region that drew the field maximum.
+The foraging scene's 512x120 world has **two** regions; at rolling seed 1
+they read country 0.4141 (cx=47 — the colony's home range) against 0.4691
+(cx=459), both far under `FORMATION_BARREN` (0.70) — "essentially a single
+value", as the guarantee's own comment says a sub-period world samples — and
+the knife-edge kept only cx=459. The **two residual stone towers standing
+inside the nest patch (x≈42–68)** on the creature parent, the terrain every
+foraging bar was measured on, vanished; the freed soil columns then grew
+worldgen trees, so the canopy edge moved from x≈88 to x≈64, *inside* the
+nest patch.
+
+**Both halves matter, and they interact — measured by ablation on the merge's
+world** (temporary scene switches, one build, same seed):
+
+| arm | trips | deliveries | falls | nest-visits |
+|---|---|---|---|---|
+| parent `c6ffba2` (towers, canopy from x≈88) | 92 | 192 | 901 | 3,598 |
+| merge world (no towers, canopy in nest patch) | 2 | 143 | 64 | 684 |
+| merge + hand towers | 35 | 277 | 413 | 1,234 |
+| merge + worldgen trees cleared x<210 | 30 | 9 | 709 | 18,426 |
+| both | 245 | **0** | 2,423 | 11,052 |
+
+No single lever restores the parent's shape: towers alone leave food at the
+doorstep, clearing food alone leaves the loop unable to close (0–9
+deliveries over the scene's food distance). The parent's balance — vertical
+home terrain plus food starting at the nest patch's edge — is what the
+92–98 bar measured.
+
+**The fix is in worldgen, not the scene.** The fallback now reads the best
+draw as *defining* the country and gives it the field's own extent: regions
+within `ROCK_COUNTRY_SCALE / 2` of the best centre belong to it
+(`region.rs`, beside `FORMATION_BARREN`). A 512 world becomes rock country
+whole; a shipped-size fallback world (1 in 16 seeds) gets one country-sized
+band instead of one region-sized cluster — the cluster shape is the exact
+failure `FORMATION_BARREN`'s own comment records the owner rejecting, so the
+knife-edge was wrong at both scales. On the gated path (best ≥ 0.70) nothing
+changes.
+
+**Restored, measured on the same scene:** forage trips **100** (bar 14, set
+from 98; the parent read 92 on the same code path), nest-visits 3,792
+(parent 3,598), falls 960 (901), mean depth 10.3 (10.3), deliveries 230
+(192), profile `[3798, 452, 171, 100, 0, 0, 0, 0]`. The 2,000-frame counters
+are **identical** to the parent's run — the towers regenerate at the same
+sites. The bar stays at 14, unmoved, as this entry demanded.
+
+**Not §M's springs water.** The springs pass places nothing in this scene's
+world; the collapse is the residuals/region gate, a different pass on the
+same branch. §M stands untouched.
+
+The original filing follows, kept for the record.
 
 `examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
 `main`:

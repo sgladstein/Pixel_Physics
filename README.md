@@ -1580,7 +1580,12 @@ profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
 the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
 `[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
 (a seventh of the count, under half the depth) because outcome spread here is
-large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+large. These numbers earned their keep once already: the world-scale merge
+collapsed the scene to **2 trips** — the rock-country gate's fallback had
+deleted the residual towers the colony forages over — and `forage_trips` was
+the only counter that said so (`Reports/open-bugs-handoff.md` §L, closed
+2026-08-23; the scene reads 100 trips, mean depth 10.3, with the fixed
+fallback). `examples/forage_probe.rs` pairs the scene against a sessile control —
 one ant, a nest, no food — and neither arm is worth anything alone.
 
 **`Material::insubstantial` bought zero cells on `wood`, and the zero is
