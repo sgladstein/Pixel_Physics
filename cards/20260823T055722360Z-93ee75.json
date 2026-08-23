@@ -1,0 +1,46 @@
+{
+  "id": "20260823T055722360Z-93ee75",
+  "created": "2026-08-23T05:57:22Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/merge-m18",
+    "branch": "merge-m18-work",
+    "commit": "da252dc",
+    "agent": null,
+    "session_id": "fe2b4bf4-9d52-5d78-8ea6-8f586e1d44ef",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/merge-m18"
+  },
+  "title": "Litter palette: current browns vs a warmer, lighter set",
+  "question": "You said on the invisible-floor card that a different colour would settle it. Here it is, blind. But read the caveat first: after this merge litter rots, so the floor sits at ~1,000 cells instead of ~12,000, and neither option makes much of a mat. Is the palette the problem, or is the floor simply too thin now?",
+  "context_md": "Same scene, same frame, same seed -- only litter.ron's six colours differ. Forest floor at frame 11,000, cropped to the soil surface at 11x zoom.\\n\\n**Caveat that may matter more than the colours.** The invisible-floor complaint was raised when a standing forest held ~12,000 litter cells and climbing. Litter now weathers back to soil, so the same scene settles at ~1,000 -- 81% of everything shed rots away. If the floor reads as thin rather than as the wrong colour, the lever is the rot rate, not the palette.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current (104,82,48 .. 110,100,62)",
+      "files": [
+        "20260823T055722360Z-93ee75/000-pal-a-tight.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "warmer/lighter (150,110,50 .. 160,132,70)",
+      "files": [
+        "20260823T055722360Z-93ee75/001-pal-b-tight.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
