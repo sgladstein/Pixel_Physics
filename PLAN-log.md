@@ -2529,6 +2529,62 @@ scene's world (0 cliff candidates, measured), and §M's water-at-rest reds
 stand — though their counts move with the terrain (wetland seed 3: 87
 cells now fails first, was terraced 57 / rolling 47), recorded there.
 
+#### §G's two mechanical halves closed; the desert decision costed (W2, 2026-08-23)
+
+The owner's grassfire verdict is three claims and only one of them was
+about tuning. **It doesn't spread** was not slow spread: `try_ignite` scans
+four neighbours, so a front reaches one 4-connected component of fuel, and
+a 160-founder sward that reads as continuous by a column census (one empty
+column in 484) is **71 separate islands**, largest 16%. Measured before the
+fix: 14 grass cells consumed and `alight 0` by frame 300 — a fire going out,
+which at contact-sheet zoom is indistinguishable from a fire creeping, and
+is where the old 0.12 c/f figure came from.
+
+**`MOISTURE_IGNITION_RESISTANCE` changes nothing** was true and neither
+standing suspect caused it — not the 0.9, not the `include_str!` trap. Its
+input reads **exactly 0.000 at 96.8% of fuel cells at every ground wetness
+from the wilting point to saturated**, because `step_diffusion` skips a
+blocked block and `rebuild_blocked` blocks any block holding a `Plant` cell:
+the presence of fuel is what makes a block read bone dry, and a denser sward
+reads drier. For 96.8% of fuel cells the term reduced ignition by **exactly zero**;
+averaged over all of them it reduced it by 2.9% at saturation, all of that
+from the 3.2% of blades sitting in the soil's own block. A
+band mean hides this completely (0.041 / 0.142 / 0.230, monotone, plausible,
+and describing blocks the fuel is not in).
+
+Both fixed by one mechanism each. `flame.ron` is a `Gas` created already
+alight, licked out by `tick_burn` at a per-material rate; being *burning* is
+what makes the existing neighbour scan spread it at zero added cost to that
+scan, and what makes its own `burns_into` produce the plume. The
+load-bearing detail is that the direction is **rolled** — a fixed search
+order sent every lick straight up, because the cell above a blade is nearly
+always empty, and the fire looked much better while spreading exactly as
+badly as before. `ground_wetness_at` reads the moisture *source* at the
+cell's block and the one below, and gates as a **cutoff**, because spread
+here is a percolation and a gate that shaves 10% does nothing until it does
+everything.
+
+Paired guard: **171 grass cells consumed on dry ground against 4 on
+saturated**. Swept over 12 procedurally different swards (4 founder counts x
+3 weather windows, `PlantScene` has no seed): at field capacity no sward
+loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
+Fronts run 67–489 cells dry and never past 74 damp. Neither arm's worst
+frame is the fire — both land in the growth phase, before the ignition.
+
+**Not shipped, and it is render's:** every burning thing saturates the heat
+ramp, whose top is a pale yellow-white, so the meadow draws as straw. Two
+constants fix it and also move lava, quench crust and warm water; the A/B is
+with the owner. Two attempts that made it worse (flame `glow`, a widened
+`HEAT_GLOW_RANGE`) are in `dead-ends.md`.
+
+**E6 is a card, not code.** Two of §X's three lever costs had changed: (a)'s
+named prerequisite is already paid (the water ledger keys on
+`water_capacity > 0`, not a material name) but a *small* capacity is
+worthless, because the wilting point is an absolute aux value — 180 before a
+plant gets one drop; and (b) is not a root-reach problem at all, because
+`arid` sets `table_offset: 4000.0` and has no water table inside the world
+to reach. That makes (b) a worldgen decision taken with Arc B4.
+
 ### WP-11, the abscission half: leaf fall slowed to a quarter, chosen by the owner from a three-arm card (2026-08-23)
 
 The owner's diagnosis was taken at its word — *"leaves are just falling
@@ -2611,3 +2667,4 @@ then ran −171, −265, −201, −114 before ending at +120 — soil leaves as
 well as arrives, and the column could never see decay's writes separately
 from whatever consumes them. Renamed to "net"; what removes soil is
 unidentified and is not this branch's to chase.
+

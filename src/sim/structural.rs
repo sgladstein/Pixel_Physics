@@ -5481,7 +5481,7 @@ mod tests {
     fn an_organism_tree_beam_within_its_span_stays_wood() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         pin_wood_reach(&mut w, 8);
         // Anchored at the left end by a stone cell directly below it --
         // organism_is_supported's own generalization of "touches BEDROCK"
@@ -5503,7 +5503,7 @@ mod tests {
     fn an_organism_tree_beam_exceeding_its_span_breaks_into_deadwood() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         pin_wood_reach(&mut w, 8);
         w.set(0, 31, Cell::new(material::STONE, 0));
         // 12 cells -- longer than the reach pinned above, so the far end (distance
@@ -5524,7 +5524,7 @@ mod tests {
     fn cutting_an_organism_trees_support_collapses_the_far_side() {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         // Away from x=0 deliberately -- touching the world edge itself
         // would anchor the beam via the same out-of-bounds-reads-as-
         // BEDROCK sentinel `is_anchor` relies on elsewhere, which is
@@ -5566,7 +5566,7 @@ mod tests {
         let build = |loaded: bool| -> World {
             let mut w = test_world();
             let wood = w.materials.id_of("wood").expect("wood is compiled in");
-            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in")).expect("an organism slot is free");
             // Pinned so the load term is what decides, not the shipped
             // reach -- a 9-cell branch is far inside the real 96.
             pin_wood_reach(&mut w, 8);
@@ -6896,7 +6896,7 @@ mod tests {
         let build = |allele: u8| -> World {
             let mut w = test_world();
             let wood = w.materials.id_of("wood").expect("wood is compiled in");
-            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in"));
+            let organism = w.push_organism(w.species.id_of("tree").expect("tree is compiled in")).expect("an organism slot is free");
             if let Some(state) = w.organism_mut(organism) {
                 state.alleles[organism::LOCUS_WOOD_DENSITY] = allele;
             }

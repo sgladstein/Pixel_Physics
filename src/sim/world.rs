@@ -28,9 +28,13 @@ use super::surface::CellSurface;
 
 /// Bits of `Cell::organism_id` given to the slot index (the rest, high 4
 /// bits, are generation). 4095 concurrently-live organisms — generous for
-/// anything this engine plays at real-time rates, and `push_organism`'s
-/// own debug assertion catches the day that stops being true rather than
-/// silently wrapping into a valid-looking but wrong id.
+/// anything this engine plays at real-time rates.
+///
+/// **The bound is enforced in release, not by a debug assertion.** It used
+/// to be the latter, and `encode_organism_id` below does not mask, so a
+/// 4,096th slot index set bit 12 — the generation's low bit — and the new
+/// organism silently *became* an existing live one. `push_organism` now
+/// refuses the birth and counts it (`World::organisms_refused`) instead.
 const ORGANISM_INDEX_BITS: u32 = 12;
 const ORGANISM_INDEX_MASK: u16 = (1 << ORGANISM_INDEX_BITS) - 1;
 /// 4 bits: a slot wraps back to generation 0 after 16 reuses, at which
@@ -642,6 +646,22 @@ pub struct World {
     /// interesting.
     organisms_born: u64,
     organisms_died: u64,
+    /// **Germinations refused because every organism slot was live** — the
+    /// other half of making the 4,095 ceiling a real check rather than a
+    /// `debug_assert` (see `push_organism`).
+    ///
+    /// A counter rather than a panic because refusing one birth is a
+    /// recoverable, in-world outcome — a seed that finds no room is a seed
+    /// that does not sprout — while a panic would take the session down for
+    /// a condition a dense world can legitimately reach. But a refusal that
+    /// nobody counts is indistinguishable from a world where nothing
+    /// happened to breed this frame, which is the *other* half of `§F4`'s
+    /// severity: the corruption was silent and so would the fix be.
+    ///
+    /// Always-on, on the same reasoning as `organisms_born` above: this
+    /// number only gets interesting in a long release run, which is exactly
+    /// where a `#[cfg(test)]` counter cannot see.
+    organisms_refused: u64,
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -751,6 +771,29 @@ pub struct World {
     /// How often evaporation found the air above a surface already
     /// saturated, split by surface kind -- see `evaporation::DrynessCounts`.
     pub dryness_counts: crate::sim::evaporation::DrynessCounts,
+    /// Holds the sky at one state instead of reading `weather::at(seed,
+    /// frame)`. `None` in play, and in every test that is not *about*
+    /// holding it still.
+    ///
+    /// **Exists because a live sky silently invalidated a placement
+    /// claim.** `tests/worldgen.rs`'s `generated_terrain_is_already_at_rest`
+    /// asserts that generation emits a world which does not slump. It
+    /// already switches off the live processes it knew about — plants, moss,
+    /// `spring_flow`, each with a comment saying a growing thing is "a live
+    /// process, not a placement defect". Weather arrived afterwards and got
+    /// no such treatment, so on any seed whose sky is busy the test was
+    /// asserting that terrain holds still *while snow falls on it*. Seed 3
+    /// precipitates from frame 0 (`Snow`, intensity 0.36, 1,786 wet frames
+    /// in 12,000) and is the seed both at-rest tests failed on
+    /// (`open-bugs-handoff.md` §M); seeds 1, 2 and 5 never precipitate at
+    /// all in that window, and passed.
+    ///
+    /// `Weather::CLEAR`'s own doc already called itself "the one every 'does
+    /// this stay settled' test asserts against". This is what lets a test
+    /// actually do that, on the seed it was given rather than on a seed
+    /// picked for having a quiet sky — which would be tuning the sweep to
+    /// the answer.
+    pub weather_override: Option<crate::sim::weather::Weather>,
     /// **The atmosphere's water, in liquid-water cell-equivalents** — the
     /// credit half of the outer water cycle, and the one number that closes
     /// it.
@@ -1128,6 +1171,24 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Quarter turns a falling body asked for, and how many the fit probe
+    /// refused.
+    ///
+    /// **These exist because the probe they measure was dead for the life
+    /// of the mechanism and nothing could tell.** `rigid::rotation_fits`
+    /// used to compare every cell against its own position, so it answered
+    /// "clear" unconditionally and every body rotated through whatever was
+    /// beside it (`Reports/open-bugs-handoff.md` bug K). A probe that always
+    /// says yes and a probe that works produce the same tumbling on a
+    /// contact sheet at the zoom one is read at; only the refusal count
+    /// separates them, which is `CLAUDE.md`'s "did it fire at all needs a
+    /// counter, not a picture" in its purest form.
+    ///
+    /// `refused` at exactly zero over a scene with walls in it is the tell
+    /// that the probe has gone vacuous again — a *ratio* is a tuning
+    /// question, but a zero is a wiring one.
+    pub rotations_asked: u32,
+    pub rotations_refused: u32,
     /// Organism cells the plant-support check broke free — a limb that lost
     /// its anchor becoming deadwood.
     ///
@@ -1185,6 +1246,15 @@ impl FailureCounts {
     pub fn record_staged(&mut self, cells: usize) {
         self.staged_slices += 1;
         self.staged_cells += cells as u32;
+    }
+
+    /// One quarter turn offered to the fit probe, and whether it fitted.
+    /// See `rotations_asked`.
+    pub fn record_rotation(&mut self, fits: bool) {
+        self.rotations_asked = self.rotations_asked.saturating_add(1);
+        if !fits {
+            self.rotations_refused = self.rotations_refused.saturating_add(1);
+        }
     }
 
     /// One body, `cells` cells, actually lifted off the grid. See
@@ -1294,6 +1364,7 @@ impl World {
             free_organism_slots: Vec::new(),
             organisms_born: 0,
             organisms_died: 0,
+            organisms_refused: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
@@ -1329,6 +1400,7 @@ impl World {
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
             dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
+            weather_override: None,
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
@@ -1695,8 +1767,44 @@ impl World {
     /// a reference to a slot between the free and the reuse that the free
     /// alone would have invalidated.
     ///
-    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
-    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
+    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`,
+    /// or **`None` when the 4,095 slots are all live** — see
+    /// `organisms_refused`. Every caller has a refusal path already (they
+    /// all check the target cell is free first and return early when it is
+    /// not); the `Option` is what makes the compiler insist they use it,
+    /// which is the whole reason the signature changed rather than a
+    /// sentinel being returned. A sentinel `0` would stamp an *ownerless*
+    /// organism cell onto the grid at the ceiling — softer than corrupting
+    /// an identity, still a leak of exactly the kind this allocator exists
+    /// to end.
+    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<u16> {
+        // **The ceiling is a real check now, not a `debug_assert`.**
+        //
+        // `Cell::organism_id` gives 12 bits to the slot index, so there are
+        // 4,095 of them, and `encode_organism_id` does not mask: a 4,096th
+        // slot index would set bit 12, which is the *generation*'s low bit.
+        // In a release build that is silent — the new organism reads as a
+        // different, live organism, and every cell that already pointed at
+        // that identity now points at this one. `Reports/open-bugs-
+        // handoff.md` §F4 names it "silent organism identity corruption in
+        // release"; `Reports/population-dynamics-research.md` 9g asks for
+        // exactly this fix in exactly these words ("Add a release-mode
+        // check, not a `debug_assert`").
+        //
+        // **The failure mode is refusal, and refusal is counted.** A
+        // germination that cannot get a slot simply does not happen, which
+        // is a bounded, visible loss of one seed; nothing on the grid is
+        // written, so nothing is left half-allocated. `organisms_refused`
+        // is what stops that being invisible — a world quietly refusing
+        // every birth and a world where nothing is breeding look identical
+        // in every other readout.
+        //
+        // Checked before `organisms_born` is incremented so the born count
+        // stays "organisms that exist", not "attempts".
+        if self.free_organism_slots.is_empty() && self.organisms.len() >= ORGANISM_INDEX_MASK as usize {
+            self.organisms_refused += 1;
+            return None;
+        }
         self.organisms_born += 1;
         let state = OrganismState {
             water: 0.0,
@@ -1745,6 +1853,7 @@ impl World {
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
             departure_angle_sum: 0.0,
@@ -1768,14 +1877,19 @@ impl World {
                 self.organism_generation_wraps += 1;
             }
             slot.state = Some(state);
-            encode_organism_id(slot_index, slot.generation)
+            Some(encode_organism_id(slot_index, slot.generation))
         } else {
+            // The guard at the top of this function is what makes the index
+            // below in range; this assertion is the second pair of eyes on
+            // it, and it is the only thing left that a `debug_assert` is
+            // the right tool for -- an internal invariant, not a runtime
+            // condition the world can reach.
             debug_assert!(
                 self.organisms.len() < ORGANISM_INDEX_MASK as usize,
                 "organism index would overflow the 12 bits Cell::organism_id reserves for it"
             );
             self.organisms.push(OrganismSlot { generation: 0, state: Some(state) });
-            encode_organism_id(self.organisms.len() as u16, 0)
+            Some(encode_organism_id(self.organisms.len() as u16, 0))
         }
     }
 
@@ -1882,6 +1996,30 @@ impl World {
     /// later is exactly the kind of drift nobody would think to check.
     pub fn organism_slot_usage(&self) -> (usize, usize) {
         (self.organisms.len(), self.live_organism_count())
+    }
+
+    /// **The high-water mark of concurrently-live organisms**, and it is
+    /// the *same number* as `organism_slot_usage`'s first element rather
+    /// than a second tally — which is worth stating, because it looks like
+    /// it should need one.
+    ///
+    /// `push_organism` pops `free_organism_slots` before it ever grows
+    /// `organisms`, so the vector lengthens only on a birth that found no
+    /// free slot — i.e. only when the live count is about to exceed every
+    /// value it has ever held. `organisms.len()` is therefore exactly
+    /// max-over-time of the live count, for free, with no per-frame
+    /// bookkeeping. The `ceiling` it is judged against is the 12-bit slot
+    /// index's own bound.
+    pub fn organism_slot_high_water(&self) -> (usize, usize) {
+        (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
+    }
+
+    /// Births refused at the slot ceiling — see `organisms_refused`. Zero
+    /// on every world that has not reached 4,095 live organisms, which is
+    /// every world measured to date; a non-zero reading means the ceiling
+    /// is now a live design constraint and not a footnote.
+    pub fn organisms_refused(&self) -> u64 {
+        self.organisms_refused
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -2131,6 +2269,19 @@ impl World {
         crate::sim::weather::supply(self.atmospheric_bank)
     }
 
+    /// The sky this frame: `weather::at(seed, frame)` unless
+    /// [`Self::weather_override`] is holding it.
+    ///
+    /// **One resolution point, read by both the simulation and the
+    /// renderer**, for the same reason `storm_supply` above is a method
+    /// rather than a local: the storm that is drawn and the storm that lands
+    /// have to be the same storm, and an override honoured by only one of
+    /// them would draw snow that never settles on anything.
+    #[inline]
+    pub fn weather(&self) -> crate::sim::weather::Weather {
+        self.weather_override.unwrap_or_else(|| crate::sim::weather::at(self.seed, self.frame))
+    }
+
     /// Register every chunk `body`'s current full footprint touches in
     /// `body_index`, without duplicating an already-present entry. Called
     /// after anything that can move a body's footprint — `absorb_liquid`'s
@@ -2179,6 +2330,20 @@ impl World {
     /// same `FIELD_SCALE`-sided block reads the same cell.
     pub fn field_at(&self, world_x: i32, world_y: i32) -> FieldCell {
         field::sample(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// See `field::ground_wetness_at` -- how wet the matter at and just
+    /// below `(x, y)` is, `0..=1`. `fire::try_ignite`'s moisture gate.
+    pub fn ground_wetness_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::ground_wetness_at(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// How strongly the field block at `(x, y)` sources moisture, `0..=1`.
+    /// `ChunkView`'s half of `ground_wetness_at` above -- it has to
+    /// assemble the two samples itself, because during a parallel pass one
+    /// of them may live in its own detached tile rather than in `self`.
+    pub(crate) fn moisture_source_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::moisture_source_at(&self.fields, self.bounds, world_x, world_y)
     }
 
     /// Bilinear-interpolated field read at a fractional world position —
@@ -3595,6 +3760,11 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        World::ground_wetness_at(self, x, y)
+    }
+
+    #[inline]
     fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
         let f = World::field_at(self, x, y);
         (f.vx, f.vy)
@@ -3892,7 +4062,7 @@ mod tests {
     fn organism_ids_round_trip_and_encode_a_nonzero_generation() {
         let mut w = test_world();
         let species = SpeciesId(0);
-        let id = w.push_organism(species);
+        let id = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(id, 0, "0 is reserved for \"no organism\"");
         assert_eq!(w.organism(id).unwrap().species, species);
     }
@@ -3914,8 +4084,8 @@ mod tests {
         let mut w = test_world();
         let species_a = SpeciesId(0);
         let species_b = SpeciesId(1);
-        let a = w.push_organism(species_a);
-        let b = w.push_organism(species_b);
+        let a = w.push_organism(species_a).expect("an organism slot is free");
+        let b = w.push_organism(species_b).expect("an organism slot is free");
         assert_ne!(a, b, "two live organisms must not share an id");
         assert_eq!(w.organism(a).unwrap().species, species_a);
         assert_eq!(w.organism(b).unwrap().species, species_b);

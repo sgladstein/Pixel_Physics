@@ -73,6 +73,14 @@ struct Row {
     deepest: u64,
     moves: u64,
     blocked: u64,
+    /// **The instrument, carried per seed.** `seeds=N` used to report
+    /// `deepest` and nothing else about the shape, and WP-9's decision rule
+    /// is written on the `>=32`/`>=64` buckets -- so the multi-seed mode
+    /// could not answer the question it was quoted for. `deepest` is one
+    /// point on this curve: it says the furthest excursion happened, never
+    /// how much weight is out there. One ant that wandered and 300 that did
+    /// read identically on it.
+    reach: [u64; 8],
 }
 
 fn run(world: &mut World, frames: usize) {
@@ -86,7 +94,7 @@ fn run(world: &mut World, frames: usize) {
 
 fn row(world: &World) -> Row {
     let st = world.creature_stats;
-    Row { deliveries: st.deliveries, trips: st.forage_trips, deepest: st.forage_depth_max, moves: st.moves, blocked: st.moves_blocked }
+    Row { deliveries: st.deliveries, trips: st.forage_trips, deepest: st.forage_depth_max, moves: st.moves, blocked: st.moves_blocked, reach: st.forage_reach }
 }
 
 /// min / median / max of one column, printed rather than a mean.
@@ -146,13 +154,41 @@ fn report(label: &str, world: &World, ants: usize) {
     );
 }
 
+/// The two knobs that define an *arm* of a paired run, together because they
+/// travel together: a comparison is only worth anything when everything except
+/// the arm is held identical, and passing them as loose parameters is how one
+/// of them gets forgotten at a call site.
+#[derive(Clone, Copy)]
+struct Arm {
+    /// `None` defers to `ant.ron`; `Some(_)` forces the flag at runtime.
+    climb: Option<bool>,
+    /// Cells between planted ants. 2 is historical, 4 is `COLONY_ANT_SPACING`.
+    spacing: i32,
+}
+
 /// Stone floor, a nest patch, and nothing else. `plant_ant` needs solid
 /// ground under it or the ant spends the run falling, which is its own
 /// wrong conclusion.
-fn scene(w: i32, h: i32, floor: i32, ants: usize, food: bool, seed: u64) -> (World, usize) {
+fn scene(w: i32, h: i32, floor: i32, ants: usize, food: bool, seed: u64, arm: Arm) -> (World, usize) {
+    let Arm { climb, spacing } = arm;
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     // Set before anything is planted: every creature draw keys off it.
     world.seed = seed;
+    // **The arm switch, applied to the loaded species rather than the
+    // asset.** WP-9's paired arms were first run by editing
+    // `ant.ron` and rebuilding between them, which works and is exactly the
+    // shape of the `include_str!` disaster this repo has paid for twice: the
+    // knob lives in a file the binary only reads at compile time, so a
+    // forgotten rebuild produces two byte-identical "arms" that look like a
+    // null result. Overriding the def here makes both arms run from **one**
+    // binary in one session, so no rebuild sits between them and there is
+    // nothing to forget. `None` changes nothing and defers to the asset.
+    if let Some(on) = climb {
+        let id = world.species.id_of("ant").expect("ant is compiled in");
+        let mut def = world.species.get(id).creature.as_ref().expect("ant has a creature block").clone();
+        def.climbs_over_kin = on;
+        world.species.set_creature(id, def);
+    }
     let nest = world.materials.id_of("nest").expect("nest is compiled in");
     let corpse = world.materials.id_of("corpse").expect("corpse is compiled in");
     for x in 0..w {
@@ -170,8 +206,34 @@ fn scene(w: i32, h: i32, floor: i32, ants: usize, food: bool, seed: u64) -> (Wor
             }
         }
     }
+    // **How far apart the colony starts, and why it is a knob.**
+    //
+    // This was a bare `* 2`, chosen when the scene existed only to give the
+    // range instrument something to measure. Nobody picked 2 as a jam -- but
+    // 2 *is* the jam: an ant is a two-cell body, so spacing 2 is shoulder to
+    // shoulder, which is the exact configuration dead ends 775/829 record as
+    // gridlock (27,386 blocked ticks against a single pickup) and the reason
+    // `COLONY_ANT_SPACING` is **4**.
+    //
+    // That made this scene jammed *by construction* while every shipping
+    // colony -- `found_colony` and `ascii`'s foraging loop alike -- is
+    // spaced 4 and is not. Measured at both, flag off: spacing alone takes
+    // deepest 23.5 -> 46 and the `>=32` bucket 0 -> 4.5, which is most of
+    // what WP-9 arm 1's headline 22x was crediting to climb-over.
+    //
+    // **It is not the whole story, and the honest limit is worth writing
+    // down.** At spacing 4 this scene still shows a large climb-over gain
+    // (deepest 46 -> 84), while `ascii`'s foraging loop -- also spaced 4 --
+    // shows none at all (19 -> 19). So spacing explains the gap between this
+    // probe's headline and a real colony's, but something else explains
+    // `ascii`: different horizon, real terrain rather than a flat stone
+    // floor, and food that grows and falls rather than one pile at a known
+    // 87 cells. Untested which.
+    //
+    // A confound nobody can vary is a confound nobody can see, so it varies
+    // now. Default 2 keeps every previously recorded figure exact.
     for i in 0..ants {
-        world.plant_ant(20 + i as i32 * 2, floor - 1);
+        world.plant_ant(20 + i as i32 * spacing, floor - 1);
     }
     (world, ants)
 }
@@ -179,23 +241,42 @@ fn scene(w: i32, h: i32, floor: i32, ants: usize, food: bool, seed: u64) -> (Wor
 fn main() {
     let mut frames = 6000usize;
     let mut seeds = 1u64;
+    // `None` = whatever `ant.ron` says. `climb=0` / `climb=1` force the arm.
+    let mut climb: Option<bool> = None;
+    // 2 = the historical value (shoulder to shoulder). 4 = COLONY_ANT_SPACING,
+    // what a real colony is founded at.
+    let mut spacing = 2i32;
     for arg in std::env::args().skip(1) {
         // **A bare argument is an error, not a shrug.** This loop used to
         // `continue` past anything without an `=`, so `forage_probe 8` ran
         // the default and said nothing about it.
         let Some((k, v)) = arg.split_once('=') else {
-            panic!("unknown arg {arg:?}; known: frames, seeds");
+            panic!("unknown arg {arg:?}; known: frames, seeds, climb, spacing");
         };
         match k {
             "frames" => frames = v.parse().expect("frames"),
             "seeds" => seeds = v.parse().expect("seeds"),
-            other => panic!("unknown arg {other:?}; known: frames, seeds"),
+            "climb" => {
+                climb = Some(match v {
+                    "0" | "off" | "false" => false,
+                    "1" | "on" | "true" => true,
+                    other => panic!("climb takes 0/1 (or off/on), got {other:?}"),
+                })
+            }
+            "spacing" => spacing = v.parse().expect("spacing"),
+            other => panic!("unknown arg {other:?}; known: frames, seeds, climb, spacing"),
         }
     }
     println!(
-        "forage_probe: frames={frames} seeds={seeds} base_seed={BASE_SEED:#x} FORAGE_TRIP_MIN={}",
-        pixel_physics::sim::creature::FORAGE_TRIP_MIN
+        "forage_probe: frames={frames} seeds={seeds} base_seed={BASE_SEED:#x} FORAGE_TRIP_MIN={} climbs_over_kin={} ant_spacing={spacing}",
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        match climb {
+            None => "(from ant.ron)".to_string(),
+            Some(on) => format!("{on} (forced)"),
+        }
     );
+
+    let arm = Arm { climb, spacing };
 
     let (w, h) = (320i32, 120i32);
     let floor = h - 8;
@@ -203,11 +284,11 @@ fn main() {
     // One seed keeps the old single-run output verbatim, so every figure
     // measured before this still compares.
     if seeds == 1 {
-        let (mut control, n) = scene(w, h, floor, 1, false, BASE_SEED);
+        let (mut control, n) = scene(w, h, floor, 1, false, BASE_SEED, arm);
         run(&mut control, frames);
         report("control: one ant, a nest, no food", &control, n);
 
-        let (mut forage, n) = scene(w, h, floor, 55, true, BASE_SEED);
+        let (mut forage, n) = scene(w, h, floor, 55, true, BASE_SEED, arm);
         run(&mut forage, frames);
         report("forage: 55 ants, a nest, food at range", &forage, n);
         println!("  (nest edge to food edge is {FOOD_GAP} cells -- the depth a real round trip has to reach)");
@@ -222,23 +303,28 @@ fn main() {
     println!("\n  both scenes per seed; control is one ant with no food, forage is 55 ants with food at {FOOD_GAP} cells\n");
     // The offset, not the full 16-hex-digit seed: line one already names the
     // base, and `base+3` is what a reader needs to reproduce a row.
-    println!("{:>6}  {:>10} {:>7} {:>8} {:>8} {:>8}  |  {:>10} {:>9} {:>8}", "seed", "deliveries", "trips", "deepest", "moves", "blocked", "ctl moves", "ctl trips", "ctl deep");
+    println!(
+        "{:>6}  {:>10} {:>7} {:>8} {:>6} {:>6} {:>8} {:>8}  |  {:>10} {:>9} {:>8}",
+        "seed", "deliveries", "trips", "deepest", ">=32", ">=64", "moves", "blocked", "ctl moves", "ctl trips", "ctl deep"
+    );
     let mut forage_rows: Vec<Row> = Vec::new();
     for i in 0..seeds {
         let seed = BASE_SEED + i;
-        let (mut control, _) = scene(w, h, floor, 1, false, seed);
+        let (mut control, _) = scene(w, h, floor, 1, false, seed, arm);
         run(&mut control, frames);
         let c = row(&control);
 
-        let (mut forage, _) = scene(w, h, floor, 55, true, seed);
+        let (mut forage, _) = scene(w, h, floor, 55, true, seed, arm);
         run(&mut forage, frames);
         let f = row(&forage);
         println!(
-            "{:>6}  {:>10} {:>7} {:>8} {:>8} {:>8}  |  {:>10} {:>9} {:>8}",
+            "{:>6}  {:>10} {:>7} {:>8} {:>6} {:>6} {:>8} {:>8}  |  {:>10} {:>9} {:>8}",
             format!("+{i}"),
             f.deliveries,
             f.trips,
             f.deepest,
+            f.reach[5],
+            f.reach[6],
             f.moves,
             f.blocked,
             c.moves,
@@ -253,6 +339,11 @@ fn main() {
         ("trips", forage_rows.iter().map(|r| r.trips as f64).collect()),
         ("deepest", forage_rows.iter().map(|r| r.deepest as f64).collect()),
         ("moves", forage_rows.iter().map(|r| r.moves as f64).collect()),
+        // **The two buckets WP-9's decision rule is actually written on.**
+        // "Weight appears in the >=32/>=64 reach buckets" is the success
+        // condition; `deepest` is a max and cannot show weight.
+        (">=32", forage_rows.iter().map(|r| r.reach[5] as f64).collect()),
+        (">=64", forage_rows.iter().map(|r| r.reach[6] as f64).collect()),
     ] {
         let (lo, med, hi) = order_stats(col);
         println!("{name:>10}  {lo:>8.1} {med:>8.1} {hi:>8.1}");
@@ -262,4 +353,22 @@ fn main() {
     let blocked: Vec<f64> = forage_rows.iter().map(|r| if r.moves > 0 { r.blocked as f64 / r.moves as f64 } else { 0.0 }).collect();
     let (lo, med, hi) = order_stats(blocked);
     println!("{:>10}  {lo:>8.3} {med:>8.3} {hi:>8.3}", "blocked/mv");
+
+    // **The shape, pooled over every seed.** An order statistic per bucket
+    // answers "is it reliable"; the pooled curve answers "what does the
+    // colony do" -- a sessile colony is a spike at `>=1` that has vanished
+    // by `>=2`, a ranging one carries weight outward. Printed summed rather
+    // than averaged so it stays a count of real excursions.
+    let mut pooled = [0u64; 8];
+    for r in &forage_rows {
+        for (p, n) in pooled.iter_mut().zip(&r.reach) {
+            *p += n;
+        }
+    }
+    let prof: Vec<String> = pixel_physics::sim::creature::FORAGE_REACH_BUCKETS
+        .iter()
+        .zip(&pooled)
+        .map(|(edge, n)| format!(">={edge}: {n}"))
+        .collect();
+    println!("\n  pooled excursion profile over {seeds} seed(s) -- {}", prof.join("  "));
 }
