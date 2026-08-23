@@ -1,0 +1,60 @@
+{
+  "id": "20260823T095830007Z-122452",
+  "created": "2026-08-23T09:58:30Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-phase-2-review-vmn56t",
+    "commit": "7205b76",
+    "agent": null,
+    "session_id": "eab387e1-ddba-5bcb-aced-8377c185b0ac",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Caves carved by dissolution instead of a Voronoi lattice",
+  "question": "You said of the caves: \"you could go bigger or more even better longer or have chains of caves for the bigger. The stalagmite and stalactites look way better. The voroni patter is too much. I like a little of it, but there is too much.\" One of these is a rebuild aimed at that sentence. Which cave would you rather find — and is the pattern gone, or gone too far?",
+  "context_md": "Same world, same seed, same camera, same depth. Only how the cave is **carved** differs.\n\nWhat changed, in your words:\n\n- **\"The voroni patter is too much\"** — the old carve thresholded a Worley field, and Worley cell boundaries are perpendicular bisectors, so the passages were *straight segments meeting at 120 degrees* by construction. That is the web you can see in one of these. The new one traces a conduit along a bed of soft rock instead, so there are no straight edges anywhere.\n- **\"Chains of caves\"** — rooms are now beads on one conduit rather than a honeycomb of pockets. Measured, the number of *separate* walkable regions in a system went from as many as 29 down to 3, and the share of a cave you can actually walk from one place went from 30% to 90%.\n- **\"Longer\"** — every cave in the game used to be exactly 2.5:1, large ones included, because width and height were drawn from the same number. They draw separately now, so a cave can be long and low.\n- **\"The stalagmite and stalactites look way better\"** — untouched deliberately. That was the one thing you liked and I did not want to spend it.\n\n**The thing I most want your eye on:** there is now visibly *less* cave — about a third of the void there used to be. It buys rooms you can walk end to end instead of pockets you cannot get between. If it reads as too empty, that is the number to move and I would rather hear it now.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Worley lattice (shipped)",
+      "files": [
+        "20260823T095830007Z-122452/000-ab_honey_5.png"
+      ],
+      "caption": "the honeycomb",
+      "meta": {
+        "passage cells": 48350,
+        "speleothems": 5364,
+        "formations": 22,
+        "separate walkable regions (worst of 3 seeds)": 29,
+        "largest walkable share %": 30,
+        "void % of deep rock": 0.563
+      },
+      "focus": null
+    },
+    {
+      "label": "dissolution trunk (new)",
+      "files": [
+        "20260823T095830007Z-122452/001-ab_diss_5.png"
+      ],
+      "caption": "a conduit along one bed, with rooms on it",
+      "meta": {
+        "passage cells": 14415,
+        "speleothems": 14703,
+        "formations": 16,
+        "separate walkable regions (worst of 3 seeds)": 3,
+        "largest walkable share %": 90,
+        "void % of deep rock": 0.187
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
