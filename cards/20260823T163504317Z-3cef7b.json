@@ -1,0 +1,62 @@
+{
+  "id": "20260823T163504317Z-3cef7b",
+  "created": "2026-08-23T16:35:04Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "950acec",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Given the time you asked for, the two root treatments converge into one blob",
+  "question": "This says root form here is a *volume*, not a shape. Does Arc B still want thickening and dominance — or is the growth model itself the thing to fix first, same as your verdict on the four species?",
+  "context_md": "You said: *\"Give them more time to grow to see if they differentiate when the root structure is bigger.\"* Ran it. **The answer is no, and it is more interesting than a flat no** — they differentiate in the middle and converge at the end.\n\nSame 100-row bed, same seed, 8 founders, sampled at three ages (all day-phase-aligned so the renders are comparable):\n\n| frames | low gain 0.36, deepest row | high gain 0.84, deepest row | gap | low root cells | high root cells |\n|---|---|---|---|---|---|\n| 10,800 | 32.0 | 21.6 | **1.48x** | 327 | 319 |\n| 25,200 | 45.8 | 24.8 | **1.85x** | 578 | 444 |\n| 43,200 | 55.2 | 49.8 | **1.11x** | 1,045 | 1,086 |\n\nAt 43,200 the median root cell sits **16 rows down for the \"deep\" one and 17 for the \"shallow\" one** — the shallow treatment is fractionally deeper. Root counts are level. The axis peaked at 25k and washed out.\n\nThe panes below are those two mature systems, and they are the actual finding: **neither reads as a root system.** They read as soil turning into root — a dense amorphous mass that fills whatever is available. `plant-species-authoring.md` §5 already names this shape (\"thin whip or big blob\"); this is the root-side version of it.\n\nSo the same thing you spotted on the four-species card is happening below ground: **a random walk that keeps going fills space, and filled space has no morphology.** Depth bias steers it early and stops mattering once the system is large.\n\nTwo honest caveats:\n\n- **The low arm is censored.** Its deepest individual hits 100 — the bed floor — from 25,200 on, so its true depth is understated and the convergence is partly a measurement limit. Settling that needs a 200-row bed, which the 320-row scene cannot give; it would need a `height=` knob on the harness.\n- One high-gain plant nearly died (2 root cells), which drags its min but not the median.\n\nI am no longer proposing anything here. The question above is the one I cannot answer for you.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "slot 5 low (gain 0.36) at 43,200 frames",
+      "files": [
+        "20260823T163504317Z-3cef7b/000-b1long_low.png"
+      ],
+      "caption": "the treatment I originally called deep-fibrous",
+      "meta": {
+        "frames": 43200,
+        "root cells min/median/max": "593 / 1277 / 1499",
+        "deepest row, mean": 55.2,
+        "deepest, max": "100 (censored: the bed floor)",
+        "median root cell, rows down": 16,
+        "lateral spread, mean": 97.2,
+        "depth histogram": "54 / 34 / 7 / 1 / 0"
+      },
+      "focus": null
+    },
+    {
+      "label": "slot 5 high (gain 0.84) at 43,200 frames",
+      "files": [
+        "20260823T163504317Z-3cef7b/001-b1long_high.png"
+      ],
+      "caption": "the treatment I originally called shallow-fibrous",
+      "meta": {
+        "frames": 43200,
+        "root cells min/median/max": "2 / 1350 / 1738",
+        "deepest row, mean": 49.8,
+        "deepest, max": 94,
+        "median root cell, rows down": 17,
+        "lateral spread, mean": 93.2,
+        "depth histogram": "50 / 24 / 13 / 7 / 3"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
