@@ -19,7 +19,7 @@
 //! ```text
 //! cargo run --release --example viewshot
 //! cargo run --release --example viewshot -- seed=7 preset=arid shots=6
-//! cargo run --release --example viewshot -- settle=1800  # night, for stars and moon
+//! cargo run --release --example viewshot -- frame=1800   # night, for stars and moon
 //! cargo run --release --example viewshot -- fall=1 scale=2  # the generated waterfall
 //! cargo run --release --example viewshot -- vault=1 crop=180,90,160,140 zoom=4
 //! ```
@@ -41,7 +41,25 @@ struct Args {
     seed: u32,
     preset: String,
     shots: usize,
+    /// The time of day the render happens at, in frames.
+    ///
+    /// **This did not use to set the clock at all.** `world.frame` was
+    /// assigned in exactly one place -- the `rain=` branch -- so the world
+    /// started at 0 and advanced only by being stepped, which made `settle=`
+    /// the de facto time of day: `settle=2500` came back at night, moon and
+    /// stars, from a command that never mentioned the time. Every review
+    /// card ever posted from this harness was rendered at `settle`, not at
+    /// the frame its command named. Two doc comments claimed otherwise.
+    ///
+    /// Measured against the *end* of the settle, not its start, for the same
+    /// reason the `rain=` branch does: that is the frame actually rendered.
     frame: usize,
+    /// Frames advanced *between* shots of a sheet, so the sky is not
+    /// bit-identical in every tile -- a sheet of identical skies hides a sky
+    /// that is not being redrawn at all. Was `frame / shots`, which is what
+    /// made `frame=` look connected while it set no clock. Disabled under
+    /// `strip`, where a held moment is the artifact (see `strip`'s doc).
+    step: usize,
     settle: usize,
     rain: String,
     mine: bool,
@@ -125,16 +143,13 @@ fn main() {
         seed: 1,
         preset: String::new(),
         shots: 4,
-        // **`frame` is the step *between* shots, not the clock.** It has
-        // never set `world.frame`: that is assigned in exactly one place
-        // (the `rain=` branch below), and otherwise the world starts at 0
-        // and advances only by being stepped. So the first tile always
-        // renders at `world.frame == settle`, and `settle=` is the de facto
-        // time of day -- `settle=2500` comes back at night, moon and stars,
-        // which has now cost a render. `frame / shots` frames elapse between
-        // tiles so a sheet's skies are not bit-identical, and `strip`
-        // disables even that (see `strip`'s own doc).
+        // Mid-morning: the sky is lit, which is the harder case for judging
+        // ground colour. `frame=1800` is the other half of the cycle and is
+        // where the stars and the moon are. See the field's own doc for why
+        // this line used to be a lie.
         frame: 600,
+        // 600 / 4 shots, the spacing this had before `step` was named.
+        step: 150,
         settle: 60,
         rain: String::new(),
         mine: false,
@@ -166,6 +181,7 @@ fn main() {
             "preset" => a.preset = v.to_string(),
             "shots" => a.shots = v.parse::<usize>().expect("shots=N").max(1),
             "frame" => a.frame = v.parse().expect("frame=N"),
+            "step" => a.step = v.parse().expect("step=N"),
             "settle" => a.settle = v.parse().expect("settle=N"),
             // `rain=1` jumps the world clock to a frame this seed is actually
             // raining hard at, rather than making the reader guess one. Most
@@ -331,6 +347,12 @@ fn main() {
     let build = std::time::Instant::now();
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
     let build_ms = build.elapsed().as_secs_f64() * 1000.0;
+
+    // The clock. Set so the *rendered* frame is `frame=`, which means backing
+    // off the settle the loop below is about to run -- the `rain=` branch
+    // just below computes its own `chosen` the same way and overwrites this,
+    // because finding a frame is the whole job of `rain=`.
+    world.frame = (a.frame as u64).saturating_sub(a.settle as u64);
 
     // `rain=wet` / `rain=dry` pick a frame that is *both* the weather asked
     // for and the same time of day, so the two renders differ by the weather
@@ -670,13 +692,35 @@ fn main() {
     };
 
     let vault_at = if a.vault {
-        let deep = WORLD_HEIGHT as i32 / 2;
+        // **Per column, from the ground down.** This read `WORLD_HEIGHT / 2`,
+        // which is not where caves are: `vaults` places from
+        // `plan.surface_y + vault_min_depth` (`passes.rs`), and `sky_rows` is
+        // 95 and does not scale with world height, so the band's top barely
+        // moves when the world does. At 2048x640 the half-height was 320
+        // against a true ~341 and the scan was right by arithmetic accident;
+        // at 8192x2560 it is 1280 and the finder searched the bottom half of
+        // a band that starts a quarter of the way down. Measured over canyon
+        // seeds 1-8: seven worlds contain a system, this found five, and
+        // printed "NO VAULT ... try another seed" for seeds 3 and 8 against
+        // 24,124 and 36,368 passage cells the pass had just reported.
+        //
+        // Derived, never a literal. A global constant here has now been
+        // wrong once and right by luck once, which is the `table_offset: 400`
+        // sentinel in a second costume; a third literal is the same bug with
+        // a fresh number. The built world's own surface is used rather than
+        // the plan's because talus, brows and residuals sit on top of the
+        // plan and this only has to answer "is this air underground".
+        let deep_at = |x: i32| {
+            (0..WORLD_HEIGHT as i32)
+                .find(|&y| world.get(x, y).material != material::EMPTY)
+                .map_or(WORLD_HEIGHT as i32, |g| g + params.vault_min_depth)
+        };
         let mut found: Option<(i32, i32)> = None;
         let mut best = 0;
         let mut air = 0usize;
         for x in 0..WORLD_WIDTH as i32 {
             let mut run = 0;
-            for y in deep..WORLD_HEIGHT as i32 {
+            for y in deep_at(x)..WORLD_HEIGHT as i32 {
                 if world.get(x, y).material == material::EMPTY {
                     run += 1;
                     air += 1;
@@ -1048,8 +1092,14 @@ fn main() {
         // The redraw check survives without it: `recomputed` is printed per
         // shot and the camera moves a full viewport between tiles, so a
         // frozen buffer still shows up as a count below `WIDTH * HEIGHT`.
-        if !a.strip {
-            for _ in 0..(a.frame / a.shots.max(1)) {
+        //
+        // **Not after the last shot.** There is no next tile to differentiate
+        // from, and stepping anyway leaves the world `step` frames past
+        // anything the sheet shows -- which is only cosmetic until something
+        // reads the world back afterwards, at which point it reports a state
+        // that was never rendered. The spring ledger below did exactly that.
+        if !a.strip && shot + 1 < a.shots {
+            for _ in 0..a.step {
                 pixel_physics::sim::parallel::step(&mut world);
             }
         }
