@@ -1,0 +1,60 @@
+{
+  "id": "20260823T152359508Z-a227da",
+  "created": "2026-08-23T15:23:59Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "ea80981",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "You were right about the soil — and it changes my answer, not yours",
+  "question": "With the scene floor out of the way the two treatments are this close. Is the root axis worth anything before thickening and dominance land, or should root form wait for them?",
+  "context_md": "You asked: *\"Have you provided enough soil under the plant to really test differences.\"* **No, I had not, and it invalidated a claim I had already posted.**\n\nThe bed was `SOIL_DEPTH` = 34 rows. The deep-rooting treatment's *deepest* individual measured exactly **34** — it was standing on the floor of the scene. Worse, the depth histogram I quoted is normalised to the soil column, so a shallow profile in a 34-row bed prints as flat `21/21/17/21/17`, and I read that as \"drives strands down to bedrock\". Given 100 rows the same treatment prints `74/22/3/0/0`. **The picture you were looking at was telling you the truth and my number was the artifact.**\n\nBoth panes below are re-run at `soil=100` (the bed has ~110 rows spare), slot-5 variance zeroed so each pane is its treatment rather than eight coin flips. Same seed, same frame, 8 founders, 5 shown. The empty soil under the roots is the point — that space was not there before.\n\nWhat the control actually leaves:\n\n| | gain 0.36 | gain 0.84 |\n|---|---|---|\n| deepest row below surface, mean | 32.0 | 21.6 |\n| median root cell, rows down | 11 | 8 |\n| depth histogram | 74/22/3/0/0 | 93/6/0/0/0 |\n\nSo the axis is **real but ~1.5x on depth**, not the turf-against-prairie split I claimed. Your \"they look identical\" is the correct reading of the corrected comparison, and I am recording B1's answer as **the reachable slot-5 axis is not enough** — which is the third owner verdict against tuning-level root variety, now with the scene error ruled out rather than suspected.\n\nThe harness gap is closed too: `filmstrip scene=grove` now takes `soil=N`, which `plant_probe` had all along — that mismatch is why the numbers and the picture came from different depths.\n\nOne thing only I would like decided: whether this 1.5x is worth carrying at all, or whether root form should wait for B2 (roots can thicken) and B3 (one root can dominate) before it is shown again.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — slot 5 low (gain 0.36), 100 rows of soil",
+      "files": [
+        "20260823T152359508Z-a227da/000-b1c_lowgain.png"
+      ],
+      "caption": "the treatment I called deep-fibrous",
+      "meta": {
+        "deepest row below surface, mean": 32.0,
+        "deepest, max": 57,
+        "median root cell, rows down": 11,
+        "depth histogram surface->floor %": "74 / 22 / 3 / 0 / 0",
+        "root cells min/median/max": "167 / 305 / 781",
+        "soil rows in bed": 100
+      },
+      "focus": null
+    },
+    {
+      "label": "after — slot 5 high (gain 0.84), 100 rows of soil",
+      "files": [
+        "20260823T152359508Z-a227da/001-b1c_highgain.png"
+      ],
+      "caption": "the treatment I called shallow-fibrous",
+      "meta": {
+        "deepest row below surface, mean": 21.6,
+        "deepest, max": 32,
+        "median root cell, rows down": 8,
+        "depth histogram surface->floor %": "93 / 6 / 0 / 0 / 0",
+        "root cells min/median/max": "146 / 303 / 560",
+        "soil rows in bed": 100
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
