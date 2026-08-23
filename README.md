@@ -1598,7 +1598,16 @@ excursion **46 → 84** cells, excursions past 32 cells **4.5 → 17.5**, past 6
 uneven ground (deaths stay 0), and on the `ascii` foraging scene — one seed —
 deliveries fall 643 → 270 with range unmoved, which every multi-seed
 instrument contradicts but which is the gated scene; the untested hypothesis
-is that climbing costs carried food to falls.
+is that climbing costs carried food to falls. That scene is the outlier
+rather than the rule, though: the double-bridge scene — real terrain, same
+spacing, same paired run — goes forage trips **22 → 233**, deepest **16 →
+74**, ≥32 bucket **0 → 21**, ≥64 **0 → 5**, blocked moves **24,764 → 4,264**,
+and pickups **41 → 218**. Two further costs from the same sweep: the
+excavation scene digs *less* (1,064 → 726 cells, on fewer blocked moves —
+climbing is an alternative to digging past a nestmate), and the double
+bridge's summed channel B on the short route falls 28.42 → 2.00, because a
+colony spread over more ground lays a thinner trail per cell (nothing gates
+on it; that scene already records route selection as undemonstrated).
 
 The probe now takes `climb=0|1` (forces the arm at runtime, so both arms come
 out of one binary and no rebuild can silently produce two identical "arms")

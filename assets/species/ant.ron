@@ -227,6 +227,25 @@
         // gated scene, and the leading hypothesis for it -- that climbing
         // on uneven ground costs carried food to falls -- is untested.
         //
+        // **It is that scene, though, and not `ascii`.** Its sibling, the
+        // double-bridge scene, is real terrain at the same spacing and gains
+        // enormously on the same paired run: forage trips 22 -> 233, deepest
+        // 16 -> 74, the >=32 bucket 0 -> 21 and >=64 0 -> 5, blocked moves
+        // 24,764 -> 4,264 of a similar total, and **pickups 41 -> 218** --
+        // food actually found, not merely walked past. So the foraging
+        // loop is the outlier among colony scenes rather than the rule, and
+        // whatever is happening there is specific to it.
+        //
+        // Two more costs from the same sweep, neither hidden. The excavation
+        // scene digs **less**: 1,064 -> 726 cells of soil, on *fewer* blocked
+        // moves (13,965 -> 5,137) -- an ant that can climb a nestmate has an
+        // alternative to digging past one. And the double bridge's summed
+        // channel B on the short route falls 28.42 -> 2.00: a colony spread
+        // over a much wider area lays a thinner trail per cell. That scene
+        // already carries a note that route selection is not demonstrated,
+        // so nothing gates on it, but a trail model that wants concentration
+        // should know this rule dilutes it.
+        //
         // The reach gain was checked for the obvious way it could be fake:
         // ants climbing *each other* into the sky would move the depth
         // metric without ranging anywhere.
