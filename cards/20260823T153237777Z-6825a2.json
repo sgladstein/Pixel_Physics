@@ -1,0 +1,62 @@
+{
+  "id": "20260823T153237777Z-6825a2",
+  "created": "2026-08-23T15:32:37Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "b5e25e1",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Root form at single-plant zoom, in a 100-row bed",
+  "question": "At this zoom, do these read as two root morphologies — strands that descend against a crust that spreads — or still as the same tangle?",
+  "context_md": "Third ask on this question, and each one changed something real, so here is what is different rather than just asking again:\n\n1. **First card**: 34-row soil bed, stand-scale band. You said *\"They look identical. Have you provided enough soil?\"*\n2. **You were right.** The deep treatment's deepest root measured **exactly 34** — it was standing on the floor. The depth histogram is normalised to the soil column, so a shallow profile in a shallow bed prints flat, and I read that as \"reaches bedrock\". It was an artifact. Retracted.\n3. **This card**: **100 rows of soil** (the bed has ~110 spare), and the presentation `root-morphology-findings.md` actually specifies first — **single plants at high zoom** rather than a stand. My earlier re-shoot used a 5-plant band, which is the report's *other* allowed method and, it turns out, the weaker one here.\n\nBoth panes are the two ends of what genome slot 5 can reach — it multiplies the root's `upward_weight` by `1 ± 0.4` around an authored 0.6, so 0.36 and 0.84 are the actual limits, not exaggerations. Slot-5 variance is zeroed so a pane shows its treatment rather than eight coin flips. Same seed, same frame, same everything else.\n\n**What the numbers say, so you are not judging blind on the quantitative part:** mean deepest row 32.0 against 21.6, median root cell 11 rows down against 8. That is a real ~1.5x on depth and nothing like turf-against-prairie.\n\n**What I cannot tell from a number, and why I am asking a third time:** at this zoom the *shape* looks more different to me than the depth statistic implies — one descends in strands, the other spreads as a crust near the surface. That may be me reading what I want after getting it wrong once. If it still reads as one tangle, B1's answer is settled as *the reachable axis is not enough*, and Arc B waits for thickening (B2) and dominance (B3) before root form is shown again.\n\nThe empty soil below the roots is not padding — it is the headroom that was missing the first time.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "slot 5 low (gain 0.36)",
+      "files": [
+        "20260823T153237777Z-6825a2/000-b1one_lowgain.png"
+      ],
+      "caption": "weakest upward pull, 100-row bed",
+      "meta": {
+        "soil rows in bed": 100,
+        "deepest row below surface, mean": 32.0,
+        "deepest, max": 57,
+        "median root cell, rows down": 11,
+        "depth histogram surface->floor %": "74 / 22 / 3 / 0 / 0",
+        "root cells min/median/max": "167 / 305 / 781",
+        "lateral spread min/median/max": "20 / 41 / 84"
+      },
+      "focus": null
+    },
+    {
+      "label": "slot 5 high (gain 0.84)",
+      "files": [
+        "20260823T153237777Z-6825a2/001-b1one_highgain.png"
+      ],
+      "caption": "strongest upward pull, 100-row bed",
+      "meta": {
+        "soil rows in bed": 100,
+        "deepest row below surface, mean": 21.6,
+        "deepest, max": 32,
+        "median root cell, rows down": 8,
+        "depth histogram surface->floor %": "93 / 6 / 0 / 0 / 0",
+        "root cells min/median/max": "146 / 303 / 560",
+        "lateral spread min/median/max": "22 / 41 / 70"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
