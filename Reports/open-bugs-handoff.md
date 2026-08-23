@@ -3060,18 +3060,32 @@ fix; recorded because it is live, it is invisible (a probe that always says
 yes looks exactly like a probe that is working), and nothing else in the
 handoff names it.
 
-### M. `a_forced_vault_world_is_sealed_and_arrives_at_rest` is red, and its message reads as flaky when it is not — **OPEN, found 2026-08-23**
+### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
 
-`tests/worldgen.rs:1794`. Not in any handoff's list, which records `main` as
-one red (bug A), and not quarantined — so this is a **gating** job failing.
+**Two** tests, not one, and neither is in any handoff's list — which records
+`main` as one red (bug A). Neither is quarantined, so this is a **gating**
+job failing. `cargo test --release --no-fail-fast` on `main` at `9b54be3`:
+lib **855 passed / 0 failed**, worldgen **37 passed / 2 failed**.
+
+| test | fails at |
+|---|---|
+| `generated_terrain_is_already_at_rest` (`:182`) | `terraced seed 3: 57 cells left their position` |
+| `a_forced_vault_world_is_sealed_and_arrives_at_rest` (`:1794`) | `rolling seed 3: 47 cells left their position` |
+
+**They are one bug wearing two names.** Both assert that a freshly generated
+world holds still, and in both the cells that move are **water** — the
+terrain test names them (`(82,147) water, (83,147) water, …`) and the vault
+test prints material id `6`, which is `material::WATER`. Both fail on
+**seed 3**. So the claim that is actually broken is "generation leaves
+standing water at rest", and a fix for either should be checked against both
+rather than treated as two jobs.
 
 ```
 rolling seed 3: 47 cells left their position in a forced-vault world;
 first [(1263, 138, 6), (1270, 138, 6), (1258, 138, 6), ...]
 ```
 
-The claim is that a forced-vault world holds still: snapshot, 120 steps,
-assert nothing moved.
+The claim in each case is the same: snapshot, step, assert nothing moved.
 
 **Deterministic, and it got worse across the load port.** Three consecutive
 runs on `main` at `9b54be3` give `rolling seed 3: 47 cells` every time. On
@@ -3093,11 +3107,13 @@ one thing it is not. Sorting the sample before printing would cost nothing
 and is the fix `CLAUDE.md`'s "a debug readout must not be a function of the
 thing it debugs" implies here.
 
-Material id 6 at y 137-139 across x 1250-1550, which is a wide band rather
-than one collapsed spot.
+The moving cells are a wide band rather than one collapsed spot — y 137-139
+across x 1250-1550 in the vault case — which is what a sheet of water finding
+its level looks like, not a structure failing.
 
-Reported, not fixed: `tests/worldgen.rs` and the load model are not this
-lane's, and the point of finding it is that nothing said it was red.
+Reported, not fixed: `tests/worldgen.rs`, the load model and the liquid rules
+are not this lane's files, and the point of finding it is that nothing said
+it was red.
 
 ### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, unattributed, found 2026-08-23**
 
