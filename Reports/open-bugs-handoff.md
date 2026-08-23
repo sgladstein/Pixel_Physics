@@ -3060,6 +3060,100 @@ fix; recorded because it is live, it is invisible (a probe that always says
 yes looks exactly like a probe that is working), and nothing else in the
 handoff names it.
 
+### N. Decayed litter makes soil that does not match the soil around it, and roots will not enter it — **OPEN, owner-reported 2026-08-23, both causes found**
+
+From the owner's verdict on card `20260823T091259637Z-9a41e4`: *"why does the
+soil from decayed leaf litter look different than the regular soil. and the
+plant roots are not growing into it."* Both are real, both are in
+`decay.rs`'s single `world.set`, and **both are already described by that
+function's own comments** — as accepted costs whose visible price had not
+been looked at.
+
+**1. The colour. `decay.rs:142-143`:**
+
+```rust
+let shades = world.materials.get(into).base_shades.max(1) as u32;
+let shade = world.rng.below(shades) as u8;
+```
+
+Two mismatches against how worldgen paints soil, not one:
+
+- **Wrong family.** `base_shades` is "how many *leading* palette entries a
+  random shade may pick from", i.e. family 0 only, and the comment says why
+  outright: *"Decay has no region to consult, so it stays in the first
+  family."* But `passes::palette_family` assigns families from regional
+  aridity whenever `region_variation > 0`, and every populated preset has it
+  — `wetland` (the colony scene) is **0.45**. So in any region that is not
+  family 0, decayed litter lands as a different hue family from the ground it
+  lands on.
+- **Wrong tone within the family.** Worldgen does not pick soil shades at
+  random at all: `passes::soil_shade` walks them **2 → 0 → 1 → 3**, "dark
+  organic topsoil down to paler mineral subsoil", so tone carries depth.
+  Decay draws uniformly, so a fresh patch at the surface is a speckle of all
+  four tones where the surrounding topsoil is one.
+
+The first is a known limitation the comment states; the second appears to be
+unnoticed, and is the one that makes a *patch* rather than a *shift*.
+
+**2. The roots.** `decay.rs` leaves the new soil **dry**, deliberately, and
+its comment defends the choice at length — the two richer versions both
+manufactured water and one took `a_tree_eventually_stops_growing` from 1,718
+cells to 2,652. That reasoning is sound and should not be reverted. What the
+comment anticipated was narrower than what happens: it names the cost as *"a
+seed reseeded onto brand-new soil may wait a little before germinating"*.
+But roots steer by `organism::moisture_pull` (`plant.rs:1592`), so
+established roots avoid the new layer too, for as long as capillary flow
+takes to wet it. The owner is watching that at play scale and reading it as
+roots refusing the soil, which is exactly what it looks like.
+
+**Not a licence to wet it on creation.** The fix shape is either to give
+decay the region and depth it needs to pick a shade the way worldgen does, or
+to let the new cell inherit them from the soil it is replacing — and, for the
+roots, to establish how long capillary wetting actually takes before deciding
+there is anything to fix.
+
+Reported, not fixed: `decay.rs`, `plant.rs` and the palette passes are not
+this lane's files.
+
+### O. Litter rots into soil that never leaves, so the floor rises all run — **OPEN, owner-reported 2026-08-23, quantified**
+
+Same verdict: *"the soil is piling up way too fast … I think leaves are just
+falling too fast which creates too much food and is creating a giant pile of
+soil."*
+
+Measured, `filmstrip scene=colony`, wetland, seed 0, same run at two horizons:
+
+| | frame 1,200 | frame 12,000 |
+|---|---|---|
+| decay events (damp + dry) | 179 | **6,331** |
+| standing decayable cells | 194 | 1,081 |
+| living plant tissue | 11,407 | 24,033 |
+
+Every decay event is one `world.set` writing a soil cell, and **soil has no
+`decays_into`** — nothing on this channel removes it. So the count is a
+monotone floor level: **~6,331 soil cells manufactured in one 12,000-frame
+colony run**, and it scales with leaf fall, which itself scales with a canopy
+that doubled over the same run.
+
+**The owner's causal reading is supported by the arms already measured.**
+Litter is the only decay input in this scene, and rotting it *faster* makes
+the pile worse, not better — the paired card arms read 6,331 events at
+`decay_chance` 0.5/0.1 against **7,287** at 0.9/0.4, while standing litter
+fell 1,081 → 260. So the two halves of his verdict agree: he picked arm A on
+looks, and arm A is also the arm that buries the world more slowly. **The
+faster-rot direction the implementation handoff proposed for this card would
+have made his actual complaint worse**, which is the argument for having
+measured both arms rather than shipping the proposal.
+
+The lever he names is upstream of the one the card asked about: not how fast
+litter rots, but how fast leaves fall. That is abscission
+(`plant.rs`), not `litter.ron`.
+
+Related and not the same: §L is the *foraging* consequence of the same
+over-production (88% of the colony's food is standing leaf, the stock triples,
+the colony has stopped ranging). One economy, three symptoms — sessile ants,
+a rising floor, and soil that does not match.
+
 ### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
 
 **Two** tests, not one, and neither is in any handoff's list — which records
@@ -3174,8 +3268,15 @@ round trips to **3**, deepest 15 -> 15, moves 5,040 -> 4,863, deliveries 143 ->
 is still hanging above them.
 
 **Whether the colony *should* range more is a design call, not a bug fix**, and
-it is on the owner's queue as card `20260823T091259637Z-9a41e4` ("How scarce
-should the forest floor be?"). The bug here is narrower and stands whatever he
+it was on the owner's queue as card `20260823T091259637Z-9a41e4` ("How scarce
+should the forest floor be?"). **Answered 2026-08-23: the abundance is not
+intended, and the lever he names is upstream of the one the card asked
+about** — *"I think leaves are just falling too fast which creates too much
+food"*. So the target is abscission rate, not litter decay rate; he also
+picked the *slower*-rotting arm on looks, and rotting faster measurably makes
+the floor worse (§O). That does not change this entry: the guard was set from
+a measurement and now misses it by 7x, whatever the intended abundance turns
+out to be. The bug here is narrower and stands whatever he
 answers: a guard set from a measurement now misses it by 7x, and nothing in CI
 said so.
 
