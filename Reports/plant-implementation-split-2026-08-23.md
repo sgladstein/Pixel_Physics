@@ -215,6 +215,22 @@ each names its prerequisite PR and reads the predecessor's landing notes in
   queue report current as packages land, and arbitrates when two lanes need
   the same file after all. Implementation sessions do not merge each other's
   PRs; the owner (or the integrator on the owner's word) does.
+- **Merge authority — standing delegation, owner, 2026-08-23.** The
+  integrator merges lane PRs that meet this bar: the PR's own gating jobs
+  green with every remaining red attributed to the base by paired
+  measurement; `docscheck` clean; no unresolved review threads or
+  unanswered owner comments; merge order respects lane dependencies (P
+  first where others measure against it), with a main merge-back — done by
+  the PR's own authoring session, never the integrator — after each
+  landing. A bar-met merge by the integrator is also the wave-2 dispatch
+  signal.
+- **Lane P order amended 2026-08-23**, after the owner signed off the three
+  morphology calls (`plant-morphology-reach-2026-08-23.md` §7): **P3 (the
+  generation loop) runs before P2 (crown recession)** — annuals are
+  turnover, fruit-borne seeds are dispersal, and grass sowing (W3), the
+  organ package and the divergence instrument (A4) all gate on P3. The
+  organ/determinacy package (morphology-reach §6) enters the lane after
+  P3, carrying the three decided defaults; P2 follows.
 - **Model/effort:** these are build-and-measure packages against a documented
   queue — Opus at high effort with `auto` permission mode fits (never `plan`
   mode for an unattended session; it stalls at the approval prompt).
