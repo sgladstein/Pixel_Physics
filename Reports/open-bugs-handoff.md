@@ -4008,7 +4008,11 @@ from 98; the parent read 92 on the same code path), nest-visits 3,792
 (parent 3,598), falls 960 (901), mean depth 10.3 (10.3), deliveries 230
 (192), profile `[3798, 452, 171, 100, 0, 0, 0, 0]`. The 2,000-frame counters
 are **identical** to the parent's run — the towers regenerate at the same
-sites. The bar stays at 14, unmoved, as this entry demanded.
+sites. The bar stays at 14, unmoved, as this entry demanded. Re-measured
+after merging the water book (PR #19) into the fix: **112 trips**, mean
+depth 10.6, deepest 16, nest-visits 3,773 — the water fixes move the scene
+the same direction they moved it alone (2 → 7 in §H2's paired datum), on
+top of the restored terrain.
 
 **Not §M's springs water.** The springs pass places nothing in this scene's
 world; the collapse is the residuals/region gate, a different pass on the
