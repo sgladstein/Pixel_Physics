@@ -1,0 +1,60 @@
+{
+  "id": "20260823T200707253Z-f16501",
+  "created": "2026-08-23T20:07:07Z",
+  "board": "weather",
+  "origin": {
+    "worktree": "/home/user/pixel_physics/.claude/worktrees/w4-wind",
+    "branch": "claude/w4-wind-geography",
+    "commit": "107355c",
+    "agent": null,
+    "session_id": "e4a0c0fb-a226-58ee-a314-a2752a320b01",
+    "user": null,
+    "cwd": "/home/user/pixel_physics/.claude/worktrees/w4-wind"
+  },
+  "title": "Wind geography: a world that finally has sheltered places in it",
+  "question": "Do the dark bands land where you would expect shelter — in the lee of ridges and down in hollows — and does the bright/dark difference look strong enough to be worth a tree growing differently for? Separately: every gust in the world is now 35–100% of its old strength, so the whole world is about a third calmer. Is that acceptable, or should sheltered ground be the only thing that changes?",
+  "context_md": "`weather::at(seed, frame)` **took no position** — wind was one number for the entire world, so a hollow and an exposed ridge got identical weather and there was no such thing as a sheltered spot.\n\n`exposure(terrain, position)` is a **read-only** function: open fetch upwind plus height above the local terrain. It writes nothing to the field, stores nothing, wakes no chunk — which is the whole line between it and the steady-wind term that was measured at a permanent 3.55 ms/scene and reverted four times.\n\n**Both panels are the same world** (`preset=rolling seed=7`), same frame, so the geography and the reading line up column for column. Wind is from the west, so shelter falls to the **right** of each ridge.\n\nThe ramp is fixed, not per-frame: deep navy = sheltered, mid slate = level open ground, pale straw = fully exposed. The cyan line is the terrain surface. Control: `preset=flat` reads a uniform 0.500, spread 0.000.\n\nCost: **no measurable frame cost** — `ascii` organism scene, re-measured back to back this session, main mean 4.640 ms vs branch 4.589 ms.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The landscape",
+      "files": [
+        "20260823T200707253Z-f16501/000-card_terrain.png"
+      ],
+      "caption": "rolling, seed 7 — flat shore at left, a tall spire near x=305, rising rocky ground to the right",
+      "meta": {
+        "world": "512x320",
+        "preset": "rolling",
+        "seed": 7,
+        "wind direction": "west (+x)"
+      },
+      "focus": null
+    },
+    {
+      "label": "Exposure — the new channel",
+      "files": [
+        "20260823T200707253Z-f16501/001-card_exposure.png"
+      ],
+      "caption": "navy sheltered, slate level, straw exposed; cyan line is the surface",
+      "meta": {
+        "gusts fired": 231,
+        "over 6000 frames": "3.85% of frames",
+        "sheltered sample": "x=324, exposure 0.029",
+        "exposed sample": "x=437, exposure 0.971",
+        "weakest gust": "frame 624, x=325, 36.9% strength",
+        "strongest gust": "frame 3016, x=437, 98.1% strength",
+        "delivered vs old fixed strength": "63.0%",
+        "flat-world control": "mean 0.500, spread 0.000"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
