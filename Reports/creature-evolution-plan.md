@@ -1108,13 +1108,60 @@ first, both are small, and both touch files nobody else is in.
 
 Every stage re-runs these, and every one of them has a known-good reading.
 
-| Guard | Reads today | Fails when |
-|---|---|---|
-| **Foraging pays** — forager minus immobile advantage at 3,000 ticks, 8 seeds, paired | **+0.187** without moss, **+0.247** with | goes to zero or negative: the economy has been broken by whatever just landed |
-| **Ants fed** — fraction of individuals ever above starting energy | **0.42 / 0.55** | §13o's binding quantity; judge every environmental change on it |
-| **Frame cost** — `ascii` worst-frame and mean | 21.3 / 1.50 ms at 55 ants + 30 trees, against a 0-ant control at 24.1 / 1.59 | **re-measure the baseline in the same session**; a remembered figure once produced a phantom 25–50% regression |
-| **Determinism** — two `ascii` runs diff | nothing but timing lines | any creature counter differing |
-| **Reference genomes** — `authored` and `zero` rows | 0.504 / ~0.30 | used as the bit-identity check across refactors |
+**Re-baselined 2026-08-23** (implementation handoff WP-4), one machine, one
+session, on `main` at `9b54be3`. The `Reads today` column is that
+measurement; `Was` is what this table said before, kept beside it rather than
+overwritten, because the gap is the finding.
+
+| Guard | Reads today (2026-08-23) | Was | Fails when |
+|---|---|---|---|
+| **Foraging pays** — forager minus immobile advantage at 3,000 ticks, paired | **+0.460** without moss, **+0.479** with | +0.187 / +0.247 | goes to zero or negative: the economy has been broken by whatever just landed |
+| **Ants fed** — fraction of individuals ever above starting energy | **0.73 / 0.78** | 0.42 / 0.55 | §13o's binding quantity; judge every environmental change on it |
+| **Frame cost** — `ascii` colony scene, mean over 12,000 frames | **3.929 / 3.908 ms** over two runs (worst 55.6 / 60.0) | 2.979 ms mean | **re-measure the baseline in the same session**; a remembered figure once produced a phantom 25–50% regression |
+| **Determinism** — two `ascii` runs diff | **identical**, timing lines and the PID aside | nothing but timing lines | any creature counter differing |
+| **Reference genomes** — `authored` and `zero` rows | **0.709 / 0.298** | 0.504 / ~0.30 | used as the bit-identity check across refactors |
+
+**What was run.** `creature_space mode=economy seeds=4 frames=18000` — 3,000
+ticks, which is load-bearing (§2.3: the sign flips below it), and the
+*reduced* 4-seed pattern the handoff permits, in 44 minutes. The reference
+pair is `creature_space genomes=1 seeds=8 frames=18000`, so `authored` and
+`zero` are over the same eight seeds the recorded figures used.
+
+**Two of these are not "still green", they have moved a long way in the
+generous direction, and it is the same finding twice.** Foraging pays 2.5x
+what it did and the fed fraction has gone 0.42 → 0.73. Both say the world
+now feeds ants far better than when these were written — which is exactly
+what the `ascii` foraging scene says from the opposite direction, where the
+colony has stopped ranging because food is underfoot
+(`open-bugs-handoff.md` §L: 98 round trips → 2, and a food census that is
+88% standing canopy and triples over the run). Two independent instruments,
+one story. **Do not read a bigger advantage as the economy being healthier**;
+§13o's binding quantity is how many animals find food, and it rising because
+food is everywhere is the condition S7's larder premise assumes away.
+
+**`zero` has moved, and it is not the harness.** An animal that cannot move
+never eats and never pays a move cost, so its survival is a pure function of
+the world it is sitting in — which makes 0.300 → **0.298** a statement about
+the *scene*, not the instrument. `creature_space`'s own output was proven
+byte-identical across this session's echo fixes (data rows sorted, since its
+workers interleave), so the harness is ruled out by measurement rather than
+by argument. Not attributed further; the world-scale worldgen work is the
+obvious candidate and this lane did not chase it.
+
+**Frame cost is a reading, not a comparison.** 2.979 ms was measured on the
+owner's machine; 3.929 is a cloud container, and `CLAUDE.md`'s rule is that a
+regression may only be reported against a baseline re-measured in the same
+session on the same machine. It is quoted here so a future session has a
+same-instrument number, with two machine-speed proxies from the same run to
+normalise against: `ascii`'s parallel stress scene at **14.066 ms** worst and
+the field-stress scene at **14.435 ms**. The within-session worst-frame
+spread is visible even in two back-to-back runs (55.6 against 60.0), which is
+why only the mean is quoted.
+
+**Not re-derived here, deliberately:** the scarcity band. WP-4's step 4 —
+the target is a game-feel call (§2.4's third coupled call) and is on the
+owner's queue as card `20260823T091259637Z-9a41e4`. Measuring the current
+state is this lane's; choosing the target is not.
 
 ---
 
