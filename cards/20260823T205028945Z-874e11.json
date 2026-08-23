@@ -1,0 +1,43 @@
+{
+  "id": "20260823T205028945Z-874e11",
+  "created": "2026-08-23T20:50:28Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "363b86f",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Which desert lever is actually realistic — the biology, and a recommendation",
+  "question": "Do you want (c), the after-the-rain ephemeral? It is the most recognisably a desert of the three, and it just got cheap.",
+  "context_md": "You asked what is actually biological. Short answer: **all three are real, but they are three different guilds, and a real desert runs all three at once.** Here is what each one is in life, and which I would build.\n\n---\n\n**(a) Sand holds a little water — real, but we would be modelling it wrong.**\n\nSand genuinely holds water. What makes it hostile is not that it holds none, it is that it holds a *little* and drains fast — sand has both a low field capacity and a low wilting point, and what a plant actually gets is the band between them. Cacti and other shallow-rooted succulents live exactly there: wide, shallow root mats that grab a rain shower out of the top few centimetres before it drains past.\n\nThe objection is ours, not nature's. Our engine measures plant-available water against **one global wilting point as an absolute amount** (180 on the soil scale), so a material with a small capacity has *no* available band at all — at capacity 150 a saturated sand cell is still below the floor and a plant gets exactly zero. In life the wilting point is a property of the soil texture and the plant together; here it is a property of the world. So (a) is realistic in principle and, as the engine stands, would need that constant to become a fraction rather than an amount before it did anything.\n\n**(b) Roots reach the water table — very real, and the realistic version is not the one it sounds like.**\n\nThis is the phreatophytes: mesquite, tamarisk, desert willow. They put a taproot tens of metres down to permanent groundwater and then ignore the weather entirely — which is why a desert **wash has trees along it and the flats fifty metres away have none**. The plant is not tougher; it is standing somewhere the water is.\n\nSo the realistic form of this lever is not *let roots reach further*. It is **let the table be shallow under the washes and deep under the flats** — and that is the more interesting thing to look at, because it draws lines of green through the landscape instead of scattering tough plants evenly over it.\n\nAs the engine stands there is nothing to reach: the arid preset puts its water table **4,000 cells below the datum**, off the bottom of the world, deliberately and with a test guarding it. So this one starts as a worldgen decision — does an arid world get a deep table at all — and only then becomes a root question.\n\n**(c) Stored rain — this is *the* desert strategy.**\n\nDesert ephemerals sit in the seed bank for years, sometimes decades, and after a real rain they germinate, flower, set seed and die inside a few weeks. That is the superbloom. It is the single most recognisable desert behaviour there is, and unlike (a) and (b) it is not a way of *enduring* drought — it is a way of skipping it: the plant simply is not alive during the dry.\n\n---\n\n## What I would build, and why now\n\n**(c).** Two reasons.\n\nIt is the one that reads as a desert on sight. A dead landscape that goes green for a week after a storm and then dies back is a thing you would notice happening; a slightly tougher shrub is not.\n\nAnd **it got cheaper while I was writing this.** My objection last time was that nothing in the species directory could use a pulse — every plant we have is a perennial that accumulates. P3 has since landed a one-way `senescent` flag whose own comment names the next user: *\"the herb package's post-fruiting annual death sets this and the same rot pass carries it out, with no second mechanism and no second tuning\"*. So the machinery for a plant that dies **on purpose after fruiting** rather than by starving is now on main, and the package that carries annuals is queued.\n\n**To be straight about what is still missing**, because I checked the code rather than taking the summary: P3 gives the *dying* half. It does not give the annual life cycle, and it does not give the rain pulse — the world still has nowhere to keep a storm's water for a few thousand frames. That second half is mine and it is small: there is already an authored moisture floor that evaporation may not cross (worldgen writes one for the aquifer), and a storm-written floor that decays is the same idea with a timer.\n\n**Second choice would be (b)**, not for the plants but for the terrain: green lines along the washes and bare flats between them is a landscape feature, and it comes with springs and seeps in canyon walls that the generator can already build and currently has switched off for arid country.\n\nI would leave **(a)** until the wilting point stops being one number for the whole world — until then it is the lever that looks cheapest and does the least.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the arid preset, in rain",
+      "files": [
+        "20260823T205028945Z-874e11/000-desert.png"
+      ],
+      "caption": "the rain is real and none of it is kept — this is what (c) would change",
+      "meta": {
+        "sand cells laid by the arid pass": 7411,
+        "moisture cells written into them": 0,
+        "water table depth (arid preset)": "4000 cells below datum — off the bottom of the world",
+        "wilting point a plant must clear": "180, as an absolute amount, not a fraction",
+        "P3's senescent flag": "on main, one-way, its doc names annual death as the next user"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
