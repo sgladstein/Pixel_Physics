@@ -1,0 +1,50 @@
+{
+  "id": "20260823T195611439Z-6fb5ea",
+  "created": "2026-08-23T19:56:11Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "4706ebc",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The orange you picked also recolours lava, quench crust and warm water — check these",
+  "question": "You chose the orange for fire. It is the same two constants that colour these. Do lava, the quench crust and a warm pan still look right to you, or did I break something you had already judged?",
+  "context_md": "This is the due-diligence half of the fire-colour card. / are not fire's alone — every cell above ambient blends toward them, so **lava, fresh quench crust and warm water all move with fire.** I said on that card that someone would have to re-check these three before it lands; this is that check, and you are the one who judged them originally.\n\n**My own reading, for what it is worth — and please overrule it:** lava reads *better*, not worse. The falling blob went from a pale sandy cream to a saturated orange, which looks more like molten rock and less like sand, and the quench crust at the waterline reads more clearly as hot. I could not get warm water to show a difference at all: by the time the pan is worth photographing it has cooled, and at the frames where it is hot the tint barely registers against the blue.\n\n**A is the old pair** ( 180,55,20 /  255,210,110). **B is what you chose** ( 150,30,12 /  255,138,36). Not blinded — you have already made the fire call and this is only about the collateral.\n\nIf any of these is worse, the fix is cheap: I can give fire its own tint pair rather than sharing one, at the cost of a second pair of constants.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — lava + quench crust, old tint",
+      "files": [
+        "20260823T195611439Z-6fb5ea/000-lavadrop_before.png"
+      ],
+      "caption": "scene=lavadrop, frames 2 and 302",
+      "meta": {
+        "FIRE_TINT_HIGH": "(255, 210, 110)"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — lava + quench crust, your pick",
+      "files": [
+        "20260823T195611439Z-6fb5ea/001-lavadrop_after.png"
+      ],
+      "caption": "same frames, same seed",
+      "meta": {
+        "FIRE_TINT_HIGH": "(255, 138, 36)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
