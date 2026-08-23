@@ -521,6 +521,45 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether this powder is too light to impede the character at all --
+    /// he moves through it as if it were not there.
+    ///
+    /// **Leaf litter, and the owner's call on it (2026-08-23):** *"I think
+    /// we just make it so the gnome can run through leaf litter as if it was
+    /// nothing."* `player.rs` grades a powder's drag by how many of his
+    /// fourteen rows are in it and treats four rows as the point where
+    /// wading becomes *stuck*, which is right for sand and a drift of soil
+    /// and wrong for fallen leaves.
+    ///
+    /// **What it is worth on the `wood` acceptance case: nothing, measured.**
+    /// That case is bug Y (`Reports/open-bugs-handoff.md`), and the flag was
+    /// ported here on the owner's instruction rather than on evidence, which
+    /// is worth stating plainly: with litter landing on the floor and rotting
+    /// at its own rate, the gnome covers **98 cells against a bar of 200**,
+    /// and he covered 98 before this flag existed too. Earlier notes citing
+    /// 34 predate main's own plant work and no longer reproduce. The
+    /// remaining shortfall is tree architecture, not litter depth.
+    ///
+    /// A flag rather than a rule inferred from `density`, because the
+    /// difference the character cares about is not one geometry can be
+    /// trusted to state -- the same argument `climbable` and `scenery` are
+    /// already here for.
+    ///
+    /// **A *player* property, like `climbable`.** Nothing in the CA sweep
+    /// reads it: litter still falls, still piles at its friction angle,
+    /// still rots, and `creature::move_cost` is untouched, so an ant is as
+    /// impeded by a drift as it ever was.
+    ///
+    /// **Where the future item goes.** The owner also asked for this to be
+    /// grantable -- *"in the future game you can get an item that lets you
+    /// move freely"*. That switch belongs on `Tuning`, not here: this field
+    /// says *which materials are light enough to be waded freely*, and the
+    /// item says *whether this character can*. It is deliberately not built
+    /// yet, because it means threading `Tuning` through `footing` and its
+    /// seven readers for a capability nothing can grant. When it lands, the
+    /// one line to change is `footing`'s test of this flag.
+    #[serde(default)]
+    pub insubstantial: bool,
     /// Whether the character walks *through* this material without climbing
     /// it — cave formations, and anything else that is scenery rather than
     /// architecture.
@@ -1179,6 +1218,8 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::insubstantial`.
+    pub insubstantial: bool,
     /// See `MaterialDef::scenery`.
     pub scenery: bool,
     /// See `MaterialDef::fall_drag`.
@@ -1495,6 +1536,7 @@ impl From<MaterialDef> for Material {
             worth_in_aux: def.worth_in_aux,
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
+            insubstantial: def.insubstantial,
             scenery: def.scenery,
             fall_drag: def.fall_drag,
             palette: def
@@ -1765,6 +1807,7 @@ impl MaterialRegistry {
             worth_in_aux: false,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
@@ -1827,6 +1870,7 @@ impl MaterialRegistry {
             worth_in_aux: false,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[20, 20, 24]],

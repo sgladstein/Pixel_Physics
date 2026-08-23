@@ -1454,6 +1454,36 @@ regression — worst-frame spread on identical binaries has been measured at
   reads above the damp gate. The dry rate is the one that governs.
 - `decay_chance_*` is resolved from a serde default at parse time rather than
   a `0.0`-means-shared sentinel, so `decay_chance_dry: 0.0` means what it says.
+- **44% of standing litter still rests on plant tissue** (466 of 1,049 cells),
+  and only 30% sits within three rows of the ground. That is 8x better than
+  before the merge (3,825 of 4,330, 88%) and 81% of everything ever shed rots
+  away, but it is not yet "the vast majority on the floor". With the owner.
+
+**Foraging range, and why `nest_visits` was never the guard it read as.**
+`CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is
+incremented unconditionally every tick — so the guard is false exactly once
+per lifetime and the counter scores every move made while nest-adjacent. It
+counts loitering. `assert!(nest_visits > 0)` therefore passes trivially for a
+colony that never leaves the nest mouth, which is the failure it looked like
+it was guarding.
+
+The replacement is a spatial excursion depth re-anchored at every nest contact
+(`OrganismState::forage_anchor`), booked as `forage_trips` /
+`forage_depth_sum` / `forage_depth_max` and a threshold-free cumulative
+profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
+the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
+`[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
+(a seventh of the count, under half the depth) because outcome spread here is
+large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+one ant, a nest, no food — and neither arm is worth anything alone.
+
+**`Material::insubstantial` bought zero cells on `wood`, and the zero is
+recorded.** The gnome runs through leaf litter with no wade drag, on the
+owner's direct instruction. It does not move `scripts/acceptance.sh`'s `wood`
+case, which reads **98 travelled against a bar of 200 on all three of**
+`origin/main`, the merge, and the merge plus the flag. Earlier notes citing 34
+predate main's own plant work and no longer reproduce; the residual is tree
+architecture, not litter depth (`Reports/open-bugs-handoff.md` bug Y).
 
 ## UI improvements — overnight run, section 9
 

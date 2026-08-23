@@ -108,10 +108,52 @@ pub struct CreatureStats {
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
     pub deliveries: u64,
-    /// Arrivals at the nest after having been away. Splits "never got
-    /// home" from "never picked anything up", which the delivery count
-    /// alone cannot.
+    /// **Not a trip counter, and not a sessility guard — read
+    /// `forage_trips` for either.** It increments on any move made while
+    /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
+    /// `since_nest` is bumped unconditionally every tick, so that guard is
+    /// false exactly once in a creature's life and this counts *loitering*.
+    /// One ant, a nest and no food scores `moves 648, nest_visits 389`.
+    ///
+    /// Kept because the ratio against `moves` is still a real readout — an
+    /// immobile colony drives it toward 1 and a ranging one toward 0 — and
+    /// because deleting it would silently change every scene that prints
+    /// it. What it is not is "arrivals at the nest after having been away",
+    /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
+    /// from home and came back.** The thing `nest_visits` was believed to
+    /// be counting and never was.
+    ///
+    /// Booked at the moment of nest contact, off
+    /// `OrganismState::forage_max` — a spatial depth that re-anchors on
+    /// every contact, so neither loitering nor `tick_interval` can inflate
+    /// it. See that field for why the obvious `since_nest` fix is unsound.
+    pub forage_trips: u64,
+    /// Summed depth of the trips in `forage_trips`, in cells. `/
+    /// forage_trips` is the mean foraging range — **the quantity that was
+    /// missing, and the reason no foraging change could be judged.**
+    pub forage_depth_sum: u64,
+    /// Deepest single excursion any creature has made, in cells. Bounds the
+    /// mean: a colony with a good mean and a small max is commuting a fixed
+    /// route, which is a different animal from one that ranges.
+    pub forage_depth_max: u64,
+    /// **The excursion-depth profile, and the reason this metric does not
+    /// live or die on one threshold.** Bucket `i` counts excursions that
+    /// reached at least `FORAGE_REACH_BUCKETS[i]` cells from home — a
+    /// cumulative distribution, so it is monotonically non-increasing and
+    /// bucket 0 is every excursion there was.
+    ///
+    /// A single count needs a bar, and a bar set from an aspiration is how
+    /// this project gets numbers that cannot fail for the right reason. The
+    /// profile needs none: an immobile colony is a spike in bucket 0 that
+    /// vanishes by bucket 2, and a ranging one carries weight out to the
+    /// distance of whatever it is ranging *to*. That shape is the readout,
+    /// and it is what `forage_trips`'s bar was then set from.
+    ///
+    /// It also separates two colonies a mean cannot: a hundred short hops
+    /// and ten real trips average the same as a hundred medium ones.
+    pub forage_reach: [u64; 8],
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -1409,6 +1451,8 @@ impl World {
             energy: 0.0,
             carrying: None,
             since_nest: 0,
+            forage_anchor: (0, 0),
+            forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
             shoot_top_y: None,

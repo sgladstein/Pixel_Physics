@@ -65,6 +65,13 @@
     // powder update stops running on exactly the cells that need it, and a
     // knob whose strength depends on an unrelated optimisation is worse than
     // no knob.
+    // **The gnome runs straight through it.** Owner's call, 2026-08-23: a
+    // forest floor deep enough to see should not bog him down -- `player.rs`
+    // grades powder drag by how many of his rows are in it and turns *stuck*
+    // on at four. Leaves are not sand. See `Material::insubstantial`; nothing
+    // in the CA sweep reads it, so litter still falls, piles and rots
+    // unchanged, and an ant is as impeded by a drift as it ever was.
+    insubstantial: true,
     decays_into: "soil",
     // **No `reseed_chance`, so it defaults to 0.** Ash sets 0.15 -- ash cells
     // are rare, something has to burn first, so a roll there reads as

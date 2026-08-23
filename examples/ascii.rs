@@ -1472,6 +1472,18 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **Range, printed next to the verb counters, because none of them
+        // can say it.** `nest-visits` above counts loitering, not trips --
+        // see `CreatureStats::nest_visits`. A colony that never leaves the
+        // nest mouth scores high on it and zero here.
+        println!(
+            "{label}: forage trips {} (bar {}) mean depth {:.1} deepest {} | reach {:?}",
+            st.forage_trips,
+            pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+            if st.forage_trips > 0 { st.forage_depth_sum as f64 / st.forage_trips as f64 } else { 0.0 },
+            st.forage_depth_max,
+            st.forage_reach
+        );
         // **The standing food stock, in energy rather than in cells.** A
         // count of edible cells rises as a stand of trees grows whatever is
         // happening to the animals, which is how §13m's tree-killing bug
@@ -1489,7 +1501,16 @@ fn forage_loop_scene() {
                 (all + v, meat + if is_meat { v } else { 0.0 })
             });
         println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
-        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
+        // **Every material on the menu, not just `leaf`.** This counted leaf
+        // alone, which sat directly under the `food stock` line above --
+        // which prices everything -- so the two disagreed by construction the
+        // moment litter became edible. A named-material column is blind by
+        // construction to any food invented later; that is exactly how S4
+        // shipped inert and three rounds of measurement missed it.
+        let food_left = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel_physics::sim::creature::food_value(world, world.get(x, y)) > 0.0)
+            .count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
         // **In thirds, not as one total.** A homing gradient that points
@@ -1611,7 +1632,42 @@ fn forage_loop_scene() {
     let st = world.creature_stats;
     assert!(st.moves > 0, "no ant ever moved");
     assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
-    assert!(st.nest_visits > 0, "no ant ever reached the nest");
+    // **Kept, but demoted to what it actually proves, and given the guard
+    // it was mistaken for.** `nest_visits` counts loitering, not arrivals:
+    // it increments on any move made while nest-adjacent, and its
+    // `since_nest > 0` guard is false exactly once per lifetime because
+    // `since_nest` is bumped every tick (`CreatureStats::nest_visits`). So
+    // `> 0` here is not the sessility guard it reads as -- **a colony that
+    // never left the nest mouth passes it trivially**.
+    assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
+    // The real one. **Bars set from measurement on this tree, with
+    // headroom** -- not from an aspiration, and not inherited: this scene
+    // measures **98 trips, deepest 18, mean depth 10.3** over 12,000 frames
+    // after the litter merge. A branch that predates the merge measured 143
+    // and 19 on the same scene, so a bar carried over from it would have sat
+    // above what the code now does. That gap is the litter effect, not a
+    // regression -- see the README's S1-S4 limitations.
+    //
+    // A seventh of the trip count and under half the depth, because outcome
+    // spread here is large and a bar near the measurement flakes.
+    //
+    // What this catches that nothing else did: the colony going sessile.
+    // Every counter above stays healthy for a colony milling around the
+    // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
+    // and this is the only one that goes to zero.
+    assert!(
+        st.forage_trips >= 14,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 98 here), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+    assert!(
+        st.forage_depth_max >= 8,
+        "no ant got further than {} cells from home (measured 18 here)",
+        st.forage_depth_max
+    );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
     assert!(phero_b > 0, "carriers laid no food trail at all");
     assert!(
@@ -1747,6 +1803,7 @@ fn double_bridge_scene() {
         "  moves {} blocked {} | pickups {} drops {} deliveries {} nest-visits {} deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.nest_visits, st.deaths
     );
+    println!("  forage trips {} deepest {} | reach {:?}", st.forage_trips, st.forage_depth_max, st.forage_reach);
     println!("  summed channel B over 32 samples -- short route (tunnel) {short:.2} vs long route (over the top) {long:.2}");
     // **Recorded, not asserted, and the earlier version of this assertion
     // was measuring the wrong thing.** An intermediate build did report
