@@ -1672,15 +1672,45 @@ fn forage_loop_scene() {
         // a "did it fire" number -- corpse cells with zero worth mean
         // `creature_dies` did not stamp them, which a picture of a corpse
         // pile cannot show.
-        let (food_stock, corpse_stock) = (0..w)
-            .flat_map(|x| (0..h).map(move |y| (x, y)))
-            .map(|(x, y)| world.get(x, y))
-            .fold((0.0f64, 0.0f64), |(all, meat), cell| {
+        // **Attributed by material, and derived rather than named.** Pricing
+        // everything fixed the blindness a hardcoded `leaf` column had (S4
+        // shipped inert behind exactly that), but it traded attribution away
+        // with it: one summed number cannot tell "the canopy feeds them"
+        // from "the floor feeds them", and those are opposite answers to the
+        // question of how scarce the forest floor should be. The tally is
+        // keyed on whatever materials actually carry worth in this run, so
+        // it stays blind to nothing -- a food invented tomorrow shows up in
+        // it without this line being edited.
+        let mut per_material = vec![0.0f64; world.materials.len()];
+        let mut food_stock = 0.0f64;
+        let mut corpse_stock = 0.0f64;
+        for x in 0..w {
+            for y in 0..h {
+                let cell = world.get(x, y);
                 let v = pixel_physics::sim::creature::food_value(world, cell) as f64;
-                let is_meat = world.materials.get(cell.material).worth_in_aux;
-                (all + v, meat + if is_meat { v } else { 0.0 })
-            });
-        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
+                if v <= 0.0 {
+                    continue;
+                }
+                food_stock += v;
+                per_material[cell.material.0 as usize] += v;
+                if world.materials.get(cell.material).worth_in_aux {
+                    corpse_stock += v;
+                }
+            }
+        }
+        let mut breakdown: Vec<(f64, &str)> = per_material
+            .iter()
+            .enumerate()
+            .filter(|(_, &v)| v > 0.0)
+            .map(|(id, &v)| (v, world.materials.get(MaterialId(id as u16)).name.as_str()))
+            .collect();
+        breakdown.sort_by(|a, b| b.0.total_cmp(&a.0));
+        let attributed = breakdown
+            .iter()
+            .map(|(v, name)| format!("{name} {v:.0} ({:.0}%)", 100.0 * v / food_stock.max(1.0)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0} | {attributed}");
         // **Every material on the menu, not just `leaf`.** This counted leaf
         // alone, which sat directly under the `food stock` line above --
         // which prices everything -- so the two disagreed by construction the
