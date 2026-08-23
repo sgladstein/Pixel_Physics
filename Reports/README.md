@@ -151,9 +151,14 @@ field rework — see `open-bugs-handoff.md`.
   **handoff.**
 - [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
   **review + proposed queue.** The whole plant record read together after the
-  2026-08-22 merge and the "one big mass" verdict; a fresh three-arc queue
-  (readable stands, damage verbs, economy integrity) with its deviations from
-  the WP plan stated, and the stale-record list.
+  2026-08-22 merge and the "one big mass" verdict; revised same-day on the
+  owner's direction to lead with the evolution framework and root
+  differentiation; the stale-record list; the finding that worldgen sows only
+  `"tree"` and moss.
+- [plant-implementation-split-2026-08-23.md](plant-implementation-split-2026-08-23.md)
+  — **execution plan** for the review's queue: three parallel lanes (plant
+  core, structural verbs, world & species data), one session per package,
+  with paste-ready briefs; successor to `plant-work-split.md` in role.
 
 ## Creatures and ecology
 
