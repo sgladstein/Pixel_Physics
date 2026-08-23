@@ -45,12 +45,15 @@ materials and read by nothing until S5's `gut_bias`.
 **The live problem measurements, in priority order:**
 
 1. **`cargo test` was red on `main` at the merge** (bug A,
-   `open-bugs-handoff.md` §A), and CI runs its gates as sequential steps of
-   one job — so `ascii` and `acceptance.sh` were **skipped**, and "main is
-   green" has not been checkable from CI for any gate after `cargo test`
-   (§H's process finding, verified on run 32604849243). Bug H (`ascii`'s
-   ants moisture-gradient scene panics on its own setup assertion) is also
-   open and blocks the ant scenes locally.
+   `open-bugs-handoff.md` §A), and CI then ran its gates as sequential
+   steps of one job — so `ascii` and `acceptance.sh` were **skipped**, and
+   "main is green" was not checkable from CI for any gate after
+   `cargo test` (§H's process finding, verified on run 32604849243).
+   *Correction, same day:* `ci.yml` has since been reworked — one job per
+   gate, with bugs A/H/Y quarantined into named `continue-on-error` jobs —
+   so the reporting is honest now. **The bugs themselves are still open**
+   (confirmed locally: 847 passed, 1 failed — bug A), and `ascii` is
+   non-gating until bug H closes.
 2. **"The floor feeds the colony, and the colony stops ranging"**
    (`README.md` M18 S1–S4 known limitation #1): deliveries +17% but moves
    −31%, nest visits −36%, digs −46%. This is the owner's stated constraint
@@ -92,16 +95,22 @@ number, from a harness, with its known-good reading — per house rule.
 
 ### T0 — Unblock and decide (all cheap; do first)
 
-- **T0.1 Make the gates real again.** Fix or `#[ignore]`-with-entry bug A
-  (the red plant-genome test — but seed-sweep it first, per its own §A note
-  that a green sample "is not a fix"), fix bug H's scene (the diagnosis
-  steer in §H: the *scene* lost its moisture gradient; check what builds the
-  gradient, not the deposition rule), and split CI so a red `cargo test`
-  no longer skips `ascii` and `acceptance.sh` (independent steps or
-  `if: always()`). *Measurement:* CI shows per-gate pass/fail on a PR; `ascii`
-  runs to completion locally. *Known-good:* all five gates report
-  independently, and the ants scenes run again. **Everything in T0.4 and
-  every future foraging claim is blocked behind this.**
+- **T0.1 Close the two quarantined gates.** *(Corrected same day: the CI
+  split half of this item landed in `ci.yml` before this report merged —
+  one job per gate, bugs A/H/Y excluded by name into `continue-on-error`
+  jobs. What remains is the bugs.)* Fix bug H's scene (the diagnosis steer
+  in §H: the *scene* lost its moisture gradient; check what builds the
+  gradient, not the deposition rule — and per `ci.yml`'s quarantine note,
+  close it by giving the scene a real gradient or a continuous-margin
+  guard, then re-gate the `ascii` job). For bug A, re-run its existing
+  seed-sweep probe with litter in the world before believing any red or
+  green (§A: the margin flips across the bar with litter volume; the
+  2026-08-22 sweep says the lever is weak, not flaky — do not move the
+  bar), then either fix the primed-site lever or leave the quarantine
+  standing with the new sweep appended. *Known-good:* `ascii` gating
+  again; the `known-red-*` jobs and their exclusions deleted the day each
+  bug closes. **T0.4 and every future foraging claim needs `ascii` running
+  clean.**
 - **T0.2 Rescue `Reports/foraging-range-measurement.md`.** It exists only on
   `claude/creatures-m18-merge-ijdlnp` (2 commits ahead, otherwise fully
   superseded by main). Its instrument landed on `main` via `da252dc`; the
@@ -233,8 +242,9 @@ already paid for elsewhere in this codebase:
    from under the scheduler** (dead-end 1094: a mid-tick-scheduled seed
    never grew, forever).
 3. **The 4095-slot ceiling gets a release-mode guard** before any breeding
-   run (population-dynamics acceptance 9g). Today `push_organism`'s range
-   check is a `debug_assert` and CI never compiles debug — the identical
+   run (population-dynamics acceptance 9g). `push_organism`'s range check
+   is a `debug_assert` — CI's new debug job now compiles it, but release
+   builds (the app, every long harness run) still don't, which is the
    shape §F4 flags as silent identity corruption.
 4. **Close the S3b stamp seam here** (T1.2's note): a parent pays the
    child's stamp, and flesh destroyed without becoming corpse gets a sink.

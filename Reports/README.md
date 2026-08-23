@@ -166,6 +166,11 @@ field rework — see `open-bugs-handoff.md`.
   stands, the decisions never posted to the queue (E5, the abundance dial),
   and the re-prioritised to-do list: gates first, the two meat-accounting
   holes before S6, traffic/range as new work, the canopy as an S7 option.
+- [creature-implementation-handoff-2026-08.md](creature-implementation-handoff-2026-08.md)
+  — **execution plan for the review above, written to be run cold.** Ten
+  work packages with file anchors, steps, measurements and landing
+  checklists; the scope guard on what must not start before the owner's
+  verdicts (S6, S7's larder, new channels).
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
