@@ -285,12 +285,11 @@ Three things fall out, and the second one retracts a claim already posted:
    depth and it is *not* nothing — but it is nowhere near turf-against-
    prairie, and "they look identical" is the correct reading of it.
 
-**So B1's answer is: the reachable slot-5 axis is not enough.** That is a
-useful negative — it is exactly the standing that decides Arc B's sequencing,
-and it says the thickening (B2) and dominance (B3) mechanisms have to land
-before root form is worth showing again. Two prior owner verdicts already
-said tuning-level root variety does not read; this is the third, now with
-the scene error ruled out rather than suspected.
+**So B1's answer is: the reachable slot-5 axis is not enough** — and the
+maturity run below sharpens *why* into something more useful than "the
+difference is small". Two prior owner verdicts already said tuning-level
+root variety does not read; this is the third and fourth, with the scene
+error ruled out rather than suspected.
 
 ### The presentation mattered as much as the bed
 
@@ -311,6 +310,56 @@ reached for twice.
 Posted blind. The standing conclusion above (the reachable axis is not
 enough) is unchanged until that verdict comes back — it is written from the
 numbers, and the numbers did not move.
+
+### The run was as short as the bed was shallow: the axis is a transient
+
+The blind single-plant card came back ***"Similar. Give them more time to
+grow to see if they differentiate when the root structure is bigger."***
+Every run above was 10,800 frames, and `plant-species-authoring.md` §8 says
+in as many words: *scout at 10,000, confirm at 30,000*. All three shots so
+far were scouting runs.
+
+Sampled at three ages in the 100-row bed, day-phase aligned:
+
+| frames | low (0.36) deepest row | high (0.84) deepest row | gap | low root cells | high root cells |
+|---|---|---|---|---|---|
+| 10,800 | 32.0 | 21.6 | 1.48x | 327 | 319 |
+| 25,200 | 45.8 | 24.8 | **1.85x** | 578 | 444 |
+| 43,200 | 55.2 | 49.8 | **1.11x** | 1,045 | 1,086 |
+
+**The axis peaks at 25,200 and washes out by 43,200.** At maturity the
+median root cell sits 16 rows down for the "deep" treatment and **17 for the
+"shallow" one** — the shallow arm is fractionally deeper — and the root
+counts are level. Depth bias steers the system early and stops mattering
+once it is large.
+
+And the renders say why, more clearly than any statistic: **neither mature
+system reads as a root system.** Both are dense amorphous masses that fill
+whatever soil is available. `plant-species-authoring.md` §5 already names
+this shape from the shoot side ("thin whip or big blob"); this is its root
+counterpart. A random walk that keeps going fills space, and filled space
+has no morphology — which is the same mechanism behind the owner's verdict
+on the four species above ground (§9).
+
+**So B1's answer stands, and now for a much better reason than "the
+difference is small": the difference is *transient*.** Root form in this
+engine is a volume, not a shape. No amount of slot-5 tuning reaches a
+morphology, because the mature form is set by how long the walk ran, not by
+where it was pointed.
+
+**One caveat, stated rather than buried:** the low arm is censored from
+25,200 onward — its deepest individual sits at exactly 100, the bed floor —
+so its true depth is understated and the convergence is *partly* a
+measurement limit. Settling that needs a bed of 200+ rows, which the 320-row
+scene cannot provide; it would need a `height=` knob on `plant_probe` and
+`filmstrip`. The blob, however, is not a measurement artifact.
+
+**Three scene and run limits masqueraded as model limits in this one
+investigation** — a 34-row bed, a stand-scale presentation, and a
+10,800-frame run — and the owner caught two of the three from the picture
+alone. That is the reusable lesson, and it is worth more than the root
+result: *before concluding a mechanism is weak, check the bed, the
+presentation and the clock.*
 
 **Method note for whoever runs the next root comparison:** set `soil=` well
 past the deepest root you expect *and* check the max against it, because a
