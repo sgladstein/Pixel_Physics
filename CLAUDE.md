@@ -79,12 +79,15 @@ unless named otherwise):
 
 - Running a parameter sweep → *When every setting of a sweep fails the same
   way* (Method), *A change that moves nothing* (Conventions), and the
-  `include_str!` gotcha.
+  `include_str!` gotcha. If it censuses a collapse, also *A cascade
+  censused before it settles* — `seedsweep.sh`'s default frame budget
+  stops mid-cascade.
 - Writing or trusting a guard test → the guard bullets in Conventions
   (*fail for the replacement*, *inputs actually vary*, *superseded tests
   keep passing*) and *A green suite does not prove a test ran* (Gotchas).
-- Measuring liquids, powders or destruction → *Metric traps* and *Chunk
-  decomposition is a recurring root cause* (Method).
+- Measuring liquids, powders or destruction → *Metric traps*, *A mean over
+  events is not the size of the pieces* and *Chunk decomposition is a
+  recurring root cause* (Method).
 - Adding per-cell work to the sweep → *Guard hot-path work at the call
   site* (Method), and README's Performance section on sweep-scale costs.
 - Touching organism code → the structural-check amputation gotcha, *A
@@ -404,6 +407,71 @@ frame, so dividing it out costs no storage and is exact at noon.
 Temperature oscillates the same way and will need the same treatment the
 day anything gates on it. The cycle stays real on screen and in the field;
 it just must not alias into decisions.
+
+### A cascade censused before it settles reads a *delay* as damage
+
+Both runs have to have **landed**, or the census is comparing mid-air with
+on-the-floor. A change that made a room stand two hundred frames longer
+measured as `roomcut` losing 251 cells against 1,501 at frame 202, and as
+235 against 273 once both runs were given 1,500 frames — a disaster and a
+rounding error, from the same two binaries.
+
+**`seedsweep.sh`'s own default does this**, still, today. `FRAMES="start=2
+every=400 count=4"` stops at frame 1,202, which is mid-collapse. Measured on
+`scene=worldcrack strike=12`, one build, eight preset/seed pairs, frame
+1,202 against frame 3,602:
+
+| | rock destroyed @1,202 | @3,602 |
+|---|---|---|
+| `terraced 1` | 557 | **1,042** |
+| `terraced 7` | none — rock *gained* 647 | **260** |
+| `flat 1` | 20 | **199** |
+| `rolling 7` | none — rock *gained* 223 | **88** |
+
+Four of the eight destroy rock by 3,602. **The default sees one of them**,
+and understates that one by 1.9x. `terraced 7` reverses outright: −634 cells
+lost at 1,202 becomes +326 at 3,602.
+
+**Read `rock`, not `cells lost`, for the settling question.** `rock`
+plateaus — `terraced 1` runs −952, −1,042, −1,042, −1,052, −1,052 across
+frames 1,802 to 9,002 — while `cells lost` never settles on these presets at
+all, because rubble keeps accruing from ordinary weathering long after the
+cascade is over: the same run drifts 849 → 1,109 → 745 → −126 → −1,322. A
+longer budget makes `cells lost` monotonically better-looking for no reason
+connected to the change under test.
+
+So `awake` and `sites` are a weaker tell than they look: on `rolling` and
+`terraced` both sit near 5,000 sites indefinitely and never reach zero. The
+tell that works is that **the quantity being censused has stopped moving**
+across two consecutive tiles. `every=900 count=5` is enough for `rock`;
+nothing measured so far is enough for `cells lost`.
+
+Worse, and the reason this needs its own heading rather than a footnote: two
+runs that diverge on one frame are **different worlds** by the next, so a
+single cascade scene cannot compare two models at all, settled or not. One
+term measured *ten times worse* on `scene=worldcrack strike=12` and nearly
+halved the worst case over 24 seeded runs. Comparisons of cascades belong in
+`seedsweep.sh`, run to rest, read at the order statistic.
+
+### A mean over *events* is not the size of the pieces
+
+The sibling of the metric traps below, one level up, and it nearly cost a
+correct change. `failing region size: mean` divides cells by **failure
+events**, and a change that makes marginal rock fail more often moves that
+mean without moving what comes out: `caveshallow` went from mean 10.0 to
+4.1 — below `rigid::MIN_FRACTURE_CELLS` (6), which reads as *"the typical
+break is now too small to fracture, so it is dust"* — while losing the
+identical 64 cells of rock and sending **fewer** cells down the powder path
+(30 → 16). The extra events were confined failures cracking in place, which
+never reach the fragment ladder at all.
+
+A mean cannot separate "smaller pieces" from "more evaluations of the same
+piece". If the question is whether something turned to dust, count the
+regions that fell below the fracture threshold and read that against the
+total that failed. **No counter for this exists on `main`**: it was built as
+`FailureCounts::crumbled` on branch `load-share`, which has not landed, so
+today the mean is the only thing here and it cannot answer the question.
+Add the counter before believing either way.
 
 ### Compare two runs, not one run against a remembered number
 
