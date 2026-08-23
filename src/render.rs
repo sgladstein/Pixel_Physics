@@ -922,9 +922,27 @@ const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
 /// exactly as it always was**: the shipped ant does not change colour, and
 /// only an animal that has actually specialised is tinted. That keeps this
 /// from being a repaint of existing content.
+///
+/// **The hue pair is provisional, and the owner has already judged it
+/// once against.** Review card `20260823T104342401Z-25ec88` posted a blind
+/// A/B of an untinted colony against this tint at full strength on a
+/// `-1.0` ant; the verdict was **A, untinted**. The reason is recorded in
+/// `assets/materials/ant.ron` and was in the card: an ant is one or two
+/// cells at play zoom, the readable signal at that size is *contrast
+/// against the ground rather than hue*, and green ants sink into a world
+/// whose dominant colour is already green.
+///
+/// Nothing ships tinted today — the ant is authored neutral, so `t` is 0
+/// and the colony draws exactly as the owner chose. What is unresolved is
+/// what a *specialised* ancestor should look like, and that animal is
+/// gated on the E5 card. When it ships, the thing to try is a
+/// **brightness** axis rather than a hue axis (brightness being the one
+/// channel that reads at 1–2 px), posted as its own blind A/B rather than
+/// argued. Do not simply turn this up.
 const GUT_TINT_PLANT: [f32; 3] = [90.0, 200.0, 90.0];
 const GUT_TINT_FLESH: [f32; 3] = [210.0, 70.0, 70.0];
-/// How far toward the tint a fully specialised gut is pulled.
+/// How far toward the tint a fully specialised gut is pulled. See above:
+/// judged too strong at this value on a fully specialised ant.
 const GUT_TINT_STRENGTH: f32 = 0.45;
 
 /// How bright a zero reading draws, as a fraction of the channel's

@@ -1881,7 +1881,7 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
 /// taken at different times are comparable — an overlay that renormalises
 /// itself answers "which cell here is worth most", which is not the question
 /// anyone has when they switch it on.
-pub const REFERENCE_MOUTHFUL: f32 = 300.0;
+pub const REFERENCE_MOUTHFUL: f32 = 1200.0;
 
 /// **What one cell is worth to eat, and the only definition of it.**
 ///
@@ -3493,13 +3493,19 @@ mod tests {
             w.energy_ledger.harvested_plant / st.eats as f64
         };
 
-        // Leaf is `food_class: -1.0` worth 120. A herbivore gut matches it
-        // exactly (filter 1.0); a neutral gut is half the axis away
-        // (filter 0.25).
+        // Leaf is `food_class: -1.0`. A herbivore gut matches it exactly
+        // (filter 1.0); a neutral gut is half the axis away (filter 0.25).
+        // Asserted against the leaf's own face value rather than a literal,
+        // so an economy retune moves both sides together and only a change
+        // to the *filter* can fail this.
+        let face = {
+            let w = test_world();
+            w.materials.get(w.materials.id_of("leaf").expect("leaf")).food_energy as f64
+        };
         let herbivore = gain_per_bite(-1.0);
         let generalist = gain_per_bite(0.0);
-        assert!((herbivore - 120.0).abs() < 0.5, "a matched gut should get a leaf's whole 120, got {herbivore:.2}");
-        assert!((generalist - 30.0).abs() < 0.5, "a neutral gut should get a quarter of it, got {generalist:.2}");
+        assert!((herbivore - face).abs() < 0.5, "a matched gut should get a leaf's whole {face}, got {herbivore:.2}");
+        assert!((generalist - face * 0.25).abs() < 0.5, "a neutral gut should get a quarter of it ({}), got {generalist:.2}", face * 0.25);
     }
 
     /// **And not its own tail either.** `adjacent_food` scans the head's
@@ -3523,7 +3529,15 @@ mod tests {
         let ant = spawn(&mut w, "ant", 100, 100);
         let ant_material = w.materials.id_of("ant").expect("ant material");
         assert_eq!(w.get(99, 100).material, ant_material, "the chain's second cell should be west of the head");
-        assert_eq!(diet_yield(&w, w.get(99, 100), 1.0), 120.0, "its own tail is nutritious on the diet axis alone -- which is exactly why liveness has to be asked separately");
+        // **Stated as the filter, not as a number.** These asserted the
+        // literal 120 of the pre-S5 economy and all three broke together
+        // when the food scale moved to 480 -- which is `CLAUDE.md`'s
+        // "a fix that changes what a number *means* has to re-derive the
+        // constants that read it", arriving as three red tests. Written
+        // against the material's own face value, they assert the claim
+        // (a perfect match pays in full) and survive the next retune.
+        let face = w.materials.get(ant_material).food_energy;
+        assert_eq!(diet_yield(&w, w.get(99, 100), 1.0), face, "its own tail is nutritious on the diet axis alone -- which is exactly why liveness has to be asked separately");
 
         assert!(adjacent_food(&w, 100, 100, gut_of(&w, ant, &def)).is_none(), "an ant must not see its own tail as food");
     }
@@ -3556,17 +3570,21 @@ mod tests {
         };
         // The starved stamp exactly: `body_energy * cells + 0` over cells.
         let starved = Cell::new(corpse, 0).with_aux(body_energy.round() as u16);
-        assert_eq!(diet_yield(&w, starved, 0.0), 30.0, "a starved corpse at a neutral gut is a quarter of 120 -- if this moved, the filter or the stamp did");
+        assert_eq!(
+            diet_yield(&w, starved, 0.0),
+            body_energy * 0.25,
+            "a starved corpse at a neutral gut is a quarter of the stamp -- the filter reads 0.25 half an axis away, and if this moved, the filter or the stamp did"
+        );
         assert!(diet_yield(&w, starved, 0.0) > EAT_YIELD_THRESHOLD, "and it has to clear the bar, or the scavenger niche is gone");
 
-        // **The gut is set here, not inherited from the species.** The
-        // shipped ant is a detritivore (`ant.ron` records why) and cannot
-        // digest carrion at all, so running this on the authored value
-        // would measure that decision rather than the rule under test. The
-        // rule is that *worth* cannot separate a nestmate from a corpse and
-        // liveness must, and it has to hold for every gut that can eat
-        // meat at all -- including the one an evolved scavenger would have.
-        set_gut(&mut w, "ant", 0.0);
+        // **Deliberately the *authored* gut, not an overridden one.** For
+        // one commit the ant was a detritivore that could not digest
+        // carrion at all, and this test had to set a gut of its own to
+        // measure anything. The owner's verdict on review card
+        // 20260823T104411499Z-963f8d -- "An omnivore should be viable" --
+        // put the shipped ant back at neutral, so scavenging is live
+        // behaviour again and this asserts it as such. If a future retune
+        // narrows the ant off the flesh end, this failing is the point.
         let ant = spawn(&mut w, "ant", 100, 100);
         for x in 101..104 {
             w.set(x, 100, starved);
@@ -4048,6 +4066,72 @@ mod tests {
         w.organism_mut(ant).expect("live").energy = 300.0;
         run(&mut w, frames);
         w
+    }
+
+    /// **What does it take to make an omnivore viable?** — the owner's
+    /// answer to review card `20260823T104411499Z-963f8d` was, in full,
+    /// "An omnivore should be viable", which overturns the detritivore
+    /// landing the sweep below forced.
+    ///
+    /// The sweep below says a *perfectly matched* grazer already runs at
+    /// intake/cost 0.946, so the margin is negative before any digestive
+    /// penalty and a neutral gut at 0.706 starves. The lever that fixes
+    /// that without also making *idling* cheaper — which is §13i's sessile
+    /// attractor and the owner's other standing complaint — is the value of
+    /// the food, not the cost of living.
+    ///
+    /// So: scale what a mouthful is worth by `m` and find the smallest `m`
+    /// where a neutral gut clears viability with headroom. Both halves of
+    /// the axis scale together (`body_energy` with the plant foods), the
+    /// way `creature_space` already scales them, so a scavenged mouthful
+    /// stays worth a foraged one.
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn print_omnivore_viability_against_food_scale() {
+        println!("    m    gut   leaf yield   ratio   survived");
+        for m in [1.0f32, 1.5, 2.0, 3.0, 4.0] {
+            for bias in [0.0f32, -0.5, -1.0] {
+                let mut w = test_world();
+                let soil = w.materials.id_of("soil").expect("soil");
+                for x in 70..150 {
+                    for y in 111..120 {
+                        w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                    }
+                }
+                let leaf = w.materials.id_of("leaf").expect("leaf");
+                for x in 100..122 {
+                    for y in [104, 105, 106, 107, 108, 110] {
+                        w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                    }
+                }
+                // The economy knob under test. Every food the ant can reach
+                // scales together, plus the structural stamp -- scaling one
+                // half of the axis would be a diet change wearing an
+                // economy change's clothes.
+                for name in ["leaf", "moss", "seed", "litter", "ant"] {
+                    if let Some(id) = w.materials.id_of(name) {
+                        let base = w.materials.get(id).food_energy;
+                        w.materials.get_mut(id).food_energy = base * m;
+                    }
+                }
+                let species = w.species.id_of("ant").expect("ant");
+                let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+                def.traits[TRAIT_GUT_BIAS] = bias;
+                def.body_energy *= m;
+                w.species.set_creature(species, def);
+
+                run(&mut w, 2_000);
+                let ant = spawn(&mut w, "ant", 110, 109);
+                w.organism_mut(ant).expect("live").energy = 300.0;
+                let yield_per_leaf = diet_yield(&w, Cell::new(leaf, 0), bias);
+                run(&mut w, 60_000);
+                println!(
+                    "  {m:>3.1}   {bias:>4.1}   {yield_per_leaf:>10.1}   {:>5.3}   {}",
+                    grazing_ratio(&w),
+                    if w.live_organism_count() > 0 { "yes" } else { "no" }
+                );
+            }
+        }
     }
 
     /// **Where does a gut stop being able to feed the animal that has it?**

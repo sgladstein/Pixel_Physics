@@ -955,10 +955,11 @@ predation survives by construction — a beetle's kin is a beetle. It also stops
 an animal eating its own tail, which the name list had been preventing by the
 accident of "ant" not being on the ant's own menu.
 
-**2. There is no viable omnivore at this economy, so the ancestral ant is
-−1.0 and not the neutral value the section implies.** Measured on the one
-scene that can answer it — one animal, an inexhaustible wall of leaf, nothing
-to do but eat (`creature::tests::print_grazer_viability_against_gut_bias`):
+**2. There was no viable omnivore at the shipped economy, and the fix was to
+widen the economy rather than narrow the animal — the owner's call, not
+this document's.** Measured on the one scene that can answer it — one
+animal, an inexhaustible wall of leaf, nothing to do but eat
+(`creature::tests::print_grazer_viability_against_gut_bias`):
 
 | gut | leaf yield | intake/cost | survived |
 |---|---|---|---|
@@ -979,12 +980,31 @@ off the axis ends can feed an animal at all.** The falsifier note above
 anticipates a single hump and blames carrion scarcity; the measurement says
 the first cause is upstream of that.
 
-At −1.0 the filter reads exactly 1.0 against `food_class: -1.0`, so
-leaf/moss/seed/litter pay the same 120 they paid before S5 and the colony
-economy is untouched bit for bit (`ascii` diffs on timing lines only). The
-cost is that the ant no longer scavenges at all, which is player-visible,
-contradicts `wiki/ants.md`, and is on the owner's queue as card
-`20260823T104411499Z-963f8d`.
+The first landing took that as a constraint and authored the ant at −1.0, a
+detritivore — which kept the plant economy bit-identical and cost the colony
+its scavenging. Card `20260823T104411499Z-963f8d` put the trade to the owner,
+whose verdict was, in full: **"An omnivore should be viable."**
+
+So the economy widened. The factor is measured
+(`print_omnivore_viability_against_food_scale`) rather than chosen: at **4x**
+face value a neutral gut draws 120 a mouthful and reaches intake/cost 0.946 —
+the *identical* ratio a perfectly matched gut had at the old scale, because
+the filter's 0.25 at neutral is exactly what 4x cancels. The shipped ant is
+therefore economically the pre-S5 ant: `ascii` is bit-identical to `main` at
+12,000 frames, and the only line that moves is the `food stock` census, which
+reads face values and so reads 4x while no animal extracts more.
+
+Not taken higher, deliberately: past 4x the shipped ant is *richer* than
+before, and a richer floor is §13i's sit-still attractor. Specialising is
+what pays now — a gut at −1.0 draws 480 from a leaf against the shipped
+ant's 120.
+
+**What this resolves for §2.5's own measurement plan.** The two-humped
+survival curve this section asks for was unreachable at the old scale,
+because no gut off the axis ends could feed an animal at all; the falsifier
+note above blames carrion scarcity, and the first cause was upstream of it.
+At 4x the curve is measurable — which is what makes the sweep worth running
+when Lane A's instruments land.
 
 ### 2.6 S6 — Reproduction, inheritance, mutation
 
