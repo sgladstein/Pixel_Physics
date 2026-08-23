@@ -122,3 +122,97 @@ tree.ron, rebuild — the copied binary keeps its assets.
   numbers ~5%; the pre-merge baselines were discarded and re-measured
   rather than paired across trees. The same applies to any future
   mid-session landing on main.
+
+---
+
+# Successor session, 2026-08-23 ~19:30Z — read this before landing the branch
+
+## For whoever lands this: `main` is ALREADY merged in, up to `7cd1357`
+
+The coordinator's check-in (routine "WP-11: do not chase the M worldgen
+reds") says it will merge `main` as part of landing and asks the branch
+not to do it. That instruction arrived **after** this session had already
+merged, in commit `2aefd86`, and the merge was not tidiness — it was
+load-bearing for every number below. Landing should therefore expect a
+branch that already carries `main` to `7cd1357`, not one cut at
+`eda560d`. Nothing after `7cd1357` has been merged; `origin/main` is at
+`4018aee` and the remaining 28 commits are the coordinator's to bring in.
+
+**Why the merge could not wait.** `main` gained the §L rock-country fix
+(`2c651bb`) and PR #20's flora sowing (`03a1cf2`) after the predecessor's
+baselines were taken. Both change generated worlds. Every inherited
+number in the sections above is therefore a measurement of a world this
+tree no longer produces, and pairing across that boundary is the exact
+failure the predecessor recorded when PR #19 landed mid-session.
+
+## The finding that reordered part 1
+
+**The retune covers one of the four woody species the world now sows.**
+`worldgen/passes.rs`'s `WOODY` table sows creeper, shrub, conifer and
+tree, each into its own country; `flora_census -- frames=4000` reads all
+four established in **8 of 8 seeds** (established med: conifer 6,
+creeper 13, shrub 4, tree 17). The abscission cut landed on `tree.ron`
+alone, and `strings` on the built binary confirms it: the retuned
+binary still carries `shade_death: 0.003` for the other three.
+
+Measured, colony scene, wetland seed 0, 12,000 frames, one binary per
+arm, samples at 3,000/6,000/9,000/12,000:
+
+| arm | decay events | shed leaves | standing litter | living tissue |
+|---|---|---|---|---|
+| A — none (all four 0.003) | 5,061 | 6,314 | 1,248 | 28,776 |
+| B — landed (tree only) | 2,954 | 3,738 | 783 | 30,207 |
+| C — all four at 0.00075 | 1,532 | 1,913 | 381 | 33,425 |
+
+So the owner's lever, which measured **−72%** on the pre-merge world,
+measures **−42%** on this one, and roughly half the floor manufacture
+left after it comes from the three species it never reached. Card
+`20260823T191540041Z-cca566` (board `plants`) puts A/B/C to the owner
+with the counts in `meta`. **Arm C is not committed** — the three
+`.ron` edits were made, built, measured and reverted; the working tree
+is clean. If the verdict is C, the edit is one line per file at the
+second `Photosynthesize` site of `conifer`/`shrub`/`creeper`, and every
+sweep below must be re-run on it.
+
+`wiki/plants.md` claimed the slower fall world-wide; qualified in
+`41b292c` to say it is the tree's only. If C lands, that paragraph goes.
+
+## Instrument fix landed this session (`21d8c02`)
+
+`diet_separation` divided by `sep_n.max(1.0)`, so a run where the two
+cohorts were never alive in the same sample returned separation **0.0**
+— identically the value the both-at-0 null arm exists to produce, with
+`placed_a`/`placed_b` unable to tell them apart because both are counted
+at spawn and never fall. Part 3 gates the S5 separation criterion on that
+column. Now carries `samples` and prints `both-alive (min)`; a zero there
+says the mean beside it is not a separation. Print-and-field only, and
+confined to the diet path — `mode=economy` never reaches it.
+
+## Known instrument caveat, NOT fixed (deliberate)
+
+`corpse@end` in the survival sweep counts every corpse cell standing at
+the end, including ants that died during the run — so the litter-only
+control reads non-zero and the column overstates what it proves about
+seeding. It does not feed the survival curve or the control's shape, so
+it was left alone rather than thrashing four hours of in-flight sweeps
+for a diagnostic label. Read it as "meat present", never as "meat
+seeded"; the seeded counts are tracked separately (`litter_seeded` /
+`corpse_seeded`).
+
+## The two worldgen at-rest reds are not this branch's
+
+Verified here, not taken on faith: `tests/worldgen.rs` has **0**
+occurrences of `weather_override` on this branch and **3** on `main`;
+`git merge-base --is-ancestor 45ba304 origin/main` is YES, and against
+this branch's HEAD it is NO. They go green on the coordinator's merge.
+
+## Clone defect worth knowing
+
+This container's clone was made `--depth 1`, which left a fetch refspec
+of only `+refs/heads/main:refs/remotes/origin/main`. Plain `git fetch`
+therefore refreshed **no** branch's tracking ref but main's, so
+`origin/claude/wp11-economy-retune` sat frozen at the predecessor's
+`820fd18` while the real remote was hours ahead — which reads as "33
+unpushed commits" and, worse, silently feeds `branchcheck.sh` stale
+ahead/behind numbers. Repaired to `+refs/heads/*:refs/remotes/origin/*`.
+Check this on any fresh cloud clone before trusting `branchcheck.sh`.
