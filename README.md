@@ -1562,10 +1562,21 @@ the `G` selector and the continuous zoom (§9). The remaining tiers stay in
 
 ## Performance
 
-Measured by `cargo run --release --example ascii`, which reports the worst
-single frame of each scenario — now run through both drivers back to back
-for the stress scenes specifically so the gap is visible directly rather
-than compared against an old README number.
+Measured by `scripts/perf.sh`, which reports the worst single frame of each
+scenario beside its p99, median and frames-over-budget — run through both
+drivers back to back for the stress scenes specifically so the gap is
+visible directly rather than compared against an old README number.
+
+**A figure here is only meaningful if the run that produced it printed
+`TRUSTED`.** This machine is shared by several agent sessions and was
+sampled at 8% quiet; the worst frame on one scene varied 6x across
+back-to-back runs of a byte-identical binary while its median moved 30%.
+`cargo run --release --example ascii` still works and is what CI runs for
+behaviour, but it holds the timing lock across its own compile and measures
+the whole 143 s suite, which cannot fit in a quiet window — so prefer
+`scripts/perf.sh ascii scene=<substring>` when the question is milliseconds.
+The numbers below predate that discipline and are unverified against it;
+`Reports/measurement-under-contention.md` has the method.
 
 Ordinary scenes — a pile, a pour, a pool — cost well under 1 ms per frame, and
 a settled world costs nothing at all. Filling the sandbox's full 512×320 world

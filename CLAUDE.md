@@ -94,6 +94,10 @@ unless named otherwise):
 - Touching organism code → the structural-check amputation gotcha, *A
   traversal must use the same neighbourhood the writer used* (Gotchas),
   and *A channel that oscillates by design* (Method).
+- Measuring frame cost, or quoting a millisecond figure → *A timing
+  number is only as trustworthy as the box was quiet* (below) and
+  `Reports/measurement-under-contention.md`. Do not quote a number from
+  a run that did not print `TRUSTED`.
 - Proposing, building or retrying any mechanism → `Reports/dead-ends.md`
   first.
 
@@ -275,6 +279,17 @@ and the mechanisms that were wrong first are in
   is 7-11 s and fits a 40 s window; the 143 s suite never will, so a
   full-suite timing run is untrustworthy *structurally*, not by luck. Run the
   whole suite for the counter gates, where load is irrelevant.
+- **The knobs**, none of which are guessable from the outside:
+  `scripts/perf.sh ascii scene=<substring>` for one scene;
+  `filmstrip ... lock=1` when a filmstrip run *is* the measurement (off by
+  default, because all sixteen acceptance cases set `max_frame_ms` and
+  locking them would serialise the suite for bars that are contention-proof
+  already); `PIXEL_PHYSICS_PERF_WAIT=<seconds>` to change the 60 s wait
+  (`0` skips it, which is what CI does); `PIXEL_PHYSICS_NO_PERF_LOCK=1` to
+  bypass the lock entirely. Adding a *new* timed section? Use
+  `perf::FrameTimer` rather than a bare `Instant` — it reports worst beside
+  p99, median and frames over budget, which is the difference between a
+  number and a number you can act on.
 - **Re-run until it says `TRUSTED`, and quote nothing else.** Three attempts
   at one scene gave UNTRUSTED 45.868 ms worst, UNTRUSTED 38.532, TRUSTED
   7.624 -- medians 3.621 / 3.700 / 2.833. The worst frame moves 6x with
