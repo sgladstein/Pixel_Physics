@@ -6,7 +6,8 @@ over the source comments, the Reports, `README.md` and `PLAN.md` that
 record them; 549 after the plant-line merge of 2026-08-21 added five and
 its decay work added two more on 2026-08-22, and 563 after the gnome
 tree-interaction pass added a `character` section of twelve on 2026-08-23
-and the chest-rule fix added two more.
+and the chest-rule fix added two more; 565 after the physical-trees design
+session added the two measured sway rejections on 2026-08-23.
 Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
@@ -970,7 +971,7 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/weather.rs tests, guard doc above fn a_gust_disperses** - Measuring gust dispersal through summed pressure was tried three times and each measured something else (an unsupported slab falling ~16000 in both windy and calm runs, the world's construction transient, and a background relaxation an order of magnitude larger than the gust). Rejected for counting unconverged field tiles, the quantity field::step actually branches on.
   *Re-test when:* Holds while background pressure noise exists; summed pressure cannot distinguish 'never dispersed' from 'dispersed slowly' under it.
 
-## rendering  (29 entries)
+## rendering  (31 entries)
 
 - **PLAN.md Progress log, M6 entry; expanded in the overnight-run §11 dirty-rect-render entry ('Reframed to the CPU-side cost...')** - The originally planned GPU dirty-region texture upload is blocked by pixels 0.17.2's own architecture (it uploads the full texture regardless), and forking the dependency was rejected: the saved copy is ~655KB/frame (~39MB/s), nowhere near a bottleneck. The real win was the CPU-side per-chunk skip in Renderer::draw (6.6ms → 0.0ms worst frame on a settled scene).
   *Re-test when:* Tied to pixels 0.17.2's architecture; a different presentation crate or a version exposing partial uploads would reopen the question.
@@ -1030,6 +1031,10 @@ the "a revert keeps the knowledge" convention, given an address.
   *Re-test when:* Holds while out-of-sweep writes only ever set pending_dirty and promotion happens in end_sweep.
 - **src/sky.rs const SKY_QUANTUM (doc)** - Putting the moon into the sky's key-change redraw accounting was evaluated and rejected: a full redraw is 10.49 ms and the moon moves about a cell every three frames, so treating it as a colour change would repaint the whole screen several hundred times a night for a disc a few hundred pixels across. It moves on a dirty rectangle instead (current plus last-frame rect), the same trick as chunk bodies.
   *Re-test when:* Holds while a full redraw costs ~10 ms; the moon must stay out of the SKY_QUANTUM key-change count.
+- **`Reports/physical-trees-design-2026-08-23.md` §3.2; measured 2026-08-23** - **Continuous render-side tree sway** -- a per-column shear of the drawn position off the wind field, proposed as "zero physics, zero wake cost". The shear maths is free; the *repaint* is not, and it was the whole cost. Measured on a grown 8-tree stand (28,421 plant cells) at the shipped 512x320 viewport: repainting every chunk holding a plant cell, every frame, costs **7.997 ms mean / 9.302 ms worst**, against **0.012 ms** for the same stand settled with the dirty-rect skip working and **11.948 ms** for a full redraw. That is 2.3x the ~3.5 ms wind-revert-class kill bar `ascii` itself prints, on half a 60 Hz frame. Not an artifact of chunk granularity: per-tree bounding boxes come to **66.2%** of the screen against the 24 canopy chunks' 60.0%, because grown crowns interleave and their boxes overlap -- a multi-rect renderer would repaint *more*. And `render.rs` folds every rect into one union anyway. Cost is linear at ~76 ns/pixel and every arrangement lands on that line. Replaced by a discrete, gust-local lean (two repaints per gust of one ~78-cell band, ~0.11 ms/frame amortised).
+  *Re-test when:* The rejection depends on a grown canopy covering most of the viewport and on the renderer repainting by rect. A **cell-granular** repaint list (only the cells that moved, plus the cells they vacated) is the version that could scale -- bounded below by 2 x cells x 76 ns, so foliage-only over this stand is >=1.5 ms -- and no such render path exists today. Build that first, then re-price.
+- **`Reports/physical-trees-design-2026-08-23.md` §3.5; measured 2026-08-23** - **Sim-side tree sway** -- moving plant cells in the grid so the world, not just the renderer, sees a tree bend. Rejected on four independent counts: it wakes **24 of 40** chunks permanently on the measured stand, against a river-cost measurement putting 13 awake chunks at **+1.58 ms/frame standing** and a pre-registered 2.0 ms bar; it invalidates `plant::anchor_support` (a per-organism Dijkstra run once per `ORGANISM_TICK_INTERVAL`) every frame instead of every 45, over 28,421 cells; every geometry change raises support distances, which is exactly what `anchor_support` schedules structural checks on, and a structural check fired mid-organism is the amputation landmine (measured precedent: a stand 20,213 living cells -> 772 from one check); and nothing but the renderer reads a swaying tree's positions, so it buys nothing the render version does not.
+  *Re-test when:* Not a tuning question -- three of the four are architectural. Re-opens only if plant cells ever move in the CA sweep for some other reason, which `wood.ron`'s own doc says they deliberately do not.
 
 ## worldgen  (17 entries)
 

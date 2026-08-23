@@ -187,6 +187,22 @@ field rework — see `open-bugs-handoff.md`.
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
+- [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
+  **review + proposed queue.** The whole plant record read together after the
+  2026-08-22 merge and the "one big mass" verdict; revised same-day on the
+  owner's direction to lead with the evolution framework and root
+  differentiation; the stale-record list; the finding that worldgen sows only
+  `"tree"` and moss.
+- [plant-implementation-split-2026-08-23.md](plant-implementation-split-2026-08-23.md)
+  — **execution plan** for the review's queue: three parallel lanes (plant
+  core, structural verbs, world & species data), one session per package,
+  with paste-ready briefs; successor to `plant-work-split.md` in role.
+- [plant-morphology-reach-2026-08-23.md](plant-morphology-reach-2026-08-23.md)
+  — **design note, answering a direct owner question.** Can this substrate
+  reach a sunflower, a tomato, a climbing vine? Yes: the random walk is the
+  variation mechanism, not the ceiling — the four missing primitives are
+  organ cell types, determinate axes, rosettes/whorls, and a climbing
+  tropism with attachment as data. Three open owner calls in §7.
 
 ## Creatures and ecology
 
@@ -293,8 +309,17 @@ field rework — see `open-bugs-handoff.md`.
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
-- [felling-blockers.md](felling-blockers.md) — **investigation.** Why
-  cutting a tree down is not in yet.
+- [felling-blockers.md](felling-blockers.md) — **investigation; §1
+  superseded by the plant-line merge, §2 superseded by
+  `physical-trees-design-2026-08-23.md`.** Why cutting a tree down was not
+  in yet. §3's ordering still holds.
+- [physical-trees-design-2026-08-23.md](physical-trees-design-2026-08-23.md)
+  — **design, nothing built.** Sway, impact breakage and a tree that falls
+  over, from the owner's "it reads as a tree disintegrating into dust".
+  Carries the measurement that prices render-side sway at +8.0 ms/frame over
+  a grown stand, and the deleted prototype that takes a fell from 1.7% to
+  58% of the severed mass coming down as pieces. Supersedes
+  `felling-blockers.md` §2.
 
 ## Open working files
 

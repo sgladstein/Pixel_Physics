@@ -4866,6 +4866,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             "    body sizes: <8:{} 8-15:{} 16-31:{} 32-63:{} 64-127:{} 128-255:{} 256+:{}",
             sz[0], sz[1], sz[2], sz[3], sz[4], sz[5], sz[6]
         );
+        // The rotation fit probe, printed because it spent the whole life of
+        // the mechanism answering "clear" unconditionally and nothing on a
+        // contact sheet could show it (`open-bugs-handoff.md` bug K). A
+        // refusal count of zero on a scene with walls in it is the tell that
+        // it has gone vacuous again.
+        println!(
+            "    quarter turns: {} asked, {} refused by the fit probe ({}%)",
+            f.rotations_asked,
+            f.rotations_refused,
+            if f.rotations_asked == 0 { 0 } else { f.rotations_refused * 100 / f.rotations_asked }
+        );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
         // screen is boiled steam or painted smoke is a question the image
