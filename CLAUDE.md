@@ -247,6 +247,15 @@ ask, and it stands for every session in this repo. Nothing in the repo ever
 said otherwise, which is why sessions kept reporting they had been told not
 to: they were reading their own harness, not this file.
 
+**Spawned worker sessions run on Opus (`model: "claude-opus-5"` on the
+`create_session` call), never inherited from the coordinator. Owner cost
+policy, 2026-08-23.** The default inherits the calling session's model, and
+that default is the trap: a coordinator on a premium tier that omits the
+parameter fans its own price out to every worker. It happened the day this
+was written — three workers silently inherited the premium tier and ran
+$25–71 each inside ninety minutes before anyone looked. A coordinating
+session may itself be premium; the sessions it spawns may not.
+
 What it cost to leave unsaid, measured 2026-08-23: **133 CI runs, every one on
 `main` or `master`. Zero on any feature branch, zero from a `pull_request`
 event.** No PR ever existed, so the workflow's `pull_request` trigger never

@@ -6,10 +6,11 @@ file names — see `Reports/` for why any of it is built the way it is.*
 *Current as of: 2026-08-23. Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
-stopped all being made of the same stuff; and again when roots stopped
+stopped all being made of the same stuff; again when roots stopped
 destroying the water they did not drink and the forest floor stopped
-keeping rain off the ground under it. One plant-economy number is unsettled
-and its cause is still open — see `Reports/open-bugs-handoff.md`.*
+keeping rain off the ground under it; and again when worlds started arriving
+with four woody species in them instead of one. One plant-economy number is
+unsettled and its cause is still open — see `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -124,6 +125,24 @@ strongly they reach for light, how far apart their leaves sit, whether they
 fork repeatedly into a mound or hold a single leader. Each species has its own
 range of foliage and bark colours, so two species never draw the same colour
 however their individuals fall.
+
+**The four woody plants are points on a trade rather than four sizes of the
+same thing.** What a plant cannot spend on height it spends on leaf area at
+each node it does make, so the tallest of them — the conifer — carries the
+smallest, tightest sprays, and the ground-runner, which gets nowhere near
+knee height, carries the broadest leaf clusters of any of them. In between,
+a tree makes larger clusters than a conifer and a shrub larger still. That
+is the quickest way to tell two of them apart at a distance when the
+silhouettes are both just "green mass": count how coarse the foliage is.
+
+Where each one grows is decided by the ground — trees in damp deep soil,
+conifers on the high ground, shrubs on the dry margin, creepers on a skin of
+soil over rock. `wiki/the-world.md` has that half.
+
+**Grass does not come with a new world yet**, though you can plant it. It
+has no way to die of anything, and a world that seeded it would accumulate
+grass that can never be cleared — so it waits on that rather than on
+anything about how worlds are made.
 
 Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be

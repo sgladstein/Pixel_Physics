@@ -1254,6 +1254,7 @@ fn build(args: &Args) -> World {
                 species: args.species.clone(),
                 trees: plants,
                 soil_moisture: args.soil_moisture,
+                soil_depth: args.soil_depth,
                 start_frame: args.frame0,
                 ..base
             }
@@ -2051,6 +2052,22 @@ struct Args {
     /// scale. Field capacity by default; below `SOIL_WILTING_POINT` gives
     /// the dormancy arm, where seeds wait rather than germinate.
     soil_moisture: u16,
+    /// `soil=N` -- how many rows of soil `scene=grove` beds the stand in,
+    /// defaulting to `common::SOIL_DEPTH` (34).
+    ///
+    /// **`plant_probe` has had this knob all along and this file did not**,
+    /// so a root comparison took its numbers at one depth and its picture at
+    /// another. That gap produced a wrong published claim: at 34 rows the
+    /// deep-rooting treatment's deepest individual measured exactly 34 --
+    /// it was standing on the floor of the scene -- and its depth histogram,
+    /// which is normalised to the soil column, read as bottom-heavy for that
+    /// reason alone. Given 100 rows the same treatment reads shallow. The
+    /// owner saw it before the harness did: *"Have you provided enough soil
+    /// under the plant to really test differences."*
+    ///
+    /// `ground_y` is 200 in a 320-row world, so roughly 110 rows are
+    /// available before the bed runs out of world.
+    soil_depth: i32,
     /// `frame0=N` -- the frame the world starts on, which pins the weather
     /// (`weather::at` is pure in seed and frame). Prefer multiples of 3600:
     /// that pins the day phase, the sky and every organism's tick offset at
@@ -2578,6 +2595,7 @@ fn parse() -> Args {
         frame0: 0,
         // 0 means "leave `PlantScene`'s own default alone".
         plants: 0,
+        soil_depth: common::SOIL_DEPTH,
         ignitions: Vec::new(),
         preset: String::new(),
         start: 100,
@@ -2659,6 +2677,7 @@ fn parse() -> Args {
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
             "plants" => a.plants = v.parse().expect("plants"),
+            "soil" => a.soil_depth = v.parse().expect("soil=ROWS"),
             "ignite" => {
                 let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
                 assert_eq!(n.len(), 4, "ignite=x,y,radius,frame");

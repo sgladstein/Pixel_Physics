@@ -1259,6 +1259,29 @@ the field-stress scene at **14.435 ms**. The within-session worst-frame
 spread is visible even in two back-to-back runs (55.6 against 60.0), which is
 why only the mean is quoted.
 
+**Re-run after the §L fix (2026-08-23, same day, cloud container), because
+the table above was re-baselined on the sessile world** — the world-scale
+merge had deleted the residual towers from the foraging scene's home range
+(`open-bugs-handoff.md` §L, closed) and these guards were measured against
+that world. Recorded, not tuned:
+
+| Guard | On the sessile world (above) | With the §L fix |
+|---|---|---|
+| Foraging pays | +0.460 / +0.479 | **+0.474 / +0.466** |
+| Ants fed | 0.73 / 0.78 | **0.75 / 0.75** |
+| Frame cost (colony mean) | 3.929 / 3.908 ms | **3.488 / 3.491 ms** (worst 40.8 / 55.1; proxies parallel-stress 15.9 ms, field-stress 18.3 ms vs 14.1 / 14.4 above — a slower machine reading a cheaper scene) |
+| Determinism | identical | **identical** (two full 31-scene runs, timing lines aside) |
+| Reference genomes | 0.709 / 0.298 | **0.690 / 0.297** |
+
+Every delta sits inside the seed-scale spread (outcome sd here is ~0.1; the
+`zero` control is stable to the third digit), so the guards did not move
+with the world in the way the fed-fraction jump above did — which is itself
+worth knowing: the sessile world and the restored world feed a
+`creature_space` colony about equally, because that harness's own scene
+never lost its terrain. The two-instruments-one-story paragraph above stays
+true, but its `ascii`-side witness is now the *closed* §L rather than a
+live red.
+
 **Not re-derived here, deliberately:** the scarcity band. WP-4's step 4 —
 the target is a game-feel call (§2.4's third coupled call) and is on the
 owner's queue as card `20260823T091259637Z-9a41e4`. Measuring the current
