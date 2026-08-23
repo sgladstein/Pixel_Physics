@@ -439,14 +439,35 @@ fn main() {
         let x0 = if dir > 0 { rim + 1 } else { rim - span };
         let outlet = (x0.clamp(0, WORLD_WIDTH as i32 - span), heights[rim as usize]);
         assert!(world.add_spring(outlet.0, outlet.1, span));
-        // Drains match the flow, one per emission column, across the
-        // world's lowest floor — the basin the fall ultimately feeds.
-        let low = (0..WORLD_WIDTH as i32).max_by_key(|&x| heights[x as usize]).unwrap_or(0);
-        for d in 0..span {
-            let dx = (low + d - span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
-            world.add_drain(dx, heights[dx as usize] - 1);
+        // **The sink goes in the plunge pool, and this used to send it to the
+        // world's lowest column.** That is a global read on an 8192-wide
+        // world: the `springs` pass's own doc records the same mistake
+        // landing a drain 2030 columns from the outlet and draining nothing
+        // in 1400 frames. It matters here specifically because
+        // `spring::MAX_TOTAL_SPAN`'s doc names *this* harness as the
+        // instrument for re-pricing the flow budget as spans grow -- so the
+        // thing used to price a wider waterfall was measuring a filling bath.
+        //
+        // One rule, shared with the pass: `passes::spring_drains`.
+        let ex = (rim + dir).clamp(0, WORLD_WIDTH as i32 - 1);
+        let drains = pixel_physics::worldgen::passes::spring_drains(
+            &world,
+            ex,
+            dir,
+            span,
+            WORLD_WIDTH as i32,
+            WORLD_HEIGHT as i32,
+        );
+        let at: Vec<i32> = drains.iter().map(|&(x, _)| x).collect();
+        for (dx, dy) in drains {
+            world.add_drain(dx, dy);
         }
-        println!("spring span {span} at ({}, {}) over a {drop}-cell drop; {span} drains around x={low}", outlet.0, outlet.1);
+        println!(
+            "spring span {span} at ({}, {}) over a {drop}-cell drop; {} drains at columns {at:?}",
+            outlet.0,
+            outlet.1,
+            at.len()
+        );
     }
 
     // Let it settle before looking. Generated terrain is meant to be at rest

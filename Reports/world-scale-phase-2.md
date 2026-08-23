@@ -354,6 +354,20 @@ it is the number a session working on frame cost should start from, and the
 scene now runs at the shipped size automatically because it takes
 `app::WORLD_WIDTH`.
 
+> **Superseded 2026-08-23, and the scene was measuring the wrong thing.**
+> That scene drained at the *world's* lowest column -- 2030 columns from its
+> own outlet at the shipped size -- so it reported `drained 0` and every one
+> of 2,000,000 emitted fill units was still standing at the end. A bath
+> filling for 1400 frames is not the steady state the paragraph above claims.
+> Its "spring OFF" control also silently contained a live spring, because the
+> `springs` worldgen pass landed after the scene was written and `canyon`
+> ships `spring_flow: 5.0`. Both faults pushed the same way. Re-measured on
+> one machine in one session with both fixed: **3.025 ms/frame** (off 8.921,
+> on 11.945, control now 0 awake chunks). Still past the 2.0 ms bar, still
+> inside the ~3.5 ms wind-revert class. The 5.43 and 1.37 figures were taken
+> on a different machine from a broken scene and should not be quoted again;
+> `Reports/springs-in-generated-worlds.md` carries the full correction.
+
 **The load and fracture model is untouched, and that is measured rather
 than asserted.** `scripts/seedsweep.sh` -- the order-statistic sweep over
 `worldcrack` at 512x320, six presets x four seeds -- came back

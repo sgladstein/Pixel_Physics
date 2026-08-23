@@ -3041,7 +3041,7 @@ const SPRING_SOURCE_LIFT: i32 = 8;
 /// fill and `ponds` already refuses pools too shallow to read as water at
 /// all, so a plunge pool that is technically present and two cells deep buys
 /// nothing the owner asked for.
-const SPRING_POOL_DEPTH: i32 = 10;
+pub const SPRING_POOL_DEPTH: i32 = 10;
 
 /// How far a spring stays clear of either world edge.
 const SPRING_EDGE_MARGIN: i32 = 64;

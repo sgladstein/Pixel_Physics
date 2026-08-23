@@ -41,6 +41,69 @@ lost field early-out and independent of size. All of it was noise: at
 arms. The purpose-built scene runs 1400 frames and reports 0 awake chunks
 with the spring off, which is what says the early-out is not the story.
 
+**Correction, 2026-08-23: this pass invalidated that measurement, and then
+the harness stopped saying so.** Two faults, found together.
+
+*The control arm stopped being a control.* `canyon` ships `spring_flow: 5.0`,
+so once **this** pass landed, the world the river-cost scene builds contains a
+generated spring — running in the "spring OFF" arm too. Re-measured, the
+control reported **`awake chunks max 2`**, not the 0 the paragraph above rests
+on, and the pass's water surfaced in the ledger as `unaccounted -369347` on
+2,000,000 emitted: 18%, against the harness's own printed criterion that a
+large residual means it is lying. A pass invalidating its own baseline is
+exactly the shape of thing that goes unnoticed, because both arms move
+together and the *difference* still looks plausible. The scene now builds both
+arms with `spring_flow: 0.0` and the control is back to **0 awake chunks**.
+
+*And the scene still drained at the world's lowest column.* The paragraph
+below — "The drain has to be in the plunge pool, and there has to be more than
+one" — names this scene, by number, as the case that proves it, and then only
+the worldgen pass was fixed. Measured at the shipped size: drain in column
+6531 against an outlet at 4501, **2030 columns away, `drained 0` after 1400
+frames**, every one of 2,000,000 emitted fill units still standing. So the
+"standing bill" it printed was a *filling bath*, not a steady state.
+`viewshot`'s `spring=` branch had the identical global read, which matters
+because `spring::MAX_TOTAL_SPAN`'s doc names that harness as the instrument
+for re-pricing the flow budget as spans grow — the tool for pricing a wider
+waterfall was measuring a bath too.
+
+The rule now lives once, in `passes::spring_drains`, and all three callers use
+it. The harness's hand-rolled drain also took the topmost water in a 60-row
+window *up from the basin floor*, which is the construction this pass
+explicitly rejected — it takes water as fast as it lands, so no pool ever
+stands. It drains the drain cell only, like `spring::step`.
+
+**Re-measured, same session, same machine, at the shipped 8192x2560:**
+
+| | before | after |
+|---|---|---|
+| drain distance from outlet | 2030 columns | **8** |
+| `drained` of 2,000,000 emitted | **0** | 919,176 |
+| unaccounted | −369,347 (−18%) | +115,808 (+5.8%) |
+| awake chunks, **control** arm | 2 of 5120 | **0** |
+| mean, spring off | — | 8.921 ms |
+| mean, spring on | — | 11.945 ms |
+| **standing bill** | 1.734 ms/frame | **3.025 ms/frame** |
+
+**The bill is nearly double what the scene used to report, and that is the
+point of fixing it.** Both faults pushed the same way: a bath that never
+drains stops costing anything once the pool stops spreading, and a control
+with a live spring in it already carries part of the cost being subtracted.
+At **3.025 ms/frame** a single spring is past the pre-registered 2.0 ms bar
+and inside the ~3.5 ms wind-revert class — the number this scene exists to
+gate, so it should be read before any change widens a fall or adds one. The
+1.734 ms figure should not be quoted again.
+
+The residual sign flipped, which is the useful tell: **negative** before
+(more water in the world than the harness emitted — the pass's own spring),
+**positive** now (water leaving to evaporation and infiltration, the two
+sinks the harness's message already names). At 512x320 it was positive both
+times, ~374k, which is that same legitimate loss and not this bug.
+
+Steady state is reached partway through rather than at frame 0: the pool has
+to fill to the drain's height before anything leaves, so `standing delta`
+965,016 is the standing pool, not a leak.
+
 ## Placement: three models, two of them wrong
 
 The pass reuses `passes::cliff_edges`, the same candidate data `brows` and

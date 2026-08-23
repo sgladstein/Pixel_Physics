@@ -1003,7 +1003,24 @@ fn river_cost_scene(w: i32, h: i32) {
         println!("no canyon preset; skipping river-cost scene");
         return;
     };
-    let spec = || pixel_physics::worldgen::Spec::Generated { params, seed: 1 };
+    // **The worldgen `springs` pass is switched off for this scene, in BOTH
+    // arms.** It landed after this scene was written and `canyon` ships
+    // `spring_flow: 5.0`, so the "spring OFF" control silently contained a
+    // live spring: measured `awake chunks max 2` where
+    // `Reports/springs-in-generated-worlds.md` rests the whole standing-bill
+    // measurement on *"0 awake chunks with the spring off, which is what says
+    // the early-out is not the story"*. Its water also showed up as
+    // `unaccounted -369347` on 2,000,000 emitted -- 18%, against the
+    // harness's own printed criterion that a large residual means it is
+    // lying. A pass invalidating its own baseline is exactly the shape of
+    // thing that goes unnoticed, because both arms move together and the
+    // *difference* still looks plausible.
+    //
+    // The scene prices ONE hand-placed spring, which is what it was built to
+    // do; the generated pass's own cost is a different question and wants its
+    // own scene.
+    let dry = pixel_physics::worldgen::WorldgenParams { spring_flow: 0.0, ..params.clone() };
+    let spec = || pixel_physics::worldgen::Spec::Generated { params: &dry, seed: 1 };
     const SETTLE_FRAMES: usize = 600;
     const MEASURE_FRAMES: usize = 1400;
 
@@ -1041,11 +1058,25 @@ fn river_cost_scene(w: i32, h: i32) {
     }
     let sx = if best_drop > 0 { spring_edge as i32 } else { spring_edge as i32 + 8 };
     let sy = surf[sx as usize] - 1;
-    let dx = (0..w).max_by_key(|&x| surf[x as usize]).expect("world has columns");
+    // **The drain goes in the plunge pool, not at the world's lowest column.**
+    // That global read is what this scene had, and at the shipped size it put
+    // the sink 2030 columns from the outlet: `drained 0` after 1400 frames,
+    // with `emitted 2000000` still standing in the world. The scene's whole
+    // claim is a *standing* frame cost at steady state, and a bath filling
+    // for 1400 frames is not a steady state -- so the number it printed was
+    // measuring the wrong thing entirely.
+    //
+    // `springs-in-generated-worlds.md` documents this exact failure in this
+    // exact scene and fixed only the worldgen pass. One rule now, shared:
+    // `passes::spring_drains`.
+    let dir = if best_drop > 0 { 1 } else { -1 };
+    let drains = pixel_physics::worldgen::passes::spring_drains(&probe, sx + dir, dir, 1, w, h);
+    let dx = drains.first().map_or(sx, |&(x, _)| x);
+    let dy = drains.first().map_or(surf[sx as usize] - 1, |&(_, y)| y);
     println!(
-        "spring at ({sx}, {sy}) over a {}-cell drop; drain in column {dx} (floor y {})",
+        "spring at ({sx}, {sy}) over a {}-cell drop; drain at ({dx}, {dy}), {} columns away",
         best_drop.abs(),
-        surf[dx as usize],
+        (dx - sx).abs(),
     );
 
     let run = |spring: bool| {
@@ -1070,16 +1101,24 @@ fn river_cost_scene(w: i32, h: i32) {
                     world.set(sx, sy, Cell::new(material::WATER, 0));
                     emitted += material::LIQUID_FULL as u64;
                 }
-                // Drain: the topmost water standing in the drain column,
-                // capped at one cell per frame — the spring's exact inverse.
-                let floor = surf[dx as usize];
-                for y in (floor - 60).max(0)..=floor.min(h - 1) {
-                    let c = world.get(dx, y);
-                    if c.material == material::WATER {
-                        drained += update::liquid_fill(c) as u64;
-                        world.set(dx, y, Cell::EMPTY);
-                        break;
-                    }
+                // Drain: **the drain cell itself, and only it** — one cell
+                // per frame, the spring's exact inverse. This scanned a
+                // 60-row window up from the basin floor and took the topmost
+                // water in it, which drains from the floor *up* and is the
+                // construction the pass explicitly rejected: it takes the
+                // water as fast as it lands, so nothing ever stands at the
+                // bottom and there is no pool. `spring::step` takes only from
+                // a drain cell that currently holds a liquid, so a drain
+                // above the waterline is inert — nothing leaves until the
+                // pool has risen to it, and then throughput passes through
+                // and the pool settles *at the drain's height*. That is what
+                // makes this a river rather than a rising bath, and it is
+                // the whole reason `spring_drains` seats the sink
+                // `SPRING_POOL_DEPTH` above the floor rather than on it.
+                let c = world.get(dx, dy);
+                if c.material == material::WATER {
+                    drained += update::liquid_fill(c) as u64;
+                    world.set(dx, dy, Cell::EMPTY);
                 }
             }
             let dt = started.elapsed();
