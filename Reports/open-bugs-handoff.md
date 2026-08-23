@@ -2559,7 +2559,7 @@ branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
 
-### I. The disturbance-extent guard inverts once rubble stops anchoring — **OPEN, caused by the merge, 2026-08-23**
+### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
 was green on the explosion branch at `5f72fe2` and fails on the merge:
@@ -2594,13 +2594,35 @@ has already collapsed and settled — and a **cumulative** cell count then
 reads the throttled arm as the more damaged one. Once rubble stopped
 anchoring, there is simply much more to cascade through.
 
-**Third time on this branch that a count has caught a mode shift rather than
-a behaviour change** — see §17g's `roomcut` and case 6's `strike`. Left
-red and recorded rather than re-barred: choosing what this guard should
-measure instead (failures *inside* the wound radius; a settled rather than
-cumulative figure; or a shorter window justified on its own terms) is a
-decision about this branch's guard interacting with `main`'s landed load
-model, and it wants the owner rather than whoever is merging.
+**Fourth time a count has caught a mode shift rather than a behaviour
+change** — see §17g's `roomcut` and case 6's `strike`.
+
+**Fixed by owner decision: the guard now compares `promoted_cells`** — rock
+lifted out of the grid as a moving body — instead of summing the failure
+counters. Three candidates were measured before choosing, which is the only
+reason the obvious one was not taken:
+
+| quantity | wound | point | ordering |
+|---|---|---|---|
+| region sum (was) | 1022 | 1586 | inverted |
+| **promoted cells (now)** | **840** | **649** | wound +29% |
+| stone destroyed | 657 | 648 | wound +1.4% |
+
+Stone destroyed is the intuitive census and orders *correctly* — and is
+rejected anyway, on headroom: a bar is set from measurement with room, not
+sitting on it. Shortening the run was rejected on principle rather than on
+numbers: it passes at 100 and 200 frames, but `CHAIN_WINDOW_FRAMES` is 600,
+so the licence is live for the entire run and stopping early would be tuning
+to green rather than measuring anything.
+
+**Red-checked**, because a guard that cannot fail for the replacement is
+worth nothing (`CLAUDE.md`: a superseded mechanism's tests keep passing
+while testing nothing). Flattening *both* arms to a point licence makes the
+extent buy nothing by construction, and the guard fails there as it must —
+649 against 649. Restored, it passes.
+
+`grain_is_footing` itself is untouched and was never at fault; the ablation
+that named it only established which landed change exposed the bad measure.
 
 ## Closed this session
 

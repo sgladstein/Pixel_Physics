@@ -1579,9 +1579,13 @@ reads a green tick.
   gnome down); `main` produces the same 98 cells travelled from the same
   position in a world of the same 43,249 cells.
 - `a_disturbance_extent_licenses_the_wound_but_not_the_chain` — **the one
-  the merge caused.** Isolated to `grain_is_footing` by ablation and bounded
-  by a frame sweep; the mechanism works and the cumulative measure is what
-  inverts. Bug I, left red rather than re-barred.
+  the merge caused, and now fixed.** Isolated to `grain_is_footing` by
+  ablation and bounded by a frame sweep; the mechanism works and the
+  cumulative measure is what inverts. The guard now compares `promoted_cells`
+  (840 against 649, a 29% margin) rather than summing the failure counters,
+  and is red-checked by flattening both arms. Bug I, closed. Note the
+  intuitive census — stone destroyed — orders correctly at 657 against 648
+  and was rejected anyway, on headroom.
 
 **That the two inherited scene failures reproduce `main`'s numbers to the
 cell is also the strongest evidence available that these resolutions did not
