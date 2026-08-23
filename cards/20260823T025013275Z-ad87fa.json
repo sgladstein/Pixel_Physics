@@ -1,0 +1,52 @@
+{
+  "id": "20260823T025013275Z-ad87fa",
+  "created": "2026-08-23T02:50:13Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/rigid-probe-bugs-jk",
+    "commit": "5cd8740",
+    "agent": null,
+    "session_id": "1d01bf95-e438-56e2-8394-8af2381c3f84",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rock falling into lava: does the turned piece settle or stick?",
+  "question": "In the last tile, one pane has a dark clump resting at the lava/water boundary that the other does not. Does that read as a piece correctly settling on the lava, or as a piece stuck where it should have tumbled free?",
+  "context_md": "Fixing `open-bugs-handoff.md` bug K. The rotation-fit probe was **vacuous**: it handed each cell its own position, so it always answered \"clear\" and a body rotated a quarter turn *unconditionally* — including straight through a wall it was wedged against. Present in both parents of the water merge, and invisible, because a probe that always says \"clear\" looks exactly like one that works.\n\nThe fix makes a body refuse the turn when the turned shape would land in rock.\n\n**What I already measured, so you don't have to:** 17 of 21 acceptance cases have *identical* peak body counts. No new test or acceptance failures. No frame cost — apparent timing swings were machine noise, proved by zero-body cases moving as much as body cases.\n\n**What I am unsure of, and why I am asking:** the fix makes bodies rotate *less*, so a piece could now be stuck in a pose it would previously have turned out of. The clump at the lava line is the one visible difference and I cannot tell from a still whether it is right.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — probe vacuous, always turns",
+      "files": [
+        "20260823T025013275Z-ad87fa/000-lavadrop_BEFORE.png"
+      ],
+      "caption": "bodies rotate unconditionally",
+      "meta": {
+        "peak chunk bodies": 16,
+        "run": "single, identical invocation"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — turn refused when it would land in rock",
+      "files": [
+        "20260823T025013275Z-ad87fa/001-lavadrop_AFTER.png"
+      ],
+      "caption": "wedged bodies keep their orientation",
+      "meta": {
+        "peak chunk bodies": 14,
+        "run": "single, identical invocation"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
