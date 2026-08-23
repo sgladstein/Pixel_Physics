@@ -1550,6 +1550,11 @@ pub struct Renderer {
     /// raw skyline, because the air in a narrow notch genuinely *is* open
     /// sky even though the rock beside it should not light up.
     light_datum: Vec<i32>,
+    /// `World::ground_datum` copied per frame beside `horizon` — the top of
+    /// the *ground*, which is not the same as the topmost solid the moment a
+    /// cliff brow is involved. `light_datum` is built from this; `horizon`
+    /// still answers "is there anything above me".
+    ground_datum: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
     /// `World::underground_map`, copied per frame beside `horizon` and for
@@ -1656,6 +1661,7 @@ impl Renderer {
             },
             last_moon_rect: None,
             horizon: Vec::new(),
+            ground_datum: Vec::new(),
             light_datum: Vec::new(),
             horizon_origin: 0,
             underground: Vec::new(),
@@ -2783,6 +2789,8 @@ impl Renderer {
         if !world.sky_surface().is_empty() {
             self.horizon.clear();
             self.horizon.extend_from_slice(world.sky_surface());
+            self.ground_datum.clear();
+            self.ground_datum.extend_from_slice(world.ground_datum());
             self.horizon_origin = b.min_x;
             self.rebuild_light_datum();
             return;
@@ -2811,6 +2819,8 @@ impl Renderer {
                     .unwrap_or(i32::MAX)
             })
             .collect();
+        self.ground_datum.clear();
+        self.ground_datum.extend_from_slice(world.ground_datum());
         self.horizon_origin = b.min_x;
         self.rebuild_light_datum();
     }
@@ -3089,7 +3099,15 @@ impl Renderer {
     /// never held ground (`i32::MAX`) stay `MAX` in the datum, so they keep
     /// reading as bottomless sky rather than borrowing a neighbour's depth.
     fn rebuild_light_datum(&mut self) {
-        let n = self.horizon.len();
+        // **Built from the ground datum, not the skyline.** They differ only
+        // where something solid stands over open air, and there the skyline
+        // is the *brow* -- which handed its whole column, all the way to
+        // bedrock, the brow's height as depth and drew a vertical tone seam
+        // for it (`World::ground_datum`). Falls back to the skyline when the
+        // world has no datum, which is a world nothing has ever stepped.
+        let source: &[i32] = if self.ground_datum.len() == self.horizon.len() { &self.ground_datum } else { &self.horizon };
+        let source = source.to_vec();
+        let n = source.len();
         self.light_datum.clear();
         self.light_datum.resize(n, i32::MAX);
         if n == 0 {
@@ -3098,7 +3116,7 @@ impl Renderer {
         let r = DEPTH_LIGHT_SHOULDER_REACH;
         // Erode: highest ground (smallest y) in each window.
         let eroded: Vec<i32> = (0..n)
-            .map(|i| (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| self.horizon[j]).min().unwrap_or(i32::MAX))
+            .map(|i| (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| source[j]).min().unwrap_or(i32::MAX))
             .collect();
         // Dilate back: lowest of the eroded values in each window. Together
         // the two passes are an opening, `datum[i] <= horizon[i]` always —
@@ -3106,11 +3124,11 @@ impl Renderer {
         // sinks it, so no column can get brighter than the raw skyline gave
         // it.
         for (i, slot) in self.light_datum.iter_mut().enumerate() {
-            if self.horizon[i] == i32::MAX {
+            if source[i] == i32::MAX {
                 continue;
             }
             let d = (i.saturating_sub(r)..=(i + r).min(n - 1)).map(|j| eroded[j]).max().unwrap_or(i32::MAX);
-            *slot = d.min(self.horizon[i]);
+            *slot = d.min(source[i]);
         }
     }
 
@@ -4557,6 +4575,80 @@ mod tests {
         assert!(pit_rim > 0.3, "the rim of a 40-wide open pit must be lit: {pit_rim}");
         assert!(pit_floor < pit_rim, "the pit must be a gradient, not a flat fill: rim {pit_rim}, floor {pit_floor}");
         assert!(chamber < 0.05, "a sealed chamber must stay dark: {chamber}");
+    }
+
+    /// A cliff brow must not shade the rock in its own column, all the way
+    /// down to bedrock.
+    ///
+    /// The terrain grade takes its depth from `light_datum`, and that used to
+    /// be built from the *skyline* — the topmost solid in the column. A brow
+    /// is solid, so it set that entry, and every cell beneath it was graded
+    /// as if buried under the brow's height. Measured on real worlds that was
+    /// a **straight vertical tone seam one to ten columns wide running from
+    /// the surface to the bottom of the world**: 2,990 cells at x 332..337 on
+    /// seed 5, a single 494-cell column on seed 7
+    /// (`Reports/dark-bands-diagnosis.md`).
+    ///
+    /// **Asserted as a paired comparison**, against rock at the same depth in
+    /// a plain column of the same world. An absolute brightness bar would be
+    /// a number pulled out of the palette; the claim is that these two agree,
+    /// and the pairing cancels the grain, the sky and the material — which is
+    /// also what caught the world-edge leak when its absolute threshold did
+    /// not.
+    #[test]
+    fn a_cliff_brow_does_not_shade_the_rock_beneath_it_to_bedrock() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 100..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A cliff, and a brow reaching thirty columns out over open air.
+        for x in 0..40 {
+            for y in 40..100 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 40..70 {
+            for y in 40..46 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+        r.sky = crate::sky::Sky::at(600, 0, 199, 0, 199);
+
+        // Averaged over a band rather than sampled at a point: the grain is
+        // position-keyed, so one cell against one cell measures the jitter as
+        // much as the grade.
+        //
+        // **Sampled just under the surface, and that is not arbitrary.** The
+        // ramp is a smoothstep, flat at both ends, so two depths that differ
+        // by sixty rows down near the floor differ by ~3% of brightness and
+        // a guard placed there barely twitches — the first version of this
+        // test sampled y 150..160, measured 241 against 248, and passed
+        // happily with the bug in place. Ten rows down the same sixty-row
+        // error is ~36%. The artifact is loudest where the ramp is steep,
+        // which is exactly where a player stands.
+        let band = |x0: i32| {
+            let mut total = 0i64;
+            for x in x0..x0 + 6 {
+                for y in 105..115 {
+                    let c = r.cell_colour(&world, x, y);
+                    total += c[0] as i64 + c[1] as i64 + c[2] as i64;
+                }
+            }
+            total / 60
+        };
+        let under_brow = band(52);
+        let plain = band(120);
+        assert!(
+            (under_brow - plain).abs() * 20 < plain,
+            "rock ten rows under a cliff brow ({under_brow}) is shaded differently from rock at the same depth in a \
+             plain column ({plain}) — the brow is setting the depth datum for its whole column"
+        );
     }
 
     /// Daylight must not come in **around the side of the world**.

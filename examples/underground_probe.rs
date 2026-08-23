@@ -171,29 +171,48 @@ fn main() {
 /// flagged. Only air the sky can actually reach shortens the true depth.
 fn overdark_report(world: &World) {
     let Some(b) = world.bounds() else { return };
-    let surface = world.sky_surface();
+    // **What this measures, and what it deliberately does not.**
+    //
+    // The obvious metric — grade depth against the true walk-up depth — is
+    // now a *tautology*. `ground_datum` is defined as the top of the lowest
+    // run of cells the sky cannot reach, so for any cell in that run the two
+    // quantities are the same arithmetic and the answer is exactly zero
+    // whatever the code does. Measured that way it reported 0 on every seed,
+    // which reads as a triumph and is worth nothing (`CLAUDE.md`: a change
+    // that moves *nothing* is different evidence, and an exactly-zero delta
+    // means suspect the condition is degenerate).
+    //
+    // So this reports the **size of the correction** instead: how far the
+    // datum the grade reads moved when it stopped being the skyline. Same
+    // numbers the artifact used to be reported at, now describing what was
+    // fixed rather than what is wrong — and non-zero for a real reason, so a
+    // regression that quietly reverted the datum would show up as a return
+    // to zero.
+    let skyline = world.sky_surface();
+    let ground = world.ground_datum();
+    let corrected = ground.len() == skyline.len();
     let mut buckets = [0usize; 3];
     let mut worst = (0i32, 0i32, 0i32);
     let mut visible: Vec<(i32, i32)> = Vec::new();
     let mut flagged = vec![false; (b.width() * b.height()) as usize];
     for x in b.min_x..=b.max_x {
-        let Some(&ground) = surface.get((x - b.min_x) as usize) else { continue };
-        if ground == i32::MAX {
+        let i = (x - b.min_x) as usize;
+        let Some(&sky) = skyline.get(i) else { continue };
+        if sky == i32::MAX {
             continue;
         }
-        for y in ground..=b.max_y {
+        let datum = if corrected { ground[i] } else { sky };
+        if datum == i32::MAX {
+            continue;
+        }
+        for y in datum..=b.max_y {
             if matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Empty | MaterialKind::Gas) {
                 continue;
             }
-            let graded = y - ground;
-            // Walk up to the first cell the sky can reach.
-            let mut d = 0;
-            let mut yy = y - 1;
-            while yy >= b.min_y && !world.is_outdoors(x, yy) {
-                d += 1;
-                yy -= 1;
-            }
-            let over = graded - d;
+            // How much shallower this cell now reads: the old grade measured
+            // it from the skyline, the new one from the top of its own
+            // ground, and a brow is the whole of the difference.
+            let over = datum - sky;
             if over >= 8 {
                 buckets[0] += 1;
             }
@@ -211,8 +230,14 @@ fn overdark_report(world: &World) {
         }
     }
     println!(
-        "  over-darkened rock (overhang residual): {} cells by >=8 rows, {} by >=24, {} by >=64 (the whole ramp); worst {} rows at ({}, {})",
-        buckets[0], buckets[1], buckets[2], worst.0, worst.1, worst.2
+        "  datum correction (rock the brow fix un-darkens): {} cells by >=8 rows, {} by >=24 (visible), {} by >=64; largest {} rows at ({}, {}){}",
+        buckets[0],
+        buckets[1],
+        buckets[2],
+        worst.0,
+        worst.1,
+        worst.2,
+        if corrected { "" } else { "  <-- no ground datum; measuring the skyline against itself" }
     );
 
     // **Where the *visible* ones are.** The >=8 bucket is ~1.6% of brightness
@@ -253,7 +278,7 @@ fn overdark_report(world: &World) {
     }
     clusters.sort_unstable_by(|a, c| c.0.cmp(&a.0));
     for (n, (cells, x0, y0, x1, y1)) in clusters.iter().take(3).enumerate() {
-        println!("    visible patch #{}: {cells:>5} cells at x {x0}..{x1}, y {y0}..{y1}", n + 1);
+        println!("    corrected patch #{}: {cells:>5} cells at x {x0}..{x1}, y {y0}..{y1}", n + 1);
     }
 }
 

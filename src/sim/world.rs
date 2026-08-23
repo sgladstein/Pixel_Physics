@@ -326,6 +326,30 @@ pub struct World {
     /// build once against worldgen's own ~325 ms. M10's streaming will want
     /// it per chunk alongside everything else sized to a resident world.
     underground: Vec<u64>,
+    /// **The top of the ground, asked so that a cliff brow is not mistaken
+    /// for it.** One entry per column from `bounds.min_x`, `i32::MAX` for a
+    /// column that holds no ground at all — same shape and same convention
+    /// as `sky_surface`, and it exists because that array answers a subtly
+    /// different question than the terrain shading needs.
+    ///
+    /// `sky_surface` is the *topmost* ground in the column, which is right
+    /// for "is there anything above me" and wrong for "how deep am I". A
+    /// brow is ground, so it sets that entry, and every cell in its column
+    /// down to bedrock is then graded as if buried under the brow's height.
+    /// Measured, that drew a **straight vertical tone seam one to ten
+    /// columns wide running from the surface to the bottom of the world** —
+    /// 2,990 cells at x 332..337 on seed 5, a single 494-cell column on seed
+    /// 7 (`examples/underground_probe.rs`, `Reports/dark-bands-diagnosis.md`).
+    ///
+    /// So this walks each column **up from the bottom** and stops at the
+    /// first cell the sky can reach, recording the last row before it. That
+    /// skips a brow, because open air sits under one; it does *not* skip a
+    /// cave, because cave air is not outdoors and the walk carries straight
+    /// through; and a notch is untouched, so `light_datum`'s opening still
+    /// has the same job to do.
+    ///
+    /// Frozen once, after `underground`, which it reads.
+    ground_datum: Vec<i32>,
     /// The same dedup idea as `pending_structural_checks`, for
     /// `ActiveKind::Decay`, and it exists for a different reason worth
     /// stating: decay sites are scheduled by `World::end_step`'s settle
@@ -812,6 +836,7 @@ impl World {
             pending_evaporation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
             underground: Vec::new(),
+            ground_datum: Vec::new(),
             pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
@@ -2696,6 +2721,7 @@ impl World {
         // makes a whole new `World` (`App::reset`), so this cannot go stale.
         self.freeze_sky_surface();
         self.freeze_underground_map();
+        self.freeze_ground_datum();
         self.frame = self.frame.wrapping_add(1);
     }
 
@@ -2808,6 +2834,42 @@ impl World {
     /// built — which only happens on a world nothing has ever stepped.
     pub fn underground_map(&self) -> &[u64] {
         &self.underground
+    }
+
+    /// Record the top of the ground in each column, once. See
+    /// `ground_datum`.
+    ///
+    /// Walks up from the bottom of the world and stops at the first cell the
+    /// sky can reach, so the answer is the top of the **lowest** run of cells
+    /// the sky cannot reach rather than the topmost ground of any kind.
+    ///
+    /// Reads `underground`, so it has to run after `freeze_underground_map`
+    /// and does — `begin_step` calls them in order. A column that is
+    /// outdoors right down to the world floor holds no ground at all and
+    /// takes `i32::MAX`, which is `sky_surface`'s convention for the same
+    /// thing.
+    pub fn freeze_ground_datum(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.ground_datum.is_empty() || self.underground.is_empty() {
+            return;
+        }
+        self.ground_datum = (b.min_x..=b.max_x)
+            .map(|x| {
+                let mut top = i32::MAX;
+                for y in (b.min_y..=b.max_y).rev() {
+                    if !self.was_underground(x, y) {
+                        break;
+                    }
+                    top = y;
+                }
+                top
+            })
+            .collect();
+    }
+
+    /// The frozen top-of-ground datum, or empty if it has not been built.
+    pub fn ground_datum(&self) -> &[i32] {
+        &self.ground_datum
     }
 
     /// Whether `(x, y)` was inside the ground when the world was made.

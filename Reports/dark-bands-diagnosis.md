@@ -249,7 +249,10 @@ frames, which is noise and is recorded only so nobody reads it as a win.
 ### What it does not fix, and what is still visibly wrong
 
 - **The open-cast pit**, as designed and as agreed.
-- **Rock under an overhang is still over-darkened**, and *measured* it is far
+- ~~**Rock under an overhang is still over-darkened**~~ — **fixed**; see
+  *The brow seam, and how it was closed* below. The history is left standing
+  because two of the readings on the way to it were wrong in instructive
+  ways. *Measured* it was far
   larger than the "suspended object" framing this section first gave it. The
   *decision* is per cell now; the *depth* still comes from `light_datum`, the
   per-column skyline with narrow dips clipped — and an opening clips dips, not
@@ -344,3 +347,55 @@ frames, which is noise and is recorded only so nobody reads it as a win.
   pit with nothing over it cannot.
 
 *Freshness: 2026-08-22.*
+
+## The brow seam, and how it was closed
+
+`World::ground_datum`: a second per-column array frozen at genesis, holding
+**the top of the lowest run of cells the sky cannot reach** — each column
+walked up from the bottom until an outdoors cell stops the walk. `light_datum`
+is built from that instead of from the skyline.
+
+A brow is skipped, because open air sits underneath it. A cave is not,
+because cave air is not outdoors and the walk carries straight through. A
+notch is untouched, so the morphological opening still has the same job. No
+inference, no width threshold, ~8 KB and one scan at genesis, and no
+measurable change to the draw (16.69 / 16.73 ms against 15.3–16.8 before).
+
+Measured effect, reported by `underground_probe` as the size of the datum
+correction:
+
+| seed | rock un-darkened by >=8 rows | by >=24 (visible) | largest patch |
+|---|---|---|---|
+| 2 | 48,114 | 2,958 | x 518..523, y 144..639 |
+| 3 | 25,476 | 5,394 | x 493..502, y 97..639 |
+| 5 | 39,644 | 2,987 | x 332..337, y 139..639 |
+| 7 | 35,449 | 982 | x 1941..1941, y 146..639 |
+
+Guarded by `a_cliff_brow_does_not_shade_the_rock_beneath_it_to_bedrock`,
+a paired comparison against rock at the same depth in a plain column.
+
+### Two things this got wrong on the way, both worth keeping
+
+**The first metric was a tautology and read as a triumph.** After the fix the
+probe reported **0 over-darkened cells on every seed** — because it compared
+the grade's depth against the walk-up depth, and `ground_datum` is *defined*
+as the top of the walk-up run, so the two are the same arithmetic and the
+answer is zero whatever the code does. `CLAUDE.md` says an exactly-zero delta
+means suspect the condition is degenerate, and it was. The probe now reports
+the size of the *correction* instead, which is non-zero for a real reason and
+returns to zero if the datum is ever reverted.
+
+**The first guard sampled where the ramp is flat and passed with the bug in
+place.** It compared rock fifty rows down under a brow against rock fifty
+rows down in a plain column: the depths were plainly wrong (115 against 55)
+and the brightnesses were 241 against 248 — under 3%, inside the tolerance,
+green. The grade is a smoothstep flat at both ends, so a sixty-row error
+costs almost nothing near the floor and **~36% ten rows down**. Moved to y
+105..115 the same guard reads 237 against 378 and fails hard.
+
+That also corrects how this report sized the artifact earlier. "Worst 37
+rows" is not the useful number; *where on the ramp those rows sit* is. The
+seam is loudest just under the surface — which is exactly where a player
+stands — and fades to nothing at depth.
+
+*Brow seam freshness: 2026-08-23.*
