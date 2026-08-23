@@ -1,0 +1,72 @@
+{
+  "id": "20260823T185443469Z-682f66",
+  "created": "2026-08-23T18:54:43Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "9108b79",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Grassfire: does it read as a fire front now?",
+  "question": "Watch the two strips step together. Does one of them read as a fire crossing a meadow — a front, flames, smoke, a burnt scar — rather than grass changing colour?",
+  "context_md": "Your standing verdict on the last grassfire card was *\"The fire looks bad. Just looks like you are cycling colors. It also doesn't spread at all (if we are going to do this, moisture vs dryness should play a role.\"*\n\nThis is the spread-and-look half. **Same sward, same seed, same ignition** (11 cells lit at x=51). The only difference is whether burning fuel throws flames into the air. Both arms are on **bone-dry ground**, so the moisture gate is fully open in both — the wet/dry comparison is a separate card.\n\nOne arm is the behaviour that is on `main` today: with flames off and the ground dry, the ignition rule is bit-for-bit what `main` does.\n\n**What I already measured, so you don't have to judge it by eye:** a 160-founder sward looks continuous (one empty column in a 484-column span) but is really **71 separate 4-connected islands of fuel**, and contact-only fire reaches one of them. That is the whole of \"it doesn't spread at all\" — the fire was not creeping, it was going out.\n\n**What I am unsure about and want your eye on:** the *colour*. Everything that burns sits at the top of the renderer's heat ramp, and the top of that ramp is a pale yellow, so a burning meadow draws as **straw**. I have a two-constant change that makes it a strong orange, but it also moves lava, quench crust and warm water — three looks you have already judged — so it is on its own card rather than in this one.\n\n8 frames, 45 frames apart, starting at the ignition.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T185443469Z-682f66/000-ablation_0.png",
+        "20260823T185443469Z-682f66/001-ablation_1.png",
+        "20260823T185443469Z-682f66/002-ablation_2.png",
+        "20260823T185443469Z-682f66/003-ablation_3.png",
+        "20260823T185443469Z-682f66/004-ablation_4.png",
+        "20260823T185443469Z-682f66/005-ablation_5.png",
+        "20260823T185443469Z-682f66/006-ablation_6.png",
+        "20260823T185443469Z-682f66/007-ablation_7.png"
+      ],
+      "caption": "flame body off (= main's grassfire)",
+      "meta": {
+        "grass cells consumed": "262 of 1993",
+        "front reached": "x=110 (lit at x=51)",
+        "flame cells at peak": 0,
+        "smoke cells at peak": 0,
+        "worst frame ms": 12.33
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T185443469Z-682f66/008-flame_0.png",
+        "20260823T185443469Z-682f66/009-flame_1.png",
+        "20260823T185443469Z-682f66/010-flame_2.png",
+        "20260823T185443469Z-682f66/011-flame_3.png",
+        "20260823T185443469Z-682f66/012-flame_4.png",
+        "20260823T185443469Z-682f66/013-flame_5.png",
+        "20260823T185443469Z-682f66/014-flame_6.png",
+        "20260823T185443469Z-682f66/015-flame_7.png"
+      ],
+      "caption": "flame body on, flame_chance 0.18",
+      "meta": {
+        "grass cells consumed": "1993 of 1993 (all)",
+        "front reached": "x=488 (the far edge)",
+        "flame cells at peak": 233,
+        "smoke cells at peak": 2003,
+        "worst frame ms": 10.12
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
