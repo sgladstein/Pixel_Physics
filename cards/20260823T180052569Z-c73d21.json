@@ -1,0 +1,112 @@
+{
+  "id": "20260823T180052569Z-c73d21",
+  "created": "2026-08-23T18:00:52Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/wp9-arm1-decision-validate",
+    "commit": "d8b0bb3",
+    "agent": null,
+    "session_id": "efbdc5b7-2c96-5ed9-af96-08af2eaf9aff",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "The founded colony, spaced 4: is climb-over still worth it with no jam to dissolve?",
+  "question": "These two are much closer than the 55-ant crowd card. Does either read as a more satisfying colony at work — and is the difference worth changing the ants' default?",
+  "context_md": "Same wetland world (seed 2), same 35-ant colony founded by `found_colony`, same 24 frames from noon. One species flag differs.\n\n**Why a second card, when the crowd card is already answered.** That card (`20260823T164147144Z-e1ef72`) used the 55-ant probe scene, which plants ants **2 cells apart** — shoulder to shoulder for a two-cell body, and the exact configuration dead ends 775/829 record as gridlock. It blocks ~61% of its moves. A real colony is founded at `COLONY_ANT_SPACING = 4` and blocks ~24%. So that card asked *does climb-over dissolve a gridlock* — it does, enormously. This one asks whether it still earns its place where there is no gridlock to dissolve.\n\n**Measured, 8 seeds x 24,000 frames on the WP-4 instrument, at colony spacing, medians:** deepest excursion 46 -> 84 cells; excursions past 32 cells 4.5 -> 17.5; past 64 cells 0 -> 4.5; blocked moves 0.311 -> 0.033. **Deliveries flat:** 6.5 vs 6.0, against a per-seed spread of 0-49.\n\nThe counters under each strip come from these two runs, not from another harness's run of a different world.\n\n**One honest cost:** falls roughly double on uneven ground — an animal standing on a nestmate that walks away has further to drop. Deaths are 0 in both arms and the population is the same 74.\n\nPlease ignore any tint drift across the strip; both arms share it.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — climbs_over_kin OFF (current default)",
+      "files": [
+        "20260823T180052569Z-c73d21/000-000.png",
+        "20260823T180052569Z-c73d21/001-001.png",
+        "20260823T180052569Z-c73d21/002-002.png",
+        "20260823T180052569Z-c73d21/003-003.png",
+        "20260823T180052569Z-c73d21/004-004.png",
+        "20260823T180052569Z-c73d21/005-005.png",
+        "20260823T180052569Z-c73d21/006-006.png",
+        "20260823T180052569Z-c73d21/007-007.png",
+        "20260823T180052569Z-c73d21/008-008.png",
+        "20260823T180052569Z-c73d21/009-009.png",
+        "20260823T180052569Z-c73d21/010-010.png",
+        "20260823T180052569Z-c73d21/011-011.png",
+        "20260823T180052569Z-c73d21/012-012.png",
+        "20260823T180052569Z-c73d21/013-013.png",
+        "20260823T180052569Z-c73d21/014-014.png",
+        "20260823T180052569Z-c73d21/015-015.png",
+        "20260823T180052569Z-c73d21/016-016.png",
+        "20260823T180052569Z-c73d21/017-017.png",
+        "20260823T180052569Z-c73d21/018-018.png",
+        "20260823T180052569Z-c73d21/019-019.png",
+        "20260823T180052569Z-c73d21/020-020.png",
+        "20260823T180052569Z-c73d21/021-021.png",
+        "20260823T180052569Z-c73d21/022-022.png",
+        "20260823T180052569Z-c73d21/023-023.png"
+      ],
+      "caption": "a nestmate is an obstacle",
+      "meta": {
+        "moves": 3073,
+        "blocked": 745,
+        "blocked fraction": 0.242,
+        "falls": 1040,
+        "forage trips (8+ cells)": 5,
+        "deepest excursion": 16,
+        "deliveries": 117,
+        "deaths": 0,
+        "live ants": 74
+      },
+      "focus": null
+    },
+    {
+      "label": "B — climbs_over_kin ON",
+      "files": [
+        "20260823T180052569Z-c73d21/024-000.png",
+        "20260823T180052569Z-c73d21/025-001.png",
+        "20260823T180052569Z-c73d21/026-002.png",
+        "20260823T180052569Z-c73d21/027-003.png",
+        "20260823T180052569Z-c73d21/028-004.png",
+        "20260823T180052569Z-c73d21/029-005.png",
+        "20260823T180052569Z-c73d21/030-006.png",
+        "20260823T180052569Z-c73d21/031-007.png",
+        "20260823T180052569Z-c73d21/032-008.png",
+        "20260823T180052569Z-c73d21/033-009.png",
+        "20260823T180052569Z-c73d21/034-010.png",
+        "20260823T180052569Z-c73d21/035-011.png",
+        "20260823T180052569Z-c73d21/036-012.png",
+        "20260823T180052569Z-c73d21/037-013.png",
+        "20260823T180052569Z-c73d21/038-014.png",
+        "20260823T180052569Z-c73d21/039-015.png",
+        "20260823T180052569Z-c73d21/040-016.png",
+        "20260823T180052569Z-c73d21/041-017.png",
+        "20260823T180052569Z-c73d21/042-018.png",
+        "20260823T180052569Z-c73d21/043-019.png",
+        "20260823T180052569Z-c73d21/044-020.png",
+        "20260823T180052569Z-c73d21/045-021.png",
+        "20260823T180052569Z-c73d21/046-022.png",
+        "20260823T180052569Z-c73d21/047-023.png"
+      ],
+      "caption": "a nestmate is ground",
+      "meta": {
+        "moves": 3167,
+        "blocked": 226,
+        "blocked fraction": 0.071,
+        "falls": 1256,
+        "forage trips (8+ cells)": 9,
+        "deepest excursion": 19,
+        "deliveries": 121,
+        "deaths": 0,
+        "live ants": 74
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
