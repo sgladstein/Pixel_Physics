@@ -153,6 +153,18 @@ fn generated_terrain_is_already_at_rest() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        // **Every life layer, not the two that existed when this was
+        // written.** A seed is a `Powder` and settles, so a sown world has a
+        // live process in it -- the same reason `spring_flow` and the
+        // weather are held still here, and the same rule: a live process is
+        // not a placement defect. Grass landed as a *third* layer with its
+        // own density knob, and the two lines above stopped meaning "no
+        // life" the moment it did: five tests in this file failed at once,
+        // reporting `seed` and `soil` cells leaving their positions, which
+        // is a sward settling and not a terrain defect. Anything added to
+        // `life_scatter` later has to be zeroed in all seven of these
+        // fixtures too.
+        params.grass_density = 0.0;
         params.spring_flow = 0.0;
         let params = &params;
         for seed in SEEDS {
@@ -225,6 +237,7 @@ fn generated_terrain_stops_sweeping_almost_immediately() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.grass_density = 0.0;
         let mut world = build(&params, 1);
         let mut frames = 0;
         while world.active_chunk_count() > 0 && frames < 120 {
@@ -1534,7 +1547,7 @@ fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
     use pixel_physics::worldgen::column::Terrain;
     let presets = presets();
     let base = presets.get("rolling").expect("rolling preset");
-    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, grass_density: 0.0, ..base.clone() };
 
     let mut total_talus_cells = 0usize;
     let mut wrong_family = 0usize;
@@ -2048,6 +2061,7 @@ fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
         vault_min_depth: 40,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         // Off for the same reason as the two above: these worlds are settled
         // and then compared against a control, so anything that is still a
         // *process* after generation shows up as a difference and is read as
@@ -3265,6 +3279,7 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         spring_flow: 0.0,
         ..base.clone()
     };
@@ -3346,6 +3361,7 @@ fn a_seated_boulder_stands_at_a_believable_height() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         residual_density: 0.0,
         ..base.clone()
     };
@@ -4281,6 +4297,7 @@ fn probe_m_does_generated_water_ever_settle() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.grass_density = 0.0;
         params.spring_flow = 0.0;
         for seed in SEEDS {
             let mut world = build(&params, seed);
