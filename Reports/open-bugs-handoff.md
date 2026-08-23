@@ -3456,7 +3456,18 @@ the foraging entry below).
 `ascii` is gating in CI again on this basis, with `skip=foraging` naming the
 one scene still red instead of the whole example being non-blocking.
 
-### H2. The `ascii` colony has gone sessile — **OPEN on `main`, quarantined by name, 2026-08-23**
+### H2. The `ascii` colony has gone sessile — **CLOSED 2026-08-23 via §L: same bug, filed twice, one root cause**
+
+> **Merged at landing (2026-08-23): this is §L, independently found by P1's
+> gate run, and §L carries the close** — the rock-country fallback admitted
+> only the argmax region and deleted the residual towers from the colony's
+> home range; widening the fallback to the country field's own scale
+> restores the scene. The entry below is P1's independent measurement,
+> kept because it agrees with §L's to the digit and adds one datum §L did
+> not have: the water-book fixes alone moved the scene 2 → 7 trips, which
+> says the food's *water supply* participates in the collapse's magnitude
+> but is not its cause. The `known-red-ascii` quarantine this heading
+> referenced is deleted with the close.
 
 > **Superseded in framing, 2026-08-23.** This entry was opened as "`ascii`
 > never reaches bug H any more" — true at the time, and no longer the point:
@@ -3571,6 +3582,11 @@ the first seed that says no. Neither says how many seeds fail, because both
 panic rather than collect. Whoever picks this up should make the loops gather
 failures first; the count per preset is the measurement, and right now nobody
 has it.
+
+*This is §M, filed twice — §M carries the moved counts after §L's
+rock-country fix (the worst natural mover shifts to wetland seed 3, and the
+forced-vault stress case gains a collapsing spire that is not the water
+bug). Read §M's dated note before attributing any count change here.*
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
@@ -3920,7 +3936,89 @@ history, the local blind spot, and a starting commit:**
   this by widening the settle budget until that has been checked — 0 cells
   to 57 is a behaviour change, not a drift past a threshold.
 
-### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, found 2026-08-23; bisected to the world-scale merge (see the merged filing at the end of this entry)**
+**Counts moved with the §L fix (2026-08-23), bug unchanged — and the vault
+red changed shape, which needs saying precisely.** The rock-country
+fallback widening (§L's close) changes terrain on fallback worlds. Both
+tests are still red, differently:
+
+- `generated_terrain_is_already_at_rest` now reports worst `wetland seed
+  3: 87 cells` (was `terraced seed 3: 57`), **still all water** — the same
+  claim broken, a different pond under it. Across all presets x 5 seeds,
+  worlds now carrying far more spires, **zero mineral cells move**: the
+  widened band generates at rest.
+- `a_forced_vault_world_is_sealed_and_arrives_at_rest` now fails at
+  `rolling seed 3: 705 cells` of **stone** (was 47 of water). That is not
+  the water bug: the test forces chambers at `vault_min_depth: 40` — five
+  times shallower than the natural 200 — into a 2048-wide world the band
+  now mostly covers, and a spire over a 40-row-deep forced chamber
+  collapses when stepped. Natural worlds show no such motion (the bullet
+  above), so this is the stress configuration meeting the band, not
+  generation shedding stone in play. Whoever picks §M up should attribute
+  the water half first and treat the stone count as this interaction.
+
+Recorded so the next reader does not bisect the count change to the wrong
+cause. Not the same root as §L: springs place zero in the foraging scene's
+world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
+springs-pass lead above is untouched by §L's fix.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
+
+**Root cause, found by looking at the scene, exactly as the bisect predicted.**
+`region.rs`'s rock-country guarantee (`gate = FORMATION_BARREN.min(best)`)
+admits, when it fires, only the single region that drew the field maximum.
+The foraging scene's 512x120 world has **two** regions; at rolling seed 1
+they read country 0.4141 (cx=47 — the colony's home range) against 0.4691
+(cx=459), both far under `FORMATION_BARREN` (0.70) — "essentially a single
+value", as the guarantee's own comment says a sub-period world samples — and
+the knife-edge kept only cx=459. The **two residual stone towers standing
+inside the nest patch (x≈42–68)** on the creature parent, the terrain every
+foraging bar was measured on, vanished; the freed soil columns then grew
+worldgen trees, so the canopy edge moved from x≈88 to x≈64, *inside* the
+nest patch.
+
+**Both halves matter, and they interact — measured by ablation on the merge's
+world** (temporary scene switches, one build, same seed):
+
+| arm | trips | deliveries | falls | nest-visits |
+|---|---|---|---|---|
+| parent `c6ffba2` (towers, canopy from x≈88) | 92 | 192 | 901 | 3,598 |
+| merge world (no towers, canopy in nest patch) | 2 | 143 | 64 | 684 |
+| merge + hand towers | 35 | 277 | 413 | 1,234 |
+| merge + worldgen trees cleared x<210 | 30 | 9 | 709 | 18,426 |
+| both | 245 | **0** | 2,423 | 11,052 |
+
+No single lever restores the parent's shape: towers alone leave food at the
+doorstep, clearing food alone leaves the loop unable to close (0–9
+deliveries over the scene's food distance). The parent's balance — vertical
+home terrain plus food starting at the nest patch's edge — is what the
+92–98 bar measured.
+
+**The fix is in worldgen, not the scene.** The fallback now reads the best
+draw as *defining* the country and gives it the field's own extent: regions
+within `ROCK_COUNTRY_SCALE / 2` of the best centre belong to it
+(`region.rs`, beside `FORMATION_BARREN`). A 512 world becomes rock country
+whole; a shipped-size fallback world (1 in 16 seeds) gets one country-sized
+band instead of one region-sized cluster — the cluster shape is the exact
+failure `FORMATION_BARREN`'s own comment records the owner rejecting, so the
+knife-edge was wrong at both scales. On the gated path (best ≥ 0.70) nothing
+changes.
+
+**Restored, measured on the same scene:** forage trips **100** (bar 14, set
+from 98; the parent read 92 on the same code path), nest-visits 3,792
+(parent 3,598), falls 960 (901), mean depth 10.3 (10.3), deliveries 230
+(192), profile `[3798, 452, 171, 100, 0, 0, 0, 0]`. The 2,000-frame counters
+are **identical** to the parent's run — the towers regenerate at the same
+sites. The bar stays at 14, unmoved, as this entry demanded. Re-measured
+after merging the water book (PR #19) into the fix: **112 trips**, mean
+depth 10.6, deepest 16, nest-visits 3,773 — the water fixes move the scene
+the same direction they moved it alone (2 → 7 in §H2's paired datum), on
+top of the restored terrain.
+
+**Not §M's springs water.** The springs pass places nothing in this scene's
+world; the collapse is the residuals/region gate, a different pass on the
+same branch. §M stands untouched.
+
+The original filing follows, kept for the record.
 
 `examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
 `main`:
