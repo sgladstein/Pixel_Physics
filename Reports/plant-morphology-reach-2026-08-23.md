@@ -1,6 +1,7 @@
 # How far the plant substrate can reach — sunflowers, tomatoes, vines (2026-08-23)
 
-**Status: design note, answering a direct owner question.** From the
+**Status: design note, answering a direct owner question; all three §7
+calls signed off by the owner, 2026-08-23, same day.** From the
 four-woody-species card (`20260823T094729940Z-55bc8b`, 2026-08-23):
 
 > "Different-ish. The biggest differences are still size and color. That
@@ -152,18 +153,25 @@ Both lines are needed; neither substitutes for the other.
 4. **Whorls (C3)** stay where the queue has them; the rosette variant rides
    with whichever lands second.
 
-## 7. Open calls for the owner
+## 7. The three calls — all DECIDED, owner, 2026-08-23
 
 1. **Does fruit carry the seed, or convert in place?** Carrying gives real
    dispersal (and creature-borne spread); converting is simpler and still
    reads as fruit. Recommendation: carry — dispersal is the evolution
    arc's missing spatial half, and a falling fruit is a satisfying object
    in a way an in-place conversion is not.
+   **DECIDED: fruit carries the seed.**
 2. **May a vine attach to player-built walls?** The `attaches` bit makes
    this a data decision, not an emergent accident. Recommendation: yes —
    a wall slowly greening over is exactly "the world responds to you".
+   **DECIDED: yes, vines may attach to player-built walls.**
 3. **Are annuals wanted?** Post-fruiting death gives the herb layer
    seasons-like turnover without seasons. Recommendation: yes, on the
    herb archetypes only.
+   **DECIDED: yes, annuals on the herb archetypes.**
 
-None of these blocks starting §6 step 2; they shape its `.ron` defaults.
+All three land as the organ package's `.ron` defaults. A consequence worth
+naming now that annuals are in: the generation-loop package (A2/P3) rises
+in the P-lane's priority — annuals *are* turnover, fruit-borne seeds *are*
+dispersal, and both dead-end into the immortal seed bank and the
+debug-only organism-slot ceiling until that package lands.
