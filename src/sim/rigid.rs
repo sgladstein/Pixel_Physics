@@ -1522,6 +1522,40 @@ pub fn step_chunk_bodies(world: &mut World) {
     world.chunk_bodies = still_moving;
 }
 
+/// Whether a body that has been turned a quarter has room to be where the
+/// turn puts it.
+///
+/// Two cell sets, which is the whole reason this is not a `try_step` call:
+/// `turned` supplies the target positions, and `current` supplies the
+/// footprint the body is standing in *and will vacate by turning*. A cell of
+/// the turned shape that lands on the body's own current footprint is free by
+/// construction -- the body is leaving it in the same move.
+///
+/// **A probe, so it does not write.** `clear_or_displaceable` answers a
+/// richer question and answers it by shoving powder and venting gas as it
+/// goes, which is fine when the caller is committing to a move and wrong for
+/// a question that may be answered "no". So passability here is the material
+/// test alone: anything not `Solid`, `Plant` or `Creature` is somewhere the
+/// body may turn into. That is deliberately more permissive than the mover --
+/// a turn into powder the mover then cannot displace is possible -- and it is
+/// the conservative direction for the bug this exists to stop, which is
+/// turning through *rock*.
+fn rotation_fits(world: &World, current: &ChunkBody, turned: &ChunkBody) -> bool {
+    let vacating: HashSet<(i32, i32)> = current.cells.iter().map(|c| current.cell_position(c)).collect();
+    turned.cells.iter().all(|cell| {
+        let (tx, ty) = turned.cell_position(cell);
+        if vacating.contains(&(tx, ty)) {
+            return true; // the body's own footprint, which the turn empties
+        }
+        if !world.in_bounds(tx, ty) {
+            return false;
+        }
+        let material = world.get(tx, ty).material;
+        material == material::EMPTY
+            || matches!(world.materials.kind(material), MaterialKind::Powder | MaterialKind::Liquid | MaterialKind::Gas)
+    })
+}
+
 /// Returns whether the body is still in flight; `false` means it has come
 /// to rest and should be re-rasterized.
 fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
@@ -1541,8 +1575,26 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
             // Only turn if the turned shape actually fits. Otherwise a body
             // wedged in a gap would rotate straight through the wall beside
             // it, which is the one way this transform can cheat.
-            let shape = BodyShape { density: mean_density(world, &probe), floats: body_floats(world, &probe), reach: body_extent(&probe) + 1 };
-            try_step(world, &probe, probe.x, probe.y, shape).axis.is_none()
+            //
+            // **This asked `try_step` and `try_step` could not answer it.**
+            // The call was `try_step(world, &probe, probe.x, probe.y, ..)`,
+            // handing the probe its *own* position as the target, so
+            // `ox == probe.x.round()` and `cell_position` is
+            // `probe.x.round() + cell.dx` -- equal for every cell by
+            // construction. `try_step`'s `if (tx, ty) == (cx, cy) { continue }`
+            // then skipped all of them, `axis` was always `None`, and the
+            // check read as "it fits" unconditionally. A wedged body rotated
+            // through the wall, which is exactly what the paragraph above
+            // says must not happen, and nothing could see it: a probe that
+            // always answers "clear" is indistinguishable from one that
+            // works. `open-bugs-handoff.md` bug K.
+            //
+            // `try_step` cannot express this question. It compares one cell
+            // set against itself offset by a motion, and a rotation needs two
+            // *different* cell sets -- the turned footprint as targets, the
+            // untuned one as the space being vacated. Hence a purpose-built
+            // predicate rather than another argument here.
+            rotation_fits(world, body, &probe)
         };
         if turned {
             if body.reserved {
@@ -4180,38 +4232,28 @@ mod tests {
         assert!(!open.chunk_bodies.is_empty(), "an open blast must still throw its rim as pieces");
     }
 
-    /// **Bug K's reproduction, and it fails today.** A body wedged in a slot
-    /// must refuse to rotate when the turned shape would land in rock.
+    /// A body wedged in a slot must refuse to turn when the turned shape
+    /// would land in rock — and must still turn when it has room.
     ///
-    /// `advance` builds a probe, turns it, and asks `try_step` whether the
-    /// turned shape fits — but it passes the probe its **own** position as
-    /// the target. `try_step`'s first guard is
+    /// **Was `open-bugs-handoff.md` bug K, and was `#[ignore]`d and red
+    /// here before the fix.** `advance` built a probe, turned it, and asked
+    /// `try_step(world, &probe, probe.x, probe.y, ..)` whether it fit —
+    /// handing the probe its *own* position as the target. `ox` is
+    /// `probe.x.round()` and `cell_position` is `probe.x.round() + cell.dx`,
+    /// so `try_step`'s `if (tx, ty) == (cx, cy) { continue }` skipped every
+    /// cell, `axis` was always `None`, and the caller read that as "the turn
+    /// fits" unconditionally. Bodies rotated through walls.
     ///
-    /// ```text
-    ///     if (tx, ty) == (cx, cy) { continue }
-    /// ```
-    ///
-    /// and with `ox = probe.x.round()` against `cell_position`'s
-    /// `probe.x.round() + cell.dx`, the two are equal for *every* cell by
-    /// construction. So every cell is skipped, `horizontal` and `vertical`
-    /// are never set, `axis` is always `None`, and the caller reads that as
-    /// "the turn fits". A body wedged in a gap rotates straight through the
-    /// wall beside it — which is exactly the cheat the probe's own comment
-    /// says it exists to prevent.
-    ///
-    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
-    /// outlives the report.** Whoever fixes the probe gets a red test
-    /// instead of a paragraph, and `--ignored` is the only thing in the
-    /// engine that can currently tell a working probe from a vacuous one —
-    /// a probe that always answers "clear" looks identical to one that
-    /// works. Present in *both* parents of the water merge, so it is not
-    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    /// **Both arms, and the second one is not decoration.** A predicate that
+    /// simply answered `false` would satisfy the wedged case on its own and
+    /// stop every rotation in the game — `CLAUDE.md`'s rule that a guard has
+    /// to be able to fail for the *replacement*, not only the original. So
+    /// the open-air arm pins the other side.
     ///
     /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
     /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
     /// bar is 1x3 and its two new cells land in the rock above and below.
     #[test]
-    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
     fn a_wedged_body_will_not_rotate_through_the_wall() {
         let mut w = test_world();
         for y in 0..64 {
@@ -4226,7 +4268,7 @@ mod tests {
         let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
         let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
 
-        // The probe exactly as `advance` builds it, arguments included.
+        // The probe exactly as `advance` builds it.
         let mut probe = body.clone();
         probe.rotate_quarter();
         for cell in &probe.cells {
@@ -4239,15 +4281,16 @@ mod tests {
                 );
             }
         }
-        let shape = BodyShape {
-            density: mean_density(&w, &probe),
-            floats: body_floats(&w, &probe),
-            reach: body_extent(&probe) + 1,
-        };
-        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
         assert!(
-            axis.is_some(),
-            "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
+            !rotation_fits(&w, &body, &probe),
+            "the turned bar lands in rock above and below it, and the fit probe still reported room to turn"
+        );
+
+        // The same bar and the same turn with nothing in the way.
+        let open = test_world();
+        assert!(
+            rotation_fits(&open, &body, &probe),
+            "in open air the identical turn must be allowed, or the predicate is simply refusing everything"
         );
     }
 }
