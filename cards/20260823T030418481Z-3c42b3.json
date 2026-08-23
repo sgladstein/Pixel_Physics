@@ -1,0 +1,45 @@
+{
+  "id": "20260823T030418481Z-3c42b3",
+  "created": "2026-08-23T03:04:18Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creatures-m18-merge-ijdlnp",
+    "commit": "4ca45b7",
+    "agent": null,
+    "session_id": "15ea5d2a-ee27-57d4-9ab2-f51a83187b51",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Shed litter lands in the canopy, not on the floor",
+  "question": "Is litter sitting in the crown wrong, or is it the canopy larder that would give ants a reason to climb?",
+  "context_md": "**Measured on `main`, 8 trees, 10,800 frames (noon).** `plant.rs::shed_to_litter` writes litter *in place* at the leaf's own position and lets the powder fall, so a leaf shed mid-crown lands on the first branch under it.\n\nMagenta = litter resting on a branch. Cyan = litter resting on the ground. Everything else is the world at quarter brightness — litter's palette is browns and so is wood's, so a plain screenshot cannot tell them apart.\n\n**4,330 litter cells standing: 3,825 on branches, 503 on the ground.** Only 410 are within three rows of the terrain surface.\n\nThe creature plan treats this as a defect — floor litter is what a foraging ant can reach, and canopy litter costs sweep time and feeds nobody. But you have said you eventually want ants **climbing trees**, and S4's premise that they can't reach the canopy is already false (measured: ants climb 7/9/0/11 cells up a tree against 0/0/0/0 on bare ground). A crown full of food is exactly the motivation a climb needs.\n\nSo I want your call before I change where it lands. I have **not** fixed anything yet.\n\nAlso relevant either way: litter is barely rotting. 263 cells rotted against 4,593 ever shed — it inherits ash's global decay rate (dry chance 0.002 per 200-frame check, a ~100,000-frame lifetime) against runs of ~10,000. The floor accumulates monotonically rather than reaching equilibrium.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "main @ 4ca45b7, frame 10800",
+      "files": [
+        "20260823T030418481Z-3c42b3/000-litter_overlay.png"
+      ],
+      "caption": "magenta = on a branch, cyan = on the ground",
+      "meta": {
+        "litter standing": 4330,
+        "resting on a branch": 3825,
+        "resting on the ground": 503,
+        "within 3 rows of surface": 410,
+        "shed cells ever": 4593,
+        "rotted": 263,
+        "canopy top row": 82
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
