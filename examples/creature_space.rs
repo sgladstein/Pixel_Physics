@@ -1144,17 +1144,23 @@ fn diet_sweep(seeds: u64, frames: usize) {
     for &carrion in &[true, false] {
         let arm = if carrion { "mixed litter+carrion" } else { "litter-only control" };
         println!("[{arm}]");
-        println!("{:>5} {:>10} {:>10} {:>10} {:>7} {:>8}", "gut", "survival", "min..max", "eats", "placed", "corpse@end");
+        println!("{:>5} {:>10} {:>10} {:>10} {:>7} {:>8} {:>8}", "gut", "survival", "min..max", "eats", "placed", "foodcols", "corpse@end");
         for &bias in &DIET_BIASES {
-            let runs: Vec<(Sample, usize)> = (0..seeds).map(|s| diet_one(bias, carrion, frames, BASE_SEED + s)).collect();
-            let mut sv: Vec<f32> = runs.iter().map(|(r, _)| r.survival).collect();
+            // Seeds in parallel: each run owns its `World`, which is the
+            // embarrassingly-parallel case `thread_scaling` measured.
+            let runs: Vec<(Sample, usize, i32)> = std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..seeds).map(|s| scope.spawn(move || diet_one(bias, carrion, frames, BASE_SEED + s))).collect();
+                handles.into_iter().map(|h| h.join().expect("diet run")).collect()
+            });
+            let mut sv: Vec<f32> = runs.iter().map(|(r, _, _)| r.survival).collect();
             sv.sort_by(|a, b| a.partial_cmp(b).unwrap());
             let mean = sv.iter().sum::<f32>() / sv.len().max(1) as f32;
-            let eats = runs.iter().map(|(r, _)| r.eats).sum::<f32>() / runs.len().max(1) as f32;
-            let placed = runs.iter().map(|(r, _)| r.placed).sum::<f32>() / runs.len().max(1) as f32;
-            let corpse_end = runs.iter().map(|(_, c)| *c).sum::<usize>() / runs.len().max(1);
+            let eats = runs.iter().map(|(r, _, _)| r.eats).sum::<f32>() / runs.len().max(1) as f32;
+            let placed = runs.iter().map(|(r, _, _)| r.placed).sum::<f32>() / runs.len().max(1) as f32;
+            let foodcols = runs.iter().map(|(_, _, f)| *f).min().unwrap_or(0);
+            let corpse_end = runs.iter().map(|(_, c, _)| *c).sum::<usize>() / runs.len().max(1);
             println!(
-                "{bias:>5.1} {mean:>10.3} {:>4.3}..{:<4.3} {eats:>9.2} {placed:>7.1} {corpse_end:>8}",
+                "{bias:>5.1} {mean:>10.3} {:>4.3}..{:<4.3} {eats:>9.2} {placed:>7.1} {foodcols:>8} {corpse_end:>8}",
                 sv[0],
                 sv[sv.len() - 1]
             );
@@ -1162,15 +1168,20 @@ fn diet_sweep(seeds: u64, frames: usize) {
         println!();
     }
     println!("[separation] two cohorts, plant food west / meat east, |mean x(A) - mean x(B)| over the last quarter");
-    println!("{:>12} {:>10} {:>10} {:>16}", "cohorts", "mean", "min..max", "placed A+B (min)");
+    println!("{:>12} {:>10} {:>10} {:>16} {:>14}", "cohorts", "mean", "min..max", "placed A+B (min)", "food W+E (min)");
     for &(a, b) in &[(-0.8f32, 0.8f32), (0.0, 0.0)] {
-        let runs: Vec<(f32, usize, usize)> = (0..seeds).map(|s| diet_separation(a, b, frames, BASE_SEED + s)).collect();
-        let mut sep: Vec<f32> = runs.iter().map(|r| r.0).collect();
+        let runs: Vec<SeparationRun> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..seeds).map(|s| scope.spawn(move || diet_separation(a, b, frames, BASE_SEED + s))).collect();
+            handles.into_iter().map(|h| h.join().expect("separation run")).collect()
+        });
+        let mut sep: Vec<f32> = runs.iter().map(|r| r.separation).collect();
         sep.sort_by(|x, y| x.partial_cmp(y).unwrap());
         let mean = sep.iter().sum::<f32>() / sep.len().max(1) as f32;
-        let pa = runs.iter().map(|r| r.1).min().unwrap_or(0);
-        let pb = runs.iter().map(|r| r.2).min().unwrap_or(0);
-        println!("{:>5.1}/{:<5.1} {mean:>10.1} {:>4.1}..{:<4.1} {:>10}+{:<5}", a, b, sep[0], sep[sep.len() - 1], pa, pb);
+        let pa = runs.iter().map(|r| r.placed_a).min().unwrap_or(0);
+        let pb = runs.iter().map(|r| r.placed_b).min().unwrap_or(0);
+        let fw = runs.iter().map(|r| r.litter_seeded).min().unwrap_or(0);
+        let fe = runs.iter().map(|r| r.corpse_seeded).min().unwrap_or(0);
+        println!("{:>5.1}/{:<5.1} {mean:>10.1} {:>4.1}..{:<4.1} {:>10}+{:<5} {:>8}+{:<5}", a, b, sep[0], sep[sep.len() - 1], pa, pb, fw, fe);
     }
 }
 
@@ -1181,11 +1192,14 @@ fn diet_sweep(seeds: u64, frames: usize) {
 const DIET_FOOD_COLUMNS: i32 = 104;
 const DIET_FOOD_DEPTH: i32 = 1;
 
-/// One paired run of the survival sweep. Returns the run's `Sample` plus
-/// the corpse cells still standing at the end — the "was the meat actually
+/// One paired run of the survival sweep. Returns the run's `Sample`, the
+/// corpse cells still standing at the end — the "was the meat actually
 /// there" counter, because a mixed arm whose carrion rotted or sank in the
-/// first thousand frames is a litter arm wearing the wrong label.
-fn diet_one(bias: f32, carrion: bool, frames: usize, seed: u64) -> (Sample, usize) {
+/// first thousand frames is a litter arm wearing the wrong label — and the
+/// food columns actually seeded, because `world.is_empty` refuses a water
+/// cell and a bank the scene silently failed to seed is the same trap as
+/// ants the scene silently failed to place.
+fn diet_one(bias: f32, carrion: bool, frames: usize, seed: u64) -> (Sample, usize, i32) {
     let (mut world, surface_at) = diet_scene(seed);
     let (w, h) = (512i32, 160i32);
     // **Ants before food.** The first run of this harness seeded the floor
@@ -1221,13 +1235,23 @@ fn diet_one(bias: f32, carrion: bool, frames: usize, seed: u64) -> (Sample, usiz
     }
     let sample = diet_meter(&mut world, &surface_at, frames, &placed_ids);
     let corpse_end = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == corpse).count();
-    (sample, corpse_end)
+    (sample, corpse_end, placed_food)
+}
+
+/// One separation run's readings — named fields because a 5-tuple of
+/// counts is how a spawn-layout number gets quoted under the wrong label.
+struct SeparationRun {
+    separation: f32,
+    placed_a: usize,
+    placed_b: usize,
+    litter_seeded: usize,
+    corpse_seeded: usize,
 }
 
 /// The separation control: cohort A (gut `bias_a`) interleaved with cohort
 /// B (`bias_b`) in the middle of the map, plant food banked to the west,
-/// meat to the east. Returns (separation, placed A, placed B).
-fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> (f32, usize, usize) {
+/// meat to the east.
+fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> SeparationRun {
     let (mut world, surface_at) = diet_scene(seed);
     let w = 512i32;
     // Cohorts first (see `diet_one` — food on the spawn cells reads as a
@@ -1237,16 +1261,19 @@ fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> (f32, 
     let litter = world.materials.id_of("litter").expect("litter");
     let corpse = world.materials.id_of("corpse").expect("corpse");
     let worth = world.materials.get(litter).food_energy;
+    let (mut litter_seeded, mut corpse_seeded) = (0usize, 0usize);
     for x in (30..190).step_by(3) {
         let y = surface_at[x as usize] - 1;
         if y >= 1 && world.is_empty(x, y) {
             world.set(x, y, Cell::new(litter, 0));
+            litter_seeded += 1;
         }
     }
     for x in (330..490).step_by(3) {
         let y = surface_at[x as usize] - 1;
         if y >= 1 && world.is_empty(x, y) {
             world.set(x, y, Cell::new(corpse, 2).with_aux(worth.round() as u16));
+            corpse_seeded += 1;
         }
     }
     let ant_material = world.materials.id_of("ant").expect("ant");
@@ -1284,7 +1311,13 @@ fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> (f32, 
             sep_n += 1.0;
         }
     }
-    ((sep_sum / sep_n.max(1.0)) as f32, cohorts[0].len(), cohorts[1].len())
+    SeparationRun {
+        separation: (sep_sum / sep_n.max(1.0)) as f32,
+        placed_a: cohorts[0].len(),
+        placed_b: cohorts[1].len(),
+        litter_seeded,
+        corpse_seeded,
+    }
 }
 
 /// The shared scene: wetland at `seed`, nest, two trees grown through the
