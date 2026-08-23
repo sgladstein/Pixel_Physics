@@ -412,6 +412,19 @@ fn pin_sheet_light(args: &Args) -> bool {
     pin
 }
 
+/// The grown stand the three gnome scenes share, with the two axes that
+/// vary it exposed.
+///
+/// One builder rather than three copies, for the reason `common::mod`
+/// already records: two scenes that drift apart is the failure that module
+/// exists to end. See `"wood"` for why a gnome case must be sweepable at
+/// all.
+fn gnome_stand(args: &Args) -> World {
+    let base = common::PlantScene::default();
+    let plants = if args.plants > 0 { args.plants } else { base.trees };
+    common::PlantScene { trees: plants, start_frame: args.frame0, ..base }.build()
+}
+
 fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     // Set before the scene is built, because several scenes cut into the
@@ -1228,8 +1241,21 @@ fn build(args: &Args) -> World {
         // gnome standing against a trunk and a gnome standing in one are
         // the same few pixels at contact-sheet zoom, and the difference
         // between them is the entire change.
+        //
+        // **It honours `plants=` and `frame0=`, and that is the guard's
+        // point rather than a convenience.** A gnome case over a *grown*
+        // stand is a guard over a procedural system, and `CLAUDE.md`'s
+        // rule is that such a guard has to sweep the procedure or it is
+        // blind by construction. `PlantScene` takes no seed, so the two
+        // axes that actually redraw the stand are the tree count and the
+        // start frame -- the latter because `weather::at` is a pure
+        // function of `(seed, frame)`, so a different window grows the
+        // stand under different rain and leaves the litter and spilled
+        // soil lying differently. Sweep them and read the **min** across
+        // runs, never one run: measured over six start frames the same
+        // build spanned 47 to 357 cells travelled.
         "wood" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1239,7 +1265,7 @@ fn build(args: &Args) -> World {
         // shoved up there by the depenetration pass are the same few pixels
         // at this zoom, and only a number separates them.
         "climb" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1248,7 +1274,7 @@ fn build(args: &Args) -> World {
         // `shake_shed` is graded by shade, so a healthy stand is *supposed*
         // to drop very little.
         "shake" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1942,6 +1968,10 @@ struct Args {
     /// so a harness that could not vary it could not show the difference
     /// between "you cannot dig" and "rock simply goes".
     dig_yield: f32,
+    /// `shoulder=N` -- the gnome's `shoulder_grains`, for sweeping how many
+    /// loose grains above the wade line he pushes past. 0 is the old veto,
+    /// under which one stray soil cell in a canopy was an impassable wall.
+    shoulder_grains: u8,
     /// `species=` -- which species `scene=grove` plants (tree, conifer,
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
@@ -2457,6 +2487,7 @@ fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
+        shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
         seed: 1,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
@@ -2537,6 +2568,7 @@ fn parse() -> Args {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
+            "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
             "species" => a.species = v.into(),
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
@@ -3144,7 +3176,7 @@ const WOOD_WALK_FROM: usize = 6000;
 const CLIMB_WALK_TICKS: usize = 60;
 
 impl Gnome {
-    fn for_scene(scene: &str, dig_yield: f32) -> Self {
+    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8) -> Self {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
@@ -3157,7 +3189,7 @@ impl Gnome {
         };
         Self {
             script,
-            tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
+            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, ..Default::default() },
             bites: 0,
             start_x: None,
             grabbed: false,
@@ -3249,10 +3281,18 @@ impl Gnome {
             self.start_x = world.player.as_ref().map(|p| p.x);
         }
         if self.script == Script::Shake && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
-            let target = world
-                .player
-                .as_ref()
-                .and_then(|p| player::shake_target(world, p, (WIDTH, 190), &tuning));
+            // **Pointed at, not merely toward.** This aimed at the far
+            // right edge of the world, which worked while the shake walked
+            // a ray out from the gnome and took the first living thing on
+            // it -- and stopped working the moment it started taking what
+            // the cursor is actually on. Zero shakes, zero shed, off a
+            // stand full of trees.
+            //
+            // His own centre is the honest aim for this script: he walks
+            // through trees, so when he is standing in one the cursor on
+            // himself is a cursor on it, and when he is not, it is not and
+            // he keeps walking. That is exactly what the scene is for.
+            let target = world.player.as_ref().and_then(|p| player::shake_target(world, p, p.center(), &tuning));
             if let Some(at) = target {
                 self.grabbed = true;
                 let shaken = world.get(at.0, at.1).organism_id();
@@ -4168,7 +4208,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     if let Some(v) = args.smoke {
         blasts.tuning.smoke_fraction = v;
     }
-    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
+    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
