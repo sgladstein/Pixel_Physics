@@ -168,7 +168,7 @@ fn main() {
         return;
     }
     if where_mode {
-        report_where(params, seeds, w, h, frames, window, at, focus);
+        report_where(params, seeds, w, h, frames, &WhereOpts { window, at, focus });
         return;
     }
     if mix {
@@ -325,7 +325,19 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
 /// point a camera — and, with `at=X`, what a window you have already
 /// rendered actually contained. Check the second before believing a card and
 /// use the first before shooting one.
-fn report_where(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32, frames: usize, window: i32, at: Option<i32>, focus: Option<String>) {
+/// How the camera-pointing report is aimed: how wide the shot is, an
+/// already-rendered window to audit, and a single species to rank windows
+/// for. One struct rather than three more parameters -- these three are one
+/// question ("which frame") and travel together.
+struct WhereOpts {
+    window: i32,
+    at: Option<i32>,
+    focus: Option<String>,
+}
+
+fn report_where(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32, frames: usize, opts: &WhereOpts) {
+    let WhereOpts { window, at, focus } = opts;
+    let (window, at) = (*window, *at);
     for seed in 1..=seeds as u64 {
         let mut world = World::new(Rect::new(0, 0, w, h));
         worldgen::generate(&mut world, Spec::Generated { params, seed });
