@@ -1,0 +1,53 @@
+{
+  "id": "20260823T050006307Z-da107a",
+  "created": "2026-08-23T05:00:06Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "10f4285",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Terrain depth grade: keep it or drop it, now the seam is gone",
+  "question": "Which of these two reads better as a world? One is what ships today, one has the terrain depth grade switched off entirely.",
+  "context_md": "**Re-asking, because the card you answered is stale.** You said *\"I think I prefer 2\"* on the seam card — but that card's pane 1 was the version **with the vertical seam still in it**, since I posted it before you said go. Pane 2 was the depth grade switched off entirely, which removes the seam *and* the grade. So a vote for 2 might have been a vote against the seam rather than against the grade, and there is no way to tell from that card.\n\nThe seam is fixed and pushed now. This is the honest comparison: **today's build against the grade turned off**. Wide strips rather than the narrow crop last time, because a crop cannot show what the grade is for.\n\n### The performance question you asked\n\nInterleaved, three rounds, mean of ten full redraws each:\n\n| | draw |\n|---|---|\n| grade on | 15.30 / 15.23 / 15.37 ms |\n| grade off | 14.74 / 14.80 / 15.03 ms |\n\n**~0.44 ms of a 15.3 ms full redraw, about 3%** — and nothing at all on a settled frame, since neither one redraws. It is not a performance lever worth pulling on its own. If you want it off, want it off because it looks better.\n\n### What the grade is for, so dropping it is a decision and not a slip\n\nIt exists because the 2026-08 world review called the missing vertical light axis its **single most consistent graphics finding**: deep rock drew at identical brightness to surface rock, so the lower half of every strip read as *flat wallpaper — a finished sky over an unlit cutaway*. `DEPTH_LIGHT_RAMP_ROWS` is 64 rows and the floor is 0.62 rather than black precisely so the strata banding stays legible at depth, which the same review called the one landscape feature that was a genuine win.\n\nSo turning it off returns to the state that review complained about. That may still be the right call — the strata *are* more legible without it, which is visible in these strips — but it is worth making on purpose.\n\n### On the playtest\n\nOne keypress: **F10** cycles the grade live in the app, and the HUD names the mode while it is not the default. No build needed.\n\nBlind, because I would keep it and should not be the one judging.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "grade on — today's build, seam fixed",
+      "files": [
+        "20260823T050006307Z-da107a/000-grade_on.png"
+      ],
+      "caption": "Surface band bright, rock darkening over a viewport of descent to a 0.62 floor.",
+      "meta": {
+        "seed": 1,
+        "draw": "15.30 ms mean",
+        "vertical light axis": "present"
+      },
+      "focus": null
+    },
+    {
+      "label": "grade off (F10)",
+      "files": [
+        "20260823T050006307Z-da107a/001-grade_off.png"
+      ],
+      "caption": "Uniform brightness top to bottom; strata more legible at depth, no depth cue.",
+      "meta": {
+        "seed": 1,
+        "draw": "14.74 ms mean",
+        "vertical light axis": "none"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
