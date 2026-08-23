@@ -2419,6 +2419,39 @@ each small enough to sit inside the licence. **A default measured against
 the wrong base is not measured.** The seed sweep and the acceptance run
 that said TIGHT was safe were both honest and both stale by 58 commits.
 
+#### A concurrent branch caught a number whose provenance I had not stated
+
+Relayed from the agent on `load-share-rescue`: they measured **41-47**
+failing cells at TIGHT on `scene=room` where this branch reported **238**,
+and guessed the cause without seeing the diff -- *"could be their D1 extents
+changing what's `within_disturbance`"*. Correct, and reproduced exactly:
+`scene=room` builds its walls with `paint_capsule_as`, and D1's brush fix
+records a disturbance per structural cell written, so constructing the room
+blankets its own walls with licences. Suppressing that one call measures
+**41** cells. Their number and mine are the same measurement of two
+different trees.
+
+The roofed void is **100% in both**, so the conclusion does not move -- but
+"238" was reported as a property of the scene when it is a property of this
+branch. **A number carries the tree it was measured on**, and a
+cross-branch comparison is where that surfaces, which is an argument for
+making the comparison rather than assuming a shared baseline.
+
+They also reported that the load-concentration fix does *not* rescue TIGHT
+-- with sharing on, the rule fires hard (21,540 cell-evaluations moved) and
+TIGHT still leaves the void unchanged. The two mechanisms are orthogonal:
+sharing decides which cells reach the failure criterion, the reach leash
+decides how far a failure may travel from a disturbance. So this is not a
+load-model artifact a better model clears up.
+
+One thing to carry: their port (`5e6e79b`) moves the SPREAD baseline from
+1,975 to 2,733 failing cells. It is on `origin/load-share-rescue`, **not on
+`main`**, so every figure here is correct against the base this branch
+targets -- and every TIGHT-vs-SPREAD number in this entry will need
+re-measuring the day that lands. Checked rather than assumed: `git
+merge-base --is-ancestor` says no, and this branch is 0 commits behind
+`origin/main`.
+
 #### Main had already written this bug down, and deferred it
 
 `Reports/open-bugs-handoff.md` D1, from the explosion branch: *"The brush

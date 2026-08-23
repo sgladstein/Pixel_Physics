@@ -3929,6 +3929,15 @@ pub const CHAIN_WINDOW_FRAMES: u64 = 600;
 ///   SPREAD               1,975                19%
 /// ```
 ///
+/// **The 238 is this branch's own number and is worth reading correctly.**
+/// `scene=room` builds its walls with `paint_capsule_as`, and D1's brush
+/// fix records a disturbance per structural cell written -- so constructing
+/// the room blankets its own walls with licences. With that suppressed the
+/// same run measures **41** cells. Both leave the roofed void at 100%: the
+/// brush fix makes TIGHT strictly better here and nowhere near enough,
+/// which is why it does not change the conclusion. Reconciled against a
+/// concurrent branch that measured 41-47 and correctly guessed the cause.
+///
 /// At TIGHT the room does not come down at all. The reason is geometric
 /// and is not a bug: `licence_radius` is `chain_reach + extent`, a
 /// radius-3 chisel's extent is 5, and the ceiling of a 200-wide room fails
