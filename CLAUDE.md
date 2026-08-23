@@ -706,13 +706,24 @@ consider it at all.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
-- **Editing an asset `.ron` does nothing until the next build.** Materials
-  and species are compiled into the binary via `include_str!`; only the
-  app's F5 reload reads the directory, and headless harnesses do not. A
-  sweep that edits `tree.ron` and re-runs a prebuilt example produces
-  bit-identical "runs" — three of them, once, before anyone noticed the
-  knob was not connected. Identical output across settings is the tell;
-  rebuild between sweep points.
+- **Editing an asset `.ron` does nothing until the next build — except for
+  `worldgen.ron`, which is live.** The two load by different mechanisms and
+  this bullet used to say only the first half. **Materials and species** are
+  compiled in via `include_str!` (`material.rs` lists each file), so an edit
+  needs a rebuild: a sweep that edits `tree.ron` and re-runs a prebuilt
+  example produces bit-identical "runs" — three of them, once, before anyone
+  noticed the knob was not connected. Identical output across settings is the
+  tell; rebuild between sweep points.
+
+  **`assets/worldgen.ron` is `std::fs::read_to_string` at every call to
+  `WorldgenPresets::load()`** (`params.rs`), falling back to the compiled
+  default only if the read fails. So every harness, every test and every run
+  picks it up immediately, with no rebuild. That is convenient for a preset
+  sweep and it is a hazard the other way round: **a stray edit left in
+  `worldgen.ron` silently changes every subsequent run, including the test
+  suite**, with nothing in the build output to say so. Restore it before you
+  measure anything else, and check `git status` if a number moves for no
+  reason you can name.
 - **`cargo build --release` does not rebuild the examples**, and every
   measurement in this repo comes out of an example. It builds the lib and the
   bin; `--examples` builds them all, `--example NAME` builds one — and a
