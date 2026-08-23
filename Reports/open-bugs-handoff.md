@@ -3961,6 +3961,59 @@ cause. Not the same root as §L: springs place zero in the foraging scene's
 world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
 springs-pass lead above is untouched by §L's fix.
 
+### Q. `filmstrip scene=colony` panics at its own default seed, and degrades badly at others — **OPEN, found 2026-08-23 (WP-9 arm 1)**
+
+The scene every colony review card is rendered from cannot be run without a
+`seed=` argument, and where it does run it mostly does not place a colony.
+
+**Reproduction.** One release binary built from this branch, `scene=colony`
+with nothing else varied:
+
+```
+./target/release/examples/filmstrip scene=colony genome=authored seed=N \
+    start=1200 every=3600 count=1 cols=1 zoom=2 out=/tmp/p.png
+```
+
+| `seed=` | result |
+|---|---|
+| **1 — the default (`filmstrip.rs:2580`)** | **panics**, `filmstrip.rs:1461`, `.expect("some dry ground")` |
+| 0 | 13 of 52 ants placed |
+| 2 | 35 of 52 |
+| 3 | **2 of 52** |
+| 7 | 22 of 52 |
+
+So `filmstrip scene=colony` with no `seed=` is a panic, which is the form
+anyone reaches for first and the form the scene's own doc comment above it
+suggests.
+
+**Two distinct faults, and the second is the dangerous one.**
+
+1. The `.expect("some dry ground")` at `:1461` is the outer search failing:
+   no column in `102..WIDTH-102` has a dry surface. The scene was *already*
+   softened once for this — its own comment records "on a wetland seed there
+   may be no unbroken 200-cell beach, and demanding one made the scene panic
+   rather than degrade" — and it is panicking again from the same place, so
+   the previous softening addressed the inner window and not this.
+2. **`assert!(placed > 0)` is not the guard it reads as.** At seed 3 it
+   passes with **2 ants**, and a two-ant "colony scene" is exactly the
+   *scene-lost-the-situation* failure `CLAUDE.md` warns about: the render
+   looks plausible, the assertion is green, and the picture is not of a
+   colony. A guard on a colony scene should bar on a fraction of
+   `COLONY_ANTS` (52), not on zero.
+
+**Why it matters beyond the scene.** This is the harness a judge-by-eye
+verdict on colony behaviour is produced from. WP-9's founded-colony A/B card
+(`20260823T180052569Z-c73d21`) had to be shot at `seed=2` for exactly this
+reason, and 35 of 52 ants is the *best* of the seeds tried — so the card the
+owner judged shows a colony a third short of a founded one. That is stated on
+the card, but the honest fix is in the scene.
+
+**Not caused by the creature work.** The panic is in the dry-ground search,
+which runs *before* `found_colony` places anything, and reproduces with
+`climbs_over_kin` in either state. Terrain, not animals. It is plausibly
+downstream of §L's rock-country fallback widening, which changed fallback
+terrain — but that is a lead, not a measurement, and nobody has bisected it.
+
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 
 **Root cause, found by looking at the scene, exactly as the bisect predicted.**
