@@ -412,6 +412,19 @@ fn pin_sheet_light(args: &Args) -> bool {
     pin
 }
 
+/// The grown stand the three gnome scenes share, with the two axes that
+/// vary it exposed.
+///
+/// One builder rather than three copies, for the reason `common::mod`
+/// already records: two scenes that drift apart is the failure that module
+/// exists to end. See `"wood"` for why a gnome case must be sweepable at
+/// all.
+fn gnome_stand(args: &Args) -> World {
+    let base = common::PlantScene::default();
+    let plants = if args.plants > 0 { args.plants } else { base.trees };
+    common::PlantScene { trees: plants, start_frame: args.frame0, ..base }.build()
+}
+
 fn build(args: &Args) -> World {
     let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
     // Set before the scene is built, because several scenes cut into the
@@ -419,6 +432,7 @@ fn build(args: &Args) -> World {
     // cut as much as for the run that follows it.
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
+    w.section_share = args.share;
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
     }
@@ -1227,8 +1241,21 @@ fn build(args: &Args) -> World {
         // gnome standing against a trunk and a gnome standing in one are
         // the same few pixels at contact-sheet zoom, and the difference
         // between them is the entire change.
+        //
+        // **It honours `plants=` and `frame0=`, and that is the guard's
+        // point rather than a convenience.** A gnome case over a *grown*
+        // stand is a guard over a procedural system, and `CLAUDE.md`'s
+        // rule is that such a guard has to sweep the procedure or it is
+        // blind by construction. `PlantScene` takes no seed, so the two
+        // axes that actually redraw the stand are the tree count and the
+        // start frame -- the latter because `weather::at` is a pure
+        // function of `(seed, frame)`, so a different window grows the
+        // stand under different rain and leaves the litter and spilled
+        // soil lying differently. Sweep them and read the **min** across
+        // runs, never one run: measured over six start frames the same
+        // build spanned 47 to 357 cells travelled.
         "wood" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1238,7 +1265,7 @@ fn build(args: &Args) -> World {
         // shoved up there by the depenetration pass are the same few pixels
         // at this zoom, and only a number separates them.
         "climb" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1247,7 +1274,7 @@ fn build(args: &Args) -> World {
         // `shake_shed` is graded by shade, so a healthy stand is *supposed*
         // to drop very little.
         "shake" => {
-            let mut world = common::PlantScene::default().build();
+            let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
         }
@@ -1987,6 +2014,10 @@ struct Args {
     /// so a harness that could not vary it could not show the difference
     /// between "you cannot dig" and "rock simply goes".
     dig_yield: f32,
+    /// `shoulder=N` -- the gnome's `shoulder_grains`, for sweeping how many
+    /// loose grains above the wade line he pushes past. 0 is the old veto,
+    /// under which one stray soil cell in a canopy was an impassable wall.
+    shoulder_grains: u8,
     /// `species=` -- which species `scene=grove` plants (tree, conifer,
     /// shrub). The grove is the shape harness, and Phase 2's whole point
     /// is that different species are different *shapes*.
@@ -2109,6 +2140,27 @@ struct Args {
     /// the one under test has to be held constant (`CLAUDE.md`: a channel
     /// that oscillates by design must be divided out of decisions).
     daylight: Option<f32>,
+    /// `channel=stress` -- repaint the sheet with `load::evaluate`'s stress
+    /// ratio, the same green-to-red ramp the app draws on `N`.
+    ///
+    /// Not one of `render.rs`'s overlays because it is not a stored channel:
+    /// it is the *output* of the model under test, and it has to be computed
+    /// here. It exists because the load-concentration defect is literally
+    /// visible -- a one-pixel red line down an otherwise green wall -- and
+    /// arguing about it from a mass probe takes an afternoon that one glance
+    /// settles.
+    ///
+    /// **A full replace, not a blend**, per `CLAUDE.md`: the app blends at
+    /// 0.55 into the cell's own colour, which is fine on a live screen you
+    /// can toggle and unreadable at the zoom a contact sheet is read at --
+    /// grey stone under a 45% green wash is grey stone.
+    ///
+    /// And **"not evaluated" gets its own colour** (dark blue) rather than
+    /// falling through to the material. It is a third state, not a low
+    /// stress, and conflating it with green is exactly how a model that
+    /// never looks at 15 cells of a 17-cell wall reads as "the wall is
+    /// fine".
+    stress: bool,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2467,6 +2519,10 @@ struct Args {
     /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
     /// whole column above it again. The control for the arching change.
     arch: bool,
+    /// `share=0` -- turn off `World::section_share`, so each cell is judged
+    /// on its own load path again. The control for the load-concentration
+    /// change, and the only way to see the one-pixel red line come back.
+    share: bool,
     /// `chain_reach=N` -- how far from something actually disturbed a
     /// failure may happen, in cells. Unset means no limit, the shipped
     /// behaviour. `0` is "only what you struck ever fails".
@@ -2523,6 +2579,7 @@ fn parse() -> Args {
     let mut a = Args {
         scene: "pour".into(),
         dig_yield: pixel_physics::sim::player::Tuning::default().dig_yield,
+        shoulder_grains: pixel_physics::sim::player::Tuning::default().shoulder_grains,
         seed: 1,
         species: "tree".into(),
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
@@ -2547,6 +2604,7 @@ fn parse() -> Args {
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         daylight: None,
+        stress: false,
         gif: false,
         explosions: Vec::new(),
         blasts: Vec::new(),
@@ -2577,6 +2635,7 @@ fn parse() -> Args {
         max_rock_above: None,
         confine: true,
         arch: true,
+        share: true,
         chain_reach: None,
         joint_spacing: None,
         joint_bands: None,
@@ -2604,6 +2663,7 @@ fn parse() -> Args {
             "scene" => a.scene = v.into(),
             "seed" => a.seed = v.parse().expect("seed"),
             "yield" => a.dig_yield = v.parse().expect("yield"),
+            "shoulder" => a.shoulder_grains = v.parse().expect("shoulder"),
             "species" => a.species = v.into(),
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
@@ -2686,8 +2746,9 @@ fn parse() -> Args {
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
+                "stress" => a.stress = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress"
                 ),
             },
             "daylight" => {
@@ -2726,6 +2787,7 @@ fn parse() -> Args {
             }
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
+            "share" => a.share = v != "0" && v != "false",
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "joints" => a.joint_spacing = Some(v.parse().expect("joints=<spacing in cells>")),
             "bands" => a.joint_bands = Some(v.parse().expect("bands=<grain contrast 0..0.9>")),
@@ -3220,7 +3282,7 @@ const WOOD_WALK_FROM: usize = 6000;
 const CLIMB_WALK_TICKS: usize = 60;
 
 impl Gnome {
-    fn for_scene(scene: &str, dig_yield: f32) -> Self {
+    fn for_scene(scene: &str, dig_yield: f32, shoulder_grains: u8) -> Self {
         let script = match scene {
             "tunnel" => Script::Tunnel,
             "bury" => Script::Bury,
@@ -3233,7 +3295,7 @@ impl Gnome {
         };
         Self {
             script,
-            tuning: pixel_physics::sim::player::Tuning { dig_yield, ..Default::default() },
+            tuning: pixel_physics::sim::player::Tuning { dig_yield, shoulder_grains, ..Default::default() },
             bites: 0,
             start_x: None,
             grabbed: false,
@@ -3325,10 +3387,18 @@ impl Gnome {
             self.start_x = world.player.as_ref().map(|p| p.x);
         }
         if self.script == Script::Shake && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
-            let target = world
-                .player
-                .as_ref()
-                .and_then(|p| player::shake_target(world, p, (WIDTH, 190), &tuning));
+            // **Pointed at, not merely toward.** This aimed at the far
+            // right edge of the world, which worked while the shake walked
+            // a ray out from the gnome and took the first living thing on
+            // it -- and stopped working the moment it started taking what
+            // the cursor is actually on. Zero shakes, zero shed, off a
+            // stand full of trees.
+            //
+            // His own centre is the honest aim for this script: he walks
+            // through trees, so when he is standing in one the cursor on
+            // himself is a cursor on it, and when he is not, it is not and
+            // he keeps walking. That is exactly what the scene is for.
+            let target = world.player.as_ref().and_then(|p| player::shake_target(world, p, p.center(), &tuning));
             if let Some(at) = target {
                 self.grabbed = true;
                 let shaken = world.get(at.0, at.1).organism_id();
@@ -3777,6 +3847,41 @@ fn describe_afloat(world: &World) -> Vec<String> {
     out.into_iter().map(|(_, line)| line).collect()
 }
 
+/// Repaint `frame` with the load model's own verdict, cell by cell.
+///
+/// Three states, deliberately, because the model has three: material this
+/// model has an opinion about (the green-to-red ramp), material it declines
+/// to evaluate (dark blue), and no material at all (near-black). The middle
+/// one is not cosmetic -- `is_structurally_interesting` skips anything
+/// buried, so the inside of a thick wall is never load-tested, and painting
+/// it the same green as "evaluated and fine" would hide the very thing this
+/// channel was added to look at.
+///
+/// One shared `Cache` for the whole screen, for the reason
+/// `load::evaluate_with_cache` documents: per-cell caches make this
+/// O(region x subtree) and it is drawn over a whole world.
+fn paint_stress(world: &World, frame: &mut [u8]) {
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    let mut budget = u32::MAX;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let colour = match pixel_physics::sim::load::evaluate_with_cache(world, x, y, &mut cache, &mut budget) {
+                // The app's ramp exactly (`App::draw_stress_overlay`), so
+                // what a sheet shows and what the owner sees on `N` are the
+                // same picture -- at alpha 1.0 rather than 0.55.
+                Some(l) => {
+                    let ratio = l.stress().clamp(0.0, 1.0);
+                    [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255]
+                }
+                None if world.get(x, y).material == material::EMPTY => [12, 12, 16, 255],
+                None => [30, 40, 90, 255],
+            };
+            let dst = (((y * WIDTH) + x) * 4) as usize;
+            frame[dst..dst + 4].copy_from_slice(&colour);
+        }
+    }
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -4221,7 +4326,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     if let Some(v) = args.smoke {
         blasts.tuning.smoke_fraction = v;
     }
-    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
+    let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
@@ -4282,6 +4387,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+            if args.stress {
+                paint_stress(&world, &mut frame);
+            }
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
             blit_tile(&mut tile, tile_w, (0, 0), &frame, args.crop, args.zoom);
@@ -4463,6 +4571,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         let drew = std::time::Instant::now();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
         worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
+        if args.stress {
+            paint_stress(&world, &mut frame);
+        }
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
         blit_tile(&mut sheet, sheet_w, (gx * (tile_w + gap), gy * (tile_h + gap)), &frame, args.crop, args.zoom);
@@ -5111,6 +5222,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             world.decayed_damp,
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
+        );
+        // **How much of the failure became grit rather than pieces.** The
+        // mean region size cannot answer this and was misread as answering
+        // it -- see `FailureCounts::crumbled`.
+        let failed_cells = f.overloaded_cells + f.unsupported_cells;
+        println!(
+            "    crumbled to grit (region < MIN_FRACTURE_CELLS): {} regions, {} cells of {} failed ({:.0}%)",
+            f.crumbled,
+            f.crumbled_cells,
+            failed_cells,
+            if failed_cells == 0 { 0.0 } else { 100.0 * f.crumbled_cells as f64 / failed_cells as f64 }
+        );
+        // **Did the section rule fire at all**, printed next to the image
+        // rather than inferred from it. A review of that rule caught the
+        // report offering "identical to the cell on terrain" as evidence it
+        // was safe there, which is equally what a rule that never ran
+        // produces. `moved` is the number that answers it -- see
+        // `load::ShareCounts`.
+        let sh = world.load_cache.shares;
+        println!(
+            "    section share: {} columns, {} in a member, {} actually moved, {} too wide to tell",
+            sh.columns, sh.members, sh.moved, sh.too_wide
         );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.

@@ -15,6 +15,43 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 stone branch. Numbered apart because `0`, `0b`, `0c` and `0d` below are
 worldgen's and were here first.
 
+### C1. A forest-floor bank is a wall the gnome has no way over
+
+Found while fixing the scattered-grain half of the same symptom (that half
+is fixed; see `Tuning::shoulder_grains`). At the worst of six `scene=wood`
+start windows the gnome stops for good at x=59 with `grounded=true`,
+`wading=true`, `lift_limit=4` and **no `Footing::Hard` cell anywhere in the
+rect he is trying to enter** — the blocker is loose soil in the forest
+floor, five cells abreast at chest height.
+
+That is the wade model meeting terrain it cannot express a way over.
+`wade_rows` lets powder reach the knee and no higher, and `step_up` mounts
+a *ledge* — it asks `rect_free` at a lifted position, which a tall powder
+face fails at every lift. So he can neither wade through a bank nor climb
+onto it, and a forest floor that piles above knee height is terminal
+wherever it spans his width.
+
+**Measured, so the gap is visible rather than argued.** Cells travelled in
+the 600 ticks after he sets off, over six start frames, at the shipped
+`shoulder_grains: 4`: 357, 50, 161, 358, 264, 134. Acceptance case 8 gates
+200 at `frame0=0` (357, green); case 8b gates 40 at the worst window
+(`frame0=3600`, 50), and the gap between 40 and 200 is this bug.
+
+Not attempted, and each wants measuring before it is believed:
+
+- **Let him mount powder.** Treat a powder surface as steppable, so
+  step-up can climb a bank the way it climbs rubble. Closest to what a
+  player expects; the risk is that it also lets him walk up the face of a
+  drift, which is the thing `wade_rows` exists to stop.
+- **Displace the grains.** He has `displace_disc` for digging already, but
+  `player::step` is documented as reading the grid and never writing it —
+  the ghost contract — so this is an architectural change, not a tweak.
+- **Ask whether the floor should pile this deep at all.** The banks are new
+  with main's litter and forest-floor work; the model may be right and the
+  world wrong. Cheapest to check first.
+
+---
+
 ### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
 
 `World::record_disturbance` has exactly three production callers —
@@ -835,7 +872,42 @@ land claiming to be food. `rigid.rs`'s `BodyCell` has the same shape and is
 **not** a bug: it only ever holds `Solid`/`Plant`, and its `aux = 0` is
 deliberate so a landing body does not silently re-attach.
 
-### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, 2026-08-23**
+### Y. ~~The gnome cannot get through the wood~~ — **FIXED 2026-08-23: one grain of soil was a wall**
+
+> **RESOLVED, and the litter attribution below was a correlate rather than
+> the cause.** `wood` now travels **357** cells against its bar of 200, on
+> the merged build. The mechanism, found by instrumenting the rejection
+> rather than reasoning about it:
+>
+> `rect_free` vetoed **any** powder above the wade line — a claim about
+> walking into a drift, applied per cell. At the stuck frame the gnome was
+> `grounded`, `lift_limit=4`, step-up working, and the rect he was trying
+> to enter held **exactly one blocker**: a single `soil` cell at
+> (108,194). Step-up could not clear it either, because lifting slides the
+> offender *down* his body toward the wade rows, so a grain at `dy` wants a
+> lift of `chest - dy` — this one sat at `dy` 5 wanting 5, against a
+> `step_up` of 4. One row lower and nobody would ever have seen it.
+>
+> **This is why the two measurements below disagreed.** `litter.ron` has
+> `decays_into: "soil"`, so shed foliage rots into a `Powder` and leaves
+> loose grains scattered through and under the canopy. Disabling
+> `shed_to_litter` bought 118 cells because it removed the *source* of
+> those grains; `Material::insubstantial` bought exactly 0 because litter
+> was never the blocker — the soil it rots into is. Both numbers were
+> right and the attribution between them was not, and the entry's closing
+> guess (tree architecture) was wrong.
+>
+> Fixed by counting powder **per row** instead of vetoing per rect
+> (`Tuning::shoulder_grains`, 4 from a sweep over six start windows,
+> confirmed by a blind A/B). A scatter is one or two cells in each of
+> several rows; a drift's face is whole courses across his width, and still
+> stops him at every setting the panel offers.
+>
+> **The bar was sound and is untouched.** What replaced the quarantine is
+> case `8b`, which runs the worst-grown stand and gates 40 against a
+> measured 50 — see bug C1 for the residual, which is a different mechanism
+> and still open.
+
 
 > **UPDATE 2026-08-23, measured on the `creatures-m18` merge: the 34 below
 > no longer reproduces, and the litter attribution under it is now wrong.**
@@ -2882,6 +2954,51 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 `smoke=0` control: 1 body / 10 cells in flight at frame 80 against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
+
+### L. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed — **OPEN, pre-existing on `main`, 2026-08-23**
+
+`CLAUDE.md` lists same-build determinism as **required**. It does not hold on
+the scene the seed sweep is built out of.
+
+**Reproduction.** One release binary, five identical invocations:
+
+```
+./target/release/examples/filmstrip.exe scene=worldcrack preset=canyon seed=3 \
+    strike=12 start=2 every=900 count=5 zoom=1 out=target/filmstrips/d.png
+```
+
+rock destroyed: **837, 1077, 1083, 1083, 1283** — a 53% spread. An independent
+audit got 993–1336 over nine runs, and `RAYON_NUM_THREADS=1` does **not**
+remove it, so it is not rayon work-stealing.
+
+**Pre-existing, ruled out by measurement.** It is not the load-sharing change:
+a clean `origin/main` binary containing none of that code gives rock destroyed
+**37, 37, 81** on three identical runs of the same scene. Sharing amplifies the
+absolute spread (it fails more material, so the chaos has more to work with)
+but does not cause it.
+
+**Not universal.** `terraced 1` returned −1042 on six independent runs. The
+signature is stable on most seeds and unstable on a few — which is the worst
+possible shape, because the unstable ones are the ones carrying the signal, and
+a single-sample grid cannot tell an unstable seed from a real regression.
+
+**Leads, not verified.** Two candidates for a per-process perturbation that
+chaos then amplifies: `structural.rs`'s single per-frame `world.load_budget` is
+drained across all sites, so any ordering change moves which checks come back
+`Deferred`; and `world.rs` builds `body_index` by iterating a
+`std::collections::HashSet<ChunkCoord>`, whose iteration order `RandomState`
+re-seeds **per process**, with `find_body_at` returning the first match in that
+list. Either would give exactly this stable-on-most-seeds picture. Neither has
+been confirmed.
+
+**Why it matters beyond one change.** `seedsweep.sh` is the instrument
+`CLAUDE.md` prescribes for every change to a model over procedural content, and
+the file's own guidance sends cascade comparisons to it. On the seeds that
+actually move, it is currently reading noise at the same magnitude as signal. A
+repeat count per cell (median of N) would make it usable again without fixing
+the root cause, and is much cheaper than finding it.
+
+---
 
 ### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
 
