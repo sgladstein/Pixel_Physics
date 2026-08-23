@@ -344,6 +344,12 @@ world — deliberately: `params.rs` names `arid` and `flat` as the two presets
 that "put the water table past the world floor, so no cliff face can
 intersect it". `flat` is the structural test bed; `arid` is the desert.
 
+It is not an accident anyone can tidy away, either: **there is a test
+guarding it** — `tests/worldgen.rs`'s
+`the_dry_presets_keep_their_table_below_the_world_floor`. So this lever
+begins by deciding to break that guard on purpose, which is the shape of
+thing that should be the owner's call and not an implementer's.
+
 So the decision inside lever (b) is **whether the desert gets a water table
 at all**, which is a worldgen number, not a plant capability. Give it one
 and the depth follows from the existing terms (`table_offset + aridity *

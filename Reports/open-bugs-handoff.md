@@ -1360,9 +1360,12 @@ it comes back.
   desert to reach.** `assets/worldgen.ron`'s `arid` preset sets
   `table_offset: 4000.0` — four thousand cells below the datum, off the
   bottom of the world, deliberately; `params.rs` names `arid` and `flat` as
-  the two presets that put it past the world floor. So the decision inside
-  this lever is a *worldgen* one first — does the desert get a table at all
-  — and only then a root-reach one. Give it one and the existing terms land
+  the two presets that put it past the world floor, and
+  `tests/worldgen.rs`'s `the_dry_presets_keep_their_table_below_the_world_
+  floor` guards it. So this lever begins by deciding to break that guard on
+  purpose: the decision inside it is a *worldgen* one first — does the
+  desert get a table at all — and only then a root-reach one. Give it one
+  and the existing terms land
   it of the order of 90–100 cells down, which is Arc B4's taproot niche:
   **these two decide together.** Second-order: the aquifer-daylighting pass
   is switched *off* for `arid` by that same zero, not absent, so springs and
