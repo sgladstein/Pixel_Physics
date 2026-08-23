@@ -148,6 +148,15 @@ tried?"*.
   implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+- [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
+  **implemented.** Worldgen sows four woody species instead of the
+  hardcoded `"tree"`, by weights over terrain facts that already existed;
+  the palette arithmetic that forced both material palettes longer; and the
+  decision to sow `creeper` while leaving its superseded root knob to
+  lane P. Carries the measured terrain spreads the niche bands were cut
+  from, and **§6 is item B1's answer**: shallow-fibrous against
+  deep-fibrous is reachable on genome slot 5 alone, measured, with the
+  sign of the axis the opposite of the obvious reading.
 
 The genome and appearance set, merged from `plant-substrate-v2` /
 `plant-genome`. Two of its claims did not survive contact with main's
