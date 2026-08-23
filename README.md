@@ -1716,7 +1716,9 @@ sand as though it were stone.
 Built: a summonable character (`U`), in `src/sim/player.rs` — a kinematic
 body over the cell grid, not a rigid-body import. He runs (`A`/`D`), jumps
 with tap-for-hop, hold-for-height (`W`), wades powder slowed in proportion
-to how deep he is in it, swims with a surface-exit window, is buried and
+to how deep he is in it — shouldering past the few loose grains that a
+canopy or a dig leaves at chest height, while a bank several cells abreast
+still stops him — swims with a surface-exit window, is buried and
 digs out, rides a falling chunk body rather than being left behind by it,
 and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
 
@@ -1727,6 +1729,17 @@ water, `F2` spoil) — the "ship a runtime selector rather than choosing"
 convention applied to a character. What he is like to play is
 [`wiki/the-gnome.md`](wiki/the-gnome.md); the build plan he followed is
 `Reports/m9-gnome-character-plan.md`.
+
+**Known limitation:** he cannot get over a bank of loose powder. `wade_rows`
+lets it reach his knee and no higher, and `step_up` mounts a *ledge* — a
+tall powder face fails the same test at every lift — so a forest floor that
+piles above knee height across his width is terminal, and he has to dig
+through or go round. Measured and left visible rather than tuned away:
+acceptance case 8 clears a wood at 357 cells against a bar of 200, while
+case 8b at the worst-grown stand gates 40 against a measured 50. The gap
+between those two bars is this limitation. Bug C1 in
+[`Reports/open-bugs-handoff.md`](Reports/open-bugs-handoff.md) holds the
+numbers and three candidate directions, none attempted.
 
 ## M10 status — the worldgen half
 

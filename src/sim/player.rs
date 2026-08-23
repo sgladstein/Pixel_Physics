@@ -188,6 +188,12 @@ pub struct Tuning {
     /// case, so 4 takes the one with two steps of margin from that edge
     /// rather than one.
     ///
+    /// **Confirmed by playtest, blind**, which is the half a sweep cannot
+    /// answer: the distance is a number, but "does he now look like he is
+    /// cheating through solid ground" is not. Shown against the old veto
+    /// as an unlabelled A/B of the same walk (review card
+    /// `20260823T082002879Z-a61726`), the owner picked this one.
+    ///
     /// 0 restores the old veto exactly, for A/B.
     pub shoulder_grains: u8,
     /// Vertical acceleration in water, as a multiple of `gravity`.
