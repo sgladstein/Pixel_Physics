@@ -1,0 +1,88 @@
+{
+  "id": "20260823T205007532Z-6cd949",
+  "created": "2026-08-23T20:50:07Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/t1-fell-as-pieces",
+    "commit": "bbbd789",
+    "agent": null,
+    "session_id": "1dd924db-c71d-54e9-b304-88330b2df69d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Felling a tree: what comes down, and what it comes down as",
+  "question": "Which of these reads as a tree being destroyed, rather than a tree dissolving? Scrub to the last frame — that is the settled result, and it is the one I am least sure of.",
+  "context_md": "Package T1 of the physical-trees design: the fragment ladder gets a per-material **floor** (wood's smallest piece is 32 cells, not 2), organism tissue floods at **eight** neighbours because that is how ``Grow`` places it, and a felled crown now comes apart into three tiers — **logs** that lie where they fall, **broken wood** that piles, and **leaf litter** over the top.\n\nSame seed, same tree, the same cut severing the same 2,648 cells on both sides. Twelve frames from the moment of the cut (frame 7,150) out to rest (frame 8,750); the last three are widely spaced, so the motion is in the first nine.\n\n**What I already measured**, so you do not have to judge it: the piece counts in each item's meta below. What I cannot measure and am asking you for is whether the *settled* result reads as a fallen tree. My own reading is that it is a lumpy pile with log-coloured masses in it rather than a trunk lying on the ground — the fall is still straight down, since toppling is the next package.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T205007532Z-6cd949/000-main_00.png",
+        "20260823T205007532Z-6cd949/001-main_01.png",
+        "20260823T205007532Z-6cd949/002-main_02.png",
+        "20260823T205007532Z-6cd949/003-main_03.png",
+        "20260823T205007532Z-6cd949/004-main_04.png",
+        "20260823T205007532Z-6cd949/005-main_05.png",
+        "20260823T205007532Z-6cd949/006-main_06.png",
+        "20260823T205007532Z-6cd949/007-main_07.png",
+        "20260823T205007532Z-6cd949/008-main_08.png",
+        "20260823T205007532Z-6cd949/009-main_09.png",
+        "20260823T205007532Z-6cd949/010-main_10.png",
+        "20260823T205007532Z-6cd949/011-main_11.png"
+      ],
+      "caption": "frames 7150, 7162, 7174, 7186, 7198, 7210, 7226, 7250, 7290, 7350, 7500, 8750",
+      "meta": {
+        "cells severed": 2646,
+        "promoted as pieces": "34 (1.3%)",
+        "bodies": 4,
+        "largest piece": "8-15 cells",
+        "pieces 256+": 0,
+        "deadwood grains": 2745,
+        "leaf litter": 13,
+        "logs standing at rest": 0,
+        "peak plant cells in bodies": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T205007532Z-6cd949/012-t1_00.png",
+        "20260823T205007532Z-6cd949/013-t1_01.png",
+        "20260823T205007532Z-6cd949/014-t1_02.png",
+        "20260823T205007532Z-6cd949/015-t1_03.png",
+        "20260823T205007532Z-6cd949/016-t1_04.png",
+        "20260823T205007532Z-6cd949/017-t1_05.png",
+        "20260823T205007532Z-6cd949/018-t1_06.png",
+        "20260823T205007532Z-6cd949/019-t1_07.png",
+        "20260823T205007532Z-6cd949/020-t1_08.png",
+        "20260823T205007532Z-6cd949/021-t1_09.png",
+        "20260823T205007532Z-6cd949/022-t1_10.png",
+        "20260823T205007532Z-6cd949/023-t1_11.png"
+      ],
+      "caption": "frames 7150, 7162, 7174, 7186, 7198, 7210, 7226, 7250, 7290, 7350, 7500, 8750",
+      "meta": {
+        "cells severed": 2648,
+        "promoted as pieces": "1160 (44%)",
+        "bodies": 25,
+        "largest piece": "256+ cells",
+        "pieces 256+": 2,
+        "deadwood grains": 396,
+        "leaf litter": 538,
+        "logs standing at rest": 624,
+        "peak plant cells in bodies": 1211
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
