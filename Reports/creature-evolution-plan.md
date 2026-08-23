@@ -931,6 +931,61 @@ filter is the wrong shape and an asymmetric penalty is the next thing to try.
 **Cost.** 4 bytes per organism; the predicate is cheaper than the string scan
 it replaces.
 
+#### As built (2026-08-23), and two things this section got wrong
+
+Recorded here rather than silently deviated from, per the implementation
+handoff's own instruction: *if a WP's measurement contradicts this document,
+the measurement wins.* Both were found by arithmetic and by the suite, before
+anything depended on them.
+
+**1. The cannibal trap cannot be closed by `gut_bias` and a threshold.** The
+handoff asks for the ant's gut and the eat threshold to be set "so ant-flesh
+yield for ants lands below threshold". They cannot be: `ant` material is
+`food_class: 1.0` worth 120, and a **starved** ant's corpse cell is
+`food_class: 1.0` worth `body_energy + 0/cells` — also exactly 120. Same point
+on the axis, same number. Any threshold that hides a living nestmate hides the
+starved corpse with it, and the starved corpse is precisely what §2.3's
+structural stamp exists to keep edible ("a starved animal still leaves meat").
+
+So the difference is stated as data instead, per `CLAUDE.md`, and the data was
+already in the world: `creature_dies` writes a corpse **without** an organism
+id. Edibility is `diet_yield > threshold` **and not a living member of my own
+species**, behind `CreatureDef::eats_kin`, default off. Beetle-eats-ant
+predation survives by construction — a beetle's kin is a beetle. It also stops
+an animal eating its own tail, which the name list had been preventing by the
+accident of "ant" not being on the ant's own menu.
+
+**2. There is no viable omnivore at this economy, so the ancestral ant is
+−1.0 and not the neutral value the section implies.** Measured on the one
+scene that can answer it — one animal, an inexhaustible wall of leaf, nothing
+to do but eat (`creature::tests::print_grazer_viability_against_gut_bias`):
+
+| gut | leaf yield | intake/cost | survived |
+|---|---|---|---|
+| **−1.0** | 120.0 | 0.946 | **yes** |
+| −0.9 | 108.3 | 0.993 | yes |
+| −0.8 | 97.2 | 0.781 | no |
+| −0.5 | 67.5 | 0.793 | no |
+| 0.0 | 30.0 | 0.706 | no |
+
+A **perfectly matched** grazer already runs at 0.95 — *below* the 1.0 that
+would pay for its own existence. The margin is negative before the filter is
+applied at all, so every point of digestive mismatch comes straight out of a
+deficit, and the viable band is one tenth of the axis wide. That is a fact
+about the economy, not about the matched filter, and it makes §2.4's third
+coupled call (the abundance retune) a prerequisite for the two-humped survival
+curve this section asks for: **the carnivore hump cannot exist while no gut
+off the axis ends can feed an animal at all.** The falsifier note above
+anticipates a single hump and blames carrion scarcity; the measurement says
+the first cause is upstream of that.
+
+At −1.0 the filter reads exactly 1.0 against `food_class: -1.0`, so
+leaf/moss/seed/litter pay the same 120 they paid before S5 and the colony
+economy is untouched bit for bit (`ascii` diffs on timing lines only). The
+cost is that the ant no longer scavenges at all, which is player-visible,
+contradicts `wiki/ants.md`, and is on the owner's queue as card
+`20260823T104411499Z-963f8d`.
+
 ### 2.6 S6 — Reproduction, inheritance, mutation
 
 **The first milestone in which evolution exists, and it is cheap:**
