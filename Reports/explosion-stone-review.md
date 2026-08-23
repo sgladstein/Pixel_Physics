@@ -1546,3 +1546,47 @@ compiler caught all six; none is subtle. But a `both` resolution on a hunk
 that does not end at a construct boundary needs the boundary repaired by
 hand, and it is worth checking for deliberately rather than discovering six
 times.
+
+### 17j. The gates after the merge — three of four reds are `main`'s
+
+Ran all five locally, then built `origin/main` at `da1faf0` in a clean
+worktree and ran the same gates there to attribute rather than assume.
+
+| gate | merge | pristine `main` | verdict |
+|---|---|---|---|
+| release tests | FAIL | FAIL | 2 failures here, 1 there |
+| debug tests | FAIL | (skipped by CI) | same 2 |
+| release clippy | **PASS** | — | |
+| ascii | FAIL | **FAIL, identical numbers** | inherited (bug H) |
+| acceptance | FAIL (`wood`) | **FAIL (`wood`), identical numbers** | inherited (bug Y) |
+
+**`main`'s CI cannot see two of its own failures.** All five gates are
+sequential *steps of one job*; `cargo test` is step 4 and is red on `main`
+(bug A), so steps 5-9 are marked `skipped`. Run `32604849243`: one job, one
+failure, five skipped steps. "Green on `main`" is therefore not established
+for any gate after `cargo test`, and is false for at least `ascii` and
+`acceptance`. Recorded at bug H because it will mislead the next person who
+reads a green tick.
+
+**Attribution.**
+
+- `root_and_shoot_branching_read_different_slots` — **inherited.**
+  Byte-identical to `main`, red on `main`'s CI with the same numbers,
+  already open as bug A, where the owner swept eight seeds and kept the bar
+  deliberately because the lever measures as dead. Not touched.
+- `ascii` ants moisture gradient — **inherited.** Bug H above.
+- `acceptance wood` — **inherited.** Already open as bug Y (litter bogs the
+  gnome down); `main` produces the same 98 cells travelled from the same
+  position in a world of the same 43,249 cells.
+- `a_disturbance_extent_licenses_the_wound_but_not_the_chain` — **the one
+  the merge caused.** Isolated to `grain_is_footing` by ablation and bounded
+  by a frame sweep; the mechanism works and the cumulative measure is what
+  inverts. Bug I, left red rather than re-barred.
+
+**That the two inherited scene failures reproduce `main`'s numbers to the
+cell is also the strongest evidence available that these resolutions did not
+perturb behaviour.** Twenty-two files and forty-one hunks of hand-merging
+could easily have moved a gnome or an ant; neither moved at all.
+
+So the branch sits at **`main`'s three failures plus one of its own**. It
+cannot be greener than `main`, because `main` is not green.

@@ -2520,6 +2520,88 @@ is settled.
 
 ---
 
+### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **OPEN, inherited from `main`, 2026-08-23**
+
+`examples/ascii.rs:1850` fails its own setup assertion:
+
+```
+=== ants: deposition follows the moisture gradient, with no build rule anywhere ===
+  pickups 1764 drops 1731 digs 0 deaths 0
+  mean |grad moisture|: steep half 0.000, flat half 0.000
+  material left standing: steep half 3, flat half 0
+panicked: the scene must actually contain the gradient it is testing: 0.000 vs 0.000
+```
+
+**Inherited, and measured rather than assumed.** Built `origin/main` at
+`da1faf0` in a clean worktree and ran `ascii` there: it fails with
+**byte-identical numbers** — same 1764/1731, same 3-versus-0, same panic
+line. So this is `main`'s, not the explosion merge's, and the merge
+reproduces it exactly.
+
+**Why no one has seen it.** `.github/workflows/ci.yml` runs all five gates
+as *sequential steps of one job*. `cargo test` is step 4 and is currently
+red on `main` (bug A, the slot-1 lever). When it fails, steps 5-9 —
+including `cargo run --example ascii` and `scripts/acceptance.sh` — are
+marked **`skipped`**, not run. Verified on run `32604849243`: one job, one
+failure, five skipped steps. **So "main is green" cannot be concluded from
+CI for any gate after `cargo test`, and has not been true for at least
+these two.** A local run of all five is currently the only way to know.
+
+The assertion is a *setup* check — `wet_grad > dry_grad`, i.e. "the scene
+contains the gradient this test is about" — so it is `CLAUDE.md`'s "a scene
+that contradicts the code will look like a bug in the code", and the thing
+to check first is whether the scene still builds the moisture gradient it
+was written around, not whether the ants' deposition rule is wrong. Both
+halves reading 0.000 to three decimals is the tell: it is not that
+deposition stopped following the gradient, it is that there is no gradient
+to follow. Note the printed 0.000 is rounded — the pre-merge explosion
+branch printed the same 0.000/0.000 and *passed*, so the true values are
+small and non-zero and the ordering flipped somewhere below the third
+decimal.
+
+### I. The disturbance-extent guard inverts once rubble stops anchoring — **OPEN, caused by the merge, 2026-08-23**
+
+`sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
+was green on the explosion branch at `5f72fe2` and fails on the merge:
+
+```
+the extent bought nothing: 1022 cells failed with the wound licensed
+against 1586 with a point licence -- TIGHT is leashing the blast's own seams
+```
+
+**Cause isolated by ablation, not inferred.** Reverting *only*
+`load::rests_on_ground` to its pre-merge one-liner (`the cell below is a
+Powder`) and changing nothing else makes the test pass. `origin/main`'s
+`grain_is_footing` predicate — the §17e fix that stops a slab being anchored
+by two grains of its own debris, and which `explosion-stone-review.md` §17h
+directs this merge to take wholesale — is the sole trigger. **It is not a
+defect in that fix.**
+
+**The mechanism still works; the *measure* is what broke.** Sweeping the
+test's own frame budget, everything else held:
+
+| frames | verdict |
+|---|---|
+| 100 | passes |
+| 200 | passes |
+| 400 | fails, 1022 vs 1586 |
+| 600 | fails, 1022 vs 1586 (identical — it has settled by ~400) |
+
+So licensing the wound *does* buy more failure early, which is the claim the
+test is named for. What happens later is that the point-licence arm, being
+throttled, keeps failing cells for hundreds of frames while the licensed arm
+has already collapsed and settled — and a **cumulative** cell count then
+reads the throttled arm as the more damaged one. Once rubble stopped
+anchoring, there is simply much more to cascade through.
+
+**Third time on this branch that a count has caught a mode shift rather than
+a behaviour change** — see §17g's `roomcut` and case 6's `strike`. Left
+red and recorded rather than re-barred: choosing what this guard should
+measure instead (failures *inside* the wound radius; a settled rather than
+cumulative figure; or a shorter window justified on its own terms) is a
+decision about this branch's guard interacting with `main`'s landed load
+model, and it wants the owner rather than whoever is merging.
+
 ## Closed this session
 
 - **Chunk-seam cliffs** (powders) and **terracing** (liquids), both from the
