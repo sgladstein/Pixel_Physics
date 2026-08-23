@@ -2624,6 +2624,51 @@ extent buy nothing by construction, and the guard fails there as it must —
 `grain_is_footing` itself is untouched and was never at fault; the ablation
 that named it only established which landed change exposed the bad measure.
 
+### J. A blocked substep still vents the smoke it was only *probing* — **OPEN, pre-existing, 2026-08-23**
+
+Found by review of the water merge, in `rigid::clear_or_displaceable`.
+
+`try_step` scans every cell of a body to find out whether the substep is
+blocked, and the scan is meant to be side-effect free until the verdict is
+in. Its own comment says so: *"A body that turns out to be blocked now
+leaves the water where it was, instead of having shoved half of it on the
+way to finding out."* That is what `Step::swaps` is for — the `Liquid` arm
+records the exchange and defers it.
+
+The `Gas` arm does not. It calls `world.set(x, y, Cell::EMPTY)` inline, so a
+body that is then judged blocked has already erased the smoke it was only
+asking about. On a fresh crater, which is 18% `SMOKE` by
+`Tuning::smoke_fraction`, that is the one place it happens most.
+
+**Pre-existing, not the merge's.** Byte-identical at `5f72fe2`, before
+`origin/main` was merged. What the merge changed is that the deferral
+discipline now sits three lines away, which is how the review saw it. The
+`Powder` path via `displace` mutates in the same speculative way, so the
+honest framing is that `swaps` fixed liquids and left the other two kinds
+alone, not that gas is uniquely wrong.
+
+**Not fixed here, deliberately.** Routing the vent through `swaps` changes
+what a blast leaves behind, and the Gas arm's justification is a *measured*
+paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
+`smoke=0` control: 1 body / 10 cells in flight at frame 80 against the
+control's 6 / 100). Any change here has to re-run that pairing and be judged
+by eye, which is a piece of work rather than a merge repair.
+
+### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
+
+Also from the merge review. In `rigid.rs` around the rotation fit, the probe
+calls `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
+position is its own current position. The `if (tx, ty) == (cx, cy) { continue }`
+guard at the top of the scan then skips **every** cell, `horizontal` and
+`vertical` are never set, and `axis` is always `None` — the probe reports
+"nothing blocks this rotation" unconditionally, so a wedged body rotates
+through a wall.
+
+**In both parents.** Not introduced by the merge and not this branch's to
+fix; recorded because it is live, it is invisible (a probe that always says
+yes looks exactly like a probe that is working), and nothing else in the
+handoff names it.
+
 ## Closed this session
 
 - **Chunk-seam cliffs** (powders) and **terracing** (liquids), both from the

@@ -2655,21 +2655,6 @@ fn parse() -> Args {
     a
 }
 
-/// Fire every scheduled explosion whose frame has arrived, removing it from
-/// the pending list so it cannot fire twice. Draining rather than
-/// index-matching makes this safe to call both inside the stepping loop and
-/// immediately before a capture, which is what lets `frame=0` work at all
-/// (with `start=0` the loop body never runs before the first tile).
-/// Erase every scheduled cut whose frame has arrived, draining it so it
-/// cannot fire twice -- same shape as `fire_due_explosions`, and called
-/// from the same three places for the same reason.
-///
-/// Reports what it actually removed rather than what it was asked to
-/// remove. "Did the cut land on the tree" is a counter question, not a
-/// picture question: a rectangle a few cells off the trunk looks identical
-/// on a contact sheet to one that severed it, and this branch has already
-/// spent a session reading a collapse as a feature that had never once
-/// executed.
 /// Schedule structural checks at whatever positions `poke=` named, once
 /// their frame arrives. See `Args::pokes` for what the experiment is.
 ///
@@ -2703,6 +2688,16 @@ fn fire_due_pokes(world: &mut World, pending: &mut Vec<(i32, i32, usize)>, now: 
     }
 }
 
+/// Erase every scheduled cut whose frame has arrived, draining it so it
+/// cannot fire twice -- same shape as `fire_due_explosions`, and called
+/// from the same three places for the same reason.
+///
+/// Reports what it actually removed rather than what it was asked to
+/// remove. "Did the cut land on the tree" is a counter question, not a
+/// picture question: a rectangle a few cells off the trunk looks identical
+/// on a contact sheet to one that severed it, and this branch has already
+/// spent a session reading a collapse as a feature that had never once
+/// executed.
 fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -2856,6 +2851,11 @@ fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize
     }
 }
 
+/// Fire every scheduled explosion whose frame has arrived, removing it from
+/// the pending list so it cannot fire twice. Draining rather than
+/// index-matching makes this safe to call both inside the stepping loop and
+/// immediately before a capture, which is what lets `frame=0` work at all
+/// (with `start=0` the loop body never runs before the first tile).
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
@@ -4161,9 +4161,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // Contact sheets draw every tile under the same light -- see
     // `pin_sheet_light`. The GIF branch above deliberately does not: it plays
     // at real speed, so its day/night swing is the world's own.
-    if pin_sheet_light(args) {
+    if pin_sheet_light(args) && renderer.pinned_light.is_none() {
         // Phase 0 of the cycle is noon -- `field::sun_rising` runs noon,
         // sunset, midnight, sunrise.
+        //
+        // **Only when nothing asked for a specific hour.** The merge put two
+        // independently-built pins on one field -- this automatic one and
+        // `daylight=`, which is set above -- and without the guard the
+        // automatic one lands last and silently overrides the explicit
+        // request, while the run still announces the daylight it was asked
+        // for. A sheet that says it was drawn at dusk and was drawn at noon
+        // is worse than an unpinned one.
         renderer.pinned_light = Some(0);
     }
 
@@ -4868,7 +4876,6 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             }
             last_bank = Some(world.atmospheric_bank);
         }
-        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         // **Which rate the world is rotting at, and how much of it qualifies.**
         //
         // The worldgen soil baseline moved ground that used to sit at `aux ==
@@ -5118,9 +5125,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
     }
     println!("worst full-screen draw: {worst_draw_ms:.2} ms");
-    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
-        .expect("writing the contact sheet");
-    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    // The sheet is written in the `if render` block above and nowhere else.
+    // An unguarded second write stood here after the merge, so a rendered run
+    // encoded and announced the same PNG twice, and a timing-only `repeat=`
+    // pass -- which renders nothing worth keeping -- wrote and announced one
+    // as well.
     (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
 }
 
