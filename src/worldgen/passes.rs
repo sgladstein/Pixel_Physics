@@ -3814,7 +3814,121 @@ pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
     n
 }
 
-/// Moss and tree seeds on ground that will support them.
+/// What one column offers a plant, in quantities the generator has already
+/// decided by the time this pass runs.
+///
+/// Three readings, no new machinery: `Character::aridity` and
+/// `Character::elev` come straight off the region map, and the blanket is
+/// `ColumnPlan::soil_depth` normalised. The bands cut through these were set
+/// from their *measured* spreads over six worlds per preset
+/// (`examples/flora_census -- terrain=1`), not from an aspiration -- on the
+/// default preset aridity runs 0.00-0.62 with a median of 0.27, `elev` runs
+/// -0.51..0.98 with a median of 0.54, and the blanket runs 0-43 cells with a
+/// median of 15. A band placed without looking at those is either empty or
+/// the whole world, and both mistakes look like "the species never appears".
+struct Site {
+    /// `0` lush, `1` desert.
+    aridity: f32,
+    /// Where this region's ground sits, remapped from `Character::elev`'s
+    /// `-1..1`. **Region-scale, not per-column**, which is what makes the
+    /// upland species arrive as a *band* of country rather than as a
+    /// sprinkle wherever a hill happens to be — the same reason the cluster
+    /// field is low-frequency.
+    upland: f32,
+    /// Loose blanket depth over the rock, normalised against the deepest
+    /// this generator makes. `0` is a skin over stone, `1` is deep loam.
+    blanket: f32,
+}
+
+/// Cells of soil that count as a full blanket. Read against the measured
+/// p90 of 27 with headroom, not against the 43-cell maximum: a bar set on
+/// the extreme makes every ordinary column read as thin.
+const DEEP_BLANKET: f32 = 30.0;
+
+/// `0` at or below `lo`, `1` at or above `hi`, linear between.
+///
+/// A ramp rather than a threshold, and that is not decoration: a hard cut
+/// puts a straight edge across the world at the contour where the test
+/// flips, and `Reports/plant-species-authoring.md` §2 is the record of that
+/// exact artifact appearing three times by three different doors. Every
+/// global bound becomes a visible artifact unless it is graded.
+fn ramp(v: f32, lo: f32, hi: f32) -> f32 {
+    ((v - lo) / (hi - lo)).clamp(0.0, 1.0)
+}
+
+/// **The woody flora, and the reading of a column each one makes.**
+///
+/// Until 2026-08-23 this pass sowed the string `"tree"` and nothing else, so
+/// conifer, shrub and creeper had never been planted in a generated world at
+/// all — they existed only in probe scenes (`Reports/plant-project-review-
+/// 2026-08-23.md` §2.0). The species, the genome and the colour system were
+/// all built and none of them had ever had the chance to appear, compete or
+/// fail.
+///
+/// Each entry is a *weight*, not a gate, and the four weights are four
+/// readings of the same three facts rather than four separate biome rules.
+/// That distinction is the whole design: there is no biome table here, no
+/// new field on `Character`, and no per-species terrain pass — a species is
+/// a preference over country the generator already describes, which is the
+/// same move `soil_blanket` makes when it lets aridity decide sand against
+/// soil instead of asking for a "desert" flag.
+///
+/// **The weights agree with the germination ladder, and that agreement is
+/// load-bearing.** `Germinate::soil_water_threshold` runs conifer 0.35 >
+/// tree 0.25 > shrub 0.20 > creeper 0.15, and only `soil` has a
+/// `water_capacity` at all — so a seed dropped on sand, gravel or stone
+/// reads bone dry and never germinates, however well the rule likes the
+/// column. Sowing a species onto ground whose water never reaches its own
+/// bar is the failure this table is arranged to avoid: it is sown forever,
+/// germinates never, and the panorama looks exactly like a world where that
+/// species is rare. `examples/flora_census` prints sown and established
+/// separately for precisely that reason.
+///
+/// `spacing` is each species' own footprint, in columns — a creeper's eight
+/// rows of height need nothing like a conifer's hundred and fifty.
+struct Woody {
+    name: &'static str,
+    spacing: i32,
+    /// `0` "not this species' country" .. `1` "exactly this species'
+    /// country".
+    weight: fn(&Site) -> f32,
+}
+
+/// **Specialists first, the generalist last**, and the order is a decision
+/// rather than an artifact of writing the list.
+///
+/// A column is claimed by the first species whose roll succeeds, so
+/// whichever comes first has right of refusal. Putting `tree` — which likes
+/// most ground that is damp, deep and anywhere at all — ahead of the three
+/// specialists would let it take the thin, dry and upland columns that are
+/// the only country the others have, and the world would go back to being
+/// one woody species with three rarities. Least-tolerant first is also what
+/// the germination ladder already says: creeper establishes on a skin of
+/// damp ground that a conifer would sit out.
+const WOODY: [Woody; 4] = [
+    // **The skin over rock.** Nothing else roots in five cells of soil, and
+    // its 0.15 germination bar is the lowest of the four, so the poorest
+    // footing in the world is the one place it is not out-competed. Reads
+    // the blanket and nothing else on purpose: a runner is indifferent to
+    // altitude and nearly indifferent to how dry the region is.
+    Woody { name: "creeper", spacing: 3, weight: |s| 1.0 - ramp(s.blanket, 0.15, 0.60) },
+    // **The dry margin**, not the desert: past `SAND_ARIDITY` the cover
+    // turns to sand, which holds no water, so there is no woody plant
+    // beyond that line and this weight never needs to say so. Thin ground
+    // preferred — scrub is what is left where the blanket is going.
+    Woody { name: "shrub", spacing: 4, weight: |s| ramp(s.aridity, 0.20, 0.50) * (1.0 - 0.5 * s.blanket) },
+    // **The upland band.** `elev` is regional, so this arrives as a belt of
+    // country several stands wide rather than as scattered individuals, and
+    // it is multiplied by dampness because conifer carries the *highest*
+    // germination bar of the four: a dry upland would sow conifers that
+    // never come up.
+    Woody { name: "conifer", spacing: 6, weight: |s| (1.0 - s.aridity) * ramp(s.upland, 0.55, 0.85) },
+    // **The mesic generalist**, and what this pass used to sow everywhere.
+    // Damp country on a real blanket, at any altitude.
+    Woody { name: "tree", spacing: 7, weight: |s| (1.0 - s.aridity) * ramp(s.blanket, 0.10, 0.35) },
+];
+
+/// Moss and woody seeds on ground that will support them.
 ///
 /// The world arrives with life in it rather than waiting for the player to
 /// plant every blade — which matters for a reason beyond decoration. A world
@@ -3827,7 +3941,25 @@ pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
 /// it pushes most of the world below the planting threshold and concentrates
 /// the rest into stands, giving thickets and clearings instead of a scatter.
 /// Removing that square gives a uniform sprinkle, which is exactly the look
-/// this exists to avoid.
+/// this exists to avoid. **Each woody species draws its own cluster field**,
+/// offset along the same noise, so their thickets fall in different places
+/// and the country between two stands of one species is where another's
+/// stand sits — rather than four species sharing one set of clumps, which
+/// would read as one mixed thicket repeated across the world.
+///
+/// **`tree_density` is the woody density of the best ground, and the niches
+/// split it.** Each species' share is `weight / max(1, Σ weights)`, so a
+/// column that suits three species carries about as many plants as one that
+/// suits only tree — the preset still says how much woody cover a world
+/// has, and the table above says which species it is made of. Without the
+/// divisor four weights of 0.7 would sow the density four times over, and
+/// the same preset number would mean something different than it did.
+///
+/// **Grass is deliberately not sown here.** It has no mortality path
+/// (`Reports/plant-project-review-2026-08-23.md` §F4/A2): a plantable grass
+/// that cannot die is an organism-slot leak that ends in silent id
+/// corruption at the 4,095 ceiling, so it waits on that fix rather than on
+/// anything in this pass.
 ///
 /// Seeds, not grown plants. What comes up, how tall it gets and how it leans
 /// are the organism substrate's business, and a generator that placed finished
@@ -3843,9 +3975,16 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
     // negative in release, and fails the spacing test for every column
     // forever. The counter found it -- the render just looked like a world
     // where trees are rare.
-    let mut last_tree: Option<i32> = None;
+    //
+    // One cursor for all four species rather than one each, and the gate is
+    // the *wider* of the two footprints: the question a spacing rule asks is
+    // whether these two plants will both survive, and a creeper three
+    // columns from a conifer is shaded out just as surely as two conifers
+    // would be.
+    let mut last_woody: Option<(i32, i32)> = None;
     for x in 0..ctx.terrain.w {
-        let ground = ctx.plans[x as usize].surface_y;
+        let plan = &ctx.plans[x as usize];
+        let ground = plan.surface_y;
         let above = ground - 1;
         if above < 0 {
             continue;
@@ -3857,13 +3996,9 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
         if world.get(x, above).material != material::EMPTY {
             continue;
         }
-        let cluster = noise::fbm_1d(
-            ctx.terrain.seed,
-            Purpose::Life,
-            x as f32 / p.life_cluster_wavelength.max(1.0),
-            2,
-        );
-        let cluster = cluster * cluster;
+        let character = ctx.terrain.character(x);
+        // ...and dry country thins what grows even where soil remains.
+        let dryness = 1.0 - character.aridity;
 
         // Trees want soil to root in; moss will take bare rock as well, which
         // is what puts green on a cliff face where nothing else grows.
@@ -3871,19 +4006,53 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
         // cling to but not for a tree to root in, which is what keeps a
         // desert looking like a desert without a rule saying "no trees in
         // deserts" -- the material already says it.
+        //
+        // It is now also the *literal* germination condition rather than a
+        // stand-in for one: `soil` is the only material with a
+        // `water_capacity`, so `Germinate` reads a seed on anything else as
+        // sitting on bone-dry ground, whatever the weather has done.
         let on_soil = footing == ctx.soil;
-        // ...and dry country thins what grows even where soil remains.
-        let dryness = 1.0 - ctx.terrain.character(x).aridity;
-        if on_soil
-            && last_tree.is_none_or(|last| x - last >= TREE_SPACING)
-            && noise::unit(ctx.terrain.seed, Purpose::Life, x, 7) < p.tree_density * cluster * dryness
-            && world.plant_tree_species(x, above, "tree")
-        {
-            last_tree = Some(x);
-            n += 1;
-            continue;
+        if on_soil {
+            let site = Site {
+                aridity: character.aridity,
+                upland: (character.elev + 1.0) * 0.5,
+                blanket: (plan.soil_depth as f32 / DEEP_BLANKET).clamp(0.0, 1.0),
+            };
+            let weights = WOODY.map(|w| (w.weight)(&site));
+            let total = weights.iter().sum::<f32>().max(1.0);
+            let mut planted = false;
+            for (i, (species, weight)) in WOODY.iter().zip(weights).enumerate() {
+                if weight <= 0.0 {
+                    continue;
+                }
+                // Each species' own offset into the same field, far enough
+                // apart that two species' stands are uncorrelated rather
+                // than two views of one clump.
+                let cluster = noise::fbm_1d(
+                    ctx.terrain.seed,
+                    Purpose::Life,
+                    x as f32 / p.life_cluster_wavelength.max(1.0) + i as f32 * SPECIES_CLUSTER_STRIDE,
+                    2,
+                );
+                let cluster = cluster * cluster;
+                let room = last_woody
+                    .is_none_or(|(last, last_spacing)| x - last >= species.spacing.max(last_spacing));
+                if room
+                    && noise::unit(ctx.terrain.seed, Purpose::Life, x, SPECIES_SALT[i])
+                        < p.tree_density * cluster * weight / total
+                    && world.plant_tree_species(x, above, species.name)
+                {
+                    last_woody = Some((x, species.spacing));
+                    n += 1;
+                    planted = true;
+                    break;
+                }
+            }
+            if planted {
+                continue;
+            }
         }
-        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster * dryness {
+        if noise::unit(ctx.terrain.seed, Purpose::Life, x, 9) < p.moss_density * cluster_moss(ctx, p, x) * dryness {
             world.plant_moss_seed(x, above);
             n += 1;
         }
@@ -3891,14 +4060,28 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
     n
 }
 
-/// Closest two tree seeds may be planted, in columns.
+/// Moss's own cluster draw — the unoffset field, exactly what every species
+/// shared before the woody flora was split four ways, so moss's stands are
+/// unchanged by that split.
+fn cluster_moss(ctx: &Ctx, p: &crate::worldgen::WorldgenParams, x: i32) -> f32 {
+    let cluster = noise::fbm_1d(ctx.terrain.seed, Purpose::Life, x as f32 / p.life_cluster_wavelength.max(1.0), 2);
+    cluster * cluster
+}
+
+/// How far apart two species' cluster fields are sampled, in wavelengths.
 ///
-/// Not an aesthetic rule so much as an admission about the substrate: two
-/// seedlings a couple of cells apart compete for the same light and water and
-/// one of them simply fails, so planting them is spending generation on a
-/// plant that will not be there. Far enough apart to both have a chance, near
-/// enough that a stand still reads as a stand.
-const TREE_SPACING: i32 = 7;
+/// Large and non-integer: the field is smooth over a wavelength, so a small
+/// offset gives two species nearly the same clumps and a whole-number one
+/// risks landing on whatever periodicity the lattice has. At this stride the
+/// four species' stands are independent draws of the same statistics.
+const SPECIES_CLUSTER_STRIDE: f32 = 137.4;
+
+/// Per-species salt for the placement draw, so the four rolls are
+/// independent rather than four reads of one number (which would make every
+/// species want the same columns and the order in `WOODY` decide everything).
+/// `7` is `tree`'s original salt, kept so tree placement in tree country is
+/// the same draw it always was; `9` is moss's and is not reused here.
+const SPECIES_SALT: [i32; 4] = [11, 13, 17, 7];
 /// How far a lens is stretched along its bedding plane, at the two ends of
 /// the draw.
 ///

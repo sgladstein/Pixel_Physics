@@ -22,6 +22,7 @@ use pixel_physics::sim::material;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::{parallel, structural};
 use pixel_physics::worldgen::{self, Spec, WorldgenParams, WorldgenPresets};
+use std::collections::BTreeMap;
 
 /// Full sandbox dimensions. Worth the cost here specifically: the base relief
 /// wave has a period of one world width, so a smaller world is a *different*
@@ -707,6 +708,163 @@ fn the_world_arrives_with_both_moss_and_trees_in_it() {
     }
     assert!(trees > 0, "no tree was planted in any of {} worlds", SEEDS.len());
     assert!(moss_cells > 0, "no moss was planted in any of {} worlds", SEEDS.len());
+}
+
+/// Every woody species this world knows how to grow, and the worst world in
+/// a sweep that may omit one.
+///
+/// Not a list of species files: a species that exists and is never planted
+/// is exactly the bug this guards (`Reports/plant-project-review-2026-08-23.md`
+/// §2.0 — conifer, shrub and creeper shipped for months and had never once
+/// appeared in a generated world, because `life_scatter` sowed the hardcoded
+/// string `"tree"`). Grass is deliberately absent: it is gated behind its own
+/// mortality path, not behind anything in worldgen.
+const WOODY: [&str; 4] = ["conifer", "creeper", "shrub", "tree"];
+
+/// Seeds for the flora sweep, and **why there are sixteen of them rather
+/// than [`SEEDS`]'s five.**
+///
+/// A guard over a procedural system has to sweep the procedure, and it has
+/// to gate an *order statistic* rather than any single world (`CLAUDE.md`):
+/// which seed is worst reshuffles on any legitimate change, so a per-seed
+/// baseline gets rubber-stamped. Measured over these sixteen worlds at
+/// 2048 columns, every woody species is sown in all sixteen, with per-world
+/// medians of conifer 6, creeper 14, shrub 6, tree 15 and per-world minima
+/// of 2/2/1/1 — so the bars below sit well under the medians and one world
+/// is allowed to miss a species outright.
+const FLORA_SEEDS: [u64; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+/// Wider than [`BOUNDS`] on purpose. The shipped world is 8,192 columns and
+/// a 512-column sample is a *different composition*: at that width a whole
+/// region can miss the sweep, and four of eight worlds contained no shrub at
+/// all for that reason alone rather than for anything about the rule. 2,048
+/// is a quarter of the shipped width and generates in ~0.3 s, which is what
+/// makes sixteen of them affordable here.
+const FLORA_BOUNDS: (i32, i32) = (2047, 639);
+
+/// Live organisms per species name, counted off the grid.
+///
+/// Off the *grid* rather than off the organism table, because the table is
+/// `pub(crate)` and because a census that reads the same cells the picture
+/// is drawn from cannot disagree with the picture. `established` is the
+/// subset that has any cell of a material other than `seed` — i.e. that
+/// germinated — and the gap between the two is the whole point: a species
+/// sown into country whose soil water never reaches its own
+/// `Germinate::soil_water_threshold` is sown forever and comes up never,
+/// which reads on screen exactly like a species that is merely rare.
+fn flora_census(world: &World) -> (BTreeMap<String, usize>, BTreeMap<String, usize>) {
+    let seed_material = world.materials.id_of("seed");
+    let bounds = world.bounds().expect("bounded world");
+    let mut grown: BTreeMap<u16, bool> = BTreeMap::new();
+    for y in bounds.min_y..=bounds.max_y {
+        for x in bounds.min_x..=bounds.max_x {
+            let cell = world.get(x, y);
+            let id = cell.organism_id();
+            if id == 0 {
+                continue;
+            }
+            *grown.entry(id).or_default() |= Some(cell.material) != seed_material;
+        }
+    }
+    let (mut sown, mut established) = (BTreeMap::new(), BTreeMap::new());
+    for (id, is_grown) in grown {
+        // A stale id whose organism is gone resolves to `None` rather than
+        // to whoever was allocated the slot next — the generational check.
+        let Some(state) = world.organism(id) else { continue };
+        let name = world.species.get(state.species).name.clone();
+        *sown.entry(name.clone()).or_default() += 1;
+        if is_grown {
+            *established.entry(name).or_default() += 1;
+        }
+    }
+    (sown, established)
+}
+
+#[test]
+fn every_woody_species_is_sown_across_a_seed_sweep() {
+    // **The §2.0 guard.** `the_world_arrives_with_both_moss_and_trees_in_it`
+    // counts *materials*, so it passes for a world containing one woody
+    // species as happily as for one containing four — every woody plant is
+    // made of `wood`. This one counts organisms by species, which is the
+    // only reading that can tell those two worlds apart.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut counts: BTreeMap<&str, Vec<usize>> = WOODY.iter().map(|&n| (n, Vec::new())).collect();
+    for seed in FLORA_SEEDS {
+        let mut world = World::new(Rect::new(0, 0, FLORA_BOUNDS.0, FLORA_BOUNDS.1));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        let (sown, _) = flora_census(&world);
+        for name in WOODY {
+            counts.get_mut(name).unwrap().push(sown.get(name).copied().unwrap_or(0));
+        }
+    }
+    for name in WOODY {
+        let mut v = counts.remove(name).unwrap();
+        let present = v.iter().filter(|&&c| c > 0).count();
+        v.sort_unstable();
+        let median = v[v.len() / 2];
+        // One world may miss a species outright — the placement field is
+        // clustered by design, so a world whose stands of one species all
+        // fall in the sea or on rock is a real outcome and not a defect.
+        // Two would mean the niche has narrowed to nothing.
+        assert!(
+            present >= FLORA_SEEDS.len() - 1,
+            "{name} is missing from {} of {} generated worlds (counts {v:?})",
+            FLORA_SEEDS.len() - present,
+            FLORA_SEEDS.len()
+        );
+        // A *continuous* bar under the count, not a knife-edge one: the
+        // medians measured 6/14/6/15, so 3 is at worst half the headroom
+        // and the test still fails long before a species goes to zero.
+        assert!(median >= 3, "{name}'s median world holds only {median} (counts {v:?})");
+    }
+}
+
+#[test]
+fn a_sown_woody_species_also_comes_up() {
+    // **Sowing is not establishing, and only one of the two is visible.**
+    // Only `soil` has a `water_capacity`, so a seed resting on sand, gravel
+    // or stone reads bone dry to `Germinate` however wet the weather is —
+    // and a species sown onto ground it cannot germinate on produces a
+    // world that looks exactly like a world where that species is rare.
+    // The pass is arranged so its niches agree with the germination ladder
+    // (conifer 0.35 > tree 0.25 > shrub 0.20 > creeper 0.15); this is what
+    // says the agreement holds rather than that it was intended.
+    //
+    // Pooled across the sweep rather than per seed, because per seed the
+    // numbers are 1-16 and a rate over a handful of plants is noise.
+    // Measured pooled over these eight worlds: conifer 45/46, creeper
+    // 45/46, shrub 12/16, tree 67/71.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut pooled_sown, mut pooled_up): (BTreeMap<&str, usize>, BTreeMap<&str, usize>) = Default::default();
+    for seed in FLORA_SEEDS.iter().take(8) {
+        // Smaller and shorter than the sweep above: this asks whether a
+        // seed comes up at all, and germination is complete well inside
+        // 300 frames (identical counts at 300 and 600). The world still
+        // has to be wide enough to contain more than one region.
+        let mut world = World::new(Rect::new(0, 0, 1023, 383));
+        worldgen::generate(&mut world, Spec::Generated { params, seed: *seed });
+        for _ in 0..300 {
+            step(&mut world);
+        }
+        let (sown, up) = flora_census(&world);
+        for name in WOODY {
+            *pooled_sown.entry(name).or_default() += sown.get(name).copied().unwrap_or(0);
+            *pooled_up.entry(name).or_default() += up.get(name).copied().unwrap_or(0);
+        }
+    }
+    for name in WOODY {
+        let (sown, up) = (pooled_sown[name], pooled_up[name]);
+        assert!(up >= 5, "{name} established {up} plants across the whole sweep ({sown} sown)");
+        // Half, against a measured worst case of 0.75. A species that is
+        // sown and mostly fails to come up is being put in the wrong
+        // country, which is a rule bug wearing a rarity costume.
+        assert!(
+            up as f32 / sown.max(1) as f32 >= 0.5,
+            "{name} germinated {up} of {sown} sown — it is being sown where it cannot come up"
+        );
+    }
 }
 
 #[test]
