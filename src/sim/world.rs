@@ -621,6 +621,27 @@ pub struct World {
     pub energy_ledger: EnergyLedger,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
+    /// **Cumulative organism births and deaths — the lineage turnover
+    /// readout the plant plan of record's Phase 0d asks for and nothing
+    /// printed.**
+    ///
+    /// `Reports/plant-evolution-design.md` §5: "the count of
+    /// inherited-genome establishments per run is the plant equivalent of
+    /// births-per-generation, and if it reads ~0 at 30k frames, every
+    /// evolution claim at that horizon is about founders". A standing
+    /// count cannot answer that — `organism_slot_usage` reports how many
+    /// slots are live *now*, and slot reuse makes a flat live count
+    /// consistent with both a frozen stand and a fast cycle. Only a
+    /// cumulative pair separates them.
+    ///
+    /// Always-on rather than `#[cfg(test)]`, on the same reasoning
+    /// `organism_generation_wraps` above already records: a `u64` add on
+    /// the allocation path is free beside the `HashMap` that call just
+    /// built, and a counter that exists only in test builds cannot say
+    /// anything about a long run, which is the only place the number gets
+    /// interesting.
+    organisms_born: u64,
+    organisms_died: u64,
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -1243,6 +1264,8 @@ impl World {
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
+            organisms_born: 0,
+            organisms_died: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
@@ -1646,6 +1669,7 @@ impl World {
     ///
     /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
+        self.organisms_born += 1;
         let state = OrganismState {
             water: 0.0,
             water_status: 1.0,
@@ -1806,6 +1830,18 @@ impl World {
         }
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+        // Counted here rather than at either call site: this is the one
+        // function that decides a release really happened (both callers can
+        // fire twice for one death, and the guards above are what stop the
+        // second one).
+        self.organisms_died += 1;
+    }
+
+    /// Organisms ever allocated, and ever released — see
+    /// `World::organisms_born`. The pair a turnover rate is computed from;
+    /// their difference is the live count `organism_slot_usage` reports.
+    pub fn organism_turnover(&self) -> (u64, u64) {
+        (self.organisms_born, self.organisms_died)
     }
 
     /// How many organism slots are currently allocated, and how many of
