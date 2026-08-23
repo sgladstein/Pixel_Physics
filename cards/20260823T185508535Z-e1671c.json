@@ -1,0 +1,52 @@
+{
+  "id": "20260823T185508535Z-e1671c",
+  "created": "2026-08-23T18:55:08Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "9108b79",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Fire colour: straw or orange?",
+  "question": "Which of these reads as fire at a glance? One is the renderer's current fire tint; the other is a two-constant change I have not shipped.",
+  "context_md": "Same burn, same frames, same everything — only `render.rs`'s two fire-tint constants differ.\n\n**Why this is a separate card.** Every burning thing in the world saturates the heat ramp (it tops out 400C above ambient; grass burns at 520C, a flame at 780C), so fire has no gradient and draws one flat colour — and that colour, `FIRE_TINT_HIGH`, is (255, 210, 110), a pale yellow-white. Over green grass it comes out as **straw**, which is a fair description of what you called colour cycling.\n\nThe change is `FIRE_TINT_LOW` (180,55,20) → (150,30,12) and `FIRE_TINT_HIGH` (255,210,110) → (255,138,36).\n\n**The catch, and the reason I did not just ship it:** those constants are not fire's alone. They also colour **lava, fresh quench crust, and warm water** — three looks you have already judged. If you like the orange, someone needs to re-check those three before it lands.\n\nI also tried widening the ramp instead (400 → 1000) on the theory that a gradient was what was missing. It made the fire a murky **olive**, because at a low heat ratio the tint blends over the fuel's own green. Reverted, recorded as a dead end.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T185508535Z-e1671c/000-ignition_close.png"
+      ],
+      "caption": "current fire tint",
+      "meta": {
+        "FIRE_TINT_HIGH": "(255, 210, 110)",
+        "touches": "fire only (shipped today)"
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T185508535Z-e1671c/001-ignition_orange.png"
+      ],
+      "caption": "saturated orange tint",
+      "meta": {
+        "FIRE_TINT_HIGH": "(255, 138, 36)",
+        "touches": "fire, lava, quench crust, warm water"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
