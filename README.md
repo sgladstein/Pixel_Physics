@@ -1866,6 +1866,39 @@ falloff (`Reports/underground-definition.md`); per-cell liquid grain behind
 the `G` selector and the continuous zoom (§9). The remaining tiers stay in
 `PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
 
+## Felling status — the verb exists, what it produces does not
+
+**A tool can damage a plant, and cutting through a bole brings the crown
+down.** Landed 2026-08-23 (`Reports/plant-project-review-2026-08-23.md` D1
+and D2; `Reports/open-bugs-handoff.md` §D1 carries the landing notes and the
+measurements). Three separate gaps closed:
+
+- `rigid::strike` and `rigid::mine_swept` tested `MaterialKind::Solid`, so
+  the pick and the chisel could not touch a tree at all. `rigid::
+  is_tool_target` (`Solid | Plant`, bedrock still exempt) is what they ask
+  now. Guarded by `rigid.rs`'s `tool_target_tests`.
+- The brush and fire's burnout recorded no disturbance, so at every `F9`
+  setting but SPREAD they licensed nothing: an erased or burnt-through trunk
+  left its crown standing as living wood. Both report themselves now; fire
+  reaches the ring through a new `CellSurface::record_disturbance` seam.
+- There was no felling scene and no severance measurement. `filmstrip
+  scene=fell` is the bed (one tree, fixed trunk x, room to fall); `fell=`
+  chops through the subject's own thinnest bole row wherever it currently is;
+  `chop=` aims a blow by hand; the per-tile felling census reports standing
+  tissue, where the bole is, detached-but-standing cells and body cells that
+  are plant material; and `FailureCounts::severed_organism_cells` is the "did
+  it fire" counter, gated by `acceptance.sh`'s `fell` case at 1,000 cells.
+
+**Known limitation, and it is the whole of the next package.** A felled
+crown converts to single `deadwood` powder cells rather than coming apart
+into pieces: measured 2,360 of 2,427 cells that way, with only 67 leaving as
+bodies and all of those from the axe's own chip zone. That is
+`Reports/design-philosophy.md` §0a's uniform dissolve verbatim, and fixing it
+is D3 — `BodyCell` has nowhere to carry an organism id, and `wood`'s
+fragment ladder caps a piece at 400 cells. A topped tree also does not
+resprout yet (D4). Play-facing:
+[`wiki/plants.md`](wiki/plants.md#cutting-a-plant-down).
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst

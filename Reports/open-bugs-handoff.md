@@ -36,6 +36,70 @@ under every other verb.
 an extent. That repairs rock's brush inertness at the same time. Deliberately
 not done on the explosion branch — it is a change to two unrelated verbs.
 
+**LANDED 2026-08-23, lane S package S1 (`claude/s1-felling-instrument`).
+Two of the three holes are closed and the third is measured and handed on.**
+
+*What was actually wrong, and it was not what this entry says.* The
+`organism_id() != 0` tests named above were **not load-bearing**. Removing
+them changed nothing at all, measured: four `strike` blows across a 26-cell
+bole took **0 cells** and left every counter at zero. `rigid::is_body_material`
+— the predicate one line earlier in the same condition — is `MaterialKind::
+Solid` alone, and `wood` is `Plant`, so no organism cell ever reached the
+organism test. Two gates, one visible in this report and one not, and only
+the invisible one mattered. The fix is `rigid::is_tool_target`, a second
+predicate (`Solid | Plant`, still excluding bedrock) used by `strike` and
+`mine_swept` only; `is_body_material` keeps its meaning for `label_component`
+and `trace_contours`, which answer a different question.
+
+*The brush and the fire* both got the `record_disturbance` this entry
+prescribes: the brush once per stroke at the capsule's midpoint with an
+extent of half-the-segment + radius + `DETACH_DEPTH`, the burnout per cell
+with an extent of 0. Fire's needed a new `CellSurface::record_disturbance`
+seam, queued and replayed by `parallel::run_pass` like `schedule_active_site`.
+Guards: seven unit fixtures in `rigid.rs`'s `tool_target_tests`, all of which
+were confirmed to **fail** against the pre-fix predicate.
+
+*Measured, `scene=fell fell=6000` (new):* six bites sever the bole, the axe
+itself takes 134 cells of living tissue and throws 6 bodies (67 cells), then
+`plant::anchor_support` declares the crown unreached and **2,360 cells** are
+severed by the support check. Standing living tissue 2,906 → 409 (roots and
+stump). Both drivers agree: 2,360 parallel, 2,398 serial. Before the branch
+the identical cut left the crown standing and *growing* — 2,823 → 2,911 over
+the next 210 frames, with every counter in `FailureCounts` at zero.
+
+*New instrument.* `filmstrip scene=fell` (one tree, fixed trunk x, room to
+fall), `fell=frame[,radius[,force]]` (chop through the subject's own thinnest
+bole row, wherever it is — seed- and age-independent, and the knob lane P's
+resprout work wants), `chop=x,y,r,force,frame` (a hand-aimed `strike`),
+`min_severed=N` (the acceptance bar), and a three-line felling census under
+every tile: standing tissue split shoot/root, where the bole is and what a
+cut through it costs, detached-and-still-standing cells, the furthest finite
+support distance, deadwood and litter, and how many body cells are plant
+material. `FailureCounts::severed_organism_cells` is the new "did it fire"
+counter — nothing else in that struct moves when a crown comes down.
+`scripts/acceptance.sh` case 9 gates it at 1,000 cells.
+
+**Three things deliberately left, in order of how much they show:**
+
+1. **The crown dissolves into powder.** 2,360 of the 2,427 cells that came
+   down became single `deadwood` cells; only 67 left as pieces, all from the
+   axe's own chip zone. `design-philosophy.md` §0a verbatim, and it is
+   package **S2** (D3): `BodyCell` carries no organism id, `promote` therefore
+   orphans identity, and `wood`'s `fragment_rungs: 5` / `MAX_BODY_CELLS: 400`
+   ladder cannot hold a tree-sized piece. The GIF is on the review queue,
+   board `felling`, card `20260823T092247531Z-a33d82`.
+2. **`rigid::loosen_shell` still declines organism cells** (`rigid.rs`, the
+   third of the three skips this entry names). Left alone on purpose: it
+   governs whether a *blast rim* promotes wood into bodies, which is the same
+   decision S2 owns, and widening it here would have changed every explosion
+   scene to fix nothing S1 is accepted on.
+3. **Fire churns the sixteen-entry disturbance ring**, one entry per cell that
+   burns away. That is the right licence — the fire is the most recent thing
+   that happened — but a burning canopy will evict a player's blast sooner
+   than they expect. Coalescing repeats of one wound inside
+   `record_disturbance` is the obvious follow-up; unobservable at the shipped
+   SPREAD setting, where the gate is a constant `true`.
+
 ### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
 
 `c089aa2` reshaped what a failing region is (boundary erosion, fragments

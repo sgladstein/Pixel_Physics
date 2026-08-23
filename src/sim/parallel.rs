@@ -305,6 +305,9 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for site in outcome.pending_active_sites {
             world.schedule_active_site(site);
         }
+        for (x, y, extent) in outcome.pending_disturbances {
+            world.record_disturbance(x, y, extent);
+        }
         for (x, y, was, now) in outcome.organism_moves {
             world.reindex_organism_cell(x, y, was, now);
         }
@@ -361,6 +364,10 @@ struct ChunkOutcome {
     light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     field_touched: bool,
     pending_active_sites: Vec<ActiveSite>,
+    /// Disturbances reported via `CellSurface::record_disturbance` (fire's
+    /// burnout) — only `World` owns the ring, same reasoning as
+    /// `pending_active_sites`.
+    pending_disturbances: Vec<(i32, i32, i32)>,
     /// Positions where a same-chunk write overwrote a `FLAG_MANAGED` cell
     /// (`Reports/liquid-heightfield-design.md` §5a) — see `ChunkView::set`'s
     /// own comment for why this is a genuinely separate queue from the
@@ -462,6 +469,8 @@ struct ChunkView<'w> {
     /// so every queued site is handled identically regardless of where it
     /// sits.
     pending_active_sites: Vec<ActiveSite>,
+    /// See `ChunkOutcome::pending_disturbances`'s own doc.
+    pending_disturbances: Vec<(i32, i32, i32)>,
     /// See `ChunkOutcome::demotions`'s own doc.
     demotions: Vec<(i32, i32)>,
     /// See `ChunkOutcome::absorptions`'s own doc.
@@ -495,6 +504,7 @@ impl<'w> ChunkView<'w> {
             light_writes: Vec::new(),
             field_touched: false,
             pending_active_sites: Vec::new(),
+            pending_disturbances: Vec::new(),
             demotions: Vec::new(),
             absorptions: Vec::new(),
             splash_sites: Vec::new(),
@@ -520,6 +530,7 @@ impl<'w> ChunkView<'w> {
             light_writes: self.light_writes,
             field_touched: self.field_touched,
             pending_active_sites: self.pending_active_sites,
+            pending_disturbances: self.pending_disturbances,
             demotions: self.demotions,
             absorptions: self.absorptions,
             splash_sites: self.splash_sites,
@@ -727,6 +738,19 @@ impl CellSurface for ChunkView<'_> {
 
     fn schedule_active_site(&mut self, site: ActiveSite) {
         self.pending_active_sites.push(site);
+    }
+
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        // Bounded here as well as at the merge, for `report_splash`'s
+        // reason one function down: a worker sweeping a burning canopy
+        // reports one of these per cell that burns away, and the ring holds
+        // sixteen. Capped at that, since anything past the sixteenth entry
+        // a single worker produces is going to be evicted by the seventeenth
+        // anyway -- and paying to collect thousands of them first is the
+        // cost this avoids.
+        if self.pending_disturbances.len() < crate::sim::structural::MAX_DISTURBANCES {
+            self.pending_disturbances.push((x, y, extent));
+        }
     }
 
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {

@@ -529,6 +529,31 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                         next_frame: frame,
                     });
                 }
+                // **Scheduling the check is not enough on its own**, and
+                // that is the whole of `open-bugs-handoff.md` §D1's fire
+                // half. Both structural paths ask `within_disturbance`
+                // before they will break anything, and until this line fire
+                // recorded nothing anywhere -- so at LOCAL, TIGHT and NONE
+                // every check queued above arrived, found the cell
+                // genuinely unsupported, and refused. A trunk burned out
+                // from under its crown and the crown stayed up as living
+                // wood.
+                //
+                // Extent `0`, which is the honest value and not a
+                // placeholder: a burnout destroys exactly the one cell it
+                // is standing on, so the wound is a point and the licence
+                // is `chain_reach` alone. `filmstrip`'s `poke=` records the
+                // same for the same reason.
+                //
+                // One per burnt cell, and a burning canopy therefore churns
+                // the sixteen-entry ring. That is the correct *licence* --
+                // the fire is the most recent thing that happened -- but it
+                // does evict an older disturbance elsewhere sooner than a
+                // player might expect, and coalescing repeats of one wound
+                // is the obvious follow-up if it ever reads wrong. Noted
+                // rather than pre-solved: at the shipped SPREAD setting the
+                // gate is a constant `true` and none of it is observable.
+                surface.record_disturbance(x, y, 0);
             }
         }
     }

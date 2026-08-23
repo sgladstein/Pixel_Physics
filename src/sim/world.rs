@@ -937,6 +937,27 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Organism cells the plant-support check broke free — a limb that lost
+    /// its anchor becoming deadwood.
+    ///
+    /// **The "did it fire at all" counter for felling**, and it exists
+    /// because none of the fields above can answer it. `shattered_cells`
+    /// deliberately excludes this conversion (see its own doc, and
+    /// `structural::break_free`), `unsupported` is only recorded on the
+    /// inert path, and a crown that came down and a crown that was never
+    /// asked are the same handful of brown pixels on a contact sheet. A
+    /// coherent-looking collapse with a body count of zero has fooled this
+    /// project once already (`CLAUDE.md`), and a severed tree that quietly
+    /// kept growing has now fooled it a second time: measured on
+    /// `scene=fell cut=248,186,16,6`, 83 cells of trunk removed and living
+    /// tissue going *up* from 2,823 to 2,911 over the next 210 frames,
+    /// with every counter in this struct reading zero.
+    ///
+    /// Kept out of `shattered_cells` for that field's own stated reason,
+    /// and reported beside it rather than folded in: a tree shedding
+    /// deadwood on its own schedule and a tree being chopped down are the
+    /// same conversion and different events.
+    pub severed_organism_cells: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -955,6 +976,13 @@ impl FailureCounts {
     /// returned `Some`), so there is no sentinel to filter here.
     pub fn record_damage_reach(&mut self, reach: i32) {
         self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
+    }
+
+    /// See `severed_organism_cells`. One call per cell the organism path
+    /// actually converted -- a declined conversion (no `breaks_into`) must
+    /// not be counted, for the same reason `break_free` reports it.
+    pub fn record_severed_organism(&mut self, cells: u32) {
+        self.severed_organism_cells = self.severed_organism_cells.saturating_add(cells);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
@@ -2835,6 +2863,30 @@ impl World {
                 a.1.max(b.1) + r + MARGIN,
             );
             super::structural::relax_region(self, region);
+            // **A stroke that changed structure is a disturbance**, and
+            // until this line it was the one destructive verb the leash
+            // could not see (`open-bugs-handoff.md` §D1). `strike`,
+            // `mine_swept` and `explosion` all report themselves; the brush
+            // did not, so at LOCAL, TIGHT and NONE erasing a pillar left
+            // the roof floating and erasing a trunk left the crown standing
+            // as living wood -- `within_disturbance` refused every failure
+            // the erase had just licensed. Rock had the hole first and for
+            // longer; the organism support path merely made it visible for
+            // a second material class.
+            //
+            // **Once per stroke, at the capsule's midpoint, with an extent
+            // that covers the whole capsule.** A stroke is a volume verb
+            // and `record_disturbance` has no default extent precisely so
+            // one cannot quietly record itself as a point: half the
+            // segment, plus the brush radius, plus the `DETACH_DEPTH` band
+            // the erase loosened beyond its own edge, is the outer limit of
+            // what this call actually damaged. Recorded here rather than
+            // per cell inside the loop for the same reason `strike` records
+            // once per swing -- sixteen is the whole disturbance ring, and
+            // a held brush would evict everything else in it every frame.
+            let mid = ((a.0 + b.0) / 2, (a.1 + b.1) / 2);
+            let half = ((a.0 - b.0).abs().max((a.1 - b.1).abs()) + 1) / 2;
+            self.record_disturbance(mid.0, mid.1, half + r + super::structural::DETACH_DEPTH);
         }
     }
 
@@ -3150,6 +3202,11 @@ impl CellSurface for World {
     #[inline]
     fn schedule_active_site(&mut self, site: ActiveSite) {
         World::schedule_active_site(self, site)
+    }
+
+    #[inline]
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        World::record_disturbance(self, x, y, extent)
     }
 
     #[inline]

@@ -192,6 +192,27 @@ pub trait CellSurface {
     /// as `field_writes`/`light_writes`.
     fn schedule_active_site(&mut self, site: ActiveSite);
 
+    /// Report that this rule has just destroyed material at `(x, y)` —
+    /// `World::record_disturbance`, reachable from inside a generic CA
+    /// rule.
+    ///
+    /// Its only caller is `fire.rs`'s burnout. `open-bugs-handoff.md` §D1:
+    /// `record_disturbance` had exactly three production callers, all
+    /// player verbs, so a cell that *burned away* licensed nothing at all —
+    /// at LOCAL, TIGHT and NONE a trunk could burn out from under a crown
+    /// and `structural::organism_structural_tick`'s `within_disturbance`
+    /// gate would then refuse every failure the fire had just caused,
+    /// leaving the canopy standing in the air as living wood.
+    ///
+    /// `extent` carries the same contract as `World::record_disturbance`'s
+    /// — the outer limit of what this event itself damaged, never a
+    /// default. A burnout takes one cell, so its honest extent is `0`.
+    ///
+    /// Only `World` owns the disturbance ring, so `ChunkView` queues this
+    /// and replays it in `parallel::run_pass` — the same shape as
+    /// `schedule_active_site` above.
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32);
+
     /// Absorb `fill` units into the promoted liquid body that owns
     /// `(x, y)` — `Reports/liquid-heightfield-design.md` §6b/§8b.
     /// `update_liquid`'s only caller: when a falling liquid cell's vertical
