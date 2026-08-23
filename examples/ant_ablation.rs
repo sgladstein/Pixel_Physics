@@ -140,6 +140,20 @@ fn main() {
         }
     }
 
+    // **The two knobs that change what the arms are measured *on*, echoed.**
+    // `terrain=` and `food=` pick the scene; neither appeared in the output,
+    // so two logs from different worlds were indistinguishable at a glance
+    // and a flag that never reached the binary looked exactly like one that
+    // did (`CLAUDE.md`, the megastudy post-mortem).
+    let terrain_label = if world_terrain {
+        "world (generated)"
+    } else if rough {
+        "rough"
+    } else {
+        "flat"
+    };
+    println!("ant_ablation: terrain={terrain_label} food={} seeds={seeds} frames={frames}", if trees { "trees" } else { "corpse pile" });
+
     authored_matches_the_species_file(&World::new(Rect::new(0, 0, 15, 15)));
 
     // Arm 0 is the control and arm 1 the full genome; everything after is

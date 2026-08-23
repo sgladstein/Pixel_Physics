@@ -124,6 +124,6 @@
     // ant able to eat a cell of it, and the census built to judge it counted
     // `food_value` -- keyed on the material, blind to the menu -- so it
     // reported a rich forest floor for three rounds of measurement.
-    food_energy: 120.0,
+    food_energy: 480.0,
     food_class: -1.0,
 )

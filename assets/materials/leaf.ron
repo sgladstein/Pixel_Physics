@@ -24,7 +24,7 @@
     fall_drag: 0.15,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
-    // **Six hue bands of four tonal steps** — see `organism::PALETTE_BAND`.
+    // **Eight hue bands of four tonal steps** — see `organism::PALETTE_BAND`.
     // A species declares which bands it draws from (`foliage_bands`) and an
     // individual draws one band inside that range at germination, so a
     // stand is a spread of related greens instead of sixteen draws of one.
@@ -37,6 +37,21 @@
     // The order is deliberate: hue runs blue-green → green → yellow-green →
     // olive, so a species' range is a contiguous slice of one axis and
     // widening a range never jumps a hue.
+    //
+    // **Bands 6-7 step off that hue axis rather than continuing it**, and
+    // the break is deliberate. Six bands is two short of what four woody
+    // species need to hold *disjoint* two-band ranges, and two of them —
+    // `shrub` and `creeper` — declared the identical `(first: 4, count: 2)`
+    // until 2026-08-23, so a bush and a ground-runner were literally the
+    // same colour (`Reports/plant-project-review-2026-08-23.md` §2.1: it is
+    // colour and composition, not the architectural levers, that decide
+    // whether a stand reads as more than one plant). Continuing past dark
+    // olive means going brown, which reads as dead foliage; going
+    // *desaturated* instead gives a sage that is unmistakably a leaf and
+    // unmistakably not one of the four saturated greens. The contiguous-
+    // slice property still holds where it is used — inside each species'
+    // own range — which is all `bark_band_for_density` and the leaf-economy
+    // locus ever read.
     colors: [
         // 0: deep blue-green — fir, spruce
         (42, 74, 52),
@@ -68,6 +83,16 @@
         (80, 92, 46),
         (54, 62, 30),
         (94, 108, 56),
+        // 6: pale sage — glaucous, ivy and the ground layer
+        (104, 126, 100),
+        (120, 144, 116),
+        (86, 106, 82),
+        (138, 162, 134),
+        // 7: deep sage
+        (76, 98, 76),
+        (90, 114, 90),
+        (62, 82, 62),
+        (106, 132, 106),
     ],
     // Much more flammable than heartwood, and it burns *out* far faster. A
     // real canopy fire runs through foliage, not through trunks, and this
@@ -116,6 +141,6 @@
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
     // by the move from eater-constant to food-property.
-    food_energy: 120.0,
+    food_energy: 480.0,
     food_class: -1.0,
 )

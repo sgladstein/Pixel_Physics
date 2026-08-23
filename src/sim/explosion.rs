@@ -1633,10 +1633,29 @@ impl Blast {
                 }
                 self.report.cells_cleared += 1;
 
+                let mut thrown = false;
                 if dist2 > vaporize2 && world.rng.chance(tuning.debris_fraction) {
                     let (vx, vy) = debris_velocity(world, x, y, self.cx, self.cy, self.strength, tuning);
                     let pierce = pierce_budget(self.strength, tuning);
-                    particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce);
+                    particles.spawn_from_cell((x as f32, y as f32), (vx, vy), cell, pierce);
+                    thrown = true;
+                }
+                // **A consumed corpse is meat destroyed; a thrown one is
+                // not.** The particle carries the stamp now (`Particle::aux`,
+                // bug Z), so booking a throw here would charge for meat that
+                // is merely in flight and put `max_standing_meat` below the
+                // truth. The two halves of this branch are the two halves of
+                // one fix and were built together for that reason.
+                //
+                // This is the blast's *consumption* path -- the annulus
+                // clear, which empties every cell it reaches whether or not
+                // it threw one. The shockwave pickup further down is not a
+                // second site: it only ever clears a cell it has just thrown,
+                // so it destroys no meat and needs no hook.
+                if !thrown {
+                    if let Some(worth) = super::world::EnergyLedger::meat_worth_of(&world.materials, cell) {
+                        world.energy_ledger.meat_lost += worth;
+                    }
                 }
                 let was_structural = matches!(world.materials.kind(cell.material), material::MaterialKind::Solid | material::MaterialKind::Plant);
                 world.set(x, y, Cell::EMPTY);
@@ -1820,10 +1839,15 @@ impl Blast {
                     continue;
                 }
                 let chance = shockwave_pickup_chance(self.radius, dist2.sqrt(), tuning);
+                // **No `meat_lost` hook here, unlike the annulus clear
+                // above, and the asymmetry is the point:** this branch only
+                // ever empties a cell it has just *thrown*, so the stamp
+                // leaves on the particle rather than being destroyed. A hook
+                // here would charge for meat in flight.
                 if world.rng.chance(chance * tuning.debris_fraction) {
                     let (vx, vy) = debris_velocity(world, x, y, self.cx, self.cy, self.strength, tuning);
                     let pierce = pierce_budget(self.strength, tuning);
-                    particles.spawn_piercing((x as f32, y as f32), (vx, vy), cell.material, cell.shade, pierce);
+                    particles.spawn_from_cell((x as f32, y as f32), (vx, vy), cell, pierce);
                     world.set(x, y, Cell::EMPTY);
                 }
             }

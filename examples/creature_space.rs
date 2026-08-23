@@ -153,6 +153,23 @@ fn main() {
         }
     }
 
+    // **Line one names every parameter of the run, for every mode.** The
+    // scene line below used to be the only description and it was a
+    // hardcoded sentence: it read "4 beetles" against `BEETLES = 9`, and it
+    // did not print at all in the modes that return before it. A harness
+    // whose log cannot say what it ran is a harness nobody can tell is
+    // disconnected.
+    println!(
+        "creature_space: mode={mode} genomes={genomes} seeds={seeds} frames={frames} bins={bins} \
+         | preset={} ants={ANTS} beetles={BEETLES} trees={} moss={} \
+         | start_energy={START_ENERGY} move_cost={} food_energy={} base_seed={BASE_SEED:#x}",
+        DEFAULT_ECONOMY.preset,
+        DEFAULT_ECONOMY.trees,
+        DEFAULT_ECONOMY.moss,
+        DEFAULT_ECONOMY.move_cost,
+        DEFAULT_ECONOMY.food_energy,
+    );
+
     if mode == "threads" {
         thread_scaling(frames);
         return;
@@ -174,7 +191,10 @@ fn main() {
         return;
     }
     println!("creature space: {genomes} random genomes + 2 references, {seeds} seeds x {frames} frames each");
-    println!("scene: scarce food (2 trees), 52 ants, 4 beetles, generated terrain\n");
+    println!(
+        "scene: scarce food ({} trees), {ANTS} ants, {BEETLES} beetles, generated terrain ({})\n",
+        DEFAULT_ECONOMY.trees, DEFAULT_ECONOMY.preset
+    );
 
     // The two reference points, so the random distribution has something to
     // be read against. A zero genome cannot move at all, which makes it the
@@ -212,7 +232,7 @@ fn main() {
                 .iter()
                 .map(|(label, genome)| {
                     scope.spawn(move || {
-                        let s = mean_of((0..seeds).map(|sd| run_one(genome, frames, 0xC0DE + sd, DEFAULT_ECONOMY)).collect());
+                        let s = mean_of((0..seeds).map(|sd| run_one(genome, frames, BASE_SEED + sd, DEFAULT_ECONOMY)).collect());
                         (label.clone(), s)
                     })
                 })
@@ -322,7 +342,7 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // the *terrain*, which does not change between sweep runs. Behind a
     // flag so re-running the sweep does not re-pay for it: CENSUS=1.
     if std::env::var("CENSUS").is_ok() {
-        scene_food_census(0xC0DE);
+        scene_food_census(BASE_SEED);
     }
     let mut best: Option<(f32, String)> = None;
     // **Twelve settings, not fifty-four.** The previous sweep already
@@ -349,9 +369,9 @@ fn economy_sweep(seeds: u64, frames: usize) {
         for &food_energy in &[120.0f32, 700.0] {
             {
                 let econ = Economy { food_energy, move_cost, trees, moss, preset: PRESET, beetles };
-                let fs = mean_of((0..seeds).map(|s| run_one(&authored, frames, 0xC0DE + s, econ)).collect());
+                let fs = mean_of((0..seeds).map(|s| run_one(&authored, frames, BASE_SEED + s, econ)).collect());
                 let f = fs.survival;
-                let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, 0xC0DE + s, econ)).collect()).survival;
+                let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, BASE_SEED + s, econ)).collect()).survival;
                 let adv = f - z;
                 // **Meals per ant beside the outcome, because the last
                 // sweep could not tell "foraging does not pay" from
@@ -388,7 +408,7 @@ fn thread_scaling(frames: usize) {
     let genomes: Vec<Vec<f32>> = (0..4).map(|i| pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(i))).collect();
     let seq_start = std::time::Instant::now();
     for (i, g) in genomes.iter().enumerate() {
-        run_one(g, frames, 0xC0DE + i as u64, DEFAULT_ECONOMY);
+        run_one(g, frames, BASE_SEED + i as u64, DEFAULT_ECONOMY);
     }
     let seq = seq_start.elapsed();
 
@@ -396,7 +416,7 @@ fn thread_scaling(frames: usize) {
     std::thread::scope(|scope| {
         for (i, g) in genomes.iter().enumerate() {
             scope.spawn(move || {
-                run_one(g, frames, 0xC0DE + i as u64, DEFAULT_ECONOMY);
+                run_one(g, frames, BASE_SEED + i as u64, DEFAULT_ECONOMY);
             });
         }
     });
@@ -417,10 +437,10 @@ fn cost_breakdown(frames: usize) {
     let (w, h) = (512i32, 160i32);
     let t0 = std::time::Instant::now();
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
-    world.seed = 0xC0DE;
+    world.seed = BASE_SEED;
     let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
     let Some(params) = presets.get(PRESET) else { return };
-    pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: 0xC0DE });
+    pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: BASE_SEED });
     let gen = t0.elapsed();
 
     let surface = |world: &World, x: i32| -> i32 {
@@ -495,7 +515,7 @@ fn noise_floor(seeds: u64, frames: usize) {
         let vals: Vec<f32> = (0..seeds)
             .map(|s| {
                 runs += 1;
-                run_one(&genome, frames, 0xC0DE + s, DEFAULT_ECONOMY).survival
+                run_one(&genome, frames, BASE_SEED + s, DEFAULT_ECONOMY).survival
             })
             .collect();
         let n = vals.len() as f32;
@@ -530,10 +550,10 @@ fn spawn_census() {
     for preset in ["wetland", "rolling"] {
         let (w, h) = (512i32, 160i32);
         let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
-        world.seed = 0xC0DE;
+        world.seed = BASE_SEED;
         let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
         let Some(params) = presets.get(preset) else { continue };
-        pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: 0xC0DE });
+        pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: BASE_SEED });
         let surface = |world: &World, x: i32| -> i32 {
             (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
         };
@@ -729,6 +749,14 @@ fn authored_genome() -> Vec<f32> {
 const DEFAULT_ECONOMY: Economy = Economy { food_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
 
 /// Named because the "did this ant ever eat" detector reads against it.
+/// The first world seed every mode sweeps from (`BASE_SEED + i`).
+///
+/// Was a bare `BASE_SEED` at seven call sites and echoed by none of them, so a
+/// log could not say which world it measured -- the exact shape of the
+/// megastudy that produced eight byte-identical runs because `worldseed=`
+/// reached a binary that had never heard of it (`CLAUDE.md`).
+const BASE_SEED: u64 = 0xC0DE;
+
 const START_ENERGY: f32 = 90.0;
 
 const ANTS: usize = 52;
@@ -860,7 +888,42 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // scavenging efficiency, not foraging, and immobility wins.
     //
     // Leaves only, so the food is somewhere an ant has to go and get.
-    def.food = if econ.moss { vec!["leaf".to_string(), "moss".to_string()] } else { vec!["leaf".to_string()] };
+    //
+    // **Same menu, said the way S5 says it.** `def.food` is gone: what is
+    // nutritious is `gut_bias` against `MaterialDef::food_class` now. The
+    // translation is exact rather than approximate, and it is written out
+    // because an economy arm whose *menu* moved silently would invalidate
+    // every baseline taken through it:
+    //
+    //   corpse off the menu  ->  a pure herbivore gut. Corpse is
+    //     `food_class: 1.0`, so the matched filter reads 0.0 against a gut
+    //     of -1.0 and a corpse yields nothing however rich its stamp. This
+    //     is the paragraph above, expressed as the animal rather than as a
+    //     list -- and it is now a fact about *this ant* rather than a fact
+    //     about this harness.
+    //   leaf (+ moss) only   ->  everything else priced at zero here. The
+    //     list excluded `seed` and `litter` by omission and the filter
+    //     cannot: they are `food_class: -1.0` like leaf, so a herbivore
+    //     sees them. Litter especially -- S4 puts it on the forest floor
+    //     in quantity, and letting it onto the menu would raise food
+    //     density in the one arm that exists to keep food scarce.
+    //
+    // Plants keep their *full* value at this gut (filter 1.0), which is
+    // what the name list gave them, so the forager's income per mouthful is
+    // unchanged across this rewrite. **Lane A: this is a semantic change to
+    // your instrument -- the menu is preserved, but re-baseline before
+    // quoting a number through it.**
+    def.traits[organism::TRAIT_GUT_BIAS] = -1.0;
+    for name in ["seed", "litter"] {
+        if let Some(id) = world.materials.id_of(name) {
+            world.materials.get_mut(id).food_energy = 0.0;
+        }
+    }
+    if !econ.moss {
+        if let Some(id) = world.materials.id_of("moss") {
+            world.materials.get_mut(id).food_energy = 0.0;
+        }
+    }
     world.species.set_creature(species, def);
     let ant_material = world.materials.id_of("ant").expect("ant");
 

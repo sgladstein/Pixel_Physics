@@ -75,6 +75,33 @@ pub struct Particle {
     pub vy: f32,
     pub material: MaterialId,
     pub shade: u8,
+    /// The source cell's `Cell::aux`, carried so a thrown cell lands worth
+    /// what it was worth. Written back by `land` **only when the landing
+    /// material declares `Material::worth_in_aux`** — see there for why the
+    /// gate is on the flag and not on the value.
+    ///
+    /// Before this field existed, `land` wrote `Cell::new(material, shade)`
+    /// and the stamp was simply dropped. Since S3 a `corpse` cell carries
+    /// what it is worth to eat in `aux`, so a blasted corpse fell through to
+    /// `corpse.ron`'s `food_energy` fallback: **1,020 to 120, an 8.5x silent
+    /// loss** on the one material whose value is per-cell. Measured on the
+    /// reproduction below at radius 20: 114 cells thrown, every one of them
+    /// landing at 120 — 102,600 energy out of one blast, invisible to every
+    /// existing guard (`max_standing_meat` is a `<=` bound, and biomass is
+    /// asserted monotone non-increasing, so both pass on a loss).
+    ///
+    /// **`rigid.rs`'s `BodyCell` has the same shape and deliberately does
+    /// *not* do this.** It only ever holds `Solid`/`Plant`, and its `aux = 0`
+    /// is load-bearing: `aux` on those is the organism/cell-type packing, so
+    /// carrying it would let a landing body silently re-attach to an
+    /// organism it is no longer part of. The asymmetry is intentional; do
+    /// not "fix" it by symmetry with this field.
+    ///
+    /// Note `Cell::aux` is a tagged union with conventions that point
+    /// opposite ways — `0` means *full* on a `Liquid` and *dry* on a
+    /// `Powder` — which is the other reason this is gated on the landing
+    /// material rather than copied unconditionally.
+    pub aux: u16,
     /// Multiplies `vx` every step, in `MIN_DRAG..MAX_DRAG` (`ranged`'s upper
     /// bound is exclusive; irrelevant at this granularity). Drawn once at
     /// spawn and held for life, not redrawn per frame — the same "stable
@@ -149,20 +176,35 @@ impl ParticleSystem {
         }
     }
 
+    /// Throw a particle that has no source cell — a material and a shade
+    /// chosen by a caller rather than lifted off the grid (the brush's
+    /// debug burst). `aux` is 0: there is no stamp to carry.
+    ///
+    /// **A caller that *does* hold a `Cell` must use `spawn_from_cell`**, or
+    /// it silently reprices whatever it threw. That is bug Z, and the reason
+    /// the cell-sourced path takes the `Cell` itself rather than an `aux`
+    /// parameter it would be equally easy to forget.
     pub fn spawn(&mut self, x: f32, y: f32, vx: f32, vy: f32, material: MaterialId, shade: u8) {
-        self.spawn_piercing((x, y), (vx, vy), material, shade, 0);
+        self.push((x, y), (vx, vy), material, shade, 0, 0);
     }
 
-    /// `spawn`, plus a budget of loose cells the particle may punch through
-    /// before it must land — see `Particle::pierce`. Kept as a separate
-    /// entry point rather than a seventh parameter on `spawn`, because every
-    /// caller other than `explosion::trigger` wants the plain
-    /// land-on-first-contact behaviour and should not have to say so.
+    /// Throw a cell that is being taken off the grid, carrying everything it
+    /// was — material, shade and `Cell::aux` — plus a budget of loose cells
+    /// it may punch through before it must land (`Particle::pierce`; 0 for
+    /// ordinary debris, which lands on first contact).
     ///
-    /// Position and velocity are taken as pairs rather than four scalars
-    /// purely to stay under clippy's argument-count limit, which the
-    /// unpacked form trips.
-    pub fn spawn_piercing(&mut self, (x, y): (f32, f32), (vx, vy): (f32, f32), material: MaterialId, shade: u8, pierce: u8) {
+    /// Takes the `Cell` rather than its parts precisely because the parts
+    /// are what got dropped: every caller here already had the `Cell` in
+    /// hand and passed two of its three fields.
+    ///
+    /// Position and velocity are pairs rather than four scalars purely to
+    /// stay under clippy's argument-count limit, which the unpacked form
+    /// trips.
+    pub fn spawn_from_cell(&mut self, (x, y): (f32, f32), (vx, vy): (f32, f32), cell: super::cell::Cell, pierce: u8) {
+        self.push((x, y), (vx, vy), cell.material, cell.shade, cell.aux(), pierce);
+    }
+
+    fn push(&mut self, (x, y): (f32, f32), (vx, vy): (f32, f32), material: MaterialId, shade: u8, aux: u16, pierce: u8) {
         let drag = ranged(&mut self.rng, MIN_DRAG, MAX_DRAG);
         let gravity_scale = ranged(&mut self.rng, MIN_GRAVITY_SCALE, MAX_GRAVITY_SCALE);
         self.particles.push(Particle {
@@ -172,6 +214,7 @@ impl ParticleSystem {
             vy: vy.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS),
             material,
             shade,
+            aux,
             drag,
             gravity_scale,
             pierce,
@@ -346,6 +389,32 @@ fn advance_and_check_landing(world: &mut World, particle: &mut Particle) -> Opti
     None
 }
 
+/// The cell a landing particle becomes.
+///
+/// **`aux` rides along only when the landing material declares
+/// `Material::worth_in_aux`.** Copying it unconditionally would be wrong in
+/// both directions: `Cell::aux` is a tagged union whose conventions point
+/// opposite ways (`0` is *full* on a `Liquid` and *dry* on a `Powder`), and
+/// on `Solid`/`Plant` it is the organism packing — so a thrown wet soil
+/// grain would land claiming to be food, and a thrown plant cell would land
+/// claiming to belong to an organism. `worth_in_aux` is the one convention
+/// where the number means "what this cell is worth to eat", and it is the
+/// only one a free particle has any business preserving.
+///
+/// Gated on the **flag, not the value**: an unstamped corpse (`aux == 0`) is
+/// a real case — `fire.rs`'s burnout writes one, deliberately — and it must
+/// stay unstamped rather than be skipped into a fallback by a zero test.
+/// `creature::food_value` is what turns 0 back into the material fallback,
+/// and it should keep being the only place that decides that.
+fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
+    let cell = super::cell::Cell::new(particle.material, particle.shade);
+    if world.materials.get(particle.material).worth_in_aux {
+        cell.with_aux(particle.aux)
+    } else {
+        cell
+    }
+}
+
 fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
     // Land one cell short if the target itself is occupied or out of bounds —
     // otherwise the particle would overwrite whatever it just collided with,
@@ -356,7 +425,7 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
         (particle.x.round() as i32, particle.y.round() as i32)
     };
     if world.in_bounds(tx, ty) && world.is_empty(tx, ty) {
-        world.set(tx, ty, super::cell::Cell::new(particle.material, particle.shade));
+        world.set(tx, ty, landed_cell(world, particle));
         return;
     }
     // Neither position is available. Before this, the particle was simply
@@ -382,7 +451,7 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
                 }
                 let (nx, ny) = (tx + dx, ty + dy);
                 if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
-                    world.set(nx, ny, super::cell::Cell::new(particle.material, particle.shade));
+                    world.set(nx, ny, landed_cell(world, particle));
                     return;
                 }
             }
@@ -481,13 +550,11 @@ pub fn throw_splashes(world: &mut World, particles: &mut ParticleSystem) {
             // so here rather than leaving the next reader to check.
             world.set(dx, y, super::cell::Cell::EMPTY);
             world.splashes_thrown += 1;
-            particles.spawn(
-                dx as f32,
-                (y - 1) as f32,
-                SPLASH_OUT * offset as f32 * strength,
-                -SPLASH_UP * strength,
-                cell.material,
-                cell.shade,
+            particles.spawn_from_cell(
+                (dx as f32, (y - 1) as f32),
+                (SPLASH_OUT * offset as f32 * strength, -SPLASH_UP * strength),
+                cell,
+                0,
             );
         }
     }
@@ -626,6 +693,193 @@ mod tests {
         assert_eq!(w.get(30, 40).material, material::EMPTY, "a full cell at a free surface was not thrown");
         assert_eq!(ps.len(), 1);
         assert_eq!(w.splashes_thrown, 1);
+    }
+
+    /// **A corpse thrown by a blast must land worth what it was worth.**
+    /// The reproduction for `Reports/open-bugs-handoff.md` bug Z, driven
+    /// through the *real* explosion path rather than through a hand-built
+    /// particle, because the bug is a dropped field in the hand-off between
+    /// `explosion::trigger` and `land`, and a hand-built particle would test
+    /// the fix against its own literal.
+    ///
+    /// Why no existing guard sees this: `EnergyLedger::max_standing_meat` is
+    /// a `<=` bound, so meat quietly going missing passes it, and
+    /// `creature_biomass` is asserted monotone non-increasing, which a loss
+    /// also satisfies. The census here is `creature::food_value` over the
+    /// world -- the quantity an animal actually eats.
+    #[test]
+    fn a_blasted_corpse_lands_worth_what_it_was_worth() {
+        use super::super::creature::food_value;
+
+        // Big enough that thrown debris has somewhere to land inside the
+        // world, and a solid floor so nothing simply falls out of it.
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            w.set(x, 127, super::super::cell::Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        assert!(
+            w.materials.get(corpse).worth_in_aux,
+            "test setup: corpse must price itself per cell, or this measures nothing"
+        );
+
+        // A stamped corpse worth far more than `corpse.ron`'s fallback, so a
+        // dropped stamp is unmistakable rather than a rounding difference.
+        // 1,020 is bug Z's own figure.
+        const WORTH: u16 = 1_020;
+        let fallback = w.materials.get(corpse).food_energy;
+        assert!(
+            (WORTH as f32) > fallback * 2.0,
+            "test setup: the stamp ({WORTH}) has to be well clear of the {fallback} fallback or a dropped stamp is invisible"
+        );
+
+        // A slab of stamped corpse sitting on the floor, wide enough to
+        // reach past the vaporize core (`Tuning::vaporize_fraction`) so a
+        // real share of it is *thrown* rather than simply cleared.
+        let (cx, cy, radius) = (64i32, 100i32, 20i32);
+        for y in 96..104 {
+            for x in 44..84 {
+                w.set(x, y, super::super::cell::Cell::new(corpse, 0).with_aux(WORTH));
+            }
+        }
+
+        let census = |w: &World| -> (f32, usize) {
+            let (mut total, mut count) = (0.0, 0);
+            for y in 0..128 {
+                for x in 0..128 {
+                    let c = w.get(x, y);
+                    if c.material == corpse {
+                        total += food_value(w, c);
+                        count += 1;
+                    }
+                }
+            }
+            (total, count)
+        };
+        let (before, before_count) = census(&w);
+        assert!(
+            (before - WORTH as f32 * before_count as f32).abs() < 1.0,
+            "test setup: the census does not see the stamps it was just given ({before} over {before_count} cells)"
+        );
+
+        let mut ps = ParticleSystem::new();
+        super::super::explosion::trigger(&mut w, &mut ps, cx, cy, radius, 180.0);
+        let thrown = ps.len();
+        assert!(
+            thrown > 0,
+            "test setup: the blast threw no particles at all, so the hand-off this test is about never happened"
+        );
+
+        // Let every particle land.
+        for _ in 0..600 {
+            if ps.is_empty() {
+                break;
+            }
+            ps.step(&mut w);
+        }
+        assert!(ps.is_empty(), "{} particles never landed in 600 frames", ps.len());
+
+        let (after, standing) = census(&w);
+
+        // **The bar is worth *per surviving cell*, not on the total.** A
+        // blast is allowed to destroy corpse cells outright -- that is the
+        // consumption path, and WP-6's `meat_lost` is what books it -- so
+        // the total legitimately falls. What may never happen is a cell
+        // coming back *cheaper than it went in*, which is exactly what
+        // dropping `aux` does: 1,020 -> `corpse.ron`'s 120 fallback.
+        assert!(
+            standing > 0,
+            "the blast left no corpse standing at all, so this cannot tell a fix from a hole"
+        );
+        let per_cell = after / standing as f32;
+        assert!(
+            (per_cell - WORTH as f32).abs() < 1.0,
+            "a corpse stamped {WORTH} came back worth {per_cell:.1} per cell \
+             ({standing} standing of {before_count}, {thrown} thrown): the particle dropped its aux"
+        );
+    }
+
+    /// **The other half of bug Z's fix: a thrown grain must not land
+    /// carrying a stamp that means something else.**
+    ///
+    /// The guard for the *replacement* artifact, per `CLAUDE.md` — the risk
+    /// a fix like this introduces is not "the stamp is dropped" but "the
+    /// stamp is copied onto a material where `aux` means something else
+    /// entirely". `Cell::aux` is a tagged union: on soil it is saturation on
+    /// `SOIL_SATURATED`'s scale, so an unconditional copy makes every
+    /// blasted grain land soaking wet.
+    ///
+    /// **This test is asserted on the raw `aux`, and the first version of it
+    /// was vacuous for asserting through `creature::food_value` instead.**
+    /// That function *already* gates on `worth_in_aux`, so it reports soil's
+    /// flat `food_energy` whatever the stamp says — the assertion could not
+    /// fail, and it duly passed with the gate in `landed_cell` deleted. It
+    /// was measuring the gate it was written to guard, through a second copy
+    /// of that same gate. `CLAUDE.md`: sanity-check a new metric against a
+    /// case you know is broken, not only one you know is fine.
+    ///
+    /// Written as a pair with the corpse case above deliberately: the two
+    /// fail in opposite directions, so a gate that is simply inverted passes
+    /// one and fails the other rather than passing both.
+    #[test]
+    fn a_blasted_grain_does_not_land_carrying_its_moisture() {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            w.set(x, 127, super::super::cell::Cell::new(material::STONE, 0));
+        }
+        let soil = w.materials.id_of("soil").expect("soil material");
+        assert!(
+            !w.materials.get(soil).worth_in_aux,
+            "test setup: soil must NOT price itself in aux, or this is testing the corpse case again"
+        );
+
+        // Saturated to the top of the moisture scale — the largest wrong
+        // number a landed grain could possibly carry.
+        let (cx, cy, radius) = (64i32, 100i32, 20i32);
+        let slab = |x: i32, y: i32| (44..84).contains(&x) && (96..104).contains(&y);
+        for y in 96..104 {
+            for x in 44..84 {
+                w.set(x, y, super::super::cell::Cell::new(soil, 0).with_aux(material::SOIL_SATURATED));
+            }
+        }
+
+        let mut ps = ParticleSystem::new();
+        super::super::explosion::trigger(&mut w, &mut ps, cx, cy, radius, 180.0);
+        let thrown = ps.len();
+        assert!(thrown > 0, "test setup: the blast threw no grains, so nothing here is exercised");
+        for _ in 0..600 {
+            if ps.is_empty() {
+                break;
+            }
+            ps.step(&mut w);
+        }
+        assert!(ps.is_empty(), "{} particles never landed in 600 frames", ps.len());
+
+        // **Soil outside the original slab can only have got there by being
+        // thrown**, which is what makes this a test of the landing write
+        // rather than of the scene. Cells still inside the footprint are a
+        // mix of untouched and landed and cannot distinguish the two.
+        let mut landed = 0;
+        for y in 0..128 {
+            for x in 0..128 {
+                let c = w.get(x, y);
+                if c.material != soil || slab(x, y) {
+                    continue;
+                }
+                landed += 1;
+                assert_eq!(
+                    c.aux(),
+                    0,
+                    "a grain thrown clear of the slab landed at ({x}, {y}) carrying aux {} — \
+                     on soil that is saturation, not worth, and {thrown} grains were thrown",
+                    c.aux()
+                );
+            }
+        }
+        assert!(
+            landed > 0,
+            "no grain landed outside the slab at all ({thrown} thrown), so this guard saw nothing"
+        );
     }
 
     #[test]

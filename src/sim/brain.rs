@@ -42,9 +42,17 @@ pub const BRAIN_OUTPUTS: usize = 10;
 /// 6 -> 9 output growth unlawful — see `GENOME_LEN`.
 ///
 /// Sized to absorb three appends on each axis before a migration, at 584
-/// floats against the 248 a tight layout uses: 2.3 KB per creature, ~9.6 MB
-/// at the 4095-organism ceiling. Reserving more (16 outputs, 712 floats)
-/// buys no additional lawfulness, only more headroom.
+/// floats against the **268** a tight layout uses at today's live counts
+/// (16x10 + 4x16 + 4 + 10x4): 2.3 KB per creature, ~9.6 MB at the
+/// 4095-organism ceiling. Reserving more (16 outputs, 712 floats) buys no
+/// additional lawfulness, only more headroom.
+///
+/// (That number read **248** until 2026-08-23, which was the tight layout
+/// for `BRAIN_OUTPUTS = 9` — correct before the `Feed` verb was appended
+/// and stale the moment it was. It is a derived quantity written by hand,
+/// so it goes stale on exactly the appends this reservation exists to
+/// make cheap; the reserved 584 is the number that does not move, and is
+/// the one to reason with.)
 pub const INPUT_SLOTS: usize = 24;
 pub const HIDDEN_SLOTS: usize = 8;
 pub const OUTPUT_SLOTS: usize = 12;

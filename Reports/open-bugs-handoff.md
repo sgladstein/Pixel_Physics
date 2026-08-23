@@ -736,7 +736,16 @@ soil moisture), or accepting dry ground as real and giving worldgen a
 reason to place trees where water is. Those are three different games, and
 picking between them is a design decision, not a merge resolution.
 
-### U. Water stress makes a tree BIGGER — **OPEN, 2026-08-22, backwards from real plants**
+### U. Water stress makes a tree BIGGER — **DOES NOT REPRODUCE over 8 seeds, 2026-08-23; the missing penalty it names is real and measured. See §P1.**
+
+> **2026-08-23, P1.** Swept over 8 seeds on this entry's own bed, drought grew
+> a *smaller* plant on 5 of 8 and less wood on 6 of 8, and the means go the
+> right way (2,102 cells against 2,423; 1,146 wood against 1,362). The
+> 982-vs-734 below is one sample from a distribution that straddles. What
+> **is** confirmed is the mechanism this entry guessed at: the
+> `break_root_tips` exit for "thirsty, sites available, cannot afford it"
+> reads **zero in every arm measured**. The penalty is missing; the outcome
+> it was blamed for is not there.
 
 Measured while trying to write a replacement guard for §V, on one bed over
 12,000 frames with only the soil moisture differing:
@@ -873,8 +882,158 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
-### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
+---
 
+**C4's metrics were built, calibrated against the owner's eye, and FAILED.
+§Z is cards-only. — 2026-08-23, P1**
+
+Both candidates this entry names were built in `examples/plant_probe.rs`:
+connected canopy components at the field's 8x8 resolution (reported as
+*fusion*, the largest component's share of canopy blocks), and the sky-gap
+census. Three stands were rendered at frame 28,800 and put to the owner
+**with the founder counts withheld**, asking only "how many separate trees
+can you count?" — cards `20260823T092919055Z-ac816a` and `...-87b3f5`,
+answered identically, so the reading is stable.
+
+| founders | spacing | raw gaps (widths) | gaps + 1 | >=8-cell gaps + 1 | fusion | **owner counted** |
+|---|---|---|---|---|---|---|
+| 8 | 56 | 1 (`[1]`) | 2 | 1 | 99% | **2** |
+| 4 | 102 | 1 (`[4]`) | 2 | 1 | **100%** | **4** |
+| 3 | 128 | 2 (`[1, 32]`) | 3 | 2 | 38% | **3** |
+| 2 | 170 | 1 (`[13]`) | 2 | 2 | 58% | not carded |
+
+**The 4-founder stand settles it.** The owner counts *all four*. Fusion
+reads **100%** — the strongest possible "one mass" — and the gap census
+finds a single 4-cell gap where the eye finds three separations. The claim
+P1 made before asking, that fusion "splits cleanly and in one place", is
+**false**: the split it draws puts a stand read as four distinct trees on
+the fused side.
+
+**Why no column census can be made to work here, which is the reusable
+part.** A gap is a fully empty column. The eye separates crowns that
+*overlap*, on trunk position and crown outline — cues carried by the shape
+of the occupancy, not by whether any column is empty. At 102 cells apart
+these four crowns touch and are still four obvious trees. That is a
+structural limit of the measurement, not a threshold to retune. Anyone
+proposing a third column-based candidate should explain how it sees a
+boundary with no empty column in it.
+
+**Two thresholds, both invented to explain away a reading I doubted, both
+strictly harmful.** First a quarter of the founder spacing, which scored two
+obviously separate trees 170 apart at zero (a quarter of 170 is 42). Then an
+absolute 8 cells, which scores **0 of 3** against the owner where the
+*unthresholded* count scores **2 of 3** — because the 1-cell gap at 8
+founders that I discarded as noise is exactly the separation behind the
+owner's answer of "2". Raw gaps + 1 gives 2, 2, 3 against 2, 4, 3.
+
+**What survives, and it is not nothing.** The negative result this entry
+already recorded is confirmed hard: `thickest contiguous run` reads **36 to
+51 across the whole spacing range** and is *highest* on the stand the owner
+counts as 2 of 8. It cannot tell a fused stand from a separate one in either
+direction. And the component count must never be read alone — it exceeds the
+founder count on a widely spaced stand, because a sparse crown breaks into
+separate blocks.
+
+So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
+as description, labelled as having failed calibration, so nobody spends the
+round trip discovering this again.
+
+**The open question for whoever tries again**, put to the owner as card
+`20260823T150917441Z-d236fd`: *what is the eye using* on the 4-founder
+stand? The crowns touch, so it is not sky. If the answer is "the trunks",
+that is countable and a third candidate exists — count distinct
+trunk columns crossing a band above the litter line, which is a
+*shape* question the column census cannot ask but a per-organism one can.
+If the answer is crown outline, it is much harder, and worth knowing that
+before anyone spends a week on it. Do not start a third metric before that
+card is answered.
+
+### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
+
+> **Closed by WP-5 of the creature handoff.** Reproduced first, then fixed,
+> then broken deliberately in both directions to prove the guards bite.
+>
+> **The reproduction, which this entry said had never been done.** A slab of
+> `corpse` stamped 1,020 per cell, blasted at radius 20 through the real
+> `explosion::trigger` path (`sim::particle::tests::
+> a_blasted_corpse_lands_worth_what_it_was_worth`): **114 cells thrown, and
+> every one landed worth 120.** The census over the survivors read **254.3
+> per cell against 1,020** — arithmetic that resolves exactly to "the 20
+> cells never thrown kept their stamp and all 114 thrown ones lost it".
+> **102,600 energy destroyed by one blast**, and the estimate in this entry
+> was right on the nose: 8.5x, on the one material whose value is per-cell.
+>
+> **The fix.** `Particle` gains `aux: u16`, taken from the source cell at
+> spawn and written back by `land` **only when the landing material declares
+> `Material::worth_in_aux`** — gated on the *flag*, not on the value, because
+> an unstamped corpse (`aux == 0`) is a real case that `fire.rs`'s burnout
+> writes deliberately, and `creature::food_value` should stay the only place
+> that turns a 0 back into the material fallback.
+>
+> The cell-sourced entry point takes the **`Cell` itself** (`spawn_from_cell`)
+> rather than an `aux` parameter: every caller that had this bug already held
+> the `Cell` and passed two of its three fields, so a parameter would have
+> been exactly as easy to forget again. Three callers source from a live
+> cell — `explosion.rs:1639` and `:1826`, plus the splash path at
+> `particle.rs`'s `throw_splashes`, which this entry did not list. The
+> brush's debug burst (`app.rs::spawn_burst`) has no source cell and keeps
+> the plain `spawn`.
+>
+> **`rigid.rs`'s `BodyCell` is left alone, as this entry says it should be**,
+> and the reason is now recorded in `Particle::aux`'s own doc comment so the
+> asymmetry is not "fixed" by symmetry later: a body only ever holds
+> `Solid`/`Plant`, where `aux` is the organism packing, so carrying it would
+> let a landing body silently re-attach.
+>
+> **Both guards, and both were made to fail.** The corpse case above, and its
+> opposite — `a_blasted_grain_does_not_land_carrying_its_moisture`, because
+> the artifact a fix like this *introduces* is over-copying: on soil `aux` is
+> saturation on `SOIL_SATURATED`'s scale, so an unconditional copy lands
+> every blasted grain soaking wet. Deleting the gate fires the moisture
+> guard (a grain landed carrying `aux` 1000); reverting the whole fix fires
+> the corpse guard (254.3 against 1,020); with both in place the pair is
+> green.
+>
+> **The first version of that second guard was vacuous and is worth
+> recording.** It asserted through `creature::food_value`, which *already*
+> gates on `worth_in_aux` — so it reported soil's flat `food_energy`
+> whatever the stamp said, could not fail, and duly passed with the gate
+> deleted. It was measuring the gate it existed to guard, through a second
+> copy of that gate. It only showed up because the fix was deliberately
+> broken; on green alone it would have shipped. Rewritten to assert the raw
+> `aux` on grains that landed *outside* the original slab footprint, which
+> are the only ones that can have been thrown.
+>
+> **Nothing on screen changed, and that is the sharpest thing about this
+> bug.** A corpse's *shade* is baked in at death by `creature_dies`
+> (`creature.rs:1907`, a ramp over the animal's `start_energy`) and rides on
+> `Particle::shade`, which was always carried. Only `aux` was dropped. So a
+> blasted corpse landed **still drawn pale, as a fresh kill, while being
+> worth 120** — the picture said rich and the number said carrion, and the
+> picture was the one a person would have checked. `CLAUDE.md`'s division of
+> labour, in the flesh: an image tells you *what* and *where*, and only a
+> census tells you *how much*. No review card was posted for this fix,
+> because there is nothing to look at; the evidence is the census.
+>
+> Determinism pair green on both drivers — a new field on `Particle` does
+> not perturb replay. `ParticleSystem::step` runs once per frame from
+> `App::update`, outside the CA sweep, so this path is driver-independent by
+> construction rather than by test.
+>
+> **The other half landed with it (WP-6).** This preserves the worth of a
+> corpse the blast *throws*; `EnergyLedger::meat_lost` now books the one it
+> *consumes*, along with fire and the brush, so `max_standing_meat` is a
+> real bound rather than a hope. The two were built together because they
+> are two halves of one branch — booking a *throw* would charge for meat
+> merely in flight and put the bound below the truth, and the guard
+> `world.rs::a_destroyed_corpse_is_booked_rather_than_forgotten` asserts
+> exactly that by carrying the in-flight term explicitly. The bar in this
+> section's own test is worth *per surviving cell* rather than on the sum
+> for the same reason: the total is allowed to fall, and what may not happen
+> is a cell coming back cheaper.
+
+**The original entry, kept as the record of what was inferred and what it
+cost:**
 Found by inspection during the `creatures-m18` merge review, **not created by
 it**. `Particle` carries `material` and `shade` but not `aux`, and landing
 writes `Cell::new(particle.material, particle.shade)`. Since S3, a `corpse`
@@ -1201,7 +1360,13 @@ leaves before and zero leaves after. The 10x soak cut does not touch it —
 but it does make the intended fix roughly ten times more expensive: crossing
 the wilting point from bone-dry goes from ~2 strikes to ~18.
 
-### A. The slot-1 root spread has collapsed — **OPEN. Three explanations tried; the third was wrong too, and the lever now measures as dead.**
+### A. The slot-1 root spread has collapsed — **OPEN. Four explanations tried; the third was measured wrong too, and the lever now measures as dead.**
+
+> **2026-08-23, P1: the third explanation is FALSIFIED by the counter this
+> entry asked for, the guard has been recalibrated and un-quarantined, and
+> the bug is still open. Read §P1 below before adding a fifth explanation** —
+> `break_root_tips` fires around a hundred times per run in both arms, so
+> nothing built on the amplifier being shut can be right.
 
 > **2026-08-23, from the `creatures-m18` merge: this test flips with litter
 > volume, and has still never been seed-swept.** Three measurements in one
@@ -1213,7 +1378,9 @@ the wilting point from bone-dry goes from ~2 strikes to ~18.
 > | + creatures-m18 merge | — | — | — | *green* |
 > | + `LITTER_FALL_REACH` 64 -> 512 | 354 | 378 | 6.8% | **red** |
 >
-> The sign never changes and neither does the failure mode; only the margin
+> The sign never changes and neither does the failure mode (**superseded:
+> the 2026-08-23 re-sweep above measures the sign flipping, 0.90 -> 1.035**);
+> only the margin
 > moves, and it moves by a couple of points either side of the bar as the
 > volume of litter on the floor changes. **The green in the middle row is not
 > a fix and must not be read as one** — it is one sample from a distribution
@@ -1224,6 +1391,52 @@ the wilting point from bone-dry goes from ~2 strikes to ~18.
 > weak enough that an unrelated change to ground cover moves it across the
 > acceptance threshold. Any future attempt on this bug should **sweep seeds
 > and report an order statistic** before believing either a red or a green.
+
+> **2026-08-23, re-swept on `main` with litter in the world (the sweep §A
+> asked for and had never had). The lever still measures as dead — and the
+> claim below that "the sign never changes" does not survive.**
+>
+> `print_root_branch_slot_seed_sweep`, 8 seeds, both draws, 12,000 frames,
+> one machine, one session, on `main` at `a0fa433` (these 18 commits touch
+> neither `src/sim/plant.rs` nor `assets/species/`):
+>
+> | seed | root(-1) | root(+1) | ratio | clears the 10% bar |
+> |---|---|---|---|---|
+> | 1 | 354 | 378 | 1.07 | no |
+> | 2 | 395 | 334 | 0.85 | no |
+> | 3 | 308 | 346 | 1.12 | **yes** |
+> | 4 | 285 | 300 | 1.05 | no |
+> | 5 | 322 | 380 | 1.18 | **yes** |
+> | 6 | 239 | 252 | 1.05 | no |
+> | 7 | 254 | 239 | 0.94 | no |
+> | 8 | 335 | 341 | 1.02 | no |
+> | **mean** | **311.5** | **321.2** | **1.035** | **2 of 8** |
+>
+> Mean of the per-seed ratios **1.035, sd 0.102, SE 0.036**. That is **0.97 SE
+> from 1.0** — still consistent with the lever being dead — 1.8 SE from the
+> guard's 1.10, and **8.2 SE from the calibrated 1.33**, which it excludes as
+> firmly as the 2026-08-22 sweep did. So the conclusion is unchanged and the
+> quarantine stands.
+>
+> **What has changed is the sign, and the sentence below saying it never does
+> is now wrong.** The 2026-08-22 sweep read a mean ratio of **0.90** —
+> inverted, root(-1) beating root(+1) — and this one reads **1.035**, weakly
+> the right way round. Seed 1 alone went 371/315 (0.85) then and 354/378
+> (1.07) now. The direction is not a stable property of the bug; it wanders
+> with the same ground-cover changes the margin does. **Neither a red nor a
+> green nor a *sign* here means anything from one seed.** The guard itself is
+> red at seed 1 as recorded (354 vs 378 = 6.8% against a 10% bar), which
+> reproduces `5a9e594`'s figures exactly.
+>
+> Also down, and not obviously part of this bug: **absolute root cell counts
+> fell about a fifth** across the sweep, mean 431.0 → 311.5 at draw -1
+> (−27.7%) and 388.9 → 321.2 at draw +1 (−17.4%), same probe and same frame
+> budget. Recorded here because it is the sort of thing that later reads as
+> having always been true.
+>
+> Time-boxed per the implementation handoff's WP-3 and stopping here: the
+> remaining fix is the plant genome's primed-site repair, which is model work
+> over procedural content and belongs to whoever owns the plant line.
 
 **Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
 move the bar.** My third explanation was that the test is single-seed
@@ -1623,7 +1836,7 @@ main-line one, which no test on either side covers. What follows was read
 off the merged source; where something is measured it says so, and where it
 is inference it says that too.
 
-**F1. A litter blanket blocks rain from reaching the soil — LIVE, verified.**
+**F1. A litter blanket blocks rain from reaching the soil — ~~LIVE, verified~~ FIXED 2026-08-23, see §P1 below.**
 `weather::step`'s soak loop walks down from the surface and `break`s at the
 first cell whose `water_capacity == 0` (`weather.rs:482`, whose own comment
 explains it as "a puddle on bare rock does not wet the rock beneath it").
@@ -1644,7 +1857,7 @@ winters; they may be lovely. *Not measured, and the field's 8x8 block
 resolution may blunt a 1–2 cell snow cap.* *Measure:* paired leaf census
 across a snow epoch vs a clear one, same seed.
 
-**F3. Root drinking destroys water unconserved — LIVE, verified by reading.**
+**F3. Root drinking destroys water unconserved — ~~LIVE, verified by reading~~ FIXED 2026-08-23, see §P1 below.**
 `absorb_water`'s Liquid arm sets the adjacent cell to `Cell::EMPTY` and
 credits at most `rate` — the cell's remaining fill is destroyed, not
 transferred. That was tuned on branches where ponds never evaporated; main
@@ -1669,7 +1882,8 @@ brush only plants trees, so nothing reaches it. *Measure:* count organisms
 with `root_cells == 0 && shoot_cells > 0` on a grass stand under canopy at
 30k frames, and the slot high-water mark.
 
-**F5–F8, in brief.** Grass seeds are ant food and a nest-dropped seed loses
+**F5–F8, in brief.** (F8 is **FIXED 2026-08-23** — and its stated cause was
+wrong; see §P1 below before acting on the sentence about it here.) Grass seeds are ant food and a nest-dropped seed loses
 its organism id, so a colony beside a sward is an unbounded larder and a
 sink on grass recruitment (LATENT with grass). Decay's settle-scan schedules
 a whole chunk's cohort at the same `next_frame` where evaporation
@@ -1681,6 +1895,293 @@ so unplanted soil ratchets toward field capacity across rain epochs
 non-decreasing confirms it in one number). And `reinforces_powder` does not
 stop digging, only avalanching, so ants can hollow a sod bank into a lattice
 that never collapses.
+
+### P1. The water book, the root-tip counter, and what they said about §A and §U — **2026-08-23**
+
+Package P1 of the plant implementation split (`Reports/plant-implementation-
+split-2026-08-23.md`). Four of the entries above move; two of them move in a
+direction nobody expected, and those two are the ones worth reading.
+
+**§F3 is closed.** `absorb_water`'s `Liquid` arm wrote `Cell::EMPTY` and
+credited at most `rate`, so a full 1,000-fill water cell was destroyed to pay
+for 1.5 units of plant water. It now takes what it drinks and leaves the rest
+as partial fill, at the exchange the `Powder` arm already uses
+(`SOIL_UPTAKE_PER_TICK` of a cell's 0..1,000 store per `rate` of plant water —
+and `LIQUID_FULL` and `SOIL_SATURATED` are the same 1,000, so the two arms are
+now one currency). Measured on one drink from one full cell, same build:
+
+| | fill taken | water credited | fill per unit of water |
+|---|---|---|---|
+| before | **1,000** | 1.50 | **667** |
+| after | 60 | 1.50 | **40** |
+
+40 is `SOIL_UPTAKE_PER_TICK / rate` exactly. **Income is unchanged** — the
+plant still gains at most `rate` per tick per wet neighbour — so this is a
+conservation fix and not an economy change. Guard:
+`a_root_leaves_the_water_it_did_not_drink`.
+
+*§F3's own 2x2 (tree/no-tree x weather/no-weather over pond volume) was built
+first and does not work, which is worth recording.* Free water standing
+against unsaturated soil **infiltrates**, so any pond within reach of a root
+system drains into the bank far faster than anything drinks it, and the scene
+measures infiltration wearing absorption's clothes. Three geometries were
+tried and each measured zero: a tank under a stone shelf (the root stops a row
+short of the water), a tank under a *punched* shelf (a seed is a `Powder` and
+falls through the hole), and a sealed pocket inside the bed (infiltrated away
+to nothing inside 1,500 frames). Driving the arm directly is the honest
+measure. Related, and not touched because it is not this package's:
+`roots_consume_adjacent_water` asserts that `w.get(50, 22)` is no longer
+`WATER` in the first of those geometries, and the water there drains into the
+tank on its own within a few frames — so it may be passing for that reason
+rather than for its own.
+
+**§F1 is closed.** `weather::step`'s soak loop stopped at the first cell whose
+`water_capacity == 0`. That is right about rock and wrong about everything
+that merely *lies on* soil, and litter declares no capacity. A drop now
+crosses up to `SOAK_COVER_REACH` cells of loose cover — a `Powder` or a
+`Plant` cell, i.e. litter, grass, sand, ash, lying snow — and starts its
+`SOAK_DEPTH` profile at the first cell that can actually hold water. `Solid`
+still stops it, and so does a gap, so **canopy interception is unchanged**: a
+treed column's surface is its crown and the cell under a leaf is air, so a
+drop still stops in the canopy. Changing that is a rain model, not a bug fix.
+
+Paired storm, seed 4, 400 frames, same session and machine, soil `aux` gained:
+
+| | before | after |
+|---|---|---|
+| bare bed | 4,295 | 4,295 |
+| littered, the bed's own ten rows | **15 (0.3%)** | **1,073 (25%)** |
+| littered, every soil cell in the world | 3,829 | 5,352 |
+
+**Read the middle row, and note why the bottom one lies.** World-wide, the
+littered arm was *already* taking 89% of the bare arm's water before the fix,
+because litter rots into soil where it lies and a rotted cell has capacity —
+so the column soaks into the blanket's own remains while the ground beneath
+stays sealed. A world-wide metric reports this bug as nearly absent. The bed
+is the thing §F1 says takes zero, and it took 0.3%. After the fix the littered
+column holds *more* total water than the bare one, which is what mulch is for.
+The after figure is a quarter rather than a whole because the soak profile now
+starts at the rotted cell, one to three rows above the original bed — correct
+behaviour, and the reason the guard's bar is a tenth of the bare arm rather
+than most of it. Guard: `rain_soaks_through_a_litter_blanket`.
+
+**§F8 is closed, and its stated cause was wrong.** §F8 says "there is no
+soil-to-air drying". There is: `evaporation::tick_soil` dries a damp soil
+surface and credits the atmosphere for exactly what it removes, and
+`schedule_damp_soil` puts cells on that schedule from both places soil gets
+wet. It also *ran* — 19,388 soil checks on seed 1 over ten epochs — and it was
+**not** §1m's humidity shadow either: **3** of those 19,388 read becalmed.
+
+The sink was busy and had nothing it was allowed to touch. It dried the
+surface cell and only the surface cell, on the reasoning that soil under soil
+"gives it up to the surface by capillary flow". Capillary flow does not do
+that: `update.rs`'s exchange deliberately rests once the gradient falls under
+`SOIL_CAPILLARY_REST` (`SOIL_SATURATED - SOIL_FIELD_CAPACITY` = 380), and that
+band is **wider than the range the sink can pull** (`SOIL_FIELD_CAPACITY -
+SOIL_WILTING_POINT` = 440). So the profile parked at "surface at the wilting
+point, everything under it at up to 560", the surface cell then failed
+`is_damp_soil_surface`, its site retired, and the bed held what it had for
+ever. That is the shape `CLAUDE.md` records as *a constant compensating for a
+bug* seen from the other side: two correct-looking rules whose rest states do
+not overlap.
+
+The fix is `SOIL_DRY_REACH`, set equal to `weather::SOAK_DEPTH`: a drying
+*front* descends through the same few rows the rain reached, one cell per
+check, at a rate falling as `1/(d+1)` — the soak's own profile, run backwards.
+What the rain wets, the sun can take back; what drained deeper is the water
+table and correctly does not evaporate.
+
+Plantless 128-wide bed, ten epochs, three seeds, summed soil `aux`:
+
+| seed | before | after |
+|---|---|---|
+| 1 | 230,400 -> 463,927, **never once falls** | 230,400 -> 308,067 -> 236,121, falls five times |
+| 4 | 232,038 -> 233,802, then flat to the last frame | rises and returns to 230,521 |
+| 7 | 240,000 -> 243,650, then flat to the last frame | rises and returns to 230,400, its own floor |
+
+Guard: `unplanted_soil_gives_water_back_to_the_air`, which is §F8's own test
+with its sign flipped — before, all three series were monotone non-decreasing;
+after, none is. **There is no bar to set**, which is worth more than a
+well-chosen one.
+
+**§A: the amplifier is NOT shut, and the lever is dead centre.** §A's third
+explanation — main's field model raises uptake 67%, the mean stomatal term
+crosses `ROOT_REINITIATION_STATUS`, `break_root_tips` stops firing, the slot-1
+spread collapses — is **falsified by the counter it asked for**. Exit histogram
+over `root_slot_run(1, 1, +-1, 12_000)`, one run per arm:
+
+| draw | root | shoot | calls | gated | at_cap | no_cand | poor | **FIRED** |
+|---|---|---|---|---|---|---|---|---|
+| -1 | 354 | 2246 | 313 | 214 | 2 | 1 | 0 | **96** |
+| +1 | 378 | 2093 | 291 | 139 | 43 | 1 | 0 | **108** |
+
+It fires around a hundred times a run in both arms. §A's own closing note
+anticipated this — "a mean can cross while the distribution that matters does
+not" — and that is exactly what happened: the mean sits at 0.96, over the gate,
+while a third to a half of individual calls are under it. **Do not offer a
+fourth explanation built on the amplifier being off.**
+
+What the histogram does say is that the two draws differ at `at_cap` (2 against
+43): the +1 arm spends far more of its calls already holding `max_active_tips`.
+That is a *cap* difference, not an economy one, and it is where a fifth
+explanation should start looking.
+
+
+**§U does not reproduce, and its named mechanism is nevertheless real.** Two
+separate findings, and conflating them is how this entry got written the first
+time.
+
+*The outcome is a single-seed artifact.* §U reports 982 cells and 428 wood on a
+nearly dry bed against 734 and 299 at field capacity — drought growing a bigger
+tree, backwards from dendrochronology. Swept over 8 seeds on
+`plant_tree_on_ground`'s bed (the one §U's cell counts point at), 12,000 frames,
+dry 310 against field capacity 620:
+
+| | dry | wet |
+|---|---|---|
+| mean cells | **2,102** | 2,423 |
+| mean wood | **1,146** | 1,362 |
+| seeds where drought grew a bigger plant | **3/8** | |
+| seeds where drought grew more wood | **2/8** | |
+
+The means go the *right* way — drought costs 13% of mass and 16% of wood — and
+a majority of seeds agree. §U as filed predicts 8/8 on both. `CLAUDE.md`:
+compare two runs, not one run against a remembered number; a bed whose twelve
+identical trees span 31 to 153 cells will hand you either sign if you take one
+sample. Reproduction: `print_drought_size_seed_sweep`.
+
+*The missing penalty is real and is now measured.* §U's unproven mechanism was
+that water stress *triggers* root re-initiation while nothing throttles the
+carbon that pays for it — "a compensation response with the penalty missing".
+The counter has an exit for exactly that (`ROOT_TIP_POOR`: thirsty, under the
+tip cap, sites available, and no cell holds `cost`). It reads **0 in every arm
+measured** — both beds, both moistures, both slot draws. A thirsty plant is
+never once short of the carbon for a new root tip. And the amplifier does track
+stress: 209 firings dry against 90 wet on the deep bed, 214 against 174 on the
+shallow one.
+
+So the fix §U asks for — `water_status` scaling what a plant can *afford*, not
+only what it decides to build — is still the right fix and now has a number
+behind it. It belongs to P2, with the rest of the single economy pass. What
+should **not** carry forward is the claim that drought currently grows a bigger
+tree; on the evidence it grows a smaller one, most of the time.
+
+**§A's guard: recalibrated, split, and un-quarantined — but the bug is NOT
+closed.** Read this before assuming otherwise.
+
+The 8-seed sweep, re-run after the P1 water fixes, on the same pairing §A
+records:
+
+| when | mean of per-seed root ratios | seeds clearing the 1.10 bar |
+|---|---|---|
+| at calibration, one seed (336 against 448) | **1.33** | — |
+| 2026-08-22, 8 seeds | 0.92, SE 0.056 | 1/8 |
+| **2026-08-23, 8 seeds, after the water fixes** | **0.994, SE 0.046** | 2/8 |
+
+**0.1 SE from exactly no effect.** Note what the water fixes did: 0.92 → 0.994.
+The small apparent *inversion* §A hedged about ("whether it is exactly dead or
+slightly inverted cannot be resolved at n=8") was an artifact of the water
+book, and it is gone. What is left is flat.
+
+`CLAUDE.md` says to set a bar from measurement with headroom and, where a
+report asks for a number the engine cannot yet hit, to *record both and leave
+the gap visible rather than relabelling it away*. There is no bar with headroom
+over data consistent with 1.0. So the guard was **split** rather than retuned:
+
+- `slot_1_is_a_root_locus_and_not_a_shoot_one` — **live, in CI, seed-swept.**
+  Asserts the half that is true: slot 1 must not move the *shoot* (mean
+  per-seed spread measured **4.8%, SE 1.8%**, worst seed 13.0%; bar stays at
+  the original 20%, now eight SE above the quantity instead of one seed's
+  luck), and must not order root mass *backwards* (floor 0.85, three SE under
+  the measurement — one-sided, because a forward bar is unreachable and a
+  two-sided one would punish whoever revives the lever).
+- `root_and_shoot_branching_read_different_slots` — **kept, `#[ignore]`d, and
+  it still fails.** The forward claim, with all three measurements in its doc
+  comment. This is bug §A, left visible and runnable by name.
+
+The CI exclusions in `test`/`test-debug` and the `known-red-roots` job are
+deleted, per that file's instruction. **That is not a claim that §A closed** —
+a `continue-on-error` job pointed at an `#[ignore]`d test reports green, which
+the CI file's own rule calls worse than a red one, so retargeting it would have
+been the misleading option. The gap lives here and in the ignored test.
+
+**What a fifth explanation should start from.** The amplifier is not off (see
+the histogram above). The one place the two draws differ sharply is
+`ROOT_TIP_AT_CAP` — 2 firings blocked by `max_active_tips` at draw −1 against
+**43** at draw +1. Slot 1 raises root branching, which produces more tips,
+which meet the species cap sooner; a cap is exactly the shape of thing that
+converts a graded lever into a flat outcome. `tree.ron`'s `max_active_tips` is
+the number to look at, and it is an economy constant, so it belongs to P2's
+single re-derivation rather than to this package.
+
+**§Z / C4: a metric that can fail, and it does.** §Z's two candidates — canopy
+components at the field's resolution, and sky-gap width — are built in
+`examples/plant_probe.rs` and calibrated against the answered cards. Swept over
+founder spacing, default 512-wide stand, frame 28,800, current build:
+
+| trees | spacing | **canopy fusion** | sky-gap widths | gaps >= 8 cells | `thickest contiguous run` |
+|---|---|---|---|---|---|
+| 8 | 56 | **99%** | [1] | 0 | 51 |
+| 4 | 102 | **100%** | [4] | 0 | 43 |
+| 3 | 128 | 38% | [1, 32] | 1 | 39 |
+| 2 | 170 | 58% | [13] | 1 | 36 |
+
+"Canopy fusion" is the largest connected component's share of the blocks that
+hold any foliage, counted 8-connected at `field::FIELD_SCALE`.
+
+**Calibrated against the absolute card, and it agrees.** On the 8-founder stand
+— the one the owner judged "everything has merged together into a big mass, I
+cannot identify individual trees" — it reads **99% fusion and no crown-scale
+gap in seven**. §Z's requirement was a metric that can fail where the eye
+fails; this one does. And it splits in exactly one place: **>= 99% on every
+stand that reads as one mass, <= 58% on every stand that reads as separate
+trees**, boundary between 102 and 128 cells of spacing.
+
+**The last column is the point.** `thickest contiguous run` — the number §Z
+records as having been believed once and overturned — reads **36 to 51 across
+the entire range**, and is *highest* (51) on the stand that is most completely
+fused. It cannot distinguish an eight-tree mass from two separate trees. That
+is not a tuning problem; it measures whether crowns *touch*.
+
+Three cautions, each measured rather than assumed, and two of them are mistakes
+this session made and caught by looking at the render:
+
+- **The gap census must count foliage, not any plant cell.** The first version
+  reported *zero* gaps on the 4-founder stand whose render plainly shows sky
+  between crowns, because the shed litter and root mound at the foot of a stand
+  is continuous across every column — it was measuring the forest floor.
+- **Its threshold must be absolute, not a fraction of founder spacing.** A gap
+  counted as real only if it cleared a quarter of the spacing scored the
+  2-founder stand — two obviously separate trees with a 13-cell strip of sky
+  between them — at **zero**, because a quarter of 170 is 42. A 13-cell strip
+  of sky is as visible at 170 spacing as at 60. It is one field block now.
+- **Do not read the component count on its own.** It goes *above* the founder
+  count on a widely spaced stand, because a sparse crown breaks into separate
+  blocks. More components than founders means gappy foliage, not extra trees.
+
+Even fixed, the gap census under-counts by construction: the 3-founder stand
+shows two separations to the eye and scores one, because two of its crowns
+touch at a single point. **Fusion is the headline; the gap census is supporting
+evidence.** Fusion also needed no threshold, which is why it is the one to
+trust.
+
+**Not calibrated against the blind A/B card's "partial" verdict**, and this is
+the honest limit: that card's other arm is `plant-substrate-v2`, a branch this
+package cannot run. The sweep shows the metric is not stuck at "fused" — it
+moves across the spacing range — so a partial stand is representable. Whether
+it reads *partial* the way the owner reads partial is untested, and card
+`20260823T092919055Z-ac816a` asks exactly that: three strips at 56, 102 and 128
+spacing, with the question "how many separate trees can you count in each",
+and the founder counts deliberately withheld.
+
+**Lineage turnover (Phase 0d), printed for the first time.** Over 28,800 frames
+on the 8-tree stand: **72 organisms born, 0 died**, and **0 of 8 established
+plants carry an inherited genome** (deepest generation 0; 64 seeds set, all
+still seeds). `plant-evolution-design.md` §5's own test — "if it reads ~0 at
+30k frames, every evolution claim at that horizon is about founders" — reads
+zero. Every plant result in this repo taken at 30k frames or less is a
+statement about the eight trees somebody planted, not about selection. That is
+A2/P3's brief, and it now has its number.
 
 ### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
 
@@ -2848,7 +3349,14 @@ is settled.
 
 ---
 
-### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **OPEN, inherited from `main`, 2026-08-23**
+### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **CLOSED 2026-08-23. The well evaporated; the scene now maintains a spring, and the guard is a continuous margin.**
+
+> **Read §L first (2026-08-23).** As of `main` at `a0fa433`, `ascii` panics
+> at `:1678` on a *foraging* assert and **never reaches the `:1850`
+> assertion below**. The reproduction in this section is real and was real
+> when it was written, but you cannot currently observe it by running
+> `ascii`: §L has to be got past first. The two are unrelated failures
+> sharing one quarantined gate.
 
 `examples/ascii.rs:1850` fails its own setup assertion:
 
@@ -2887,6 +3395,182 @@ branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
 
+**Closed 2026-08-23, and the record's own steer was right: the scene, not
+the deposition rule.** The well is filled once at spawn and then left to the
+world. Instrumented per 1,000 frames it goes
+
+    34 -> 30 -> 39 -> 52 -> 66 -> 76 -> 98 -> 47 -> 1 -> 0
+
+so it does not simply evaporate — it *rises* first, because `weather::step`
+runs inside both CA drivers and rains into it, and then a dry spell takes the
+lot. **By frame 10,000 there is no standing water anywhere in the scene**, and
+the field it feeds reads `steep mean 0.000 peak 0.000 | flat mean 0.000 peak
+0.000`. So `wet_grad > dry_grad` was deciding between two numerical residues,
+which is why it flipped between CI runs 137 and 139 while printing identical
+numbers.
+
+That is `CLAUDE.md`'s "a channel that oscillates by design must be divided out
+of decisions", in weather's costume rather than light's. There is no
+`noon_equivalent` for weather, so the scene holds the *source* constant
+instead:
+
+1. **The well is topped up every frame** (`run_colony_with`'s new per-frame
+   hook), making the left half wet at every phase while rain can still wet
+   the right half without ever making it a spring.
+2. **The gradient is averaged over 40 samples through the run**, not read at
+   one instant — two instants fitted to one trajectory is the failure this
+   file's own §V records by name.
+3. **The spring is asserted to still be standing** (`water_after >= 20`)
+   before anything is concluded from the field it feeds.
+
+Measured after the fix: **steep half 1.9206, flat half 0.1061, margin 1.8146**
+on `MAX_MOISTURE` = 4.0, against a residue below the sixth decimal before. The
+bar is 0.5 — a little over a quarter of the measurement, and comfortably above
+the flat half's own 0.1061.
+
+**Both guards were broken deliberately to prove they bite**, and the result
+changed the fix. Removing the spring alone leaves the *averaged* margin at
+1.4033 — because the average still sees the rainy phases — so the time-average
+by itself would have "closed" bug H while the scene was still empty at the
+end. It is the standing-water assertion that catches it. Guard 3 exists
+because of that break test, not in spite of it.
+
+**One half of this scene is still not tested, and that is recorded rather than
+tuned away.** The headline assertion `wet_drops > dry_drops` is **vacuous**:
+deleting `moisture_gradient` from the drop probability in `creature.rs:1254`
+entirely — the whole mechanism the scene is named for — left it passing
+*harder*, steep 18 / flat 0 against steep 6 / flat 0. Removing a multiplier
+below 1.0 raises the drop rate everywhere, and the flat half reads zero in
+both arms because the ants never travel that far. It has been demoted to a
+printed measurement.
+
+Its successor is a **ratio**: mean `|grad moisture|` at the cells ants actually
+dropped on, over the mean across the whole band they could have dropped on.
+That does separate the arms — **4.97x with the bias against 2.84x without** —
+but both stand on 6 and 18 standing drops, and a bar from a ratio of six cells
+is the same knife-edge this scene has already been bitten by. It is printed,
+not asserted. What it needs is more drops to average over, which is blocked on
+the same thing everything else here is: **ants that leave home at all** (see
+the foraging entry below).
+
+`ascii` is gating in CI again on this basis, with `skip=foraging` naming the
+one scene still red instead of the whole example being non-blocking.
+
+### H2. The `ascii` colony has gone sessile — **OPEN on `main`, quarantined by name, 2026-08-23**
+
+> **Superseded in framing, 2026-08-23.** This entry was opened as "`ascii`
+> never reaches bug H any more" — true at the time, and no longer the point:
+> bug H is **closed** (above), `examples/ascii` has scene selection, and this
+> scene is quarantined by name as `known-red-ascii` (`skip=foraging` in the
+> gating job). What survives is the measurement and the attribution, kept
+> because P1 made them independently and they agree with `main`'s to the
+> digit.
+
+**Found by running the gate rather than by reading it.** The foraging-loop
+scene panics at `ascii.rs:1678`, the colony sessility guard, 172 lines
+*before* bug H's assertion at 1850 — so for a while `ascii` never reached bug
+H at all, and anyone re-checking §H saw this instead.
+
+**Measured, paired, same machine and session** — `origin/main`'s `src/`
+swapped into a clean tree against P1's, both `cargo run --release --example
+ascii`:
+
+| | forage trips (bar 14) | deepest | reach profile | live organisms | deliveries |
+|---|---|---|---|---|---|
+| `origin/main` | **2** | 15 | [689, 22, 8, 2, 0, 0, 0, 0] | 76 | 143 |
+| P1 (the water book) | **7** | 15 | [998, 59, 19, 7, 0, 0, 0, 0] | 71 | — |
+
+**Inherited, and the water fixes move the failing number the right way** — 2
+to 7 against a bar of 14, with every reach bucket higher. Not fixed here: the
+water fixes were not aimed at ant foraging, 7 is still under the bar, and a
+guard over ant behaviour on generated terrain belongs to the creature line.
+`main`'s own `known-red-ascii` comment reaches the identical numbers
+independently, including the reach profile digit for digit, which is worth
+more than either measurement alone.
+
+**The bar's own doc says how it was set, and that is the first thing to
+check.** It reads "measured 98 trips, deepest 18, mean depth 10.3 over 12,000
+frames after the litter merge", with the bar at 14 — a seventh, chosen because
+"outcome spread here is large and a bar near the measurement flakes". `main`
+now measures 2. That is not a bar flaking; something took the colony from 98
+to 2.
+
+The scene's food is a **stand of trees** whose leaves the ants forage
+(`ascii.rs:1429`'s own note: a corpse pile gave 2.5 pickups and zero
+deliveries, trees gave 44.8 and 28.8), and both runs above deliver food
+(main: 1,340 pickups, 143 deliveries). The colony is not starving; it is
+finding food without going 8 cells to get it. So the quantity to census first
+is how much foliage is standing and *where*, not the ant brain —
+`CLAUDE.md`'s "when a mechanism appears inert, check the scene still contains
+the situation you think it does". `main` has since carried this further: 88%
+of the colony's food is leaf on standing trees and the stock triples over the
+run while the ants eat none, which is on the owner's queue as
+`20260823T091259637Z-9a41e4`.
+
+### H3. Both worldgen at-rest tests are red on `main`, and both are water — **OPEN, inherited, 2026-08-23**
+
+Not a new bug — `plant-implementation-split-2026-08-23.md` already warns that
+main is red here. Recorded because the *content* of the failure was not, and
+because it is the reason a plant branch's CI looks broken when it is not.
+
+`tests/worldgen.rs:1794` snapshots every `(x, y, material)` in a forced-vault
+world, steps 120 frames, and requires nothing to have left its position. The
+cells that move are **material 6 — water** (`stone` is 2, `sand` 3, `gravel` 4,
+`ash` 5, `water` 6, in `MATERIAL_FILES` order), so this is a liquid-at-rest
+failure wearing a worldgen test's name. The assertion is inside the
+preset/seed loop, so the run stops at the **first** failing case and says
+nothing about the ones after it.
+
+Measured, paired, same machine and session — `origin/main`'s `src/` swapped
+into a clean tree against P1's:
+
+| | first failing case | cells that moved |
+|---|---|---|
+| `origin/main` `a0fa433` | **rolling seed 3** | **47** |
+| P1 (this branch) | wetland seed 3 | **8** |
+
+**P1 gets past `rolling seed 3` entirely**, which main does not, and then stops
+on a later case with a sixth as many cells. So the water fixes move this the
+right way rather than causing it. What P1 does *not* establish is whether main
+also fails `wetland seed 3` — main never reaches it, and finding out means
+making the loop collect failures instead of panicking on the first, which is a
+`tests/worldgen.rs` change and belongs to whoever owns worldgen.
+
+**Why a plant package looked responsible for it, which is worth knowing before
+the next one wastes the time.** §F3's fix leaves a partly-drunk water cell as
+*partial fill* where the old code deleted the cell outright, and partial fill
+is mobile — it seeks its level. That is a real, plausible route from a plant
+change to "water did not hold still", and it is why this was measured against
+main rather than waved through on the split document's say-so. The measurement
+says the opposite of the suspicion.
+
+**And the reason it reached CI at all: `cargo test --lib` does not run
+`tests/`.** P1's local gate was `cargo test --release --lib` — 851 passed, 0
+failed — which never compiled the integration tests. CI runs `cargo test
+--release`, which does. Run the bare form locally before believing a green.
+
+**A second at-rest test joins it, and it is water too —
+`generated_terrain_is_already_at_rest`, `tests/worldgen.rs:182`.** It arrived
+on `main` at `9b54be3` and P1 inherited it by merging main in to clear a
+conflict. Measured the same way, `origin/main`'s `src/` against the merged
+branch, same machine and session:
+
+```
+terraced seed 3: 57 cells left their position;
+first: (82,147) water, (83,147) water, (84,147) water, (84,148) water, ...
+```
+
+**Byte-identical on both sides** — same seed, same count, same leading
+coordinates. Unlike the forced-vault case above, where the two branches differ,
+this one the water fixes do not touch at all. Purely main's.
+
+**Two at-rest tests, both failing on water, is the shape worth acting on.**
+They are not two bugs about worldgen; they are one question — *does generated
+terrain's standing water actually settle?* — asked by two tests that stop at
+the first seed that says no. Neither says how many seeds fail, because both
+panic rather than collect. Whoever picks this up should make the loops gather
+failures first; the count per preset is the measurement, and right now nobody
+has it.
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
@@ -2982,7 +3666,11 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
 
-### L. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed — **OPEN, pre-existing on `main`, 2026-08-23**
+### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
+
+*(Re-lettered from L at the 2026-08-23 lane landing: three unrelated bugs
+had been filed as §L by three lines. The colony-sessile entry keeps the
+letter — it is the one the lane PRs and CI job names cite.)* — **OPEN, pre-existing on `main`, 2026-08-23**
 
 `CLAUDE.md` lists same-build determinism as **required**. It does not hold on
 the scene the seed sweep is built out of.
@@ -3041,6 +3729,271 @@ through a wall.
 fix; recorded because it is live, it is invisible (a probe that always says
 yes looks exactly like a probe that is working), and nothing else in the
 handoff names it.
+
+### N. Decayed litter makes soil that does not match the soil around it, and roots will not enter it — **OPEN, owner-reported 2026-08-23, both causes found**
+
+From the owner's verdict on card `20260823T091259637Z-9a41e4`: *"why does the
+soil from decayed leaf litter look different than the regular soil. and the
+plant roots are not growing into it."* Both are real, both are in
+`decay.rs`'s single `world.set`, and **both are already described by that
+function's own comments** — as accepted costs whose visible price had not
+been looked at.
+
+**1. The colour. `decay.rs:142-143`:**
+
+```rust
+let shades = world.materials.get(into).base_shades.max(1) as u32;
+let shade = world.rng.below(shades) as u8;
+```
+
+Two mismatches against how worldgen paints soil, not one:
+
+- **Wrong family.** `base_shades` is "how many *leading* palette entries a
+  random shade may pick from", i.e. family 0 only, and the comment says why
+  outright: *"Decay has no region to consult, so it stays in the first
+  family."* But `passes::palette_family` assigns families from regional
+  aridity whenever `region_variation > 0`, and every populated preset has it
+  — `wetland` (the colony scene) is **0.45**. So in any region that is not
+  family 0, decayed litter lands as a different hue family from the ground it
+  lands on.
+- **Wrong tone within the family.** Worldgen does not pick soil shades at
+  random at all: `passes::soil_shade` walks them **2 → 0 → 1 → 3**, "dark
+  organic topsoil down to paler mineral subsoil", so tone carries depth.
+  Decay draws uniformly, so a fresh patch at the surface is a speckle of all
+  four tones where the surrounding topsoil is one.
+
+The first is a known limitation the comment states; the second appears to be
+unnoticed, and is the one that makes a *patch* rather than a *shift*.
+
+**2. The roots.** `decay.rs` leaves the new soil **dry**, deliberately, and
+its comment defends the choice at length — the two richer versions both
+manufactured water and one took `a_tree_eventually_stops_growing` from 1,718
+cells to 2,652. That reasoning is sound and should not be reverted. What the
+comment anticipated was narrower than what happens: it names the cost as *"a
+seed reseeded onto brand-new soil may wait a little before germinating"*.
+But roots steer by `organism::moisture_pull` (`plant.rs:1592`), so
+established roots avoid the new layer too, for as long as capillary flow
+takes to wet it. The owner is watching that at play scale and reading it as
+roots refusing the soil, which is exactly what it looks like.
+
+**Not a licence to wet it on creation.** The fix shape is either to give
+decay the region and depth it needs to pick a shade the way worldgen does, or
+to let the new cell inherit them from the soil it is replacing — and, for the
+roots, to establish how long capillary wetting actually takes before deciding
+there is anything to fix.
+
+**Merged at landing (2026-08-23) — Lane B filed this bug independently, and
+its unique finding is a coupling.** The capillary remedy above is defeated by
+the very material producing the dry layer: §F1 (LIVE, verified) has
+`weather::step`'s soak loop `break` at the first cell with `water_capacity ==
+0`, and `litter.ron` declares none — so a column under a litter blanket takes
+**zero** rain. Fast rot then deepens a dry layer under a blanket that blocks
+the rain, with only sideways capillary flow to wet it, and it predicts this
+bug gets worse exactly as the litter economy gets better — the enrichment
+shape `PLAN.md`'s standing note warns about. Measures specced before acting,
+neither built yet, both paired: soil `aux` summed by depth under a littered
+column against a bare one across rain epochs; root cells entering
+newly-decayed soil against established soil.
+
+Reported, not fixed: `decay.rs`, `plant.rs` and the palette passes are not
+this lane's files.
+
+### O. Litter rots into soil that never leaves, so the floor rises all run — **OPEN, owner-reported 2026-08-23, quantified**
+
+Same verdict: *"the soil is piling up way too fast … I think leaves are just
+falling too fast which creates too much food and is creating a giant pile of
+soil."*
+
+Measured, `filmstrip scene=colony`, wetland, seed 0, same run at two horizons:
+
+| | frame 1,200 | frame 12,000 |
+|---|---|---|
+| decay events (damp + dry) | 179 | **6,331** |
+| standing decayable cells | 194 | 1,081 |
+| living plant tissue | 11,407 | 24,033 |
+
+Every decay event is one `world.set` writing a soil cell, and **soil has no
+`decays_into`** — nothing on this channel removes it. So the count is a
+monotone floor level: **~6,331 soil cells manufactured in one 12,000-frame
+colony run**, and it scales with leaf fall, which itself scales with a canopy
+that doubled over the same run.
+
+**The owner's causal reading is supported by the arms already measured.**
+Litter is the only decay input in this scene, and rotting it *faster* makes
+the pile worse, not better — the paired card arms read 6,331 events at
+`decay_chance` 0.5/0.1 against **7,287** at 0.9/0.4, while standing litter
+fell 1,081 → 260. So the two halves of his verdict agree: he picked arm A on
+looks, and arm A is also the arm that buries the world more slowly. **The
+faster-rot direction the implementation handoff proposed for this card would
+have made his actual complaint worse**, which is the argument for having
+measured both arms rather than shipping the proposal.
+
+The lever he names is upstream of the one the card asked about: not how fast
+litter rots, but how fast leaves fall. That is abscission
+(`plant.rs`), not `litter.ron`.
+
+Related and not the same: §L is the *foraging* consequence of the same
+over-production (88% of the colony's food is standing leaf, the stock triples,
+the colony has stopped ranging). One economy, three symptoms — sessile ants,
+a rising floor, and soil that does not match.
+
+### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
+
+**Two** tests, not one, and neither is in any handoff's list — which records
+`main` as one red (bug A). Neither is quarantined, so this is a **gating**
+job failing. `cargo test --release --no-fail-fast` on `main` at `9b54be3`:
+lib **855 passed / 0 failed**, worldgen **37 passed / 2 failed**.
+
+| test | fails at |
+|---|---|
+| `generated_terrain_is_already_at_rest` (`:182`) | `terraced seed 3: 57 cells left their position` |
+| `a_forced_vault_world_is_sealed_and_arrives_at_rest` (`:1794`) | `rolling seed 3: 47 cells left their position` |
+
+**They are one bug wearing two names.** Both assert that a freshly generated
+world holds still, and in both the cells that move are **water** — the
+terrain test names them (`(82,147) water, (83,147) water, …`) and the vault
+test prints material id `6`, which is `material::WATER`. Both fail on
+**seed 3**. So the claim that is actually broken is "generation leaves
+standing water at rest", and a fix for either should be checked against both
+rather than treated as two jobs.
+
+```
+rolling seed 3: 47 cells left their position in a forced-vault world;
+first [(1263, 138, 6), (1270, 138, 6), (1258, 138, 6), ...]
+```
+
+The claim in each case is the same: snapshot, step, assert nothing moved.
+
+**Deterministic, and it got worse across the load port.** Three consecutive
+runs on `main` at `9b54be3` give `rolling seed 3: 47 cells` every time. On
+`a0fa433` — the same test, before main's load-concentration port (`5e6e79b`,
+`b934041`) — `rolling` *passed* and the failure fell through to `wetland
+seed 3: 8 cells`. The preset list is a fixed array `["rolling", "canyon",
+"wetland"]` and the assertion aborts on the first failure, so reaching
+`wetland` at all means `rolling` was green then. Two trees, two results,
+both red: 8 cells on one preset before, 47 on an earlier preset after. Not
+attributed further — the load model is what decides whether a cell holds
+still, and it is what changed.
+
+**The message is the trap.** The count is stable but the sample is not: the
+cells are drawn from a `HashSet` difference, so the "first 6" printed
+reshuffle on every run — `(1263, 138, 6)`, then `(1267, 138, 6)`, then
+`(1255, 138, 6)` — while the count stays at exactly 47. A reader comparing
+two failure messages sees different cells and concludes "flaky", which is the
+one thing it is not. Sorting the sample before printing would cost nothing
+and is the fix `CLAUDE.md`'s "a debug readout must not be a function of the
+thing it debugs" implies here.
+
+The moving cells are a wide band rather than one collapsed spot — y 137-139
+across x 1250-1550 in the vault case — which is what a sheet of water finding
+its level looks like, not a structure failing.
+
+Reported, not fixed: `tests/worldgen.rs`, the load model and the liquid rules
+are not this lane's files, and the point of finding it is that nothing said
+it was red.
+
+**Merged at landing (2026-08-23) — Lane B's independent filing adds the run
+history, the local blind spot, and a starting commit:**
+
+- Red on every `main` CI run since `a0fa433`; last green was **#146 on
+  `c6ffba2`**, the creature-line parent of that merge. Consistent with the
+  load-port worsening above: at `a0fa433` the failure was `wetland seed 3: 8
+  cells` and `rolling` still passed.
+- **A plain local `cargo test` cannot see this.** `cargo test` stops after
+  the first failing test *binary*; bug A fails in the lib target, so a local
+  run never executes `tests/worldgen.rs` or `tests/determinism.rs` at all —
+  no error, no "skipped", just absence. Run the gate the way CI runs it:
+
+  ```
+  cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+  ```
+
+  The tell that you have the short version is the *absence* of
+  `Running tests/worldgen.rs` from the output. The quarantine that made CI
+  honest about bug A made local gate-running dishonest, in the direction
+  that hides failures.
+- **Where to start:** the world-scale line landed its springs/river pass
+  immediately before the merge (`4b044b2`, `7120741`, `f5f3b19`); water
+  placed by a new pass that has not settled by the time the at-rest
+  assertion samples is the shape of the original 8-cell failure. Run both
+  tests at seed 3 against `4b044b2^` first, then walk forward. Do not close
+  this by widening the settle budget until that has been checked — 0 cells
+  to 57 is a behaviour change, not a drift past a threshold.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, found 2026-08-23; bisected to the world-scale merge (see the merged filing at the end of this entry)**
+
+`examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
+`main`:
+
+```
+the colony has gone sessile: 2 round trips of 8+ cells (measured 98 here),
+deepest excursion 15 cells, reach profile [689, 22, 8, 2, 0, 0, 0, 0]
+```
+
+The bar (`forage_trips >= 14`) was set in `da252dc` from **98** measured on
+this same scene at 12,000 frames, with the profile
+`[3858, 475, 185, 98, 1, 0, 0, 0]` that README's M18 status still quotes.
+Every bucket is down about 5x and the long tail is gone. **The bar has not
+been moved**, and it should not be until the cause is known.
+
+**Deterministic, not noise.** Identical counters on a contended run and a solo
+one — `moves 5040 blocked 156 pickups 1340 drops 1310 deliveries 143` both
+times — with only the timings moving (worst 66.3 vs 89.8 ms, mean 3.928 vs
+3.957). One scene reproduces it in 50s (`ascii scene=foraging`).
+
+**Why nobody saw it.** Neither `da252dc` nor `5a9e594` lists `ascii` among its
+gates — both list tests, clippy, docscheck and acceptance — and the CI job had
+been `continue-on-error` over bug H since `0a345c4`. A blanket quarantine taken
+out for one known red absorbed a second, larger, unknown one, for two commits.
+That is the same defect as a skipped step, and it is why `ascii` now
+quarantines by scene name instead.
+
+**Not attributed.** 25 commits sit between `5a9e594` and `main`, including the
+world-scale branch's `worldgen`, `evaporation`, `field` and `weather` work, and
+this scene builds its world from `worldgen::generate` — so a terrain, rain or
+moisture change is as plausible as a creature one. A bisect over that range is
+the obvious next step and is cheap now that one scene runs in 50s.
+
+**What is ruled out, by measurement.** Not starvation and not a missing food
+supply — the opposite. The scene's food census, attributed by material for the
+first time, reads at 12,000 frames:
+
+```
+food stock 1459080 energy, of which corpse 0 | leaf 1279920 (88%),
+litter 164520 (11%), ant 7200 (0%), moss 4680 (0%), seed 2760 (0%)
+```
+
+The stock **triples** over the run (441,360 -> 1,459,080) while the colony
+eats **0** and delivers 143. So the world grows food faster than 55 ants can
+consume it, and it grows it *overhead* — 88% is leaf on standing trees, within
+a body length of wherever an ant is. This is README limitation #1 ("the floor
+feeds the colony and the colony stops ranging") arriving far more extreme than
+the numbers recorded there, and with the **canopy**, not the floor, as the
+term that dominates.
+
+Not the litter, also by measurement. Paired, same seed, rebuilt between arms:
+`litter.ron`'s `decay_chance_damp/dry` 0.5/0.1 -> 0.9/0.4 cuts standing litter
+**4.7x** (164,520 -> 34,800 energy, 11% -> 3%) and moves the colony from 2
+round trips to **3**, deepest 15 -> 15, moves 5,040 -> 4,863, deliveries 143 ->
+123. The knob is connected; the ants do not notice, because 96% of their food
+is still hanging above them.
+
+**Whether the colony *should* range more is a design call, not a bug fix**, and
+it was on the owner's queue as card `20260823T091259637Z-9a41e4` ("How scarce
+should the forest floor be?"). **Answered 2026-08-23: the abundance is not
+intended, and the lever he names is upstream of the one the card asked
+about** — *"I think leaves are just falling too fast which creates too much
+food"*. So the target is abscission rate, not litter decay rate; he also
+picked the *slower*-rotting arm on looks, and rotting faster measurably makes
+the floor worse (§O). That does not change this entry: the guard was set from
+a measurement and now misses it by 7x, whatever the intended abundance turns
+out to be. The bug here is narrower and stands whatever he
+answers: a guard set from a measurement now misses it by 7x, and nothing in CI
+said so.
+
+Blocks the deposition half of §H, which needs ants that travel to have
+anything to measure.
+
 
 ## Closed this session
 
@@ -3193,3 +4146,79 @@ neighbour's. Latent today because `water_capacity` is opt-in and only
 goes live the moment a second water-holding powder exists with a different
 capacity — which is exactly what widening `water_capacity` to sand would
 do.
+
+---
+
+## Landing notes — lane W, package W1 (flora sowing + species identity), 2026-08-23
+
+Appended by the W1 session; the full account is
+`Reports/world-flora-sowing-2026-08-23.md`. Nothing here is a new bug — these
+are the two things a later session will otherwise re-derive or trip over.
+
+### W1a. `creeper.ron`'s root tips still run the superseded in-tick branch path — deliberately
+
+`creeper.ron`'s `RootTip` `Grow` carries `branch_chance: [0.05]` and **no**
+`branch_priming`, which is the path `tree`/`conifer`/`shrub` all abandoned
+with the comment "it cleared that twice in twelve thousand frames and fired
+zero times". Creeper's roots are therefore a single unbranched strand per
+tip.
+
+**Measured, not assumed, before deciding to ship it:** creeper establishes 45
+of 46 sown across an eight-world sweep and 28 of 28 in the shipped
+8,192-column world — the *highest* establishment rate of the four species. A
+plant eight rows tall is not root-limited, so the dead knob is not blocking
+the sowing work.
+
+Left alone because `branch_priming` sits in the root block, which the lane
+split assigns to lane P, and P4 is the package that rewrites root allocation.
+
+**For whoever lands P4:** set `branch_chance: [0.0]` and `branch_priming: [3]`
+in `creeper.ron` in the same change, and measure creeper's root cell count
+paired against this branch rather than against a remembered number.
+
+### W1b. A material-counting guard cannot see a species
+
+`the_world_arrives_with_both_moss_and_trees_in_it` counts `wood`/`seed`
+cells, and every woody plant in this engine is made of `wood` — so it passed
+unchanged through the entire period in which the world contained exactly one
+woody species. It is not a bad test; it is a test of a different claim.
+
+Anything asking "which species are in this world" has to resolve
+`Cell::organism_id()` through `World::organism` to a `SpeciesId` and count
+*organisms*. `flora_census` in `tests/worldgen.rs` and
+`examples/flora_census` both do it that way, and the same trap applies to any
+future guard over creature species.
+
+### W1c. ~~`generated_terrain_is_already_at_rest` went red on `main`~~ — **SUPERSEDED by §H3, which is the better record of the same failure**
+
+§H3 (lane P) covers both at-rest tests together, identifies the moving cells
+as **material 6, water**, and carries the paired before/after numbers across
+the P1 merge. That is the entry to read. What follows is this lane's
+independent attribution of the same thing, kept only because it rules out a
+flora cause that §H3 does not address — the two lanes found it from opposite
+ends within an hour of each other.
+
+Not this lane's, and recorded here only so the next session does not spend
+its afternoon attributing it. Measured, not assumed:
+
+- At base commit `a0fa433`, `cargo test --release` on this branch failed
+  **only** `a_forced_vault_world_is_sealed_and_arrives_at_rest` (main's
+  known world-scale failure) and the quarantined bug-A test.
+- After merging `origin/main` at `9b54be3`, `generated_terrain_is_already_at_rest`
+  also fails: *"terraced seed 3: 57 cells left their position; first:
+  (82,147) water, (83,147) water, (84,147) water, …"*.
+- Built `9b54be3` alone in a clean worktree and ran the same test: it fails
+  with **byte-identical numbers** — same preset, same seed, same 57 cells,
+  same coordinates.
+
+So it arrived with `main`'s own commits between `a0fa433` and `9b54be3`, and
+any branch that merges `main` after that inherits it.
+
+It cannot be a flora regression, and that is worth stating because the test
+sits next to the flora work: the test sets `tree_density = 0.0` and
+`moss_density = 0.0` before building, and `life_scatter` returns
+immediately when both are zero, so the sowing rule does not execute in any
+world this test looks at. `spring_flow = 0.0` is set too, so the moving
+cells are not a spring either — they are standing water in a `terraced`
+world, which points at the placement or settling of pooled water rather than
+at any live process.
