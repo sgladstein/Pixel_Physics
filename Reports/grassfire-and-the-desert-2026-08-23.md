@@ -580,6 +580,88 @@ Both in `Reports/dead-ends.md` with their conditions: the flame `glow`
 and the widened `HEAT_GLOW_RANGE` (condition: the tint blends over the
 fuel's own colour, so a lower heat ratio is muddier, not deeper).
 
+## Part three — scoping (c), after the owner picked it
+
+**The owner's answer to the desert card was a plan, not a pick: *"lets
+start with c and then move to b"*.** So: stored rain first, then roots
+reaching the water table. He did not ask for (a) — sand getting a
+`water_capacity` — at all, and the reason is on the record above: the
+wilting point is an absolute amount, so a small capacity buys nothing.
+
+The question put back was whether (c) is buildable on `main` today or
+whether it waits for the ORGAN package's annual life cycle. Traced in the
+code rather than from a PR body, the answer is **it does not wait for
+ORGAN — but it is blocked on something else, and that something is the
+lever the owner declined.**
+
+### What (c) already has
+
+**The seed bank is shipped and guarded.** `plant::tests::a_seed_waits_for_
+water_and_germinates_when_it_arrives` asserts all three arms: a seed on
+soil at the wilting point keeps waiting, a seed at field capacity
+germinates, and *a seed that sat on dry ground and was then rained on
+germinates and is counted as having waited first*. That is the ephemeral's
+dormancy, already working.
+
+**The death is shipped too, and an ephemeral does not need a post-fruiting
+timer to get it.** A desert annual dies because the water runs out, which
+is what happens in life and what this engine already does: starvation
+empties an organism's vital cells, P3's one-way `OrganismState::senescent`
+fires (`plant.rs`, `vital_cells == 0 && !cells.is_empty() && has_economy`),
+and `rot_remains` returns the slot. ORGAN's post-fruiting death would make
+the dying *scheduled* rather than *starved* — tidier, and it is what
+`senescent`'s own doc anticipates — but it is not load-bearing for (c).
+
+**So ORGAN is not on the desert critical path.**
+
+### What (c) is actually blocked on
+
+**A root can drink from exactly two things, and neither is the field.**
+Traced through `plant::absorb_water`'s neighbour match:
+
+- `MaterialKind::Liquid` — a standing water cell, drunk in place.
+- `MaterialKind::Powder` — via `update::plant_available_fraction(n)`, which
+  reads that **cell's own `aux`**.
+
+There is no arm that reads the moisture field. So a stored pulse has
+nowhere to live that a plant can reach, unless it is one of:
+
+1. **Written into sand's `aux`.** `plant_available_fraction` does *not*
+   itself check `water_capacity` — it reads `aux` against the global
+   180/620 constants — so a root *would* drink from sand if something put
+   water there. But nothing does: `update::update_soil_water` returns
+   immediately when `capacity == 0`, and `weather::water_equivalents` counts
+   held water only for `water_capacity > 0`, so water written this way would
+   also **leak out of the conservation ledger**. Giving sand a capacity is
+   precisely how you make the ledger see it — which means this route *is*
+   lever (a), the one the owner declined.
+2. **Standing surface water from the storm itself**, which already exists
+   and costs nothing new.
+
+### The open sub-question, stated rather than guessed
+
+Route 2 is the cheap one, and whether it works turns on a fact I have
+**not** established: does an arid storm leave drinkable liquid where a
+seed could be sitting?
+
+Measured so far, `scene=worldgen preset=arid seed=3`, water in the whole
+world over 3,800 frames: **19.5 → 101.5 → 92.7 cell-equivalents** — so an
+arid world does carry water and it persists rather than flashing off.
+**That is not enough to conclude route 2 works**, for two reasons worth
+writing down rather than eliding: `weather::water_equivalents` sums *every*
+phase, including snow (the first tile is snowing at intensity 0.35) and
+water held in whatever non-sandy columns the preset draws; and the surface
+band I rendered shows no visible pools at all. So the hundred
+cell-equivalents may be snow, or soil-held water in whatever non-sandy
+columns the preset draws, or pooled somewhere outside the crop.
+
+**The cheap way to close it** is a per-phase, per-position census rather
+than the whole-world sum: count `Liquid` cells resting on sand, after a
+storm, over time. If they exist and last thousands of frames, (c) is
+buildable today on machinery that already ships. If they do not, (c)
+requires (a) after all — and that is a decision to put back to the owner,
+because it is not what he agreed to.
+
 ## Reproducing any of this
 
 ```
