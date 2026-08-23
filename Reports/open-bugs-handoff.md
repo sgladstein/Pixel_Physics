@@ -4008,11 +4008,36 @@ reason, and 35 of 52 ants is the *best* of the seeds tried — so the card the
 owner judged shows a colony a third short of a founded one. That is stated on
 the card, but the honest fix is in the scene.
 
-**Not caused by the creature work.** The panic is in the dry-ground search,
-which runs *before* `found_colony` places anything, and reproduces with
-`climbs_over_kin` in either state. Terrain, not animals. It is plausibly
-downstream of §L's rock-country fallback widening, which changed fallback
-terrain — but that is a lead, not a measurement, and nobody has bisected it.
+**Not caused by the creature work, and this is measured rather than argued.**
+Three arms, and every number is identical across all three:
+
+| | seed 1 (default) | seed 0 | seed 2 | seed 3 | seed 7 |
+|---|---|---|---|---|---|
+| `climbs_over_kin` **on** (WP-9 branch) | panic | 13/52 | 35/52 | 2/52 | 22/52 |
+| `climbs_over_kin` **off**, same binary tree | panic | — | — | 2/52 | — |
+| **clean `origin/main` `f245ebc`**, flag off, none of the WP-9 code | panic | 13/52 | 35/52 | 2/52 | 22/52 |
+
+The third row is the one that settles it: a worktree at `origin/main`, its own
+`target/`, `climbs_over_kin: false` as `main` ships it, and it panics at the
+same `.expect("some dry ground")` and places the same counts at every other
+seed. **§Q is pre-existing on `main` and has nothing to do with the flag.**
+(The line number differs between the rows — `:1461` on the WP-9 branch,
+`:1485` on `main` — because `main` has since grown lines above the scene, not
+because the assertion moved.)
+
+Mechanically that was already the expectation, since the dry-ground search
+runs *before* `found_colony` places anything, so no ant exists when it fails.
+Terrain, not animals. It remains plausibly downstream of §L's rock-country
+fallback widening, which changed fallback terrain — that half is still a lead
+and nobody has bisected it.
+
+**Blast radius: none of the gates.** `scene=colony` appears nowhere in the
+repo outside `filmstrip.rs` itself. `scripts/acceptance.sh` renders twelve
+scenes and this is not one of them (`capped`, `coldsnap`, `lavadrop`,
+`ligament`, `rockdrop`, `room`, `strike`, `terrain`, `undercut`, `wood`,
+`worked`, `worldcrack`); `ascii` does not use `filmstrip`; no test invokes it.
+So this cannot redden CI. It bites exactly one activity — a human or agent
+rendering a colony card for the review queue — which is how it was found.
 
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 
