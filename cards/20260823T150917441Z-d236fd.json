@@ -1,0 +1,54 @@
+{
+  "id": "20260823T150917441Z-d236fd",
+  "created": "2026-08-23T15:09:17Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/p1-instruments-water-book",
+    "commit": "ffbe20a",
+    "agent": null,
+    "session_id": "3ec68c4f-c8fc-5c12-984e-7378430e96f7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "You counted 4 here and the number says 1 — what is your eye using?",
+  "question": "In B you counted 4. What is telling you they are four — the separate trunks, the crown outlines, the gaps of sky, colour, something else? One sentence is enough.",
+  "context_md": "**Your counts settled it: the metric failed, and §Z is cards-only now.** You said A-2, B-4, C-3 with the founder counts withheld. Here are the two that matter, with the counts revealed:\n\n| | founders | you counted | the metric said |\n|---|---|---|---|\n| **B** | 4 | **4 — all of them** | **100% fused, one mass** |\n| **C** | 3 | 3 | 38% fused, separate |\n\n**B is where it breaks.** The metric counts connected foliage and looks for columns of clear sky. In B the four crowns touch, so it finds neither — it reads the strongest possible \"this is one mass\" on a stand you read as four obvious trees. No amount of tuning fixes that, because the thing you are seeing is not an empty column.\n\nSo this is not a request to re-judge anything — it is the one question that would tell whoever builds the next attempt **what quantity to measure**. If it is the trunks, that is countable. If it is crown outline, that is much harder and worth knowing before someone spends a week on it.\n\nNo rush; §Z is recorded as judged by eye either way.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "B — where the number is wrong",
+      "files": [
+        "20260823T150917441Z-d236fd/000-grove4.png"
+      ],
+      "caption": "4 founders, 102 cells apart",
+      "meta": {
+        "you counted": 4,
+        "metric: canopy fusion": "100% (one mass)",
+        "metric: sky gaps": "1 of 3, 4 cells wide"
+      },
+      "focus": null
+    },
+    {
+      "label": "C — where it agrees with you",
+      "files": [
+        "20260823T150917441Z-d236fd/001-grove3.png"
+      ],
+      "caption": "3 founders, 128 cells apart",
+      "meta": {
+        "you counted": 3,
+        "metric: canopy fusion": "38% (separate)",
+        "metric: sky gaps": "2 of 2, widths 1 and 32"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
