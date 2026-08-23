@@ -237,6 +237,48 @@ history with `main` is a deliberate orphan carrying data, not source
 (`review-queue`, the review queue's transport — see `review_lib.py`'s
 `SYNC_BRANCH`). Never merge `main` into one of those.
 
+**Open a pull request for your work. This paragraph is the owner's standing
+authorisation, given 2026-08-23 — you do not need to ask again.** The agent
+harness declines to open a PR "unless the user explicitly asks"; this is that
+ask, and it stands for every session in this repo. Nothing in the repo ever
+said otherwise, which is why sessions kept reporting they had been told not
+to: they were reading their own harness, not this file.
+
+What it cost to leave unsaid, measured 2026-08-23: **133 CI runs, every one on
+`main` or `master`. Zero on any feature branch, zero from a `pull_request`
+event.** No PR ever existed, so the workflow's `pull_request` trigger never
+fired and pushes to `claude/**` matched nothing — the first time CI saw a
+branch's code was *after* it landed, when a red suite can no longer tell you
+whether the branch broke it or the merge resolution did. And a branch nobody
+can see is a branch nobody merges: 27 accumulated, ten of them cut in one
+fan-out and never once pulled forward.
+
+**When to land**, from this repo's own 49 two-parent merges, each replayed
+with `git merge-tree` to count the conflicts it actually produced:
+
+| | |
+|---|---|
+| `behind x files > 300` | past the point where merges get expensive — act |
+| feature complete | open the PR |
+
+Every painful merge in that history (3+ conflicts) scored **above 340**; no
+clean merge exceeded 1440 and the clean ones reach p90 at **280**. So 300 sits
+in the gap rather than on a measured value. `bash scripts/branchcheck.sh`
+prints your two numbers.
+
+**The two terms want different remedies, and this is the part that gets
+confused.** If `behind` is driving the product, merge `main` in — that fixes
+it in place, costs nothing you were not going to pay at landing time, and
+landing does *not* reduce drift: a 337-behind branch that opens a PR still
+owes the same 337-commit reconciliation. If `files` is driving it, the branch
+has quietly become more than one feature; land it and start another.
+
+Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
+on `main` costs every concurrent session, because they all build on it and
+every measurement taken against it is void. And the fastest way to satisfy a
+"commit and push now" impulse is `git add -A`, which is banned here for a
+reason recorded below. Stage explicit paths, green the gates, then land.
+
 **Work in your own worktree, not the shared checkout.** Two sessions in one
 checkout share a `target/`, so one session's half-finished edit makes the
 *other* session's `cargo test` and `cargo clippy` fail on code it did not
