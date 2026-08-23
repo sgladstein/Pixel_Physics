@@ -11,6 +11,66 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0-a. Dark bands under overhangs, objects and open-cast digs (render) — **CLOSED, all three**
+
+Reported from play as *"dark bands under any overhangs or objects or when
+I'm mining"*, with the guess that it is either the frozen background
+baseline or a lighting shadow. It is the baseline. Full measurement and the
+options in `Reports/dark-bands-diagnosis.md`; the short form:
+
+`World::sky_surface` asks *"is there anything `Solid` or `Powder` above me
+**in this column**, as of frame one"*, which cannot tell a cave roof from a
+cliff brow, a hillside from a rock suspended in mid-air at genesis, or rock
+you removed from rock that was never there. `background_at` then fades that
+air to `UNDERGROUND` over 24 rows and saturates.
+
+Measured with `examples/underground_probe.rs` (open air that is
+flood-reachable from the sky yet answers `!is_outdoors`): **156–408 cells
+per 2048x640 world** across seeds 1–6, in 20–50 cell patches on cliff
+shoulders — small, and each one a hard-edged patch of darker sky. A 64-wide
+open-cast pit takes it to **1,363 cells, 436 of them at full `UNDERGROUND`**,
+in one 1,207-cell region.
+
+Ruled out by measurement: the depth grade (`light=flat` leaves the pit
+exactly as black — all of it is the empty-cell cave fade); the skyline going
+stale as the world settles (156 cells at 1, 60, 600 and 3,000 frames, while
+the open-air denominator did move, so the null is real).
+
+The `water` board's *"dark vertical band through the pond"* card
+(`20260822T225340455Z-ad69f8`) is the same bug seen through the other
+consumer: `scene=rockdrop` reproduces it at **frame 0 with zero bodies in
+flight**, because the slab is present when the surface freezes.
+
+**Fixed for the overhang and object cases** by storing the genesis void per
+*cell* instead of per column (`World::freeze_underground_map`) — which is
+`dead-ends.md` §977's *"revisit only by storing more history, never by
+inferring"*, not a return to inference. Rescues 149/156, 406/408 and 192/197
+of the false-cave cells on seeds 1–3; the remainder were `Solid` or `Powder`
+at genesis and are air now, so they stay dark by the same rule that keeps a
+dug shaft a tunnel. Costs +0.3–0.7 ms on a ~11.5 ms full redraw, measured
+interleaved against a worktree at the parent commit.
+
+**The open-cast dig is fixed too**, by propagation rather than a better
+boolean — sky light seeded only where a cell was outdoors at genesis and
+spread at Terraria's 0.91 per air cell / 0.56 per solid over a 4-cell block
+grid, on `F12` with /4 the default. A pit is bright at its rim and dark at
+the floor; a shaft still goes dark at any width, because the seeding refuses
+it, not because of any threshold. `Reports/sky-light-design.md` has the
+measurements, including why `field.rs`'s own light channel could *not* drive
+it (it hands a block-aligned 8-wide shaft full daylight 100 cells down) and
+why a stored per-pixel field was tested and rejected.
+
+**The second residual is fixed as well**: rock under an overhang was
+over-darkened because the depth came from the per-column skyline, which a
+brow sets. `World::ground_datum` — the top of the lowest run of cells the sky
+cannot reach — replaces it as the shading datum.
+
+**One thing changed underneath all of it:** the terrain depth grade is **off
+by default** now, on a playtest (*"no question grade off is better"*). So the
+`ground_datum` fix renders nothing unless someone presses `F10`. It is still
+correct and still guarded, with the guard forcing the mode explicitly so it
+cannot pass vacuously.
+
 **The `D` entries are the destruction/blasting group**, from the explosion-in-
 stone branch. Numbered apart because `0`, `0b`, `0c` and `0d` below are
 worldgen's and were here first.
@@ -52,7 +112,7 @@ Not attempted, and each wants measuring before it is believed:
 
 ---
 
-### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
+### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air — **FIXED**
 
 `World::record_disturbance` has exactly three production callers —
 `rigid::mine_swept`, `rigid::strike` and `explosion.rs`. The paint brush
@@ -72,6 +132,37 @@ under every other verb.
 *Fix shape:* give the brush and the fire burnout a `record_disturbance` with
 an extent. That repairs rock's brush inertness at the same time. Deliberately
 not done on the explosion branch — it is a change to two unrelated verbs.
+
+**Done, on the branch that made `TIGHT` the default `chain_reach`** — which
+is what forced it: with SPREAD default, `within_disturbance` returns `true`
+on its first line and none of this was reachable, so the gap could sit here
+indefinitely. Three verbs now record, not two:
+
+- `World::paint_capsule`, per structural cell it writes, extent 0.
+- `fire.rs`'s burnout, at the `was_structural` fan-out, extent 0.
+- `fire.rs`'s `transform`, wherever a phase change crosses the structural
+  boundary — the case neither this entry nor its fix shape named. Lava
+  quenching to crust over open water mints a solid nothing has touched, and
+  under a leash it minted and then never came apart.
+
+The last two run inside the sweep with no `&mut World`, so this needed a
+`CellSurface::record_disturbance` that `ChunkView` queues and `run_pass`
+replays, the same shape as `schedule_active_site`.
+
+Two sizing consequences, both from this entry's own premise that the world
+is not a player: a burning wood writes a disturbance per burnt-out cell, so
+`record_disturbance` now **coalesces spatially** at `chain_reach / 2`
+(widening the kept record's extent to the larger of the two), and
+`MAX_DISTURBANCES` is 16 -> 64. Without that, a fire evicts the player's own
+dig within a frame and the licence tracks whatever burned most recently —
+destroying exactly the delayed cave-in `chain_window`'s ten seconds exist
+for.
+
+**Still open from this entry, and untouched:** `rigid::strike` and
+`rigid::mine_swept` still `continue` on `organism_id() != 0`, so the pick
+and the chisel cannot damage a tree at all, and the explosion remains the
+only tree-damaging verb. That half is a change to the dig verbs, not to
+what records a disturbance.
 
 ### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
 
