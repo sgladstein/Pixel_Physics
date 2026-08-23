@@ -1,0 +1,74 @@
+{
+  "id": "20260823T204413077Z-1a9d7c",
+  "created": "2026-08-23T20:44:13Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "f2bb1c1",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The in-between, found: a burn that leaves a patchwork",
+  "question": "Is the middle one the in-between you meant — a fire that eats patches and leaves green between them, rather than one that stops halfway?",
+  "context_md": "You asked twice for something between everything-burns and nothing-burns. My last card said it already existed and showed you 22% consumed; you were right to keep pushing, because **22% burnt as one solid block is not what you asked for** — it is a front that ran out of road. This is the real thing.\n\n**The whole transition was unsampled.** My landing sweep took wetness 0.00 / 0.18 / 0.62 and nothing between, so the interesting band fell in a gap. Re-run on 12 different swards at 0.25 / 0.35 / 0.45:\n\n| ground wetness | median consumed | **burnt out entirely** | **partial** |\n|---|---|---|---|\n| 0.00 | ~40% | **5 of 12** | 7 of 12 |\n| 0.18 | ~37% | 4 of 12 | 8 of 12 |\n| 0.25 | 35.6% | 3 of 12 | 8 of 12 |\n| **0.35** | **20.8%** | **0 of 12** | **11 of 12** |\n| 0.45 | 26.5% | 1 of 12 | 10 of 12 |\n| 0.62 | ~3% | 0 of 12 | 0 of 12 |\n\n**At 0.35 not one sward in twelve burns out, and eleven of twelve burn partially.**\n\nAnd it is a genuine patchwork rather than a half-crossed meadow. Counting separate burnt patches against separate surviving stands, on three different swards at 0.35: **18 / 18 / 13 burnt patches** against **54 / 92 / 88 surviving stands**. The fire runs where the grass is connected and dies where it is not, so what is left is scorched patches with green between them — which is what a partly-burnt meadow looks like and what you can still see afterwards.\n\n**One thing worth knowing, because it decides whether this ever shows up in a real world.** I expected the world's own damp-and-dry variation to give this for free. It does not — not because the variation is missing (a naturally grown bed runs 0.374 to 0.728 across one sward) but because the *level* is too high: it settles at 0.58–0.70, above the band, and the fire simply refuses (11 cells, out in 300 frames). Unplanted soil fills toward field capacity while the grass grows on it, so **a meadow in a generated world would never carry fire at all**, whatever it was sown at. That is a bug on someone else's list (§F8), not something I can set with a number here — but it means the burns on these cards are ones you would have to make happen, not ones you would come across.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "dry — burns end to end",
+      "files": [
+        "20260823T204413077Z-1a9d7c/000-mosaic_dry.gif"
+      ],
+      "caption": "ground wetness 0.00 — nothing survives",
+      "meta": {
+        "grass consumed": "1993 of 1993 (100%)",
+        "burnt patches": 1,
+        "surviving stands": 0
+      },
+      "focus": null,
+      "gif_frames": 22
+    },
+    {
+      "label": "the in-between — a patchwork",
+      "files": [
+        "20260823T204413077Z-1a9d7c/001-mosaic35.gif"
+      ],
+      "caption": "ground wetness 0.35 — burns the connected parts, leaves the rest",
+      "meta": {
+        "grass consumed": "442 of 1993 (22%)",
+        "burnt patches": 18,
+        "largest burnt patch": "95 cells",
+        "surviving stands": 54,
+        "largest survivor": "321 cells",
+        "swards that burnt out at this level": "0 of 12"
+      },
+      "focus": null,
+      "gif_frames": 24
+    },
+    {
+      "label": "saturated — refuses",
+      "files": [
+        "20260823T204413077Z-1a9d7c/002-mosaic_wet.gif"
+      ],
+      "caption": "ground wetness 1.00 — the ignition and nothing more",
+      "meta": {
+        "grass consumed": "10 of 1993 (0.5%)",
+        "burnt patches": 2,
+        "surviving stands": 71,
+        "contact ignitions": 0
+      },
+      "focus": null,
+      "gif_frames": 22
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
