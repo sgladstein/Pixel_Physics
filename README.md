@@ -1820,6 +1820,47 @@ the intended answer for the saturated case, and this is the measurement that
 says when it stops being optional. Run the example while nothing else is
 compiling — concurrent cargo processes skew the figure badly.
 
+## World speed — five independent time axes
+
+How fast the world *ages* is five settings, none of which is the physics
+clock: `day_minutes`, `growth_slowdown`, `weather_slowdown`,
+`creature_slowdown`, `gnome_slowdown`. Each is a whole multiple of baseline
+(1 = the behaviour the engine had before `sim::clock` existed), capped at 30,
+adjustable live under `O` → WORLD and persisted to `assets/clock.ron`.
+
+The separation is structural rather than a promise. The engine reads its one
+clock (`World::frame`) three different ways, and only one of them is physics:
+a **phase** (`field::sun_elevation`, `weather::channel`) is a pure function of
+`frame % PERIOD` and is slowed by feeding it a slower clock; a **schedule**
+(organism and creature ticks) is an entry due at `frame + interval` and is
+slowed by a longer interval; the **CA sweep** is neither and is untouched.
+`physics_is_untouched_by_every_world_clock_knob` asserts a bit-identical grid
+across every setting, with a paired non-grid witness so it cannot pass by
+being disconnected.
+
+`DAY_NIGHT_PERIOD_FRAMES` is deliberately *not* raised to lengthen a day.
+`SKY_LIGHT_STEP` and `SKY_TEMPERATURE_QUANTUM` are sized against the per-frame
+rate of change it implies, and field sleeping is an inequality against
+`SETTLE_EPSILON_*` — a slower sky moves less per frame, so a quantum sized for
+the old rate stops registering and the field freezes at the last brightness it
+saw. Feeding a slower clock leaves all of that exact in sky-frame units, and
+measures 3.5x *fewer* field solves per real frame at a four-minute day.
+
+The app loads `assets/clock.ron` (shipped: an eight-minute day, everything
+else baseline); `World::new` does not, so every test, harness and acceptance
+scene stays at baseline. Harnesses take the knobs as explicit arguments
+instead — `filmstrip day=/weather=/growth=/creatures=/gnome=`, `plant_probe
+growth=` — and echo them.
+
+**Known limitation: these are not behaviour-preserving, and the plant one is
+not close.** Each subsystem's internal economy rescales exactly, but every
+exchange it has with a world still running at full speed is per real frame.
+Measured on a paired sweep at matched tick counts across eight seeds, a tree
+at `growth_slowdown: 4` ends between 0.15x and 1.34x its baseline size, median
+0.61x. Soil is ruled out as the cause by measurement (final profiles are
+essentially identical); per-real-frame hazards are the leading suspect and are
+not chased to ground. `sim::clock`'s module doc carries the numbers.
+
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle

@@ -41,32 +41,55 @@
 //!
 //! # What these knobs do **not** buy: behaviour preservation
 //!
-//! A slowed subsystem is not the same subsystem later, and the claim that it
-//! is was made in an earlier draft of this design and withdrawn under review.
-//! Each subsystem's *internal* economy does rescale exactly — see
-//! [`Clock::growth_slowdown`] — but each one also trades with a world that is
-//! still running at full speed, and every one of those exchanges is per real
-//! frame:
+//! A slowed subsystem is not the same subsystem later. The claim that it is
+//! was made in an earlier draft of this design, withdrawn under review, and
+//! then measured -- the numbers are below and they are not small. Each
+//! subsystem's *internal* economy does rescale exactly (see
+//! [`Clock::growth_slowdown`]), but each one also trades with a world still
+//! running at full speed, and every one of those exchanges is per real frame.
 //!
-//! - **A slowed plant gets richer.** `SOIL_UPTAKE_PER_TICK` drains a root's
-//!   local soil store per *tick*, and that store is refilled by rain,
-//!   infiltration and capillary flow per *frame*. At `growth_slowdown: 8`
-//!   there are eight times as many real frames of re-wetting between two
-//!   drinks. `Reports/open-bugs-handoff.md` §U measures wood-cell count moving
-//!   43% with soil moisture, and in the perverse direction, so this is not a
-//!   rounding error.
-//! - **A slowed organism gets poorer.** Fire, structural failure, being eaten,
-//!   dug out or buried by falling powder are all per real frame, so a slowed
-//!   organism absorbs N times more damage per tick of its own.
-//! - **The knobs trade with each other.** Creature energetics are per creature
-//!   tick, but a creature's *food* is grown on the plant knob. Running
-//!   `creature_slowdown: 8` against `growth_slowdown: 1` gives a colony eight
-//!   times the food per tick; the reverse starves it.
+//! **Measured, on the plant knob, and the effect is large.** A paired sweep
+//! (`examples/plant_probe.rs`, `growth=`) grows one tree for 4,000 frames at
+//! `growth_slowdown: 1` against 16,000 frames at `4` -- *the same number of
+//! organism ticks either way* -- across eight world seeds. Final organism
+//! cells, as a ratio of the slowed run to the baseline:
 //!
-//! None of these is fixable by scaling, because the other side of each
-//! exchange is physics. They are stated here rather than papered over: all
-//! three are invisible at the default and would otherwise read as "the model
-//! broke".
+//! ```text
+//! seed    1     2     3     4     5     6     7     8
+//! ratio 0.17  0.57  0.15  0.64  0.16  1.34  0.90  1.05     median 0.61
+//! ```
+//!
+//! So a four-times-slower tree is typically a good deal *smaller* at the same
+//! tick count, and on two seeds slightly larger: the direction is
+//! seed-dependent and the spread is about 9x. Treat `growth_slowdown` as a
+//! knob that changes what grows, not only how fast.
+//!
+//! **What it is not:** soil. The obvious explanation -- roots drink per tick
+//! while soil refills per frame, so a slowed root should find a wetter world
+//! -- is ruled out by measurement on the same runs, where the final soil
+//! profile is essentially identical (mean 633 against 627, median 620 against
+//! 623). An equally obvious one, chunk sleeping starving resource transport,
+//! is ruled out by construction: transport runs on the organism tick inside
+//! `plant::step_organisms`, not on sweep visits. (`plant_probe`'s own output
+//! line claimed otherwise and was stale by an architecture; it was corrected
+//! in the same change that measured this.)
+//!
+//! **What it probably is, unproven:** every exchange a plant has with the
+//! world outside its own tick is per real frame, so a slowed organism meets N
+//! times more of it per tick of its own -- structural checks, wind lean, fire,
+//! burial. `CLAUDE.md` names a specific suspect in that family: "a structural
+//! check scheduled mid-organism amputates it", because the support search is
+//! hop-bounded. Not chased to ground here, and stated as an open question
+//! rather than a mechanism, so that nobody reads a guess as a finding.
+//!
+//! **The knobs also trade with each other.** Creature energetics are per
+//! creature tick, but a creature's *food* is grown on the plant knob. Running
+//! `creature_slowdown: 8` against `growth_slowdown: 1` gives a colony eight
+//! times the food per tick; the reverse starves it.
+//!
+//! None of this is fixable by scaling, because the other side of each exchange
+//! is physics. It is stated here rather than papered over: all of it is
+//! invisible at the default and would otherwise read as "the model broke".
 
 use serde::{Deserialize, Serialize};
 
