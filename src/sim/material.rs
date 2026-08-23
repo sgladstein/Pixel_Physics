@@ -735,6 +735,34 @@ pub struct MaterialDef {
     /// about why the transformation happened.
     #[serde(default)]
     pub burns_into: String,
+    /// **What this material licks into the air while it burns** -- the
+    /// flame body, as opposed to `burns_into`, which is the residue left
+    /// where the fuel stood.
+    ///
+    /// Unset (the default) means a burning cell of this material has no
+    /// flame at all and behaves exactly as it did before flame existed: it
+    /// glows in place and leaves its residue. That default is deliberate
+    /// and is what keeps this from being a global change to how everything
+    /// burns -- a material opts in, and the ones that have are the ones a
+    /// player watches burn.
+    ///
+    /// **Read at the burning cell, which is the point.** `CLAUDE.md`'s
+    /// rule is to guard new per-cell work at the call site that already
+    /// has the data: the emission lives in `fire::tick_burn`, which runs
+    /// only for cells that are actually alight and has the material
+    /// already in hand, so a world with nothing burning pays nothing for
+    /// this at all.
+    #[serde(default)]
+    pub flame_into: String,
+    /// How often a burning cell of this material licks a flame into a
+    /// nearby empty cell, per frame, `0..=1`.
+    ///
+    /// A per-material rate rather than one global constant because what
+    /// separates a grassfire from a smouldering log is exactly this: cured
+    /// grass throws a lot of flame for a short time, a trunk throws little
+    /// for a long time. Ignored when `flame_into` is unset.
+    #[serde(default)]
+    pub flame_chance: f32,
     /// **What this material slowly weathers into where it lies**, on
     /// `decay.rs`'s moisture-gated schedule. Ash -> soil is the original and
     /// was hardcoded; litter -> soil is why it became data.
@@ -1408,6 +1436,7 @@ pub struct Material {
     boils_into_name: String,
     cools_into_name: String,
     burns_into_name: String,
+    flame_into_name: String,
     breaks_into_name: String,
     severs_into_name: String,
     decays_into_name: String,
@@ -1422,6 +1451,10 @@ pub struct Material {
     pub boils_into: Option<MaterialId>,
     pub cools_into: Option<MaterialId>,
     pub burns_into: Option<MaterialId>,
+    /// See `MaterialDef::flame_into`.
+    pub flame_into: Option<MaterialId>,
+    /// See `MaterialDef::flame_chance`.
+    pub flame_chance: f32,
     pub breaks_into: Option<MaterialId>,
     /// See `MaterialDef::severs_into` — the *piece* tier, read only by
     /// `rigid::settle` and only for a body cell that left the grid as
@@ -1751,6 +1784,8 @@ impl From<MaterialDef> for Material {
             boils_into_name: def.boils_into,
             cools_into_name: def.cools_into,
             burns_into_name: def.burns_into,
+            flame_into_name: def.flame_into,
+            flame_chance: def.flame_chance,
             decays_into_name: def.decays_into,
             breaks_into_name: def.breaks_into,
             severs_into_name: def.severs_into,
@@ -1763,6 +1798,7 @@ impl From<MaterialDef> for Material {
             boils_into: None,
             cools_into: None,
             burns_into: None,
+            flame_into: None,
             decays_into: None,
             breaks_into: None,
             severs_into: None,
@@ -1891,11 +1927,20 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/lava.ron"),
     include_str!("../../assets/materials/ice.ron"),
     // Appended, per the rule stated four times above: never inserted among
-    // the others, because the well-known constants (`STONE` through
-    // `SMOKE`, and `RUBBLE = 15`) are positions in this array. T1's piece
-    // tier for broken tree tissue -- `wood.ron`'s `severs_into`. Nothing
-    // addresses it by number; every site goes through `id_of("log")` or
-    // through the resolved `Material::severs_into`.
+    // the others. The body of a fire -- W2's answer to the grassfire
+    // card's *"just looks like you are cycling colors"*. Addressed only
+    // through `flame_into` on other materials, never by number.
+    //
+    // **Both sides of the W2/T1 merge appended here**, the same collision
+    // the plant/destruction and creature/evaporation notes above record.
+    // Neither has a pinned convenience constant, so the tiebreak is the one
+    // those notes already settle -- which side was already trunk. `flame`
+    // was on `main` while `log` was on a branch, so it keeps the lower slot.
+    include_str!("../../assets/materials/flame.ron"),
+    // T1's piece tier for broken tree tissue -- `wood.ron`'s `severs_into`,
+    // as against `deadwood`'s `breaks_into`. Addressed by name through
+    // `id_of("log")` and by the resolved `Material::severs_into`, never by
+    // number.
     include_str!("../../assets/materials/log.ron"),
 ];
 
@@ -1974,6 +2019,8 @@ impl MaterialRegistry {
             intrinsic_temperature: f32::INFINITY,
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            flame_into: String::new(),
+            flame_chance: 0.0,
             decays_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
@@ -2041,6 +2088,8 @@ impl MaterialRegistry {
             intrinsic_temperature: f32::INFINITY,
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
+            flame_into: String::new(),
+            flame_chance: 0.0,
             decays_into: String::new(),
             reseed_chance: 0.0,
             // Never read -- `decays_into` is `None` here, which is the gate.
@@ -2163,6 +2212,7 @@ impl MaterialRegistry {
             material.boils_into = resolve_if_set(&material.boils_into_name);
             material.cools_into = resolve_if_set(&material.cools_into_name);
             material.burns_into = resolve_if_set(&material.burns_into_name);
+            material.flame_into = resolve_if_set(&material.flame_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
             material.severs_into = resolve_if_set(&material.severs_into_name);
             material.decays_into = resolve_if_set(&material.decays_into_name);

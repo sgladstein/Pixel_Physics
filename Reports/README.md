@@ -148,6 +148,12 @@ tried?"*.
   implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+- [root-blob-and-uptake-surface-2026-08-23.md](root-blob-and-uptake-surface-2026-08-23.md)
+  — **measurement, no mechanism.** Sizes the owner's "a root cell not
+  touching soil cannot benefit the plant and has a cost" proposal before it
+  is built: a third of every root system is walled in, but the share does
+  not rise with mass, so the cost is a flat tax rather than a brake. The
+  argument that survives is the unpriced 51-79% per-plant contact spread.
 - [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
   **implemented.** Worldgen sows four woody species instead of the
   hardcoded `"tree"`, by weights over terrain facts that already existed;
@@ -187,6 +193,22 @@ field rework — see `open-bugs-handoff.md`.
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
+- [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
+  **review + proposed queue.** The whole plant record read together after the
+  2026-08-22 merge and the "one big mass" verdict; revised same-day on the
+  owner's direction to lead with the evolution framework and root
+  differentiation; the stale-record list; the finding that worldgen sows only
+  `"tree"` and moss.
+- [plant-implementation-split-2026-08-23.md](plant-implementation-split-2026-08-23.md)
+  — **execution plan** for the review's queue: three parallel lanes (plant
+  core, structural verbs, world & species data), one session per package,
+  with paste-ready briefs; successor to `plant-work-split.md` in role.
+- [plant-morphology-reach-2026-08-23.md](plant-morphology-reach-2026-08-23.md)
+  — **design note, answering a direct owner question.** Can this substrate
+  reach a sunflower, a tomato, a climbing vine? Yes: the random walk is the
+  variation mechanism, not the ceiling — the four missing primitives are
+  organ cell types, determinate axes, rosettes/whorls, and a climbing
+  tropism with attachment as data. Three open owner calls in §7.
 
 ## Creatures and ecology
 
@@ -233,6 +255,15 @@ field rework — see `open-bugs-handoff.md`.
   through.
 - [plant-work-split.md](plant-work-split.md) — **work split.** How the
   plant queue was divided between concurrent sessions.
+- [grassfire-and-the-desert-2026-08-23.md](grassfire-and-the-desert-2026-08-23.md)
+  — **W2: E5 shipped, E6 is a decision card awaiting the owner.** Why the
+  grassfire did not spread (a sward that looks continuous is 71 separate
+  4-connected islands, and contact ignition reaches one of them) and why
+  `MOISTURE_IGNITION_RESISTANCE` measured as inert (its channel reads
+  exactly 0.000 at 96.8% of fuel cells at *every* ground wetness, because a
+  field block holding a `Plant` cell is `blocked` and never diffuses). Ships
+  a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
+  three §X desert levers, two of which have changed since the record.
 
 ## Worldgen and world
 
@@ -293,10 +324,24 @@ field rework — see `open-bugs-handoff.md`.
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
-- [felling-blockers.md](felling-blockers.md) — **investigation; §1 and §2
-  superseded.** Why cutting a tree down was not in yet. Its §1 premise was
-  superseded by `open-bugs-handoff.md` §0d and its §2 redesigns by
-  `physical-trees-design-2026-08-23.md`; its §3 ordering still holds.
+- [felling-blockers.md](felling-blockers.md) — **investigation; §1
+  superseded by the plant-line merge, §2 superseded by
+  `physical-trees-design-2026-08-23.md`.** Why cutting a tree down was not
+  in yet. §3's ordering still holds.
+- [physical-trees-design-2026-08-23.md](physical-trees-design-2026-08-23.md)
+  — **design; §8's T1 stage is built** (see the line below), the rest not.
+  Sway, impact breakage and a tree that falls
+  over, from the owner's "it reads as a tree disintegrating into dust".
+  Carries the measurement that prices render-side sway at +8.0 ms/frame over
+  a grown stand, and the deleted prototype that takes a fell from 1.7% to
+  58% of the severed mass coming down as pieces. Supersedes
+  `felling-blockers.md` §2. **§11 is a later addendum** — wind-throw, with
+  roots as anchorage and slenderness as an independent failure mode, staged
+  as T6. Its three scheduling calls are decided (the economy half moves into
+  P2; wind geography is dispatched as W4; plasticity is built as a heritable
+  reaction norm), and §11.6a establishes from source that the genome already
+  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
+  been measured or rendered.
 - [physical-trees-t1-implementation.md](physical-trees-t1-implementation.md)
   — **shipped.** The build half of `physical-trees-design-2026-08-23.md`
   §8's T1 stage: the fragment ladder's floor, the 8-connected flood for

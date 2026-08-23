@@ -32,6 +32,26 @@
     // binary, so editing it and re-running a prebuilt harness produces
     // bit-identical "runs" (`CLAUDE.md`).
     dissipation: 0.004,
+    // **Required, not decorative, from the moment `flame.ron` started
+    // ageing into this.** `ash.ron` states the rule this obeys: any
+    // material that can end up as the target of `burns_into`,
+    // `melts_into`, `boils_into` or a reaction needs a real value here,
+    // because `fire::transform` hands the new cell the *old* cell's
+    // temperature and a material with zero conductivity can then never
+    // cool. Smoke was never a burnout target before, so it never needed
+    // one.
+    //
+    // It was found by looking, which is the point. A flame burns at 780C
+    // and its smoke inherited all 780 of it, so `render.rs`'s heat glow
+    // drew the entire plume at the top of the fire ramp with the burning
+    // cell's flicker on it: a grassfire came out with a **white** cloud
+    // over it that read as a snow flurry, not smoke. High rather than
+    // cautious -- smoke is a thin gas that mixes with everything it drifts
+    // through, and what should stay hot is the flame, not what is left of
+    // it. The plume now runs warm and orange at the fire and grey within a
+    // few cells of it, which is the gradient that makes it read as smoke
+    // coming off a fire rather than as a second effect drawn nearby.
+    heat_conductivity: 0.5,
     colors: [
         (84, 84, 88),
         (96, 96, 100),

@@ -2492,7 +2492,7 @@ mod tests {
         let mut world = world_with_floor();
         let wood = world.materials.id_of("wood").expect("wood is compiled in");
         let species = world.species.id_of("tree").expect("tree is compiled in");
-        let organism = world.push_organism(species);
+        let organism = world.push_organism(species).expect("an organism slot is free");
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
         for y in top..88 {
             for x in x0..(x0 + width) {
@@ -2612,7 +2612,7 @@ mod tests {
         let (x0, y0) = world.player.as_ref().unwrap().rect_origin();
         let wood = world.materials.id_of("wood").expect("wood is compiled in");
         let species = world.species.id_of("tree").expect("tree is compiled in");
-        let organism = world.push_organism(species);
+        let organism = world.push_organism(species).expect("an organism slot is free");
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
         // Grown right through him and well past his depenetration reach on
         // every side, so there is nowhere to be shoved to.
@@ -2767,7 +2767,7 @@ mod tests {
         let mut world = world_with_floor();
         let rootwood = world.materials.id_of("rootwood").expect("rootwood is compiled in");
         let species = world.species.id_of("tree").expect("tree is compiled in");
-        let organism = world.push_organism(species);
+        let organism = world.push_organism(species).expect("an organism slot is free");
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::RootTip);
         for y in 84..88 {
             for x in 50..80 {
@@ -2818,7 +2818,7 @@ mod tests {
             if leaves {
                 let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
                 let species = world.species.id_of("tree").expect("tree is compiled in");
-                let organism = world.push_organism(species);
+                let organism = world.push_organism(species).expect("an organism slot is free");
                 let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Leaf);
                 for y in 40..70 {
                     for x in 50..80 {
@@ -2929,7 +2929,7 @@ mod tests {
         let wood = world.materials.id_of("wood").expect("wood is compiled in");
         let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
         let species = world.species.id_of("tree").expect("tree is compiled in");
-        let organism = world.push_organism(species);
+        let organism = world.push_organism(species).expect("an organism slot is free");
         let stem = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
         let foliage = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Leaf);
         // Small enough that one shake reaches all of it — about 230 cells
@@ -3062,7 +3062,7 @@ mod tests {
         let mut world = world_with_floor();
         let ant = world.materials.id_of("ant").expect("ant is compiled in");
         let species = world.species.id_of("ant").expect("ant is compiled in");
-        let organism = world.push_organism(species);
+        let organism = world.push_organism(species).expect("an organism slot is free");
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::Head);
         for y in 74..88 {
             world.set(70, y, Cell::new(ant, 0).with_organism_id(organism).with_aux(aux));

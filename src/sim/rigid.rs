@@ -425,6 +425,18 @@ pub struct BodyCell {
     pub organism_id: u16,
 }
 
+impl BodyCell {
+    /// This cell's offset after a quarter turn: `(dx, dy) -> (-dy, dx)`.
+    ///
+    /// The single definition of the transform. `ChunkBody::rotate_quarter`
+    /// applies it and `ChunkBody::turned_cell_position` predicts it, and
+    /// the two must not be able to drift apart — see `rotation_fits` for
+    /// what a probe that disagrees with the move it guards is worth.
+    fn rotated(&self) -> (i32, i32) {
+        (-self.dy, self.dx)
+    }
+}
+
 /// A coherent piece of broken structure, in flight.
 ///
 /// This is the pipeline's first *gameplay* wiring: `label_component` and
@@ -527,10 +539,24 @@ impl ChunkBody {
     /// however many times it is applied.
     fn rotate_quarter(&mut self) {
         for cell in &mut self.cells {
-            let (dx, dy) = (cell.dx, cell.dy);
-            cell.dx = -dy;
-            cell.dy = dx;
+            let (dx, dy) = cell.rotated();
+            cell.dx = dx;
+            cell.dy = dy;
         }
+    }
+
+    /// Where `cell` would sit after `rotate_quarter`, without turning
+    /// anything.
+    ///
+    /// Exists so `rotation_fits` can ask about the turned footprint without
+    /// cloning the body — and, more to the point, so the predicted turn and
+    /// the performed one come from **one** definition of the transform. A
+    /// probe that predicted a different turn from the one that then
+    /// happened would be worse than no probe at all, which is close to what
+    /// the previous version managed; see `rotation_fits`.
+    fn turned_cell_position(&self, cell: &BodyCell) -> (i32, i32) {
+        let (dx, dy) = cell.rotated();
+        (self.x.round() as i32 + dx, self.y.round() as i32 + dy)
     }
 
     /// The body's current extent in world space, as
@@ -1794,15 +1820,23 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     body.spin += (body.vx.abs() + body.vy.abs()) * SPIN_PER_SPEED;
     if body.spin >= 1.0 {
         body.spin -= 1.0;
-        let turned = {
-            let mut probe = body.clone();
-            probe.rotate_quarter();
-            // Only turn if the turned shape actually fits. Otherwise a body
-            // wedged in a gap would rotate straight through the wall beside
-            // it, which is the one way this transform can cheat.
-            let shape = BodyShape { density: mean_density(world, &probe), floats: body_floats(world, &probe), reach: body_extent(&probe) + 1 };
-            try_step(world, &probe, probe.x, probe.y, shape).axis.is_none()
-        };
+        // Only turn if the turned shape actually fits. Otherwise a body
+        // wedged in a gap would rotate straight through the wall beside it,
+        // which is the one way this transform can cheat.
+        //
+        // Asked of the **pre-turn** body: `mean_density` and `body_floats`
+        // read each `BodyCell`'s own material, so a quarter turn — which
+        // permutes offsets and neither adds nor removes a cell — cannot
+        // move either, and `rotation_fits` does not read `reach`. The
+        // version this replaces built a rotated clone purely to compute a
+        // shape identical to this one, and then asked the wrong question
+        // with it; see `rotation_fits` for both halves of that.
+        let turned = rotation_fits(world, body, shape_of(world, body));
+        // Counted, because a probe that always answers "clear" looks
+        // exactly like a probe that works — which is how this went unnoticed
+        // for the life of the mechanism. `CLAUDE.md`: "did it fire at all"
+        // needs a counter, not a picture.
+        world.structural_failures.record_rotation(turned);
         if turned {
             if body.reserved {
                 rotate_reserved(world, body);
@@ -1924,6 +1958,84 @@ fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
             world.set_owned(x, y, reserved());
         }
     }
+}
+
+/// Whether the body's quarter-turned footprint would fit where it stands.
+///
+/// **Read-only, and that is why it is its own function rather than a call
+/// into `try_step`.** Two separate defects made the obvious version wrong,
+/// and the first hid the second for the life of the mechanism.
+///
+/// *It was vacuous.* What stood here was `try_step(world, &probe, probe.x,
+/// probe.y, …)` on a rotated clone. `try_step` derives each cell's target
+/// from a single integer offset — `(tx, ty) = (ox + cell.dx, oy +
+/// cell.dy)` — so probing a rotation *at the body's own position* made
+/// every cell's target identical to its own current position, the
+/// `(tx, ty) == (cx, cy)` guard skipped the entire body, `horizontal` and
+/// `vertical` were never set, and `axis` came back `None` unconditionally.
+/// The guard's own comment said it stopped a wedged body turning through
+/// the wall beside it. It never once fired, on any body, in any scene.
+/// Recorded as `Reports/open-bugs-handoff.md` bug K (and §1i, which is the
+/// same defect written up twice); the reproduction is
+/// `a_wedged_body_will_not_rotate_through_the_wall`, which was `#[ignore]`d
+/// against it and is live again with this.
+///
+/// *And routing it back through `try_step` with a corrected offset is not
+/// the fix either*, for the reason the first defect concealed:
+/// `clear_or_displaceable` **mutates** as it answers — `displace` shoves
+/// powder and the `Gas` arm calls `world.set(…, Cell::EMPTY)` inline. A
+/// probe built on it would rearrange the world to find out whether a turn
+/// it may then refuse is legal, which is bug J's speculative-write defect
+/// on a path that throws the answer away half the time. So this asks the
+/// same *classification* question `clear_or_displaceable` asks, and does
+/// nothing with the answer but return it.
+///
+/// The body's own pre-turn footprint is free by construction, and is
+/// checked explicitly rather than relied upon: `promote` clears those cells
+/// to `Cell::EMPTY` and `claim_footprint` re-stamps them managed-but-
+/// materially-empty, so today they would pass the raw-`EMPTY` test anyway —
+/// but a rotation that a body could not perform *into its own cells* would
+/// be absurd, and saying so here keeps it true if that ever changes.
+fn rotation_fits(world: &World, body: &ChunkBody, shape: BodyShape) -> bool {
+    let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    body.cells.iter().all(|cell| {
+        let (x, y) = body.turned_cell_position(cell);
+        if before.contains(&(x, y)) {
+            return true; // the body is already standing here
+        }
+        if !world.in_bounds(x, y) {
+            return false;
+        }
+        let there = world.get(x, y);
+        // The raw material test, not `is_empty` — same reason
+        // `clear_or_displaceable` gives: a managed cell is materially empty
+        // and is somewhere a body may be.
+        if there.material == material::EMPTY {
+            return true;
+        }
+        match world.materials.kind(there.material) {
+            // Liquid yields to something that would sink through it and
+            // holds up something that floats, matching
+            // `clear_or_displaceable`'s own arm. The two have to agree, for
+            // the reason `BodyShape::floats` records: a piece promoted for
+            // a move the mover then refuses is the 41-repeat-failure state
+            // a raft already sat in once.
+            MaterialKind::Liquid => !shape.floats && shape.density > world.materials.density(there.material),
+            // **Powder yields, without asking whether there is anywhere for
+            // it to go**, and that is deliberately more permissive than the
+            // real move, which answers that with `displace`'s ring search.
+            // A read-only equivalent would have to walk the same rings and
+            // discard the result, per cell, per turn — and refusing on a
+            // failed search would stop a piece tumbling the moment it
+            // touched its own debris, which is the medium a collapse
+            // happens *in*. The cheat this guard exists to stop is turning
+            // through a **wall**; rubble is not one.
+            MaterialKind::Powder | MaterialKind::Gas => true,
+            // Solid, plant, creature — a real obstruction, in
+            // `clear_or_displaceable`'s own words.
+            _ => false,
+        }
+    })
 }
 
 /// The body's density, buoyancy and reach, as one value — computed once per
@@ -4325,7 +4437,7 @@ mod tests {
             w.set(x, 63, Cell::new(material::BEDROCK, 0).with_attached(true));
         }
         let species = w.species.id_of("tree").expect("tree species must be loaded");
-        let id = w.push_organism(species);
+        let id = w.push_organism(species).expect("a fresh world has organism slots free");
         (w, id)
     }
 
@@ -4732,19 +4844,20 @@ mod tests {
     /// wall beside it — which is exactly the cheat the probe's own comment
     /// says it exists to prevent.
     ///
-    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
-    /// outlives the report.** Whoever fixes the probe gets a red test
-    /// instead of a paragraph, and `--ignored` is the only thing in the
-    /// engine that can currently tell a working probe from a vacuous one —
-    /// a probe that always answers "clear" looks identical to one that
-    /// works. Present in *both* parents of the water merge, so it is not
-    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    /// **Live again as of the fix**, having been `#[ignore]`d against the
+    /// defect rather than deleted, per `CLAUDE.md`: the reproduction
+    /// outlives the report, so whoever fixed the probe got a red test
+    /// instead of a paragraph. It is still the only thing in the engine
+    /// that can tell a working probe from a vacuous one by assertion — a
+    /// probe that always answers "clear" looks identical to one that works
+    /// — with `FailureCounts::rotations_refused` as the running readout
+    /// beside it. Was present in *both* parents of the water merge; see
+    /// `open-bugs-handoff.md` bug K.
     ///
     /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
     /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
     /// bar is 1x3 and its two new cells land in the rock above and below.
     #[test]
-    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
     fn a_wedged_body_will_not_rotate_through_the_wall() {
         let mut w = test_world();
         for y in 0..64 {
@@ -4759,11 +4872,10 @@ mod tests {
         let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 0 };
         let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
 
-        // The probe exactly as `advance` builds it, arguments included.
-        let mut probe = body.clone();
-        probe.rotate_quarter();
-        for cell in &probe.cells {
-            let (px, py) = probe.cell_position(cell);
+        // The setup check first: if the turned bar does not actually land in
+        // rock, a passing assertion below proves nothing.
+        for cell in &body.cells {
+            let (px, py) = body.turned_cell_position(cell);
             if (px, py) != (15, 32) {
                 assert_eq!(
                     w.get(px, py).material,
@@ -4772,15 +4884,20 @@ mod tests {
                 );
             }
         }
-        let shape = BodyShape {
-            density: mean_density(&w, &probe),
-            floats: body_floats(&w, &probe),
-            reach: body_extent(&probe) + 1,
-        };
-        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
         assert!(
-            axis.is_some(),
+            !rotation_fits(&w, &body, shape_of(&w, &body)),
             "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
+        );
+
+        // ...and the other half, which is what stops the fix being "return
+        // false": clear the two cells the turn needs and it must fit. A
+        // probe that always refuses would pass the assertion above and is
+        // exactly as useless as the one that always allowed.
+        w.set(15, 31, Cell::EMPTY);
+        w.set(15, 33, Cell::EMPTY);
+        assert!(
+            rotation_fits(&w, &body, shape_of(&w, &body)),
+            "with the slot opened above and below, the turned bar fits and the probe should say so"
         );
     }
 }

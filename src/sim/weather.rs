@@ -916,7 +916,7 @@ fn gust(world: &mut World, w: Weather) {
 /// wake every tile between the cloud and the ground, undoing it. What the
 /// player sees falling is drawn, not simulated.
 pub fn step(world: &mut World) {
-    let w = at(world.seed, world.frame);
+    let w = world.weather();
     // Wind is not gated on precipitation -- a dry gale is weather too, and
     // the wind channel is generated whether or not anything is falling.
     gust(world, w);

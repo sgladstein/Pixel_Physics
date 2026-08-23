@@ -2256,7 +2256,7 @@ impl Renderer {
         // precipitation below, so the two cannot disagree about what the
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
-        let weather = crate::sim::weather::at(world.seed, world.frame);
+        let weather = world.weather();
         // **The drawn storm and the landing storm have to be the same
         // storm.** Falling precipitation is drawn straight from
         // `weather::at` and is never simulated -- `weather::step` puts water
@@ -6838,7 +6838,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
-            .map(|_| world.push_organism(species))
+            .map(|_| world.push_organism(species).expect("an organism slot is free"))
             .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {
