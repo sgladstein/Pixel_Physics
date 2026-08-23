@@ -912,6 +912,23 @@ pub enum OrganismOverlay {
     /// a sheet that read as blank because the ramp was red and the material
     /// brown.
     FoodValue,
+    /// **The heritable gut**, `-1` (plant matter) through `+1` (flesh),
+    /// over every cell of every creature.
+    ///
+    /// **Built before anything reads the trait for a decision**, the same
+    /// house law `FoodValue` above was built under: `gut_bias` is a
+    /// per-organism scalar that decides what an animal can even see as
+    /// food, and a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. The palette lerp
+    /// that ships beside it is *not* this readout — two pixels cannot
+    /// carry a quantity (the corpse-shade ramp spans 84..104 in red and
+    /// the owner judged a widened version "pretty minor"), so the colour
+    /// says "not all the same" and this says how much.
+    ///
+    /// Signed, so the ramp floor is a *herbivore* and not a missing value;
+    /// a cell that is not part of a creature returns `base` untouched, so
+    /// the two are still told apart by whether the cell is painted at all.
+    GutBias,
 }
 
 impl OrganismOverlay {
@@ -923,7 +940,8 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
             OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
-            OrganismOverlay::FoodValue => OrganismOverlay::Off,
+            OrganismOverlay::FoodValue => OrganismOverlay::GutBias,
+            OrganismOverlay::GutBias => OrganismOverlay::Off,
         }
     }
 
@@ -936,6 +954,7 @@ impl OrganismOverlay {
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
             OrganismOverlay::FoodValue => "FOOD VALUE",
+            OrganismOverlay::GutBias => "GUT BIAS",
         }
     }
 }
@@ -989,6 +1008,66 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// moss and leaf, which are already green, and against corpse, which is
 /// already dull red.
 const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
+/// **The two halves of the signed gut ramp**, plant end and flesh end —
+/// the same shape as the temperature pair above and for the same reason,
+/// which this channel learned the hard way.
+///
+/// It shipped first as *one* ramp with `(bias + 1) / 2` mapped onto it, on
+/// the reasoning that "the floor is a herbivore, not a missing value". The
+/// shipped ant is authored at exactly `-1.0`, so the entire colony landed
+/// on `t == 0` — `SCALAR_RAMP_FLOOR`, 18% brightness — and rendered as
+/// dark specks against dark soil. The overlay built to prove the mechanism
+/// fires showed a world in which nothing had. That is `CLAUDE.md`'s
+/// ramp-floor misreading arriving one step earlier than usual: not an
+/// overlay misread as blank, an overlay that genuinely *was*.
+///
+/// Signed instead, so **both ends of the axis are bright and only a
+/// generalist is dim** — which is the honest picture, because a gut at
+/// zero is the one that has committed to nothing. Green for plant matter,
+/// red for flesh, matching the palette lerp below so the overlay and the
+/// creature's own colour cannot tell different stories.
+const SCALAR_RAMP_GUT_PLANT: [f32; 3] = [110.0, 245.0, 90.0];
+const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
+
+/// **What a specialised gut looks like from across the world**, herbivore
+/// and carnivore ends of `OrganismState::traits[TRAIT_GUT_BIAS]`.
+///
+/// Green and red rather than two browns, and pulled 45% of the way rather
+/// than a few bytes, **because the subtle version has already been tried
+/// and judged**: the corpse-worth ramp moves red from 84 to 104 over the
+/// whole range, the owner's verdict on widening it was "pretty minor", and
+/// the canopy-density sheet that shifted one colour byte by 16 read as
+/// blank. Two pixels cannot carry a *quantity* -- that is
+/// `OrganismOverlay::GutBias`'s job -- but they can carry an *identity*,
+/// and telling two ancestors apart on sight is the whole visible payload of
+/// S5 shipping before reproduction does.
+///
+/// The lerp is signed and anchored at zero, so a **neutral gut is drawn
+/// exactly as it always was**: the shipped ant does not change colour, and
+/// only an animal that has actually specialised is tinted. That keeps this
+/// from being a repaint of existing content.
+///
+/// **The hue pair is provisional, and the owner has already judged it
+/// once against.** Review card `20260823T104342401Z-25ec88` posted a blind
+/// A/B of an untinted colony against this tint at full strength on a
+/// `-1.0` ant; the verdict was **A, untinted**. The reason is recorded in
+/// `assets/materials/ant.ron` and was in the card: an ant is one or two
+/// cells at play zoom, the readable signal at that size is *contrast
+/// against the ground rather than hue*, and green ants sink into a world
+/// whose dominant colour is already green.
+///
+/// Nothing ships tinted today — the ant is authored neutral, so `t` is 0
+/// and the colony draws exactly as the owner chose. What is unresolved is
+/// what a *specialised* ancestor should look like, and that animal is
+/// gated on the E5 card. When it ships, the thing to try is a
+/// **brightness** axis rather than a hue axis (brightness being the one
+/// channel that reads at 1–2 px), posted as its own blind A/B rather than
+/// argued. Do not simply turn this up.
+const GUT_TINT_PLANT: [f32; 3] = [90.0, 200.0, 90.0];
+const GUT_TINT_FLESH: [f32; 3] = [210.0, 70.0, 70.0];
+/// How far toward the tint a fully specialised gut is pulled. See above:
+/// judged too strong at this value on a fully specialised ant.
+const GUT_TINT_STRENGTH: f32 = 0.45;
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -3559,6 +3638,24 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
+        // **A specialised gut wears its diet.** Gated in three widening
+        // steps so the cost lands only on the cells it is about: an
+        // `organism_id` bit test (every cell), a cell-type decode (organism
+        // cells only -- and it must come *after* the id test, because `aux`
+        // is a tagged union and a soil cell's water would decode as a
+        // nonsense cell type), and only then the organism lookup. A tree is
+        // thousands of cells and pays the two bit tests; the ~150 creature
+        // cells in a colony pay the lookup.
+        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+            if let Some(state) = world.organism(cell.organism_id()) {
+                let bias = state.traits[organism::TRAIT_GUT_BIAS].clamp(-1.0, 1.0);
+                let tint = if bias < 0.0 { GUT_TINT_PLANT } else { GUT_TINT_FLESH };
+                let t = bias.abs() * GUT_TINT_STRENGTH;
+                for (c, target) in base.iter_mut().take(3).zip(tint) {
+                    *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
         // Fractured rock draws dark along the break. Cracks are edge state
         // (`FLAG_CRACK_RIGHT`), and at 1:1 an edge has no pixels of its own
         // to draw into -- so the *cell* owning the crack is darkened
@@ -4036,6 +4133,32 @@ impl Renderer {
             }
             return out;
         }
+        if self.organism_overlay == OrganismOverlay::GutBias {
+            // Asks the *organism*, not the cell: `gut_bias` is a property of
+            // the animal, and every cell of a chain carries the same one.
+            // A plant organism has the neutral vector and would paint at
+            // mid-ramp, which would read as "this tree has a gut" -- so the
+            // creature test is `chain`, the field only a creature fills.
+            let Some(state) = world.organism(cell.organism_id()) else {
+                return base;
+            };
+            if state.chain.is_empty() {
+                return base;
+            }
+            // **Magnitude on the ramp, sign on the hue** -- see
+            // `SCALAR_RAMP_GUT_PLANT`. `|bias|` is how committed the gut is
+            // and picks the brightness; which end it is committed *to*
+            // picks the colour. A specialist of either kind is bright, and
+            // the dim cells are the undecided ones.
+            let bias = state.traits[organism::TRAIT_GUT_BIAS];
+            let ramp = scalar_ramp(bias.abs().clamp(0.0, 1.0), if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT });
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
         if cell.organism_id() == 0 {
             return base;
         }
@@ -4047,7 +4170,7 @@ impl Renderer {
             // about every cell in the world -- a fallen leaf and a corpse
             // are food and belong to no organism, which is exactly the case
             // the tissue guard below would drop.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_

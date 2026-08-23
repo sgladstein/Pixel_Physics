@@ -190,6 +190,22 @@ field rework — see `open-bugs-handoff.md`.
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
+  proposed plan, written the day S1–S4 merged.** Where the creature line
+  stands, the decisions never posted to the queue (E5, the abundance dial),
+  and the re-prioritised to-do list: gates first, the two meat-accounting
+  holes before S6, traffic/range as new work, the canopy as an S7 option.
+- [creature-implementation-handoff-2026-08.md](creature-implementation-handoff-2026-08.md)
+  — **execution plan for the review above, written to be run cold.** Ten
+  work packages with file anchors, steps, measurements and landing
+  checklists; the scope guard on what must not start before the owner's
+  verdicts (S6, S7's larder, new channels).
+- [foraging-range-measurement.md](foraging-range-measurement.md) —
+  **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
+  on landing (2026-08-23). Why `nest_visits` counted loitering and what
+  replaced it: the `forage_reach` profile, `FORAGE_TRIP_MIN` derived from a
+  sessile control, the 19-cell bubble, and the litter-in-the-canopy finding
+  with the owner's call and the paired table it produced.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
