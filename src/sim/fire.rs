@@ -441,6 +441,11 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     // `burn_temp`/`burns_into` are: the burnout branch below needs it after
     // `material`'s own borrow would otherwise still be live.
     let was_structural = matches!(material.kind, material::MaterialKind::Solid | material::MaterialKind::Plant);
+    // Same extraction, same reason, for the `meat_lost` booking in the
+    // burnout branch — `book_meat_lost` takes `&mut S`, so reading
+    // `material.worth_in_aux` at the call site would keep this borrow alive
+    // across it.
+    let source_worth_in_aux = material.worth_in_aux;
 
     // Burning radiates heat regardless of where the timer stands — a cell
     // one frame from burning out is exactly as hot as one that just ignited.
@@ -483,8 +488,31 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             // Drawing a random shade for it would render a burnt ant as a
             // prime kill one time in five once that ramp is wide enough to
             // read -- so take the dark end, which is what it is.
-            let shades = surface.materials().get(into).palette.len().max(1) as u32;
-            let shade = if surface.materials().get(into).worth_in_aux { 0 } else { surface.rng().below(shades) as u8 };
+            let into_def = surface.materials().get(into);
+            let shades = into_def.palette.len().max(1) as u32;
+            let into_worth_in_aux = into_def.worth_in_aux;
+            let shade = if into_worth_in_aux { 0 } else { surface.rng().below(shades) as u8 };
+            // **Book what the fire just ate.** `corpse` is flammable
+            // (`corpse.ron`: `flammability: 0.15`, `burns_into: "ash"`), so
+            // a body left in a grassfire takes its stamped worth out of the
+            // world -- and before `EnergyLedger::meat_lost` existed it did so
+            // with nothing recording it, which is what made
+            // `max_standing_meat` an upper bound rather than a bound.
+            //
+            // Read off `material`, the *source* def already in hand a few
+            // lines up, not off `into`: the question is what is being
+            // destroyed, not what it becomes. The distinction is live in both
+            // directions here -- an ant burning has `burns_into: "corpse"`, so
+            // `into` is `worth_in_aux` while the source is not and nothing
+            // should be booked; a corpse burning is the exact inverse.
+            //
+            // Costs nothing the sweep was not already paying: this branch
+            // runs only on the frame a cell finishes burning, and both terms
+            // are already loaded (`material` for `burns_into`, `cell` to be
+            // overwritten on the next line).
+            if source_worth_in_aux && cell.aux() != 0 {
+                surface.book_meat_lost(cell.aux() as f64);
+            }
             *cell = Cell::new(into, shade).with_temperature(cell.temperature());
 
             // Architecture §5f: a burnout that produces ash specifically

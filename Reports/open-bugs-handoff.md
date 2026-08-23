@@ -854,12 +854,17 @@ it.
 > `App::update`, outside the CA sweep, so this path is driver-independent by
 > construction rather than by test.
 >
-> **What is still open, and is WP-6's:** this preserves the worth of a
-> corpse the blast *throws*. A corpse the blast *consumes* still books
-> nothing (`world.rs`'s `meat_lost` seam), so `max_standing_meat` remains an
-> upper bound rather than a bound. The two are deliberately separate fixes;
-> the total falling in the test above is legitimate for exactly that reason,
-> which is why its bar is worth *per surviving cell* rather than on the sum.
+> **The other half landed with it (WP-6).** This preserves the worth of a
+> corpse the blast *throws*; `EnergyLedger::meat_lost` now books the one it
+> *consumes*, along with fire and the brush, so `max_standing_meat` is a
+> real bound rather than a hope. The two were built together because they
+> are two halves of one branch — booking a *throw* would charge for meat
+> merely in flight and put the bound below the truth, and the guard
+> `world.rs::a_destroyed_corpse_is_booked_rather_than_forgotten` asserts
+> exactly that by carrying the in-flight term explicitly. The bar in this
+> section's own test is worth *per surviving cell* rather than on the sum
+> for the same reason: the total is allowed to fall, and what may not happen
+> is a cell coming back cheaper.
 
 **The original entry, kept as the record of what was inferred and what it
 cost:**

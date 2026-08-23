@@ -309,6 +309,7 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             world.reindex_organism_cell(x, y, was, now);
         }
         world.phase_changes.merge(outcome.phase_counts);
+        world.energy_ledger.meat_lost += outcome.meat_lost;
         // Summed in whole fill units per worker and converted once here, so
         // a pass credits the same total however the chunks were divided
         // between threads -- see `ChunkView::sky_condensate`.
@@ -403,6 +404,8 @@ struct ChunkOutcome {
     phase_counts: crate::sim::fire::PhaseCounts,
     /// See `ChunkView::sky_condensate`'s own doc.
     sky_condensate: u64,
+    /// See `ChunkView::meat_lost`'s own doc.
+    meat_lost: f64,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -480,6 +483,18 @@ struct ChunkView<'w> {
     /// than cell-equivalents so the merge is an integer sum and no pass can
     /// lose a fraction of a cell to float ordering.
     sky_condensate: u64,
+    /// This worker's private sum of meat destroyed by the sweep
+    /// (`CellSurface::book_meat_lost`), merged into
+    /// `World::energy_ledger.meat_lost` by `run_pass` — only `World` owns
+    /// the ledger, same reasoning as `phase_counts`.
+    ///
+    /// An `f64` sum where `sky_condensate` is an integer one, and the
+    /// difference is deliberate rather than an oversight: fill units are
+    /// countable and stamps are not. Determinism is preserved by the merge
+    /// order, not by exactness of the type — `run_pass` folds chunk
+    /// outcomes in a fixed order, so the same run adds the same partial
+    /// sums in the same sequence. See the `determinism.rs` pair.
+    meat_lost: f64,
 }
 
 impl<'w> ChunkView<'w> {
@@ -501,6 +516,7 @@ impl<'w> ChunkView<'w> {
             organism_moves: Vec::new(),
             phase_counts: crate::sim::fire::PhaseCounts::default(),
             sky_condensate: 0,
+            meat_lost: 0.0,
         }
     }
 
@@ -526,6 +542,7 @@ impl<'w> ChunkView<'w> {
             organism_moves: self.organism_moves,
             phase_counts: self.phase_counts,
             sky_condensate: self.sky_condensate,
+            meat_lost: self.meat_lost,
         }
     }
 
@@ -760,6 +777,12 @@ impl CellSurface for ChunkView<'_> {
         // Tallied privately and merged by `run_pass` — only `World` owns
         // `phase_changes`, the same reasoning as `pending_active_sites`.
         self.phase_counts.record(event);
+    }
+
+    fn book_meat_lost(&mut self, worth: f64) {
+        // Summed privately and merged by `run_pass` — only `World` owns the
+        // ledger, exactly as for `phase_counts` above.
+        self.meat_lost += worth;
     }
 }
 
