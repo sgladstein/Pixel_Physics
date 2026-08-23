@@ -384,8 +384,9 @@ pub struct World {
     /// air under it into a cave.
     ///
     /// **Every attempt to infer this from the shape of the world has been
-    /// wrong in a new way**, which is what makes storing it worth the eight
-    /// kilobytes. Measured on the version this replaced, which took the
+    /// wrong in a new way**, which is what makes storing it worth the
+    /// kilobytes (see below for how many, at the size that ships now).
+    /// Measured on the version this replaced, which took the
     /// topmost non-empty cell and then patched up anything with higher
     /// ground within six columns either side: one floating cell put twenty
     /// rows of cave under it, a plank of *any* width from one cell to fifty
@@ -395,9 +396,10 @@ pub struct World {
     /// built this" from "this is a hill", and no reach or threshold makes it
     /// able to.
     ///
-    /// A `Vec` over the world's width, which is 8 KB at 2048 wide. M10's
-    /// streaming will want this keyed per chunk column instead, alongside
-    /// everything else that is currently sized to a resident world.
+    /// A `Vec` over the world's width, which is 32 KB at the shipped 8192
+    /// wide (was 8 KB at 2048 before the world grew). M10's streaming will
+    /// want this keyed per chunk column instead, alongside everything else
+    /// that is currently sized to a resident world.
     sky_surface: Vec<i32>,
     /// The same dedup idea as `pending_structural_checks`, for
     /// `ActiveKind::Decay`, and it exists for a different reason worth
@@ -453,9 +455,13 @@ pub struct World {
     /// normal case) resolves to `None` via `organism`/`organism_mut`
     /// rather than silently reading a *different*, unrelated organism's
     /// state once the slot is recycled.
-    /// The two stigmergy planes (`Reports/creature-direction.md` §5) —
-    /// ~640 KB at 512x320, and CA resolution rather than `FIELD_SCALE`,
-    /// for the measured reason in `pheromone.rs`'s module doc.
+    /// The two stigmergy planes (`Reports/creature-direction.md` §5) — 2
+    /// channels x 2 buffers x 1 byte, CA resolution rather than
+    /// `FIELD_SCALE`, for the measured reason in `pheromone.rs`'s module
+    /// doc. That was ~640 KB at the 512x320 world this was sized against;
+    /// at the shipped 8192x2560 it is ~84 MB, allocated eagerly in
+    /// `Pheromones::new` whether or not a creature exists anywhere in the
+    /// world — a real, standing cost, not a hypothetical one.
     ///
     /// A `World` field rather than something creatures own, for the same
     /// reason `fields` is: the signal outlives whoever deposited it, which

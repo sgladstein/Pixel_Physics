@@ -67,6 +67,31 @@ synchronised side by side for an A/B. A GIF cannot be paused on the frame that
 looked wrong; a sequence can.
 
 A card may carry both — a GIF to judge the feel, frames to find the moment.
+**Prefer a frame sequence to a GIF.** Tested head to head on one card, with
+the same motion posted both ways: the sequence played and the GIF did not.
+The GIF was valid by every check available on the posting side — 24 frames,
+distinct payloads, 60 ms delays, a `NETSCAPE2.0` loop block, stored with its
+extension and served as `image/gif`, inside a plain `<img>` the page does not
+re-source — and it still showed as a single static frame for the owner. The
+sequence uses the page's *own* timer instead of the browser's GIF decoding,
+so it does not depend on any of that. Reach for `--gif` only if a sequence is
+impractical.
+
+**And render frames people can actually see.** The "never zoom a GIF" rule
+above is about the page scaling *client-side*; it is not licence to post a
+190x130 crop. One went out at that size and the owner reported seeing none of
+the changes in it, because at that size there was nothing to see. The stills
+he has been able to judge are 700-950 px across. Crop tight, then zoom so the
+result is legible.
+
+**One file per item, then** — and `post` refuses the alternative rather than
+letting it through. `files` is the *frame sequence* field: several entries in
+one item become a scrubbable strip, so a GIF and a still in the same item do
+not render as an animation beside a picture, they become frame 0 of a
+two-frame sequence and the motion is gone. Silently, and the card looks right
+from the posting side, which is how it reached the owner once —
+*"your card wasn't an animated gif, just two frames"*. Give an animation an
+item of its own; `--gif` and `--image` do that for you.
 
 **Autoplay earns its place at roughly ten frames or more.** A two-frame sequence
 set playing is a strobe, not an animation: post those two states as an A/B and

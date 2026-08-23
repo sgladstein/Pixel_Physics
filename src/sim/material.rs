@@ -87,7 +87,9 @@ pub const LIQUID_MAX_COMPRESS: u16 = 10;
 ///
 /// **24, raised from 8**, because this turned out to be what governs the
 /// complaint that a wide body "has a tilt across the whole screen". Measured
-/// on a 512-wide pour, waterline tilt end to end and the frame everything
+/// on a 512-wide pour — the screen's width (`app::WIDTH`), not the world's,
+/// which was already larger than that when this was measured and has grown
+/// further since — waterline tilt end to end and the frame everything
 /// finally sleeps:
 ///
 /// | reach | tilt at frame 2000 | asleep at | tilt at rest |
