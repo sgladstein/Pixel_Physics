@@ -720,6 +720,47 @@ Burning cells render with that flat tint so M14's work is visible at all
 before M6 exists; press `F` over painted material in the live app to ignite it
 (a debug tool — M15 gives explosions a more physical ignition source).
 
+**Fire has a body of its own, and how wet the ground is decides whether it
+spreads** (2026-08-23, lane W package W2 — closes the two mechanical halves
+of `Reports/open-bugs-handoff.md` §G; full account in
+`Reports/grassfire-and-the-desert-2026-08-23.md`).
+
+- **`assets/materials/flame.ron`** is a `Gas` created *already alight*.
+  `fire::tick_burn` licks one into a nearby empty cell while a fuel cell
+  burns, at a per-material rate (`MaterialDef::flame_into` / `flame_chance`,
+  both unset by default, so no existing material changes how it burns).
+  Because a flame is *burning*, every piece of fire machinery already applies
+  to it with no special case: `try_ignite`'s neighbour scan ignites what a
+  lick touches **at no added cost to that scan**, and its own `burns_into`
+  ages it into smoke, so the plume comes off the front. The direction is
+  **rolled** (`FLAME_DIRECTIONS`, up twice in six) — a fixed search order
+  sent every lick straight up and bought no lateral reach at all, which is
+  what a front needs to cross the gaps between tussocks.
+- **`CellSurface::ground_wetness_at`** replaces the old
+  `field_moisture_at`-based moisture gate, which had measured as inert for
+  two milestones. Not because 0.9 was too weak: its input reads **exactly
+  0.000 at 96.8% of fuel cells at every ground wetness, so for those cells
+  the term changed ignition by exactly zero**, because a field
+  block containing a `Plant` cell is `blocked` and a blocked block never
+  diffuses. The new read is the moisture *source* (recomputed from the CA
+  grid, never advected) at the cell's own block and the one below it, and
+  the gate is a cutoff rather than a scale because spread is a percolation.
+  Paired guard: 171 grass cells consumed on dry ground against 4 on
+  saturated.
+- **`examples/fire_probe.rs`** is the instrument. It censuses the sward's
+  4-connected fuel islands (the quantity that explains the old behaviour),
+  the wetness distribution at the fuel, and the front's advance — and it
+  echoes **the fuel constants the binary was built with**, because a sweep
+  killed by a timeout before its restore line ran produced four
+  measurements of a fuel nobody meant to test.
+
+**Known limitation, and it is `render.rs`'s.** Every burning thing saturates
+the heat ramp (400C above ambient; grass burns at 520C, a flame at 780C), and
+the top of that ramp is a pale yellow-white, so a burning meadow still draws
+as *straw*. A two-constant prototype reads as fire and is not shipped: those
+constants also colour lava, quench crust and warm water. The A/B is with the
+owner.
+
 ## M7 status
 
 Free particles, in [`src/sim/particle.rs`](src/sim/particle.rs) — a separate

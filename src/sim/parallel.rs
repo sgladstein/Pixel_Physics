@@ -754,6 +754,47 @@ impl CellSurface for ChunkView<'_> {
         self.field.get_local(lx, ly).moisture
     }
 
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        // **Assembled per sample, and the naive version was silently
+        // wrong.** `field::ground_wetness_at` reads two field blocks -- the
+        // cell's own and the one `FIELD_SCALE` below it -- so unlike
+        // `field_moisture_at` beside it, this cannot simply assert it is
+        // in-chunk: a cell in the bottom eight rows of a chunk reaches into
+        // the chunk below.
+        //
+        // Deferring the whole thing to `self.world` instead does *not*
+        // work, and this cost an afternoon: a worker's own `FieldTile` has
+        // been **moved out** of `world.fields` for the duration of the
+        // pass, so `moisture_source_at` finds no tile at this coordinate
+        // and returns its out-of-world answer, 0.0. Every ignition in a
+        // saturated meadow then read `wetness=0` and the gate passed
+        // everything, while `World::ground_wetness_at` -- the same
+        // function, called from a harness between frames -- correctly read
+        // 1.0 at the identical cells. A read that is right everywhere
+        // except inside the sweep is the worst shape a bug can have here,
+        // because the harness agrees with you.
+        //
+        // So: own tile from `self.field`, anything else from the world,
+        // per sample. The `HashMap` lookup the remote case costs is the
+        // exact cost `fire::diffuse_heat` had removed for paying it once
+        // per visited cell; this one is paid once per *ignition attempt*
+        // -- a flammable cell that already has a burning neighbour, which
+        // is the fire front and nothing else.
+        let source = |wx: i32, wy: i32| {
+            if !self.world.in_bounds(wx, wy) {
+                return 0.0;
+            }
+            let (fx, fy) = field::field_coord_of(wx, wy);
+            let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+            if tile_coord == self.coord {
+                self.field.moisture_source_local(lx, ly)
+            } else {
+                self.world.moisture_source_at(wx, wy)
+            }
+        };
+        source(x, y).max(source(x, y + field::FIELD_SCALE))
+    }
+
     fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
         let (fx, fy) = field::field_coord_of(x, y);
         let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);

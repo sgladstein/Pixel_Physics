@@ -77,6 +77,24 @@ pub trait CellSurface {
     /// reaching into the shared `World` at all.
     fn field_moisture_at(&self, x: i32, y: i32) -> f32;
 
+    /// **How wet the matter at and just below `(x, y)` is, `0..=1`** --
+    /// `fire::try_ignite`'s moisture gate. See `field::ground_wetness_at`
+    /// for why this is a different channel from `field_moisture_at` above
+    /// and not a convenience wrapper on it: the humidity that one returns
+    /// is identically zero at 96.8% of fuel cells at every ground wetness,
+    /// because a field block containing a `Plant` cell is `blocked` and a
+    /// blocked block never diffuses.
+    ///
+    /// Unlike `field_moisture_at`, this reads one field block *below* the
+    /// visited cell as well as its own, so `ChunkView` cannot always
+    /// answer it from its own tile -- a cell in the bottom eight rows of a
+    /// chunk reaches into the next one down. It falls back to the shared
+    /// `World` lookup there, which is affordable for the same reason
+    /// `field_wind_at`'s own note gives about population size: this runs
+    /// only for a flammable cell that has a burning neighbour, which is
+    /// the fire front and nothing else, not once per visited cell.
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32;
+
     /// Ambient wind (the field's own velocity) at `(x, y)`, as `(vx, vy)`.
     ///
     /// `update_gas`'s only caller. Same shape and same justification as

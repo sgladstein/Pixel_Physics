@@ -519,7 +519,7 @@ impl FieldTile {
     }
 
     #[inline]
-    fn moisture_source_local(&self, lx: i32, ly: i32) -> f32 {
+    pub(crate) fn moisture_source_local(&self, lx: i32, ly: i32) -> f32 {
         self.moisture_source[Self::local_index(lx, ly)]
     }
 
@@ -691,6 +691,46 @@ pub(crate) fn moisture_source_at(
     let (fx, fy) = field_coord_of(world_x, world_y);
     let (tile_coord, lx, ly) = tile_and_local(fx, fy);
     tiles.get(&tile_coord).map_or(0.0, |tile| tile.moisture_source_local(lx, ly))
+}
+
+/// **How wet the matter around `(x, y)` is, `0..=1`** -- the quantity
+/// `fire::try_ignite` gates contact ignition on, and deliberately *not*
+/// the diffused humidity `field_moisture_at` returns.
+///
+/// **Why a second moisture read exists at all**, because one channel that
+/// already says "how wet is it here" looks like enough. Measured on this
+/// branch, over a grown 1,993-cell sward with the bed re-wetted to each of
+/// four levels and 600 frames to settle: **96.8% of grass cells read
+/// `field_moisture_at` == 0.000 at every level, from the wilting point to
+/// fully saturated.** Not small -- exactly zero. The cause is one line in
+/// `step_diffusion`: a blocked field block is skipped entirely, and
+/// `rebuild_blocked` marks a block blocked if any `Solid` **or `Plant`**
+/// cell falls in it. So a block containing fuel never diffuses, and its
+/// humidity stays at the ambient 0 forever. *The presence of fuel in a
+/// block is what makes the block read bone dry*, and a denser sward reads
+/// drier. That is why `MOISTURE_IGNITION_RESISTANCE` measured as changing
+/// nothing for two milestones: it was scaling a number that is identically
+/// zero wherever there is anything to burn.
+///
+/// The source channel has none of that. It is recomputed from the CA grid
+/// every frame in `rebuild_blocked`'s own scan (1.0 for standing liquid,
+/// `held / water_capacity` for damp soil, 0 for anything dry), it is never
+/// advected or evaporated, and it is written *for* blocked blocks rather
+/// than in spite of them.
+///
+/// **The block below is included, and that is the model.** Fuel takes its
+/// dampness from what it stands in: a sward's own block holds only air and
+/// blades, so on its own it would read 0 however wet the meadow is. One
+/// block down is the ground. Fuel far from any ground -- a canopy a
+/// hundred rows up -- correctly reads dry, which is what a crown fire is.
+pub(crate) fn ground_wetness_at(
+    tiles: &HashMap<ChunkCoord, FieldTile>,
+    bounds: Option<Rect>,
+    world_x: i32,
+    world_y: i32,
+) -> f32 {
+    moisture_source_at(tiles, bounds, world_x, world_y)
+        .max(moisture_source_at(tiles, bounds, world_x, world_y + FIELD_SCALE))
 }
 
 pub(crate) fn is_moisture_source(

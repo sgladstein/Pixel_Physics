@@ -1014,14 +1014,26 @@ P1 made before asking, that fusion "splits cleanly and in one place", is
 **false**: the split it draws puts a stand read as four distinct trees on
 the fused side.
 
-**Why no column census can be made to work here, which is the reusable
-part.** A gap is a fully empty column. The eye separates crowns that
-*overlap*, on trunk position and crown outline — cues carried by the shape
-of the occupancy, not by whether any column is empty. At 102 cells apart
-these four crowns touch and are still four obvious trees. That is a
-structural limit of the measurement, not a threshold to retune. Anyone
-proposing a third column-based candidate should explain how it sees a
-boundary with no empty column in it.
+**Why the column census misses it was guessed at, and the guess was wrong
+— this is the retraction.** This entry first argued that no column census
+can ever work: a gap is a fully empty column, the crowns at 102 cells apart
+touch, so the eye must be reading trunk position and crown outline, cues
+carried by the shape of the occupancy rather than by any empty column. Card
+`20260823T150917441Z-d236fd` put the question to the owner directly, and he
+answered: **"The gaps of sky. The two on the left are starting to merge but
+still read separate. The two on the right are clearly separated with no
+touching. I think the piles of soil are making it hard to read."**
+
+So the cue **is** sky, the structural-limit argument above is **withdrawn**,
+and a column census is not doomed — it is **looking at the wrong rows**. Two
+of his three separations are clean, no-touching sky, and the census still
+reported a single 4-cell gap across the whole stand. Something is occupying
+those columns in rows the eye does not read as canopy, and he names the
+suspect himself: the piles of soil. A census that kills a gap on any
+occupied cell anywhere in the column is answering *"is this column clear
+from the ground to the sky"*, where the eye is asking *"is there sky between
+these two crowns"*. Those are different questions and only one of them was
+carded.
 
 **Two thresholds, both invented to explain away a reading I doubted, both
 strictly harmful.** First a quarter of the founder spacing, which scored two
@@ -1043,15 +1055,23 @@ So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
 as description, labelled as having failed calibration, so nobody spends the
 round trip discovering this again.
 
-**The open question for whoever tries again**, put to the owner as card
-`20260823T150917441Z-d236fd`: *what is the eye using* on the 4-founder
-stand? The crowns touch, so it is not sky. If the answer is "the trunks",
-that is countable and a third candidate exists — count distinct
-trunk columns crossing a band above the litter line, which is a
-*shape* question the column census cannot ask but a per-organism one can.
-If the answer is crown outline, it is much harder, and worth knowing that
-before anyone spends a week on it. Do not start a third metric before that
-card is answered.
+**The next experiment, now that the card is answered, and it is the cheap
+one.** Restrict the sky-gap census to a **canopy band** — the rows the
+foliage mass actually occupies — instead of the full column, and re-score
+the same three stands against the same three answers (2, 4, 3). That is a
+*row* restriction, not another gap-width threshold; both thresholds tried
+here were strictly harmful and a third would be the same mistake in a new
+costume. The falsifiable prediction: the 4-founder stand gains at least the
+two separations the owner calls clean and no-touching. If a band-restricted
+census still reads one gap there, the mounds are not the occluder and the
+trunk/outline reading comes back into play — but measured this time, not
+argued.
+
+**Not started, deliberately.** P1 closed with §Z cards-only and the card
+arrived after it had landed; this entry records the answer so the next
+session starts from the owner's own words rather than from the argument
+withdrawn above. Until the band census is run and scored against those three
+numbers, §Z stays judged by eye and by card.
 
 ### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
 
@@ -1313,6 +1333,55 @@ gets through a wood"* is a gameplay property, not a calibration detail, and
 if he cannot, that is a regression whoever set the number. **Not fixed
 here**: the fix is the missing bole, which is the tree-architecture
 programme, not a merge repair.
+
+### X. A desert with no desert plants — **DECISION CARD WITH THE OWNER, 2026-08-23 (W2). Still: do not "fix" this by watering deserts.**
+
+**The three levers are now costed against the code rather than estimated,
+and two of the three costs on this page have changed.** Full working in
+`Reports/grassfire-and-the-desert-2026-08-23.md` part two; the card is on
+the owner's review queue. Nothing is implemented and nothing should be until
+it comes back.
+
+- **(a) sand gets a `water_capacity`.** The prerequisite this page names —
+  *teach the liquid tallies about held water first* — **is already paid**:
+  `weather::water_equivalents` counts held water under `MaterialKind::Powder
+  if m.water_capacity > 0`, keyed on the field and not on a material name,
+  so a second water-holding powder joins the ledger automatically. The
+  conservation guards need re-running, not re-writing. The cost that *is*
+  real is arithmetic and is not small: `update::plant_available_fraction`
+  measures a cell against `SOIL_WILTING_POINT` (180) as an **absolute aux
+  value**, not as a fraction of that material's own capacity — so a *small*
+  capacity does nothing at all. At 150, a saturated sand cell is still under
+  the wilting point, a plant gets exactly zero, and the world has bought an
+  infiltration cost over every sand cell in it. **The threshold is 180
+  before a plant gets one drop.** Also not desert-only: every beach and dune
+  starts absorbing, darkening, and (as of W2) refusing to carry fire.
+- **(b) roots reach the water table.** **There is no water table in the
+  desert to reach.** `assets/worldgen.ron`'s `arid` preset sets
+  `table_offset: 4000.0` — four thousand cells below the datum, off the
+  bottom of the world, deliberately; `params.rs` names `arid` and `flat` as
+  the two presets that put it past the world floor, and
+  `tests/worldgen.rs`'s `the_dry_presets_keep_their_table_below_the_world_
+  floor` guards it. So this lever begins by deciding to break that guard on
+  purpose: the decision inside it is a *worldgen* one first — does the
+  desert get a table at all — and only then a root-reach one. Give it one
+  and the existing terms land
+  it of the order of 90–100 cells down, which is Arc B4's taproot niche:
+  **these two decide together.** Second-order: the aquifer-daylighting pass
+  is switched *off* for `arid` by that same zero, not absent, so springs and
+  seeps in a canyon wall come with it.
+- **(c) stored rain.** Rain already falls on the desert and runs off, which
+  is a flash flood and is correct. The lever is really *let a storm leave a
+  decaying pulse of drinkable water behind*, and the engine already has the
+  shape of the storage (`FieldTile::moisture_floor`, an authored lower bound
+  evaporation may not cross, written once by worldgen for the aquifer). The
+  cost is that **nothing in `assets/species/` can use it** — every plant
+  here is a perennial that accumulates, and a desert annual is its own
+  package. Largest of the three, and the one that buys the most distinct
+  behaviour.
+
+The rest of this entry stands unchanged and is still the reasoning the card
+is built on.
 
 ### X. A desert with no desert plants — **DESIGN DIRECTION, 2026-08-22. Do not "fix" this by watering deserts.**
 
@@ -2288,7 +2357,61 @@ zero. Every plant result in this repo taken at 30k frames or less is a
 statement about the eight trees somebody planted, not about selection. That is
 A2/P3's brief, and it now has its number.
 
-### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
+### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
+
+**Resolution of the two mechanical claims**, with the full account and every
+number in `Reports/grassfire-and-the-desert-2026-08-23.md`:
+
+- ***"It doesn't spread at all"* was not slow spread, it was a fire going
+  out.** `try_ignite` scans four neighbours, so a front reaches one
+  4-connected component of fuel and no more. A 160-founder sward looks
+  continuous by a column census — one empty column in a 484-column span —
+  and is **71 separate 4-connected islands**, largest 16% of the sward.
+  Measured before the fix on the 64-founder sward: **14 grass cells
+  consumed**, `alight 0` by frame 300 — one island's worth.
+  Fixed by giving burning fuel a **flame body** (`assets/materials/
+  flame.ron`, a `Gas` created already alight; `MaterialDef::flame_into` /
+  `flame_chance`, unset by default so nothing else changes). Being *burning*
+  means `try_ignite`'s existing scan ignites what a lick touches at no added
+  cost to that scan. The load-bearing part is that the direction is
+  **rolled**: a fixed search order sent every lick straight up (the cell
+  above a blade is nearly always empty) and gained no lateral reach at all.
+- ***"`MOISTURE_IGNITION_RESISTANCE` changes nothing"* was true, and neither
+  standing suspect was the cause.** Not the 0.9 constant, and not the
+  `include_str!` rebuild trap. The term's input reads **exactly 0.000 at
+  96.8% of fuel cells, at every ground wetness from the wilting point to
+  saturated** — `field::step_diffusion` skips a blocked block, and
+  `rebuild_blocked` marks a block blocked if any `Solid` *or `Plant`* cell
+  falls in it, so a block with fuel in it never diffuses. **The presence of
+  fuel is what makes a block read bone dry.** For **96.8% of fuel cells the term
+  reduced ignition by exactly zero** at every wetness; averaged over all
+  fuel cells it reduced it by **2.9%** at saturation, all of that coming
+  from the 3.2% of blades sitting in the soil's own block. (A band mean over
+  the sward's *rows* reads 0.000/0.041/0.142/0.230 — monotone, plausible,
+  and describing blocks the fuel is not in. That is what hid it.) Replaced by
+  `CellSurface::ground_wetness_at` (the moisture *source*, at the cell's
+  block and the one below) and a cutoff rather than a scale, because spread
+  here is a percolation. Paired guard: `fire::tests::a_fire_crosses_a_dry_
+  sward_and_stops_on_a_wet_one`, **171 cells consumed dry against 4 wet**.
+  Swept over 12 procedurally different swards: at field capacity no sward
+  loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
+
+**Still open, and it is `render.rs`'s, not fire's.** The fire now has a body,
+a plume and a char scar, and it still draws *pale*. Every burning thing
+saturates the heat ramp (it tops out 400C above ambient; grass burns at
+520C, a flame at 780C) and the top of that ramp, `FIRE_TINT_HIGH`, is
+(255, 210, 110) — a yellow-white. A burning meadow therefore draws as
+**straw**. A two-constant prototype (LOW (150,30,12) / HIGH (255,138,36))
+reads as fire at a glance and is **not shipped**, because those constants
+also colour lava, quench crust and warm water — three looks the owner has
+already judged. The A/B is on the owner's review queue; whoever takes it
+owns re-checking those three. Two attempts that made it worse are in
+`Reports/dead-ends.md` under *rendering*.
+
+<details>
+<summary>The original entry, kept because the verdict is the bar</summary>
+
+### G (original). Grassfire arrives with a standing negative verdict — OPEN, inherited, 2026-08-22
 
 Not a merge regression: it was built and judged on `plant-ecology-design`
 before the merge, and the merge carries it forward unchanged. Recorded here
@@ -2307,6 +2430,8 @@ the *behaviour* is wrong (it does not spread), and there is a design steer
 (**moisture vs dryness should gate spread**) which is a mechanic that does
 not exist yet. The last one is the interesting one, and F1/F8 above are
 about exactly the moisture channel it would have to read.
+
+</details>
 
 ### 0f. ~~A melting `Powder` manufactures water~~ — **FIXED**
 
@@ -3679,6 +3804,34 @@ says the opposite of the suspicion.
 `tests/`.** P1's local gate was `cargo test --release --lib` — 851 passed, 0
 failed — which never compiled the integration tests. CI runs `cargo test
 --release`, which does. Run the bare form locally before believing a green.
+
+**The failing seed RELOCATES under unrelated work, which is the strongest
+argument yet for making the loop collect. — 2026-08-23, later the same day**
+
+Measured on a head that differs from `main` `86e73d5` in exactly two files, a
+report and an example's comment block, with `src/worldgen`, `src/sim` and
+`tests/worldgen.rs` byte-identical to it — so this is `main`'s behaviour by
+construction, not an interaction:
+
+| `generated_terrain_is_already_at_rest` | first failing case | cells that moved | suite |
+|---|---|---|---|
+| main `eda560d` | `terraced seed 3` | 57, first `(82,147)` water | 37 passed, 2 failed |
+| main `86e73d5` | **`wetland seed 3`** | **87**, first `(114,133)` water | 40 passed, 2 failed |
+
+The world-scale lane's worldgen work landed in between. `terraced seed 3` now
+**passes**; a different preset fails instead, with more cells. The test name,
+the failure count and the red/green of the job are all unchanged — only the
+fingerprint moved, and nothing but reading the panic message would show it.
+
+**So the headline number is not comparable across commits, and nobody can say
+whether that change was an improvement.** Two presets swapped places at the
+front of a loop that stops at the first failure; whether the total number of
+failing seeds went from 4 to 2 or from 2 to 6 is not observable from anything
+CI prints. This is the same blind spot the entry above describes, now caught
+actively rather than argued: it is not a hypothetical cost of panicking on the
+first seed, it is a measurement that was already lost once. Collecting the
+failures — the `tests/worldgen.rs` change this entry says belongs to whoever
+owns worldgen — is what turns this pair of tests back into a signal.
 
 **A second at-rest test joins it, and it is water too —
 `generated_terrain_is_already_at_rest`, `tests/worldgen.rs:182`.** It arrived
