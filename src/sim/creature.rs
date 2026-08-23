@@ -974,7 +974,7 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
     // Divided through by the day/night oscillator, per CLAUDE.md: a
     // threshold sampled at an arbitrary phase of a designed oscillator is a
     // different threshold every hour, and the light channel swings 20:1.
-    inputs[I::LightHere as usize] = (field::noon_equivalent_light(here.light, world.frame) / field::MAX_LIGHT).clamp(0.0, 1.0);
+    inputs[I::LightHere as usize] = (field::noon_equivalent_light(here.light, world.sky_frame()) / field::MAX_LIGHT).clamp(0.0, 1.0);
     // Divided through by the day/night oscillator for the same reason
     // `LightHere` is, one channel over — subtractively, because temperature
     // is an interval scale and the sky's contribution is signed. A brain

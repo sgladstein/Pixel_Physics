@@ -193,6 +193,10 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                of "a forest burns and regrows"
   weather.rs   fronts, rain, snow, wind and gusts, lightning -- weather as
                a deterministic property of the world, not an event roll
+  clock.rs     world time: how fast the day, the weather, growth, creatures
+               and the gnome run, each on its own knob and none of them the
+               physics clock -- a phase is slowed by a slower clock, a
+               schedule by a longer interval, and neither reaches the sweep
   structural.rs M17: anchor distance, confinement, the structural check --
                what decides a cell is no longer held up
   load.rs      the load/torque failure criterion on top of it: who carries

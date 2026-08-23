@@ -1960,7 +1960,7 @@ impl Renderer {
         // precipitation below, so the two cannot disagree about what the
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
-        let weather = crate::sim::weather::at(world.seed, world.frame);
+        let weather = world.weather();
         // **The drawn storm and the landing storm have to be the same
         // storm.** Falling precipitation is drawn straight from
         // `weather::at` and is never simulated -- `weather::step` puts water
@@ -1975,7 +1975,7 @@ impl Renderer {
         // Both the gradient and the ambient tint come from the same frame, so
         // a pin moves them together -- half-pinning would light the ground at
         // noon under a midnight sky.
-        let lit_at = self.pinned_light.unwrap_or(world.frame);
+        let lit_at = self.pinned_light.unwrap_or(world.sky_frame());
         self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(lit_at);
@@ -2082,8 +2082,8 @@ impl Renderer {
             // A strike lifts every pixel in the frame, so the frame after one
             // has to be repainted or the flash sticks around as a permanently
             // brightened world.
-            || crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some()
-            || crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some()
+            || world.lightning_at(world.frame).is_some()
+            || world.lightning_at(world.frame.wrapping_sub(1)).is_some()
             || !particles.is_empty();
 
         // Where the gnome is on screen this frame. Tracked through *both*
@@ -2198,7 +2198,7 @@ impl Renderer {
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
         self.draw_precipitation(weather, storm_supply, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
-        if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
+        if let Some(s) = world.lightning_at(world.frame) {
             self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
         }
         self.draw_particles(world, particles, frame, width, height);
