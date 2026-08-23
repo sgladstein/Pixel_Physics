@@ -1124,6 +1124,27 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Organism cells the plant-support check broke free — a limb that lost
+    /// its anchor becoming deadwood.
+    ///
+    /// **The "did it fire at all" counter for felling**, and it exists
+    /// because none of the fields above can answer it. `shattered_cells`
+    /// deliberately excludes this conversion (see its own doc, and
+    /// `structural::break_free`), `unsupported` is only recorded on the
+    /// inert path, and a crown that came down and a crown that was never
+    /// asked are the same handful of brown pixels on a contact sheet. A
+    /// coherent-looking collapse with a body count of zero has fooled this
+    /// project once already (`CLAUDE.md`), and a severed tree that quietly
+    /// kept growing has now fooled it a second time: measured on
+    /// `scene=fell cut=248,186,16,6`, 83 cells of trunk removed and living
+    /// tissue going *up* from 2,823 to 2,911 over the next 210 frames,
+    /// with every counter in this struct reading zero.
+    ///
+    /// Kept out of `shattered_cells` for that field's own stated reason,
+    /// and reported beside it rather than folded in: a tree shedding
+    /// deadwood on its own schedule and a tree being chopped down are the
+    /// same conversion and different events.
+    pub severed_organism_cells: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -1142,6 +1163,13 @@ impl FailureCounts {
     /// returned `Some`), so there is no sentinel to filter here.
     pub fn record_damage_reach(&mut self, reach: i32) {
         self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
+    }
+
+    /// See `severed_organism_cells`. One call per cell the organism path
+    /// actually converted -- a declined conversion (no `breaks_into`) must
+    /// not be counted, for the same reason `break_free` reports it.
+    pub fn record_severed_organism(&mut self, cells: u32) {
+        self.severed_organism_cells = self.severed_organism_cells.saturating_add(cells);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
