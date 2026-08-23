@@ -9,6 +9,16 @@ from `plant-implementation-plan.md`'s WP order and why. It builds nothing and
 retunes nothing; every claim about code was verified by reading the code, not a
 report about the code.
 
+**Revised the same day, on the owner's direction.** The first draft led with
+tree refinement. The owner's response: the plan ignored two more important
+pushes — (1) a genetic/evolution framework that produces *many kinds of
+plants* rather than "tree and small tree", and (2) root differentiation, where
+`root-morphology-findings.md` shows whole families are inexpressible, and the
+owner's standing constraint is that morphologies must **develop or evolve to
+fill niches, not be hardcoded**. The queue below is restructured around those
+two pushes; the tree arcs survive but no longer lead. The revision also added
+one decisive finding (§2.0) the first draft missed.
+
 Three documents remain authoritative for their own domains and this review does
 not restate them: `Reports/open-bugs-handoff.md` (reproductions),
 `Reports/dead-ends.md` (do-not-retry conditions), `plant-implementation-plan.md`
@@ -62,41 +72,63 @@ The amputation landmine that contaminated every Phase-3 damage result is
 | §V | `a_tree_eventually_stops_growing` retired by owner decision; termination now unguarded | accepted, noted |
 
 **Unactioned owner directives found in the record**, so they stop being lore:
-slow growth at night (`plant-night-session-handoff.md` §2 directive 4,
-2026-08-17 — income × `0.25 + 0.75·daylight_fraction`, decisions stay
-phase-free; never implemented); do not lower root `Grow.cost` or the allowance
-rate (the §6.6 economy call — WP-A must work inside it); rain-wetting rate
-"keep on the to do list" (weather card, 2026-08-22); and §X's correction that a
-species wilting point would do nothing for the desert.
+morphologies must be able to develop or evolve, never hardcoded
+(`root-morphology-findings.md`, reaffirmed 2026-08-23); slow growth at night
+(`plant-night-session-handoff.md` §2 directive 4, 2026-08-17 — income ×
+`0.25 + 0.75·daylight_fraction`, decisions stay phase-free; never
+implemented); do not lower root `Grow.cost` or the allowance rate (the §6.6
+economy call — WP-A must work inside it); rain-wetting rate "keep on the to do
+list" (weather card, 2026-08-22); §X's correction that a species wilting point
+would do nothing for the desert.
 
 ---
 
 ## 2. The diagnosis this queue is built on
 
-Four findings, each already paid for, that together say where the next unit of
-effort goes:
+**2.0 The world contains one woody species.** `worldgen`'s `life_scatter` sows
+exactly two things: moss, and `plant_tree_species(x, above, "tree")` — the
+string is hardcoded (`passes.rs:3880`). Conifer, shrub, creeper and grass have
+**never been planted in a generated world**; they exist only in probe scenes
+and review cards. The owner's "we basically have tree and small tree" is
+literally the world's contents, and the diversity that already exists in
+`assets/species/` has never had the chance to appear, compete, or fail. Found
+only during this review's revision; nothing in the record flags it.
 
-1. **Architecture levers don't move pixels.** Sympody, tropism, acrotony all
-   fired (counters proved it) and moved nothing the owner could see; the two
-   probe species died blind A/Bs; WP-C's own conclusion was "every group change
-   came from `turgor_source`". Composition and colour outperformed all of them
-   (`plant-appearance-design.md` §5, the CLAUDE.md rule).
-2. **The mass is composition, not shape.** The growth trajectory passes through
-   a genuine tree (~frames 3,300–5,100) and then fills in; foliage plateaus
-   while wood compounds. The named, deferred, best-candidate mechanism —
-   crown recession via superlinear maintenance respiration — now has its retry
-   condition met, because `q_peak` (girth) exists (`plant.rs:3013`).
-3. **The verb is missing.** Nothing the player holds can hurt a plant (§D1),
-   a severed tree would dissolve into sawdust (`break_free` → one `deadwood`
-   powder cell), a cut trunk cannot topple (`ChunkBody` spin accrues from
-   *speed*), and a topped tree never regrows (`plant.rs:2731` — the gate is
-   backwards for recovery; `q_now` is computed and discarded at
-   `plant.rs:3013-3014`). This is the ethos gap: destruction of the most
-   destructible-looking thing in the world delivers no consequence.
-4. **The economy lies in specific, cheap-to-fix places.** §U/§F1/§F3/§F8 all
-   corrupt the water book that every measurement above sits on, and §A is
-   entangled with the same `water_status` path. Tuning anything before these
-   is tuning against a moving target.
+**2.1 Architecture levers don't move pixels.** Sympody, tropism, acrotony all
+fired (counters proved it) and moved nothing the owner could see; the two
+probe species died blind A/Bs; WP-C's own conclusion was "every group change
+came from `turgor_source`". Composition and colour outperformed all of them
+(`plant-appearance-design.md` §5, the CLAUDE.md rule).
+
+**2.2 The mass is composition, not shape.** The growth trajectory passes
+through a genuine tree (~frames 3,300–5,100) and then fills in; foliage
+plateaus while wood compounds. The named, deferred, best-candidate mechanism —
+crown recession via superlinear maintenance respiration — now has its retry
+condition met, because `q_peak` (girth) exists (`plant.rs:3013`).
+
+**2.3 The verb is missing.** Nothing the player holds can hurt a plant (§D1),
+a severed tree would dissolve into sawdust (`break_free` → one `deadwood`
+powder cell), a cut trunk cannot topple (`ChunkBody` spin accrues from
+*speed*), and a topped tree never regrows (`plant.rs:2731` — the gate is
+backwards for recovery; `q_now` is computed and discarded at
+`plant.rs:3013-3014`).
+
+**2.4 The economy lies in specific, cheap-to-fix places.** §U/§F1/§F3/§F8 all
+corrupt the water book that every measurement above sits on, and §A is
+entangled with the same `water_status` path. Tuning anything before these is
+tuning against a moving target — and **selection breathes through the same
+economy**: an evolution framework built on an economy where drought grows
+bigger trees will select for nonsense.
+
+**2.5 Root form is inexpressible, not mistuned** (`root-morphology-findings.md`).
+Two hard gaps: `thicken()`'s `can_widen` requires an `EMPTY` or own-`Leaf`
+neighbour, and a root is buried in `Powder`, so **no root can ever thicken**
+— the whole taproot family (conical/fusiform/napiform) is off the map, since
+those are *thickness* forms. And `allocate_to_frontier` is democratic — a
+primary axis and a third-order lateral get the same treatment — so **nothing
+can make one root dominant** and a fibrous mat is the only possible outcome.
+Two negative owner verdicts stand against tuning-level root variety; the
+constraint on record is a *system* where morphologies develop or evolve.
 
 ---
 
@@ -120,9 +152,9 @@ Each of these will misdirect the next session that reads it:
   and the turgor gate reads it — while §V separately retired the guard test.
 - **`examples/debug_tree_variants.rs` panics on start** — it generates species
   RON with the removed `moisture_threshold` field and scalar values where
-  `ByOrder` wants lists, and its scene (bare stone floor) could not germinate
-  anything even if it parsed. The harness the economy pass was tuned on is
-  dead weight; `plant_probe` took over ensembles.
+  `ByOrder` now demands lists, and its scene (bare stone floor) could not
+  germinate anything even if it parsed. The harness the economy pass was tuned
+  on is dead weight; `plant_probe` took over ensembles.
 - **`roots-and-breakage-handoff.md`'s "roots are optional / transpiration is
   free" predates the water-currency work** and is superseded: canopy
   transpiration demand is live (`plant.rs:3572`), the epiphyte guard was
@@ -138,253 +170,324 @@ Each of these will misdirect the next session that reads it:
   does, and its freshness note is current.
 - **`grass.ron` runs an undocumented economy**: `plastochron: [0,0]` means no
   nodes, no leaves, income permanently zero, `BudBreak` unreachable — grass
-  works by a path nobody wrote down. Document it or rationalise it when §F4's
-  mortality work happens.
+  works by a path nobody wrote down. Document or rationalise it as part of
+  Arc A's grass work. `creeper.ron` likewise silently runs the *superseded*
+  in-tick branching path (`branch_chance` with no `branch_priming`) — decide
+  before sowing it.
 
 ---
 
 ## 4. The queue
 
-Three arcs and a floor. Ordering *within* an arc is real; the arcs themselves
-interleave — each has a cheap first step, and nothing in Arc 1 blocks Arc 2.
+Five arcs and a floor. The first two are the owner's pushes and lead; the tree
+arcs survive behind them; the economy arc feeds everything and interleaves.
 Every item that changes the screen ends with a review card (paired or blind,
-count in `meta`), per the house rules; every measurement is an ensemble in
-`grove` (never the 40-row scenes), rebuilt before running.
+count in `meta`), per the house rules; every canopy measurement is an ensemble
+in `grove` (never the 40-row scenes), rebuilt before running.
 
-### Arc 1 — a stand you can read (answers §Z)
+### Arc A — many kinds of plants: the evolution framework
 
-**1.1 Crown recession: superlinear maintenance respiration.** Charge upkeep on
+The end state, per the owner: variety comes out of genetics and selection, not
+out of hand-authored species files. Grass was the first step and the work
+stopped. What that takes, in dependency order:
+
+**A1. Put the flora that already exists into the world.** §2.0: worldgen sows
+`"tree"` and moss, nothing else. Sow the rest by the conditions the materials
+already express — grass on soil by moisture, shrub toward drier/rockier
+columns, conifer by its own band, creeper where footing suits it — clustered
+by the same squared-noise device `life_scatter` already uses. **Grass is
+gated behind A2's mortality fix** (§F4: a plantable grass that cannot die is
+an organism-slot leak ending in silent id corruption at the 4,095 ceiling);
+the woody species carry no new hazard and can be sown first. Guard with a
+seed sweep (worlds are procedural; the guard must gate an order statistic),
+measure per-species establishment, and post a generated-world panorama card.
+Cheapest diversity win in the backlog — the species, genome and colour system
+all exist and have simply never been planted. Size: S–M.
+
+**A2. Close the generation loop: death, seed decay, slot hygiene.** Nothing
+kills a healthy adult (stands close canopy and freeze; selection stops), seeds
+never decay (455 immortal `OrganismState`s standing at 60,000 frames), grass
+has no mortality path at all (§F4), and the organism-slot ceiling is a
+`debug_assert` over an id encoding that does not mask. Give grass an
+abscission-equivalent (or a senescence path that fits its economy once A1
+documents it), seeds a decay clock (WP-D item 2), the ceiling a release-mode
+check, and let disturbance + the Arc-C respiration deficit be the adult
+mortality paths (call 6 chose emergent mortality over a lifespan constant —
+this queue honours that). **Without generations there is no evolution
+framework to build**; grass, at four generations per 45,000-frame run, is the
+proving ground. Size: M.
+
+**A3. Make the genome span a strategy space, not a stat sheet.** Live,
+outcome-moving axes today: turgor (height budget, r ≈ −0.75 twice replicated),
+leaf economy (the wet/dry crossover — wet favours acquisitive +21% mass, dry
+favours conservative +51% foliage), wood density (both sides measured).
+Dead or unproven: slot 1 root branching (bug A — Arc E revives it), slot 5
+root tropism (never measured in-world), seed strategy (deferred by owner call,
+endowment plumbing already landed). The work: revive the dead root loci, land
+the seed-endowment response curve behind A2's seed decay, and express the
+trade-offs as *data* so species are points on axes (Grime's CSR triangle is
+the frame `ecological-lod-design.md` §9 recommends) — "a fern, a bush, a grass
+as three looks with the same underlying economics produces one winner and two
+also-rans", which is exactly what the near-clone `.ron`s currently are
+(`shrub` and `creeper` even share both palette bands). Size: M, mostly data
+and measurement.
+
+**A4. Prove selection moves: the divergence instrument (P3).** A two-patch
+scene (wet bank / dry bank), allele census per patch per generation, run long.
+The §8d crossover already says which way frequencies should drift; watch them
+do it. This is the acceptance test for "an evolution framework" — not a new
+mechanism, a measurement that the existing ones compose. Also the first
+consumer of `population-dynamics-research.md`'s warnings: an absorbing
+extinction state needs the seed bank as reservoir (it already is one, once
+seeds decay rather than accumulate). Size: M.
+
+**A5. Dispersal (P5d).** Per-species seed material — mass, float, carry — so
+strategies sort in space and patches can differentiate. Wind/water do the
+rest with mechanics that already exist. After A4 proves in-place selection.
+Size: M.
+
+### Arc B — root differentiation
+
+The constraint on record: *"create a system where these types of morphologies
+can develop or evolve naturally"* — not authored root types. §2.5 names the
+two mechanism gaps; the sequence below opens the space, then hands it to the
+genome.
+
+**B1. Render the axis that already exists.** Shallow-fibrous vs deep-fibrous
+(turf vs prairie) is reachable today: slot 5 (root tropism gain) is live and
+the water economy already prices surface moisture against a deep table. The
+findings report's own method correction applies: compare **single plants at
+high zoom or an N-per-treatment grid**, never stand medians (root cells span
+90–1,435 in one stand; a median is not a shape). Post the card before
+building anything — it establishes the one heritable root axis that exists
+and gives Arc B its baseline. Size: S.
+
+**B2. Let roots thicken.** Extend `can_widen` so a root can displace soil the
+way root *growth* already does (`displace_soil_water` is the named prior art —
+conserve the water, push the soil, never delete either). `SecondaryThicken`
+already runs on roots and does nothing — machinery present, gate unreachable.
+This single change makes the taproot *thickness* family expressible at all.
+Watch the recorded near-miss: soil relocation was once rejected as a two-cell
+write in the least-verified subsystem, with the explicit revisit condition
+"if soil visibly disappearing under a mature tree reads badly in play" —
+displacement into neighbours is the shape that landed for growth; reuse it.
+Size: M.
+
+**B3. Break the democratic frontier — with the mechanism the shoot already
+uses.** Nothing can make one root dominant because `allocate_to_frontier`
+cannot tell a primary axis from a lateral. The engine already owns the answer:
+canalization — use-strengthened per-face conductance — is running on every
+organism cell today. Let allocation below the collar weight by conductance
+(or by the supply direction it already derives), and dominance becomes
+*emergent*: the root that carries more flow strengthens, exactly the
+"develop naturally" the owner asked for. Then expose the contrast as a
+genome locus: low contrast → fibrous, high contrast → taprooted, and the
+form becomes **heritable and selectable** rather than authored. Guard: the
+same `VEIN_GAIN = 0`-reproduces-isotropic discipline the shoot polarity
+shipped with. Size: M–L. This is the centrepiece of the push.
+
+**B4. Give root form something to be selected on.** A heritable axis without
+a niche is jitter. Two niches are already half-built: a deep water table
+(taproot country — and one of §X's three desert levers is "let a root reach
+the water table", so the desert decision and this item should be made
+together), and surface-moisture country (fibrous). Anchorage becomes the
+second selection axis the day Arc D's felling and storms exist (root mass =
+uptake *and* holding on — `roots-and-breakage-handoff.md`'s point, still
+true). Depends on Arc E first: §U must be fixed and bug A revived, or root
+genetics select on a lying economy. Size: M, mostly scenes + measurement.
+
+### Arc C — a stand you can read (answers §Z)
+
+**C1. Crown recession: superlinear maintenance respiration.** Charge upkeep on
 girth (`q_peak`) at an exponent > 1 (Takenaka's 1.5 is the cited anchor);
-income already scales with foliage. Interior and overtopped wood then runs a
-deficit and dies back; the crown hollows; the bole clears; and the fill-in mass
-finally costs something. This was ranked the #1 missing mechanism
-(`tree-architecture-research.md` §1), deferred twice, and its two recorded
-blockers are both gone: girth memory exists, and the scene/light confounds are
-fixed. The dead-end register requires *superlinear* — flat respiration balances
-at any size and is a recorded dead end. Judge on the wood:leaf trajectory,
-stem-thickness-above-base, and a paired grove card; expect to re-derive
-`pipe_ratio` and the canalization contrast in the same pass (the audit already
-demands the contrast be re-derived in `grove` — do it once, here, not twice).
-**Fold item 3.4 (night income) in before the re-tune so the economy is only
-re-derived once.** Size: L. This is the queue's centrepiece.
+income already scales with foliage. Interior and overtopped wood runs a
+deficit and dies back; the crown hollows; the bole clears; the fill-in mass
+finally costs something — and Arc A2 gets its emergent adult mortality from
+the same mechanism. Ranked the #1 missing mechanism in
+`tree-architecture-research.md` §1, deferred twice, both recorded blockers now
+gone. The dead-end register requires *superlinear* — flat respiration is a
+recorded dead end. Judge on wood:leaf trajectory, stem-thickness-above-base,
+and a paired grove card; re-derive `pipe_ratio` and the canalization contrast
+in the same single pass (the audit already demands the contrast be re-derived
+in `grove`), with **E4 (night income) folded in first** so the economy is
+re-derived once, not twice. Size: L. Still the biggest single silhouette item.
 
-**1.2 Five species, five looks — data only.** The four woody `.ron`s are
-near-clones: `shrub` and `creeper` declare *identical* foliage and bark bands,
-and every woody species wears the same `wood`/`leaf` materials. Spread the
-band assignments to disjoint ranges (the machinery already guarantees
-bit-identical growth), differentiate the two or three constants that are known
-live levers (`turgor_source`, `leaf_cluster`, `plastochron`), and consider
-per-species materials (only grass overrides today). This is the cheapest
-visible move against "I cannot identify individual trees", it needs no engine
-change, and it follows the ecological-lod rule: species must be **points on a
-trade-off, not appearances**, or the shared economy picks one winner. Size: S.
+**C2. Five species, five looks — data only.** The four woody `.ron`s are
+near-clones (§2.1, A3); spread the palette bands to disjoint ranges and
+differentiate the two or three constants that are known live levers
+(`turgor_source`, `leaf_cluster`, `plastochron`). Folds into A3's
+strategy-space work — listed separately because it is also the cheapest
+visible move against "I cannot identify individual trees" and needs no design.
+Size: S.
 
-**1.3 Whorls / rhythmic growth.** The one deferred lever that changes *texture*
-rather than statistics — tiers for the conifer, flushes for the tree. Priced in
-`tree-architecture-variety-review-verification.md` §6 (`whorl_count` 3–5,
-`lineage_step` as the modulus, watch its 255 saturation). It is also the only
-appearance lever with a real frame cost, so quote `ascii`'s worst-frame number
-in the commit. Size: M. After 1.1 — texture on top of a readable silhouette,
-not instead of one.
+**C3. Whorls / rhythmic growth.** The one deferred lever that changes
+*texture* (conifer tiers). Priced in the verification report (`whorl_count`
+3–5, `lineage_step` as modulus, watch its 255 saturation); the only appearance
+lever with a real frame cost, so quote `ascii`'s worst-frame number. Size: M.
 
-**1.4 Turnover: something kills a healthy adult.** Today nothing does; stands
-close canopy and freeze, selection stops, and §Z gets worse with time. Call 6
-chose emergent mortality over a lifespan constant, and the disturbance verbs
-(Arc 2) are exactly the emergent path — fire, felling, breakage, plus the
-density-dependent decline that 1.1's respiration supplies for free (an
-overtopped tree now starves). No new mechanism proposed here: this item is the
-*measurement* that the combination actually produces gaps — generation counts
-and a stand-age histogram in `plant_probe` over a long grove run. Size: S
-measurement over M prerequisites. `population-dynamics-research.md` 9e's bar
-(prey persistence with doubled food) fires the day this works.
+**C4. A distinguishability probe that can fail.** §Z's candidates (connected
+canopy components at field resolution; sky-gap width) have never been built;
+the last metric said yes while the owner said no. Calibrate against the two
+answered §Z cards (A = fail, B = partial); print lineage birth/death rates
+while in there (Phase 0d's "only non-circular pair", still unprinted). If the
+metric fails to track the eye, record that and fall back to cards-only,
+explicitly. Size: S.
 
-**1.5 A distinguishability probe that can fail.** §Z's metric candidates
-(connected canopy components at field resolution; sky-gap width per stand row)
-have never been built, and the last metric (contiguous runs) was measured
-saying yes while the owner said no. Build the component count into
-`plant_probe`, calibrate it once against the §Z cards the owner already
-answered (A = fail, B = partial), and print lineage birth/death rates while in
-there — Phase 0d's "only non-circular pair" is still unprinted. If the
-component count also fails to track the eye, record that and fall back to
-cards-only, explicitly. Size: S.
+### Arc D — a tree that answers the axe
 
-### Arc 2 — a tree that answers the axe (the ethos arc)
+The amputation blocker is gone (§3); this line is unblocked. Order matters:
 
-The amputation blocker is gone (§3); this whole line is now unblocked, and it
-is the highest-satisfaction work in the backlog. Order matters:
+**D1. Instrument: a felling scene** in `filmstrip` printing the
+standing-organism census *and* the `chunk_bodies` count under the sheet — a
+coherent-looking collapse with a body count of zero has fooled this project
+once. Size: S.
 
-**2.1 Instrument first: a felling scene.** `filmstrip cut=` exists; extend it
-to print the standing-organism census *and* the `chunk_bodies` count under the
-sheet. A coherent-looking collapse with a body count of zero has fooled this
-project once already. Size: S.
+**D2. Let tools hurt plants (§D1).** `rigid::strike`/`mine_swept` `continue`
+on `organism_id != 0`; brush and fire record no disturbance. Route organism
+cells into the damage path and let `anchor_support` declare the severed
+region. First shippable state: chopping a trunk brings the crown down *at
+all*. Size: M.
 
-**2.2 Let tools hurt plants (§D1).** `rigid::strike`/`mine_swept` `continue`
-on `organism_id != 0` and brush/fire record no disturbance — the pick
-literally cannot touch a tree. Route organism cells into the same
-damage/disturbance path, let `anchor_support` (which already schedules on
-rising distance) declare the severed region unsupported. First shippable
-state: chopping a trunk makes the crown die and come down *at all*, even if
-the fall is ugly. Size: M.
+**D3. Fell as pieces, not sawdust.** `break_free` converts to single
+`deadwood` powder cells (the design-philosophy §0a failure verbatim); wood's
+fracture ladder (uniform ≤32-cell rungs, `MAX_BODY_CELLS = 400`) can only
+shred a tree. Promote the severed subtree as one piece or a few log-scale
+pieces plus debris — a *distribution*; `BodyCell` must carry the organism id
+through promotion. Size: M–L.
 
-**2.3 Fell as pieces, not sawdust.** Two recorded blockers: `break_free`
-converts to single `deadwood` powder cells (the design-philosophy §0a failure
-verbatim), and fracture's wood ladder (`fragment_rungs: 5`, uniform ≤32-cell
-pieces, `MAX_BODY_CELLS = 400`) can only shred a 2,000-cell tree. A severed
-subtree should promote as one piece or a few log-scale pieces plus debris — a
-*distribution*, per the ethos — and `BodyCell` must carry the organism id
-through promotion or the fall re-triggers structural checks from inside
-itself. The good surprise on file: hand-painted wood already promotes to
-bodies; the barrier is only the `organism_id != 0` routing. Size: M–L.
-
-**2.4 Resprout: keep `q_now` beside `q_peak`.** The instantaneous conduit
+**D4. Resprout: keep `q_now` beside `q_peak`.** The instantaneous conduit
 vector is computed and discarded (`plant.rs:3013-3014`); the recovery gate is
-backwards without it (`plant.rs:2731-2748` documents the defect: losing
-foliage *reduces* the drive to rebuild, measured — two topped trees, 7,400
-frames, no regrowth). Flush a `DormantBud` at `order = 0` where
-`q_peak − q_now` crosses a threshold. This is simultaneously: the plan of
-record's queue item 3, the verification's "cheapest high-value change", the
-*sanctioned* form of bud break (event-triggered, self-limiting — the revert
-postmortem's own recommendation), and the second half of the felling verb (cut
-a limb, the tree answers). Acceptance is the dormancy-reversibility test the
-plan already specifies: cut at frame 10,000, neighbouring buds restart. Watch
-the recorded `juvenile_size` caveat — it gates on whole-organism cell count,
-so a reiterating limb inside a big tree gets the mature economy. Size: M.
+backwards without it (`plant.rs:2731-2748`: losing foliage *reduces* the
+drive to rebuild — measured, two topped trees, 7,400 frames, nothing). Flush
+a `DormantBud` at `order = 0` where `q_peak − q_now` crosses a threshold.
+Simultaneously: the plan of record's damage item, the verification's
+"cheapest high-value change", the *sanctioned* form of bud break
+(event-triggered — the revert postmortem's own recommendation), and the
+second half of the felling verb. Acceptance: cut at frame 10,000, neighbouring
+buds restart. Watch the `juvenile_size` caveat (it gates on whole-organism
+cell count). Size: M.
 
-**2.5 Topple.** `ChunkBody` cannot rotate a just-cut trunk: spin accrues from
-speed, and rotation is quarter-turn snaps needing full clearance
-(`felling-blockers.md` redesigns 1–2). Stage it: v1, a severed trunk gets a
-lateral impulse at the cut and breaks on impact by the normal fracture path —
-crash, debris, done; v2, real torque-from-support-asymmetry if v1 reads as
-fake in the GIF. Judge on `filmstrip gif=1`, never stills — the question is
-whether it *moves* right. Size: L (v2), M (v1).
+**D5. Topple.** `ChunkBody` cannot rotate a just-cut trunk (spin accrues from
+speed; rotation is quarter-turn snaps needing full clearance). Stage it: v1, a
+lateral impulse at the cut and normal fracture on impact; v2, real
+torque-from-support-asymmetry only if v1 reads as fake. Judge on
+`filmstrip gif=1`, never stills. Size: M (v1), L (v2).
 
-### Arc 3 — an economy that doesn't lie
+### Arc E — an economy that doesn't lie
 
-**3.1 The water book, three entries.** (a) §F3: `absorb_water`'s liquid arm
-credits at most `rate` and destroys the remainder — conserve it (leave the
-rest as partial fill). (b) §F1: rain soak stops at the first
-`water_capacity == 0` cell, so a litter blanket *seals* the ground it lies on
-— mulch inverted; let soak pass through zero-capacity cells or give litter a
-token capacity, then run the paired storm (littered vs bare) already specified
-in the bug entry. (c) §F8: soil moisture has three sources and one sink, so
-unplanted soil ratchets to field capacity — add the missing sink (bare-soil
-surface evaporation is the obvious one). Each is small, each has a one-number
-paired measure, and together they stop the substrate from drifting wet under
-every future measurement. Size: S each.
+Selection (Arc A), root niches (Arc B) and every tuning pass above breathe
+through this economy; these come early and interleave.
 
-**3.2 Drought must cost (§U).** A water-stressed tree currently outgrows a
-watered one on every absolute. The filed hypothesis — `break_root_tips` at
-`water_status < 0.95` re-initiates roots without the stress throttling the
-carbon that pays for them — is unconfirmed; instrument the firing counter
-first (the same counter §A asks for at `plant.rs:3017` — one instrument, two
-bugs), then make stress gate income before it gates architecture. The wiki's
-"thirsty plant looks root-heavy" ratio claim is the part that already works;
-keep it. Paired dry/wet ensemble is the measure; the ratio *and* the absolute
-must both point the right way. Size: M.
+**E1. The water book, three entries.** §F3: conserve the un-drunk remainder of
+an absorbed water cell. §F1: rain soak must not stop dead at a
+zero-capacity litter cell — mulch currently *seals* the ground it lies on;
+paired storm (littered vs bare) is the specified measure. §F8: give
+unplanted soil its missing sink (bare-surface evaporation) so the substrate
+stops ratcheting to field capacity. Each is small with a one-number paired
+measure. Size: S each.
 
-**3.3 Bug A: recalibrate with a counter, then un-quarantine.** The owner
-already judged the visual difference "not obvious", so this is a
-test-calibration problem, not a visible regression. Use the firing counter
-from 3.2 to establish whether the amplifier is shut (the +67% uptake theory);
-then either re-derive `tree.ron`'s slot-1 calibration against the post-merge
-quantity or set the bar from an 8-seed order statistic
-(`print_root_branch_slot_seed_sweep` already exists) with headroom — never on
-the single seed that flips with litter volume. Delete the CI exclusion the
-same day, per `0a345c4`'s own instruction. Size: S–M.
+**E2. Drought must cost (§U).** Instrument the `break_root_tips` firing
+counter first (the same counter §A asks for at `plant.rs:3017` — one
+instrument, two bugs), then make stress gate income before it gates
+architecture. The wiki's ratio claim (root-heavy when thirsty) already works;
+the absolute must invert. Paired dry/wet ensemble. Size: M.
 
-**3.4 Night slows growth.** The unactioned 2026-08-17 owner directive: income
-× `0.25 + 0.75·daylight_fraction`, decisions stay noon-normalised. Expect
-~40% stand-size shift — which is exactly why it lands *before* 1.1's economy
-re-tune, inside the same single re-derivation pass. Size: S.
+**E3. Bug A: recalibrate with the counter, then un-quarantine.** The owner
+judged the visual "not obvious", so treat as test calibration: establish
+whether the amplifier is shut (the +67%-uptake theory), then re-derive the
+bar from an 8-seed order statistic (`print_root_branch_slot_seed_sweep`
+exists) with headroom — never a single seed. Delete the CI exclusion the same
+day, per `0a345c4`'s own instruction. Feeds Arc B directly: slot 1 *is* the
+root-branching gene. Size: S–M.
 
-**3.5 Grassfire (§G).** Standing negative verdict with an explicit steer:
-moisture/dryness must gate spread, and the burn must read as fire rather than
-colour cycling. Split the claims: behaviour (spread rate at play scale,
-moisture gating — check why `MOISTURE_IGNITION_RESISTANCE` changes nothing)
-from look (flame/ember/smoke read — M14 territory). A meadow that carries fire
-when dry and stops it when wet is also the desert/wet-niche mechanic §X wants
-to lean on. GIF card, not stills. Size: M.
+**E4. Night slows growth.** The unactioned 2026-08-17 owner directive: income
+× `0.25 + 0.75·daylight_fraction`, decisions stay noon-normalised. Expect a
+large stand-size shift — which is why it lands *inside* C1's single economy
+re-derivation, not after it. Size: S.
 
-**3.6 Seed bank and slot hygiene.** Seeds never decay (455 immortal
-`OrganismState`s standing at 60,000 frames), grass can never die (§F4 — no
-`Leaf`, so no abscission path reaches it), and the 4,095-slot organism ceiling
-is a `debug_assert` above an id encoding that does not mask — release builds
-corrupt organism identity when it overflows. Give seeds a decay clock (WP-D
-item 2), give grass a mortality path, make the ceiling a real check. The
-endowment-curve measurement (§8h) unblocks behind seed decay. Size: M.
+**E5. Grassfire (§G).** Standing negative verdict with an explicit steer:
+moisture/dryness gates spread (find why `MOISTURE_IGNITION_RESISTANCE`
+changes nothing), and the burn must read as fire. A meadow that carries fire
+when dry is also a turnover mechanism for Arc A2 and a niche edge for Arc B4.
+GIF card. Size: M.
 
-**3.7 The desert decision (§X).** Not a bug — a niche with no lever. Put the
+**E6. The desert decision (§X).** Not a bug — a niche with no lever. Put the
 three candidates to the owner as one card with costs: sand gets a small
-`water_capacity` (needs the liquid-conservation tallies taught about held
-water first), roots reach the water table (plays to the existing capillary
-fringe behaviour), or stored-rain events. A species wilting point is already
-ruled out on the record. Size: decision first.
+`water_capacity` (the conservation tallies must learn about held water
+first), roots reach the water table (= Arc B4's taproot niche — decide these
+together), or stored-rain events. A species wilting point is already ruled
+out on the record. Size: decision first.
 
 ### The floor — instruments, guards, records
 
-- **4.1** Fix or delete `examples/debug_tree_variants.rs` (panics on start,
+- **F1.** Fix or delete `examples/debug_tree_variants.rs` (panics on start,
   stale schema, sterile scene). If `plant_probe` is the ensemble harness now,
   delete it and say so in the commit.
-- **4.2** Re-measure the stranded-leaf component walk (`plant.rs:4107`) with
+- **F2.** Re-measure the stranded-leaf component walk (`plant.rs:4107`) with
   `anchor_support` live; delete the workaround if its 26× justification died
   with the old search.
-- **4.3** The doc sweep from §3 above: CLAUDE.md gotcha, the four stale source
+- **F3.** The doc sweep from §3: CLAUDE.md gotcha, the four stale source
   comments, the two "not merged" lines, `wiki/ants.md`'s litter paragraph, the
-  ant sweep filename, `grass.ron`'s economy note. One commit, no behaviour.
-- **4.4** Megastudy re-run (WP-A2) — *after* 1.1 + 3.4 land, since both move
-  composition and mass. 3 species × 8 seeds × 16 plants; gate cross-species
+  ant sweep filename, `grass.ron`'s economy note, `creeper.ron`'s superseded
+  branching path. One commit, no behaviour.
+- **F4.** Megastudy re-run (WP-A2) — after C1 + E4 land (both move
+  composition and mass). 3 species × 8 seeds × 16 plants; gate cross-species
   claims on crown profile and foliage centre, never height; rebuild first and
   check the echoed parameter line (the study has been void once already).
-- **4.5** Establishment / age channel (WP-F): 5/16 trees and 4/16 conifers end
+- **F5.** Establishment / age channel (WP-F): 5/16 trees and 4/16 conifers end
   zero-leaf; the named fix is `branch_chance` high-while-juvenile, which
-  `ByOrder` cannot express because order is position, not age. Needs the
-  design note first ("which object does age grade — cell, lateral, tier?"),
-  per the plan. Sized M, sequenced after the arcs' first passes.
+  `ByOrder` cannot express because order is position, not age. Design note
+  first ("which object does age grade — cell, lateral, tier?"), per the plan.
 
 ### Deliberately not now, with reasons
 
-- **λ (excurrent/decurrent split) and any new architecture lever** — behind
-  1.1/1.3. λ genuinely moves mass, unlike the label levers, but the lesson
-  stands: no architecture work until a card proves which pixels it moves.
+- **λ (excurrent/decurrent split) and any new shoot-architecture lever** —
+  behind C1/C3; no architecture work until a card proves which pixels it
+  moves. (Arc B3 is not this: it changes *allocation*, i.e. where mass goes.)
 - **The auxin/apical-dominance channel** — the plan of record marks it
-  redundant with Phase 4's allocation: do not build both.
-- **Root morphology / root thickening** — two negative owner verdicts; the
-  taproot family needs root thickening (`can_widen` early-returns in soil) and
-  soil displacement, a real mechanism build for a variety axis the owner
-  ranked below canopy work. The reachable-now piece is a *render*: shallow- vs
-  deep-fibrous via genome slot 5, posted as a card. Build nothing yet.
+  redundant with the allocation pass: do not build both.
+- **Hand-authored root-type species** — explicitly against the owner's
+  constraint; Arc B exists so root forms come out of mechanism + selection.
 - **Moss overhaul** — deliberately deferred (call 4); moss still has no
   economy; fine while it stays decoration.
 - **Live-state colour (drought pallor, autumn, bark aging)** — appearance §7's
-  own precondition (foliage a visible fraction) is only half met; seasons and
-  the temperature-channel treatment don't exist yet. Revisit after 1.1.
-- **`light_weight`/`phototropism_dir`** — inert by construction (codomain
-  `{(0,−1),(0,0)}`); the honest fix is a lateral light gradient in the field,
-  which is field-pass work with a frame cost, and nothing needs it until a
-  shade-niche species exists. Keep the parked note.
-- **Snow-defoliation (§F2)** — observe once in winter weather before deciding;
-  "nobody designed deciduous winters; they may be lovely."
-- **Idleness-triggered bud break** — the do-not-retry stands in full; 2.4 is
+  own precondition (foliage a visible fraction) is only half met; revisit
+  after C1.
+- **`light_weight`/`phototropism_dir`** — inert by construction; the honest
+  fix is a lateral light gradient in the field, with a frame cost, and
+  nothing needs it until a shade-niche species exists. Keep the parked note.
+- **Snow-defoliation (§F2 bug)** — observe once in winter weather before
+  deciding; "nobody designed deciduous winters; they may be lovely."
+- **Idleness-triggered bud break** — the do-not-retry stands in full; D4 is
   the sanctioned, event-triggered form.
-- **P5 speciation, dispersal materials, ecological LOD** — all downstream of
-  turnover existing at all (1.4).
+- **Ecological LOD / off-screen catch-up** — after the on-screen ecology has
+  generations at all.
 
 ---
 
 ## 5. Deviations from the written plans, stated
 
+- **The owner's 2026-08-23 direction supersedes the first draft's ordering**:
+  the evolution framework and root differentiation lead; tree refinement
+  follows. This is recorded here so the next session does not "correct" the
+  order back.
 - `plant-implementation-plan.md` queues WP-A (root repair) first. This queue
-  runs it as 3.2/3.3 *behind* the instrument, because the owner's verdict
-  ("not obvious") reframed it from regression to calibration — and because two
-  arcs of owner-visible work (1.1, 2.2) should not wait behind a test bar.
-- WP-E (foliage mass) is folded into 1.1's judgement rather than run as its
+  runs it as E2/E3 behind the instrument, because the owner's verdict ("not
+  obvious") reframed it from regression to calibration — but it gains a
+  second justification: slot 1 is the root-branching gene Arc B needs alive.
+- WP-E (foliage mass) is folded into C1's judgement rather than run as its
   own tuning pass — `leaf_cluster` already moved share to 26–31%, and the
   remaining mass problem is die-back, not leaf count.
 - The tree-architecture plan's queue item 2 (re-test `light_weight`) is
   dropped, not deferred — the verification proved it inert by construction.
 - `felling-blockers.md`'s "six schedulers are amputation triggers" premise is
-  re-scoped by `anchor_support` landing; 2.2 treats scheduling checks on
+  re-scoped by `anchor_support` landing; D2 treats scheduling checks on
   organisms as the *goal*, not the hazard.
 - The night-session handoff's directive 4 (night growth) is promoted from
-  buried handoff bullet to 3.4, because it is an explicit owner instruction
+  buried handoff bullet to E4, because it is an explicit owner instruction
   that predates and outranks everything tuned since.
+- `root-morphology-findings.md` closed with "render the fibrous axis, build
+  nothing yet". Arc B keeps its render-first step (B1) but **does** queue the
+  two mechanism builds (B2/B3), because the owner has now asked for the push
+  directly; the findings' method corrections (single plants at zoom, never
+  stand medians) carry into every B measurement.
