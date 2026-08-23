@@ -3437,16 +3437,30 @@ history, the local blind spot, and a starting commit:**
   this by widening the settle budget until that has been checked — 0 cells
   to 57 is a behaviour change, not a drift past a threshold.
 
-**Counts moved with the §L fix (2026-08-23), bug unchanged.** The
-rock-country fallback widening (§L's close) changes terrain on fallback
-worlds, and the water that fails to rest moved with it:
-`generated_terrain_is_already_at_rest` now aborts at `wetland seed 3: 87
-cells` (was `terraced seed 3: 57`), still all water. Same claim broken,
-different world under it — recorded so the next reader does not bisect the
-count change to the wrong cause. Not the same root: §L's cause is the
-residuals/region gate; springs place zero in the foraging scene's world
-(0 cliff candidates, measured under `SPRING_DEBUG=1`), so the springs-pass
-lead above is untouched by §L's fix.
+**Counts moved with the §L fix (2026-08-23), bug unchanged — and the vault
+red changed shape, which needs saying precisely.** The rock-country
+fallback widening (§L's close) changes terrain on fallback worlds. Both
+tests are still red, differently:
+
+- `generated_terrain_is_already_at_rest` now reports worst `wetland seed
+  3: 87 cells` (was `terraced seed 3: 57`), **still all water** — the same
+  claim broken, a different pond under it. Across all presets x 5 seeds,
+  worlds now carrying far more spires, **zero mineral cells move**: the
+  widened band generates at rest.
+- `a_forced_vault_world_is_sealed_and_arrives_at_rest` now fails at
+  `rolling seed 3: 705 cells` of **stone** (was 47 of water). That is not
+  the water bug: the test forces chambers at `vault_min_depth: 40` — five
+  times shallower than the natural 200 — into a 2048-wide world the band
+  now mostly covers, and a spire over a 40-row-deep forced chamber
+  collapses when stepped. Natural worlds show no such motion (the bullet
+  above), so this is the stress configuration meeting the band, not
+  generation shedding stone in play. Whoever picks §M up should attribute
+  the water half first and treat the stone count as this interaction.
+
+Recorded so the next reader does not bisect the count change to the wrong
+cause. Not the same root as §L: springs place zero in the foraging scene's
+world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
+springs-pass lead above is untouched by §L's fix.
 
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 
