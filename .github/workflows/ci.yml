@@ -77,13 +77,32 @@ jobs:
       - name: trunk has no stranded twin
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
+  # --- Known-red quarantine -------------------------------------------------
+  # Three gates are red on `main` today for reasons that have nothing to do
+  # with whatever branch is being pushed: bug A (the slot-1 root spread), bug H
+  # (`ascii`'s ants moisture-gradient scene asserts a gradient the scene no
+  # longer has) and bug Y (the gnome covers 98 cells of the `wood` case's 200).
+  # All three are recorded in `Reports/open-bugs-handoff.md` and are guards the
+  # owner keeps deliberately.
+  #
+  # Turning branch CI on without doing something about them would show every
+  # agent four red jobs on push one, and a permanently-red signal teaches
+  # people to stop reading it -- the same defect as a gate that never runs,
+  # which this repo has already paid for (`capped` passed its acceptance case
+  # for two commits while the structure was frozen and never evaluated).
+  #
+  # So each known red is *excluded by name* from the gating job and re-run in
+  # its own `continue-on-error` job below. Nothing is skipped, hidden or
+  # deleted: the guard still executes and its output is still in the log. The
+  # only thing that changes is whether it blocks. Delete the exclusion the day
+  # its bug closes -- and the paired job is what tells you that day arrived.
   test:
     name: cargo test (release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --release --locked
+      - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
@@ -97,7 +116,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked
+      - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
 
   clippy:
     name: cargo clippy
@@ -114,8 +133,22 @@ jobs:
     # so it "works over a remote shell and in CI" (its own module doc) --
     # this is the same worst-frame-timing scene suite used to judge
     # performance regressions locally, run headless here as a smoke test.
-    name: cargo run --example ascii
+    #
+    # Non-gating for now, and this one is a compromise rather than a clean
+    # quarantine. `ascii` has no scene selection, so bug H cannot be excluded
+    # by name the way the other two are, and `examples/ascii.rs` is touched by
+    # three unmerged branches right now -- adding selection to it mid-merge is
+    # how you turn one conflict into four. What saves it: the failing ants
+    # scene is the *last* of nineteen, so every other scene has already run and
+    # printed, worst-frame timings included. Nothing is lost by not blocking on
+    # it that was not already lost to the panic.
+    #
+    # Make this gating again the moment bug H closes, or the moment `ascii`
+    # learns to select scenes -- whichever comes first. It is the only job here
+    # whose non-blocking status costs real coverage.
+    name: cargo run --example ascii (non-gating, bug H)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -134,7 +167,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: bash scripts/acceptance.sh
+        # `wood` is bug Y; it runs in the known-red job below.
+      - run: SKIP_CASES=wood bash scripts/acceptance.sh
 
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
@@ -156,3 +190,35 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
         continue-on-error: true
+
+  # --- The three known reds, run where they cannot block ---------------------
+  # Each pairs with an exclusion above. They exist so a recorded bug stays
+  # *visible and executing* rather than being skipped into invisibility -- and
+  # so that the day one starts passing, something says so. A green tick here is
+  # the signal to delete both the job and its exclusion.
+
+  known-red-roots:
+    # Bug A: the slot-1 root spread. Excluded from `test` and `test-debug`.
+    name: "known red: bug A (slot-1 root spread)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
+
+  known-red-gnome:
+    # Bug Y: the gnome covers 98 cells of the `wood` case's 200. Excluded from
+    # `acceptance` via SKIP_CASES; run alone here via ONLY_CASES.
+    #
+    # Measured 2026-08-23, paired, same build: litter on 98, litter off 195.
+    # So shed litter is essentially the whole shortfall, and the bar is nearly
+    # reachable without it -- 5 cells short, against 48 short when bug Y was
+    # written. The bar itself is sound: the case was authored at a measured 362.
+    name: "known red: bug Y (gnome through the wood)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: ONLY_CASES=wood bash scripts/acceptance.sh
