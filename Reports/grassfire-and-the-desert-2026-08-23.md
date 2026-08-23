@@ -355,6 +355,34 @@ therefore never carry fire**, whatever it was sown at — which is a fact
 about P3's world, not about this branch, and is the thing to check the day
 grass is actually sown.
 
+**And the in-between is a *patchwork*, which a consumed fraction cannot
+say.** This is why `fire_probe` gained a mosaic census: 22% of a sward gone
+as one solid block from the ignition outward is a front that ran out of
+road, and 22% gone as eighteen scorched patches with green between them is
+the thing the owner asked for. Counting 4-connected components of ash
+against 4-connected components of surviving grass — the same neighbourhood
+the ignition rule uses — on three swards at 0.35:
+
+| sward | consumed | **burnt patches** | largest | **surviving stands** | largest |
+|---|---|---|---|---|---|
+| `frame0=0` | 22% | **18** | 95 cells | **54** | 321 cells |
+| `frame0=3600` | 11% | **18** | 56 cells | **92** | 173 cells |
+| `frame0=7200` | 14% | **13** | 87 cells | **88** | 262 cells |
+
+Against the two ends, where the same census reads as you would expect: bone
+dry is **1 burnt patch and 0 survivors**, and the natural bed is **2 burnt
+patches of 10 cells against 71 survivors** — a fire that never left the
+ignition, which a consumed fraction alone would have reported as "0.5%" and
+flattered as a small burn.
+
+**So the mosaic is not spatial variation in the *wetness*; it is the
+sward's own connectivity showing through at the right level.** The
+integrator's hypothesis was that the middle would have to come from a
+patchy bed. It does not: a *uniform* 0.35 bed produces the patchwork,
+because the fire runs where the grass is 4-connected and dies where it is
+not — which is the same 71-islands geometry that caused the original
+"doesn't spread at all", now doing something useful instead.
+
 Swept finely on one sward, cells consumed of 1,993:
 
 | ground wetness | consumed | front |
