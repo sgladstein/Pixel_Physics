@@ -48,9 +48,35 @@ preset"). Rebuild before running (assets are include_str!'ed). The trick
 this session used: build baseline, `cp` the example binary aside, flip
 tree.ron, rebuild — the copied binary keeps its assets.
 
-1. `creature_space mode=diet seeds=8 frames=18000` — S5 baseline sweep
-   (~1–3 h wall; seeds run in scoped threads). Then the same on the
-   retuned tree for the pair. Still running at teardown; no output.
+1. ~~`creature_space mode=diet seeds=8 frames=18000`~~ — **also finished
+   before teardown** (~55 min wall); log is
+   `diet-baseline-postmerge.txt` here. Part 3's baseline half is DONE;
+   the successor runs only the retuned half (same command, retuned
+   tree). What the baseline says, so nobody re-derives it from the log:
+   - **Litter-only control passes its spec**: herbivore-side plateau
+     (0.921/0.925/0.912 at gut −1/−0.5/0, indistinguishable within seed
+     spread) collapsing to 0.298 at +1 — single-peaked, no false hump.
+   - **Mixed arm is single-peaked** (0.874/0.883/0.909/0.880/0.639) —
+     the plan's own named falsifier, expected on the first attempt. But
+     the carrion is not inert: at gut +1.0 survival is **0.639 with
+     carrion against 0.298 without**, paired seeds — the meat niche
+     exists as a paired difference, it just does not yet beat the
+     generalist at this abundance. Plan §2.5's prescribed fix is
+     ecology (more carrion / richer stamp), NOT the filter. Note also
+     the generalist (gut 0) currently wins outright with eats 0.95 —
+     at the 4x economy with litter this abundant, specialising buys
+     nothing; re-reading this after the retuned arm is the point of
+     the pair.
+   - **Separation**: ±0.8 cohorts read mean 49.1 (12.0..104.8) against
+     the both-at-0 null's 7.3 (2.7..16.4) — the means are far apart
+     though the worst ±0.8 seed (12.0) dips inside the null's range,
+     so quote the distribution, not just the means.
+   - **Instrument caveats the columns caught**: foodcols min 67 of the
+     104 asked (the colony band runs out of empty columns — same for
+     every arm, so paired comparisons stand); separation placed 15+14
+     of 26+26 and the west litter bank took as few as **4 cells** on
+     the worst seed (wetland water) — the separation scene wants a
+     drier placement rule before its absolute numbers are leaned on.
 2. ~~`creature_space mode=economy seeds=4 frames=18000`~~ — **this one
    finished before teardown**; the log is
    `economy-baseline-postmerge.txt` in this directory. Baseline half of
