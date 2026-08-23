@@ -1,0 +1,62 @@
+{
+  "id": "20260823T042729625Z-b3377d",
+  "created": "2026-08-23T04:27:29Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "ea2f345",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The last dark-band residual: a full-depth seam in the rock",
+  "question": "This is subtle and on roughly half of worlds. Worth a round to fix, or leave it? I have a narrow fix in mind and would rather you decide than assume.",
+  "context_md": "**Left tile of each pane is the one to judge** — world x 300..380, seed 5. There is a straight vertical tone edge about a third of the way across, running from the surface down through every row of rock below it.\n\n**I was going to argue this was a shadow and not a bug. Looking at it, that is wrong.** My reasoning was that it darkens rock under an overhang, which is what ambient occlusion does — so removing it might flatten the cliffs. Then I clustered the visible cells and they are not hugging anything: they are **narrow vertical stripes, 1 to 10 columns wide, running from the surface to bedrock**. Seed 7's is a *single column*, 494 cells tall. Nothing physical makes a 6-pixel-wide column of rock darker for 500 rows.\n\n### What it is\n\nThe sky/underground decision is per cell now, but the *depth* fed to the terrain grade still comes from `light_datum` — the per-column skyline with narrow dips clipped. An opening clips dips, not spikes, so anything solid standing over open air (every cliff brow) hands its whole column a large depth, all the way to bedrock.\n\n### Measured\n\n`underground_probe`'s `overdark_report` compares the depth the grade reads against how far up you actually walk before reaching a cell the sky can reach. A sealed cave does not count — cave air is not outdoors, so the walk keeps going and the two depths agree.\n\n| seed | over by >=8 rows | >=24 | worst |\n|---|---|---|---|\n| 1 | 7,569 | 0 | 19 rows |\n| 2 | 48,391 | 2,966 | 37 rows |\n| 3 | 25,588 | 5,415 | 29 rows |\n| 4 | 34,114 | 0 | 23 rows |\n| 5 | 25,588 | 2,990 | — |\n| 7 | — | 494 | — |\n\n**Cell count is the wrong scale.** The grade is a smoothstep, flat at both ends: 8 rows of excess costs ~1.6% of brightness and cannot be seen. 24 rows costs ~12%, the worst ~23%. So the honest size of this is the `>=24` column — **zero on about half the seeds, a few thousand cells on the rest**.\n\n### The fix I would use\n\nNot the two I rejected earlier. A per-column run-length datum reintroduces bright rock at the floor of every narrow notch, and driving the grade off the sky-light field collapses the lit surface band from 64 rows to about 4 (light decays 0.56 a cell through solid) — a whole-world relight.\n\nThe narrow one: store a second per-column datum at genesis — **the top of the lowest run of cells the sky cannot reach**, found by walking each column up from the bottom until an outdoors cell stops you — and feed the existing opening from that instead of the raw skyline. A brow is skipped because there is outdoors air below it; a cave is not, because cave air is not outdoors; a notch still gets the opening. Stored history, no inference, no width threshold, ~8 KB and one scan at genesis.\n\nThe second pane is the same frame with the terrain grade off (`F10`), which is not the fix — it removes the legitimate depth shading too — but it does show the seam is the grade's doing.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as it ships now",
+      "files": [
+        "20260823T042729625Z-b3377d/000-stripe5_now.png"
+      ],
+      "caption": "Left tile, world x 300..380. The vertical seam runs the full height.",
+      "meta": {
+        "seed": 5,
+        "visible patch": "2,990 cells at x 332..337, y 139..639",
+        "brightness gap": "~12% at >=24 rows"
+      },
+      "focus": [
+        0,
+        0,
+        480,
+        1140
+      ]
+    },
+    {
+      "label": "terrain grade off (F10) — evidence, not the fix",
+      "files": [
+        "20260823T042729625Z-b3377d/001-stripe5_flat.png"
+      ],
+      "caption": "Seam gone, and so is the legitimate depth shading. Shown only to attribute the seam.",
+      "meta": {
+        "seed": 5,
+        "note": "removes more than the artifact"
+      },
+      "focus": [
+        0,
+        0,
+        480,
+        1140
+      ]
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
