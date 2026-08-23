@@ -3580,6 +3580,34 @@ says the opposite of the suspicion.
 failed — which never compiled the integration tests. CI runs `cargo test
 --release`, which does. Run the bare form locally before believing a green.
 
+**The failing seed RELOCATES under unrelated work, which is the strongest
+argument yet for making the loop collect. — 2026-08-23, later the same day**
+
+Measured on a head that differs from `main` `86e73d5` in exactly two files, a
+report and an example's comment block, with `src/worldgen`, `src/sim` and
+`tests/worldgen.rs` byte-identical to it — so this is `main`'s behaviour by
+construction, not an interaction:
+
+| `generated_terrain_is_already_at_rest` | first failing case | cells that moved | suite |
+|---|---|---|---|
+| main `eda560d` | `terraced seed 3` | 57, first `(82,147)` water | 37 passed, 2 failed |
+| main `86e73d5` | **`wetland seed 3`** | **87**, first `(114,133)` water | 40 passed, 2 failed |
+
+The world-scale lane's worldgen work landed in between. `terraced seed 3` now
+**passes**; a different preset fails instead, with more cells. The test name,
+the failure count and the red/green of the job are all unchanged — only the
+fingerprint moved, and nothing but reading the panic message would show it.
+
+**So the headline number is not comparable across commits, and nobody can say
+whether that change was an improvement.** Two presets swapped places at the
+front of a loop that stops at the first failure; whether the total number of
+failing seeds went from 4 to 2 or from 2 to 6 is not observable from anything
+CI prints. This is the same blind spot the entry above describes, now caught
+actively rather than argued: it is not a hypothetical cost of panicking on the
+first seed, it is a measurement that was already lost once. Collecting the
+failures — the `tests/worldgen.rs` change this entry says belongs to whoever
+owns worldgen — is what turns this pair of tests back into a signal.
+
 **A second at-rest test joins it, and it is water too —
 `generated_terrain_is_already_at_rest`, `tests/worldgen.rs:182`.** It arrived
 on `main` at `9b54be3` and P1 inherited it by merging main in to clear a
