@@ -321,7 +321,10 @@ field rework — see `open-bugs-handoff.md`.
   58% of the severed mass coming down as pieces. Supersedes
   `felling-blockers.md` §2. **§11 is a later addendum** — wind-throw, with
   roots as anchorage and slenderness as an independent failure mode, staged
-  as T6; it carries two questions still with the owner and nothing in it has
+  as T6. Its three scheduling calls are decided (the economy half moves into
+  P2; wind geography is dispatched as W4; plasticity is built as a heritable
+  reaction norm), and §11.6a establishes from source that the genome already
+  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
   been measured or rendered.
 
 ## Open working files

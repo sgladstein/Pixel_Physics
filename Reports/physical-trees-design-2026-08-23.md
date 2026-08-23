@@ -828,9 +828,9 @@ and the two agree inside the spread.
 
 **Design, nothing built.** Added by the plant-program integrator after this
 report merged (PR #23), from a brief the owner gave in conversation rather
-than on a card. Two questions in §11.8 are with the owner and are *not*
-answered here; nothing in this section should be built past them without
-their answer, because both change what gets built.
+than on a card. The three scheduling and scope calls it raised were put to
+the owner the same evening and **all three are decided** — §11.8 records them
+in their decided form.
 
 ### 11.0 The brief, verbatim
 
@@ -985,6 +985,74 @@ is already queued: same founders, windy patch against sheltered patch,
 scored on root:shoot and on slenderness. It needs §11.5's exposure to exist
 before it can be pointed at wind, and nothing else.
 
+#### 11.6a Can plasticity *derive itself* from selection? — asked by the owner, answered from source
+
+The owner's question, 2026-08-23: *"I would love to plasticity derive itself
+from selection/evolution, but I don't know if our model has the complexity
+for that."*
+
+**The model has the complexity.** Read at `4018aee`, the evolutionary
+machinery is complete and is not a sketch:
+
+- `OrganismState::genotype_draws: [f32; GENOTYPE_TRAITS]` — continuous, and
+  `set_seed` copies the parent's array into the child with **independent
+  per-trait jitter** (`MUTATION_SIGMA`), clamped to `[-1, 1]`. Its comment is
+  explicit about why the traits drift separately: "two offspring of one
+  parent can differ on branching and agree on height, which is what lets a
+  population explore corners of the trait space rather than sliding along one
+  diagonal."
+- `alleles: [u8; DISCRETE_LOCI]` — six discrete loci, inherited whole and
+  mutated by *jumping* rather than drifting, so a morph holds together
+  between excursions.
+- `seed_genotype` **declines to redraw an inherited genome** (`if
+  ...s.inherited { return; }`), which is the difference between a population
+  that breeds and one that inherits.
+- `generation`, `seeds_set`, `endowment`, and cumulative `organisms_born` /
+  `organisms_died` all already exist.
+
+So **a reaction norm is not new machinery.** "How strongly does this
+individual redirect carbon when it is shaken" is one more continuous trait,
+read through the same `genotype(world, organism_id, slot, variance)` call
+`pipe_ratio` already uses at slot 4. Selection then acts on the slope, not
+just the intercept — which is exactly what the owner asked for, and it costs
+one slot and one multiply.
+
+**Two things stand between that and a result, and neither is complexity.**
+
+1. **There is no free slot.** `GENOTYPE_TRAITS = 9` and every index is spoken
+   for — 1 growth rate, 2 plastochron, 3 turgor, 4 `pipe_ratio`, 5 upward
+   weight, 6 root allocation, 7 stomatal reserve, 8 penetration force, plus a
+   computed `bc_slot` for branch chance. The slot ceiling is **lane P's
+   current package (P3)**, so the gate on a heritable reaction norm is
+   already being worked, by accident rather than by plan.
+2. **Generational throughput is unmeasured, and this project already wrote
+   down that it matters.** `plant-evolution-design.md` §5, quoted verbatim in
+   `world.rs`'s doc for these counters: *"the count of inherited-genome
+   establishments per run is the plant equivalent of births-per-generation,
+   and if it reads ~0 at 30k frames, every evolution claim at that horizon is
+   about founders."* `organisms_born` / `organisms_died` exist precisely to
+   answer that and the number has not been read. **Read it before promising
+   anything selection-derived** — it is one printout, not a study, and it
+   decides whether selection is a mechanism or a rounding error at play
+   horizons.
+
+**The recommendation, which is not a fork.** Build the plastic response as a
+**heritable reaction norm from the start**, with its slot's founding
+distribution drawn wide. Plasticity then works from frame one — that is the
+visible mechanic, judgeable on a card, no generations required — and
+selection acts on the same number for free as soon as turnover supports it.
+There is no version of this where "do plasticity now, evolution later" means
+building twice; the only cost of doing it right is one genome slot, which is
+blocked on a fix already in flight.
+
+The honest caveat: **selection moving that slot has to be *demonstrated*, not
+assumed.** Windthrow helps more than it looks — it is a selective *death*,
+which is the strongest kind of pressure and the one this model has been short
+of — but a claimed divergence needs the born/died counters, the two-patch
+instrument, and an order statistic over seeds. `CLAUDE.md` records a 3.5-hour
+megastudy that turned out to be three populations wearing twenty-four logs;
+this is exactly the shape of study that fails that way.
+
 ### 11.7 Traps, filed before anyone builds
 
 1. **The wind-throw decision is a whole-*plant* judgement, never a per-cell
@@ -1017,21 +1085,28 @@ before it can be pointed at wind, and nothing else.
    damage count, and a mean over events is not the size of the pieces. The
    quantity that answers §11.3 is the *census by rung*.
 
-### 11.8 Two questions with the owner, unanswered
+### 11.8 The three calls, decided by the owner 2026-08-23
 
-Recorded here so the next session does not re-derive them or, worse, quietly
-pick one.
+Put to the owner as open questions and answered the same evening. Recorded
+here in their decided form so nothing is re-litigated.
 
-1. **Where does the economy half go?** Anchorage-as-benefit belongs with P2,
-   because P2 is where the root *cost* lands, and shipping a cost without its
-   benefit is what produces the minimal-root monoculture of §11.1. The
-   storm-knocks-it-down half is lane S, behind T2. The alternative is to keep
-   the whole item together behind T2 and accept an interval in which roots
-   are pure tax. **Not yet decided.**
-2. **Is exposure (§11.5) in scope?** Without wind geography there is
-   wind-throw but no biome divergence — every tree in the world sees the same
-   storm. Terrain-derived exposure is cheap and legal, but it is real work
-   and it is in no lane's brief today. **Not yet decided.**
+1. **The economy half moves into P2 now.** *"agreed to pull the benefit into
+   P2 brief."* Anchorage-as-benefit is carried by lane P's next package
+   rather than waiting behind lane S's T2, because P2 is where the root
+   *cost* lands and a cost shipped without its counterweight is what produces
+   the minimal-root monoculture of §11.1. The two halves are now in different
+   lanes on purpose: lane P owns *what roots buy*, lane S owns *the storm that
+   collects*.
+2. **Exposure is in scope and is its own package.** *"start a new session to
+   fix the wind geography."* Dispatched as **W4 — wind geography**, briefed
+   against §11.5: terrain-derived exposure, read-only, one consumer
+   (`weather::gust`), instrument before mechanism. The distinction from the
+   reverted steady-wind term is the whole brief and is restated in §11.5.
+3. **Plasticity is built as a heritable reaction norm**, so that selection
+   can act on it rather than being an alternative to it — the owner's
+   preference, and §11.6a establishes from source that the model already has
+   the machinery. Gated on the genome slot ceiling, which is lane P's current
+   package.
 
 ### 11.9 Freshness
 
