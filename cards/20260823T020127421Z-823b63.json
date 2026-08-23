@@ -1,0 +1,86 @@
+{
+  "id": "20260823T020127421Z-823b63",
+  "created": "2026-08-23T02:01:27Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "40254cd",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Sky light prototype: F12 in the app, four modes",
+  "question": "Does the pit in panel 2 read as a pit now? And is /4 the one to keep — it is both the cheapest and, unexpectedly, the cleanest?",
+  "context_md": "Built and in the app on **F12**, cycling DEPTH (today) → /4 → /2 → /1, named on screen with its cost while it is not the default. `skylight=off|4|2|1` on both `viewshot` and `filmstrip`.\n\nSeeded only where the cell was outdoors at genesis — the per-cell map that shipped last round — then spread at Terraria's 0.91 per air cell / 0.56 per solid, four directional sweeps.\n\n**Two things the design round got wrong, both caught by building it:**\n\n1. I claimed the four-sweep approximation \"costs essentially nothing in accuracy\" on the strength of sample points agreeing to three decimals. Rendered, one round put a **comb of vertical stripes** down the inside of every pit — the sweeps are separable, so light can go sideways-then-down but never down-then-sideways, and a pit is exactly that shape. Fixed by running the four sweeps twice. The numbers agreed at the points I sampled and the picture disagreed between them.\n2. I wrote that the block-grid scan \"must not be charged to this approach\" because the engine already has occupancy — then implemented it with a `World::get` per cell anyway. Measured **+7.5 ms on a 13.2 ms redraw**, fifty times the prediction. Hoisting the chunk lookup out of the inner loop (a block never straddles a 64-cell chunk) brought it to +2.3 ms.\n\n**Cost, measured and split:** build 1.7 ms + sweep 0.5 ms. Paid **only on frames where the world or camera changed** — which are the frames already doing a full 13 ms redraw. On a settled, still screen it rebuilds **once in 8 frames** and then not at all, so the dirty-rect skip keeps its winnings. That was the explicit worry and it is answered.\n\n**The unexpected result is panel 4.** Finer is not better: at /2 and /1 the striping is still faintly visible, because there is less bilinear blur to hide it. /4 is the cheapest *and* the cleanest — which is Noita's lesson exactly (they fixed their 32x32 fog by blurring, not refining).\n\nUnchanged and checked: shafts still go dark (panel 5), sealed vaults still dark, the overhanging lip still reads as sky.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "1 — the pit today (DEPTH, unchanged)",
+      "files": [
+        "20260823T020127421Z-823b63/000-f_pit_off.png"
+      ],
+      "caption": "Dark starts immediately below the cut line and goes flat black. A rectangle, not a hole.",
+      "meta": {
+        "false-cave cells": 1207,
+        "at full UNDERGROUND": 436
+      },
+      "focus": null
+    },
+    {
+      "label": "2 — /4, what I recommend",
+      "files": [
+        "20260823T020127421Z-823b63/001-f_pit_4.png"
+      ],
+      "caption": "A bowl of light following the pit's shape: bright at both rims, darkening toward the floor.",
+      "meta": {
+        "cost on a changed frame": "+2.3 ms of 13.2",
+        "cost on a settled frame": "0 — 1 rebuild in 8 frames",
+        "blocks": 18193
+      },
+      "focus": null
+    },
+    {
+      "label": "3 — /2, four times the blocks",
+      "files": [
+        "20260823T020127421Z-823b63/002-f_pit_2.png"
+      ],
+      "caption": "Faint vertical striping is back near the rim — less bilinear blur to hide the separable-sweep residue.",
+      "meta": {
+        "sweep cost": "~4x /4"
+      },
+      "focus": null
+    },
+    {
+      "label": "4 — /1, per pixel, the reference",
+      "files": [
+        "20260823T020127421Z-823b63/003-f_pit_1.png"
+      ],
+      "caption": "Most accurate per the numbers, and visibly the most striped. Kept as the bar, not as a shipping option.",
+      "meta": {
+        "sweep cost": "~16x /4"
+      },
+      "focus": null
+    },
+    {
+      "label": "5 — shafts under /4: still dark, as you asked",
+      "files": [
+        "20260823T020127421Z-823b63/004-f_shaft_4.png"
+      ],
+      "caption": "1-, 3- and 8-wide shafts. No sunny sky down any of them — that property comes from the seeding, not the resolution.",
+      "meta": {
+        "8-wide shaft, field channel would say": "1.00 at 100 cells down",
+        "this model says": "0.000"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
