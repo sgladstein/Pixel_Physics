@@ -10,8 +10,11 @@ wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff; again when roots stopped
 destroying the water they did not drink and the forest floor stopped
 keeping rain off the ground under it; and again when worlds started arriving
-with four woody species in them instead of one. One plant-economy number is
-unsettled and its cause is still open — see `Reports/open-bugs-handoff.md`.*
+with four woody species in them instead of one. Updated again the same day,
+when the pick and the chisel started being able to touch a tree at all — see
+**Cutting a plant down**, which is new and is the part most worth playing.
+One plant-economy number is unsettled and its cause is still open — see
+`Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -21,7 +24,8 @@ paid for. It sends a shoot up and a root down, and everything above and below
 ground is the same organism sharing one economy.
 
 Plants are made of ordinary cells like everything else in the world. You can
-dig them, burn them, bury them, and cut them.
+dig them, burn them, bury them, and cut them — and that sentence has only
+been true of *all four* since this build. See **Cutting a plant down**.
 
 ## The two things a plant needs
 
@@ -214,6 +218,52 @@ Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the
 one part of a canopy's production that ends up where a walking animal can
 reach it. See `ants.md`.
+
+## Cutting a plant down
+
+**New this build, and the honest half of it is in the second paragraph.**
+Until now a tree was the one thing in the world a tool could not touch. The
+pick and the chisel both asked "is this rock?" before they cut, and a trunk
+is not rock — so you could bore through a mountain and not through a
+sapling, and the only thing in the game that could damage a tree was a
+blast. Now they cut wood the way they cut anything else, and so does the
+eraser.
+
+**Cut through the foot of a trunk and the tree comes down.** A plant holds
+itself up from its roots outward, so severing the bottom of it leaves
+everything above with nothing to reach, and the whole crown lets go a
+second or so later. It is not one blow: a grown tree's base is twenty-odd
+cells across and each swing takes a bite of about a third of that, so it is
+three or four swings and then a pause before anything happens. The pause is
+real and is the tree standing on nothing.
+
+**What comes down is, for now, sawdust.** The crown dies where it stands,
+browns, and then dissolves into a cone of loose deadwood — a handful of
+pieces come away as pieces, near where you actually hit, and the other
+ninety-odd per cent does not. That is the known and next thing to fix, it
+is the exact failure this project has rejected before ("a uniform dissolve
+into powder"), and it is written here rather than left to be discovered:
+the tree *falling* works, the tree *coming apart* does not yet.
+
+**Burning a trunk out from under a crown** now brings the crown down too,
+which it did not before at the tighter `F9` settings — the fire licenses
+the collapse the same way a blow does. So does erasing a trunk with the
+brush. See `structural-collapse.md` for what that setting does.
+
+**How much of the tree comes down depends on `F9`**, and at the tight end
+that is visible rather than academic. Cutting the same tree at each setting:
+at SPREAD and LOCAL the whole crown goes; at TIGHT about half of it does and
+the top stays up, standing on nothing; at NONE nothing comes down at all and
+you are left with a cut trunk holding its whole canopy in the air. That is
+the setting doing exactly what it says — NONE means only what you struck
+ever fails — and it is the same trade the rock pages describe, now visible
+on trees too. If a half-fallen tree reads worse than a slowly-unravelling
+one, the setting is the lever.
+
+**A stump is left, and it stays alive.** The roots and the last row or two
+of trunk are still anchored, so they are still the plant. What they do not
+yet do is regrow — a topped tree sits there indefinitely rather than
+resprouting, which is a separate piece of work.
 
 ## Fire and death
 

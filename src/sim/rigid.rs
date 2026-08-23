@@ -267,6 +267,36 @@ fn is_body_material(world: &World, x: i32, y: i32) -> bool {
     world.materials.kind(material) == MaterialKind::Solid && material != material::BEDROCK
 }
 
+/// What a hand tool may cut: `is_body_material` **plus `Plant`**.
+///
+/// # Why this is a second predicate and not a widened first one
+///
+/// `is_body_material` above is `Solid` alone, and that is the real reason
+/// the pick and the chisel could not touch a tree -- not the
+/// `organism_id() != 0` tests that used to sit beside it in `strike` and
+/// `mine_swept` and that `open-bugs-handoff.md` §D1 names. Removing those
+/// changed nothing at all, measured: four blows across a 26-cell bole took
+/// **0 cells** and left every counter at zero, because `wood` is
+/// `MaterialKind::Plant` and never reached the organism test at all. Two
+/// gates, one visible in the report and one not, and only the invisible one
+/// was load-bearing -- `CLAUDE.md`'s "a change that moves *nothing* is
+/// different evidence from one that moves a little", read the right way
+/// round for once.
+///
+/// It stays separate because `is_body_material`'s other callers are
+/// `label_component` and `trace_contours`, which answer "what piece of
+/// *rock* is this" for the M8 body pipeline. Widening it there would change
+/// what a component *is* on every scene in the engine to fix two verbs.
+///
+/// `structural::is_body_material` -- the structural system's own, `Solid |
+/// Plant` since architecture item 9 -- is the one this now agrees with, and
+/// that agreement is the point: a trunk is exactly as capable of being cut
+/// as a stone span is of being undercut.
+fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
+    let material = world.get(x, y).material;
+    matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant) && material != material::BEDROCK
+}
+
 /// A point in grid-corner space: cell `(x, y)` occupies the unit square
 /// from corner `(x, y)` to `(x + 1, y + 1)`.
 pub type Point = (i32, i32);
@@ -355,6 +385,18 @@ pub struct BodyCell {
     /// Carried through the flight so a chunk lands with the same grain it
     /// broke off with — re-rolling it would make a landing visibly "pop".
     pub shade: u8,
+}
+
+impl BodyCell {
+    /// This cell's offset after a quarter turn: `(dx, dy) -> (-dy, dx)`.
+    ///
+    /// The single definition of the transform. `ChunkBody::rotate_quarter`
+    /// applies it and `ChunkBody::turned_cell_position` predicts it, and
+    /// the two must not be able to drift apart — see `rotation_fits` for
+    /// what a probe that disagrees with the move it guards is worth.
+    fn rotated(&self) -> (i32, i32) {
+        (-self.dy, self.dx)
+    }
 }
 
 /// A coherent piece of broken structure, in flight.
@@ -459,10 +501,24 @@ impl ChunkBody {
     /// however many times it is applied.
     fn rotate_quarter(&mut self) {
         for cell in &mut self.cells {
-            let (dx, dy) = (cell.dx, cell.dy);
-            cell.dx = -dy;
-            cell.dy = dx;
+            let (dx, dy) = cell.rotated();
+            cell.dx = dx;
+            cell.dy = dy;
         }
+    }
+
+    /// Where `cell` would sit after `rotate_quarter`, without turning
+    /// anything.
+    ///
+    /// Exists so `rotation_fits` can ask about the turned footprint without
+    /// cloning the body — and, more to the point, so the predicted turn and
+    /// the performed one come from **one** definition of the transform. A
+    /// probe that predicted a different turn from the one that then
+    /// happened would be worse than no probe at all, which is close to what
+    /// the previous version managed; see `rotation_fits`.
+    fn turned_cell_position(&self, cell: &BodyCell) -> (i32, i32) {
+        let (dx, dy) = cell.rotated();
+        (self.x.round() as i32 + dx, self.y.round() as i32 + dy)
     }
 
     /// The body's current extent in world space, as
@@ -1148,7 +1204,18 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
             if distance2_to_segment((x, y), from, to) > radius * radius || !world.in_bounds(x, y) {
                 continue;
             }
-            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+            // **Living tissue is cut like anything else.** This used to
+            // read `|| world.get(x, y).organism_id() != 0`, which meant the
+            // chisel could not touch a tree at all: a gnome could bore
+            // through granite and not through a sapling
+            // (`open-bugs-handoff.md` §D1). The exclusion was defensive --
+            // an organism cell's `aux` is a cell-type tag, not a structural
+            // distance -- and nothing here reads `aux`. `shatter_to_rubble`
+            // goes through `World::set`, which unregisters the cell from
+            // its organism on the way, and `plant::anchor_support` then
+            // re-walks the plant from its anchors on the organism's next
+            // tick and finds whatever the cut severed unreached.
+            if !is_tool_target(world, x, y) {
                 continue;
             }
             shatter_to_rubble(world, x, y); // the cut itself: material, not vacuum
@@ -1298,7 +1365,12 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
             if d2 > chip * chip || !world.in_bounds(x, y) {
                 continue;
             }
-            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+            // Living tissue too -- see `mine_swept`'s note on why the
+            // `organism_id() != 0` exclusion that used to be here went.
+            // This is the axe: without it the pick could break a mountain
+            // and not a twig, and `design-philosophy.md` §0a's "no verb
+            // behind the effect" applied to every plant in the world.
+            if !is_tool_target(world, x, y) {
                 continue;
             }
             if d2 <= core * core {
@@ -1535,15 +1607,23 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     body.spin += (body.vx.abs() + body.vy.abs()) * SPIN_PER_SPEED;
     if body.spin >= 1.0 {
         body.spin -= 1.0;
-        let turned = {
-            let mut probe = body.clone();
-            probe.rotate_quarter();
-            // Only turn if the turned shape actually fits. Otherwise a body
-            // wedged in a gap would rotate straight through the wall beside
-            // it, which is the one way this transform can cheat.
-            let shape = BodyShape { density: mean_density(world, &probe), floats: body_floats(world, &probe), reach: body_extent(&probe) + 1 };
-            try_step(world, &probe, probe.x, probe.y, shape).axis.is_none()
-        };
+        // Only turn if the turned shape actually fits. Otherwise a body
+        // wedged in a gap would rotate straight through the wall beside it,
+        // which is the one way this transform can cheat.
+        //
+        // Asked of the **pre-turn** body: `mean_density` and `body_floats`
+        // read each `BodyCell`'s own material, so a quarter turn — which
+        // permutes offsets and neither adds nor removes a cell — cannot
+        // move either, and `rotation_fits` does not read `reach`. The
+        // version this replaces built a rotated clone purely to compute a
+        // shape identical to this one, and then asked the wrong question
+        // with it; see `rotation_fits` for both halves of that.
+        let turned = rotation_fits(world, body, shape_of(world, body));
+        // Counted, because a probe that always answers "clear" looks
+        // exactly like a probe that works — which is how this went unnoticed
+        // for the life of the mechanism. `CLAUDE.md`: "did it fire at all"
+        // needs a counter, not a picture.
+        world.structural_failures.record_rotation(turned);
         if turned {
             if body.reserved {
                 rotate_reserved(world, body);
@@ -1665,6 +1745,84 @@ fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
             world.set_owned(x, y, reserved());
         }
     }
+}
+
+/// Whether the body's quarter-turned footprint would fit where it stands.
+///
+/// **Read-only, and that is why it is its own function rather than a call
+/// into `try_step`.** Two separate defects made the obvious version wrong,
+/// and the first hid the second for the life of the mechanism.
+///
+/// *It was vacuous.* What stood here was `try_step(world, &probe, probe.x,
+/// probe.y, …)` on a rotated clone. `try_step` derives each cell's target
+/// from a single integer offset — `(tx, ty) = (ox + cell.dx, oy +
+/// cell.dy)` — so probing a rotation *at the body's own position* made
+/// every cell's target identical to its own current position, the
+/// `(tx, ty) == (cx, cy)` guard skipped the entire body, `horizontal` and
+/// `vertical` were never set, and `axis` came back `None` unconditionally.
+/// The guard's own comment said it stopped a wedged body turning through
+/// the wall beside it. It never once fired, on any body, in any scene.
+/// Recorded as `Reports/open-bugs-handoff.md` bug K (and §1i, which is the
+/// same defect written up twice); the reproduction is
+/// `a_wedged_body_will_not_rotate_through_the_wall`, which was `#[ignore]`d
+/// against it and is live again with this.
+///
+/// *And routing it back through `try_step` with a corrected offset is not
+/// the fix either*, for the reason the first defect concealed:
+/// `clear_or_displaceable` **mutates** as it answers — `displace` shoves
+/// powder and the `Gas` arm calls `world.set(…, Cell::EMPTY)` inline. A
+/// probe built on it would rearrange the world to find out whether a turn
+/// it may then refuse is legal, which is bug J's speculative-write defect
+/// on a path that throws the answer away half the time. So this asks the
+/// same *classification* question `clear_or_displaceable` asks, and does
+/// nothing with the answer but return it.
+///
+/// The body's own pre-turn footprint is free by construction, and is
+/// checked explicitly rather than relied upon: `promote` clears those cells
+/// to `Cell::EMPTY` and `claim_footprint` re-stamps them managed-but-
+/// materially-empty, so today they would pass the raw-`EMPTY` test anyway —
+/// but a rotation that a body could not perform *into its own cells* would
+/// be absurd, and saying so here keeps it true if that ever changes.
+fn rotation_fits(world: &World, body: &ChunkBody, shape: BodyShape) -> bool {
+    let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    body.cells.iter().all(|cell| {
+        let (x, y) = body.turned_cell_position(cell);
+        if before.contains(&(x, y)) {
+            return true; // the body is already standing here
+        }
+        if !world.in_bounds(x, y) {
+            return false;
+        }
+        let there = world.get(x, y);
+        // The raw material test, not `is_empty` — same reason
+        // `clear_or_displaceable` gives: a managed cell is materially empty
+        // and is somewhere a body may be.
+        if there.material == material::EMPTY {
+            return true;
+        }
+        match world.materials.kind(there.material) {
+            // Liquid yields to something that would sink through it and
+            // holds up something that floats, matching
+            // `clear_or_displaceable`'s own arm. The two have to agree, for
+            // the reason `BodyShape::floats` records: a piece promoted for
+            // a move the mover then refuses is the 41-repeat-failure state
+            // a raft already sat in once.
+            MaterialKind::Liquid => !shape.floats && shape.density > world.materials.density(there.material),
+            // **Powder yields, without asking whether there is anywhere for
+            // it to go**, and that is deliberately more permissive than the
+            // real move, which answers that with `displace`'s ring search.
+            // A read-only equivalent would have to walk the same rings and
+            // discard the result, per cell, per turn — and refusing on a
+            // failed search would stop a piece tumbling the moment it
+            // touched its own debris, which is the medium a collapse
+            // happens *in*. The cheat this guard exists to stop is turning
+            // through a **wall**; rubble is not one.
+            MaterialKind::Powder | MaterialKind::Gas => true,
+            // Solid, plant, creature — a real obstruction, in
+            // `clear_or_displaceable`'s own words.
+            _ => false,
+        }
+    })
 }
 
 /// The body's density, buoyancy and reach, as one value — computed once per
@@ -4206,19 +4364,20 @@ mod tests {
     /// wall beside it — which is exactly the cheat the probe's own comment
     /// says it exists to prevent.
     ///
-    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
-    /// outlives the report.** Whoever fixes the probe gets a red test
-    /// instead of a paragraph, and `--ignored` is the only thing in the
-    /// engine that can currently tell a working probe from a vacuous one —
-    /// a probe that always answers "clear" looks identical to one that
-    /// works. Present in *both* parents of the water merge, so it is not
-    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    /// **Live again as of the fix**, having been `#[ignore]`d against the
+    /// defect rather than deleted, per `CLAUDE.md`: the reproduction
+    /// outlives the report, so whoever fixed the probe got a red test
+    /// instead of a paragraph. It is still the only thing in the engine
+    /// that can tell a working probe from a vacuous one by assertion — a
+    /// probe that always answers "clear" looks identical to one that works
+    /// — with `FailureCounts::rotations_refused` as the running readout
+    /// beside it. Was present in *both* parents of the water merge; see
+    /// `open-bugs-handoff.md` bug K.
     ///
     /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
     /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
     /// bar is 1x3 and its two new cells land in the rock above and below.
     #[test]
-    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
     fn a_wedged_body_will_not_rotate_through_the_wall() {
         let mut w = test_world();
         for y in 0..64 {
@@ -4233,11 +4392,10 @@ mod tests {
         let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
         let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
 
-        // The probe exactly as `advance` builds it, arguments included.
-        let mut probe = body.clone();
-        probe.rotate_quarter();
-        for cell in &probe.cells {
-            let (px, py) = probe.cell_position(cell);
+        // The setup check first: if the turned bar does not actually land in
+        // rock, a passing assertion below proves nothing.
+        for cell in &body.cells {
+            let (px, py) = body.turned_cell_position(cell);
             if (px, py) != (15, 32) {
                 assert_eq!(
                     w.get(px, py).material,
@@ -4246,15 +4404,152 @@ mod tests {
                 );
             }
         }
-        let shape = BodyShape {
-            density: mean_density(&w, &probe),
-            floats: body_floats(&w, &probe),
-            reach: body_extent(&probe) + 1,
-        };
-        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
         assert!(
-            axis.is_some(),
+            !rotation_fits(&w, &body, shape_of(&w, &body)),
             "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
         );
+
+        // ...and the other half, which is what stops the fix being "return
+        // false": clear the two cells the turn needs and it must fit. A
+        // probe that always refuses would pass the assertion above and is
+        // exactly as useless as the one that always allowed.
+        w.set(15, 31, Cell::EMPTY);
+        w.set(15, 33, Cell::EMPTY);
+        assert!(
+            rotation_fits(&w, &body, shape_of(&w, &body)),
+            "with the slot opened above and below, the turned bar fits and the probe should say so"
+        );
+    }
+}
+
+/// Guards for `is_tool_target` — that a hand tool reaches living tissue,
+/// and that it still reaches rock the way it always did.
+///
+/// Written as unit fixtures rather than as another `scene=fell` bar for
+/// `CLAUDE.md`'s guard rule: a plant grown from `DEFAULT_WORLD_SEED` is one
+/// individual and cannot be swept, and the thing being guarded here is a
+/// *predicate*, which hand-placed cells test exactly. `scripts/
+/// acceptance.sh`'s `fell` case guards the pipeline these sit under.
+#[cfg(test)]
+mod tool_target_tests {
+    use super::*;
+    use crate::sim::cell::Cell;
+    use crate::sim::chunk::Rect;
+    use crate::sim::material;
+
+    /// A block of `wood` with a floor under it. `organism_id` is set on the
+    /// wood so the cells are living tissue rather than the inert
+    /// hand-painted wood `structural.rs`'s burning-tree test uses — which
+    /// `Reports/felling-blockers.md` §1 names as a superseded test that has
+    /// never once exercised the organism branch.
+    fn wood_block(organism_id: u16) -> World {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        for x in 0..64 {
+            for y in 60..64 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        for x in 24..40 {
+            for y in 40..60 {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(organism_id));
+            }
+        }
+        w
+    }
+
+    fn wood_cells(w: &World) -> usize {
+        let wood = w.materials.id_of("wood").expect("wood");
+        (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == wood).count()
+    }
+
+    /// **The D2 guard.** A blow on a living trunk has to remove living
+    /// trunk. Until `is_tool_target` existed this took exactly zero cells:
+    /// `is_body_material` is `Solid` alone and `wood` is `Plant`, so the
+    /// whole chip zone was skipped before the `organism_id` test the bug
+    /// report named was ever reached.
+    #[test]
+    fn a_blow_cuts_living_wood() {
+        let mut w = wood_block(7);
+        let before = wood_cells(&w);
+        strike(&mut w, 32, 50, 5, 6.0);
+        let after = wood_cells(&w);
+        assert!(after < before, "a blow on living wood took nothing: {before} cells before, {after} after");
+    }
+
+    /// The same blow on the same geometry with no organism owning it.
+    /// Paired with the test above rather than asserted alone, because the
+    /// pair is what says the predicate keys on *material kind* and not on
+    /// ownership -- and a single-arm assertion would pass just as happily
+    /// against a rule that had merely swapped which half it excluded.
+    #[test]
+    fn a_blow_cuts_inert_wood_too() {
+        let mut w = wood_block(0);
+        let before = wood_cells(&w);
+        strike(&mut w, 32, 50, 5, 6.0);
+        assert!(wood_cells(&w) < before, "a blow on hand-painted wood took nothing");
+    }
+
+    /// The chisel, which had the identical gate one function along.
+    #[test]
+    fn a_chisel_bores_through_living_wood() {
+        let mut w = wood_block(7);
+        let before = wood_cells(&w);
+        let dusted = mine(&mut w, 32, 50, 4, 0.5);
+        assert!(wood_cells(&w) < before, "a chisel bit on living wood took nothing");
+        assert!(dusted > 0, "a dig at yield 0.5 removed no volume at all");
+    }
+
+    /// Bedrock stays exempt. `is_tool_target` widened the *kind* test and
+    /// must not have widened the bedrock exclusion with it -- the world's
+    /// boundary wall is not a thing a player may cut free, and
+    /// `is_body_material`'s own doc records what happens when a flood fill
+    /// reaches it.
+    #[test]
+    fn a_blow_does_not_cut_bedrock() {
+        let mut w = wood_block(7);
+        let floor: usize =
+            (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::BEDROCK).count();
+        strike(&mut w, 32, 62, 6, 8.0);
+        let after: usize =
+            (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::BEDROCK).count();
+        assert_eq!(floor, after, "a blow cut into bedrock");
+    }
+
+    /// **The other half of §D1**: the brush was the one destructive verb
+    /// the leash could not see, so at LOCAL/TIGHT/NONE erasing a trunk
+    /// licensed nothing and the crown stayed up. Asserts the disturbance
+    /// exists and that it actually covers the wound, which is the part an
+    /// extent of zero would silently get wrong.
+    #[test]
+    fn erasing_with_the_brush_records_a_disturbance() {
+        let mut w = wood_block(7);
+        w.chain_reach = 8;
+        assert!(!w.within_disturbance(32, 50), "nothing has been disturbed yet");
+        w.paint_capsule((28, 50), (36, 50), 2, material::EMPTY, 1.0);
+        assert!(w.within_disturbance(32, 50), "an erase through living wood recorded no disturbance");
+        assert!(w.within_disturbance(36, 50), "the disturbance does not cover the far end of its own stroke");
+    }
+
+    /// Painting is not destruction, but it does change what holds what up,
+    /// and the disturbance is what licenses the re-evaluation. Kept as its
+    /// own case so a later change that narrows the record to erases only
+    /// has to be a deliberate one.
+    #[test]
+    fn painting_structure_records_a_disturbance_too() {
+        let mut w = wood_block(0);
+        w.chain_reach = 8;
+        w.paint_capsule((10, 50), (10, 50), 2, material::STONE, 1.0);
+        assert!(w.within_disturbance(10, 50), "painting stone recorded no disturbance");
+    }
+
+    /// A stroke over open air is not a disturbance and must not evict a
+    /// real one from the sixteen-entry ring.
+    #[test]
+    fn a_stroke_that_changes_no_structure_records_nothing() {
+        let mut w = wood_block(0);
+        w.chain_reach = 8;
+        w.paint_capsule((2, 2), (6, 2), 2, material::EMPTY, 1.0);
+        assert!(!w.within_disturbance(4, 2), "erasing empty sky recorded a disturbance");
     }
 }
