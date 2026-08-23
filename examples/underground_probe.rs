@@ -174,6 +174,8 @@ fn overdark_report(world: &World) {
     let surface = world.sky_surface();
     let mut buckets = [0usize; 3];
     let mut worst = (0i32, 0i32, 0i32);
+    let mut visible: Vec<(i32, i32)> = Vec::new();
+    let mut flagged = vec![false; (b.width() * b.height()) as usize];
     for x in b.min_x..=b.max_x {
         let Some(&ground) = surface.get((x - b.min_x) as usize) else { continue };
         if ground == i32::MAX {
@@ -197,6 +199,8 @@ fn overdark_report(world: &World) {
             }
             if over >= 24 {
                 buckets[1] += 1;
+                visible.push((x, y));
+                flagged[((y - b.min_y) * b.width() + (x - b.min_x)) as usize] = true;
             }
             if over >= 64 {
                 buckets[2] += 1;
@@ -207,9 +211,50 @@ fn overdark_report(world: &World) {
         }
     }
     println!(
-        "  over-darkened rock (suspended-object residual): {} cells by >=8 rows, {} by >=24, {} by >=64 (the whole ramp); worst {} rows at ({}, {})",
+        "  over-darkened rock (overhang residual): {} cells by >=8 rows, {} by >=24, {} by >=64 (the whole ramp); worst {} rows at ({}, {})",
         buckets[0], buckets[1], buckets[2], worst.0, worst.1, worst.2
     );
+
+    // **Where the *visible* ones are.** The >=8 bucket is ~1.6% of brightness
+    // and cannot be seen; >=24 is ~12% and can. Clustering only the visible
+    // ones and naming coordinates is what lets someone point a camera at the
+    // artifact instead of hunting for it -- a count says how much, never
+    // where.
+    let (w, h) = (b.width() as usize, b.height() as usize);
+    let idx = |x: i32, y: i32| (y - b.min_y) as usize * w + (x - b.min_x) as usize;
+    let mut seen = vec![false; w * h];
+    let mut clusters: Vec<(usize, i32, i32, i32, i32)> = Vec::new();
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    for (x, y) in visible.iter().copied() {
+        if seen[idx(x, y)] {
+            continue;
+        }
+        let (mut n, mut x0, mut y0, mut x1, mut y1) = (0usize, x, y, x, y);
+        seen[idx(x, y)] = true;
+        stack.push((x, y));
+        while let Some((cx, cy)) = stack.pop() {
+            n += 1;
+            x0 = x0.min(cx);
+            y0 = y0.min(cy);
+            x1 = x1.max(cx);
+            y1 = y1.max(cy);
+            for (nx, ny) in [(cx - 1, cy), (cx + 1, cy), (cx, cy - 1), (cx, cy + 1)] {
+                if nx < b.min_x || nx > b.max_x || ny < b.min_y || ny > b.max_y {
+                    continue;
+                }
+                if seen[idx(nx, ny)] || !flagged[idx(nx, ny)] {
+                    continue;
+                }
+                seen[idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+        clusters.push((n, x0, y0, x1, y1));
+    }
+    clusters.sort_unstable_by(|a, c| c.0.cmp(&a.0));
+    for (n, (cells, x0, y0, x1, y1)) in clusters.iter().take(3).enumerate() {
+        println!("    visible patch #{}: {cells:>5} cells at x {x0}..{x1}, y {y0}..{y1}", n + 1);
+    }
 }
 
 fn build(seed: u64, a: &Args) -> World {

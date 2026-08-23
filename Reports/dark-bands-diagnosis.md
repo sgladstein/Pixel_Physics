@@ -275,22 +275,44 @@ frames, which is noise and is recorded only so nobody reads it as a win.
   24 rows costs ~12% and the worst case ~23%, which is the part that can be
   seen, and it is zero on half the seeds measured.
 
-  **And it may not be a defect at all.** What it does is darken rock *under an
-  overhang*, which is what a shadow does. The air version of this bug was
-  plainly wrong because it darkened *sky*; this one might read as ambient
-  occlusion and removing it could flatten the cliffs. That is a judge-by-eye
-  question and it has not been asked, so it is not fixed and should not be
-  fixed on principle.
+  **It is not a shadow, and the argument that it might be was wrong.** The
+  reasoning was that it darkens rock under an overhang, which is what ambient
+  occlusion does, so removing it might flatten the cliffs. Clustering the
+  visible cells kills that: they do not hug anything. They are **narrow
+  vertical stripes, 1 to 10 columns wide, running from the surface to
+  bedrock** — seed 5's is 2,990 cells at x 332..337 spanning y 139..639, and
+  seed 7's is a *single column*, 494 cells tall. Nothing physical makes a
+  six-pixel-wide column of rock 12% darker for five hundred rows. Rendered,
+  it is a straight vertical tone seam with a hard edge, which is the same
+  family as the artifact this whole report is about.
 
-  If the answer comes back "bug", the options are all worse than they look. A
-  per-column run-length datum (depth below the nearest outdoors cell above)
-  fixes it and immediately reintroduces bright rock at the floor of every
-  narrow notch — the exact artifact `light_datum`'s opening exists to prevent;
-  the two cases are the same shape to any column rule. Driving the solid grade
-  from the sky-light field discriminates them with no threshold at all, and
-  collapses the lit surface band from 64 rows to about **4**, because light
-  decays at 0.56 a cell through solid. That is a whole-world relight, not a
-  bug fix.
+  A count could not have said that and did not: the totals looked like
+  "rock under overhangs" until the cells were clustered and given
+  coordinates. `CLAUDE.md`'s rule again — a metric says how much, only a
+  position says *where*, and the shape was the whole question.
+
+  Put to the owner as card `20260823T042729625Z-b3377d`, with the size
+  stated honestly (zero visible cells on about half the seeds) rather than
+  as a defect to be fixed on principle.
+
+  Two obvious fixes are worse than they look. A per-column run-length datum
+  (depth below the nearest outdoors cell *above*) reintroduces bright rock at
+  the floor of every narrow notch — the exact artifact `light_datum`'s opening
+  exists to prevent, because the two cases are the same shape to any column
+  rule. Driving the solid grade off the sky-light field discriminates them
+  with no threshold and collapses the lit surface band from 64 rows to about
+  **4**, since light decays 0.56 a cell through solid: a whole-world relight,
+  not a bug fix.
+
+  **The narrow one, if it is wanted.** Store a second per-column datum at
+  genesis — the top of the *lowest* run of cells the sky cannot reach, found
+  by walking each column up from the bottom until an outdoors cell stops the
+  walk — and feed the existing opening from that instead of the raw skyline.
+  A brow is skipped because outdoors air sits below it; a cave is not,
+  because cave air is not outdoors; a notch still gets the opening it needs.
+  Stored history rather than inference, no width threshold anywhere, ~8 KB
+  and one scan at genesis, and the existing notch guard already covers the
+  regression it could cause.
 
 ## Guards
 
