@@ -1,0 +1,88 @@
+{
+  "id": "20260823T094729940Z-55bc8b",
+  "created": "2026-08-23T09:47:29Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "322bae4",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Four woody species, four looks",
+  "question": "Standing in a mixed world, would you call these four different plants — or is it still one plant in four sizes?",
+  "context_md": "Worldgen sowed the hardcoded string `\"tree\"` for the whole life of this project, so conifer, shrub and creeper have **never appeared in a generated world**. They do now, and this is the pass that tries to make them tell apart.\n\nSame scene, same seed, same frame (10,800 — daylight), 8 founders each. Only the species changes.\n\nWhat I changed, and why only these two things:\n\n- **Colour.** `shrub` and `creeper` declared *identical* foliage and bark bands, and `conifer`'s bark overlapped both `tree` and `shrub`. All four are disjoint now. `tree` and `shrub` are byte-identical to what shipped; `conifer`'s bark moved onto a pine's rust, and `creeper` got a pale sage of its own.\n- **`leaf_cluster`** — leaf area per node, now traded against height budget: conifer 150 rows at 6, tree 120 at 10, shrub 40 at 12, creeper 8 at 14.\n\nWhat I deliberately did **not** touch: `plastochron` and `branch_angle` were already four distinct profiles each, and the appearance report's finding is that architecture levers don't move a silhouette — colour and composition do. So I spent the budget there rather than jittering tuned constants.\n\nThe thing I am unsure of: **conifer**. It is meant to be a bare bole under horizontal tiers and it reads to me as a broadleaf that happens to be blue-green. If you see that too, that is the known whorls gap (item C3), not something this pass claimed to fix.\n\nEstablishment counts below are from the shipped 8,192-column world at seed 1, 3,000 frames — the worlds these species now actually appear in.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tree",
+      "files": [
+        "20260823T094729940Z-55bc8b/000-id_tree.png"
+      ],
+      "caption": "mesic generalist — damp country, deep soil",
+      "meta": {
+        "established, world seed 1": 49,
+        "leaf_cluster": 10,
+        "height budget (rows)": 120,
+        "foliage bands": "2-3 mid/yellow-green",
+        "bark bands": "0-1 mid/dark red-brown"
+      },
+      "focus": null
+    },
+    {
+      "label": "conifer",
+      "files": [
+        "20260823T094729940Z-55bc8b/001-id_conifer.png"
+      ],
+      "caption": "the upland band",
+      "meta": {
+        "established, world seed 1": 30,
+        "leaf_cluster": 6,
+        "height budget (rows)": 150,
+        "foliage bands": "0-1 blue-greens",
+        "bark bands": "4-5 rust/plum (NEW)"
+      },
+      "focus": null
+    },
+    {
+      "label": "shrub",
+      "files": [
+        "20260823T094729940Z-55bc8b/002-id_shrub.png"
+      ],
+      "caption": "the dry margin, thin ground",
+      "meta": {
+        "established, world seed 1": 28,
+        "leaf_cluster": "12 (was 8)",
+        "height budget (rows)": 40,
+        "foliage bands": "4-5 olives",
+        "bark bands": "2-3 near-black/grey-brown"
+      },
+      "focus": null
+    },
+    {
+      "label": "creeper",
+      "files": [
+        "20260823T094729940Z-55bc8b/003-id_creeper.png"
+      ],
+      "caption": "a skin of soil over rock — where nothing else roots",
+      "meta": {
+        "established, world seed 1": 28,
+        "leaf_cluster": "14 (was 8)",
+        "height budget (rows)": 8,
+        "foliage bands": "6-7 pale/deep sage (NEW)",
+        "bark bands": "6-7 olive-drab/green-grey (NEW)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
