@@ -560,6 +560,342 @@ mod tests {
         assert_eq!(Clock::default().day_minutes, 1);
     }
 
+    /// **The claim the whole design exists to make: slowing the world does
+    /// not slow what falls.**
+    ///
+    /// Run one scene at several clock settings and require a bit-identical
+    /// grid. Two things about how this is built matter more than the
+    /// assertion itself.
+    ///
+    /// # It has to be able to fail
+    ///
+    /// Nothing in the CA sweep reads the clock, so a scene with no sun- or
+    /// weather-coupled process is bit-identical *whether or not any knob is
+    /// wired to anything at all*. On its own this cannot tell "correctly
+    /// separated" from "disconnected" -- `CLAUDE.md`'s "a change that moves
+    /// nothing is different evidence from one that moves a little", which has
+    /// already produced one whole dead-end entry here. So it carries a paired
+    /// **non-grid** assertion from the same runs: the sky must have reached a
+    /// different frame at each setting. If the knobs stopped doing anything,
+    /// that half fails while the grid half still passes.
+    ///
+    /// # Calm is not enough; it also has to be dry
+    ///
+    /// The sky reaches the grid by more routes than wind. Rain and snow spawn
+    /// cells outright; `hold_the_ground_cold` writes cell temperature, which
+    /// `fire::update` compares against melting and freezing points;
+    /// evaporation reads raw temperature by design; gas advection follows the
+    /// wind. So the scene is bare sand and stone -- no water, no fire, no
+    /// plants, no creatures, no gnome -- at a seed verified quiet on all
+    /// three channels across the window.
+    ///
+    /// Verified across `0..FRAMES` at the *baseline*, which covers every
+    /// setting: a slowdown of `k` maps the same real window onto weather
+    /// frames `0..FRAMES/k`, a subset of what was checked.
+    ///
+    /// **This is a narrow claim, deliberately.** It says the sweep is
+    /// untouched, not that a world with weather in it is. A slowed weather
+    /// front genuinely does drop more rain and throw more gusts than a fast
+    /// one, because it lasts longer -- see `Clock::weather_slowdown`.
+    #[test]
+    fn physics_is_untouched_by_every_world_clock_knob() {
+        use crate::sim::cell::Cell;
+        use crate::sim::chunk::Rect;
+        use crate::sim::weather;
+        use crate::sim::world::World;
+
+        const FRAMES: u64 = 240;
+
+        // A seed whose weather is quiet on all three channels for the whole
+        // window. Searched rather than hardcoded so it cannot rot into a
+        // seed that stopped being quiet.
+        let seed = (0..4_000u64)
+            .find(|&seed| {
+                (0..FRAMES).all(|f| {
+                    let w = weather::at(seed, f);
+                    !w.is_precipitating()
+                        && w.wind.abs() < weather::GUST_THRESHOLD
+                        && w.chill <= weather::DRY_FROST_CHILL
+                })
+            })
+            .expect("some seed is quiet for 240 frames");
+
+        let run = |knobs: fn(&mut Clock)| {
+            let mut w = World::new(Rect::new(0, 0, 127, 127));
+            w.seed = seed;
+            w.clock.set_rates(0, knobs);
+            let stone = w.materials.id_of("stone").expect("stone");
+            let sand = w.materials.id_of("sand").expect("sand");
+            for x in 0..128 {
+                w.set(x, 120, Cell::new(stone, 0));
+            }
+            // A column with a lip, so it topples as well as falls -- a pile
+            // that only drops would be a much weaker thing to call identical.
+            for y in 40..70 {
+                for x in 60..68 {
+                    w.set(x, y, Cell::new(sand, 0));
+                }
+            }
+            for _ in 0..FRAMES {
+                crate::sim::parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            let grid: Vec<(crate::sim::material::MaterialId, u16)> = (0..128i32)
+                .flat_map(|y| (0..128i32).map(move |x| (x, y)))
+                .map(|(x, y)| {
+                    let c = w.get(x, y);
+                    (c.material, c.aux())
+                })
+                .collect();
+            // The witness for the non-vacuity half. **One quantity per
+            // mechanism, not one for all four**: a phase knob moves a clock
+            // and an interval knob moves an interval, and probing an
+            // interval knob with a clock reading is asking whether a lever
+            // moved something it was never wired to. That is `CLAUDE.md`'s
+            // "ask which *pixels* a lever moves" in miniature -- and it was
+            // not hypothetical here: the first version of this test probed
+            // only the two clocks, and the growth case failed with "left both
+            // clocks at the baseline" precisely because growth is not a
+            // clock.
+            let witness = (
+                w.sky_frame(),
+                w.weather_frame(),
+                w.clock.organism_interval(crate::sim::plant::ORGANISM_TICK_INTERVAL),
+                w.clock.creature_interval(crate::sim::plant::ORGANISM_TICK_INTERVAL),
+            );
+            (grid, witness)
+        };
+
+        let (baseline, base_witness) = run(|_| {});
+        // **Sensitivity, so "identical" is not trivially true.** A comparison
+        // over a scene that never moved would pass whatever the knobs did.
+        // The pile starts as a solid block spanning rows 40..70 and columns
+        // 60..68; by the end it must have both fallen away from the top and
+        // spread past its own footprint, which is only true if the sweep ran.
+        let occupied = |x: i32, y: i32| {
+            baseline[(y * 128 + x) as usize].0 != crate::sim::material::EMPTY
+        };
+        assert!(!occupied(63, 41), "the pile never fell: the grid comparison is over a static scene");
+        assert!((0..128).any(|x| !(60..68).contains(&x) && occupied(x, 119)), "the pile never spread");
+
+        for (label, knobs) in [
+            ("day", (|c: &mut Clock| c.day_minutes = 8) as fn(&mut Clock)),
+            ("weather", |c: &mut Clock| c.weather_slowdown = 6),
+            ("growth", |c: &mut Clock| c.growth_slowdown = 5),
+            ("creatures", |c: &mut Clock| c.creature_slowdown = 4),
+            ("all", |c: &mut Clock| {
+                c.day_minutes = 8;
+                c.weather_slowdown = 6;
+                c.growth_slowdown = 5;
+                c.creature_slowdown = 4;
+            }),
+        ] {
+            let (grid, witness) = run(knobs);
+            let differing = grid.iter().zip(&baseline).filter(|(a, b)| a != b).count();
+            assert_eq!(differing, 0, "the {label} knob moved {differing} cells of the CA grid");
+            // The non-vacuity half: at least one clock must actually have
+            // been somewhere else, or the paragraph above applies and this
+            // test proves nothing.
+            assert_ne!(
+                witness, base_witness,
+                "the {label} knob changed nothing the world can observe, so the grid \
+                 comparison above is vacuous rather than reassuring"
+            );
+        }
+    }
+
+    /// **A longer day must cost *fewer* field solves per real frame, not
+    /// more** — the guard for `prev_sky_frame`, which is the subtlest piece
+    /// of reasoning in this module and had no test that could fail for it.
+    ///
+    /// The sky is what wakes a settled field: `sky_light_amplitude` and
+    /// `sky_temperature_offset` are quantised precisely so that "it changed"
+    /// is a crisp question, and `field::step`'s early-out fires on the frames
+    /// where the answer is no. Under a lengthened day the sky clock holds
+    /// still for `day_minutes` real frames at a time -- so spelling "last
+    /// frame" as `sky_frame() - 1` would report a change on *every one* of
+    /// those frames instead of the one it moved on, and a slower day would
+    /// cost N times more solves than a fast one. Exactly backwards, and
+    /// invisible in any test that only ever runs at the default.
+    ///
+    /// Two quantities, and the bars are set from measurement rather than
+    /// from what would have been tidy:
+    ///
+    /// - **Per real frame it must fall sharply.** Measured on this scene:
+    ///   0.393 passes per frame at one minute against 0.112 at four, a 3.5x
+    ///   reduction. This is the thing anyone feels, and the thing that would
+    ///   inverte outright under `sky_frame() - 1`.
+    /// - **Per sky-day it is bounded, not flat**, and the first version of
+    ///   this test asserted flat because that is what the argument predicts:
+    ///   the sky takes the same number of quantised steps per cycle whatever
+    ///   rate it runs at. Measured, it is 1,413 passes per day at one minute
+    ///   and 1,615 at four -- 14% *more* for the slower day. The reason is
+    ///   real and worth keeping: a pass count is not a step count, because
+    ///   the field needs several passes to re-converge after each sky step.
+    ///   At one minute a step lands every ~2.5 frames, before convergence
+    ///   finishes, so consecutive steps are absorbed into one continuous
+    ///   awake stretch; at four minutes each step gets its own full settle
+    ///   and pays for it. The gap is left visible here rather than tuned
+    ///   away, per `CLAUDE.md` -- the bar is 1.5x, well above the measured
+    ///   1.14x and well below anything that would hide an inversion.
+    ///
+    /// Comparing a fixed *frame* count instead of a full cycle would have
+    /// been a tautology -- 3,600 frames at 4x is a quarter of a day, so of
+    /// course it costs less.
+    #[test]
+    fn a_longer_day_costs_fewer_field_solves_per_frame_and_stays_bounded_per_day() {
+        use crate::sim::chunk::Rect;
+        use crate::sim::field::DAY_NIGHT_PERIOD_FRAMES;
+        use crate::sim::world::World;
+
+        // One full sky-day at each setting, so the comparison is per cycle.
+        //
+        // The scene is `examples/ascii.rs`'s `field_day_scene` in miniature,
+        // and every part of it is load-bearing -- an empty world was tried
+        // first and reported the field solving on *every* frame at both
+        // settings, which read as the early-out being broken and was really
+        // the scene having no chunks to settle. Buried tiles under open sky
+        // is the state the measurement is about; `end_step` is what marks
+        // convergence; and the settling pass first makes the count a standing
+        // state rather than the transient of a world just painted.
+        let passes_per_day = |minutes: u32| {
+            let mut w = World::new(Rect::new(0, 0, 127, 127));
+            w.clock.set_rates(0, |c| c.day_minutes = minutes);
+            for y in 64..128 {
+                for x in 0..128 {
+                    w.set(x, y, crate::sim::cell::Cell::new(crate::sim::material::STONE, 0));
+                }
+            }
+            w.end_step();
+            for _ in 0..200 {
+                w.step_fields();
+            }
+            let before = w.field_stats.passes;
+            let frames = DAY_NIGHT_PERIOD_FRAMES * minutes as u64;
+            for _ in 0..frames {
+                w.begin_step();
+                w.step_fields();
+                w.end_step();
+            }
+            (w.field_stats.passes - before, frames)
+        };
+
+        let (base_passes, base_frames) = passes_per_day(1);
+        assert!(base_passes > 0, "the baseline day must solve the field at all");
+        // One comparison point rather than a sweep: each extra setting costs
+        // a whole simulated day at that rate, and 4x already separates the
+        // correct behaviour (3.5x fewer solves per frame) from the inversion
+        // it guards against (N times *more*) by a wide margin.
+        {
+            let minutes = 4;
+            let (passes, frames) = passes_per_day(minutes);
+            // Bounded per cycle -- see the doc above for why it is not flat.
+            // Measured 1,615 against 1,413, so 1.5x is a real bar with
+            // headroom rather than a rubber stamp.
+            assert!(
+                (passes as f64) < base_passes as f64 * 1.5,
+                "at {minutes} minutes the field solved {passes} times per day against {base_passes} \
+                 -- work per cycle should stay close to the quantiser's own step count"
+            );
+            // ...and therefore proportionally rarer in real time. Stated as a
+            // ratio against the frame counts so it cannot be satisfied by the
+            // day simply being longer.
+            let base_rate = base_passes as f64 / base_frames as f64;
+            let rate = passes as f64 / frames as f64;
+            // Measured 3.5x lower for a 4x day; 2.0x is the bar, which an
+            // inversion (N times *more* per frame) misses by a mile and a
+            // legitimate change cannot trip by accident.
+            assert!(
+                rate < base_rate * 0.5,
+                "at {minutes} minutes the field still solves {rate:.4} times per frame against \
+                 {base_rate:.4} -- a slower sky is waking it as often as a fast one, which is the \
+                 `sky_frame() - 1` bug"
+            );
+        }
+    }
+
+    /// **The premise the no-divisor decision rests on: the weather clock is
+    /// an exact linear stretch, so a slowdown changes how long a front lasts
+    /// and not how often one arrives.**
+    ///
+    /// `MAX_COLUMNS_PER_FRAME` is a per-*real*-frame deposition budget.
+    /// Dividing it by the weather slowdown was drafted as "required" and is
+    /// wrong: rain spends per real frame and evaporation refills the
+    /// atmospheric bank per real frame, so a divisor returns 1/N the water
+    /// against unchanged evaporation and the world dries out. Left alone the
+    /// rate is untouched, because `weather_frame(f) = f / k` traverses the
+    /// same curve more slowly -- and the share of rainy frames over a matched
+    /// stretch of that curve is therefore identical, which is what this
+    /// asserts.
+    ///
+    /// # The window has to be matched in weather frames, and that is a result
+    ///
+    /// Comparing a fixed *real* window across settings does not work and the
+    /// numbers are worth keeping: over 400,000 real frames the rainy share
+    /// measured **0.102 at baseline against 0.168 at 8x**. That is not a rate
+    /// change, it is sampling -- `WEATHER_EPOCH_FRAMES` is 7,200, so the same
+    /// real window covers ~55 epochs at baseline and only ~7 at 8x, and seven
+    /// fronts is nowhere near the long-run mean. Anyone re-deriving this will
+    /// hit the same 60% discrepancy and should not read it as a defect.
+    ///
+    /// # What is *not* guarded, deliberately
+    ///
+    /// Water actually deposited per real frame, at world level. It was
+    /// attempted twice and abandoned: standing water read 3.0
+    /// cell-equivalents against 2.0 over 600 frames and passed unchanged with
+    /// a 4x budget divisor deliberately injected, because most of what falls
+    /// never becomes a water cell; the atmospheric bank's drawdown gave the
+    /// identical 3.0/2.0, because in a dry world deposition is *bank*-limited
+    /// rather than budget-limited; and adding a pool so evaporation kept
+    /// crediting the bank gave 0.000, because the bank is a net ledger. Three
+    /// tests that cannot fail would be worse than saying this plainly, per
+    /// `CLAUDE.md`. The clock mapping below is the part that is cheap, exact
+    /// and genuinely breakable.
+    #[test]
+    fn the_weather_clock_is_an_exact_stretch_so_fronts_lengthen_rather_than_multiply() {
+        use crate::sim::weather;
+
+        // Long enough to average over many epochs (`WEATHER_EPOCH_FRAMES` is
+        // 7,200) rather than over one front's worth.
+        const WEATHER_FRAMES: u64 = 400_000;
+        const SEED: u64 = 20_260_823;
+
+        let share_over_matched_curve = |slowdown: u32| {
+            let mut c = Clock::default();
+            c.set_rates(0, |c| c.weather_slowdown = slowdown);
+            let real_frames = WEATHER_FRAMES * slowdown as u64;
+            let (mut wet, mut total) = (0u64, 0u64);
+            for f in (0..real_frames).step_by(37 * slowdown as usize) {
+                // The mapping itself, asserted rather than assumed: everything
+                // above depends on it being this exact division.
+                assert_eq!(c.weather_frame(f), f / slowdown as u64, "the weather clock is not a clean stretch");
+                total += 1;
+                if weather::at(SEED, c.weather_frame(f)).is_precipitating() {
+                    wet += 1;
+                }
+            }
+            wet as f64 / total as f64
+        };
+
+        let base = share_over_matched_curve(1);
+        assert!(
+            (0.02..0.6).contains(&base),
+            "the baseline share is {base:.3}; a world that never rains, or always does, \
+             would make every comparison below meaningless"
+        );
+        for slowdown in [2, 4, 8] {
+            let share = share_over_matched_curve(slowdown);
+            assert!(
+                (share - base).abs() < 0.01,
+                "over a matched stretch of the weather curve, {share:.3} of frames are rainy at \
+                 {slowdown}x against {base:.3} at baseline -- the slowdown is changing how often \
+                 it rains rather than how long each front lasts, and the per-frame rain budget's \
+                 reasoning depends on it not doing that"
+            );
+        }
+    }
+
     #[test]
     fn gnome_scale_is_a_reciprocal() {
         assert_eq!(Clock::default().gnome_scale(), 1.0);

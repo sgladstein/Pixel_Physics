@@ -573,7 +573,7 @@ const SNOW_INSULATION: f32 = 4.0;
 /// Set to `SNOW_THRESHOLD` exactly, so there is one bar to remember rather
 /// than two to reconcile: **it freezes when it is cold enough to snow**,
 /// whether or not anything is actually falling.
-const DRY_FROST_CHILL: f32 = SNOW_THRESHOLD;
+pub(crate) const DRY_FROST_CHILL: f32 = SNOW_THRESHOLD;
 
 /// How deep a *crust* the front's own sweep will hold cold, in cells./// How deep a *crust* the front's own sweep will hold cold, in cells.
 ///
@@ -714,7 +714,7 @@ const LOCAL_RELIEF: i32 = 8;
 ///
 /// Below it the air is moving but not eventfully, and a world should not be
 /// paying for pressure impulses on an ordinary breezy afternoon.
-const GUST_THRESHOLD: f32 = 0.45;
+pub(crate) const GUST_THRESHOLD: f32 = 0.45;
 
 /// Frames between gusts at full wind. Gusts are *events* -- a squall
 /// arriving, not a constant push -- which is what keeps this on the right
