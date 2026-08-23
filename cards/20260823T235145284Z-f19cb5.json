@@ -1,0 +1,58 @@
+{
+  "id": "20260823T235145284Z-f19cb5",
+  "created": "2026-08-23T23:51:45Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "w3-grass-and-divergence",
+    "commit": "6865ff1",
+    "agent": null,
+    "session_id": "e508256a-2bd7-5dec-9d47-4ef4c1f5df05",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "How much grass should a world carry?",
+  "question": "Is this the right amount of ground cover for open country, or should a world carry noticeably more grass?",
+  "context_md": "**Re-shot after the last card came back \"I don't see a difference between the images.\"** That verdict was correct and the card was at fault. I counted instead of looking, and the numbers say why: the window I rendered held **125 grass cells against 7,853 woody cells** — grass was 1.6% of the vegetation in frame, scattered singly across 512 columns. The `meta` said \"grass: 71\" honestly, but that was the count for the *whole 8,192-column world*, not for the frame.\n\nThis pair is the same ground with and without the ground layer, cropped to where grass actually is. **No trees, shrubs, conifers or creepers are in this frame at all** — measured, not assumed — so everything that differs between the panes is grass.\n\nPreset is `canyon` rather than the default `rolling`, and that choice is itself a finding I would rather show you than hide: **on `rolling` there is nowhere in the world where grass is the dominant cover.** Its six densest 160-column windows all sit under 3,000–5,000 cells of tree or conifer, and where grass and canopy share rows the two greens are hard to tell apart. `canyon` carries the thinnest woody cover of the six presets, so it is where a sward is unobstructed.\n\n**The question I actually want answered is the density**, because that is a preset knob and an owner call, exactly like `tree_density`. What you are looking at is five tussocks across 192 columns. World-wide on `rolling`, grass is 1,251 cells against 71,000 plant cells — **1.8% of the vegetation**.\n\nTwo things I already measured, so you do not need to judge them:\n\n- The four woody species are sown **bit-identical** to main over a sixteen-seed sweep. Grass costs them nothing; it takes its columns from moss.\n- Grass establishes at 96% and then **thins as the canopy closes**: by 45,000 frames a `rolling` world holds 3 of 40. With the woody layer switched off on the same worlds it ends at 63 established from 43 sown, having bred. So that is succession working, not grass failing — but it does mean a mature world is nearly grass-free, which may or may not be what you want.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - main (no ground layer)",
+      "files": [
+        "20260823T235145284Z-f19cb5/000-A_main.png"
+      ],
+      "caption": "bare soil and two moss patches",
+      "meta": {
+        "grass cells in frame": 0,
+        "moss cells in frame": 25,
+        "woody cells in frame": 0,
+        "grass cells world-wide": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - grass sown",
+      "files": [
+        "20260823T235145284Z-f19cb5/001-B_grass.png"
+      ],
+      "caption": "same ground, five grass tussocks and their root mats",
+      "meta": {
+        "grass cells in frame": 100,
+        "moss cells in frame": 25,
+        "woody cells in frame": 0,
+        "grass cells world-wide": 574,
+        "grass as share of all plant cells (rolling preset)": "1.8%",
+        "grass plants established world-wide (rolling, 3600 frames)": 71
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
