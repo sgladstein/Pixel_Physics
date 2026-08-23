@@ -133,6 +133,7 @@ fn main() {
             "  of those, {rescued} rescued by the per-cell map; {was_ground} were ground at genesis and stay dark by design{}",
             if rescued == 0 { "  <-- the map is NOT reaching World::is_outdoors" } else { "" }
         );
+        overdark_report(&world);
         for (n, (cells, x0, y0, x1, y1)) in r.regions.iter().take(a.top).enumerate() {
             println!("  #{}: {cells:>5} cells at x {x0}..{x1}, y {y0}..{y1}", n + 1);
         }
@@ -144,6 +145,71 @@ fn main() {
         let p90 = worst[((worst.len() as f32 * 0.9) as usize).min(worst.len() - 1)];
         println!("\nover {} seeds: p90 {} cells (seed {}), max {} cells (seed {})", a.seeds, p90.0, p90.1, max.0, max.1);
     }
+}
+
+/// How much **rock** the depth grade over-darkens, which is the residual
+/// `Reports/dark-bands-diagnosis.md` left open after the per-cell map fixed
+/// the air.
+///
+/// The decision "is this underground" is per cell now, but the *depth* handed
+/// to `TerrainLight::Depth` still comes from the per-column skyline — and a
+/// morphological opening clips dips, not spikes, so anything solid standing
+/// over open air at genesis (a cliff brow, an arch, a boulder on legs) still
+/// hands the ground beneath it a large depth and shades it as if it were
+/// buried.
+///
+/// Measured as the gap between two depths:
+///
+/// - **graded** — `y - sky_surface[x]`, what the grade reads. A lower bound
+///   on the real thing: `light_datum` is the *opened* skyline and only ever
+///   sits higher, so the true gap is at least this.
+/// - **true** — how far up you walk before hitting a cell that is outdoors.
+///
+/// A cave does not count and that is the point of using `is_outdoors` rather
+/// than emptiness: walking up out of a sealed chamber keeps going, because
+/// cave air is not outdoors, so the two depths agree and the cell is not
+/// flagged. Only air the sky can actually reach shortens the true depth.
+fn overdark_report(world: &World) {
+    let Some(b) = world.bounds() else { return };
+    let surface = world.sky_surface();
+    let mut buckets = [0usize; 3];
+    let mut worst = (0i32, 0i32, 0i32);
+    for x in b.min_x..=b.max_x {
+        let Some(&ground) = surface.get((x - b.min_x) as usize) else { continue };
+        if ground == i32::MAX {
+            continue;
+        }
+        for y in ground..=b.max_y {
+            if matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Empty | MaterialKind::Gas) {
+                continue;
+            }
+            let graded = y - ground;
+            // Walk up to the first cell the sky can reach.
+            let mut d = 0;
+            let mut yy = y - 1;
+            while yy >= b.min_y && !world.is_outdoors(x, yy) {
+                d += 1;
+                yy -= 1;
+            }
+            let over = graded - d;
+            if over >= 8 {
+                buckets[0] += 1;
+            }
+            if over >= 24 {
+                buckets[1] += 1;
+            }
+            if over >= 64 {
+                buckets[2] += 1;
+            }
+            if over > worst.0 {
+                worst = (over, x, y);
+            }
+        }
+    }
+    println!(
+        "  over-darkened rock (suspended-object residual): {} cells by >=8 rows, {} by >=24, {} by >=64 (the whole ramp); worst {} rows at ({}, {})",
+        buckets[0], buckets[1], buckets[2], worst.0, worst.1, worst.2
+    );
 }
 
 fn build(seed: u64, a: &Args) -> World {

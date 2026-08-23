@@ -249,15 +249,48 @@ frames, which is noise and is recorded only so nobody reads it as a win.
 ### What it does not fix, and what is still visibly wrong
 
 - **The open-cast pit**, as designed and as agreed.
-- **Rock under a suspended object is still over-darkened.** The *decision* is
-  now per cell; the *depth* still comes from `light_datum`, the per-column
-  skyline with narrow dips clipped — and an opening clips dips, not spikes,
-  so a slab hanging at genesis still hands the ground beneath it a large
-  depth. On `scene=rockdrop` the band through the air and the pond is gone
-  and a faint one across the pool floor remains. The honest fix is a depth
-  measured from the nearest outdoors cell rather than from a column datum,
-  which is the same distance transform the pit case wants; it belongs with
-  that work, not bolted on here.
+- **Rock under an overhang is still over-darkened**, and *measured* it is far
+  larger than the "suspended object" framing this section first gave it. The
+  *decision* is per cell now; the *depth* still comes from `light_datum`, the
+  per-column skyline with narrow dips clipped — and an opening clips dips, not
+  spikes, so anything solid standing over open air hands the ground beneath it
+  a large depth. Every cliff brow does this, not just a slab dropped in a test
+  scene.
+
+  Counted by `underground_probe`'s `overdark_report`, which compares the depth
+  the grade reads (`y - sky_surface[x]`) against how far up you actually walk
+  before reaching a cell the sky can reach — so a sealed cave does not count,
+  because cave air is not outdoors and the walk keeps going:
+
+  | seed | over by >=8 rows | by >=24 | by >=64 | worst |
+  |---|---|---|---|---|
+  | 1 | 7,569 | 0 | 0 | 19 rows |
+  | 2 | 48,391 | 2,966 | 0 | 37 rows |
+  | 3 | 25,588 | 5,415 | 0 | 29 rows |
+  | 4 | 34,114 | 0 | 0 | 23 rows |
+
+  **Cell count is the wrong scale to judge it by, though.** The grade is a
+  smoothstep from 1.0 to `DEPTH_LIGHT_FLOOR` over 64 rows and is flat at both
+  ends, so 8 rows of excess costs about **1.6%** of brightness — invisible.
+  24 rows costs ~12% and the worst case ~23%, which is the part that can be
+  seen, and it is zero on half the seeds measured.
+
+  **And it may not be a defect at all.** What it does is darken rock *under an
+  overhang*, which is what a shadow does. The air version of this bug was
+  plainly wrong because it darkened *sky*; this one might read as ambient
+  occlusion and removing it could flatten the cliffs. That is a judge-by-eye
+  question and it has not been asked, so it is not fixed and should not be
+  fixed on principle.
+
+  If the answer comes back "bug", the options are all worse than they look. A
+  per-column run-length datum (depth below the nearest outdoors cell above)
+  fixes it and immediately reintroduces bright rock at the floor of every
+  narrow notch — the exact artifact `light_datum`'s opening exists to prevent;
+  the two cases are the same shape to any column rule. Driving the solid grade
+  from the sky-light field discriminates them with no threshold at all, and
+  collapses the lit surface band from 64 rows to about **4**, because light
+  decays at 0.56 a cell through solid. That is a whole-world relight, not a
+  bug fix.
 
 ## Guards
 
