@@ -172,7 +172,12 @@ tried?"*.
   `examples/divergence.rs`, the two-patch instrument
   `physical-trees-design-2026-08-23.md` §11.6 is waiting on: same founders,
   one axis, scored on root:shoot and slenderness, with an exact
-  identical-patch control and §7's list of what it takes to point it at wind.
+  identical-patch control and §8's list of what it takes to point it at wind.
+  **§11 is the card-design postmortem** — the first review card was a null,
+  and counting rather than looking found why: the rendered window held 125
+  grass cells against 7,853 woody, while its `meta` honestly quoted the
+  whole-world total. §13 is the handoff, including what W4's exposure work
+  has to provide before the instrument can be aimed at wind.
 
 The genome and appearance set, merged from `plant-substrate-v2` /
 `plant-genome`. Two of its claims did not survive contact with main's

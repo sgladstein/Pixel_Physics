@@ -404,7 +404,61 @@ Three readings, and they are not the same reading:
 **The lever, if that is too much, is `grass_density`** — a preset field, thinning
 the sward without moving where it goes.
 
-## 11. What this leaves open
+## 11. Grass does not read at world scale, and the card is how that was found
+
+The first review card — the shipped world with grass against without, at 4x —
+came back ***"I don't see a difference between the images."*** The verdict was
+correct and the card was at fault, and **counting rather than looking** is what
+established which:
+
+| in the window that was rendered (512 columns of 8,192) | cells |
+|---|---|
+| grass | **125** |
+| tree | 5,185 |
+| conifer | 1,457 |
+| shrub | 1,149 |
+| creeper | 62 |
+
+Grass was **1.6% of the vegetation in frame**, scattered singly across 512
+columns. The card's `meta` honestly said "grass: 71" — but that was the count
+for the *whole world*, and **a whole-world total cannot say whether the thing
+is in the frame**. That is the house rule about putting the counter in `meta`
+failing in a way worth recording: the number was real, was printed, and was the
+wrong number.
+
+`examples/flora_census -- where=1` exists now because nothing in the harness
+could answer "where is this species" at all. `at=X` audits a window already
+rendered; `focus=NAME` ranks the top non-overlapping windows for one species
+and prints every other species sharing each — because *where is this species*
+and *where can I photograph this species* are different questions. Each window
+prints the species' row range too, after a 70-row crop guessed from the surface
+line missed a sward whose rows were 138..164.
+
+**What it found is a finding, not a framing fix.** On the default `rolling`
+preset there is **nowhere** grass is the dominant cover:
+
+| top 160-column windows for grass, `rolling` seed 1 | grass | what shares them |
+|---|---|---|
+| x=7723 | 348 | tree 4,203, creeper 122 |
+| x=287 | 260 | conifer 4,993, shrub 127 |
+| x=7022 | 112 | tree 3,063, moss 103 |
+| x=69 | 95 | tree 3,729, creeper 194 |
+
+Every one sits under three to five thousand cells of woody canopy, and where
+grass and canopy share rows the two greens are hard to tell apart at any zoom.
+World-wide grass is **1,251 cells against ~71,000 plant cells — 1.8%**.
+
+So the re-shot card is on `canyon`, the thinnest woody preset, at a window
+verified before rendering to hold **100 grass cells, 25 moss and zero woody
+cells**. There grass reads unmistakably: five tussocks with their root mats,
+against bare soil in the paired pane.
+
+**The open question that leaves is density, and it is an owner call** — the
+same kind of call `tree_density` is. Five tussocks across 192 columns is
+scattered ground cover, not a sward, and `grass_density` is the one knob that
+moves it. The card asks it directly rather than this package guessing.
+
+## 12. What this leaves open
 
 - **Grass's long-run fate** (§9) — the mature world is nearly grass-free, and
   the three levers are all other packages'. Worth an owner call on whether a
@@ -421,3 +475,100 @@ the sward without moving where it goes.
   seed germinates into a `wood`-material `GrowingTip`, and grass germinates
   into `grassblade`. Left for whoever is next in `plant.rs`, which two other
   packages are live in.
+
+---
+
+## 13. Handoff
+
+**State: feature-complete and pushed** on `w3-grass-and-divergence`
+(`e51ebd8` at time of writing), merged up to `main` at `4913ab0`. All four
+gates green — `cargo test --release --locked --skip …` 895/9/2/44 with 0
+failed, clippy clean, `acceptance.sh` all cases met, `docscheck.sh` clean.
+
+**The PR is not open, and that is an environment block rather than a
+decision.** Creating it returns an organisation-policy denial the agent proxy's
+own README says not to retry:
+
+> GitHub access is not enabled for this session. An org admin must connect the
+> Claude GitHub App for this organization.
+
+The branch is pushed and the remote matches local HEAD exactly. Whoever has
+GitHub write can open it from
+`https://github.com/sgladstein/Pixel_Physics/pull/new/w3-grass-and-divergence`;
+this report carries every number a PR body would.
+
+### What the next session should pick up, in order
+
+1. **The density call.** Card `20260823T235145284Z-f19cb5` asks the owner
+   directly whether a world should carry more grass than five tussocks per 192
+   columns. If the answer is yes, `grass_density` is the knob — and note the
+   guard bar `median <= 72` in `grass_is_sown_across_a_seed_sweep` was set from
+   the *current* value and will need re-deriving with it, along with the slot
+   high-water and the frame cost.
+2. **Confirm the divergence result at maturity.** Root:shoot diverges 8 of 8
+   at 10,800 frames; `plant-species-authoring.md` §8 says confirm at 30,000,
+   and W1 measured a root axis that peaked at 25,200 and washed out by 43,200.
+   One command: `divergence -- frames=25200 seeds=8`. Watch the axis-check line
+   — the first rain at the default seed lands at frame 14,400, inside that
+   window.
+3. **Whether a mature world should be a closed forest** (§9). Not a bug; a
+   design call the owner has not been asked.
+
+### Pointing the two-patch instrument at wind — the pairing W4 gates
+
+This is the half the integrator asked for specifically, and the short answer is
+that **the instrument is already done and exposure is the whole remaining
+cost.** Everything downstream of the axis — the two-world construction that
+makes founders literally identical, the exact-zero control, both morphology
+metrics, the seed sweep, the establishment-imbalance warning and the
+axis-survival check — is written without knowing what is being varied. Adding
+wind is one arm on `Axis` and no other change.
+
+What has to exist first, and it is entirely W4's:
+
+- **Position-dependent wind.** `weather::at(seed, frame)` takes no position, so
+  `wind` is one value for the whole world. Until an organism's experienced wind
+  is a function of *where it is*, the two patches cannot differ on it — the
+  windy patch and the sheltered patch are the same patch, and the instrument
+  would correctly report zero divergence for a reason that has nothing to do
+  with trees. `physical-trees-design-2026-08-23.md` §11.5 specifies the cheap
+  shape: exposure derived from terrain at gust time (open fetch upwind, height
+  above local ground), read by the handful of organisms a 26-cell gust
+  overlaps, nothing written and nothing stored.
+
+Three things this package learned that W4's exposure work should inherit,
+because each cost a run here:
+
+- **The axis-survival check matters more for wind than it did for moisture, not
+  less.** Gusts fire on 41.6% of frames at the default seed. A patch that is
+  sheltered from only *some* gust directions converges on the exposed one over
+  a long run, and the instrument would then report a null belonging to the
+  scene rather than to the model. `Axis::Exposure` must report **realised**
+  mean exposure per patch at the end of the run, the way `Axis::Moisture`
+  reports realised soil water — not the exposure that was requested.
+- **The arm that is "worse" must still support a population.** The moisture
+  axis's first dry setting was under `tree`'s germination bar and established
+  0, 0, 2 and 1 of twelve founders against a wet patch's 12 — a stand against
+  an empty field, with the morphology columns reading three plants. The wind
+  equivalent is an exposed arm violent enough to kill or uproot most founders:
+  the same confound, and the same warning line already catches it (it fires
+  when one patch establishes under half the other).
+- **Expect the refusal, and do not tune it away.** Slenderness did *not*
+  respond to moisture — 5 of 8 seeds, swinging −5.15 to +3.94 against a pooled
+  spread of 2.5 to 122. Slenderness is the metric the wind question is really
+  about, and §11.6's own reading is that what should move it is **plasticity**
+  (a repeatedly shaken tree putting carbon into stem and root instead of
+  height), which is an economy directive in lane P and not something exposure
+  alone will produce. So the likely first result of pointing this at wind is
+  *root:shoot moves, slenderness does not* — and that is information about the
+  economy, not a broken instrument.
+
+### Instruments this package leaves behind
+
+| | what it answers |
+|---|---|
+| `examples/divergence.rs` | does one environmental difference produce two different-shaped plants — with an exact identical-patch control |
+| `flora_census -- where=1 focus=NAME` | where in the world a species actually is, and what shares the frame — point a camera before rendering a card |
+| `flora_census -- at=X` | what a window you already rendered actually contained — audit a card before believing it |
+| `flora_census -- treedensity= grassdensity= mossdensity=` | run the control without editing a preset |
+| `flora_census` slot line | organism-slot high-water and births refused, per run |
