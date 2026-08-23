@@ -4103,7 +4103,8 @@ fn report_loads(world: &World, args: &Args) {
 /// that is supposed to stand must show that nothing fired
 /// (`max_failures`), which is only meaningful once the same binary has
 /// demonstrated it can fire at all on the collapsing scenes.
-fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, peak_bodies: usize, cells_before: (i64, i64), cave_before: i64) -> bool {
+fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, peaks: (usize, usize), cells_before: (i64, i64), cave_before: i64) -> bool {
+    let (peak_bodies, peak_tissue) = peaks;
     let f = world.structural_failures;
     let mut ok = true;
     if let Some(pct) = args.min_cave {
@@ -4208,6 +4209,14 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
     // whose whole life falls between two tiles is invisible in the per-tile
     // lines above.
     println!("  peak chunk bodies in flight at once: {peak_bodies}");
+    // Printed unconditionally beside it, and only ever non-zero on a scene
+    // with an organism in it: this is felling's "did it fire" counter, and
+    // the one the per-tile census cannot carry.
+    println!("  peak cells of plant tissue riding in those bodies: {peak_tissue}");
+    println!(
+        "  of {} cells the support check severed, {} left as pieces",
+        world.structural_failures.severed_organism_cells, world.structural_failures.severed_organism_pieces
+    );
     if let Some(max) = args.max_unconfined {
         // `confined` counts failures of *either* mode whose region had no
         // free face (`structural.rs` records the confined-unsupported
@@ -4253,14 +4262,14 @@ fn main() {
     for _ in 1..args.repeat {
         samples.push(run_once(&args, false).0);
     }
-    let (last_ms, world, gnome, peak_bodies, cells_before, cave_before) = run_once(&args, true);
+    let (last_ms, world, gnome, peaks, cells_before, cave_before) = run_once(&args, true);
     samples.push(last_ms);
     let best = samples.iter().cloned().fold(f64::INFINITY, f64::min);
     if args.repeat > 1 {
         let worst = samples.iter().cloned().fold(0.0, f64::max);
         println!("worst frame over {} runs: {best:.2} ms (spread {best:.2}-{worst:.2})", args.repeat);
     }
-    if !check_expectations(&world, &args, &gnome, best, peak_bodies, cells_before, cave_before) {
+    if !check_expectations(&world, &args, &gnome, best, peaks, cells_before, cave_before) {
         std::process::exit(1);
     }
 }
@@ -4409,7 +4418,7 @@ impl PanelSheet {
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
 /// not need an image and should not pay for one.
-fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
+fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i64, i64), i64) {
     let mut world = build(args);
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
@@ -4514,6 +4523,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     if args.gif {
         let mut frames = Vec::with_capacity(args.count);
         let mut step_no = 0usize;
+        // Local to this branch, which returns before the sheet path's own
+        // pair is declared. See the sampling site inside the loop for why a
+        // gif run has to keep them at all.
+        let (mut peak_bodies, mut peak_tissue) = (0usize, 0usize);
         for i in 0..args.count {
             let target = args.start + i * args.every;
             while step_no < target {
@@ -4525,6 +4538,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
                 fire_due_pokes(&mut world, &mut pending_pokes, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
+                // **A GIF cannot carry its own counts, so the run has to
+                // print them.** This branch used to sample nothing and
+                // return a hardcoded zero, so the summary line reported
+                // `peak chunk bodies in flight at once: 0` on a run that in
+                // fact peaked at 22 -- and the house rule that the discrete
+                // event count goes in the review card's `meta` then needed
+                // a whole second, non-gif run at the same span to source a
+                // number the gif run already had.
+                // `Reports/physical-trees-design-2026-08-23.md` §9.5.
+                peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+                peak_tissue = peak_tissue.max(world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.organism_id != 0).count());
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
@@ -4558,12 +4582,35 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
         drop(encoder);
         println!("animated gif ({tile_w}x{tile_h}, {} frames): {}", args.count, args.out);
-        // The gif branch is for watching motion, not for measuring; it has
-        // no per-frame timing of its own and `repeat`/expectations do not
-        // apply to it.
-        // The gif branch is for watching motion, not measuring: no
-        // per-frame timing and no body sampling, so it reports neither.
-        return (0.0, world, gnome, 0, cells_before, cave_before);
+        // **Counts, printed here rather than left to a second run.** The
+        // branch still does no per-frame *timing* -- it renders every
+        // captured frame and plays at real speed, so its worst frame is a
+        // measurement of this harness rather than of the engine, and
+        // `repeat=`/`max_frame_ms` genuinely do not apply. Counts are a
+        // different thing: they are the world's, not the harness's, and
+        // withholding them is what made a gif card unable to say whether
+        // the mechanism it was showing had fired at all.
+        //
+        // The world census, not the per-tile block: the tiles are frames of
+        // an animation here and there is no "tile 3" to hang it under.
+        let living: usize = (0..WIDTH)
+            .flat_map(|x| (0..HEIGHT).map(move |y| (x, y)))
+            .filter(|&(x, y)| world.get(x, y).organism_id() != 0)
+            .count();
+        if living > 0 {
+            FellCensus::of(&world).print(&world);
+        }
+        let f = &world.structural_failures;
+        let failed_cells = f.overloaded_cells + f.unsupported_cells;
+        println!(
+            "    crumbled to grit (region < MIN_FRACTURE_CELLS): {} regions, {} cells of {} failed ({:.0}%)",
+            f.crumbled,
+            f.crumbled_cells,
+            failed_cells,
+            if failed_cells == 0 { 0.0 } else { 100.0 * f.crumbled_cells as f64 / failed_cells as f64 }
+        );
+        println!("    what came off: {} cells as chunks, {} as dust", f.promoted_cells, f.shattered_cells);
+        return (0.0, world, gnome, (peak_bodies, peak_tissue), cells_before, cave_before);
     }
 
     // `panels=`: a second sheet, one column per charge and one row per age.
@@ -4621,6 +4668,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // visibly threw rock is exactly the confusion this harness exists to
     // prevent.
     let mut peak_bodies = 0usize;
+    // **Cells of living tissue riding in bodies, at the busiest instant of
+    // the run**, sampled every frame for exactly the reason `peak_bodies`
+    // is: a felled crown's whole flight can fall between two tiles, and the
+    // per-tile line then reads "bodies carrying plant material 0 of 0" on a
+    // run where a tree came down in pieces -- which is indistinguishable
+    // from the pre-T1 behaviour it is supposed to show is gone. The last
+    // tile of `scene=fell` is *after* everything landed, so the honest zero
+    // there says nothing at all about whether it fired.
+    let mut peak_tissue = 0usize;
     // Peak speed reached by a body in each size class -- see the loop that
     // fills it, and `rigid::SINK_DRAG_COEFFICIENT` for the curve it is the
     // readout for.
@@ -4666,6 +4722,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             // in made all seven scenes report the same ~70-110 ms and hid
             // the differences between them entirely.
             peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            peak_tissue = peak_tissue.max(world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.organism_id != 0).count());
             for b in &world.chunk_bodies {
                 let speed = (b.vx * b.vx + b.vy * b.vy).sqrt();
                 peak_speed = peak_speed.max(speed);
@@ -5536,6 +5593,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            peak_tissue = peak_tissue.max(world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.organism_id != 0).count());
             if ms > worst_ms && step_no > 0 {
                 worst_ms = ms;
                 worst_frame = step_no;
@@ -5603,7 +5661,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // encoded and announced the same PNG twice, and a timing-only `repeat=`
     // pass -- which renders nothing worth keeping -- wrote and announced one
     // as well.
-    (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
+    (worst_ms, world, gnome, (peak_bodies, peak_tissue), cells_before, cave_before)
 }
 
 /// How much rock and rubble the world is holding: `Solid` and `Powder`
@@ -6088,17 +6146,26 @@ struct FellCensus {
     /// `None` when nothing has a collar yet (no shoot, or an organism that
     /// has not ticked).
     collar: Option<(i32, i32, i32, usize)>,
-    /// Debris standing in the grid: the `deadwood` every plant material
-    /// `breaks_into`, and the `litter` it decays to.
+    /// Debris standing in the grid, one field per **tier**: `log` is the
+    /// piece a fall leaves lying, `deadwood` the grit it is lying in, and
+    /// `litter` the foliage scattered over both.
+    ///
+    /// Three numbers rather than one because the whole acceptance question
+    /// for T1 is the *ratio* between them. One "debris" total cannot tell a
+    /// felled tree from a cone of sawdust, which is precisely the reading
+    /// that shipped: 2,745 cells of deadwood and 77 of litter, no log tier
+    /// at all, and a picture that looked like a collapse.
+    log: usize,
     deadwood: usize,
     litter: usize,
-    /// Cells riding in `ChunkBody`s, and how many of them are plant
-    /// material. **The second number is zero by construction today** --
-    /// `rigid::promote` and `loosen_shell` both decline organism-owned
-    /// cells, so a severed limb cannot become a body at all; carrying the
-    /// organism id through promotion is package S2. Printed anyway, and
-    /// printed as a pair, because that is the number S2 has to move and a
-    /// zero here is the honest statement of where this stands.
+    /// Cells riding in `ChunkBody`s, and how many of them **left the grid as
+    /// organism tissue** (`rigid::BodyCell::organism_id`).
+    ///
+    /// Keyed on the id and not on `MaterialKind::Plant`, and that is not
+    /// interchangeable: a body's cells keep the material they took off with
+    /// today, but the moment anything converts a piece in flight the kind
+    /// test would silently report zero on a body that is entirely tree. The
+    /// id is what the question is actually about.
     body_cells: usize,
     body_plant_cells: usize,
 }
@@ -6107,9 +6174,10 @@ impl FellCensus {
     fn of(world: &World) -> Self {
         let deadwood_id = world.materials.id_of("deadwood");
         let litter_id = world.materials.id_of("litter");
+        let log_id = world.materials.id_of("log");
         let (mut standing, mut shoot, mut root) = (0usize, 0usize, 0usize);
         let (mut detached, mut furthest) = (0usize, 0u16);
-        let (mut deadwood, mut litter) = (0usize, 0usize);
+        let (mut deadwood, mut litter, mut log) = (0usize, 0usize, 0usize);
         let mut ids: HashSet<u16> = HashSet::new();
         for y in 0..HEIGHT {
             for x in 0..WIDTH {
@@ -6119,6 +6187,9 @@ impl FellCensus {
                 }
                 if Some(cell.material) == litter_id {
                     litter += 1;
+                }
+                if Some(cell.material) == log_id {
+                    log += 1;
                 }
                 if cell.organism_id() == 0 {
                     continue;
@@ -6170,7 +6241,6 @@ impl FellCensus {
                 .min_by_key(|&(n, y, _, _)| (n, std::cmp::Reverse(y)))
                 .map(|(n, y, lo, hi)| (y, lo, hi, n))
         });
-        let plant_kind = |m| world.materials.kind(m) == MaterialKind::Plant;
         Self {
             standing,
             shoot,
@@ -6179,10 +6249,11 @@ impl FellCensus {
             detached,
             furthest,
             collar,
+            log,
             deadwood,
             litter,
             body_cells: world.chunk_bodies.iter().map(|b| b.cells.len()).sum(),
-            body_plant_cells: world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| plant_kind(c.material)).count(),
+            body_plant_cells: world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.organism_id != 0).count(),
         }
     }
 
@@ -6196,9 +6267,30 @@ impl FellCensus {
             "      support: detached (unreached) {} cells, furthest finite {} of wood's 96; severed by the support check {} cells so far",
             self.detached, self.furthest, world.structural_failures.severed_organism_cells,
         );
+        // **The three tiers, and the promoted share, on the two lines the
+        // acceptance bar is read off.** An image says a tree came down; only
+        // these say whether what came down was pieces. The share is printed
+        // rather than left to be divided by eye because the pair it is taken
+        // from is cumulative and world-wide, and a reader who divides the
+        // wrong two numbers gets a plausible answer -- see
+        // `FailureCounts::severed_organism_pieces`.
+        let severed = world.structural_failures.severed_organism_cells;
+        let pieces = world.structural_failures.severed_organism_pieces;
+        let share = if severed == 0 { 0.0 } else { 100.0 * pieces as f64 / severed as f64 };
         println!(
-            "      debris: deadwood {} cells, litter {}; bodies carrying plant material {} of {} body cells",
-            self.deadwood, self.litter, self.body_plant_cells, self.body_cells,
+            "      debris: log {} cells, deadwood {}, litter {}; bodies carrying plant material {} of {} body cells",
+            self.log, self.deadwood, self.litter, self.body_plant_cells, self.body_cells,
+        );
+        println!("      of {severed} severed cells, {pieces} left as pieces ({share:.0}%); the rest converted where they stood");
+        // **§1c, made visible rather than fixed.** A body cell with nowhere
+        // to go is dropped, and a felled crown lands in a pile of its own
+        // grit -- the exact configuration where the ring search comes back
+        // empty. Printed here so the difference between "the fall turned to
+        // dust" and "part of the fall was deleted at the moment it landed"
+        // is a number on the sheet rather than a hypothesis about it.
+        println!(
+            "      {} of those pieces landed as {} cells of log; {} cells were lost in settle (nowhere to place)",
+            pieces, world.structural_failures.settled_tissue_cells, world.structural_failures.settle_lost_cells
         );
     }
 }

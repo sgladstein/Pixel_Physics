@@ -5480,7 +5480,7 @@ mod tests {
 
         world.set(X, Y, Cell::EMPTY);
         world.chunk_bodies.push(crate::sim::rigid::ChunkBody::at(
-            vec![crate::sim::rigid::BodyCell { dx: 0, dy: 0, material: material::STONE, shade: 3 }],
+            vec![crate::sim::rigid::BodyCell { dx: 0, dy: 0, material: material::STONE, shade: 3, organism_id: 0 }],
             X as f32,
             Y as f32,
         ));

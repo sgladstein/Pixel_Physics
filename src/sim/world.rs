@@ -1137,6 +1137,53 @@ pub struct FailureCounts {
     /// deadwood on its own schedule and a tree being chopped down are the
     /// same conversion and different events.
     pub severed_organism_cells: u32,
+    /// Of `severed_organism_cells`, how many left the grid as **pieces** --
+    /// cells of a promoted `ChunkBody` rather than grains converted in
+    /// place.
+    ///
+    /// **The acceptance number for felling, and the pair is the metric, not
+    /// either half.** `severed_organism_cells` alone says a tree came down;
+    /// it says nothing about *what came down*, and the two outcomes it
+    /// cannot tell apart are the whole complaint: a crown that arrives as
+    /// logs and a crown that arrives as two and a half thousand grains of
+    /// deadwood are the same number here and are the difference between
+    /// "the tree fell" and `design-philosophy.md` §0a's uniform dissolve to
+    /// powder. Measured before this package: 2,648 severed, 45 as pieces --
+    /// **1.7%**.
+    ///
+    /// Kept apart from `promoted_cells` for that field's own stated reason
+    /// read the other way round: `promoted_cells` is world-wide and
+    /// cumulative over rock and tissue alike, so a felling scene's share
+    /// cannot be recovered from it once anything else in the world has
+    /// broken. Both are recorded; only this one answers "how much of the
+    /// *tree* survived as something you can see move".
+    pub severed_organism_pieces: u32,
+    /// Cells of a settling `ChunkBody` that found **nowhere to go** and were
+    /// dropped -- neither written back into the grid nor displaced.
+    ///
+    /// `rigid::settle` searches (empty cell, then a liquid it outweighs,
+    /// then a ring search, then an adjacent liquid) and a cell that fails
+    /// every arm is destroyed silently. `Reports/open-bugs-handoff.md` §1c
+    /// carries the standing measurement, around 10% of a body's cells; this
+    /// makes it a per-run number instead of a remembered one.
+    ///
+    /// **Instrumentation ahead of the fix, deliberately.** It matters much
+    /// more now than it did: before organism tissue could be promoted at
+    /// all, a body landed on terrain, and now a felled crown's pieces land
+    /// in a large pile of the same crown's own grit -- which is exactly the
+    /// configuration where `nearest_free`'s rings come back empty. A share
+    /// of a fall that simply vanishes reads on screen as a fall that ate
+    /// itself, and no other counter here can distinguish it from grit.
+    pub settle_lost_cells: u32,
+    /// Cells `rigid::settle` wrote back as a **piece tier**
+    /// (`MaterialDef::severs_into`) — a promoted limb arriving as `log`.
+    ///
+    /// The delivery end of `severed_organism_pieces`, which is the
+    /// promotion end. Both are needed: a census of `log` standing in the
+    /// world measures what has *survived* decay and fire since, and cannot
+    /// distinguish a fall that never delivered its pieces from one that
+    /// delivered them and then lost them.
+    pub settled_tissue_cells: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -1162,6 +1209,26 @@ impl FailureCounts {
     /// not be counted, for the same reason `break_free` reports it.
     pub fn record_severed_organism(&mut self, cells: u32) {
         self.severed_organism_cells = self.severed_organism_cells.saturating_add(cells);
+    }
+
+    /// See `severed_organism_pieces`. Always a subset of the cells passed to
+    /// `record_severed_organism` for the same event, and recorded beside it
+    /// rather than derived: the grit half is everything that is not this,
+    /// and computing it from two independently accumulated world totals
+    /// would drift the moment anything else in the world breaks.
+    pub fn record_severed_pieces(&mut self, cells: u32) {
+        self.severed_organism_pieces = self.severed_organism_pieces.saturating_add(cells);
+    }
+
+    /// See `settle_lost_cells`. One call per cell `rigid::settle` could not
+    /// place anywhere.
+    pub fn record_settle_loss(&mut self, cells: u32) {
+        self.settle_lost_cells = self.settle_lost_cells.saturating_add(cells);
+    }
+
+    /// See `settled_tissue_cells`.
+    pub fn record_settled_tissue(&mut self, cells: u32) {
+        self.settled_tissue_cells = self.settled_tissue_cells.saturating_add(cells);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {

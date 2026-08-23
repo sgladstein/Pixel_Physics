@@ -2868,7 +2868,13 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool
     NEIGHBOURS_4.iter().any(|&(dx, dy)| {
         let n = world.get(x + dx, y + dy);
         let m = world.materials.get(n.material);
-        m.kind == MaterialKind::Solid || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
+        // **`anchors_organisms`, not just `Solid`.** Every solid in the
+        // world was terrain when this rule was written; `log` is the first
+        // that is *debris*, and a chip the axe knocks off a bole lands
+        // beside the stump and held the whole crown up -- 2,360 cells
+        // severed became 0 on `scripts/acceptance.sh`'s `fell` case, with
+        // the cut working perfectly. See `MaterialDef::anchors_organisms`.
+        (m.kind == MaterialKind::Solid && m.anchors_organisms) || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
     })
 }
 
