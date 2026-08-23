@@ -249,18 +249,97 @@ value pulls the root up, so the high end of slot 5 is the **shallow**
 morphology and the low end is the deep one. The first pair of files went out
 named backwards.
 
-The difference is visible, not merely numerical: at gain 0.84 the roots run
-as a horizontal mat in the top few rows, and at 0.36 they drive vertical
-strands down to the bedrock band. That is the turf-against-prairie
-distinction `root-morphology-findings.md` named as the near-term win, and it
-needed no mechanism at all — only the comparison run on the presentation the
-findings report specified (single plants at zoom, never stand medians).
+### The owner's verdict, and the control it forced
 
-Posted as a blind A/B; the verdict is the thing that decides whether Arc B's
-thickening and dominance work is still needed before root form is worth
-showing again.
+Posted as a blind A/B. The verdict: ***"They look identical. Have you
+provided enough soil under the plant to really test differences."***
 
-## 7. Cost
+He was right to ask, and the control changes the conclusion rather than
+confirming it. `common::SOIL_DEPTH` is **34** rows, and the low-gain
+treatment's *deepest* individual measured exactly **34** — it was standing on
+the floor of the scene. Re-run at `soil=100`, which the scene has room for
+(`ground_y` 200 in a 320-row world):
+
+| | gain 0.36 @ soil 34 | gain 0.36 @ soil 100 | gain 0.84 @ soil 34 | gain 0.84 @ soil 100 |
+|---|---|---|---|---|
+| deepest row below surface, mean | 31.8 | 32.0 | 23.4 | 21.6 |
+| deepest, max | **34 (the floor)** | 57 | 34 | 32 |
+| median root cell, rows down | 16 | 11 | 8 | 8 |
+| depth histogram | 21/21/17/21/17 | 74/22/3/0/0 | 40/39/14/4/0 | 93/6/0/0/0 |
+
+Three things fall out, and the second one retracts a claim already posted:
+
+1. **The scene was clamping the deep treatment's outliers.** Max depth 34 is
+   the soil floor exactly; given room it reaches 57. `SOIL_DEPTH`'s own
+   comment claims it is "deep enough for a real root system to spread
+   without hitting rock" — for this treatment that is measurably false.
+2. **The depth histogram is normalised to the soil column, so it is not
+   comparable across soil depths, and I read it as if it were.** The flat
+   `21/21/17/21/17` I posted as "drives vertical strands down to the bedrock
+   band" is what a *shallow* profile looks like when the column is only 34
+   rows deep. The same treatment reads `74/22/3/0/0` given real depth. The
+   claim was an artifact of the scene, and the picture the owner saw was
+   telling him the truth.
+3. **The axis is real but much smaller than posted.** Mean deepest row 32.0
+   against 21.6, median root cell 11 against 8. That is a genuine ~1.5x on
+   depth and it is *not* nothing — but it is nowhere near turf-against-
+   prairie, and "they look identical" is the correct reading of it.
+
+**So B1's answer is: the reachable slot-5 axis is not enough.** That is a
+useful negative — it is exactly the standing that decides Arc B's sequencing,
+and it says the thickening (B2) and dominance (B3) mechanisms have to land
+before root form is worth showing again. Two prior owner verdicts already
+said tuning-level root variety does not read; this is the third, now with
+the scene error ruled out rather than suspected.
+
+**Method note for whoever runs the next root comparison:** set `soil=` well
+past the deepest root you expect *and* check the max against it, because a
+root system resting on the scene floor and one that chose its depth are the
+same picture. `plant_probe` takes `soil=N`; `filmstrip scene=grove` does not,
+which is why the render and the numbers were taken at different depths.
+
+## 7. The panorama verdict, and a lever that does not pay for itself
+
+The generated-world panorama came back ***"Mostly more of the same"*** — the
+four species are sown, established and counted, and crossing the world still
+does not read as country changing. A count says a species is present; it
+cannot say it is present *somewhere in particular*.
+
+`examples/flora_census -- mix=1` was written to measure that, pooled over
+eight worlds. Two readings, because they fail differently: what fraction of
+a plant's nearest woody neighbours share its species (read against that
+species' own share of the population, which is the no-structure baseline),
+and how many consecutive plants of one species you pass.
+
+| species | same-species neighbours | share of population | mean run |
+|---|---|---|---|
+| conifer | 0.41 | 0.21 | 1.72 |
+| creeper | 0.43 | 0.28 | 1.75 |
+| shrub | 0.36 | 0.15 | 1.62 |
+| tree | 0.59 | 0.36 | 2.46 |
+
+**The niche weights are not decorative** — every species is 1.5x to 2.4x more
+likely to sit beside its own kind than chance. But a "belt" averages **1.6 to
+2.5 plants**, and a viewport holds ten to twenty. You never cross a boundary;
+you stand in a permanent mixture. That is the verdict, in a number.
+
+The obvious lever is to sharpen the weights before normalising them, so a
+column's best-suited species takes more of it. **Swept, and rejected**, with
+one trap caught on the way: sharpening shrinks every weight (they are all
+below 1), which thinned the world 38% and then inflated the very run-length
+number being judged — two knobs moving one metric. Separating "how much"
+(the unsharpened sum) from "which species" (the sharpened split) fixed that,
+and the corrected sweep is in `NICHE_SHARPNESS`'s own doc.
+
+It still does not pay. **At every setting from 2.0 up, `shrub` disappears
+from 2 of 16 generated worlds** — the sixteen-seed guard caught what the
+pooled eight-world numbers could not. Sharpening takes the rarest species'
+marginal columns first, so the cost lands precisely on the species this
+package just finished putting into the world, and the gain at settings that
+survive is small (shrub's run 1.62 -> 2.04). Left at 1.0, documented, with
+the sweep recorded so nobody re-derives it.
+
+## 8. Cost
 
 `examples/ascii`, this branch against its own base `origin/main`
 (`a0fa433`), **built and run in the same session on the same machine**, and
@@ -304,7 +383,83 @@ deliberately not been pre-emptively tuned, because the question "is this
 world too full" is one the owner answers by eye, and the panorama card asks
 it directly.
 
-## 8. What this leaves open
+## 9. The owner's question: could this ever grow a tomato plant?
+
+Asked on the four-species card, and it deserves a real answer rather than a
+deferral, because the answer sequences a lot of future work:
+
+> *"Different-ish. The biggest differences are still size and color. That
+> really different morphology. I think the issue is in the base design of the
+> random walk growth. At some point we should consider flowers and fruits to
+> add more variety, but could we ever realistically get to a tomato plant or
+> sunflower or climbing vines with our implementation?"*
+
+**The diagnosis is right, and the project's own record already agrees with it
+three times over** — this is not a new finding, it is the third independent
+confirmation. Sympody, tropism and acrotony all fired, all counted, and moved
+nothing anyone could see (`plant-appearance-design.md` §5, review report
+§2.1). `plant-species-authoring.md` §1 measures `light_weight` and
+`upward_weight` as **inert**. This pass adds a fourth data point from the
+other end: colour made all four species disjoint and `leaf_cluster` spread
+leaf area 6→14, and the verdict is still "the biggest differences are size
+and color".
+
+### What the walk can and cannot express
+
+`Grow` places one cell at a time from a tip, scored by continuation,
+light, wind, upward bias, crowding and heading inertia, with `ByOrder`
+parameters per branch order. That vocabulary can express **size, branching
+density, height budget, leaf area per node, lean, and colour**. It has no way
+to express **organ identity** — every cell in the world is stem, leaf, root,
+bud or seed. `Reproduce` sits on `MatureBody` and emits a seed directly:
+there is no flower and no fruit anywhere in the model, not even invisibly.
+
+That is the gap the three named plants fall into, and they fall into it in
+three *different* places:
+
+- **A climbing vine is the closest, and the missing mechanism is already
+  named in the codebase.** `creeper.ron`'s own header says it: *"a creeper
+  that chases light climbs, and climbing is the one corner of this envelope
+  that genuinely needs a mechanism (surface attraction) — out of scope
+  here"*. That is thigmotropism, and it is a **scoring term**, not a new
+  substrate: prefer candidate cells adjacent to solid non-organism material.
+  It fits the existing walk exactly, which is why it is the cheapest of the
+  three and the one to try first.
+- **A sunflower needs determinacy**, which the engine does not have. Growth
+  here is indeterminate — a tip runs until it retires on staleness. A
+  sunflower is a single stout unbranched axis that *terminates* in one very
+  large capitulum and stops. That needs a terminal organ and a rule that
+  converts a tip into it, not a tuning of the walk.
+- **A tomato needs fruit as a thing with mass hanging off an attachment** —
+  and the trusses are most of what makes it read as a tomato plant.
+
+### Why flowers and fruit are the highest-value move, not a garnish
+
+The owner proposed them as "more variety"; the measured record says they are
+considerably more than that. **Colour and composition are the only two levers
+this project has ever measured to move a silhouette.** A flower is a small
+patch of a wholly new hue placed at a structurally determined position, and a
+fruit is a dense mass that hangs — so between them they move both levers at
+once, which no architectural lever has managed. They also give `Reproduce`
+something visible to be, closing the oddity that a plant currently sets seed
+with no reproductive structure at all.
+
+### The honest limit
+
+Leaf **shape** is not reachable and should not be promised. A leaf is a blob
+of `leaf_cluster` cells placed by one rule, so the engine can vary leaf
+*size* and *colour* and cannot vary a leaf's outline — no compound pinnate
+tomato leaf, no palmate vine leaf. Some of the variety a real garden has is
+off the map until a leaf is a small authored or grown *shape* rather than a
+count.
+
+**Sequencing.** New cell types are `organism.rs`/`plant.rs`, which is lane
+P's substrate; their materials and palettes are lane W's data. So this is a
+cross-lane item for the integrator to schedule, not something this package
+starts on its own initiative. Suggested order, cheapest and most certain
+first: **surface attraction (vines) → flowers → fruit → determinacy**.
+
+## 10. What this leaves open
 
 - **Grass** (lane P's P3, then lane W's W3).
 - **The `arid` preset sows nothing at all**, by construction: `tree_density`
