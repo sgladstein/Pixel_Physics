@@ -187,38 +187,59 @@
         // passability -- two ants still cannot walk through each other --
         // so an ant walks *over* a nestmate the way it walks over terrain.
         //
-        // This is the deliberate re-test dead ends 775/829 asked for, and
-        // the answer is not subtle. `forage_probe seeds=8`, both arms, same
-        // seeds, median of 8:
+        // This is the re-test dead ends 775/829 asked for, and where ants
+        // are genuinely jammed it is decisive. `forage_probe seeds=8`, both
+        // arms, same seeds, median of 8 (55 ants, food at 87 cells):
         //
         //                        off        on
         //     round trips          4      90.5
         //     deepest             12      69.5
         //     blocked/moves    0.614     0.065
         //     moves           21,870    21,256
-        //     deliveries           0         0
         //
-        // **Moves are flat.** This is not "they move more" -- it is that
-        // six moves in ten used to fail and now fewer than one in ten does.
-        // The 19-cell bubble those dead ends recorded was a traffic jam,
-        // and the jam is what the rule dissolves.
+        // Moves are flat, so this is not "they move more": six moves in ten
+        // used to fail and now fewer than one in ten does. The 19-cell
+        // bubble those entries record was a traffic jam.
         //
-        // Landed default-on per the work package's own decision rule (one
-        // arm clearly wins on the profile, deliveries flat). Two honest
-        // caveats travel with it: deliveries are **0 in both arms**, so
-        // "deliveries held" is true and proves little -- that is the
-        // separately filed sessile-colony bug, not this change -- and the
-        // look is on the owner's queue as card 20260823T152556591Z-7c87cf,
-        // which flips this one line if it comes back against.
+        // **Authored off anyway, and the reason is a second measurement
+        // that only became possible once bug L was fixed.** The first
+        // landing turned this on, on evidence taken while the colony was
+        // sessile -- 2 forage trips against a bar of 14, `ascii` panicking.
+        // With L closed the colony works (85+ trips), so the paired
+        // comparison could finally be run somewhere healthy. On the same
+        // tree, same build, both `ascii` ant scenes:
+        //
+        //     ants: the foraging loop (nest, food pile, 60 ants)
+        //                        off        on
+        //     forage trips        88        85
+        //     deliveries         643       270
+        //     falls              968     1,783
+        //     moves            9,746    10,889
+        //
+        //     ants: a double bridge made of terrain
+        //     forage trips        22       233
+        //     deepest             16        74
+        //
+        // **The trade divides by scene.** Over terrain that has to be
+        // negotiated it is transformative. In the plain foraging loop it
+        // *halves deliveries* -- 643 to 270 -- for no gain in trips at all,
+        // while falls nearly double. Ants range more and bring less home.
+        //
+        // The work package's rule is "land default-on if one arm clearly
+        // wins with deliveries flat, default-off behind the flag if the
+        // gain is marginal or the look divides". Deliveries are not flat;
+        // they halve, on a working scene, measured fresh. So this is off,
+        // and the owner's blind A/B (card 20260823T152556591Z-7c87cf, jam
+        // versus streaming) decides whether the ranging is worth the
+        // throughput. One line either way.
         //
         // The 22x was checked for the obvious way it could be fake: ants
         // climbing *each other* into the sky would move the depth metric
         // without ranging anywhere. Rendered, they are on the ground and on
-        // terrain. `a_climbing_ant_is_never_its_own_foothold` is the guard
-        // that keeps it that way -- an animal's own tail is permanently in
-        // its head's neighbourhood, so `self` must be excluded or every ant
-        // becomes its own ladder.
-        climbs_over_kin: true,
+        // terrain. `a_climbing_ant_is_never_its_own_foothold` keeps it so --
+        // an animal's own tail is permanently in its head's neighbourhood,
+        // so `self` must be excluded or every ant becomes its own ladder.
+        climbs_over_kin: false,
 
         nest: "nest",
 
