@@ -1,0 +1,59 @@
+{
+  "id": "20260823T193114747Z-31b40a",
+  "created": "2026-08-23T19:31:14Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "24448e9",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The burn, in motion: dry meadow vs wet meadow",
+  "question": "Watch both loop. Does the dry one read as a fire crossing a meadow, and does the wet one read as the meadow refusing it?",
+  "context_md": "Animations, since the frame-sequence cards may not have played for you. **Same sward, grown once, burnt twice** — a dry meadow cannot be *grown* (unplanted soil fills up as it goes), so both arms grow on identical ground and the bed is reset 600 frames before the ignition. One number differs: how wet the ground is.\n\nThis is the whole of your steer, *\"moisture vs dryness should play a role\"*. It did not before, and not because the knob was too weak — its input reads **exactly 0.000 at 96.8% of grass cells at every ground wetness**, because a field block containing a plant cell never diffuses. The presence of fuel was what made the ground read bone dry.\n\n**What I am unsure about and want your eye on:** the *colour*. Everything that burns sits at the top of the renderer's heat ramp and the top of that ramp is a pale yellow, so the fire draws as **straw** rather than as flame. There is a separate card with a two-constant fix that makes it orange — it also moves lava, quench crust and warm water, so I did not ship it.\n\nWhat I am **not** claiming: wind-driven spread. Flames do lean downwind (a flame is a gas), but measured across this sward the wind is 0.0000 at two of three sampled frames and peaks at 0.04 at the third. The lean is wired and currently almost invisible.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "dry ground",
+      "files": [
+        "20260823T193114747Z-31b40a/000-burn_dry.gif"
+      ],
+      "caption": "ground wetness 0.00 at every fuel cell",
+      "meta": {
+        "grass cells consumed": "1993 of 1993 (all)",
+        "front reached": "x=488, lit at x=51",
+        "flame cells at peak": 233,
+        "smoke cells at peak": 2003,
+        "4-connected fuel islands in the sward": 71
+      },
+      "focus": null,
+      "gif_frames": 24
+    },
+    {
+      "label": "saturated ground",
+      "files": [
+        "20260823T193114747Z-31b40a/001-burn_wet.gif"
+      ],
+      "caption": "ground wetness 1.00 at every fuel cell",
+      "meta": {
+        "grass cells consumed": "10 of 1993",
+        "front reached": "x=53, lit at x=51",
+        "contact ignitions": 0,
+        "4-connected fuel islands in the sward": 71
+      },
+      "focus": null,
+      "gif_frames": 24
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
