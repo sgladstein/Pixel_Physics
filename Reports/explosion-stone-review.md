@@ -1594,3 +1594,39 @@ could easily have moved a gnome or an ant; neither moved at all.
 
 So the branch sits at **`main`'s three failures plus one of its own**. It
 cannot be greener than `main`, because `main` is not green.
+
+### 17k. Final gate state: parity with `main`, and the one guard fixed
+
+Re-ran all five after bug I's fix. The branch's failure set is now
+**exactly `main`'s**, and reproduces `main`'s numbers:
+
+| gate | branch | pristine `main` |
+|---|---|---|
+| release tests | 827 pass, **1 fail** (bug A) | 755 pass, 1 fail — same test |
+| debug tests | same 1 | never runs in CI (see below) |
+| release clippy | **PASS** | never runs in CI |
+| ascii | FAIL (bug H) | FAIL — `pickups 1764 drops 1731`, `steep 3 flat 0`, identical |
+| acceptance | FAIL `wood` only (bug Y) | FAIL `wood` only, `travelled 98`, identical |
+
+`a_disturbance_extent_licenses_the_wound_but_not_the_chain` is green, and
+green on a guard that was red-checked rather than merely observed to pass.
+
+`roomcut` is green **carrying both bars** (`min_failing_cells=1800` and
+`max_cave=40`), which is the answer to the risk §17i flagged: each bar was
+calibrated on its own branch's behaviour, and the merged behaviour clears
+both. Worst frame 29.41 ms against the pre-merge baseline's 30.63 ms on the
+same machine in the same session — no timing regression, and measured rather
+than remembered.
+
+**The three remaining reds are all `main`'s, and all three are recorded**:
+bug A (the slot-1 lever, a guard the owner keeps deliberately), bug H (the
+ants' moisture gradient, undiagnosed until this merge went looking), bug Y
+(litter bogs the gnome down). None is this branch's to fix, and none was
+touched.
+
+`.github/workflows/ci.yml` is now one job per gate. That is what made bugs H
+and Y visible at all: as sequential steps, a red `cargo test` marked every
+later gate `skipped`, so no CI run in this repository has ever executed
+`ascii` or `acceptance` while `main` carried a failing test. The split
+changes no gate command — verified byte-identical — and takes wall-clock
+from the sum of the gates to the slowest one.
