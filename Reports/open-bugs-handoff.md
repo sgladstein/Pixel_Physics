@@ -4228,6 +4228,31 @@ cause. Not the same root as §L: springs place zero in the foraging scene's
 world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
 springs-pass lead above is untouched by §L's fix.
 
+**Correction to the bullet above, measured 2026-08-23: the 705 stone cells
+are the sky too, not "the stress configuration meeting the band".** The
+note is right that the count changed shape and right that it needed saying
+precisely; the attribution is the part to drop, because it sends the next
+reader at `vault_min_depth` and the widened band, neither of which is
+load-bearing. Paired run, one binary, the only difference being whether the
+sky is held still:
+
+| `a_forced_vault_world_is_sealed_and_arrives_at_rest` | result |
+|---|---|
+| weather running | `rolling seed 3: 705 cells` of stone — reproduces the count above exactly |
+| `weather_override = Weather::CLEAR` | **passes** |
+
+So the mechanism is snow and frost *loading* the spires the widened band
+now carries, over chambers forced five times shallower than natural — the
+spire is real and the forced chamber is real, but neither moves until
+something lands on it. Which is why the water half and the stone half have
+one fix between them: both tests were reading a live sky as a placement
+defect.
+
+Worth noting for **§Q**, which is about exactly these spires: a one-cell
+stone needle that stands indefinitely in still air but comes down under a
+snowfall is evidence that what holds it up is a *bearing* rule with no
+slenderness term, rather than anything about the terrain it grew from.
+
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 
 **Root cause, found by looking at the scene, exactly as the bisect predicted.**
