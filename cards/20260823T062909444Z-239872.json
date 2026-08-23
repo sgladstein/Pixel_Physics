@@ -1,0 +1,63 @@
+{
+  "id": "20260823T062909444Z-239872",
+  "created": "2026-08-23T06:29:09Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "b378488",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Chaining default TIGHT vs SPREAD: one radius-6 dig into a rolling hillside",
+  "question": "TIGHT is what you asked for, and it does more than damp the chaining — it makes the pieces bigger. Does the TIGHT side read as one collapse, and the SPREAD side as the hillside rotting?",
+  "context_md": "`scene=worldcrack preset=rolling seed=7 dig=6` — the seed where the two settings differ most across a 24-run sweep. Identical world, identical dig. 4 tiles at frames 2/402/802/1202.\n\nThe headline is not 'less damage'. Material actually removed is nearly the same across the whole sweep (p90 177 cells at TIGHT vs 193 at SPREAD, max 297 both). What changes is **granularity**: SPREAD fires 217 small 8–15 cell failures, TIGHT fires 27 chunky 16–63 cell ones, and the mean failing region goes from 14.4 cells to 41.6.\n\nSo the question is whether that reads as the coarser, more legible breakage this project wants — or whether losing 180 small events also loses something that made the hillside feel alive.\n\n**Caveat worth naming:** TIGHT was never actually switched on before. Making it the default exposed that only 3 verbs ever reported themselves as disturbances; the brush, fire burnout and structural phase change did not, so they are newly wired up. That is new behaviour you have not played.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "TIGHT (reach 16, now the default)",
+      "files": [
+        "20260823T062909444Z-239872/000-chain-tight.png"
+      ],
+      "caption": "full world, zoom 1",
+      "meta": {
+        "overload failures": 41,
+        "cells in those failures": 1787,
+        "mean failing region (cells)": 41.6,
+        "largest region": 1096,
+        "8-15 cell events": 12,
+        "16-63 cell events": 27,
+        "furthest a failure landed from its trigger": 7,
+        "net cells lost": -38
+      },
+      "focus": null
+    },
+    {
+      "label": "SPREAD (no limit, the previous default)",
+      "files": [
+        "20260823T062909444Z-239872/001-chain-spread.png"
+      ],
+      "caption": "full world, zoom 1",
+      "meta": {
+        "overload failures": 221,
+        "cells in those failures": 3100,
+        "mean failing region (cells)": 14.4,
+        "largest region": 1096,
+        "8-15 cell events": 217,
+        "16-63 cell events": 2,
+        "furthest a failure landed from its trigger": 8,
+        "net cells lost": 34
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
