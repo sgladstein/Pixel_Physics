@@ -1,0 +1,64 @@
+{
+  "id": "20260823T225945655Z-b61139",
+  "created": "2026-08-23T22:59:45Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "w3-grass-and-divergence",
+    "commit": "64ce3cd",
+    "agent": null,
+    "session_id": "e508256a-2bd7-5dec-9d47-4ef4c1f5df05",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "A generated world with a ground layer in it, against one without",
+  "question": "Does the ground layer make this read more like real country, or just busier?",
+  "context_md": "Worldgen now sows **grass** as well as the four woody species — as its own layer on the columns the woody pass declines, weighted by how *little* woody cover the country wants (, cut through a measured spread).\n\nSame seed, same preset, same terrain, same 3,600 frames, same camera (world x 6912-7424, shipped 8192x2560 world, noon). Look at the **soil line** — the low yellow-green tufts.\n\n**Two things I already measured, so you don't have to judge them:**\n\n- The four woody species are sown **bit-identical** to main over a sixteen-seed sweep. Grass takes its columns from moss, not from them.\n- The woody plants nevertheless *grew* differently between these two panes, and that is not grass competing with them: adding organisms reshuffles every subsequent random draw, so after 3,600 frames the same seeds have grown into different individuals. Please **ignore the difference in the shrubs and creepers** — it is not the thing under test.\n\n**What I am unsure about and would like judged:** whether the sward reads as ground cover at all at this scale, or as scattered litter. It is 4-12 rows tall against a 120-row tree.\n\nOne thing worth knowing before you answer: at **45,000** frames a shipped world has almost no grass left (3 of 40 established) because the canopy closes over it and shade kills it. With the woody layer switched off it ends at 63 of 43 — so that is succession working, not grass failing. Whether a mature world *should* be a closed forest is a call I would like your view on separately.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - main",
+      "files": [
+        "20260823T225945655Z-b61139/000-a_main.png"
+      ],
+      "caption": "four woody species, no ground layer",
+      "meta": {
+        "established: tree": 49,
+        "conifer": 29,
+        "shrub": 28,
+        "creeper": 26,
+        "moss": 64,
+        "grass": 0,
+        "plant cells": 72610,
+        "organism slots used": "n/a"
+      },
+      "focus": null
+    },
+    {
+      "label": "B - grass sown",
+      "files": [
+        "20260823T225945655Z-b61139/001-b_grass.png"
+      ],
+      "caption": "same world, plus the ground layer",
+      "meta": {
+        "established: tree": 49,
+        "conifer": 30,
+        "shrub": 27,
+        "creeper": 24,
+        "moss": 63,
+        "grass": 71,
+        "plant cells": 70996,
+        "organism slots used": "288 of 4095, 0 refused"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
