@@ -234,8 +234,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-        # `wood` is bug Y; it runs in the known-red job below.
-      - run: SKIP_CASES=wood bash scripts/acceptance.sh
+      - run: bash scripts/acceptance.sh
 
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
@@ -258,7 +257,7 @@ jobs:
       - run: cargo fmt --check
         continue-on-error: true
 
-  # --- The three known reds, run where they cannot block ---------------------
+  # --- The known reds, run where they cannot block ---------------------------
   # Each pairs with an exclusion above. They exist so a recorded bug stays
   # *visible and executing* rather than being skipped into invisibility -- and
   # so that the day one starts passing, something says so. A green tick here is
@@ -274,18 +273,3 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.94
       - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
 
-  known-red-gnome:
-    # Bug Y: the gnome covers 98 cells of the `wood` case's 200. Excluded from
-    # `acceptance` via SKIP_CASES; run alone here via ONLY_CASES.
-    #
-    # Measured 2026-08-23, paired, same build: litter on 98, litter off 195.
-    # So shed litter is essentially the whole shortfall, and the bar is nearly
-    # reachable without it -- 5 cells short, against 48 short when bug Y was
-    # written. The bar itself is sound: the case was authored at a measured 362.
-    name: "known red: bug Y (gnome through the wood)"
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
-      - run: ONLY_CASES=wood bash scripts/acceptance.sh
