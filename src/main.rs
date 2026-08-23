@@ -590,6 +590,28 @@ impl Handler {
             // what caught the collision, not a runtime symptom.
             KeyCode::KeyL => self.app.renderer.cycle_organism_overlay(),
             KeyCode::KeyG => self.app.renderer.cycle_grain(),
+            // `` ` `` for the boiling looks. **It wanted `,` and lost it in
+            // the master merge**, to the same tiebreak the tree-depth note
+            // below records for `F10`: the key stays with whatever shipped
+            // first on trunk, and tree depth was already there. Nothing in
+            // the two match arms conflicted textually, so git merged them
+            // silently and only `unreachable_patterns` would have said so --
+            // the auto-merge trap, hit for real.
+            //
+            // This is the **last free key in the world**: every letter,
+            // digit and other punctuation is now bound, `\` went to the gas
+            // looks above, and F9-F12 are owned by macOS. The next look
+            // selector has to take a modifier or displace something.
+            KeyCode::Backquote => self.app.renderer.cycle_bubbles(),
+            // `\` for the gas looks. **It wanted `;`, next to `,`, and lost
+            // it in the master merge**: the depth light below binds `;` as
+            // its macOS escape hatch, and that is a reachability fix rather
+            // than a preference -- on a Mac `F10` never arrives, so `;` is
+            // the *only* way to reach it, while the gas looks lose nothing
+            // but adjacency. `\` and `` ` `` were the only free keys left;
+            // this took the first. Named on the status line like the rest,
+            // which is how anyone finds it.
+            KeyCode::Backslash => self.app.renderer.cycle_gas(),
             // Both look-toggles carry a second, punctuation binding because
             // macOS owns their function keys at the system level -- F11 is
             // Show Desktop and F10 is often Exposé, so the app never sees

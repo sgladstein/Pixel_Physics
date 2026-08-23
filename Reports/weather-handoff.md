@@ -185,13 +185,213 @@ wants an opinion before it wants code.
   lake several times a second. That is a weather question, not an evaporation
   one, and it is left alone deliberately — but it is what `shelter` exists to
   work around, and fixing it would simplify this file.
-- **Evaporated water is gone, not banked.** Nothing condenses it back, so a
-  world's total water only falls between showers. The water cycle in
-  `PLAN.md` wants the other half.
+- ~~**Evaporated water is gone, not banked.**~~ **Closed** by the water
+  bank: one `f64` on `World` in liquid-water cell-equivalents, credited by
+  `evaporation::tick` and spent by `weather::step`, with `render.rs` thinning
+  the drawn rain by the same supply factor the storm is throttled by.
+  Measured flat to -0.0000% across 6,000 frames spanning a storm and a
+  drought, both drivers.
+- ~~**Infiltration is an un-credited sink.**~~ **Closed**, in three parts
+  that only work together, and each was confirmed by breaking it:
+  `water_equivalents` counts a water-holding powder's `aux` on the same 1:1
+  scale infiltration already moves fill across at (without it the ledger
+  falls 32% as ground wets); the rain soak is charged to the bank rather
+  than written for free (without it, +7.8%); and damp soil at an open
+  surface evaporates and credits what it lost
+  (`evaporation::tick_soil`). Soil supply over 60,000 frames: **0.54 →
+  0.76**, and `water_equivalents + bank` is now flat to the unit on a soil
+  world, guarded by `the_worlds_water_is_flat_over_soil_too`.
+
+  **`SOIL_SOAK_PER_DROP` was cut tenfold to get there and that is a look
+  trade, not a free win.** Charging for wetting soil puts it in direct
+  competition with rain, and soil storage is enormous next to the reserve —
+  24 rows across a 512-wide shelf hold 12,288 cell-equivalents against a
+  `STORM_RESERVE` of 2,500. At the old soak the equilibrium was 0.09;
+  raising the soil drying rate twentyfold only reached 0.28, because the
+  reservoir and not the rate is the constraint. What the cut costs, measured
+  by `probe_ground_wetness_under_a_storm` (mean saturation of the top soil
+  row through one front):
+
+  | frames of storm | old soak | shipped |
+  |---|---|---|
+  | 500 | 0.289 | 0.119 |
+  | 1,000 | 0.546 | 0.284 |
+  | 2,000 | 0.622 | 0.495 |
+  | 3,500 | 0.623 | **0.591** |
+  | bank at 3,500 | 650 | **1,691** |
+
+  So the ground still gets just as wet; it takes about twice as long. Put in
+  front of the owner as a review card rather than decided here.
+
+  **Three soil leaks are left and are not fixed.** `plant.rs`'s `transpire`
+  destroys soil moisture and credits nothing; root uptake moves it into a
+  plant the ledger cannot see; and worldgen fills a water table before the
+  first frame, so a generated world's opening ledger now includes the whole
+  saturated zone. The soil conservation guard therefore has no plants in
+  it, deliberately — it would measure those instead.
+
+  **`STORM_RESERVE`'s own sizing moved and has not been adjusted.**
+  `probe_storm_yield`'s worst genuine front went 788 → ~1,028
+  cell-equivalents now that the soak is charged, so 2,500 is a shade over
+  2.4 storms where its doc is written for three.
 - **The rate constants are set from feel, not from anything physical.** A
   six-cell puddle four rows deep takes ~11,600 frames, a little over three
   in-game days; two rows deep, about half that. `probe_drying_curve` is the thing to re-run after touching
   `FILL_PER_CHECK`, `HUMID_STOP` or `CHECK_INTERVAL`.
+- ~~**Nothing reads the day/night temperature.**~~ **Closed** by
+  `evaporation::warmth`: the rate gains a third factor, `1 + 0.15 * (T -
+  ambient)` clamped to 0.25..3.0, off the **raw** field temperature at the
+  water's own block. The single sanctioned exception to `CLAUDE.md`'s
+  divide-the-oscillator-out rule, and it is one site — `field.rs`'s moisture
+  decay stays noon-equivalent, because `dryness` reads the humidity that
+  decay produces and making both diurnal multiplies the day into the rate
+  twice. Guards: `days_evaporate_more_than_nights` (2.47:1, confirmed to fail
+  at 1.00 if the read is swapped to the noon-equivalent) and
+  `humidity_does_not_go_diurnal`, which is the same assertion pointed the
+  other way.
+
+  **Both re-derivable constants were re-derived and neither moved.** The
+  humidity-against-width table reads identically with the coupling off and at
+  0.15, digit for digit — expected, since decay is still noon-equivalent, and
+  measured rather than assumed. `FILL_PER_CHECK` holds because the factor is
+  *linear* in a zero-mean oscillation and so has a day-mean of exactly 1.0:
+  whole-day totals move +3.6% over one day and −1.3% over four (32-cell
+  basin), −0.1% over four on the lake. An Arrhenius shape would not have this
+  property and was rejected for it.
+
+#### Dry cold air suppressing evaporation: designed, deliberately not built
+
+`weather.rs`'s `chill` channel is real when nothing is falling and nothing
+reads it (`weather.rs`, the `Weather::chill` doc says so outright). The
+obvious next move after the coupling above is for a clear cold snap to slow
+drying the way a snowstorm now does. It was weighed and skipped, and the
+reason is worth having in writing because the cheap version is the wrong
+one.
+
+**The cheap version**: `evaporation::warmth` also reads `weather::at(seed,
+frame).chill` and subtracts. Rejected. `weather::at` is a *global* pure
+function with no position in it, so a puddle at the bottom of a sealed cave
+would slow down because the sky two hundred rows above it is cold — and the
+whole design of this file is that both existing factors are local readings
+(`dryness` from the block above, `shelter` from a fixed stencil either side).
+It would also be a *second* oscillating-ish global read at a site whose one
+selling point is that it has exactly one.
+
+**The version worth building**: `weather::step` writes dry chill into the
+*field's temperature channel*, as a boundary condition on open-sky columns,
+exactly as `hold_column_cold` already does under falling snow — and then
+evaporation reads nothing new at all. The coupling above picks it up for
+free, attenuated with depth by the machinery that already attenuates the
+sky's own forcing, so the sealed cave stays warm and the open shore does not.
+It also makes a clear cold night visible in the temperature overlay and to
+anything that later reads field temperature, rather than being a term hidden
+inside one consumer.
+
+Two things to settle before building it: how much of `SNOW_CHILL`'s 26
+degrees a *dry* snap should be worth (a clear cold night is not a blizzard,
+and `WARMTH_FLOOR` is reached at 13.7 below ambient, so anything much over
+that is indistinguishable from anything else over it); and what it costs the
+field's sleep gate, which currently wakes on `sky_temperature_offset`
+changing and would need the same quantised-staircase treatment
+(`SKY_TEMPERATURE_QUANTUM`'s doc is the whole argument) or it will hold the
+world awake through every cold epoch.
+
+### 1e. The outer cycle now has a *hot* leg, and it exposed a magnitude
+
+**Landed.** Steam that condenses with open sky above it credits
+`World::atmospheric_bank` instead of leaving a water cell where it stood
+(`MaterialDef::condenses_into_sky`, set only on `steam.ron`). Reported from
+live play as a plume that "rises about 5 ft in the air and then drops back
+into rain... it almost looks like bouncing".
+
+The complaint was not about rate or height. On the new
+`filmstrip scene=lavadrop` the plume held **421 water cells standing in the
+air** at peak, through its whole 40-row height — condensate falling back
+*through* the steam still rising, and since a falling `Liquid` displaces a
+`Gas`, each droplet shoved steam cells downward on the way. Airborne water
+421 → 0; `water_equivalents + bank` unchanged to a tenth of a cell.
+
+"Open sky" is the frozen `World::sky_surface`, so a sealed pocket, a cave,
+or `scene=boil`'s roofed chamber all still condense into water in place —
+which is what keeps the sealed-pocket guards meaningful rather than
+vacuous.
+
+**What it exposed.** The boil-off was always this large; recycling hid it.
+With the return leg gone, an 800-cell lava blob visibly drops a
+12,000-cell pond. The cause turned out not to be the boil rate but
+`diffuse_heat` being non-conservative — see
+`Reports/open-bugs-handoff.md` 1b, which is the real defect and is left
+open deliberately.
+
+`fire::LATENT_HEAT_DEGREES` (540, water's latent heat as a multiple of its
+specific heat) charges each boil to the stored heat of its neighbours and
+refuses the boil if they cannot pay. It cannot go on the *product*: water
+boils at 100 and steam condenses at 45, so a birth temperature more than
+~55 degrees down flashes straight back. Measured where boiling is the
+mechanism:
+
+| | boiled | standing water |
+|---|---|---|
+| `scene=boil`, no charge | 42,740 | 4,369 |
+| `scene=boil`, 540 | **17,019** | **7,379** |
+| `scene=simmer`, no charge | 1,941 | pan dry |
+| `scene=simmer`, 540 | **191** | 1,334 |
+
+On `scene=lavadrop` the charge is nearly flat, because there the water goes
+through the **quench reaction** rather than through boiling — and that path
+is already about one water per lava (944 reactions for 800 cells of lava,
+banking 924 cell-equivalents). A `min_fill` gate on the reaction was built
+to cut it further, swept, and reverted: it moves conversions between paths
+without changing the total. The table is in `lava.ron`.
+
+**Still open here:** nothing bounds how much water a *reaction* may
+convert, the way the boil is now bounded. The quench happens to be roughly
+1:1 by construction; a future reaction need not be.
+
+### 1f. Wet ground: what to look for in a playtest
+
+The owner's verdict on the wet-ground card was *"I have no idea from this
+graph what would be right in play. Keep on the to do list. And let me know
+what I need to look for in a playtest."* Fair — a chart of soil moisture
+against frame cannot answer a question about how something feels. Here is
+the recipe instead. The sizing stays on the to-do; this is how to judge it.
+
+**What changed.** Rain used to wet soil for free — the drop soaked in and
+the sky was not charged for it, so the world's water ledger leaked upward
+every storm. Soil is now on the books: a drop that soaks in is paid for out
+of the atmospheric bank, soil moisture counts as water in the total, and
+ground gives it back to the sky as it dries. `SOIL_SOAK_PER_DROP` also went
+from a tenth of a drop to a hundredth, because at a tenth a storm emptied
+the sky into the topsoil in seconds.
+
+**How to set it up.** Start the app, press `F6` for a fresh world (or `F8`
+for one with more surface soil), then hold `.` to run time forward until a
+front arrives — rain is a pure function of seed and frame, so it will come.
+`V` cycles the field overlays; the moisture channel is the one to watch. `I`
+hovers a readout over the cell under the cursor.
+
+**Four things, in the order they matter:**
+
+1. **Does the ground darken where it rains, and only there?** A storm should
+   wet the strip it is over, not the whole map. If the moisture overlay lights
+   up across the world the moment a front starts, the soak is reaching too far.
+2. **Does the wet band persist after the rain stops, and then fade?** Minutes,
+   not seconds and not forever. Soil drying back to the sky is the return
+   half of the cycle and it is the half nobody has watched in play.
+3. **Do puddles behave differently on wet ground than on dry?** Rain landing
+   on already-saturated soil should pool on top instead of vanishing into it.
+   If puddles never form no matter how long it rains, the soak is too greedy;
+   if they form immediately on dry ground, it is too stingy.
+4. **Does it ever *run out*?** Watch the sky's own supply across two or three
+   storms. If the second storm is visibly weaker than the first and the third
+   barely rains, the ground is holding water the sky needs — that is the
+   sizing question, and it is the one the chart was trying and failing to ask.
+
+**What would say it is wrong, quantitatively**, if a number is wanted after
+looking: `filmstrip scene=storm` prints `water + sky` under every tile, and
+the two halves must sum flat. A total that drifts is a leak; a bank that
+falls monotonically across storms while soil moisture climbs is the sizing
+problem in (4).
 
 ### 2. Thunder
 

@@ -2,6 +2,7 @@
 """Agent-facing CLI for the visual review queue.
 
     review.py serve                     start the page the owner judges from
+    review.py serve --lan               ...and let a phone on the Wi-Fi reach it
     review.py post --json -             post a card (the general form)
     review.py post --title ... --image  post a one-image card
     review.py ab --a A.png --b B.png    post an A/B comparison
@@ -20,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import time
 import shutil
 import sys
@@ -118,6 +121,7 @@ def build_card(root: Path, spec: dict) -> dict:
         })
         if items[-1]["focus"]:
             check_focus_fits(items[-1]["focus"], root, stored[0])
+        check_animation(items[-1], item, root, stored)
 
     ask = spec.get("ask") or {}
     return {
@@ -185,6 +189,36 @@ def check_focus_fits(focus, root: Path, stored_rel: str) -> None:
             "--focus %d,%d,%d,%d falls outside the %dx%d image. The focus rect is "
             "in the *rendered image's* pixels, not world coordinates."
             % (x, y, fw, fh, w, h))
+
+
+def check_animation(stored_item: dict, spec_item: dict, root: Path, stored) -> None:
+    """Record a GIF's frame count, and refuse a still posted as an animation.
+
+    A one-frame GIF looks like an animation by name, size and header, and is
+    exactly what `filmstrip out=x.gif` writes when `gif=1` is left off: the
+    contact-sheet branch calls `image::save_buffer`, which picks its encoder
+    from the extension and stores the whole sheet as a single frame. Nothing
+    errors. The agent reports an animation, the owner sees a still, and neither
+    can tell why -- which is precisely what happened.
+
+    Refused for `--gif`, where the intent is explicit; a warning for `--image`,
+    which stays the escape hatch for deliberately posting a still.
+    """
+    if len(stored) != 1 or not stored[0].lower().endswith(".gif"):
+        return
+    n = rl.gif_frames(rl.media_dir(root) / stored[0])
+    if n is None:
+        return
+    stored_item["gif_frames"] = n
+    if n > 1:
+        return
+    msg = ("%s is a GIF with a single frame, so it cannot animate. The usual "
+           "cause is running filmstrip with out=*.gif but WITHOUT gif=1 -- that "
+           "writes the contact sheet as a one-frame GIF. Re-run with gif=1."
+           % (spec_item.get("files") or ["?"])[0])
+    if spec_item.get("_gif_flag"):
+        raise SystemExit(msg)
+    print("review: " + msg, file=sys.stderr)
 
 
 def parse_item_flag(value: str) -> dict:
@@ -284,7 +318,8 @@ def cmd_post(args) -> int:
             if not path.lower().endswith(".gif"):
                 print("review: --gif was given %s, which is not a .gif. Posting it "
                       "anyway; use --image for stills." % path, file=sys.stderr)
-            spec.setdefault("items", []).extend([{"files": [path], "focus": focus}])
+            spec.setdefault("items", []).extend(
+                [{"files": [path], "focus": focus, "_gif_flag": True}])
     if args.item:
         spec.setdefault("items", []).extend(
             dict(parse_item_flag(v), focus=focus) for v in args.item)
@@ -293,6 +328,10 @@ def cmd_post(args) -> int:
 
     card = build_card(root, spec)
     rl.save_card(root, card)
+    if getattr(args, "notify", False):
+        note = ensure_watcher(root)
+        if note:
+            print("review: --notify: %s" % note, file=sys.stderr)
     # The card is on disk before sync runs, so a transport failure costs
     # delivery time and never the question itself.
     emit(card, root, args.port, maybe_sync(args))
@@ -327,6 +366,10 @@ def cmd_ab(args) -> int:
         spec["kind"] = "frames"
     card = build_card(root, spec)
     rl.save_card(root, card)
+    if getattr(args, "notify", False):
+        note = ensure_watcher(root)
+        if note:
+            print("review: --notify: %s" % note, file=sys.stderr)
     emit(card, root, args.port, maybe_sync(args))
     if args.wait:
         return do_wait(root, card["id"], args.timeout)
@@ -342,6 +385,105 @@ def maybe_sync(args, root: Path = None) -> dict:
         print("review: sync failed (%s) — card is queued locally and will go "
               "out on the next sync" % result["error"], file=sys.stderr)
     return result
+
+
+def watcher_lock(root: Path) -> Path:
+    return root / ("watch-%s.pid" % (rl.session_id() or "unknown"))
+
+
+def ensure_watcher(root: Path) -> str:
+    """Start one deliverer per session, not one per card.
+
+    The lock is keyed on the session, so ten cards posted by one agent share a
+    single watcher -- which is the point: the owner releases a batch and the
+    agent is woken once.
+    """
+    if not os.environ.get(rl.SOCKET_ENV):
+        return "no %s — nothing to deliver into; verdicts stay in `inbox`" % rl.SOCKET_ENV
+    if not rl.session_id():
+        return "no %s — cannot address this session" % rl.SESSION_ENV
+    lock = watcher_lock(root)
+    existing = rl.read_json(lock)
+    if existing and _pid_alive(existing.get("pid")):
+        return ""
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "watch"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL, start_new_session=True)
+    rl.write_json_atomic(lock, {"pid": proc.pid, "session_id": rl.session_id(),
+                                "started": rl.utc_now()})
+    return ""
+
+
+def _pid_alive(pid) -> bool:
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def compose_ping(entries: list) -> str:
+    lines = ["Review verdicts are in for %d of your card%s:"
+             % (len(entries), "" if len(entries) == 1 else "s")]
+    for i, e in enumerate(entries, 1):
+        lines.append("  %d. %s" % (i, e.get("digest") or e["card_id"]))
+    lines.append("")
+    lines.append("Run `review.py inbox` for the full comments and pin locations, "
+                 "then act on them.")
+    return "\n".join(lines)
+
+
+def cmd_watch(args) -> int:
+    """Deliver released verdicts into this session, batched.
+
+    Runs detached in the agent's own environment, so the write comes from a
+    process the session spawned -- which carries the child token and bypasses
+    the inbound gate a stranger process would be held by.
+    """
+    root = rl.review_root()
+    sid = rl.session_id()
+    if not sid:
+        print("watch: %s not set — cannot tell which session to deliver to"
+              % rl.SESSION_ENV, file=sys.stderr)
+        return 1
+    if not os.environ.get(rl.SOCKET_ENV):
+        print("watch: %s not set — no inbox to deliver into" % rl.SOCKET_ENV,
+              file=sys.stderr)
+        return 1
+
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        if not args.no_sync:
+            rl.sync_now(root)
+        entries = rl.take_outbox(root, sid)
+        if entries:
+            err = rl.send_to_own_session(compose_ping(entries))
+            if err:
+                print("watch: %s" % err, file=sys.stderr)
+                return 1
+            # Marker first, then drop the outbox entry: a crash between them
+            # re-delivers rather than losing the verdict.
+            rl.mark_delivered(root, entries, sid)
+        mine_open = [c for c in rl.load_cards(root)
+                     if (c.get("origin") or {}).get("session_id") == sid
+                     and c["notify"] in ("unanswered", "pending", "released")]
+        if not mine_open:
+            return 0
+        time.sleep(args.interval)
+    return 0
+
+
+def cmd_notify(args) -> int:
+    """The button's job, from the command line."""
+    root = rl.review_root()
+    result = rl.release_verdicts(root)
+    if not args.no_sync:
+        rl.sync_now(root)
+    print(json.dumps(result, indent=2))
+    return 0
 
 
 def cmd_sync(args) -> int:
@@ -453,7 +595,7 @@ def cmd_serve(args) -> int:
     refresh_bin(root)
     import review_server
     return review_server.serve(root, args.port, open_browser=args.open,
-                               sync_interval=args.sync_interval)
+                               sync_interval=args.sync_interval, lan=args.lan)
 
 
 def cmd_gc(args) -> int:
@@ -521,6 +663,11 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def add_notify(sp):
+        sp.add_argument("--notify", action="store_true",
+                        help="be pinged when the owner releases the verdict "
+                             "(starts one background watcher per session)")
+
     def add_no_sync(sp):
         sp.add_argument("--no-sync", action="store_true",
                         help="skip the git transport (offline, or a local-only queue)")
@@ -535,6 +682,9 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("serve", help="serve the review page")
     sp.add_argument("--open", action="store_true", help="open a browser at the page")
+    sp.add_argument("--lan", action="store_true",
+                    help="also listen on the local network, key-gated, so the "
+                         "queue can be reviewed from a phone on the same Wi-Fi")
     sp.add_argument("--sync-interval", type=float, default=60.0,
                     help="seconds between remote syncs; 0 disables (default 60)")
     add_port(sp)
@@ -564,6 +714,7 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
     add_no_sync(sp)
+    add_notify(sp)
     sp.set_defaults(func=cmd_post)
 
     sp = sub.add_parser("ab", help="post an A/B comparison")
@@ -582,6 +733,7 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
     add_no_sync(sp)
+    add_notify(sp)
     sp.set_defaults(func=cmd_ab)
 
     sp = sub.add_parser("list", help="list cards")
@@ -606,6 +758,17 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_no_sync(sp)
     sp.set_defaults(func=cmd_wait)
+
+    sp = sub.add_parser("watch", help="deliver released verdicts into this session")
+    sp.add_argument("--interval", type=float, default=60.0)
+    sp.add_argument("--timeout", type=float, default=6 * 3600)
+    add_no_sync(sp)
+    sp.set_defaults(func=cmd_watch)
+
+    sp = sub.add_parser("notify",
+                        help="release every answered verdict to the agent that asked")
+    add_no_sync(sp)
+    sp.set_defaults(func=cmd_notify)
 
     sp = sub.add_parser("sync", help="exchange cards and verdicts with the remote")
     sp.set_defaults(func=cmd_sync)

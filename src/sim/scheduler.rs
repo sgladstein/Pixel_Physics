@@ -28,6 +28,7 @@ use super::decay;
 use super::evaporation;
 use super::plant;
 use super::structural;
+use super::update;
 use super::world::World;
 
 /// What kind of growth an active site represents, and enough state to act
@@ -105,12 +106,28 @@ pub enum ActiveKind {
     ///
     /// `x`/`y` on the containing `ActiveSite` is the creature's **head**.
     Creature { organism: u16 },
-    /// Architecture §5f: an `ash` cell due to re-check whether it's damp
-    /// enough to decay into `soil`. Only scheduled reactively, by `fire.rs`
-    /// at the moment a burnout actually produces ash — not for every ash
-    /// cell that could ever exist (hand-painted ash, say), matching the
-    /// report's own "cheap: one material, one slow transformation" framing.
-    /// See `decay.rs`.
+    /// Architecture §5f: a cell of a **decayable** material due to re-check
+    /// whether it is damp enough to decay into whatever its
+    /// `Material::decays_into` names — `ash` into `soil`, `litter` into
+    /// `soil`.
+    ///
+    /// **No longer reactive-only, and the reason is worth having here.**
+    /// This used to be scheduled solely by `fire.rs` at the moment a
+    /// burnout produced ash, explicitly *not* for every ash cell that could
+    /// ever exist (hand-painted ash, say). That stopped being true when
+    /// litter arrived: a shed leaf is created in a canopy and *falls*, and
+    /// a decay site is a bare coordinate that nothing makes follow its
+    /// cell, so scheduling at creation stranded the site every time
+    /// (`Reports/open-bugs-handoff.md` §0e). `World::end_step` now scans a
+    /// chunk on its **awake -> settled** transition and schedules a site
+    /// for every decayable cell in it, which is both the cheap point and
+    /// the correct one — weathering happens to matter that has come to
+    /// rest. Hand-painted ash therefore does decay now, once it settles.
+    ///
+    /// Deduped through `World::pending_decay_sites`, because a drift that
+    /// is disturbed and re-settles repeatedly would otherwise stack sites
+    /// and make the effective rate a function of how often the ground was
+    /// walked on. See `decay.rs`.
     Decay,
     /// An exposed liquid surface cell due to check whether it evaporates —
     /// `evaporation.rs`, which has the whole story. Scheduled by the CA
@@ -127,6 +144,27 @@ pub enum ActiveKind {
     /// but too humid to evaporate is not stale, because that is a value
     /// that changes with the weather rather than a structure that does not.
     Evaporate { stale_ticks: u8 },
+    /// A `Gas` cell that could not move, due for a dissipation roll —
+    /// `update.rs`'s `dissipation_tick`.
+    ///
+    /// Here for precisely the reason `Evaporate` is, one kind along: the CA
+    /// sweep can roll a gas cell's `Material::dissipation` for free while
+    /// the cell is moving, and a cell that has *stopped* moving is the one
+    /// the mechanic exists for and the one the sweep stops visiting. That is
+    /// not a hypothesis — the sweep-only version was built first and
+    /// measured: a stone box packed with 336 smoke cells lost 25 of them and
+    /// then kept the other 311 for all 2,500 frames it was watched, because its
+    /// chunks settled about nineteen frames after the smoke did. A buried
+    /// blast's crater, the case this was built for, kept three of its five.
+    ///
+    /// No `stale_ticks` twin to `Evaporate`'s, deliberately. A sealed gas
+    /// cell is not in a state that might later become interesting again —
+    /// the roll it is waiting for is unconditional, so the site always has
+    /// work to do and always terminates on its own: it retires the moment
+    /// the roll succeeds, and dissipation is the one outcome nothing can
+    /// stop. The unbounded-cost failure `stale_ticks` exists to prevent
+    /// cannot arise here.
+    Dissipate,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -242,6 +280,7 @@ pub fn step(world: &mut World) {
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
             ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
+            ActiveKind::Dissipate => update::dissipation_tick(world, &site),
         };
         // Routed through the one canonical insertion point -- `world.
         // active_sites` is live for the whole loop now, so there's no
@@ -250,6 +289,13 @@ pub fn step(world: &mut World) {
             world.schedule_active_site(produced_site);
         }
     }
+    // A collapse too big to fracture in one tick comes down over several,
+    // and this is what advances it. Outside the site loop above on purpose:
+    // it is *work already decided*, not a question about a cell, so it
+    // neither competes for `MAX_SITES_PER_FRAME` nor gets starved by the
+    // load budget those sites drain — which is what happened when it was
+    // driven by rescheduled checks. See `structural::advance_staged_fractures`.
+    structural::advance_staged_fractures(world);
 }
 
 /// Starting point, not empirically pinned down to the frame budget yet —

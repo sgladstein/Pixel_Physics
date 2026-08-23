@@ -1,0 +1,76 @@
+// The above-ground tissue of a herbaceous plant: `grass.ron`'s
+// `shoot_material` *and* its `leaf_material`, which are the same thing here
+// and that is the point. A grass has no separate foliage stage — its
+// photosynthetic surface **is** its shoot (`plastochron: 0`, the case
+// `organism.rs`'s own doc anticipates), so there is no stem for a leaf to
+// hang off. WP-B3, `Reports/plant-implementation-plan.md`.
+//
+// A real material rather than a shade of `leaf`, by this engine's own test
+// (`leaf.ron`: "its *physics* genuinely differ on numbers that already
+// exist"). Against `leaf` it is lighter, burns faster and hotter for its
+// mass, and — the one that matters — breaks into `litter` rather than
+// `deadwood`, because a trampled blade is not a snapped branch.
+(
+    name: "grassblade",
+    display: "Grass",
+    kind: Plant,
+    // Below `leaf`'s 0.25 is tempting and wrong: a blade is thin but it is
+    // still turgid tissue, and going under litter's 0.3 would make cut
+    // grass float on its own litter layer.
+    density: 0.3,
+    // **Four bands of four tonal steps**, per `organism::PALETTE_BAND`. The
+    // order runs fresh green -> mid -> yellow-green -> straw, so a species'
+    // declared range is a contiguous slice of one axis (the same rule
+    // `leaf.ron` states) and a stand reads as one sward in a spread of
+    // related tones rather than sixteen unrelated draws.
+    //
+    // Deliberately NOT sharing `leaf.ron`'s greens: a sward that is exactly
+    // the canopy's colour is the "tiny trees" failure this package is told
+    // to stop and report on. Grass is yellower and lighter than foliage,
+    // which is most of what makes a meadow read as ground rather than as
+    // very short forest.
+    colors: [
+        // 0: fresh spring green
+        (96, 140, 58),
+        (112, 160, 70),
+        (82, 122, 48),
+        (128, 178, 84),
+        // 1: mid meadow green
+        (110, 146, 62),
+        (126, 166, 74),
+        (94, 128, 52),
+        (142, 184, 88),
+        // 2: yellow-green, high summer
+        (140, 162, 68),
+        (158, 180, 82),
+        (122, 142, 58),
+        (174, 198, 96),
+        // 3: straw, dry-site and late-season
+        (168, 164, 88),
+        (186, 182, 102),
+        (148, 144, 74),
+        (202, 198, 118),
+    ],
+    // Higher than `leaf`'s 0.75 and it burns out faster still. Cured grass
+    // is the fastest fuel in this world by design: it is what lets a fire
+    // cross open ground between two stands, which is the whole reason
+    // WP-B3's acceptance asks for a paired burn against bare soil and
+    // canopy. A grassfire should read as a distinct fast surface regime.
+    flammability: 0.85,
+    burn_temperature: 520.0,
+    burn_duration: 25,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    // Trampled, grazed or cut grass becomes ground litter, not a branch.
+    // This is the plant side feeding the material the creature branch will
+    // eat later, without either side knowing about the other.
+    breaks_into: "litter",
+    // Both copied from `leaf.ron` and for its reasons, which apply harder
+    // here: a blade must not be a load path. `max_unsupported_span: 1`
+    // means it holds up nothing but itself; omitting `max_cantilever_reach`
+    // opts out of the organism cantilever rule entirely (the default is
+    // `u16::MAX`), which is what stops `anchor_support`'s reach measurement
+    // amputating a sward. Attachment is still checked separately, so grass
+    // whose roots are dug away still goes.
+    max_unsupported_span: 1,
+)

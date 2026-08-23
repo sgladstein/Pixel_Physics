@@ -339,6 +339,71 @@ def test_concurrent_push(base: Path, art: Path) -> None:
           "%d vs %d" % tuple(counts))
 
 
+def gif(path: Path, frames: int, w=8, h=8) -> Path:
+    """Minimal GIF89a. Literal-only LZW -- inefficient, and valid, which is all
+    a fixture needs. `frames=1` reproduces the file this guard exists for."""
+    def lzw(indices, mcs):
+        out, bits, nbits, width = bytearray(), 0, 0, mcs + 1
+        def emit(code):
+            nonlocal bits, nbits
+            bits |= code << nbits; nbits += width
+            while nbits >= 8:
+                out.append(bits & 0xFF); bits >>= 8; nbits -= 8
+        emit(1 << mcs)
+        for i in indices: emit(i)
+        emit((1 << mcs) + 1)
+        if nbits: out.append(bits & 0xFF)
+        return bytes(out)
+    b = bytearray(b"GIF89a")
+    b += struct.pack("<HHBBB", w, h, 0xF0 | 2, 0, 0)
+    for c in [(0, 0, 0), (255, 255, 255)] + [(0, 0, 0)] * 6:
+        b += bytes(c)
+    b += b"\x21\xFF\x0BNETSCAPE2.0\x03\x01\x00\x00\x00"
+    for f in range(frames):
+        b += b"\x21\xF9\x04\x04" + struct.pack("<H", 8) + b"\x00\x00"
+        b += b"\x2C" + struct.pack("<HHHHB", 0, 0, w, h, 0) + bytes([3])
+        data = lzw([(x + f) % 2 for x in range(w * h)], 3)
+        for i in range(0, len(data), 255):
+            chunk = data[i:i + 255]
+            b += bytes([len(chunk)]) + chunk
+        b += b"\x00"
+    b += b"\x3B"
+    path.write_bytes(bytes(b))
+    return path
+
+
+def test_single_frame_gif_is_refused(root: Path, base: Path) -> None:
+    """A still with an animation's name must not reach the owner silently.
+
+    `filmstrip out=x.gif` without `gif=1` writes the contact sheet as a
+    one-frame GIF -- `image::save_buffer` picks its encoder from the extension.
+    Valid file, plausible name, cannot move. Two cards shipped that way while
+    the agents reported posting animations, and nothing anywhere said otherwise.
+    """
+    print("\nsingle-frame GIFs")
+    still, moving = gif(base / "still.gif", 1), gif(base / "moving.gif", 4)
+    check(rl.gif_frames(still) == 1, "frame counter reads a one-frame GIF", "got %s" % rl.gif_frames(still))
+    check(rl.gif_frames(moving) == 4, "and a real animation", "got %s" % rl.gif_frames(moving))
+    check(rl.gif_frames(base / "a.png") is None, "and declines a PNG")
+
+    proc = run("post", "--title", "t", "--question", "q", "--gif", str(still),
+               root=root, expect=None)
+    check(proc.returncode != 0, "--gif refuses a one-frame GIF")
+    check("gif=1" in (proc.stdout + proc.stderr),
+          "and names the cause (filmstrip without gif=1)")
+
+    out = json.loads(run("post", "--title", "t", "--question", "q",
+                         "--gif", str(moving), root=root).stdout)
+    card = rl.load_card(root, out["id"])
+    check(card["items"][0].get("gif_frames") == 4,
+          "a real animation posts, with its frame count recorded for the page")
+
+    proc = run("post", "--title", "t", "--question", "q", "--image", str(still),
+               root=root, expect=0)
+    check("single frame" in proc.stderr,
+          "--image stays an escape hatch, but warns")
+
+
 def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
     """A focus rect the page cannot satisfy must fail where it is still fixable.
 
@@ -374,6 +439,111 @@ def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
                          "--image", str(art), root=root).stdout)
     check(rl.load_card(root, out["id"])["items"][0]["focus"] is None,
           "a card with no --focus stores none, so its zoom cycle is unchanged")
+
+
+def test_verdicts_batch_per_agent(root: Path, art: Path) -> None:
+    """Six verdicts for one agent must cost one wake-up turn, not six.
+
+    This is the whole reason the release is a button rather than a per-card
+    ping: the wake replaces the turn the owner would spend saying "I reviewed
+    your card", so batched it is roughly free and un-batched it multiplies with
+    every card answered in a sitting. A per-card design would pass every other
+    check in this suite, so the batching is asserted directly.
+    """
+    print("\nbatched verdict release")
+    sids = {"agent-alpha": 6, "agent-beta": 2, "agent-gamma": 1}
+    ids = {}
+    for sid, n in sids.items():
+        for i in range(n):
+            env = dict(os.environ, **{rl.SESSION_ENV: sid})
+            proc = subprocess.run(
+                [sys.executable, str(HERE / "review.py"), "post", "--title",
+                 "%s card %d" % (sid, i), "--question", "q", "--image", str(art)],
+                capture_output=True, text=True,
+                env=dict(env, **{rl.ROOT_ENV: str(root)}))
+            ids.setdefault(sid, []).append(json.loads(proc.stdout)["id"])
+
+    for sid, cards in ids.items():
+        for cid in cards:
+            rl.save_response(root, cid, {
+                "card_id": cid, "answered_at": rl.utc_now(), "choice": 0,
+                "choice_label": "A", "rating": 4, "comment": "looks right",
+                "annotations": [], "archived": False})
+
+    pend = rl.pending_release_count(root)
+    check(pend == {"agents": 3, "verdicts": 9, "orphans": 0},
+          "the button counts 9 verdicts across 3 agents", str(pend))
+
+    res = rl.release_verdicts(root)
+    check(res["agents"] == 3 and res["verdicts"] == 9, "one press releases all of them")
+    for sid, n in sids.items():
+        got = rl.take_outbox(root, sid)
+        check(len(got) == n, "%s gets exactly its own %d" % (sid, n), "got %d" % len(got))
+
+    # The assertion the feature exists for: ONE message, not one per card.
+    entries = rl.take_outbox(root, "agent-alpha")
+    ping = compose_ping_via_cli(entries)
+    check(ping.count("\n  ") == 6, "all 6 of one agent's verdicts go in ONE message",
+          "found %d lines" % ping.count("\n  "))
+    for sid in ("agent-beta", "agent-gamma"):
+        check(sid not in ping, "and it carries nothing belonging to %s" % sid)
+
+    again = rl.release_verdicts(root)
+    check(again["verdicts"] == 0, "a second press releases nothing", str(again))
+
+    rl.mark_delivered(root, entries, "agent-alpha")
+    check(rl.take_outbox(root, "agent-alpha") == [], "delivery empties that agent's outbox")
+    card = rl.load_card(root, ids["agent-alpha"][0])
+    check(rl.notify_state(root, card) == "delivered", "and the card reads as delivered")
+    check(rl.notify_state(root, rl.load_card(root, ids["agent-beta"][0])) == "released",
+          "while an undelivered agent's card stays released")
+
+
+def compose_ping_via_cli(entries):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("review_cli", HERE / "review.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.compose_ping(entries)
+
+
+def test_unnotifiable_cards_are_reported(root: Path, art: Path) -> None:
+    """A card with no session id must be visible, not silently skipped."""
+    print("\nun-notifiable verdicts")
+    env = {k: v for k, v in os.environ.items() if k != rl.SESSION_ENV}
+    proc = subprocess.run(
+        [sys.executable, str(HERE / "review.py"), "post", "--title", "no session",
+         "--question", "q", "--image", str(art)],
+        capture_output=True, text=True, env=dict(env, **{rl.ROOT_ENV: str(root)}))
+    cid = json.loads(proc.stdout)["id"]
+    check(rl.load_card(root, cid)["origin"].get("session_id") in (None, ""),
+          "a card posted with no session id records none")
+    rl.save_response(root, cid, {"card_id": cid, "answered_at": rl.utc_now(),
+                                 "choice": 0, "choice_label": "A", "rating": 3,
+                                 "comment": "", "annotations": [], "archived": False})
+    res = rl.release_verdicts(root)
+    check(any(o["id"] == cid for o in res["orphans"]),
+          "and is reported as un-notifiable rather than dropped")
+    check(rl.pending_release_count(root)["orphans"] >= 1,
+          "the button surfaces the orphan count too")
+
+
+def test_socket_frame_shape() -> None:
+    """Guard the exact frame. `{"type":"message","text":…}` has a valid string
+    type, so it passes the reader's type check and falls through to an
+    unhandled-type branch that logs at debug level and does nothing. That shape
+    failed silently twice before the protocol was read properly."""
+    print("\nsocket frame")
+    src = (HERE / "review_lib.py").read_text(encoding="utf-8")
+    body = src[src.index("def send_to_own_session"):]
+    body = body[:body.index("\ndef ")]
+    check('"type": "user"' in body, 'the message frame is type "user"')
+    check('"content": text' in body, "and the text lives at message.content")
+    check('"type": "auth"' in body, "an auth frame is sent first")
+    check('"type": "message"' not in body,
+          'the silently-ignored {"type":"message"} shape is not used')
+    check('"priority": "next"' in body,
+          'priority is "next" so it lands between turns, not mid-work')
 
 
 def test_every_page_button_traces_to_a_card() -> None:
@@ -457,6 +627,148 @@ def test_root_is_shared_across_worktrees() -> None:
 
 # --------------------------------------------------------------------------
 
+
+def _serve_for_test(root: Path, port: int, lan: bool):
+    """Start a real server in-process and return (thread, httpd, token)."""
+    sys.path.insert(0, str(HERE))
+    import review_server
+    import threading as _t
+    page = HERE / "review_page.html"
+    token = rl.lan_token(root) if lan else ""
+    handler = type("T", (review_server.ReviewHandler,),
+                   {"root": root, "page_path": page, "lan_token": token})
+    from http.server import ThreadingHTTPServer
+    httpd = ThreadingHTTPServer(("0.0.0.0" if lan else "127.0.0.1", port), handler)
+    httpd.daemon_threads = True
+    th = _t.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    return httpd, token
+
+
+def _req(host: str, port: int, path: str, key: str = "", cookie: str = "",
+         host_header: str = "", method: str = "GET"):
+    """One raw request, so the Host header and the client address are ours."""
+    import http.client
+    conn = http.client.HTTPConnection(host, port, timeout=10)
+    headers = {}
+    if cookie:
+        headers["Cookie"] = "%s=%s" % (rl.LAN_COOKIE, cookie)
+    if host_header:
+        headers["Host"] = host_header
+    conn.request(method, path + ("?k=" + key if key else ""), headers=headers)
+    resp = conn.getresponse()
+    resp.read()
+    out = (resp.status, resp.getheader("Set-Cookie") or "")
+    conn.close()
+    return out
+
+
+def test_lan_access_is_gated(root: Path, art: Path) -> None:
+    """The key is the only thing between the queue and the rest of the Wi-Fi.
+
+    Every route has to be behind it -- `/media/` above all, since that is where
+    the renders are and an <img> cannot send a header, which is why the key
+    becomes a cookie at all.
+    """
+    print("\nLAN access")
+    root.mkdir(parents=True, exist_ok=True)
+    os.environ[rl.ROOT_ENV] = str(root)
+    lan = rl.lan_address()
+    if not lan:
+        return check(True, "skipped: this machine has no LAN address to bind")
+
+    httpd, token = _serve_for_test(root, 7466, lan=True)
+    try:
+        check(_req("127.0.0.1", 7466, "/api/rev")[0] == 200,
+              "loopback still needs no key -- the desktop flow is untouched")
+        check(_req(lan, 7466, "/api/rev")[0] == 401, "off-box with no key is refused")
+        check(_req(lan, 7466, "/api/rev", key="WRONG123")[0] == 401,
+              "off-box with the wrong key is refused")
+        code, setc = _req(lan, 7466, "/", key=token)
+        check(code == 200, "off-box with the key is served")
+        check(rl.LAN_COOKIE in setc and token in setc,
+              "...and the key comes back as a cookie", setc)
+        check(_req(lan, 7466, "/api/rev", cookie=token)[0] == 200,
+              "the cookie alone is enough afterwards")
+        # The one an <img> depends on, and the easiest to forget.
+        check(_req(lan, 7466, "/media/nope.png")[0] == 401,
+              "/media/ is gated too -- 401 before 404")
+        check(_req(lan, 7466, "/media/nope.png", cookie=token)[0] == 404,
+              "...and reachable with the key")
+        check(_req(lan, 7466, "/api/notify", cookie="", method="POST")[0] == 401,
+              "POST is gated, not just GET")
+        check(_req(lan, 7466, "/api/rev", cookie=token,
+                   host_header="evil.example.com")[0] == 401,
+              "a rebound hostname is refused even holding a valid key")
+        check(_req(lan, 7466, "/media/../../etc/passwd", cookie=token)[0] in (400, 403, 404),
+              "the media containment check was not relaxed to make LAN work")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+    mode = oct(os.stat(root / rl.LAN_TOKEN_FILE).st_mode & 0o777)
+    check(mode == "0o600", "the key file is readable only by its owner", mode)
+
+
+def test_plain_serve_creates_no_key(root: Path) -> None:
+    """No flag, no exposure and no key file. The default must not drift."""
+    print("\nplain serve")
+    root.mkdir(parents=True, exist_ok=True)
+    httpd, token = _serve_for_test(root, 7467, lan=False)
+    try:
+        check(token == "", "no --lan means no key is even loaded")
+        check(not (root / rl.LAN_TOKEN_FILE).exists(),
+              "...and none is written to the queue")
+        check(httpd.server_address[0] == "127.0.0.1",
+              "the listener stays on loopback", str(httpd.server_address))
+        check(_req("127.0.0.1", 7467, "/api/rev")[0] == 200,
+              "and the desktop page still answers with no key")
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_page_works_on_a_phone() -> None:
+    """Static half of the mobile check; the browser drive is review_mobile.py.
+
+    Structural, because the failure this guards is deletion or a rename, not
+    behaviour: how it *looks* at 390px is a review-queue card, and whether the
+    gestures work is a Playwright run. What is cheap to assert here is that the
+    pieces are still wired to each other.
+    """
+    print("\nphone layout")
+    import re
+    src = (HERE / "review_page.html").read_text(encoding="utf-8")
+
+    check("@media (max-width: 720px)" in src,
+          "the page has mobile rules at all (it had none, and was unusable)")
+    check("min-width: 0" in src.split("@media")[1],
+          "the 280px pane floor is lifted, or a phone scrolls sideways")
+    check("font-size: 16px" in src.split("@media")[1],
+          "inputs are >=16px, or iOS zooms the page in on focus and stays there")
+    check("touch-action: none" in src,
+          "the lightbox claims its gestures from the browser")
+
+    for needle, why in (
+            ('addEventListener("pointerdown"', "the lightbox listens for pointers, not mice"),
+            ("document.elementFromPoint", "a captured tap resolves its target by point, not ev.target"),
+            ("lbPinch", "pinch-to-zoom exists"),
+            ("lbToggleZoom", "double-tap toggles fit and 1:1"),
+            ("lbTapTimer", "a first tap waits out a possible second before opening prompt()")):
+        check(needle in src, why)
+
+    check('addEventListener("mousedown"' not in src and 'addEventListener("mousemove"' not in src,
+          "no mouse-only pan survives beside the pointer path")
+
+    # The generalisation of the bug that left Close dead for a commit: every id
+    # the script wires a listener to has to exist in the markup.
+    ids = set(re.findall(r'id="([^"]+)"', src))
+    wired = set(re.findall(r'getElementById\("([^"]+)"\)', src))
+    missing = sorted(w for w in wired if w not in ids)
+    check(not missing, "every getElementById the script wires actually exists",
+          str(missing))
+
+
 def main() -> int:
     # Isolate from any real remote, globally, before a single check runs.
     #
@@ -479,7 +791,14 @@ def main() -> int:
         test_wait_degrades(base / "q5", art_a)
         test_inbox_is_never_silently_empty(base / "q4", art_a)
         test_focus_is_validated_at_post_time(base / "q6", art_a)
+        test_single_frame_gif_is_refused(base / "q7", base)
+        test_verdicts_batch_per_agent(base / "q8", art_a)
+        test_unnotifiable_cards_are_reported(base / "q9", art_a)
+        test_socket_frame_shape()
         test_every_page_button_traces_to_a_card()
+        test_page_works_on_a_phone()
+        test_lan_access_is_gated(base / "q10", art_a)
+        test_plain_serve_creates_no_key(base / "q11")
         test_root_is_shared_across_worktrees()
         transport = Path(tempfile.mkdtemp(prefix="review-transport-"))
         try:

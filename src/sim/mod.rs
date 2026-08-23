@@ -75,6 +75,7 @@ pub mod evaporation;
 pub mod explosion;
 pub mod field;
 pub mod fire;
+pub mod fracture_field;
 pub mod liquid;
 pub mod load;
 pub mod material;

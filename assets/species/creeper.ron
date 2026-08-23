@@ -1,0 +1,129 @@
+// **A form probe, not a shipped species** (WP-C, `Reports/plant-
+// implementation-plan.md`). It exists to answer one question by eye: does
+// the Grow envelope already contain a *ground-runner* form class, reachable
+// with no code and no new mechanism, or does everything this machinery
+// grows read as another small tree?
+//
+// Pure values. Every field below exists and ships; nothing here is new.
+// Three knobs carry the whole claim, and `organism.rs`'s own doc named the
+// first of them before anyone tried it -- "a **vine** should be near `0.0`,
+// a mature trunk near `0.9`":
+//
+//   heading_inertia 0.05  a stem with no momentum cannot hold a bole; it
+//                         turns wherever the local score sends it
+//   upward_weight   ~0    nothing pulls the axis vertical, so continuation
+//                         and crowding decide, and both are lateral
+//   turgor budget   8 rows  (0.16 - 0.1) / 0.0075 -- a hard ceiling a
+//                         handspan off the ground, so length has nowhere
+//                         to go but sideways
+//
+// Economy inherited from tree.ron unchanged, deliberately: if this reads as
+// a different plant it must be the three knobs above doing it and not a
+// re-tuned income. Judged against the four-axes bar in
+// `Reports/plant-evolution-design.md` §4a -- size class, material/palette,
+// form class, consequence -- and a verdict of "another small tree" is a
+// deliverable, not a failure to fix.
+(
+    name: "creeper",
+    // Borrowed from shrub's range: this is a probe and the palette is not
+    // what it is testing. A real ground layer gets its own materials
+    // (WP-B3), which is the axis a recolour cannot reach.
+    foliage_bands: (first: 4, count: 2),
+    bark_bands: (first: 2, count: 2),
+    stomatal_reserve: 0.2,
+    cell_types: [
+        (Seed, [
+            Germinate(
+                light_threshold: 0.1,
+                // Low, like grass: a ground-hugging plant establishes on thin damp ground rather than waiting for a wet season.
+                //
+                // Plant-available soil water in the cell below, 0..1:
+                // 0 is the permanent wilting point, 1 is field capacity.
+                // Renamed from `moisture_threshold`, whose unit was the
+                // field channel's 0..4 and which measured the wrong thing.
+                soil_water_threshold: 0.15,
+                instant: false,
+            ),
+        ]),
+        (GrowingTip, [
+            Grow(
+                cost: 0.2,
+                // Branch readily: a runner is many short axes, and with no
+                // height to spend growth on, branching is where it goes.
+                branch_chance: [0.25, 0.35],
+                continuation_weight: 0.7,
+                // Light barely steers it. A creeper that chases light
+                // climbs, and climbing is the one corner of this envelope
+                // that genuinely needs a mechanism (surface attraction) --
+                // out of scope here, so the probe declines the pull rather
+                // than half-expressing it.
+                light_weight: [0.05, 0.05],
+                wind_weight: 0.1,
+                // The knob under test. Not negative -- that is the weeping
+                // probe's question; here the axis simply has no vertical
+                // preference at all and the horizon falls out of what is
+                // left.
+                upward_weight: [0.05, 0.0],
+                crowding_weight: 30.0,
+                max_active_tips: 14,
+                plastochron: [2, 2],
+                penetration_force: 0.0,
+                // h_max = (0.16 - 0.1) / 0.0075 = 8 rows.
+                turgor_source: 0.16,
+                turgor_yield: 0.1,
+                turgor_per_cell: 0.0075,
+                turgor_taper: 0.35,
+                // The second knob under test.
+                heading_inertia: 0.05,
+                // Wide departures and short runs: a mat spreads by turning
+                // often, and a long straight internode is what a runner
+                // does not have.
+                branch_angle: [80.0, 75.0],
+                internode: [2, 2],
+                leaf_cluster: 8,
+                juvenile_size: 20,
+                juvenile_plastochron: 0.5,
+                juvenile_branch: 1.3,
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                sympodial: [false],
+                tropism: [Orthotropic],
+            ),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+        ]),
+        (RootTip, [
+            Absorb(rate: 1.5),
+            Grow(
+                cost: 0.25,
+                branch_chance: [0.05],
+                continuation_weight: 0.7,
+                light_weight: [0.0],
+                wind_weight: 0.0,
+                upward_weight: [0.6],
+                crowding_weight: 0.0,
+                max_active_tips: 8,
+                plastochron: [0],
+                heading_inertia: 0.75,
+                penetration_force: 1.2,
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+            ),
+        ]),
+        (MatureBody, [
+            Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
+            SecondaryThicken(pipe_ratio: 5.5),
+            StructuralAnchor,
+            Absorb(rate: 1.5),
+        ]),
+        (DormantBud, [
+            BudBreak(
+                cost: 0.2,
+                thickening_survival: 0.5,
+                acrotony: 0.0,
+            ),
+            StructuralAnchor,
+            SecondaryThicken(pipe_ratio: 5.5),
+        ]),
+        (Leaf, [
+            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+        ]),
+    ],
+)

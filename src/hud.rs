@@ -29,6 +29,19 @@ type Glyph = [u8; 7];
 
 const BLANK: Glyph = [0, 0, 0, 0, 0, 0, 0];
 
+/// Whether the font can actually draw `c`, so a caller composing a fixed
+/// string can be tested for characters that would silently come out as a
+/// blank gap. `draw_text` upper-cases, so this does too.
+///
+/// Exists because that gap has shipped three times -- `[`/`]`, then the
+/// tunables panel's `_`/`<`/`>`, then `;`/`'` sitting blank in the help
+/// page for as long as they had been bound. A space is legitimately blank
+/// and is the one character this reports as present.
+pub fn has_glyph(c: char) -> bool {
+    let upper = c.to_ascii_uppercase();
+    upper == ' ' || glyph_for(upper) != BLANK
+}
+
 fn glyph_for(c: char) -> Glyph {
     match c {
         'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
@@ -93,6 +106,18 @@ fn glyph_for(c: char) -> Glyph {
         '_' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b11111],
         '<' => [0b00010, 0b00100, 0b01000, 0b10000, 0b01000, 0b00100, 0b00010],
         '>' => [0b01000, 0b00100, 0b00010, 0b00001, 0b00010, 0b00100, 0b01000],
+        // Added for the help overlay's own keybinds, and the third time
+        // this exact omission has been found by looking at the output --
+        // see the `[`/`]` and `_`/`<`/`>` notes above. `;` (depth light)
+        // and `'` (glow shape) had been shipping as blank gaps in the help
+        // page for as long as they had been bound, so the page listed two
+        // keys it could not name; `` ` `` and `\` arrived with the water
+        // merge and would have done the same. `help_page_only_uses_glyphs_
+        // the_font_has` now fails for any character the page cannot draw.
+        ';' => [0b00000, 0b01100, 0b01100, 0b00000, 0b00000, 0b01100, 0b01000],
+        '\'' => [0b01100, 0b01100, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000],
+        '`' => [0b11000, 0b01100, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000],
+        '\\' => [0b10000, 0b01000, 0b01000, 0b00100, 0b00010, 0b00010, 0b00001],
         ' ' => BLANK,
         // Any other character (lowercase, accented, anything not in the set
         // above) renders as blank rather than a mystery box or a panic --

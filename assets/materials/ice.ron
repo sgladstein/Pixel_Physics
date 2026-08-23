@@ -1,0 +1,161 @@
+// Ice is water's solid phase, and -- like snow, deliberately and for the
+// same reason -- **temporary by construction**. Its melting point sits at
+// 1 degree, well below the world's 20-degree ambient, so nothing has to
+// remember that a pond froze or schedule it to thaw: the moment the cold
+// front stops re-chilling it, every cell of a sheet is above its own
+// melting point and turns back into water over the following seconds.
+// snow.ron's header makes this argument first and at length; this is the
+// second material built on it, and the pair is now the pattern for anything
+// the weather makes.
+//
+// The one thing ice is that snow is not: **a structural Solid**. A sheet
+// bears load, holds a span, carries snow drifting on top of it, and comes
+// apart in pieces when it fails. That is the whole content of this
+// material -- there is no ice code. Freezing is `fire.rs`'s downward phase
+// change reading water.ron's `cooling_point`, the cold comes from
+// `weather.rs`, and the load model does the rest.
+//
+// **Ice is the first material in the set that floats**, and the load model
+// had to be told: see `floats` below, and `MaterialDef::floats` for what
+// went wrong when a sheet's only path to an anchor ran sideways to the
+// shoreline. Without it a sheet could not even form.
+(
+    name: "ice",
+    display: "Ice",
+    kind: Solid,
+    // Just under water's 1.0, which is why real ice floats. Nothing
+    // *compares* it here -- a Solid does not sink through a Liquid, and the
+    // floating below is a flag rather than a density test -- so this is for
+    // `rigid.rs`'s mass, where a sheet breaking free is lighter than the
+    // same volume of rock, and for the day something does read it.
+    density: 0.92,
+    // Diggable, but not free the way snow is. Read by creature digging
+    // (`creature.rs`'s `dig_force`) and by root penetration -- and a Solid
+    // is never root-penetrable regardless, so today this only means "no
+    // shipped species tunnels through a frozen pond": ant `dig_force` is
+    // 1.0. The gnome's own dig does not consult this field at all (it goes
+    // through `rigid::mine`), so cutting a hole in the ice is governed by
+    // `breaks_into` and `fragment_rungs` below, not by this number.
+    penetration_resistance: 2.5,
+    // Low but real, and it has to be non-zero: `fire.rs`'s `diffuse_heat`
+    // early-exits at conductivity <= 0, so a material with none can never
+    // change temperature *at all* once something has written one into it.
+    // That is the exact latent bug snow shipped with -- a chilled flake
+    // that could neither warm nor melt, holding its chunk awake forever --
+    // and a sheet of ice is a far larger version of it. Lower than
+    // water's 0.08 is wrong physically (ice conducts about four times
+    // better than water) and right here: what this number sets is how many
+    // visited frames a sheet takes to reach its melting point once the
+    // storm lifts, and a sheet that vanishes the instant the snow stops
+    // reads as a bug rather than as a thaw. 0.1 gives a few seconds.
+    heat_conductivity: 0.1,
+    // Below ambient on purpose -- see the header.
+    //
+    // **4.0, and this was 1.0 with the opposite reasoning written here**:
+    // "1.0 rather than snow's 2.0 so that a marginal cold snap leaves slush
+    // and drifts before it leaves a frozen surface, and so that the surface
+    // is the *first* thing to go when the front passes." A playtest
+    // overturned it -- "it never really freezes... the pixels seem to be
+    // constantly shifting" -- and the reason is that water freezes at 0 and
+    // ice at 1.0 melts is **one integer step**, which on an i16 temperature
+    // is no hysteresis at all. A cell sitting near the boundary flips back
+    // and forth on ordinary diffusion noise. Four gives the sheet a band it
+    // can sit in.
+    //
+    // It also inverts the order against snow's 2.0, deliberately: the drift
+    // now goes before the sheet under it, which is what a dusting of snow
+    // on a frozen pond actually does.
+    melting_point: 4.0,
+    melts_into: "water",
+    // Crushed ice is snow. Zero new mechanism for graded debris: snow
+    // already floats on water (density 0.3 against 1.0), already piles at
+    // a steep angle of repose, and already melts a little later than the
+    // sheet it came off. A sheet that gives way therefore leaves a
+    // scatter of floating slush that drifts and then goes, which is the
+    // distribution `CLAUDE.md`'s ethos section asks for -- not one
+    // coherent slab and not a uniform dissolve.
+    breaks_into: "snow",
+    // **Ice floats, and the load model has to be told.** See
+    // `MaterialDef::floats` for the measurement: without this a sheet
+    // cannot even form, because the first cell to freeze in open water is
+    // a lone solid with no path to an anchor at any finite span, and it is
+    // dismantled the frame after it appears (3,969 freezes in one storm
+    // and never ten cells standing).
+    //
+    // This is the *only* material in the set that sets it, which is what
+    // keeps it safe: the two "is it standing on the ground" predicates it
+    // reaches are otherwise unchanged, so nothing generated by worldgen
+    // and nothing a player has built behaves any differently.
+    floats: true,
+    // Two rungs below stone's 6 (fragments of 2, 4, 8 or 16 cells rather
+    // than up to 64). Ice is brittle and thin: a sheet should craze into
+    // plates and shards, not calve blocks the size of a wall.
+    fragment_rungs: 4,
+    // Left at the default 1. Ice is never terrain -- no worldgen preset
+    // places it and nothing marks it attached -- so the background-mass
+    // bonus has nothing to apply to, and writing a number here would be a
+    // claim about a case that cannot arise.
+    //
+    // `max_unsupported_span` does not mean here what it was set up to
+    // mean, and the sweep is worth reading for that. It was aimed at "how
+    // far can a sheet reach inward from the shoreline before its middle is
+    // past its span" -- and with `floats` above, **the sheet's width is no
+    // longer the question**: every cell of it is anchored by the water
+    // underneath at distance 0. What the number governs instead is
+    // `load::capacity` (span squared over two, scaled by section), which is
+    // what a sheet is judged against when something is *lying on it* -- and
+    // in this scene that load is real, because the storm drops 1,700-odd
+    // cells of snow onto the ice it made.
+    //
+    // Swept on `filmstrip scene=coldsnap pond=60`, rebuilding between
+    // points because materials are `include_str!`-compiled into the binary.
+    // (One sweep point silently measured the wrong setting before that was
+    // noticed. Identical output across settings is the tell.) Failures
+    // read at frames 300 / 575 / 720 -- mid-freeze, under the deepest
+    // drift, and after the thaw:
+    //
+    //   16      0, then **17 overloads (2,210 cells) and 118 unsupported
+    //           (289)** under the drift, and half again as much by the
+    //           thaw. The sheet cannot carry the snow that falls on it.
+    //           Capacity 128.
+    //   32      0, then 6 overloads (924 cells), and the thaw adds 47
+    //           unsupported (139) as the sheet thins under the load.
+    //           Marginal.
+    //   48      **0 at every one of the three**, through freeze-over,
+    //           under the drift and through the thaw. Capacity 1,152.
+    //   unset   also 0, and **rejected anyway**: `load::capacity` reads
+    //           the unset sentinel as "this material does not participate
+    //           in the structural system at all" and returns infinite
+    //           capacity. Ice would stop failing under any load whatever,
+    //           and an ice bridge with nothing beneath it would hang in
+    //           the air (`structural.rs`'s `ice_participates_in_load` is
+    //           the guard). That is the strong-enough-to-hold-a-mountain
+    //           end of the failure mode four support models died on;
+    //           exempting ice is not the same as floating it.
+    //
+    // 48 also keeps the failure real on wider water, which was the other
+    // thing wanted. Swept over pond widths at 48: 0 failures at 30, 60,
+    // 300 and 460 cells, but **4 overloads (317 cells) at 120 and 2
+    // overloads plus 41 unsupported (321 cells) at 240** -- a loaded sheet
+    // does give way. Not monotone in width, which is what outcomes here
+    // always are (`CLAUDE.md` on the seed sweep: gate an order statistic,
+    // never a single case), so read it as "somewhere between a third and
+    // half the world's width, a snow-laden sheet starts breaking up" and
+    // not as a threshold.
+    max_unsupported_span: 48,
+    // Ice is strong in compression and poor in bending -- the same ordering
+    // as rock but with less of it. `above` at 3 (stone's value) keeps
+    // anything from hanging far under a sheet; `below` and `beside` stay at
+    // the default 1, so the span above is the whole budget.
+    support_cost_above: 3,
+    // Pale blue-white: clearly not snow (which is near-white and sits on
+    // top of it) and clearly not water (which is dark blue and lies under
+    // it), so a contact sheet of a freeze-over reads as three materials
+    // rather than one smear.
+    colors: [
+        (188, 216, 234),
+        (172, 204, 226),
+        (204, 228, 242),
+        (160, 194, 218),
+    ],
+)

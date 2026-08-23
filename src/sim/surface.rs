@@ -21,6 +21,7 @@
 //! surface both paths present to the rules.
 
 use super::cell::Cell;
+use super::fire::PhaseEvent;
 use super::material::{MaterialKind, MaterialRegistry};
 use super::rng::Rng;
 use super::scheduler::ActiveSite;
@@ -117,6 +118,72 @@ pub trait CellSurface {
     /// newly-scheduled active site's `next_frame` (architecture §5f, ash
     /// decay). See `World::frame`.
     fn frame(&self) -> u64;
+
+    /// Report that a denser cell just displaced near-full liquid at `(x, y)`
+    /// with open air above it — a **candidate** splash site, not a splash.
+    ///
+    /// **The sweep reports and does not act, and that division is what makes
+    /// the effect conservative.** A free particle lands as a whole cell
+    /// (`particle::land`), so a droplet that was not taken out of the pool
+    /// is water manufactured — and the removal and the launch therefore have
+    /// to happen in the same place, or a harness that steps the world
+    /// without owning a `ParticleSystem` (`examples/ascii.rs`, every unit
+    /// test) would quietly drain every pool it splashed. Only
+    /// `particle::throw_splashes` does both, together, and it re-checks the
+    /// cell first because a site is a frame old by the time it runs.
+    ///
+    /// The other half of the division: this must not change movement, and it
+    /// cannot — nothing here writes a cell. `Reports/open-bugs-handoff.md`
+    /// §2 is about this exact code path and its striping is untouched.
+    ///
+    /// `World` pushes onto its own list, cleared at the top of every step so
+    /// an undrained frame is discarded rather than accumulating;
+    /// `ChunkView` queues and `run_pass` merges, the same shape as
+    /// `schedule_active_site`.
+    /// Report a splash candidate at `(x, y)`, with `strength` scaling how
+    /// hard it is thrown.
+    ///
+    /// **A strength rather than one fixed throw**, because the two things
+    /// that report splashes are not the same event: a boulder breaking the
+    /// surface fans a crown, and a simmering pan spits a single drop that
+    /// barely clears the water. Sharing the boulder's throw made the pan
+    /// look like rain — the drops cleared ten rows.
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32);
+
+    /// Record one temperature-triggered transition for the "did it fire at
+    /// all" counters (`fire::PhaseCounts`, the `FailureCounts` pattern) —
+    /// a steam plume and painted smoke are indistinguishable in a contact
+    /// sheet, so whether the mechanism produced what is on screen has to be
+    /// a count. `World` bumps `World::phase_changes` directly; `ChunkView`
+    /// tallies privately and `run_pass` merges, the same queue-and-replay
+    /// shape as `schedule_active_site`.
+    fn count_phase_event(&mut self, event: PhaseEvent);
+
+    /// Whether `(x, y)` is above this column's frozen ground surface — the
+    /// engine's stored definition of "outdoors" (`World::sky_surface`).
+    ///
+    /// Read by `fire::try_phase_change` to decide where a condensing gas's
+    /// water goes: a plume in the open hands it to the sky
+    /// (`MaterialDef::condenses_into_sky`), one sealed in a cave leaves a
+    /// liquid cell where it stood. `Reports/open-bugs-handoff.md` §4b is
+    /// why this is a stored answer and not a scan — every attempt to infer
+    /// it from the shape of the world was wrong in a new way.
+    ///
+    /// One `Vec` index for `World`; `ChunkView` answers from the same slice
+    /// through its own `&World`, so neither driver pays for a lookup.
+    fn is_outdoors(&self, x: i32, y: i32) -> bool;
+
+    /// Hand `fill` units of water (on `material::LIQUID_FULL`'s 0..1000
+    /// scale) to `World::atmospheric_bank` — the same credit half of the
+    /// outer cycle `evaporation::tick` uses, reached from inside the CA
+    /// sweep instead.
+    ///
+    /// `World` credits immediately; `ChunkView` accumulates privately and
+    /// `run_pass` merges, the same queue-and-replay shape as
+    /// `count_phase_event`. The worker tally is in **whole fill units**
+    /// rather than cell-equivalents so the merge is an integer sum and a
+    /// pass cannot lose a fraction of a cell to float ordering.
+    fn credit_atmosphere(&mut self, fill: u16);
 
     /// Schedule a new M16 active site (`decay.rs`'s ash → soil check is the
     /// first caller reached from inside a generic CA rule, but the seam is

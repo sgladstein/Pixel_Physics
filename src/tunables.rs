@@ -168,6 +168,18 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
             out.push(Tunable::integer(phys, &category, "min_transfer", m.min_transfer as f32, 0.0, 400.0, 4.0));
             out.push(Tunable::integer(phys, &category, "flow_rate", m.flow_rate as f32, 0.0, 1000.0, 25.0));
         }
+        // Gases only, and the same reasoning the liquid-only block above
+        // carries: a dissipation chance means nothing to a powder or a
+        // solid. Here specifically because "how long should smoke hang
+        // around" is a look judgement and not a derivable number -- the
+        // arithmetic on `MaterialDef::dissipation` narrows the range to
+        // about 2-4 seconds of half-life and cannot pick inside it, which
+        // is exactly the case `CLAUDE.md` says to answer with a live knob
+        // rather than an argument. Fine step: the whole usable range is
+        // under a hundredth.
+        if m.kind == MaterialKind::Gas {
+            out.push(Tunable::float(phys, &category, "dissipation", m.dissipation, 0.0, 0.05, 0.001));
+        }
         out.push(Tunable::float(phys, &category, "heat_conductivity", m.heat_conductivity, 0.0, 1.0, 0.05));
         for (field, value) in [
             ("ignition_temperature", m.ignition_temperature),
@@ -205,6 +217,14 @@ pub fn from_materials(materials: &MaterialRegistry) -> Vec<Tunable> {
 ///
 /// Each field's own reasoning lives on `sim::explosion::Tuning`; the ranges
 /// here are what makes sense to sweep with a key held down, not hard limits.
+///
+/// "Every" is enforced, not aspirational: the crack, confinement and
+/// afterglow fields were added to `Tuning` across two passes and none of
+/// them reached this list, so the panel showed a blast's older half while
+/// the knobs that decide how the rock actually comes apart were reachable
+/// only by editing `assets/explosion.ron` and restarting.
+/// `every_explosion_tunable_can_actually_be_written_back` now destructures
+/// `Tuning` exhaustively and will not compile past a new field.
 pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
     let g = TunableGroup::Explosion;
     let c = EXPLOSION_CATEGORY;
@@ -222,6 +242,48 @@ pub fn from_explosion(t: &Explosion) -> Vec<Tunable> {
         Tunable::float(g, c, "speed_per_strength", t.speed_per_strength, 0.0, 0.5, 0.005),
         Tunable::float(g, c, "debris_jitter", t.debris_jitter, 0.0, 2.0, 0.05),
         Tunable::float(g, c, "heat_fraction", t.heat_fraction, 0.5, 20.0, 0.5),
+        // The crack star (R1). `crack_growth` and `crack_stagger` are the
+        // pair that decide whether the fissures read as a thing that
+        // *happens* or as a graphic stamped on the stone, which is a
+        // judged-in-the-hand question and therefore exactly what this panel
+        // is for. The counts (`crack_rays`, `crack_growth`, and
+        // `calve_depth` below) are `u32` on `Tuning`, so they register as
+        // `integer` -- see `Tunable::integral`.
+        Tunable::integer(g, c, "crack_rays", t.crack_rays as f32, 0.0, 48.0, 1.0),
+        Tunable::float(g, c, "crack_reach", t.crack_reach, 0.0, 6.0, 0.1),
+        // Floored at 1, matching the clamp where it is read: `0` freezes the
+        // star half-drawn, so it is not a setting anyone can want.
+        Tunable::integer(g, c, "crack_growth", t.crack_growth as f32, 1.0, 20.0, 1.0),
+        // In frames, so a whole-frame step like `duration`'s rather than a
+        // fractional one.
+        Tunable::float(g, c, "crack_stagger", t.crack_stagger, 0.0, 40.0, 1.0),
+        // A temperature, so the same 10-degree granularity the material
+        // temperatures use. Capped well below `flash_temperature`'s 2000:
+        // `render.rs`'s glow ramp is saturated by ~420 and stone cannot
+        // ignite from it, so the range past that buys nothing visible.
+        Tunable::float(g, c, "crack_glow_temperature", t.crack_glow_temperature, 0.0, 1000.0, 10.0),
+        // Confinement (R2), and the collar the finished star calves off the
+        // rim. `containment_floor` is a multiple of `radius`, not a 0..1
+        // fraction, hence the wider range and coarser step.
+        Tunable::float(g, c, "containment_floor", t.containment_floor, 0.0, 5.0, 0.1),
+        Tunable::float(g, c, "confined_cavity_fraction", t.confined_cavity_fraction, 0.0, 1.0, 0.05),
+        Tunable::integer(g, c, "calve_depth", t.calve_depth as f32, 0.0, 32.0, 1.0),
+        // A *per-frame* retention, so the interesting band is the top tenth
+        // (0.94 fades in ~90 frames, 0.99 in ~550) and a 0.05 step would
+        // step straight over it -- `swim_damp`'s 0.01 for the same reason.
+        Tunable::float(g, c, "afterglow_retention", t.afterglow_retention, 0.5, 1.0, 0.01),
+        // The joint fabric (F). `joint_reach` is a multiple of `radius`
+        // like `crack_reach`, and the other two are 0..1 fractions.
+        //
+        // These three are the density controls the owner's verdict on the
+        // pattern lands on -- *"I like a little of it, but there is too
+        // much"* -- so they are exactly the kind of judged-by-eye question
+        // this panel exists for. The fourth control is
+        // `stone.ron`'s `joint_spacing`, which is a material field and is
+        // already listed by `from_materials`.
+        Tunable::float(g, c, "joint_reach", t.joint_reach, 0.0, 6.0, 0.1),
+        Tunable::float(g, c, "joint_open_fraction", t.joint_open_fraction, 0.0, 1.0, 0.05),
+        Tunable::float(g, c, "joint_density", t.joint_density, 0.0, 1.0, 0.05),
     ]
 }
 
@@ -323,6 +385,21 @@ pub fn apply_explosion(t: &mut Explosion, name: &str, value: f32) {
         "speed_per_strength" => t.speed_per_strength = value,
         "debris_jitter" => t.debris_jitter = value,
         "heat_fraction" => t.heat_fraction = value,
+        "crack_rays" => t.crack_rays = value.max(0.0).round() as u32,
+        "crack_reach" => t.crack_reach = value,
+        // Floored at 1 here as well as in the registered range: the panel
+        // is not the only caller, and a 0 written in from anywhere freezes
+        // the star half-drawn.
+        "crack_growth" => t.crack_growth = value.max(1.0).round() as u32,
+        "crack_stagger" => t.crack_stagger = value,
+        "crack_glow_temperature" => t.crack_glow_temperature = value,
+        "containment_floor" => t.containment_floor = value,
+        "confined_cavity_fraction" => t.confined_cavity_fraction = value,
+        "calve_depth" => t.calve_depth = value.max(0.0).round() as u32,
+        "afterglow_retention" => t.afterglow_retention = value,
+        "joint_reach" => t.joint_reach = value,
+        "joint_open_fraction" => t.joint_open_fraction = value,
+        "joint_density" => t.joint_density = value,
         _ => {}
     }
 }
@@ -520,9 +597,65 @@ mod tests {
     /// and a typo in either would silently produce a row that displays fine
     /// and does nothing when adjusted — the exact failure mode `app.rs`'s
     /// material dispatch has always been exposed to and nothing checks.
+    ///
+    /// It also checks the *other* direction, which the write-back loop
+    /// alone cannot see: a field added to `Explosion` and never registered
+    /// produces no row at all, so there is nothing for the loop to iterate
+    /// over and it stays green while the new knob is unreachable in play.
+    /// That is not hypothetical — the whole crack/confinement/afterglow
+    /// half of `Tuning` sat unexposed for two passes. The list below is
+    /// destructured out of `Explosion` exhaustively, so adding a field
+    /// stops this test *compiling* until it is named here, and the
+    /// assertion then forces it to be wired rather than merely named.
     #[test]
     fn every_explosion_tunable_can_actually_be_written_back() {
         let base = Explosion::default();
+
+        macro_rules! explosion_fields {
+            ($($f:ident),* $(,)?) => {{
+                // Binds nothing (`$f: _`) and omits `..` on purpose: the
+                // compiler's exhaustiveness check is the point of the
+                // pattern, and the array is the same list as strings.
+                let Explosion { $($f: _),* } = base;
+                [$(stringify!($f)),*]
+            }};
+        }
+        let fields = explosion_fields!(
+            radius,
+            strength,
+            duration,
+            vaporize_fraction,
+            debris_fraction,
+            shockwave_multiplier,
+            fireball_fraction,
+            flash_temperature,
+            smoke_fraction,
+            heat_fraction,
+            speed_per_strength,
+            debris_jitter,
+            crack_rays,
+            crack_reach,
+            crack_growth,
+            crack_stagger,
+            containment_floor,
+            confined_cavity_fraction,
+            calve_depth,
+            afterglow_retention,
+            crack_glow_temperature,
+            pierce_divisor,
+            joint_reach,
+            joint_open_fraction,
+            joint_density,
+        );
+        let listed = from_explosion(&base);
+        for field in fields {
+            assert!(
+                listed.iter().any(|t| t.name == field),
+                "explosion.{field} exists on Tuning but has no panel entry -- it cannot be swept in play"
+            );
+        }
+        assert_eq!(listed.len(), fields.len(), "from_explosion lists an entry that is not a field on Tuning");
+
         for t in from_explosion(&base) {
             let mut probe = base;
             // A value guaranteed different from the current one, inside the

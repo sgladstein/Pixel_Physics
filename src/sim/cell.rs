@@ -181,7 +181,14 @@ pub struct Cell {
     /// - `Solid` / `Plant` → distance to the nearest anchor (M17 structural
     ///   integrity, extended to `Plant` by architecture item 9).
     /// - `Creature` → owning creature id (M18).
-    /// - `Powder` / `Gas` → unused, always 0.
+    /// - `Powder` → how much water it holds, on `material::SOIL_SATURATED`'s
+    ///   scale (`update::soil_moisture`), where **0 means dry** — the
+    ///   opposite default from `Liquid` below. This line used to say
+    ///   "unused, always 0", which was true when it was written and had
+    ///   stopped being true by the time infiltration wrote it; the render
+    ///   path read the whole union as if it were this entry and drew every
+    ///   stone cell's *anchor distance* as dampness for it.
+    /// - `Gas` → unused, always 0.
     /// - `Liquid` → compressible-volume fill amount, on the
     ///   `material::LIQUID_FULL` scale (`update.rs`'s module doc has the
     ///   full model) — the reason this field's independence from

@@ -139,6 +139,21 @@ burns_into: "ash",       // plain string, not Option<String> — see field.rs's
                           // melts_into (temperature-triggered, unrelated to fire)
 ```
 
+**The phase-change half of that schema is what the water cycle is made of**, and
+all of it is content — no rule in `fire.rs` names any of these materials, it
+reads these fields and does what they say:
+
+| material | kind | what it does |
+|---|---|---|
+| [`water.ron`](assets/materials/water.ron) | `Liquid` | boils into `steam` at 100°C, freezes into `ice` at 0°C. `freeze_min_fill` refuses to freeze anything but a near-full cell, which is what lets the round trip close. |
+| [`steam.ron`](assets/materials/steam.ron) | `Gas` | condenses back to `water` at 45°C, carrying its source cell's fill in `aux` across both transitions — per-cell exact through the loop. |
+| [`ice.ron`](assets/materials/ice.ron) | `Solid` | melts back at 1°C, floats, and is a **true structural solid**: a sheet spans to the shore or it comes apart. `heat_conductivity` is not optional on it — see below. |
+| [`snow.ron`](assets/materials/snow.ron) | `Powder` | made only by weather, never by freezing. Melts at 2°C into 0.3 of a cell of water — its own density, not a free full one. |
+| [`lava.ron`](assets/materials/lava.ron) | `Liquid` | born hot **once** (`intrinsic_temperature`), then cools like anything else and crusts to `stone` at 700°C. Reacts with water into stone and steam, the reaction taking the hotter side's heat into the steam. |
+
+A boiling look (`,`) and a gas translucency (`;`) are runtime selectors in
+`render.rs`, both defaulting to the behaviour that shipped before them.
+
 ## Architecture
 
 ```
@@ -184,6 +199,11 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                what, and where it breaks -- fissures, strike damage
   rigid.rs     M8: chunk bodies -- component labeling, contour tracing,
                and detached pieces falling as one coherent thing
+  fracture_field.rs
+               the joint fabric: which Worley domain a cell of rock belongs
+               to, so a blast reveals the grain the rock already has instead
+               of drawing a star across it. Position-keyed and stateless, so
+               a second charge retraces the first one's breaks
   liquid.rs    heightfield liquid bodies -- test-only today: promotion was
                implemented and reverted, so its bugs are latent until it
                lands (Reports/liquid-heightfield-design.md)
@@ -398,6 +418,23 @@ that is the whole reason it works: a settled chunk is not swept, and still
 water is exactly the state the sweep stops visiting. Built on the sweep
 first, it dried a lake faster than a puddle (7% against 1.7%) because a lake
 stays awake settling for longer. The sweep now only *schedules*.
+
+**The loop closes, and it runs on the day.** Evaporation used to delete
+water and credit nothing while precipitation created it out of nothing; both
+halves now go through one `f64` on `World` in cell-equivalents
+(`World::atmospheric_bank`), so a storm can only spend what evaporation put
+there and `render.rs` thins the *drawn* rain by the same supply factor. On
+top of that, `evaporation::warmth` reads the sky's day/night temperature
+**raw** — the one place in the engine that does not divide a designed
+oscillator back out, because here the oscillation is the effect: a puddle
+loses 2.47x as much across a noon-centred window as across a midnight-centred
+one under a lid, 3.7x under open sky. The factor is *linear* in the offset,
+so its day-mean is exactly 1.0 and the drying timescale is unchanged over
+whole days — re-measured at -0.1% over four days, with `FILL_PER_CHECK` and
+`HUMID_STOP` both checked and neither moved. `filmstrip scene=watercycle`
+runs two clear days, a storm and a clear day after it: the bank climbs
+through each afternoon, sits nearly still through each night, drains through
+the front, and standing water plus bank reads 3940.0 on all twenty tiles.
 
 One fix in the field was a prerequisite: `step_diffusion`'s wall rule
 discarded the moisture source in any block that also held solid, so water in
@@ -614,15 +651,43 @@ at any moment rather than every swept cell.
 default of 0.15 was tried first, so every material conducted heat plausibly
 without a content author having to think about it — but `diffuse_heat` runs
 for every visited cell, and nonzero conductivity means it cannot take its
-cheap early exit. Sand and water, never near fire in ordinary play, were
-paying for four neighbour reads apiece on every visit for no reason; that
-was a further, separate contributor to the same regression above. Only oil
-(and ash, its `burns_into` target — see the comment in `ash.ron` for why a
-combustion *byproduct* specifically must not default to zero, or the heat it
-inherits has nowhere to go and its chunk never sleeps) opt in explicitly.
-**Any future material that can be the target of `burns_into`, `melts_into`,
+cheap early exit. Sand and water, neither of which had any reason to conduct
+at the time, were paying for four neighbour reads apiece on every visit for
+nothing; that was a further, separate contributor to the same regression
+above. (Water has since opted in deliberately, and what that cost was
+measured — see below.) Materials
+opt in explicitly, and each one has a reason: oil; ash, its `burns_into`
+target — see the comment in `ash.ron` for why a combustion *byproduct*
+specifically must not default to zero, or the heat it inherits has nowhere to
+go and its chunk never sleeps; the plant and creature materials, which catch
+fire or feel it; `stone`, so a hot quench delta drains into the rock it made;
+and the water cycle's own four — `water` and `snow` at 0.08, `ice` at 0.1,
+`steam` at 0.12, with `lava` deliberately near-insulating at 0.002 so a flow
+carries its heat rather than shedding it into the first thing it touches.
+Sand and gravel, which are never near fire in ordinary play, still have none.
+
+**Any material that can be the target of `burns_into`, `melts_into`,
 `boils_into`, or a reaction needs a real `heat_conductivity` for the same
-reason.**
+reason** — and *so does anything the weather can chill*, which is the version
+of the rule the ice work had to learn. A cell the storm cools and nothing can
+warm sits permanently off ambient, `fire.rs`'s `must_stay_dirty` keeps its
+chunk awake forever, and a world that has been snowed on never sleeps again.
+Setting either `ice.ron`'s or `snow.ron`'s conductivity back to 0.0 leaves
+chunks awake at a 1,200-frame budget on `weather.rs`'s own `thawed_world_sleeps`
+test; with both, the world sleeps 42 frames after the front passes.
+
+**Water's opt-in was measured against this paragraph's own warning and found
+free.** The concern was exactly the regression above — water is everywhere, so
+giving it a conductivity means `diffuse_heat` cannot take its cheap exit on a
+large fraction of every sweep. On ascii's `stress: a full screen of sand and
+water (serial)` the worst frame measured **102.0 ms as the baseline against
+106.9–110.7 ms across paired runs**, which is inside the container's own
+run-to-run spread on that scene: unmeasurable, not free-in-principle. The
+historical 16 → 64 ms regression this section opens with was **not** the
+per-cell diffusion at all; it was the `World::field_at` `HashMap` lookup that
+version did per visited cell, and `src/sim/surface.rs`'s `field_wind_at` doc
+carries the full measurement of why the surviving field read is a different
+and much cheaper operation.
 
 **Screenshotting the live app doesn't work on this machine** — found while
 trying to visually confirm the fire tint below. This build's DXGI/wgpu
@@ -845,6 +910,50 @@ check; the equivalent bar here is the conservation/settling stress tests in
 spanning dozens of cells, a chunk touched only via a neighbour's dirty mark)
 plus an independent review pass focused specifically on concurrency
 correctness before this was committed.
+
+## Plant lines merged: the genome, and the ecology
+
+**Two long-running plant branches landed together** — `plant-substrate-v2`
+/ `plant-genome` (the genome and root work) and `plant-ecology-design`
+(litter, decay and herbaceous species). Both had been developing against a
+trunk that moved 111 commits underneath them, so read this section's last
+paragraph before trusting any plant number.
+
+Built, on the genome side: a positional genotype slot map, so an individual
+plant differs from its species mean in traits that are drawn once and
+inherited; **root branching by primed sites** rather than an in-tick roll
+(the old form demanded two steps' carbon in one tick and measurably never
+fired); root laterals that carry an order; a stomatal reserve as a standing
+throttle; and organism slot reclamation, so a plant that dies gives its
+`organism_id` back instead of consuming one of 4,095 forever.
+
+Built, on the ecology side: **shed foliage becomes `litter`** — a falling,
+piling, burnable powder that weathers back into soil — rather than being
+deleted, which is what makes a forest floor a cycle instead of an
+accumulator. Decay became data (`Material::decays_into`) rather than an
+ash-only special case, and decay sites are now scheduled when a chunk
+*settles*, since a shed leaf falls and a bare coordinate does not follow
+it. Two new species: **grass**, whose roots reinforce the soil they thread
+so a rooted bank holds where a bare one spills, and **creeper**, a form
+probe.
+
+Three materials arrive with them: `litter`, `grassblade`, `grassroot`.
+
+**What is not settled.** One test is red, and it is a calibration problem
+rather than a visible one -- the stand was rendered before and after and
+judged by eye as "a little different, fatter merging a bit more, not wildly
+different", with the root change inside existing plant-to-plant
+variability. The genome's root-branching slot
+orders root mass in the right direction but by a fraction of the margin it
+was calibrated at. Two explanations have been offered and **both have been
+measured and falsified** — it is not the `field.rs` diff and it is not
+weather (it never rains during that test's frame window). The cause is
+genuinely not yet known. A separate suspicion, that grass and creeper were
+running a retired root-branching model, was measured and **closed**: both
+species' knobs fire, and zeroing grass's would have cost 60% of its root
+mat. All of it, with the controls that produced each number, is in
+`Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
+do not trust a plant constant without re-measuring it first.
 
 ## M16 status
 
@@ -1157,6 +1266,22 @@ without writing `aux`) if every `Solid` neighbour that exists happens to be
 mid-burn, rather than either reading their timers or treating "temporarily
 unusable" the same as "no support at all." Regression test:
 `a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance`.
+
+**Rock has a grain, and a blast wakes it** (`fracture_field.rs`). Where the
+planes stone is disposed to part along run is a fixed, position-keyed
+property of the place rather than a shape drawn at the moment of the event,
+so a second charge on the same ground retraces the first one's breaks rather
+than drawing new ones. A blast severs the boundaries of the Worley domains
+around it — closed, straight-sided polygons meeting at three-way junctions —
+and a *confined* failure reveals the same fabric where it stands. The
+severing rule is exact and needs no threshold: an edge is a joint iff its two
+cells sit in different domains, which is the domain's own boundary on the
+4-connected grid, so a domain whose boundary is fully severed is enclosed by
+construction rather than by luck. `Reports/explosion-stone-review.md` §15-17
+is the design record, and `Material::joint_spacing` (`0.0` = not jointed) is
+what keeps this to brittle rock: sand, soil, gravel and snow are already the
+fragments.
+
 
 ## M18 status
 
@@ -1693,7 +1818,7 @@ compiling — concurrent cargo processes skew the figure badly.
 ## Status
 
 Working: the cellular automaton core, chunked world with dirty-rectangle
-sleeping, twenty-one materials loaded from data with hot reload, angle of repose
+sleeping, twenty-four materials loaded from data with hot reload, angle of repose
 from a friction angle, density-driven displacement and layering, a
 capsule-swept brush that emits loose material as a stream, the coarse
 pressure/velocity/temperature/light field grid, heat diffusion,
@@ -1729,15 +1854,29 @@ Known limitations:
 - **Repose angles come out a few degrees shallower than requested** — roughly
   39/30/18 against 45/34/22 — because reach is a whole number of cells. Fine as
   a tuning knob, not a physical measurement.
-- **Real combustion numbers now cover the living world too** — leaf (at
-  0.75, the most flammable material in the game), moss, wood, rootwood,
-  deadwood, seed, corpse, and the creatures (worm, ant, beetle), alongside
-  the original oil and ash; snow is the one material that melts.
-  Sand/water/stone/gravel/smoke stay inert deliberately — they have no
-  business catching fire. Lava, steam and richer reactions are natural
-  additions once there is a design reason to want them. (An earlier version
-  of this bullet said only four materials had real numbers; it lagged the
-  organism work by several milestones.)
+- **Real combustion numbers now cover the living world and the water
+  cycle** — leaf (at 0.75, the most flammable material in the game), moss,
+  wood, rootwood, deadwood, seed, corpse, and the creatures (worm, ant,
+  beetle), alongside the original oil and ash; and, from the water-cycle
+  work, water, steam, stone and lava. Snow and ice are the two materials
+  that melt. Sand, gravel and smoke stay inert deliberately — they have no
+  business catching fire. The rule for adding more has not changed and is in
+  `stone.ron`'s and `ash.ron`'s headers: **any material that can be the
+  target of `burns_into`/`melts_into`/`boils_into`/a reaction needs a real
+  `heat_conductivity`**, or the heat it inherits has nowhere to go. Stone
+  gained one for exactly that reason when it became lava's quench product,
+  measured both ways — see the commit that added lava. (Two earlier versions
+  of this bullet went stale in opposite directions: one said only four
+  materials had real numbers, lagging the organism work by several
+  milestones; the other listed lava and steam as things to add once there
+  was a design reason to want them, and outlived their arrival.)
+- **Lava that never reaches water never stops being lava.** The
+  `intrinsic_temperature` pin has no cooling model behind it, so a flow
+  which stalls on a slope stays molten and holds its chunks awake
+  indefinitely (measured: 143 cells still molten after 3000 frames of
+  `filmstrip scene=lavapour`). Quenching against water is the only exit
+  today. Stone has no `melting_point` either, deliberately — see
+  `lava.ron`'s header for why the cycle is one-way for now.
 - **A burned forest can regrow now** — ash weathers into soil
   (moisture-gated, `decay.rs`) and fresh soil occasionally reseeds moss or
   a tree, which closed the M16 verify criterion's "regrows" half; see the
