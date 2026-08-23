@@ -1,0 +1,63 @@
+{
+  "id": "20260823T030324126Z-77658b",
+  "created": "2026-08-23T03:03:24Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "b3316c7",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Sky light: option 2 vs option 3, blind",
+  "question": "Can you tell these two apart at all? If you can, which one reads better as a pit — and is that difference worth the machinery the costs below describe?",
+  "context_md": "Same world, same seed, same 64-wide pit, same model and constants. **The only difference is where the answer is computed and stored.** Blinded because I have a stake — I recommended one of them before testing the other.\n\n**Option 2 — coarse grid, recomputed per frame over the viewport.** Block size 4, four directional sweeps twice, bilinear per pixel. No stored state, no invalidation; recompute and it is right by construction. **This is what is in the app on F12 right now.**\n\n**Option 3 — per-pixel field over the whole world, stored and maintained incrementally.** You asked whether I had tested this. I had not — I had measured per-pixel *recomputed from scratch*, which is a different thing, and the difference is the whole of the risk. Now tested.\n\n### Option 3 works, including the hard direction\n\nLight *rises* when you dig (a relax handles it) and *falls* when you fill, which a max-propagation cannot undo locally. Four edits, the last plugging the mouth of a lit shaft so a hundred rows below had been lit *through* the filled cell. Each checked against a full recompute, not against a cheaper version of itself — worst error 0.0005, 0.0005, 0.0005, 0.0029, all under the 1/255 = 0.0039 visibility floor.\n\nThe mechanism is a bounded local re-solve rather than the classic light-removal BFS: zero everything within a radius, treat the ring outside as fixed sources, re-solve the interior. Correct because a cell's light is at most 0.91^d of any source d cells away *along the path*, and a path is never shorter than the straight line. Swept rather than asserted, because a theory predicting \"just under threshold\" and a measurement landing just under it are the same number twice:\n\n| radius | worst error | vs 0.0039 |\n|---|---|---|\n| 30 | 0.0381 | **visible, 10x over** |\n| 59 (theoretical minimum) | 0.0029 | just under |\n| 90 | 0.0007 | comfortable |\n\n### The cost, and it reverses the intuition\n\nIncremental is supposed to be the cheap one. It is not, because its bill scales with **how many separate places changed** and option 2's does not:\n\n| | cost on a frame where something changed |\n|---|---|\n| **option 2** | **2.3 ms flat** — however violent the frame |\n| **option 3**, radius 59 | **0.7 ms per edit site** |\n| **option 3**, radius 90 (the safe one) | **~1.6 ms per edit site** |\n\nSo option 3 is cheaper only below ~3 edit sites per frame, ~1.5 at the radius it should actually use. A falling-sand world does not oblige — 16 of 40 chunks awake on a collapse, 40 of 40 while terrain settles.\n\n### What option 3 buys that option 2 cannot\n\n- **Panning over a still world.** Its field is world-space, so a camera move costs nothing; option 2 recomputes on every one.\n- **Anything off-screen that needs a correct answer** — creature sight, plant siting, a minimap. Option 2 only ever knows the viewport.\n\nAgainst: 1.3 MB at 2048x640, a ~45 ms genesis solve, and one obligation option 2 does not have at all — **every** cell change must be caught, including ones the CA makes on its own. Miss a falling grain and the stale bright patch is permanent, because nothing ever recomputes it. Same class as the stateful skyline in dead-ends.md §985.\n\nFull write-up in `Reports/sky-light-design.md`.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "option 2 — coarse /4, per frame",
+      "files": [
+        "20260823T030324126Z-77658b/000-ab_opt2.png"
+      ],
+      "caption": "Left tile before the dig, right tile after. Judge the right one.",
+      "meta": {
+        "seed": 1,
+        "pit": "64 wide, 40 deep, nothing overhead",
+        "model": "identical to the other pane"
+      },
+      "focus": [
+        700,
+        0,
+        700,
+        450
+      ]
+    },
+    {
+      "label": "option 3 — per-pixel, stored",
+      "files": [
+        "20260823T030324126Z-77658b/001-ab_opt3.png"
+      ],
+      "caption": "Left tile before the dig, right tile after. Judge the right one.",
+      "meta": {
+        "seed": 1,
+        "pit": "64 wide, 40 deep, nothing overhead",
+        "model": "identical to the other pane"
+      },
+      "focus": [
+        700,
+        0,
+        700,
+        450
+      ]
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
