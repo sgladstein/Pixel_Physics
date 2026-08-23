@@ -1,0 +1,68 @@
+{
+  "id": "20260823T064443585Z-e94b1e",
+  "created": "2026-08-23T06:44:43Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/pp-load-share",
+    "branch": "load-share-rescue",
+    "commit": "46b8e86",
+    "agent": null,
+    "session_id": "f7dff1a9-a2d7-4895-aa02-a1ffa861688c",
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\pp-load-share"
+  },
+  "title": "Cutting into a room wall: one slab, or a building coming apart",
+  "question": "Which of these reads as a building coming apart, rather than one slab letting go in a single piece?",
+  "context_md": "`scene=room wall=5 dig=3`, run to rest, **one binary** with the model switched at runtime â€” so nothing here differs except how load is distributed through the wall.\n\nThe defect being fixed: a 17-cell-thick wall routed the whole roof's weight down **one column**, so the model read 157 on the outer face against 2,956 on the inner, and never looked at the thirteen cells between them at all. Both faces were then judged against the strength of the *whole* thickness. So damage on that one line was catastrophic and damage anywhere else in the same wall was free.\n\n**What I measured and am reasonably sure of:** the failure-size distribution. One side comes apart as a single 1,975-cell body plus two loose cells; the other produces pieces across the whole range (1, 6-7, 8-15, 16-63, and four above 64).\n\n**What I cannot tell from a number, and is the actual question:** whether that reads as *better destruction* or just as more mess. The graded side also brings down 2.5x more rock (359 against 143). If that is too much material for a 3-cell chisel cut, that is a legitimate answer and I would rather hear it now.\n\n**Please ignore** the overall dimness/colour â€” both are the plain renderer, no overlay. Judge the break, not the palette.\n\nOne thing the counters rule out: the mean failing-region size *falls* (659 -> 251), which looks like 'the pieces got smaller, so it is dust'. It is not â€” `crumbled to grit` is 1 cell in **both** runs. The mean fell because the distribution spread, not because anything powdered.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A â€” one load path (current main)",
+      "files": [
+        "20260823T064443585Z-e94b1e/000-rc-share0.gif"
+      ],
+      "caption": "each cell judged on its own load path",
+      "meta": {
+        "overload failures": "1 (1975 cells)",
+        "unsupported failures": "2 (2 cells)",
+        "failing region sizes": "[1:2, 64+:1]",
+        "mean region": 659.0,
+        "largest region": 1975,
+        "crumbled to grit": "1 region, 1 cell (0%)",
+        "rock destroyed": 143,
+        "cells lost": 95,
+        "section share fired": "0 columns, 0 moved"
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "B â€” wall judged as one member",
+      "files": [
+        "20260823T064443585Z-e94b1e/001-rc-share1.gif"
+      ],
+      "caption": "every cell of a cut charged the worst load crossing it",
+      "meta": {
+        "overload failures": "7 (2733 cells)",
+        "unsupported failures": "4 (32 cells)",
+        "failing region sizes": "[1:1, 6-7:1, 8-15:2, 16-63:3, 64+:4]",
+        "mean region": 251.4,
+        "largest region": 1959,
+        "crumbled to grit": "1 region, 1 cell (0%)",
+        "rock destroyed": 359,
+        "cells lost": 209,
+        "section share fired": "95065 columns, 40603 moved"
+      },
+      "focus": null,
+      "gif_frames": 20
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
