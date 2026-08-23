@@ -188,6 +188,12 @@ field rework — see `open-bugs-handoff.md`.
   — **execution plan** for the review's queue: three parallel lanes (plant
   core, structural verbs, world & species data), one session per package,
   with paste-ready briefs; successor to `plant-work-split.md` in role.
+- [plant-morphology-reach-2026-08-23.md](plant-morphology-reach-2026-08-23.md)
+  — **design note, answering a direct owner question.** Can this substrate
+  reach a sunflower, a tomato, a climbing vine? Yes: the random walk is the
+  variation mechanism, not the ceiling — the four missing primitives are
+  organ cell types, determinate axes, rosettes/whorls, and a climbing
+  tropism with attachment as data. Three open owner calls in §7.
 
 ## Creatures and ecology
 
