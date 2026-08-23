@@ -11,6 +11,65 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0-a. Dark bands under overhangs, objects and open-cast digs (render) — **two of three FIXED; the dig is open**
+
+Reported from play as *"dark bands under any overhangs or objects or when
+I'm mining"*, with the guess that it is either the frozen background
+baseline or a lighting shadow. It is the baseline. Full measurement and the
+options in `Reports/dark-bands-diagnosis.md`; the short form:
+
+`World::sky_surface` asks *"is there anything `Solid` or `Powder` above me
+**in this column**, as of frame one"*, which cannot tell a cave roof from a
+cliff brow, a hillside from a rock suspended in mid-air at genesis, or rock
+you removed from rock that was never there. `background_at` then fades that
+air to `UNDERGROUND` over 24 rows and saturates.
+
+Measured with `examples/underground_probe.rs` (open air that is
+flood-reachable from the sky yet answers `!is_outdoors`): **156–408 cells
+per 2048x640 world** across seeds 1–6, in 20–50 cell patches on cliff
+shoulders — small, and each one a hard-edged patch of darker sky. A 64-wide
+open-cast pit takes it to **1,363 cells, 436 of them at full `UNDERGROUND`**,
+in one 1,207-cell region.
+
+Ruled out by measurement: the depth grade (`light=flat` leaves the pit
+exactly as black — all of it is the empty-cell cave fade); the skyline going
+stale as the world settles (156 cells at 1, 60, 600 and 3,000 frames, while
+the open-air denominator did move, so the null is real).
+
+The `water` board's *"dark vertical band through the pond"* card
+(`20260822T225340455Z-ad69f8`) is the same bug seen through the other
+consumer: `scene=rockdrop` reproduces it at **frame 0 with zero bodies in
+flight**, because the slab is present when the surface freezes.
+
+**Fixed for the overhang and object cases** by storing the genesis void per
+*cell* instead of per column (`World::freeze_underground_map`) — which is
+`dead-ends.md` §977's *"revisit only by storing more history, never by
+inferring"*, not a return to inference. Rescues 149/156, 406/408 and 192/197
+of the false-cave cells on seeds 1–3; the remainder were `Solid` or `Powder`
+at genesis and are air now, so they stay dark by the same rule that keeps a
+dug shaft a tunnel. Costs +0.3–0.7 ms on a ~11.5 ms full redraw, measured
+interleaved against a worktree at the parent commit.
+
+**Still open, deliberately: the open-cast dig.** Those cells really were
+rock, so no per-cell classification can help — the owner's call was *"we can
+start with the fix for 1 and 3... but I do want a better solution"*. What it
+needs is propagation, not a better boolean, and the prior art is in
+`Reports/prior-art-underground-lighting.md`: Terraria answers exactly this
+with a per-tile wall layer (which the landed fix is the first bit of) plus a
+0.91-per-air-tile light flood, so a pit is bright at the top and dark at the
+bottom with no threshold anywhere. `field.rs` already computes the
+Beer-Lambert channel that would drive it and nothing draws it; the three
+things a proposal must answer are the 8-cell quantisation (§0c — Noita hit
+the same wall and solved it by blurring, not refining), the 20:1 day/night
+oscillation, and the per-pixel cost that killed fake AO.
+
+**Second residual, smaller:** rock *under* a suspended object is still
+over-darkened, because the decision is now per cell while the depth still
+comes from the per-column `light_datum`. Visible as a faint band across
+`scene=rockdrop`'s pool floor once the air and water bands are gone. Same fix
+as the dig case (depth from the nearest outdoors cell), so it should go with
+it rather than be patched separately.
+
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 
 `ponds` fills any hollow that reaches the open surface, and an overhang

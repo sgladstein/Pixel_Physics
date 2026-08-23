@@ -1451,6 +1451,21 @@ pub struct Renderer {
     light_datum: Vec<i32>,
     /// World x the `horizon` entries start at.
     horizon_origin: i32,
+    /// `World::underground_map`, copied per frame beside `horizon` and for
+    /// the same reasons — see `rebuild_horizon`'s memcpy note, which applies
+    /// here at 164 KB instead of 8 KB.
+    ///
+    /// **This is what decides sky-versus-cave now; `horizon` only says how
+    /// deep.** The two were one question while the answer was per column,
+    /// and splitting them is the whole of the dark-bands fix
+    /// (`Reports/dark-bands-diagnosis.md`): the air outside a cliff brow has
+    /// rock above it in its column, so it must still take a *depth* from
+    /// that column while not being underground at all.
+    underground: Vec<u64>,
+    /// The rect `underground` is indexed over, or `None` when the world has
+    /// no map — a world nothing has ever stepped, where `under_sky` falls
+    /// back to `horizon`.
+    underground_rect: Option<Rect>,
 }
 
 impl Renderer {
@@ -1526,6 +1541,8 @@ impl Renderer {
             horizon: Vec::new(),
             light_datum: Vec::new(),
             horizon_origin: 0,
+            underground: Vec::new(),
+            underground_rect: None,
         }
     }
 
@@ -2562,8 +2579,38 @@ impl Renderer {
     fn rebuild_horizon(&mut self, world: &World) {
         let Some(b) = world.bounds() else {
             self.horizon.clear();
+            self.underground.clear();
+            self.underground_rect = None;
             return;
         };
+        // The per-cell map, on the same terms as the skyline copy below:
+        // copied rather than cached on a shape check, because `App::reset`
+        // keeps the `Renderer` and builds a new `World`, and a cache keyed
+        // on anything the two worlds share would hold the previous terrain's
+        // answer over fresh ground for the rest of the session. 164 KB of
+        // memcpy at 2048x640 against a draw that touches every pixel and
+        // measures ~11 ms; worst-frame timing before and after is in the
+        // commit message.
+        self.underground.clear();
+        self.underground.extend_from_slice(world.underground_map());
+        if self.underground.is_empty() {
+            // Fallback, for a world nothing has ever stepped -- the same
+            // case `rebuild_horizon`'s own column-scan fallback below
+            // covers, and it has to be covered here too or `start=0` in
+            // every harness renders the artifact this fix removes and
+            // reports it as still present.
+            //
+            // Recomputed rather than cached on a shape check, deliberately:
+            // a cache keyed on bounds is exactly what the memcpy note above
+            // rejects, since `App::reset` reuses the `Renderer`, and the
+            // cost is bounded to a world that has never run -- one draw in
+            // the app, and a handful of tests. It stays a pure function of
+            // the world, so a renderer with history and a fresh one still
+            // agree, which is what `dirty_rect_skip_is_pixel_identical_to_a_
+            // full_redraw` requires.
+            self.underground = underground_from_scratch(world, b);
+        }
+        self.underground_rect = if self.underground.is_empty() { None } else { Some(b) };
         // **Copied every frame, not cached on a size check.** `App::reset`
         // builds a whole new `World` and keeps the same `Renderer`, so a
         // cache keyed on "same width, same origin" would hold the *previous*
@@ -2661,11 +2708,30 @@ impl Renderer {
     /// Whether this position is open to the sky, rather than a void inside
     /// the ground.
     ///
-    /// Asks whether the cell is above where the ground has ever reached in
-    /// this column, **not** whether there is currently a clear path up. The
-    /// two differ exactly down a freshly dug shaft, and the second answer is
-    /// the one that renders a mine as a strip of sky.
+    /// Asks what the world **was** when it was made, not whether there is
+    /// currently a clear path up. The two differ exactly down a freshly dug
+    /// shaft, and the second answer is the one that renders a mine as a
+    /// strip of sky.
+    ///
+    /// **Per cell, off `World::underground_map`.** This used to be
+    /// `sky_depth(x, y) < 0` — the per-*column* form — and that is what drew
+    /// the dark bands: a column test says "there is rock above me" for the
+    /// open air outside a cliff brow and under anything standing in the sky
+    /// at genesis, which is a cave roof and a lip told apart by nothing.
+    /// `sky_depth` is still exactly right for *how deep*, which is why it
+    /// stays and why the two are now separate questions
+    /// (`Reports/dark-bands-diagnosis.md`).
+    ///
+    /// Falls back to the column form outside the map's rect and on a world
+    /// that has never been stepped — the same fallback `World::is_outdoors`
+    /// makes, and the same handful of tests reach it.
     fn under_sky(&self, x: i32, y: i32) -> bool {
+        if let Some(b) = self.underground_rect {
+            if x >= b.min_x && x <= b.max_x && y >= b.min_y && y <= b.max_y {
+                let i = (y - b.min_y) as usize * b.width() as usize + (x - b.min_x) as usize;
+                return self.underground[i >> 6] & (1 << (i & 63)) == 0;
+            }
+        }
         self.sky_depth(x, y) < 0
     }
 
@@ -2710,10 +2776,18 @@ impl Renderer {
         // screen did not; this is that same cosine, read rather than
         // reinvented (`sky::Sky::at`).
         let daylight = self.sky.colour_at(x, y);
-        let depth = self.sky_depth(x, y);
-        if depth < 0 {
+        // **Two different questions, and they used to be one.** Whether this
+        // is sky comes from the per-cell map (`under_sky`); how dark it
+        // draws comes from the column depth below. Asking the second one for
+        // both is what put a cave under every overhanging lip.
+        if self.under_sky(x, y) {
             return daylight;
         }
+        // Non-negative whenever `under_sky` is false, by construction: both
+        // ways of being marked underground -- it was ground, or it was air
+        // with ground above it -- put this column's topmost ground at or
+        // above `y`. The clamp is the ramp's own domain, not a guard.
+        let depth = self.sky_depth(x, y);
         if self.reveal_voids {
             // `F11`: every enclosed void marked, however deep -- see the
             // field doc. Flat, not depth-faded: the point is that a vault
@@ -3142,8 +3216,17 @@ impl Renderer {
         let rgb = match self.terrain_light {
             TerrainLight::Off => rgb,
             TerrainLight::Depth => {
+                // `under_sky` as well as the depth, because `light_datum`
+                // is the *notch-clipped* skyline and clips only dips -- a
+                // spike passes straight through, so a slab hanging in the
+                // air at genesis gave every cell under it a large depth and
+                // graded the open pond beneath it dark. That was the water
+                // half of the same report (review card
+                // `20260822T225340455Z-ad69f8`); the rock half is
+                // `background_at` above. Solid ground is always marked
+                // underground, so this cannot brighten rock.
                 let depth = self.light_depth(x, y);
-                if depth < 0 {
+                if depth < 0 || self.under_sky(x, y) {
                     rgb
                 } else {
                     let f = self.depth_light_ramp[depth.min(DEPTH_LIGHT_RAMP_ROWS) as usize] as u32;
@@ -3610,6 +3693,52 @@ impl Default for Renderer {
     }
 }
 
+/// `World::underground_map`'s answer, computed here for a world that has
+/// never been stepped and therefore has no map of its own.
+///
+/// Deliberately the same flood fill as `World::freeze_underground_map` —
+/// from the top row, 4-connected, through everything that is not `Solid` or
+/// `Powder`, marking what it fails to reach — because two implementations of
+/// "is this outdoors" that could drift is the shape of bug this whole area
+/// keeps producing. If either changes, both change.
+fn underground_from_scratch(world: &World, b: Rect) -> Vec<u64> {
+    let (w, h) = (b.width() as usize, b.height() as usize);
+    let idx = |x: i32, y: i32| (y - b.min_y) as usize * w + (x - b.min_x) as usize;
+    let blocks = |x: i32, y: i32| {
+        matches!(
+            world.materials.kind(world.get(x, y).material),
+            crate::sim::material::MaterialKind::Solid | crate::sim::material::MaterialKind::Powder
+        )
+    };
+    let mut open = vec![false; w * h];
+    let mut stack: Vec<(i32, i32)> = Vec::new();
+    for x in b.min_x..=b.max_x {
+        if !blocks(x, b.min_y) {
+            open[idx(x, b.min_y)] = true;
+            stack.push((x, b.min_y));
+        }
+    }
+    while let Some((x, y)) = stack.pop() {
+        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            if nx < b.min_x || nx > b.max_x || ny < b.min_y || ny > b.max_y {
+                continue;
+            }
+            if open[idx(nx, ny)] || blocks(nx, ny) {
+                continue;
+            }
+            open[idx(nx, ny)] = true;
+            stack.push((nx, ny));
+        }
+    }
+    let mut bits = vec![0u64; (w * h).div_ceil(64)];
+    for (i, reached) in open.iter().enumerate() {
+        if !reached {
+            bits[i >> 6] |= 1 << (i & 63);
+        }
+    }
+    bits
+}
+
 pub(crate) fn put(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, colour: [u8; 4]) {
     if x < 0 || y < 0 || x >= width as i32 || y >= height as i32 {
         return;
@@ -3743,6 +3872,183 @@ mod tests {
 
         assert!(r.under_sky(64, 60), "the air under a roof built after the world started is still outdoors");
         assert!(!r.under_sky(64, 100), "rock below the frozen surface is still underground");
+    }
+
+    /// Reported from play: "dark bands under any overhangs or objects or
+    /// when I'm mining", with the guess — correct — that it was the frozen
+    /// background baseline rather than a shadow.
+    ///
+    /// **The case the per-column rule could not express.** An overhanging
+    /// lip has rock above it *in its own column*, so every cell of open air
+    /// beneath it answered "underground" and drew as unlit cave, fading to
+    /// full `UNDERGROUND` within 24 rows. Worldgen makes these deliberately
+    /// (`passes::brows`, up to `MAX_BROW_REACH` = 20 columns), and measured
+    /// across seeds 1–6 it put 156–408 cells of false cave in every world
+    /// (`examples/underground_probe.rs`).
+    ///
+    /// The geometry here is the minimum that reproduces it: a lip standing
+    /// clear of the cliff with nothing under it but sky and, well below,
+    /// the ground. The world runs first, because the freeze happens on the
+    /// first frame and a lip that is not present at freeze time proves
+    /// nothing.
+    #[test]
+    fn an_overhanging_lip_does_not_put_a_cave_in_the_sky_beneath_it() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 100..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A cliff on the left, with a lip reaching out over open air.
+        for x in 0..40 {
+            for y in 40..100 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 40..70 {
+            for y in 40..44 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        assert!(r.under_sky(55, 70), "the open air under a cliff lip is sky, not the inside of a cave");
+        assert!(r.under_sky(55, 99), "and it is still sky right down to the ground under the lip");
+        // The control, and it is the half that makes this a guard rather
+        // than a licence: a genuine roofed void must still read as cave, or
+        // "fixing" this by calling everything sky would pass.
+        for x in 0..40 {
+            for y in 60..70 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        let mut fresh = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 40..128 {
+                fresh.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 50..70 {
+            for y in 60..70 {
+                fresh.set(x, y, Cell::EMPTY);
+            }
+        }
+        fresh.begin_step();
+        let mut r2 = Renderer::new();
+        r2.rebuild_horizon(&fresh);
+        assert!(!r2.under_sky(60, 65), "a sealed cavity inside the rock must still read as cave");
+    }
+
+    /// The other half of the same report — "or objects" — and the case a
+    /// review card caught first, as *"a dark vertical band through the
+    /// pond"* on `scene=rockdrop` at **frame 0, with zero bodies in
+    /// flight**.
+    ///
+    /// A solid object standing in the air when the world is made sets its
+    /// columns' skyline to its own top, so the column rule drew a hard-edged
+    /// band the object's exact width running down through the air, through
+    /// any water, and onto the floor — to the bottom of the world, with no
+    /// falloff. Distinct from `a_tree_does_not_turn_the_sky_behind_it_into_
+    /// a_cave` above, which is answered by excluding `Plant` from the
+    /// freeze: a slab of stone is `Solid`, and no exclusion list reaches it.
+    #[test]
+    fn a_slab_hanging_in_the_air_at_genesis_casts_no_cave_beneath_it() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 100..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 50..70 {
+            for y in 30..36 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        assert!(r.under_sky(60, 40), "the air just under a suspended slab is sky");
+        assert!(r.under_sky(60, 99), "and so is the air all the way down to the ground");
+        // Beside the slab, at the same row, as the paired control: if the
+        // whole frame had gone sky for some unrelated reason this would not
+        // catch it, and the interesting claim is that the two agree.
+        assert!(r.under_sky(20, 40), "open air beside the slab is sky too");
+    }
+
+    /// **The property, not an instant.** The per-cell map may only ever move
+    /// a cell from underground toward sky, never the reverse — a fix that
+    /// blackened something new while clearing the reported bands would be a
+    /// worse trade than the bug, and `CLAUDE.md` records a fix that shipped
+    /// exactly that way because its test only looked where it expected to be
+    /// wrong.
+    ///
+    /// It holds by construction: both ways of being marked underground (the
+    /// cell was ground, or it was air the sky could not reach, which needs
+    /// ground above it) put the column's topmost ground at or above the
+    /// cell, which is precisely what the column rule tested. This asserts it
+    /// over every cell of a world carrying a lip, a suspended slab, a sealed
+    /// cavity and a dug shaft at once, so a future change to either fill has
+    /// something to fail against.
+    #[test]
+    fn the_per_cell_map_never_turns_open_sky_into_cave() {
+        let mut world = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 90..128 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 0..30 {
+            for y in 40..90 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 30..55 {
+            for y in 40..44 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 80..100 {
+            for y in 20..26 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for x in 60..75 {
+            for y in 100..110 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.begin_step();
+        for x in 110..114 {
+            for y in 90..120 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+        let mut rescued = 0;
+        for y in 0..128 {
+            for x in 0..128 {
+                let column_says_sky = r.sky_depth(x, y) < 0;
+                let map_says_sky = r.under_sky(x, y);
+                if column_says_sky {
+                    assert!(
+                        map_says_sky,
+                        "({x}, {y}) was open sky under the column rule and is cave under the map — \
+                         the per-cell map must only ever rescue, never blacken"
+                    );
+                }
+                if map_says_sky && !column_says_sky {
+                    rescued += 1;
+                }
+            }
+        }
+        // And it must actually be doing something, or the assertion above
+        // passes on a map that is not wired up at all.
+        assert!(rescued > 0, "the map rescued nothing on a world built around a lip and a slab — is it reaching under_sky?");
     }
 
     /// `App::reset` builds a new `World` and keeps the `Renderer`, so the

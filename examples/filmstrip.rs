@@ -958,15 +958,21 @@ fn build(args: &Args) -> World {
                     rock += 1;
                 }
             }
-            // **The dark box under the slab in every tile is the scene, not
-            // a bug.** `World::freeze_sky_surface` records top-of-ground per
-            // column on the first frame and the slab is `Solid`, so its
-            // sixty columns are "underground" from row `top` down and
-            // render unlit for the rest of the run. Nothing can be done
-            // about it from here -- the freeze is deliberately once-only
-            // (`open-bugs-handoff.md` §4b records four failed attempts to
-            // infer the surface instead) -- so crop below `top` when the
-            // picture is for judging.
+            // **The dark box this scene used to draw under the slab is
+            // gone, and this note is kept because it was wrong in an
+            // instructive way.** It said the box was "the scene, not a bug":
+            // the slab is `Solid`, the surface freeze is once-only and per
+            // column, so its sixty columns read as underground from row
+            // `top` down, and nothing could be done about it from here. The
+            // first two clauses were right and the conclusion was not --
+            // the freeze being once-only was never the problem, asking it
+            // *per column* was, and the answer is stored per cell now
+            // (`Reports/dark-bands-diagnosis.md`). A dark band here again
+            // is a regression, not the scene.
+            //
+            // Frame 0 is still the old picture, because the freeze happens
+            // on the first `begin_step` and tile 0 draws before it: render
+            // from `start=1` when the question is about the background.
             //
             // Nothing disturbs this scene, so the first check has to be
             // asked for -- the same way `capped` does it. Without this the

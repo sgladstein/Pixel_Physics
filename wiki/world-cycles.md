@@ -1,6 +1,6 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-21.*
+*Current as of: 2026-08-23.*
 
 ## The sky
 
@@ -26,9 +26,9 @@ halo, so it lights the piece of sky it is in rather than sitting on top of it
 like a sticker.
 
 Sky is only drawn where there is actually sky. Open space *inside* the ground
-— a cave, a blast cavity, the space under an overhang — is unlit rock, dark
-at noon as much as at midnight. Anything else would mean daylight showing
-through the middle of a mountain.
+— a cave, a blast cavity, a sealed chamber nobody has broken into — is unlit
+rock, dark at noon as much as at midnight. Anything else would mean daylight
+showing through the middle of a mountain.
 
 **Underground means below where the ground was when the world began**, and
 nothing you do afterwards moves it. Dig a shaft and it stays a dark shaft
@@ -36,12 +36,27 @@ however wide you make it — carve out a whole cavern and it is still a
 cavern, not a courtyard. That is the point of fixing it once: a mine should
 not fill with daylight because you widened a tunnel by one more swing.
 
-The same rule from the other side: **nothing you put in the air makes it
+The same rule from the other side: **nothing standing in the air makes it
 dark underneath**. A tree, a bridge, a roof, a stray block left floating —
 none of them turn the space below into a cave, because none of them are
 ground. So you see sky between the leaves of a tree, and the space under a
 platform you build reads as outdoors, because it is. Making a building read
 as *indoors* is a separate thing that does not exist yet.
+
+That now holds for the landscape too, and it used to be the loudest thing
+wrong with it. **Stand under a cliff's overhanging lip and you are outdoors.**
+The sky beneath a brow, the air behind a leaning rock, the gap under a natural
+arch — all of it is open sky, because you can walk out of it sideways without
+moving a stone. Before, anything with rock above it in the same column read as
+cave whether or not it was one, so every overhang in the world hung a
+hard-edged dark rectangle in the sky beneath it, and a boulder standing over a
+pond drew a dark band straight down through the water to the bottom.
+
+What has *not* changed is the other direction: **ground you remove is still
+ground**. An open pit you dig into a hillside still reads as cave, however
+wide it is and however much sky is over it, because the alternative is a mine
+that fills with daylight as you widen it. That one is a known rough edge
+rather than a decision anybody likes.
 
 **The rock itself carries depth.** In any cross-section — a cliff face, the
 wall of your shaft, the cutaway the screen always is — the ground is

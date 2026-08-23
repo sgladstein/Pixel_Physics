@@ -59,6 +59,17 @@ tried?"*.
 - [underground-definition.md](underground-definition.md) — **settled,
   implemented.** What "underground" means, fixed at worldgen time; the
   wiki's world-cycles page describes the visible result.
+- [dark-bands-diagnosis.md](dark-bands-diagnosis.md) — **diagnosis;
+  overhangs and objects fixed, digs deliberately not.** Why they drew dark
+  bands: the per-*column* baseline `underground-definition.md` settled,
+  measured (`examples/underground_probe.rs`) and replaced by a per-cell
+  genesis map. Extends that report rather than superseding it — its
+  rejection of *inference* stands, and this stores more history instead.
+- [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
+  **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
+  propagation) and Noita (a coarse blurred fog of war, no classification at
+  all) answer "is this dark", and which of the two the still-open
+  open-cast-dig case needs.
 
 ## Liquids and granular
 

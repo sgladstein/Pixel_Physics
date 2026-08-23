@@ -1663,9 +1663,21 @@ read, dawn and dusk as watchable colour events, stars that come out as dusk
 deepens, a moon with a halo that climbs through the night, storm skies as
 the clear sky drained of colour; the whole ground tinted by time of day;
 underground darkness fixed at worldgen time with a gradual cave-mouth
-falloff (`Reports/underground-definition.md`); per-cell liquid grain behind
+falloff (`Reports/underground-definition.md`), recorded **per cell** rather
+than per column so a cliff brow or a rock standing over air no longer hangs a
+dark rectangle in the sky beneath it
+(`Reports/dark-bands-diagnosis.md`); per-cell liquid grain behind
 the `G` selector and the continuous zoom (§9). The remaining tiers stay in
 `PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
+
+Known limitation, deliberate: **ground you dig out still reads as cave**, so
+an open pit is dark however wide it is and however much sky is over it. The
+cells were rock when the world was made, and every rule that tried to tell a
+pit from a tunnel by shape broke at some width
+(`Reports/underground-definition.md`). Fixing it properly means propagating
+sky light rather than classifying space — the prior art, and what this engine
+already has that could drive it, is in
+[`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
 ## Performance
 

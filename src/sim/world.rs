@@ -284,6 +284,48 @@ pub struct World {
     /// streaming will want this keyed per chunk column instead, alongside
     /// everything else that is currently sized to a resident world.
     sky_surface: Vec<i32>,
+    /// Which positions were **inside the ground when the world was made** —
+    /// one bit per cell, row-major from `bounds.min_x`/`bounds.min_y`,
+    /// packed 64 to a `u64`. Empty until `freeze_underground_map` has run.
+    ///
+    /// **This is `sky_surface`'s answer asked per cell instead of per
+    /// column, and that is the whole of the difference.** The column form
+    /// asks *"is there anything solid above me in this column"*, which
+    /// cannot tell a cave roof from a cliff brow: the open air outside an
+    /// overhanging lip has rock above it in its column, so it drew as the
+    /// inside of a cave, and so did the air under any solid object standing
+    /// in the sky at genesis. Reported from play as dark bands under
+    /// overhangs and under objects; measured at 156–408 cells per 2048x640
+    /// world across seeds 1–6, in patches of twenty to fifty cells sitting
+    /// on the skyline (`examples/underground_probe.rs`,
+    /// `Reports/dark-bands-diagnosis.md`).
+    ///
+    /// Seeded by a flood fill from the top of the world through everything
+    /// that is not `Solid` or `Powder` — the exact complement of
+    /// `freeze_sky_surface`'s own predicate, so the two cannot hold
+    /// different opinions about what ground is. A cell is underground if it
+    /// was ground, or if it was air the sky could not reach.
+    ///
+    /// **It stores more history; it does not infer.** That distinction is
+    /// the one `Reports/dead-ends.md` §977 makes after four inference rules
+    /// failed in four different ways — *"revisit only by storing more
+    /// history, never by inferring"* — and every property the column form
+    /// was chosen for survives, because those all follow from the cells
+    /// having been rock: a shaft you dig stays a tunnel at any width, with
+    /// no threshold anywhere; a roof you build still leaves outdoors under
+    /// it; a grain left in the air casts nothing.
+    ///
+    /// The change is **one-directional by construction** — a cell can only
+    /// go from underground to outdoors, never the reverse — because both
+    /// ways of being marked here (it was solid; it was air with something
+    /// solid above it) put the column's topmost solid at or above the cell,
+    /// which is exactly what the column rule tested. Asserted by
+    /// `the_per_cell_map_never_turns_open_sky_into_cave`.
+    ///
+    /// 164 KB at 2048x640, against `sky_surface`'s 8 KB, and 5.8 ms to
+    /// build once against worldgen's own ~325 ms. M10's streaming will want
+    /// it per chunk alongside everything else sized to a resident world.
+    underground: Vec<u64>,
     /// The same dedup idea as `pending_structural_checks`, for
     /// `ActiveKind::Decay`, and it exists for a different reason worth
     /// stating: decay sites are scheduled by `World::end_step`'s settle
@@ -769,6 +811,7 @@ impl World {
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
+            underground: Vec::new(),
             pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
@@ -2652,6 +2695,7 @@ impl World {
         // both of those are things that happen while it runs. A regenerate
         // makes a whole new `World` (`App::reset`), so this cannot go stale.
         self.freeze_sky_surface();
+        self.freeze_underground_map();
         self.frame = self.frame.wrapping_add(1);
     }
 
@@ -2702,20 +2746,124 @@ impl World {
         &self.sky_surface
     }
 
-    /// Whether `(x, y)` sits above this column's frozen ground surface.
+    /// Record which positions were inside the ground when the world was
+    /// made, once. See `underground`.
     ///
-    /// The stored definition of "outdoors" (see `sky_surface`), asked as a
-    /// predicate so callers do not each have to remember that the slice is
-    /// indexed from `bounds.min_x` and that `i32::MAX` means "this column
-    /// never held any ground".
+    /// A flood fill from the top row through everything that is not `Solid`
+    /// or `Powder`, marking everything it *fails* to reach. Deliberately the
+    /// same predicate as `freeze_sky_surface`, so the per-cell and
+    /// per-column answers cannot disagree about what counts as ground —
+    /// water and gas conduct (a lake is outdoors, and its level moves), rock
+    /// and soil block.
     ///
-    /// `false` before the surface has been frozen, which only happens on a
-    /// world nothing has ever stepped — `begin_step` freezes it before the
-    /// first sweep runs, so no CA rule can observe that state. Answering
-    /// `false` there is the conservative direction anyway: it keeps
-    /// whatever the indoor behaviour is.
+    /// **4-connected, not 8.** Air passes through a shared face; two rocks
+    /// touching at a corner are not a way out. The same distinction
+    /// `diffuse_resource` makes, for the same reason.
+    ///
+    /// Iterative with an explicit stack rather than recursion: the open air
+    /// over a 2048x640 world is a single region of ~400,000 cells and a
+    /// recursive fill would blow the stack on the first world that generated
+    /// a wide sky.
+    pub fn freeze_underground_map(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.underground.is_empty() {
+            return;
+        }
+        let (w, h) = (b.width() as usize, b.height() as usize);
+        let idx = |x: i32, y: i32| (y - b.min_y) as usize * w + (x - b.min_x) as usize;
+        let blocks = |world: &Self, x: i32, y: i32| {
+            matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder)
+        };
+
+        let mut open = vec![false; w * h];
+        let mut stack: Vec<(i32, i32)> = Vec::new();
+        for x in b.min_x..=b.max_x {
+            if !blocks(self, x, b.min_y) {
+                open[idx(x, b.min_y)] = true;
+                stack.push((x, b.min_y));
+            }
+        }
+        while let Some((x, y)) = stack.pop() {
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if nx < b.min_x || nx > b.max_x || ny < b.min_y || ny > b.max_y {
+                    continue;
+                }
+                if open[idx(nx, ny)] || blocks(self, nx, ny) {
+                    continue;
+                }
+                open[idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+
+        self.underground = vec![0u64; (w * h).div_ceil(64)];
+        for (i, reached) in open.iter().enumerate() {
+            if !reached {
+                self.underground[i >> 6] |= 1 << (i & 63);
+            }
+        }
+    }
+
+    /// The frozen per-cell underground map, or empty if it has not been
+    /// built — which only happens on a world nothing has ever stepped.
+    pub fn underground_map(&self) -> &[u64] {
+        &self.underground
+    }
+
+    /// Whether `(x, y)` was inside the ground when the world was made.
+    ///
+    /// `false` (and therefore "outdoors") for a position outside the world
+    /// or on a world that has never been stepped, matching `is_outdoors`'s
+    /// own conservative behaviour there.
+    pub fn was_underground(&self, x: i32, y: i32) -> bool {
+        let Some(b) = self.bounds else { return false };
+        if self.underground.is_empty() || x < b.min_x || x > b.max_x || y < b.min_y || y > b.max_y {
+            return false;
+        }
+        let i = (y - b.min_y) as usize * b.width() as usize + (x - b.min_x) as usize;
+        self.underground[i >> 6] & (1 << (i & 63)) != 0
+    }
+
+    /// Whether `(x, y)` is open to the sky rather than inside the ground.
+    ///
+    /// The stored definition of "outdoors", asked as a predicate so callers
+    /// do not each have to remember how it is indexed.
+    ///
+    /// **Reads the per-cell map, and falls back to the per-column
+    /// `sky_surface` only when there is no map.** The fallback is not a
+    /// second opinion — it is the older, coarser form of the same stored
+    /// answer, and it is reachable only on a world nothing has ever stepped,
+    /// which is a handful of tests: `begin_step` builds both before the
+    /// first sweep, so no CA rule can observe the gap. The two agree
+    /// everywhere except air that the sky could reach at genesis while
+    /// something solid stood above it in the same column — a cliff brow, or
+    /// an object hanging in the air — which is precisely the case the map
+    /// exists to get right.
+    ///
+    /// `false` before either has been recorded, which is the conservative
+    /// direction: it keeps whatever the indoor behaviour is.
     pub fn is_outdoors(&self, x: i32, y: i32) -> bool {
         let Some(b) = self.bounds else { return false };
+        // **Both out-of-range answers are carried over from the column
+        // form deliberately**, because `fire.rs`'s condensation asks this
+        // and must not change behaviour merely because the storage did. A
+        // column outside the world answered `false` (`sky_surface.get`
+        // returned `None`); a row outside it answered `y < ground`, so above
+        // the world was outdoors and below it was not. The map has no bit
+        // for either, so both are restated here rather than left to fall out
+        // of the indexing.
+        if x < b.min_x || x > b.max_x {
+            return false;
+        }
+        if y < b.min_y {
+            return true;
+        }
+        if y > b.max_y {
+            return false;
+        }
+        if !self.underground.is_empty() {
+            return !self.was_underground(x, y);
+        }
         let Some(&ground) = self.sky_surface.get((x - b.min_x) as usize) else {
             return false;
         };
