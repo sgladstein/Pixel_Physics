@@ -1399,6 +1399,62 @@ generation-wrap counter), and a positive existence assertion added to
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
 
+### M18 S1–S4: the creature economy, and an edible forest floor
+
+Merged from `creatures-m18` on 2026-08-23. `Reports/creature-evolution-plan.md`
+holds the staged plan and the "As built" measurements; **every S4 number in it
+predates this merge and is superseded by the numbers here.**
+
+**S1–S2 — the genome.** The heritable genome grew from 248 slots to 584 on a
+scheme that can extend on any axis without re-keying what is already there,
+with a manifest hash so a stale genome cannot be read as a fresh one.
+`BRAIN_OUTPUTS` is 10. `synapse_cost` became `synapse_fraction`, a fraction of
+`start_energy` rather than an absolute: as an absolute it was silently a
+different tax every time anything changed the energy budget, and one harness
+spent 80% of a creature's life on thinking without anyone noticing.
+
+**S3 — food is worth what it is.** Nutrition used to be `eat_energy`, a
+constant of the *eater*, so a corpse was worth whatever bit it. Worth now
+lives on the material (`food_energy`, `food_class`), except for the one case
+that genuinely varies — a corpse is worth what the animal was made of, and
+carries that per cell in `Cell::aux` (`worth_in_aux`). `body_energy` is
+granted at spawn and can never be spent, so a creature starved to exactly 0
+still leaves food behind. The `EnergyLedger` was reworked into two stocks,
+live and meat, which closes the pump §13l recorded: the old ledger balanced
+while conjuring 300 joules per bite.
+
+**S4 — the canopy feeds the floor.** All three abscission sites write `litter`
+instead of erasing the leaf, and litter is on the ants' menu. A shed leaf is
+carried down through its own crown to where it would have landed, rather than
+written where it hung: writing in place looked equivalent and was not, because
+a crown catches its own leaf fall — 3,825 of 4,330 standing litter cells were
+resting on plant tissue. Litter rots back to soil on `decay.rs`'s channel at
+its own per-material rate, so the floor reaches equilibrium instead of
+integrating the canopy's shedding forever.
+
+**What it costs, measured paired in one session on one machine.** The colony
+scene at 12,000 frames went **mean 3.121 ms → 3.078 ms**. That is the headline
+result and it is not a rounding artifact: the same mechanism measured **+45%**
+(1.875 → 2.714 ms) on `creatures-m18`, where litter never rotted and simply
+accumulated. Worst-frame moved 46.1 → 66.4 ms and is *not* quoted as a
+regression — worst-frame spread on identical binaries has been measured at
+3.5x here, so only the mean is usable.
+
+**Known limitations.**
+
+- **The floor feeds the colony, and the colony stops ranging.** Same run:
+  deliveries 222 → 260 (+17%), but moves 13,980 → 9,595 (−31%), nest-visits
+  6,014 → 3,852 (−36%), digs 79 → 43 (−46%). This is the owner's stated
+  constraint arriving as a measurement — a complex system whose visible
+  result is ants sitting still eating fallen leaves is not wanted. Litter's
+  rot rate is therefore a **design** knob, not a performance one, and the
+  values here (damp 0.5 / dry 0.1) are a starting point pending a verdict.
+- Most litter is **dry**, whatever the weather: the moisture field is sampled
+  at the litter's own block, which is air, so only 2–7% of standing litter
+  reads above the damp gate. The dry rate is the one that governs.
+- `decay_chance_*` is resolved from a serde default at parse time rather than
+  a `0.0`-means-shared sentinel, so `decay_chance_dry: 0.0` means what it says.
+
 ## UI improvements — overnight run, section 9
 
 The engine's first on-screen text, and everything built on top of it.

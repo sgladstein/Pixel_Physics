@@ -6,11 +6,9 @@
 // not `deadwood` (that is a snapped *branch*, dense and slow-burning) and
 // not `ash` (that is what fire leaves, and it is mineral).
 //
-// The creature branch's S3 will extend this with the edibility fields
-// (`food_energy` and friends). Named here in a comment rather than added as
-// dead data, on the same reasoning as `design-philosophy.md`'s line on
-// speculative parameters: the plant side has no use for them, and a field
-// nothing reads is a field nobody maintains.
+// The creature branch's S3 extended this with the edibility fields at the
+// bottom (`food_energy`, `food_class`) when the two branches merged, exactly
+// as this comment used to promise it would.
 (
     name: "litter",
     display: "Leaf litter",
@@ -52,10 +50,47 @@
     burns_into: "ash",
     // **Rots where it lies**, on `decay.rs`'s moisture-gated schedule -- the
     // same channel ash uses, which is what makes a forest floor a cycle
-    // rather than an accumulator. No `decay_reseeds`: leaf fall under a
-    // standing canopy is not a succession event, and a reseed roll per shed
-    // leaf would carpet the world in trees.
+    // rather than an accumulator.
+    //
+    // The site is scheduled by `World::end_step`'s **awake -> settled** chunk
+    // scan, not where the leaf was shed. A decay site is a bare coordinate and
+    // nothing makes it follow its cell, so scheduling at creation stranded
+    // every site the moment the litter fell (`Reports/open-bugs-handoff.md`
+    // §0e, and the four candidates it was chosen over). Settling is not a
+    // workaround for that -- it is what the rule means. Weathering happens to
+    // matter that has come to rest.
+    //
+    // **Still true, and must not be retried:** rotting *inline* in
+    // `update_powder` was built and reverted. A settled chunk sleeps, so the
+    // powder update stops running on exactly the cells that need it, and a
+    // knob whose strength depends on an unrelated optimisation is worse than
+    // no knob.
     decays_into: "soil",
+    // **No `reseed_chance`, so it defaults to 0.** Ash sets 0.15 -- ash cells
+    // are rare, something has to burn first, so a roll there reads as
+    // succession after a fire. Litter cells are produced by every shading leaf
+    // in a growing forest, in the thousands (11,478 in one measured run), and
+    // giving each one a 15% chance to plant a tree is a feedback loop that
+    // turns one stand into a solid mat of seedlings. Left at 0 until there is
+    // a measurement asking for it, and guarded by
+    // `decay::tests::litter_does_not_reseed_the_forest_that_dropped_it`.
+    //
+    // **Its own rot rates, because ash's are a rock's.** Without these litter
+    // takes `decay.rs`'s defaults (damp 0.05, dry 0.002 per 200-frame check)
+    // -- a ~100,000-frame dry lifetime against runs of ~10,000, so the floor
+    // integrates the canopy's shedding instead of reaching equilibrium.
+    // Measured on a standard stand at frame 10,800 with the defaults: 263
+    // cells rotted against 4,593 ever shed, standing count still climbing at
+    // every sample.
+    //
+    // A shed leaf is not a mineral. Damp leaf litter is one of the fastest
+    // things in a forest to disappear; dry litter is the fuel that sits
+    // through a season, which is why these differ by 5x rather than the
+    // defaults' 25x. **Most litter is dry** -- the moisture field is sampled
+    // at the litter's own block, which is air, so only 2-7% of standing litter
+    // reads above the damp gate. The dry number is the one that governs.
+    decay_chance_damp: 0.5,
+    decay_chance_dry: 0.1,
     // Mandatory for anything fire can heat — see `ash.ron`'s note on why a
     // material with no conductivity keeps its chunk awake forever holding
     // heat it cannot shed.
@@ -63,4 +98,18 @@
     // **No `breaks_into`.** Litter is already the broken-down form; there is
     // nothing smaller for it to become, and pointing it at itself would make
     // a fragment loop. The plan asks for exactly this.
+    // **Food, and this is the point of the material.** Same value as the leaf
+    // it fell from: nothing about hitting the ground makes a leaf more or less
+    // nutritious, and pricing it differently would be a knob nobody could
+    // justify in either direction. Plant matter on the diet axis.
+    //
+    // **`ant.ron`'s `food:` list is the other half of this, and without it the
+    // whole stage is inert.** `adjacent_food` tests menu membership and
+    // nothing else; `food_energy` says what a mouthful is *worth*, never
+    // whether an animal will take it. S4 shipped with this value set and no
+    // ant able to eat a cell of it, and the census built to judge it counted
+    // `food_value` -- keyed on the material, blind to the menu -- so it
+    // reported a rich forest floor for three rounds of measurement.
+    food_energy: 120.0,
+    food_class: -1.0,
 )

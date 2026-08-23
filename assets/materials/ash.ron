@@ -18,14 +18,19 @@
     friction_angle: 22.0,
     heat_conductivity: 0.1,
     // Was hardcoded in `decay.rs` (ash -> soil, and only ash). Moved to data
-    // when litter needed the same channel; the numbers -- how often, how
-    // damp -- are still `decay.rs`'s, because they are weathering rates
-    // rather than facts about ash.
+    // when litter needed the same channel. Ash states no
+    // `decay_chance_damp`/`_dry`, so it takes `decay.rs`'s defaults and every
+    // ash measurement in that file still reads what it always did -- litter
+    // is the material those knobs exist for.
     decays_into: "soil",
-    // Ash reseeds; litter deliberately does not. See the field's own doc:
-    // "a forest burns and regrows" is M16's verify criterion, and leaf fall
-    // under a standing canopy is not a succession event.
-    decay_reseeds: true,
+    // `decay.rs`'s old global `RESEED_CHANCE`, moved onto the material that
+    // was the only one using it. Ash is rare -- something has to burn first
+    // -- so 15% for a fresh soil cell to sprout reads as succession after a
+    // fire rather than as a population explosion. Litter deliberately sets
+    // 0: leaf fall under a standing canopy is not a succession event, and
+    // this is a magnitude rather than a bool precisely because those two
+    // callers differ by two orders of magnitude.
+    reseed_chance: 0.15,
     colors: [
         (86, 82, 80),
         (98, 94, 92),

@@ -60,9 +60,10 @@
 
 use super::brain;
 use super::cell::{Cell, AMBIENT_TEMPERATURE};
+use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{pack_cell_type, CellType, CreatureDef};
+use super::organism::{pack_cell_type, Carried, CellType, CreatureDef};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -687,6 +688,9 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
         return None;
     }
+    // Taken before `positions` is moved into the organism's chain, because
+    // the structural grant is per body cell.
+    let body_cells = positions.len();
 
     let organism = world.push_organism(species_id);
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
@@ -705,7 +709,13 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         state.since_nest = 0;
     }
     world.creature_stats.spawned += 1;
+    // Metabolic budget plus the meat the body is made of. Both are grants
+    // *here*, at the one seam where a creature appears out of nothing, so
+    // the structural half is accounted rather than conjured at the far end
+    // when the animal dies. When reproduction lands (S6) the parent pays
+    // both, and this line is what it has to charge against.
     world.energy_ledger.granted += def.start_energy as f64;
+    world.energy_ledger.stamped += (def.body_energy * body_cells as f32) as f64;
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.frame + def.tick_interval })
 }
 
@@ -856,9 +866,18 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     };
 
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
-    let mut spent = def.idle_cost + def.synapse_cost * active_synapses as f32;
+    // **The tax is a fraction of the budget, not an absolute.** Written
+    // out here rather than folded into `CreatureDef` so the multiplication
+    // order is visible: `fraction * start_energy` reproduces the old
+    // absolute exactly at the species' authored budget, and *keeps* the
+    // ratio when a harness cuts the budget. §13j is what this is for --
+    // scaling `start_energy` 900 -> 90 and leaving the tax alone spent 72
+    // of a 90-point life on thinking, 80% of a life, and silently
+    // dominated a three-knob sweep that had to be thrown away.
+    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let mut spent = def.idle_cost + synapse_tax;
     world.energy_ledger.metabolized += def.idle_cost as f64;
-    world.energy_ledger.synapse_tax += (def.synapse_cost * active_synapses as f32) as f64;
+    world.energy_ledger.synapse_tax += synapse_tax as f64;
 
     // --- the four verbs, before moving: an ant that is going to pick
     // --- something up should do it from where it can reach it.
@@ -991,13 +1010,31 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
         inputs[I::Carrying as usize] = if state.carrying.is_some() { 1.0 } else { 0.0 };
     }
 
+    // **A creature is not crowded by itself**, and it was: this scan
+    // counted any `Creature`-kind cell in the 5x5 with no owner check, so a
+    // `Chain(2)` ant read a floor of 1/8 = 0.125 forever and the 2x2 beetle
+    // 0.375. Neither is a neighbour; both are the animal's own tail.
+    //
+    // Harmless-looking, and it is not: `ant.ron` authors
+    // `(Crowding, Move, -0.3)`, so that floor was a constant subtraction
+    // from the run probability, absorbed into `(Bias, Move, 2.0)` when that
+    // was tuned. The reason to fix it *now*, in a milestone with no genes
+    // in it, is that body length becomes heritable in S8 -- at which point
+    // the offset becomes a function of the gene and every anatomy result
+    // would be measuring a hidden behavioural change. `CLAUDE.md`'s "fixing
+    // a bug exposes a constant that was compensating for it", caught before
+    // the bug rather than after.
     let mut crowd = 0;
     for dy in -CROWDING_RADIUS..=CROWDING_RADIUS {
         for dx in -CROWDING_RADIUS..=CROWDING_RADIUS {
             if dx == 0 && dy == 0 {
                 continue;
             }
-            if world.materials.kind(world.get(x + dx, y + dy).material) == MaterialKind::Creature {
+            let cell = world.get(x + dx, y + dy);
+            if cell.organism_id() == organism {
+                continue;
+            }
+            if world.materials.kind(cell.material) == MaterialKind::Creature {
                 crowd += 1;
             }
         }
@@ -1059,38 +1096,111 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     use brain::BrainOutput as O;
     let carrying = world.organism(organism).and_then(|s| s.carrying);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
+    // **Feeding is its own verb, and it was not.** Both branches below used
+    // to roll against `dig_urge`, so one weight decided whether an animal
+    // excavated *and* whether it ate -- §13d's `(Bias, Dig, 0.4)`, added to
+    // make ants dig at all, raised the baseline eating probability in the
+    // same stroke, invisibly. Evolution cannot select a burrower against a
+    // grazer while the two share a gene.
+    let feed_urge = outputs[O::Feed as usize].clamp(0.0, 1.0);
     let drop_urge = outputs[O::Drop as usize].clamp(0.0, 1.0);
+    let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
 
     // --- eat / pick up --------------------------------------------------
     if carrying.is_none() {
         if let Some((fxx, fyy, food)) = adjacent_food(world, x, y, def) {
-            if draw.unit_f32() < dig_urge {
-                let hungry = world.organism(organism).is_some_and(|s| s.energy < def.start_energy * def.hunger_fraction);
+            if draw.unit_f32() < feed_urge {
+                // **What the mouthful is worth, read off the mouthful.**
+                // This is the keystone: it used to be `def.eat_energy`, a
+                // constant of the *eater*, so a starved ant's corpse paid
+                // its scavenger 120 out of an animal that had nothing
+                // (§13l), and there was no such thing as a food being
+                // nutritious -- which is why herbivore could not diverge
+                // from carnivore. Read before the cell is cleared, and
+                // through the same `food_value` the overlay and the probe
+                // call, so a picture of the food in a world cannot disagree
+                // with what an animal gets for biting it.
+                let bite = world.get(fxx, fyy);
+                let worth = food_value(world, bite);
+                let banked = world.materials.get(bite.material).worth_in_aux;
+                let shade = bite.shade;
                 // If the mouthful belonged to somebody, tell them. Without
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
-                let victim = world.get(fxx, fyy).organism_id();
+                let victim = bite.organism_id();
                 world.set(fxx, fyy, Cell::EMPTY);
                 if victim != 0 && victim != organism {
                     reconcile_chain(world, victim);
                 }
                 if hungry {
                     if let Some(state) = world.organism_mut(organism) {
-                        state.energy += def.eat_energy;
+                        state.energy += worth;
                     }
-                    world.energy_ledger.eaten += def.eat_energy as f64;
+                    // **Two accounts, because they are two different
+                    // things.** Meat came out of a stock something paid
+                    // for; plant matter is still free, and saying so in the
+                    // census is the only reason the sealed-box test can
+                    // tell a closed loop from the sun.
+                    if banked {
+                        world.energy_ledger.harvested_corpse += worth as f64;
+                    } else {
+                        world.energy_ledger.harvested_plant += worth as f64;
+                    }
                     world.creature_stats.eats += 1;
                 } else {
                     // Full: carry it home instead of eating it. This is the
                     // whole reason a colony accumulates stores rather than
                     // every ant simply feeding itself.
                     if let Some(state) = world.organism_mut(organism) {
-                        state.carrying = Some(food);
+                        state.carrying = Some(Carried { material: food, worth: quantise_worth(worth), shade });
                     }
                     world.creature_stats.pickups += 1;
                 }
                 return;
             }
+        }
+    }
+
+    // --- eat what is being carried --------------------------------------
+    //
+    // **An animal holding food must not starve to death holding it**, and
+    // before this it always did. The eat branch above is gated on
+    // `carrying.is_none()` and the drop branch below returns
+    // unconditionally, so a laden creature had no path back to feeding: the
+    // only way to put a load down was to *want* to drop it, and out on the
+    // route that roll is multiplied by the moisture gradient.
+    //
+    // Found by the sessile-grazer probe, which could not be made to
+    // measure anything until it was fixed. Every run of that scene ended
+    // the same way and at the same count -- the ant ate until one meal
+    // carried it back over `hunger_fraction`, picked the next cell up
+    // instead of eating it, and then stood still until it starved. It read
+    // as "moss is not a pump", and it was really "nothing in this scene can
+    // eat more than twice": an unlimited static wall of leaf produced
+    // **exactly the same 2 eats and the same death**, which is the control
+    // that separated the two. `CLAUDE.md`: when every setting fails the
+    // same way, suspect the sweep.
+    //
+    // Deliberately gated on `hungry` and not on the drop rules, because
+    // this is the starvation path and not a second way to unload. A colony
+    // ant only reaches it when it is under half its budget with a full
+    // mandible, which is a real trade -- the load was going to the nest and
+    // now it does not -- and it is the trade that keeps the ant alive to
+    // carry the next one.
+    if let (Some(held), true) = (carrying, hungry) {
+        if draw.unit_f32() < feed_urge {
+            let worth = food_value(world, held.into_cell(world));
+            if let Some(state) = world.organism_mut(organism) {
+                state.energy += worth;
+                state.carrying = None;
+            }
+            if world.materials.get(held.material).worth_in_aux {
+                world.energy_ledger.harvested_corpse += worth as f64;
+            } else {
+                world.energy_ledger.harvested_plant += worth as f64;
+            }
+            world.creature_stats.eats += 1;
+            return;
         }
     }
 
@@ -1102,7 +1212,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         let p = if at_nest { drop_urge } else { drop_urge * moisture_gradient(world, x, y) };
         if draw.unit_f32() < p {
             if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                world.set(dx, dy, Cell::new(held, 0));
+                world.set(dx, dy, held.into_cell(world));
                 if let Some(state) = world.organism_mut(organism) {
                     state.carrying = None;
                 }
@@ -1461,10 +1571,175 @@ fn apply_creature_energy(world: &mut World, x: i32, y: i32, organism: u16, delta
 /// It is also what closes the colony's loop: the energy a forager spent
 /// getting somewhere it could not return from is not deleted, it is left
 /// lying there as something edible.
+/// A reference mouthful, for normalising the food-value overlay's ramp.
+///
+/// A *fixed* scale rather than the frame's maximum, so two contact sheets
+/// taken at different times are comparable — an overlay that renormalises
+/// itself answers "which cell here is worth most", which is not the question
+/// anyone has when they switch it on.
+pub const REFERENCE_MOUTHFUL: f32 = 300.0;
+
+/// **What one cell is worth to eat, and the only definition of it.**
+///
+/// The overlay, the probe and (S3b) the eat verb all call this, so a picture
+/// of the food in a world cannot disagree with what an animal gets for
+/// biting it. `CLAUDE.md`'s canopy-density failure is the cautionary case in
+/// the other direction: a readout derived separately from the mechanism it
+/// describes is a readout that can be wrong on its own.
+///
+/// Zero means "not food". A material whose worth varies per cell says so
+/// with `worth_in_aux` and carries it there; everything else is worth what
+/// its `.ron` says.
+pub fn food_value(world: &World, cell: Cell) -> f32 {
+    let m = world.materials.get(cell.material);
+    // **`worth_in_aux` means "prefer the stamp", not "ignore the material".**
+    // The first version short-circuited on the flag, and `corpse.ron`'s own
+    // comment described a fallback that therefore did not exist -- while
+    // asserting there was "no such path today" for a corpse to arrive
+    // unstamped. There is: `ant.ron` sets `burns_into: "corpse"`, and
+    // `fire.rs`'s burnout writes `Cell::new(into, shade)` with **`aux` 0**,
+    // because it is generic over every flammable material and knows nothing
+    // about creatures. So an ant that burned to death left meat worth
+    // exactly nothing -- while `wiki/ants.md` promises in as many words that
+    // "ants that die in a fire become the next colony's dinner".
+    if m.worth_in_aux && cell.aux() != 0 {
+        cell.aux() as f32
+    } else {
+        m.food_energy
+    }
+}
+
+/// The energy standing in `area` as meat — cells that carry their own worth
+/// in `Cell::aux`.
+///
+/// Takes a rectangle rather than sweeping the world, deliberately: this is a
+/// census, it is O(area), and hiding that behind a no-argument method is how
+/// a debug readout ends up in a hot path.
+///
+/// **The bound this feeds is an upper bound and there is one known slack in
+/// it.** Flesh bitten off a *living* animal is priced by its material
+/// (`ant.ron`'s `food_energy`), so it books to `harvested_plant` as though
+/// it were free, while the stamp that body was granted at spawn stays in
+/// `stamped` and never becomes standing meat. The two happen to cancel
+/// today — `ant.ron` sets `food_energy: 120.0` against `body_energy: 120.0`,
+/// and that equality is load-bearing, not a coincidence — but the ledger
+/// does not *know* they cancel. Predation therefore loosens
+/// `max_standing_meat`, and the sealed-box guards below are written on an
+/// ant-only colony, where ants do not eat ants, so the bound is tight.
+/// Closing it properly means a sink for a stamp destroyed without becoming
+/// a corpse; that belongs with S6, when a parent starts paying stamps.
+pub fn standing_meat(world: &World, area: Rect) -> f64 {
+    let mut total = 0.0;
+    for x in area.min_x..=area.max_x {
+        for y in area.min_y..=area.max_y {
+            let cell = world.get(x, y);
+            // Through `food_value`, not off `aux` directly: a corpse that
+            // arrived by fire carries no stamp and is priced by the
+            // material fallback, and a census that read the raw `aux` would
+            // report 120 of real standing food as 0 -- a readout disagreeing
+            // with the mechanism it describes, in the direction that hides
+            // food rather than inventing it.
+            if world.materials.get(cell.material).worth_in_aux {
+                total += food_value(world, cell) as f64;
+            }
+        }
+    }
+    total
+}
+
+/// The same stock, in transit. A carrier holding a corpse cell is holding
+/// meat that is not in any cell of the world, and leaving it out is how a
+/// census reports a delivery run as an energy leak.
+pub fn carried_meat(world: &World) -> f64 {
+    world
+        .live_organism_ids()
+        .into_iter()
+        .filter_map(|id| world.organism(id).and_then(|s| s.carrying))
+        .filter(|held| world.materials.get(held.material).worth_in_aux)
+        .map(|held| held.worth as f64)
+        .sum()
+}
+
+/// Every joule the creature economy is holding: what is inside animals,
+/// what is standing as meat, what is in transit, and what is still *promised*
+/// as meat by bodies that have not died yet.
+///
+/// **The last term is the one that makes this monotone, and leaving it out
+/// is a metric that reports a death as energy creation.** A body's stamp is
+/// booked into `EnergyLedger::stamped` at spawn but does not become standing
+/// meat until `creature_dies` writes it, so `live + standing` jumps upward
+/// by `body_energy * cells` every time something dies -- which is exactly
+/// backwards, and would have read as a pump in the guard written to find
+/// pumps. `CLAUDE.md`: ask what a metric counts when nothing is wrong.
+///
+/// In a world with no producers and nothing eating live flesh, this may only
+/// fall. That is the P-20 property stated as a number:
+/// `a_sealed_colony_never_grows_its_own_biomass` asserts it.
+pub fn creature_biomass(world: &World, area: Rect) -> f64 {
+    let promised: f64 = world
+        .live_organism_ids()
+        .into_iter()
+        .filter_map(|id| world.organism(id))
+        .filter_map(|s| {
+            world.species.get(s.species).creature.as_ref().map(|d| d.body_energy as f64 * s.cells.len() as f64)
+        })
+        .sum();
+    world.live_creature_energy() + standing_meat(world, area) + carried_meat(world) + promised
+}
+
+/// Round an energy worth into the `u16` `Cell::aux` carries it in.
+///
+/// 1:1, not through a quantum constant: a `u16` covers every budget in the
+/// engine (the beetle's 1600 is the largest) and a scale factor nobody can
+/// tune in either direction is exactly the counterweight shape `CLAUDE.md`
+/// warns about. Saturating rather than wrapping, because the failure mode of
+/// a wrap here is meat worth 5 instead of 65,541.
+fn quantise_worth(worth: f32) -> u16 {
+    worth.round().clamp(0.0, u16::MAX as f32) as u16
+}
+
+impl Carried {
+    /// Put a carried mouthful back into the world without losing what it is
+    /// worth.
+    ///
+    /// **The `aux` write is gated on the material, not on the payload.**
+    /// `Cell::aux` is a tagged union with three conventions in it now
+    /// (liquid fill, soil water, food worth), and the drop path is the one
+    /// place a value crosses from one material to another. Writing the
+    /// worth unconditionally would put 120 into a leaf's `aux`, which on a
+    /// `Powder` reads as soil water — manufacturing water out of food, the
+    /// exact shape of the mistake `Cell::aux`'s own doc comment warns
+    /// about twice.
+    fn into_cell(self, world: &World) -> Cell {
+        let cell = Cell::new(self.material, self.shade);
+        if world.materials.get(self.material).worth_in_aux {
+            cell.with_aux(self.worth)
+        } else {
+            cell
+        }
+    }
+}
+
+/// A species' `start_energy`, for scaling a corpse's shade ramp. Zero if the
+/// organism is gone, which only happens on a path that is not writing meat.
+fn def_start_energy(world: &World, organism: u16) -> f32 {
+    world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.start_energy))
+        .unwrap_or(0.0)
+}
+
 fn creature_dies(world: &mut World, organism: u16) {
     let held = world.organism(organism).and_then(|s| s.carrying);
-    let leftover = world.organism(organism).map_or(0.0, |s| s.energy.max(0.0));
-    world.energy_ledger.died_holding += leftover as f64;
+    // **The bank, and what of it was actually there.** These differ: a
+    // creature is declared dead at or below zero, and the tick that killed
+    // it debited a full charge against whatever was left, so `bank` is
+    // routinely a small negative. Only the non-negative part can become
+    // meat -- there is no such thing as a corpse worth minus two -- and the
+    // shortfall is booked as `overdrawn` so the live identity still closes.
+    let bank = world.organism(organism).map_or(0.0, |s| s.energy);
+    let leftover = bank.max(0.0);
+    world.energy_ledger.overdrawn += (leftover - bank) as f64;
     // **Only the cells it still owns, and this is a matter-conservation
     // bug that read as a feature.** `chain` is a separate sequence from
     // `cells` and is *stale* on the predation path: `act` empties the
@@ -1485,13 +1760,73 @@ fn creature_dies(world: &mut World, organism: u16) {
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
         .unwrap_or_default();
+    // **What the meat is worth, written into the meat.** The structural
+    // stamp the body was granted at spawn, plus whatever the animal had left
+    // to spend, divided over the cells that are actually still standing --
+    // a half-eaten animal leaves half the meat, because the cells the
+    // predator already swallowed are not in `chain` any more.
+    //
+    // Leftover matters as well as the stamp: an animal killed in its prime
+    // is worth more than one that starved, which is a real distinction and
+    // is visible on screen through the shade below. And it is the *stamp*
+    // that keeps a starved animal -- dead at exactly 0 -- worth eating at
+    // all, which is what stops closing §13l's pump from also deleting the
+    // scavenger niche.
+    //
+    // `aux` in energy units, 1:1, rather than through a quantum constant:
+    // a u16 covers every budget in the engine (the beetle's 1600 is the
+    // largest) and a scale factor nobody can tune in either direction is
+    // exactly the counterweight shape `CLAUDE.md` warns about.
+    let body_energy = world
+        .organism(organism)
+        .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
+        .unwrap_or(0.0);
     if let Some(corpse_id) = world.materials.id_of("corpse") {
+        let cells = chain.len().max(1) as f32;
+        let worth = (body_energy * cells + leftover) / cells;
+        let aux = worth.round().clamp(0.0, u16::MAX as f32) as u16;
+        // **Shade from worth, not from noise.** A fat corpse and a
+        // picked-over one have to look different, or the only legible
+        // feedback for a mechanic about how much food is where is a number
+        // in a debug overlay. The ramp is over the body's own stamp, so a
+        // starved animal is the dark end and one killed full is the bright
+        // end.
+        //
+        // **That sentence was false when it was written, and the palette had
+        // to be reordered to make it true.** `corpse.ron` listed its three
+        // browns mid, dark, light, so ramping worth over the index made a
+        // corpse worth 760 render *darker* than a starved one worth 120 --
+        // non-monotone, in a mechanic whose entire visible output is this
+        // one byte. Two lessons, both already in `CLAUDE.md` and both missed
+        // here: a debug readout must not be derived separately from the
+        // thing it describes, and an image cannot tell you *how much* -- the
+        // span is still only 84..104 in red, which is the same order of
+        // difference as the canopy-density sheet that read as blank.
+        // `OrganismOverlay::FoodValue` is the readout that can answer "how
+        // much"; this byte is only meant to say "not all the same".
         let shades = world.materials.get(corpse_id).palette.len().max(1) as u32;
-        for (i, &(cx, cy)) in chain.iter().enumerate() {
-            let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_DEATH).below(shades) as u8;
+        let full = (body_energy + def_start_energy(world, organism)).max(1.0);
+        let shade = ((worth / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+        for &(cx, cy) in chain.iter() {
             let temp = world.get(cx, cy).temperature();
-            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp));
+            world.set(cx, cy, Cell::new(corpse_id, shade).with_temperature(temp).with_aux(aux));
         }
+        // **A transfer, not a write-off**, and the account name is the
+        // whole difference. `died_holding` said this energy was destroyed;
+        // it is standing in the world as meat, and the census that says so
+        // is what makes `harvested_corpse` a matched term instead of the
+        // free one §13l's pump ran on. Booked as the *quantised* total the
+        // cells actually carry, not as `leftover` -- rounding to the u16 is
+        // a real (sub-joule) loss and the identity has to see it.
+        let meat_written = aux as f64 * chain.len() as f64;
+        let from_stamp = body_energy as f64 * chain.len() as f64;
+        let from_live = (meat_written - from_stamp).clamp(0.0, leftover as f64);
+        world.energy_ledger.stored_in_meat += from_live;
+        world.energy_ledger.dissipated += leftover as f64 - from_live;
+    } else {
+        // No `corpse` material compiled in: there is nowhere to put the
+        // remainder, so it is genuinely gone. Reads 0 in every real scene.
+        world.energy_ledger.dissipated += leftover as f64;
     }
     // Whatever it was carrying falls where it fell. Losing it would be a
     // silent material sink, and the census is about to care.
@@ -1506,7 +1841,7 @@ fn creature_dies(world: &mut World, organism: u16) {
     // body exactly as one that dropped it would.
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
         if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-            world.set(dx, dy, Cell::new(held, 0));
+            world.set(dx, dy, held.into_cell(world));
         }
     }
     world.creature_stats.deaths += 1;
@@ -2265,6 +2600,104 @@ mod tests {
         w.get(x, 100).organism_id()
     }
 
+    /// One hungry ant, a bank of soil to its right and a corpse to its
+    /// left, driven by a genome that authors exactly one of the two verbs.
+    ///
+    /// **A test rather than an ablation arm, because the ablation scene
+    /// cannot show this.** `ant_ablation` reports `eats 0.0 digs 0.0` in
+    /// every arm including `authored`: its floor is stone, so there is
+    /// nothing diggable, and at `start_energy` 900 no ant falls below the
+    /// 0.5 `hunger_fraction` inside 6,000 frames, so nothing is ever eaten
+    /// rather than carried. Both counters are structurally zero there, and
+    /// a decoupling claim measured against them would have been two zeroes
+    /// agreeing with each other.
+    fn verbs_scene(feed: f32, dig: f32) -> (u64, u64) {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        for cx in 90..130 {
+            w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        // Geometry fitted to what the verbs actually read, which is not the
+        // same for the two of them: `act` digs strictly the cell in the
+        // heading direction (east, at spawn), while `adjacent_food` scans
+        // the head's whole 8-neighbourhood. So the soil goes *ahead* of the
+        // head and the corpse diagonally above it, where it can be eaten
+        // but can never be the dig target -- otherwise the dig arm would
+        // excavate the corpse and book it as a dig.
+        w.set(101, 100, Cell::new(soil, 0).with_attached(true));
+        w.set(101, 99, Cell::new(corpse, 0));
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Feed, feed),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, dig),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+            ),
+        );
+
+        w.plant_ant(100, 100);
+        let ant = w.get(100, 100).organism_id();
+        // **Assert the animal exists.** `plant_creature_seed` refuses to
+        // place a chain whose cells are not all empty and returns quietly,
+        // so a scene that puts anything on the body's own cells produces an
+        // empty world and two counters that read zero for a reason that has
+        // nothing to do with the gene under test. The first draft of this
+        // scene did exactly that -- the corpse sat where the tail goes.
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+        // Hungry, or it carries its food home instead of eating it and the
+        // counter under test never moves for a reason that is not the gene.
+        if let Some(state) = w.organism_mut(ant) {
+            state.energy = def.start_energy * def.hunger_fraction * 0.5;
+        }
+        run(&mut w, 400);
+        (w.creature_stats.eats, w.creature_stats.digs)
+    }
+
+    #[test]
+    fn feeding_and_digging_are_separate_genes() {
+        // **The claim the Feed/Dig split exists to make.** Before it, one
+        // weight gated both verbs, so this pair could only move together --
+        // §13d's `(Bias, Dig, 0.4)`, added because ants never dug, silently
+        // raised the baseline *eating* probability, and there was no gene
+        // that could tell a burrower from a grazer.
+        let (eats_only, digs_when_feeding) = verbs_scene(2.0, 0.0);
+        let (eats_when_digging, digs_only) = verbs_scene(0.0, 2.0);
+
+        assert!(eats_only > 0, "a Feed weight with no Dig weight must still let the animal eat");
+        assert_eq!(digs_when_feeding, 0, "Feed must not dig: that is the coupling this split removed");
+        assert!(digs_only > 0, "a Dig weight with no Feed weight must still let the animal excavate");
+        assert_eq!(eats_when_digging, 0, "Dig must no longer feed the animal -- one weight moving both is the bug");
+    }
+
+    #[test]
+    fn a_lone_creature_is_not_crowded_by_its_own_body() {
+        // **The known-good case, which is what makes this a measurement
+        // rather than a preference**: an animal alone on a floor with
+        // nothing within ten cells is, by any reading of the word, not
+        // crowded. It read 0.125 -- its own tail -- and a beetle read
+        // 0.375, so `Crowding` was partly a body-size sensor.
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::Crowding as usize], 0.0, "a creature alone on a floor must read no crowding at all");
+
+        // And it still senses a *neighbour*, which is the half that must
+        // not be thrown out with the fix: an exclusion that read 0.000 in
+        // both cases would be a dead input, not a corrected one.
+        w.plant_ant(102, 100);
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert!(inputs[brain::BrainInput::Crowding as usize] > 0.0, "another animal beside it is exactly what this input is for");
+    }
+
     #[test]
     fn losing_a_trailing_segment_is_an_injury_not_a_death() {
         let mut w = test_world();
@@ -2503,6 +2936,205 @@ mod tests {
     }
 
     #[test]
+    fn a_corpse_is_worth_what_the_animal_was_made_of() {
+        // **The keystone, at the one seam where meat is created.** Under
+        // `eat_energy` a corpse cell was worth whatever *bit* it, so an ant
+        // granted 900, spending all of it and starving at exactly 0, left
+        // two cells worth 120 each: 240 energy out of an animal that had
+        // none (§13l). The worth now comes out of the body's own stamp,
+        // granted and booked at spawn.
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+
+        // A starved animal: dead at exactly zero, which is the case that
+        // decides whether closing the pump also deletes the scavengers.
+        let starved = spawn(&mut w, "ant", 100, 100);
+        w.organism_mut(starved).expect("live").energy = 0.0;
+        creature_dies(&mut w, starved);
+        let starved_worth: Vec<u16> = (92..112)
+            .flat_map(|x| (95..102).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == corpse)
+            .map(|(x, y)| w.get(x, y).aux())
+            .collect();
+        assert!(!starved_worth.is_empty(), "a dead ant leaves meat");
+        for worth in &starved_worth {
+            assert_eq!(*worth as f32, def.body_energy, "a starved animal is worth exactly the body it was built from, and no more");
+        }
+
+        // And one killed with energy still in the bank is worth more, which
+        // is what makes a fresh kill better eating than carrion.
+        let full = spawn(&mut w, "ant", 104, 100);
+        w.organism_mut(full).expect("live").energy = 400.0;
+        creature_dies(&mut w, full);
+        let full_worth = w.get(104, 100).aux();
+        assert!(
+            (full_worth as f32) > def.body_energy,
+            "an animal killed in its prime carries its unspent energy into its corpse ({full_worth} vs body {})",
+            def.body_energy
+        );
+    }
+
+    /// **A mouthful in transit keeps what it is worth.**
+    ///
+    /// Neither conservation guard can see this one, and that is the reason
+    /// it exists: losing the payload is a *sink*, biomass stays monotone,
+    /// the meat ceiling stays satisfied, and the world quietly gets poorer
+    /// along the one path a colony is built around -- carrying something
+    /// home. Both drop sites used to write `Cell::new(held, 0)`, whose
+    /// second argument is *shade*, not `aux`; so before S3b a corpse worth
+    /// 640 came back down worth zero and black.
+    /// **An ant that burns to death still feeds the next colony**, which is
+    /// a promise `wiki/ants.md` makes in as many words: "ants that die in a
+    /// fire become the next colony's dinner".
+    ///
+    /// S3 quietly broke it and nothing noticed, because the break was in an
+    /// accounting change and the mechanic it deleted is three files away.
+    /// A corpse says `worth_in_aux`, so its value comes from `Cell::aux`;
+    /// `fire.rs`'s burnout is generic over every flammable material and
+    /// writes `Cell::new(into, shade)` with `aux` 0. Corpse's static
+    /// `food_energy` was 0 as well, on the stated grounds that "there is no
+    /// path today" for an unstamped corpse -- and `ant.ron`'s
+    /// `burns_into: "corpse"` is exactly that path.
+    ///
+    /// The test is deliberately written against the *material data*, not
+    /// against `fire.rs`: what it is really asserting is that no route into
+    /// a corpse cell can produce meat worth nothing, and a second such route
+    /// (an explosion, the brush, a future decay path) would be caught by the
+    /// same assertion without anyone remembering to extend it.
+    /// **A body that arrives without a stamp must not look like a rich one.**
+    ///
+    /// The companion to `a_corpse_that_arrived_without_a_stamp_is_still_food`,
+    /// and it exists because widening the corpse ramp created the bug it
+    /// guards. `fire.rs`'s burnout draws a *random* shade, which is right for
+    /// ash and decoration and wrong for the one material whose shade is
+    /// derived: `creature_dies` ramps corpse brightness over what the animal
+    /// was worth. While the palette was three near-identical browns nobody
+    /// could have seen it; the moment the ramp spans something legible, a
+    /// random draw renders a burnt ant as a prime kill one time in five.
+    ///
+    /// **Drives the real burnout**, and the first version of this test did
+    /// not — it built `Cell::new(corpse, 0)` by hand and asserted the shade
+    /// was 0, which is a test of its own literal. It passed with `fire.rs`
+    /// reverted to the random draw, i.e. it would have shipped the bug it was
+    /// written for. `CLAUDE.md` twice: a green suite does not prove a test
+    /// ran, and deliberately break the replacement to confirm the guard bites.
+    ///
+    /// Ants burn over many frames, so the shade is checked over enough
+    /// independent burnouts that a random draw could not miss the light end
+    /// by luck: with five palette entries, twenty bodies all landing dark is
+    /// a 1-in-5^20 coincidence.
+    #[test]
+    fn a_burnt_body_is_shaded_as_the_poor_meat_it_is() {
+        let mut w = test_world();
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let ant_material = w.materials.id_of("ant").expect("ant");
+        let shades = w.materials.get(corpse).palette.len();
+        assert!(shades >= 3, "test setup: a one-entry palette cannot express rich or poor, so this would pass without meaning it");
+        assert_eq!(
+            w.materials.get(ant_material).burns_into,
+            Some(corpse),
+            "test setup: this test is about the path where an ant burns into a corpse, and that is not what the data says"
+        );
+
+        for i in 0..20 {
+            let (x, y) = (20 + i * 3, 40);
+            let mut cell = Cell::new(ant_material, 0);
+            cell.ignite(1); // ticks to 0 and burns out on the next update
+            w.set(x, y, cell);
+            crate::sim::fire::update(&mut w, x, y);
+            let left = w.get(x, y);
+            assert_eq!(left.material, corpse, "test setup: the ant did not burn out into a corpse at all ({i})");
+            assert_eq!(left.aux(), 0, "a burnout cannot stamp a worth; if this is nonzero the fallback path is no longer the one under test");
+            assert_eq!(
+                left.shade, 0,
+                "a burnt body carries no stamp, so it is worth the material fallback -- the poorest a body can be -- and must be                 drawn at the dark end of the ramp. Body {i} came out at shade {} of {}, which reads as a fresh kill",
+                left.shade,
+                shades - 1
+            );
+        }
+
+        // And the ramp has to actually go somewhere, or "poor" and "rich" are
+        // the same pixel and none of this matters. 60 is comfortably above the
+        // ~20 the narrow palette spanned, which a blind A/B at 10x zoom showed
+        // was one colour.
+        let pal = &w.materials.get(corpse).palette;
+        let (poor, rich) = (pal[0], pal[pal.len() - 1]);
+        let span = rich[0] as i32 - poor[0] as i32;
+        assert!(
+            span >= 60,
+            "the corpse ramp spans {span} of 255 in red: the order of difference the canopy-density sheet read as blank,             so worth is not being communicated at all (poor {poor:?}, rich {rich:?})"
+        );
+    }
+
+    #[test]
+    fn a_corpse_that_arrived_without_a_stamp_is_still_food() {
+        let w = test_world();
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        // Exactly what `fire.rs`'s burnout writes: the target material, a
+        // shade drawn from its palette, and no `aux` at all.
+        for shade in 0..w.materials.get(corpse).palette.len() as u8 {
+            let burnt = Cell::new(corpse, shade);
+            assert_eq!(burnt.aux(), 0, "test setup: this is the unstamped case, and a stamped cell would prove nothing");
+            assert!(
+                food_value(&w, burnt) > 0.0,
+                "a corpse that arrived by fire rather than by starving is worth nothing to eat at shade {shade}, so an ant                 that burns feeds no one -- see wiki/ants.md, which promises the opposite"
+            );
+        }
+        // And a stamped corpse still overrides the fallback rather than
+        // being flattened onto it, which is the whole point of the flag.
+        let ant_body = w.materials.get(corpse).food_energy;
+        let stamped = Cell::new(corpse, 0).with_aux(760);
+        assert_eq!(food_value(&w, stamped), 760.0, "a stamped corpse is worth its stamp, not the {ant_body} fallback");
+    }
+
+    #[test]
+    fn a_carried_corpse_keeps_its_worth_when_it_is_put_down() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse");
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("live").carrying = Some(Carried { material: corpse, worth: 640, shade: 3 });
+
+        creature_dies(&mut w, ant);
+
+        // The corpse the *carrier* became is worth its own stamp; the cargo
+        // is the one worth 640, so look for that value rather than for the
+        // material.
+        let dropped: Vec<Cell> = (92..112)
+            .flat_map(|x| (95..102).map(move |y| (x, y)))
+            .map(|(x, y)| w.get(x, y))
+            .filter(|c| c.material == corpse && c.aux() == 640)
+            .collect();
+        assert_eq!(dropped.len(), 1, "a corpse cell worth 640 was being carried and exactly one should have landed, found {}", dropped.len());
+        assert_eq!(dropped[0].shade, 3, "the cargo's shade travels with it, or a fat corpse is put down looking like a picked-over one");
+    }
+
+    /// **The `aux` convention is a property of the material, not of the
+    /// payload.** `Cell::aux` is a tagged union with three readings in it
+    /// now, and the drop path is the one place a value crosses from one
+    /// material to another. Writing the worth unconditionally puts 120 into
+    /// a leaf's `aux`, and on a `Powder` that reads as soil water -- food
+    /// turned into water, which is the mistake `Cell::aux`'s own doc
+    /// comment warns about from the other direction.
+    #[test]
+    fn putting_down_a_leaf_does_not_fill_it_with_water() {
+        let w = test_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        assert!(!w.materials.get(leaf).worth_in_aux, "test setup: this test is about a material that does *not* bank its worth");
+        let cell = Carried { material: leaf, worth: 120, shade: 2 }.into_cell(&w);
+        assert_eq!(cell.aux(), 0, "a leaf put down must carry no aux payload at all");
+        assert_eq!(cell.shade, 2, "shade still travels; it is only the worth that must not be written");
+    }
+
+    #[test]
     fn a_dying_carrier_leaves_its_cargo_somewhere_it_can_be_found() {
         // The sentence in `creature_dies` promising this was true and the
         // code under it was not: the corpse loop had already filled the
@@ -2517,7 +3149,7 @@ mod tests {
         }
         let ant = spawn(&mut w, "ant", 100, 100);
         let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
-        w.organism_mut(ant).expect("live").carrying = Some(leaf);
+        w.organism_mut(ant).expect("live").carrying = Some(Carried { material: leaf, worth: 0, shade: 0 });
         let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
 
         creature_dies(&mut w, ant);
@@ -2526,29 +3158,15 @@ mod tests {
         assert_eq!(after, before + 1, "the load a dead carrier was holding has to land somewhere, not evaporate");
     }
 
-    /// **A sealed world with no renewable food must run down**, and today
-    /// it does not. Kept as the reproduction for the conservation work
-    /// rather than as a passing guard (`CLAUDE.md`: a revert keeps the
-    /// knowledge; so does a finding you have decided not to fix yet).
+    /// The sealed box the three conservation guards below all run in:
+    /// stone walls, no producers, no light, twelve ants and nothing else.
     ///
-    /// The pump: `eat_energy` is a constant of the **eater**, and a corpse
-    /// cell is worth it in full no matter what the creature that left it
-    /// had in the bank. An ant granted 900 spends all of it, starves at
-    /// exactly 0, and lays down two corpse cells worth 120 each -- so 240
-    /// energy appears from an animal that had none. The colony then runs on
-    /// its own dead forever. `Reports/creature-direction.md` §13i measured
-    /// this symptom ("a colony sustains itself on its own dead without
-    /// foraging at all") and read it as an ecology problem; it is an
-    /// accounting one, and `creature_space` only escapes it by taking
-    /// "corpse" off the menu.
-    ///
-    /// Fixing it properly means food cells carrying the energy they are
-    /// worth, which is the same piece of work as putting plants into the
-    /// ledger -- doing predation alone first means doing it twice. Until
-    /// then this test is the bar that work has to clear.
-    #[test]
-    #[ignore = "reproduces a known pump: corpses are worth eat_energy regardless of what the dead creature had"]
-    fn a_sealed_world_with_no_food_source_runs_down() {
+    /// **Ants only, and that is load-bearing.** `ant.ron`'s food list has no
+    /// `ant` on it, so nothing here eats living flesh -- which is the one
+    /// path that still books a free term (`standing_meat`'s doc says why).
+    /// Adding a beetle to this scene would loosen the bound these tests
+    /// assert, and it would look like the tests had found something.
+    fn sealed_box() -> World {
         let mut w = test_world();
         for x in 60..140 {
             w.set(x, 121, Cell::new(material::STONE, 0));
@@ -2561,11 +3179,366 @@ mod tests {
         for i in 0..12 {
             spawn(&mut w, "ant", 64 + i * 6, 120);
         }
-        let alive = |w: &World| (60..140).flat_map(|x| (100..122).map(move |y| (x, y))).filter(|&(x, y)| w.organism(w.get(x, y).organism_id()).is_some()).count();
-        let start = alive(&w);
-        run(&mut w, 40_000);
-        let end = alive(&w);
-        assert_eq!(end, 0, "no energy enters this world, so nothing in it may still be alive after 40,000 frames ({start} -> {end})");
+        w
+    }
+
+    const SEALED_BOX: Rect = Rect { min_x: 60, min_y: 100, max_x: 139, max_y: 121 };
+
+    /// Live *animals*, not live cells. The version this replaced counted
+    /// occupied cells and so read 24 for twelve two-cell ants -- harmless
+    /// for the `== 0` bar it was written under, and wrong the moment a
+    /// setup assertion asked it how many ants there were.
+    fn alive_in_box(w: &World) -> usize {
+        w.live_organism_count()
+    }
+
+    /// **A sealed world with no renewable food must run down.**
+    ///
+    /// This was `#[ignore]`d as the live reproduction of the pump in
+    /// `Reports/creature-direction.md` §13l, and un-ignoring it is what S3
+    /// was for. The pump: `eat_energy` was a constant of the **eater**, and
+    /// a corpse cell was worth it in full no matter what the creature that
+    /// left it had in the bank. An ant granted 900 spent all of it, starved
+    /// at exactly 0, and laid down two corpse cells worth 120 each -- 240
+    /// energy out of an animal that had none. The colony then ran on its own
+    /// dead forever. §13i measured the symptom ("a colony sustains itself on
+    /// its own dead without foraging at all") and read it as an ecology
+    /// problem; it was an accounting one, and `creature_space` only escaped
+    /// it by taking "corpse" off the menu.
+    ///
+    /// What closed it: a corpse is worth the body it was made of plus
+    /// whatever was left unspent, and the body's worth is **granted and
+    /// booked at spawn** rather than conjured at the far end. Eating it is a
+    /// transfer out of that stock, not a fresh 120.
+    /// **The horizon is measured, not chosen, and it moved once already.**
+    /// 40,000 frames was inherited from the version of this test that never
+    /// passed, and it went red the moment a *hungry carrier eats its load*
+    /// -- not because anything created energy (the ledger closed exactly:
+    /// 2,880 stamped, 1,680 eaten, 720 standing, 480 still inside the two
+    /// survivors) but because a colony that no longer starves holding food
+    /// recovers more of its own dead, and the same finite budget lasts
+    /// longer. Measured emptying: 12 alive at 15,000, 3 at 20,000, 2 at
+    /// 40,000, 1 at 45,000, **0 at 50,000**. 80,000 is that with 60%
+    /// headroom.
+    ///
+    /// This is the knife-edge weakness of an outcome count, in the flesh: it
+    /// says nothing about how far below 1.0 the loop's gain is, so it can go
+    /// red for an *improvement*. `a_sealed_colony_never_grows_its_own_biomass`
+    /// is the guard that actually watches for creation, and it stayed green
+    /// through this whole episode.
+    #[test]
+    fn a_sealed_world_with_no_food_source_runs_down() {
+        let mut w = sealed_box();
+        let start = alive_in_box(&w);
+        assert_eq!(start, 12, "test setup: twelve ants, or this is measuring an empty box");
+        run(&mut w, 80_000);
+        let end = alive_in_box(&w);
+        assert_eq!(end, 0, "no energy enters this world, so nothing in it may still be alive after 80,000 frames ({start} -> {end}).           Measured emptying was 50,000; if this is red, check the biomass guard before assuming a pump");
+    }
+
+    /// The same property as a *quantity*, which is the version that keeps
+    /// working once something in the box is renewable.
+    ///
+    /// "Everything died" is a knife-edge outcome: it passes the moment the
+    /// loop's gain drops below 1.0 and says nothing about how far below.
+    /// `CLAUDE.md` prefers a continuous quantity over a count of bad cells,
+    /// and the continuous version here is total biomass -- see
+    /// `creature_biomass` for why the promised-stamp term has to be in it.
+    #[test]
+    fn a_sealed_colony_never_grows_its_own_biomass() {
+        let mut w = sealed_box();
+        let mut previous = creature_biomass(&w, SEALED_BOX);
+        let opening = previous;
+        assert!(opening > 0.0, "test setup: an empty box cannot fail this test for the right reason");
+        for window in 0..40 {
+            run(&mut w, 1_000);
+            let now = creature_biomass(&w, SEALED_BOX);
+            assert!(
+                now <= previous + 1e-6,
+                "biomass rose from {previous:.2} to {now:.2} over window {window}: something in this box is creating value out of nothing"
+            );
+            previous = now;
+        }
+        assert!(previous < opening, "40,000 frames of metabolism have to cost something ({opening:.2} -> {previous:.2})");
+    }
+
+    /// **The standing meat never exceeds what was put into it.** The ledger
+    /// half of the same claim, and the one that would still fire if a future
+    /// drop path re-created a corpse cell without its payload: biomass alone
+    /// reads that as a gain in the world, and this reads it as meat that no
+    /// death paid for.
+    #[test]
+    fn the_standing_meat_never_exceeds_what_was_put_into_it() {
+        let mut w = sealed_box();
+        // The identity's drift *before anything has died or eaten* -- in
+        // this box the first death is around frame 12,000, so this is a
+        // clean baseline for the charge path alone. See the assertion at the
+        // end for why one number here is worth more than a tighter bar.
+        run(&mut w, 10_000);
+        assert_eq!(w.creature_stats.deaths, 0, "test setup: the 10,000-frame sample has to land before the first death to be a baseline");
+        let baseline_drift = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
+        for _ in 0..30 {
+            run(&mut w, 1_000);
+            let standing = standing_meat(&w, SEALED_BOX) + carried_meat(&w);
+            let ceiling = w.energy_ledger.max_standing_meat();
+            assert!(
+                standing <= ceiling + 1e-6,
+                "{standing:.2} of meat is standing in a box that only ever had {ceiling:.2} put into it"
+            );
+        }
+        // And the live identity still closes, which is the *other* thing the
+        // ledger can see and this one cannot: a charge debited but never
+        // taken off a creature.
+        // And the live identity still closes, which is the *other* thing the
+        // ledger can see and this one cannot: a charge debited but never
+        // taken off a creature.
+        //
+        // **Against the run's own baseline, not against zero.** Creature
+        // energy is `f32` and the ledger is `f64`, so roughly a million
+        // charges of 0.10 and 0.25 against a budget near 900 leave a
+        // rounding residue no assertion can honestly forbid -- measured at
+        // 0.298 over the first 10,000 frames, with **zero deaths and zero
+        // eats in them**. That residue is not what this test is for. What it
+        // is for is the death and eat paths, and the way to see those is
+        // that the drift does not *grow* once they start firing: measured
+        // 0.298 before any death and 0.286 after twelve of them, i.e. it
+        // wobbles by hundredths and does not accumulate. The slack below is
+        // 1.0 -- about sixty times that wobble, and still a third of what
+        // the cheapest systematic hole would cost (one `move_cost` of 0.25
+        // unbooked per death, over these twelve deaths, is 3.0).
+        //
+        // A fixed absolute bar was tried first and is the wrong instrument:
+        // it cannot tell a rounding residue from a leak, because it never
+        // looks at the same world twice.
+        let delta = (w.live_creature_energy() - w.energy_ledger.expected_live_total()).abs();
+        assert!(
+            delta <= baseline_drift + 1.0,
+            "the live energy identity drifted from {baseline_drift:.6} before the first death to {delta:.6} after {} deaths and {} meals:               a charge on one of those paths is not landing",
+            w.creature_stats.deaths,
+            w.creature_stats.eats
+        );
+    }
+
+    /// Which larder the grazer scene is stocked with.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    enum Larder {
+        /// A moss lawn: finite at any instant, and free to regrow.
+        Renewable,
+        /// A static wall of leaf that is never exhausted inside the run.
+        /// **The control**, and the whole reason the renewable arm can be
+        /// believed -- it puts a ceiling on what one stationary animal can
+        /// physically get into its mouth in the time available, which is a
+        /// quantity nothing else in this codebase measures.
+        Unlimited,
+    }
+
+    /// A damp soil bed, a larder, and one hungry ant standing on it.
+    fn grazer_scene(larder: Larder, frames: usize) -> World {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 70..150 {
+            for y in 111..120 {
+                w.set(x, y, Cell::new(soil, 0).with_attached(true));
+            }
+        }
+        match larder {
+            // Moss as a live organism, not as painted cells: the pump this
+            // is about is moss *regrowing* into a grazed gap for free, and
+            // painted cells cannot divide. `plant_moss_seed` is the same
+            // entry point `decay.rs` uses.
+            Larder::Renewable => {
+                for x in (72..148).step_by(4) {
+                    w.plant_moss_seed(x, 110);
+                }
+            }
+            // Row 109 is left clear on purpose -- that is where the ant
+            // stands, and burying it reports "the scene does not contain
+            // the situation" instead of measuring anything.
+            Larder::Unlimited => {
+                let leaf = w.materials.id_of("leaf").expect("leaf");
+                for x in 100..122 {
+                    for y in [104, 105, 106, 107, 108, 110] {
+                        w.set(x, y, Cell::new(leaf, 0).with_attached(true));
+                    }
+                }
+            }
+        }
+        run(&mut w, 2_000);
+        let ant = spawn(&mut w, "ant", 110, 109);
+        assert_ne!(ant, 0, "the grazer was not placed; the scene does not contain the situation this test is about");
+        // **Start it hungry, or this measures nothing.** `act` takes the eat
+        // branch only below `hunger_fraction` (0.5), and the first version
+        // of this scene ran a *full* ant, which promptly picked up one moss
+        // cell and then had no reason to eat for the rest of the run.
+        w.organism_mut(ant).expect("live").energy = 300.0;
+        run(&mut w, frames);
+        w
+    }
+
+    /// Intake over cost-of-living for a finished grazer run. **A ratio of
+    /// 1.0 is the pump line**: at 1.0 an animal's food pays for the whole
+    /// of its existence, and anything at or above it is perpetual motion
+    /// with a mouth attached.
+    fn grazing_ratio(w: &World) -> f64 {
+        let l = w.energy_ledger;
+        let intake = l.harvested_plant + l.harvested_corpse;
+        let spent = l.metabolized + l.moved + l.synapse_tax;
+        intake / spent.max(1.0)
+    }
+
+    /// **The sessile-grazer probe**, and the reason moss's `food_energy` is
+    /// not free to choose.
+    ///
+    /// `moss.ron` divides at `damp_chance: 0.35` for **`cost: 0.0`** -- a
+    /// deliberate value and not a placeholder (its own file says so),
+    /// because moss predates organisms having energy budgets at all. That
+    /// was inert while nutrition was a constant of the eater. The moment
+    /// food carries value it is a free renewable, and an animal parked on a
+    /// lawn that refills itself is P-20's sessile-freeloading attractor with
+    /// a food supply attached. `creature_space` has already watched an
+    /// earlier version of this beat every forager before evolution was even
+    /// switched on: the zero genome, which cannot move, scored 0.923 against
+    /// the forager's 0.735.
+    ///
+    /// **The bar is not "the grazer dies" alone**, and it is not a number
+    /// calibrated off one run either. It is a *paired* comparison against an
+    /// unlimited larder, because a lone number here cannot tell a bounded
+    /// niche from a scene that could not feed anything in the first place --
+    /// which is exactly what the first version of this probe did. It read
+    /// 2 eats and a clean intake of 0.0 and looked like a pass; an unlimited
+    /// wall of leaf produced **the identical 2 eats and the identical
+    /// death**, and the real finding was a bug in `act` (a laden animal
+    /// could never eat again). `CLAUDE.md`: when every setting fails the
+    /// same way, suspect the sweep.
+    ///
+    /// If moss ever crosses the pump line, the fix is a per-cell
+    /// post-grazing cooldown, **not** shrinking `food_energy` until the
+    /// niche disappears -- moss is the only ground-level renewable an ant
+    /// can reach at all (§13k/§13n).
+    #[test]
+    fn a_lone_grazer_cannot_farm_a_moss_lawn_forever() {
+        let unlimited = grazer_scene(Larder::Unlimited, 60_000);
+        let ceiling = grazing_ratio(&unlimited);
+        // The control has to actually feed something, or the renewable arm
+        // below is measuring the harness.
+        assert!(
+            unlimited.live_organism_count() > 0,
+            "test setup: an animal standing inside an inexhaustible larder starved anyway, so this scene cannot feed anything             and the moss arm proves nothing (ratio {ceiling:.3})"
+        );
+
+        let lawn = grazer_scene(Larder::Renewable, 60_000);
+        let renewable = grazing_ratio(&lawn);
+
+        // Measured 2026-08-21: unlimited 0.95 and survives with 217 in the
+        // bank; moss lawn 0.71 and dead. The bar is the pump line itself
+        // rather than anything fitted to that 0.71, so it does not need
+        // re-blessing every time the economy is retuned -- it fires when
+        // grazing starts paying for a whole life, and not before.
+        assert!(
+            renewable < 1.0,
+            "a lawn of free moss paid for {renewable:.3} of one animal's entire cost of living (the unlimited-larder ceiling is             {ceiling:.3}). Grazing is a pump, not a niche. Fix moss with a post-grazing cooldown, not by pricing the niche away"
+        );
+        assert!(
+            renewable <= ceiling,
+            "a renewable lawn fed an animal better than an inexhaustible one ({renewable:.3} against {ceiling:.3}), which is             not a fact about moss -- it is a fact about the scene, and the scene is wrong"
+        );
+    }
+
+    /// **Can an ant climb a tree, and does it?**
+    ///
+    /// A measurement, not a guard. The whole case for S4 (litter) rests on
+    /// §13k/§13n's "ants cannot reach the canopy", and reading `step_chain`
+    /// says that is not what the rules do: support is 8-neighbour and
+    /// includes `MaterialKind::Plant`, with a comment saying in as many words
+    /// that ants climb walls and ceilings. So the barrier may be motivation
+    /// rather than ability -- nothing points up, `FoodAdjacent` sees one
+    /// cell, and no pheromone trail leads up a tree nobody has climbed.
+    ///
+    /// This asks the question directly: put ants at the foot of a grown tree
+    /// and see how high they get, against the same ants on bare ground. The
+    /// bare-ground arm is the control that separates "climbs the tree" from
+    /// "wanders upward anyway" -- on flat ground the answer should be ~0, and
+    /// if it is not, height above spawn is measuring something else.
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn how_high_does_an_ant_climb() {
+        // **The full frame order the app runs, not this module's `run`.**
+        // `run` steps only the scheduler, so a tree gets no light and never
+        // grows: the first version of this experiment reported `tree height
+        // 0` and 1-3 cells of "climbing" identical to bare ground, because
+        // there was no tree in the scene at all. `creature_space`'s census
+        // carries a comment about being caught by the same omission.
+        fn live(w: &mut World, frames: usize) {
+            for _ in 0..frames {
+                crate::sim::parallel::step(w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+            }
+        }
+        fn trial(with_tree: bool, seed: u64) -> (i32, i32, u64) {
+            let mut w = test_world();
+            w.seed = seed;
+            let soil = w.materials.id_of("soil").expect("soil");
+            let floor = 150;
+            for x in 40..160 {
+                for y in floor..(floor + 10) {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            if with_tree {
+                w.plant_tree(100, floor - 1);
+                // Let it become a tree before anyone tries to climb it: a
+                // seedling is not a canopy, and an ant at the foot of a
+                // two-cell sprout would be measuring nothing.
+                live(&mut w, 8_000);
+            }
+            let trunk_top = (0..floor)
+                .find(|&y| w.materials.kind(w.get(100, y).material) == MaterialKind::Plant)
+                .unwrap_or(floor);
+
+            // **Clear the spawn row first.** Eight thousand frames of a
+            // growing tree carpet the floor in litter (S4), so the cells the
+            // ants want are taken and `plant_creature_seed` correctly refuses
+            // the whole body -- which is how the first run of this experiment
+            // died, in `spawn`, looking like an engine fault. Spaced 6 apart
+            // as well: a `Chain(2)` needs the cell behind its head free.
+            for i in 0..8 {
+                for dx in -1..=1 {
+                    let (cx, cy) = (70 + i * 6 + dx, floor - 1);
+                    if w.get(cx, cy).material != material::EMPTY {
+                        w.set(cx, cy, Cell::EMPTY);
+                    }
+                }
+            }
+            let ants: Vec<u16> = (0..8).map(|i| spawn(&mut w, "ant", 70 + i * 6, floor - 1)).collect();
+            assert!(ants.iter().all(|&a| a != 0), "test setup: the ants were not placed");
+
+            let mut highest = floor;
+            for _ in 0..40 {
+                live(&mut w, 250);
+                for x in 40..160 {
+                    for y in 0..floor {
+                        let c = w.get(x, y);
+                        if c.material == w.materials.id_of("ant").expect("ant") && y < highest {
+                            highest = y;
+                        }
+                    }
+                }
+            }
+            // Height climbed above the ground they started on, and how tall
+            // the thing they could have climbed was.
+            (floor - highest, floor - trunk_top, w.creature_stats.falls)
+        }
+
+        println!("\nHOW HIGH DOES AN ANT CLIMB -- 8 ants, 10,000 frames, height in cells above spawn");
+        println!("{:<10} {:>8} {:>12} {:>12} {:>8}", "seed", "tree", "climbed", "tree height", "falls");
+        for seed in 0..4u64 {
+            let (bare, _, bare_falls) = trial(false, 0xC0DE + seed);
+            let (treed, tall, treed_falls) = trial(true, 0xC0DE + seed);
+            println!("{:<10} {:>8} {:>12} {:>12} {:>8}", format!("{seed:#x}"), "no", bare, "-", bare_falls);
+            println!("{:<10} {:>8} {:>12} {:>12} {:>8}", "", "yes", treed, tall, treed_falls);
+        }
     }
 
     #[test]

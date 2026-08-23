@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-21. Written when water became a real currency and
+*Current as of: 2026-08-23. Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff. One plant-economy number is unsettled and
@@ -157,10 +157,31 @@ seedlings are lost: a fresh shoot has to afford its first growth step before
 any income has arrived. Where a stand is dense enough that establishment
 actually fails, the provisioned ones are the ones that make it.
 
+## The forest floor
+
+A shed leaf does not vanish. It falls — through its own crown, past its own
+branches — and lands as **leaf litter** on the ground below, where it drifts
+against trunks and piles into hollows. Litter is lighter than water, so it
+rafts on a pond rather than sinking, and it mats rather than slumping flat:
+a drift under a tree reads as a drift, not as a brown line across the world.
+
+It does not pile up forever. Litter **rots back into soil**, faster where the
+ground is damp, so a standing wood reaches a floor of roughly constant depth
+instead of burying itself. That is what makes the floor a cycle rather than an
+accumulator — and it is why a wood costs no more to simulate the longer it
+stands.
+
+Litter is also the fastest fuel in the world: it is the layer that carries a
+ground fire between two stands across open ground. And it is **food** — the
+one part of a canopy's production that ends up where a walking animal can
+reach it. See `ants.md`.
+
 ## Fire and death
 
 Wood burns, and a burnt plant becomes ash. Ash decays into soil if it is damp,
-and soil sometimes reseeds — so a burnt patch grows back on its own.
+and soil sometimes reseeds — so a burnt patch grows back on its own. Litter
+takes the same path but much faster; it does not reseed, or every shed leaf
+would be a chance at a new tree and a stand would carpet itself.
 
 Dead and broken plant tissue becomes deadwood, which falls and piles like any
 other loose material.

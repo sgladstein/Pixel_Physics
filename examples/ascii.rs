@@ -1472,6 +1472,23 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **The standing food stock, in energy rather than in cells.** A
+        // count of edible cells rises as a stand of trees grows whatever is
+        // happening to the animals, which is how §13m's tree-killing bug
+        // hid: the metric that would have shown it was a cell count, and it
+        // kept going up. Summed worth also makes the corpse stamp visible as
+        // a "did it fire" number -- corpse cells with zero worth mean
+        // `creature_dies` did not stamp them, which a picture of a corpse
+        // pile cannot show.
+        let (food_stock, corpse_stock) = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .map(|(x, y)| world.get(x, y))
+            .fold((0.0f64, 0.0f64), |(all, meat), cell| {
+                let v = pixel_physics::sim::creature::food_value(world, cell) as f64;
+                let is_meat = world.materials.get(cell.material).worth_in_aux;
+                (all + v, meat + if is_meat { v } else { 0.0 })
+            });
+        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
         let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
@@ -1607,15 +1624,32 @@ fn forage_loop_scene() {
     // once stage 4 turns mutation on.
     let live = world.live_creature_energy();
     let expected = world.energy_ledger.expected_live_total();
+    let led = world.energy_ledger;
     println!(
-        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} eaten {:.0} metabolized {:.0} moved {:.0} synapses {:.2} died-holding {:.0}",
+        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} plant {:.0} corpse {:.0} metabolized {:.0} moved {:.0} synapses {:.2} stored-in-meat {:.0} dissipated {:.0}",
         live - expected,
-        world.energy_ledger.granted,
-        world.energy_ledger.eaten,
-        world.energy_ledger.metabolized,
-        world.energy_ledger.moved,
-        world.energy_ledger.synapse_tax,
-        world.energy_ledger.died_holding
+        led.granted,
+        led.harvested_plant,
+        led.harvested_corpse,
+        led.metabolized,
+        led.moved,
+        led.synapse_tax,
+        led.stored_in_meat,
+        led.dissipated
+    );
+    // **The other stock, and the bound it has to sit under.** The live
+    // identity above only says the charges landed; it cannot say whether
+    // value was created, because `granted` and `harvested_plant` are free
+    // by construction. `harvested_corpse` is not free -- every joule of it
+    // came out of meat that was booked when a body was built or when one
+    // died -- so this line is the one that would show §13l's pump running
+    // again. `<=` rather than `==` on purpose; see `standing_meat`.
+    let meat = pixel_physics::sim::creature::standing_meat(&world, Rect::new(0, 0, w - 1, h - 1)) + pixel_physics::sim::creature::carried_meat(&world);
+    println!(
+        "meat census: standing {meat:.0} vs ceiling {:.0} (headroom {:.0}); stamped {:.0}",
+        led.max_standing_meat(),
+        led.max_standing_meat() - meat,
+        led.stamped
     );
 }
 

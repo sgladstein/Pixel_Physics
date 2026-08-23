@@ -18,17 +18,17 @@
 //! cargo run --release --example creature_probe -- frames=4000 every=500 ants=8
 //! ```
 
-use pixel_physics::sim::brain::{BRAIN_INPUTS, BRAIN_OUTPUTS};
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
 use pixel_physics::sim::pheromone::Channel;
 use pixel_physics::sim::{parallel, Cell, World};
 
-const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
-    "bias", "pheroA_f", "pheroA_lr", "pheroB_f", "pheroB_lr", "moist_f", "moist_lr", "light", "temp", "food_adj", "at_nest", "energy",
-    "carrying", "crowd", "pheroA_along", "pheroB_along",
-];
-const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = ["turn", "move", "emitA", "emitB", "dig", "drop", "persist", "tumble", "caution"];
+// **The names come from `brain.rs` rather than being restated here.** This
+// file used to carry its own abbreviated copy, which is one enum edit away
+// from a probe that prints the wrong label against the right number -- the
+// exact failure mode `CLAUDE.md` records for debug readouts, and harder to
+// spot than a blank overlay because it looks like data.
+use pixel_physics::sim::brain::{INPUT_NAMES, OUTPUT_NAMES};
 
 fn main() {
     let mut frames = 6000usize;
@@ -141,5 +141,19 @@ fn report(world: &World, frame: usize, ants: usize, ant_material: material::Mate
             world.pheromone_at(Channel::A, x, y),
             world.pheromone_at(Channel::B, x, y)
         );
+        // **The number beside the picture.** `OrganismOverlay::FoodValue`
+        // says what and where; on a one-cell mouthful it cannot say how
+        // much, and the overlay-misread-as-empty failure has cost this
+        // project a misdiagnosis twice. Anything nonzero here is food, and
+        // a corpse reads its own stamped worth rather than a species
+        // constant.
+        let food: Vec<String> = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+            .iter()
+            .map(|&(dx, dy)| (x + dx, y + dy))
+            .map(|(nx, ny)| (world.materials.get(world.get(nx, ny).material).name.clone(), pixel_physics::sim::creature::food_value(world, world.get(nx, ny))))
+            .filter(|(_, v)| *v > 0.0)
+            .map(|(name, v)| format!("{name} {v:.0}"))
+            .collect();
+        println!("    food in reach: {}", if food.is_empty() { "none".to_string() } else { food.join("  ") });
     }
 }

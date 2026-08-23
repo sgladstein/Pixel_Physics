@@ -778,6 +778,16 @@ pub enum OrganismOverlay {
     /// the root work has to be able to look at. Without it, a wetting
     /// front descending through soil is completely invisible.
     SoilMoisture,
+    /// What is edible, and how much it is worth.
+    ///
+    /// **Built before anything reads the value for a decision**, per
+    /// `CLAUDE.md`: a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. Full replace on a
+    /// fixed ramp, never a blend into the cell's own colour -- a
+    /// magnitude-scaled blend was tried once on canopy density and produced
+    /// a sheet that read as blank because the ramp was red and the material
+    /// brown.
+    FoodValue,
 }
 
 impl OrganismOverlay {
@@ -788,7 +798,8 @@ impl OrganismOverlay {
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
-            OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
+            OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
+            OrganismOverlay::FoodValue => OrganismOverlay::Off,
         }
     }
 
@@ -800,6 +811,7 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
+            OrganismOverlay::FoodValue => "FOOD VALUE",
         }
     }
 }
@@ -849,6 +861,10 @@ const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 /// it carries are different quantities on different timescales, and two
 /// green ramps would invite reading one sheet as the other.
 const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
+/// Distinct from every other ramp on purpose: food value is read against
+/// moss and leaf, which are already green, and against corpse, which is
+/// already dull red.
+const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -3047,9 +3063,29 @@ impl Renderer {
         // Measured on `scene=worldgen preset=rolling seed=1`: the sea's
         // 8,051 pixels went from a mean [114, 150, 190] to [121, 163, 214]
         // when the gate landed -- +12% on the blue channel, murk to water.
-        let saturation = match world.materials.kind(cell.material) {
-            material::MaterialKind::Powder => crate::sim::update::soil_moisture(cell),
-            _ => 0,
+        //
+        // **Gated on `water_capacity`, not on `Powder`** -- and the merge
+        // that brought corpses in is what forced it. `aux` is a tagged union;
+        // this branch reads it as soil water, so any powder using the field
+        // for something else draws as if it were soaking wet. A `corpse` now
+        // carries **what it is worth to eat** there, on an energy scale where
+        // one ant body cell is 120 and a full kill is 1020, against
+        // `SOIL_SATURATED`'s 1000. The darkening is monotone *decreasing* in
+        // worth while `corpse.ron`'s palette is monotone *increasing*, so the
+        // two partially cancel: the ramp's red span collapsed from 100 to 40,
+        // and its top three steps from 56 to 14 -- back below the width that
+        // was already judged "pretty minor" and widened once for it. A burnt
+        // body (`aux` 0, no darkening) drew *brighter* than an equally-poor
+        // starved one.
+        //
+        // `apply_organism_overlay`'s `SoilMoisture` channel already tests it
+        // this way, and the note above says the two should agree. It is also
+        // strictly stronger for this path's own purpose: sand and gravel are
+        // `Powder` with `water_capacity: 0`, and only `soil.ron` opts in.
+        let saturation = if world.materials.get(cell.material).water_capacity > 0 {
+            crate::sim::update::soil_moisture(cell)
+        } else {
+            0
         };
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
@@ -3366,11 +3402,38 @@ impl Renderer {
         }
         let cell = world.get(x, y);
         if self.organism_overlay == OrganismOverlay::SoilMoisture {
-            if world.materials.kind(cell.material) != material::MaterialKind::Powder {
+            // **Gated on `water_capacity`, not merely on `Powder`.** `aux`
+            // is a tagged union and this branch reads it as soil water, so
+            // any powder that uses the field for something else draws as if
+            // it were soaking wet. A corpse now carries what it is worth as
+            // meat there, and would have shown up on the moisture overlay as
+            // the wettest thing on screen -- a debug readout confidently
+            // lying about a channel, which is how a fix gets sent at working
+            // code. `update_soil_water` and the field sampler both gate on
+            // this already; this branch was the one that did not.
+            if world.materials.get(cell.material).water_capacity == 0 {
                 return base;
             }
             let t = crate::sim::update::soil_moisture(cell) as f32 / material::SOIL_SATURATED as f32;
             let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_MOISTURE);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
+        if self.organism_overlay == OrganismOverlay::FoodValue {
+            let worth = crate::sim::creature::food_value(world, cell);
+            if worth <= 0.0 {
+                return base;
+            }
+            // Normalised against a reference mouthful rather than against the
+            // frame's maximum: a ramp whose scale moves with the scene makes
+            // two contact sheets incomparable, and the question this answers
+            // is "how much is this worth" and not "which cell here is worth
+            // most".
+            let ramp = scalar_ramp((worth / crate::sim::creature::REFERENCE_MOUTHFUL).clamp(0.0, 1.0), SCALAR_RAMP_FOOD);
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
@@ -3382,10 +3445,13 @@ impl Renderer {
         }
         let cell_type = organism::cell_type(cell.aux());
         let (ramp, blend) = match self.organism_overlay {
-            // Both handled above, before the organism-tissue guard: `Off`
-            // returns immediately, and `SoilMoisture` asks about inert
-            // `Powder` rather than organism cells.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture => return base,
+            // All handled above, before the organism-tissue guard: `Off`
+            // returns immediately, `SoilMoisture` asks about inert `Powder`
+            // rather than organism cells, and `FoodValue` deliberately asks
+            // about every cell in the world -- a fallen leaf and a corpse
+            // are food and belong to no organism, which is exactly the case
+            // the tissue guard below would drop.
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
