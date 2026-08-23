@@ -4028,7 +4028,64 @@ over-production (88% of the colony's food is standing leaf, the stock triples,
 the colony has stopped ranging). One economy, three symptoms — sessile ants,
 a rising floor, and soil that does not match.
 
-### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
+### M. ~~Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest~~ — **FIXED 2026-08-23. It was the sky, and the generator was innocent.**
+
+> **The cause is weather, and both "where to start" leads below are wrong.**
+> Recorded prominently because this entry sends the next session at the
+> generator, and the generator turns out to have nothing to do with it.
+>
+> `weather::step` runs inside `parallel::step`, so the at-rest tests were
+> asserting that a generated world holds still **while snow falls on it**.
+> `weather::at` is a pure function of `(seed, frame)`, so this is checkable
+> without simulating anything:
+>
+> | seed | sky |
+> |---|---|
+> | 1, 2, 5 | never precipitates in 12,000 frames — **passed** |
+> | **3** | precipitates from **frame 0** (Snow, intensity 0.36; 1,786 wet frames in 12,000) — **the seed both tests failed on** |
+> | 4 | first precipitation at frame 5,981 — outside the 120-frame window |
+>
+> **The settle curve killed the "unsettled placement" reading first.**
+> `probe_m_does_generated_water_ever_settle` samples displacement-from-origin
+> at a ladder of frame counts. Water that was merely slow to settle would
+> *decay* toward zero. It climbs:
+>
+> | world | 120 | 240 | 600 | 1200 | 2400 | 4800 | 9600 |
+> |---|---|---|---|---|---|---|---|
+> | `terraced 3` | 57 | 85 | 287 | 271 | 309 | 324 | 362 |
+> | `wetland 3` | 37 | 36 | 35 | 599 | 615 | 611 | 641 |
+> | `terraced 2` | 0 | 0 | 0 | 0 | 0 | 18 | 41 |
+>
+> `terraced 2` is the tell: **perfectly at rest for 2,400 frames, then it
+> starts moving.** Nothing that settles does that. (Seed 2 never
+> precipitates, so its late drift is the other weather path —
+> `DRY_FROST_CHILL`, "a clear freezing night still freezes", which changes
+> standing water to ice *in place* and so changes the `(x, y, material)`
+> triple the snapshot compares.)
+>
+> **The control, and what actually exonerates the generator.** The same
+> worlds with `world.weather_override = Some(Weather::CLEAR)`:
+> `terraced seed 3` reports **0 at every sample**, and the whole sweep
+> reports **0 at 120 frames** — the gate's own budget. What is left is 2–3
+> cells on `rolling 3` and `wetland 2`, appearing only after frame 1,200.
+>
+> **The fix is the test's scope, not the generator.** Both tests now hold
+> the sky still. This is the treatment the terrain test *already* applies to
+> plants, moss and `spring_flow`, each with a comment saying a growing thing
+> is "a live process, not a placement defect"; weather arrived later and
+> never got it. It is **not** a seed dodge — the seed list is untouched, and
+> picking quiet seeds would have been tuning the sweep to the answer.
+> `World::weather_override` is the hook, resolved once in `World::weather()`
+> so the simulation and the renderer cannot disagree about the sky.
+>
+> **Left open, deliberately:** the 2–3 cells at 1,200+ frames under a clear
+> sky are a real if tiny at-rest defect that the 120-frame gate does not
+> reach. Not chased here — they are three orders of magnitude below what
+> this entry was about, and the probe that finds them is kept
+> (`probe_m_does_generated_water_ever_settle`, `#[ignore]`d). They are also
+> the evidence the repaired gate is **not vacuous**: raise its budget to
+> 1,200 and it goes red again.
+
 
 > **Still red five merges later, and it is now blocking every pull request
 > (confirmed 2026-08-23 from CI, not from this file).** `main`'s own CI has

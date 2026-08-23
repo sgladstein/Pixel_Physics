@@ -155,6 +155,24 @@ fn generated_terrain_is_already_at_rest() {
         let params = &params;
         for seed in SEEDS {
             let mut world = build(params, seed);
+            // **The sky is held still, for the same reason `spring_flow` is
+            // zeroed elsewhere in this file: a live process is not a
+            // placement defect.** `weather::step` runs inside
+            // `parallel::step`, so without this the assertion below reads
+            // "the generated world holds still *while snow falls on it*".
+            // `weather::at` is a pure function of `(seed, frame)` and seed 3
+            // precipitates from frame 0 (Snow, intensity 0.36, 1,786 wet
+            // frames in 12,000) -- which is exactly the seed this and
+            // `generated_terrain_is_already_at_rest` both failed on, while
+            // seeds 1, 2 and 5, which never precipitate at all, passed
+            // (`open-bugs-handoff.md` §M).
+            //
+            // **Not a seed dodge.** Picking quiet seeds would tune the sweep
+            // to the answer; this leaves the seed list alone and removes the
+            // input the claim was never about. `Weather::CLEAR`'s own doc
+            // already named itself "the one every 'does this stay settled'
+            // test asserts against".
+            world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
             let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
             for _ in 0..120 {
                 step(&mut world);
@@ -1785,6 +1803,24 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // is the claim most likely to break if the floor stops being
             // filled flat.
             let mut world = world;
+            // **The sky is held still, for the same reason `spring_flow` is
+            // zeroed elsewhere in this file: a live process is not a
+            // placement defect.** `weather::step` runs inside
+            // `parallel::step`, so without this the assertion below reads
+            // "the generated world holds still *while snow falls on it*".
+            // `weather::at` is a pure function of `(seed, frame)` and seed 3
+            // precipitates from frame 0 (Snow, intensity 0.36, 1,786 wet
+            // frames in 12,000) -- which is exactly the seed this and
+            // `generated_terrain_is_already_at_rest` both failed on, while
+            // seeds 1, 2 and 5, which never precipitate at all, passed
+            // (`open-bugs-handoff.md` §M).
+            //
+            // **Not a seed dodge.** Picking quiet seeds would tune the sweep
+            // to the answer; this leaves the seed list alone and removes the
+            // input the claim was never about. `Weather::CLEAR`'s own doc
+            // already named itself "the one every 'does this stay settled'
+            // test asserts against".
+            world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
             let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
             for _ in 0..120 {
                 step(&mut world);
@@ -3886,4 +3922,85 @@ fn standing_depth(world: &World, x: i32, from_y: i32, band: i32, h: i32, water: 
         }
     }
     best
+}
+
+/// **Probe for §M: does the generated water ever come to rest, or never?**
+///
+/// `generated_terrain_is_already_at_rest` steps 120 frames and asserts
+/// nothing left its position. It fails on `terraced` seed 3 with 57 water
+/// cells moved. The handoff's standing instruction is *"do not close this by
+/// widening the settle budget until that has been checked — 0 cells to 57 is
+/// a behaviour change, not a drift past a threshold"*, and this is the check
+/// it names: the same world, sampled at a ladder of frame counts, so a
+/// **slow** settle and an **unsettleable** one can be told apart. A count
+/// that decays toward zero is a budget question; one that plateaus is a
+/// placement or rule defect, and only the second justifies touching the
+/// generator.
+///
+/// Reports displacement against the *original* snapshot, exactly as the
+/// gate does, so the numbers are comparable to the failure message.
+///
+/// ```text
+/// cargo test --release --test worldgen probe_m_does_generated_water_ever_settle -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "§M probe: prints a settle curve rather than asserting; run explicitly"]
+fn probe_m_does_generated_water_ever_settle() {
+    let presets = presets();
+    const LADDER: [usize; 7] = [120, 240, 600, 1200, 2400, 4800, 9600];
+    for (name, params) in &presets.presets {
+        let mut params = params.clone();
+        params.tree_density = 0.0;
+        params.moss_density = 0.0;
+        params.spring_flow = 0.0;
+        for seed in SEEDS {
+            let mut world = build(&params, seed);
+            // The control: the same world with the sky held still. If the
+            // displacement is weather-driven this reads 0 everywhere; if a
+            // placement defect survives it, that is a real generator bug and
+            // the override has just isolated it.
+            if std::env::var("PROBE_M_CLEAR_SKY").is_ok() {
+                world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
+            }
+            let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+            let mut stepped = 0usize;
+            let mut curve = Vec::new();
+            for &target in &LADDER {
+                while stepped < target {
+                    step(&mut world);
+                    stepped += 1;
+                }
+                let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                curve.push(before.difference(&after).count());
+            }
+            // Only the worlds that actually move are worth printing.
+            if curve.iter().any(|&n| n > 0) {
+                let cells: Vec<String> = curve.iter().map(|n| n.to_string()).collect();
+                println!("{name} seed {seed}: moved-from-origin at {LADDER:?} = [{}]", cells.join(", "));
+            }
+        }
+    }
+}
+
+/// **§M probe, part two: when does it first rain on each seed?**
+///
+/// `weather::at` is a pure function of `(seed, frame)`, so this needs no
+/// simulation at all — and if the at-rest failures are weather-driven, the
+/// frame each world first precipitates has to line up with the frame its
+/// displacement count starts climbing.
+#[test]
+#[ignore = "§M probe: prints the weather schedule; run explicitly"]
+fn probe_m_when_does_each_seed_first_precipitate() {
+    use pixel_physics::sim::weather;
+    for seed in SEEDS {
+        let first = (0u64..12_000).find(|&f| weather::at(seed, f).is_precipitating());
+        let wet_frames = (0u64..12_000).filter(|&f| weather::at(seed, f).is_precipitating()).count();
+        match first {
+            Some(f) => {
+                let w = weather::at(seed, f);
+                println!("seed {seed}: first precipitation at frame {f} ({:?}, intensity {:.2}); {wet_frames} wet frames in 12000", w.kind, w.intensity);
+            }
+            None => println!("seed {seed}: never precipitates in 12000 frames"),
+        }
+    }
 }
