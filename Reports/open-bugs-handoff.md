@@ -2888,6 +2888,87 @@ branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
 
+### N. The forest floor's own soil reads as the wrong soil, and roots will not enter it — **OPEN, 2026-08-23, from the owner's playtest**
+
+**Source: the owner's answer to review card `20260823T091259637Z-9a41e4`**
+("How scarce should the forest floor be?", posted by Lane A as WP-1's Card
+2, answered 2026-08-23):
+
+> *"All of these have an issue that the soil is piling up way too fast but
+> not sure if that is within your scope to fix. I think leaves are just
+> falling too fast which creates too much food and is creating a giant pile
+> of soil. Although why does the soil from decayed leaf litter look
+> different than the regular soil. and the plant roots are not growing into
+> it."*
+
+Three observations. The rate one is Lane A's card subject and is a tuning
+call. **The other two are mechanisms, and both are already explained by
+deliberate decisions in the source** — which makes them accepted trade-offs
+that have now been seen in play, not new defects. Recorded here so the
+trade-offs get re-decided rather than re-discovered.
+
+*Established by reading the source and its own comments, not by measurement.
+Nothing below has been reproduced on a rendered scene.*
+
+**N1. Decayed soil is pinned to palette family 0, while the soil around it
+is not.** `soil.ron` ships three region families — `0` the reference loam,
+`1` wet (darker, richer), `2` dry (paler, dustier) — and worldgen paints
+each cell from the family its region earns
+(`worldgen::passes::palette_family`, `FAMILY_NEUTRAL`/`WET`/`DRY`).
+`decay.rs` writes `shade = rng.below(base_shades)`, and `base_shades` is
+family 0 by construction. Its comment says so outright: *"Decay has no
+region to consult, so it stays in the first family."*
+
+So litter rotting in a **wet** basin lays down reference loam against
+darker wetland soil, and in a **dry** region it lays down reference loam
+against paler dusty soil. **In any region that is not neutral, decayed soil
+is a different colour from the ground it is lying on** — which is exactly
+what the owner is seeing, and it gets more visible the more litter rots.
+
+The trade-off was chosen against the opposite failure and that reasoning
+still holds: a *random* family would "speckle a wet bank with desert-pale
+soil". The fix is neither — it is to give decay the region it says it
+lacks: sample `palette_family` at the decaying cell's own position, so new
+soil joins the soil it is forming on. Note the cost before doing it —
+`palette_family` is a worldgen-side call and `decay.rs` runs off the active
+site list, so check what the lookup costs per decay event.
+
+**N2. Decayed soil is written dry, deliberately, and a litter blanket keeps
+it dry.** `decay.rs` writes `Cell::new(into, shade)` — `aux` 0, which on a
+`Powder` means dry — and its comment is emphatic that this is the third
+version and the only honest one: copying the neighbours' moisture
+*duplicates* it (the donor keeps its own), and deriving it from the
+licensing humidity converts a field channel into ledger-visible soil water.
+Both closed a loop the plant economy pumps; the second measured
+`a_tree_eventually_stops_growing` going 1,718 → 2,652 cells and still
+climbing. **Do not "fix" N2 by wetting new soil at genesis.** That is a
+recorded dead end, twice over.
+
+The intended remedy is `update_soil_water`'s capillary term wetting it from
+damp neighbours over the following visits. **The coupling nobody has
+recorded is that a thick litter mat defeats exactly that**: §F1 (LIVE,
+verified) has `weather::step`'s soak loop `break` at the first cell with
+`water_capacity == 0`, and `litter.ron` declares none — so a column under a
+litter blanket takes **zero** rain. Fast rot then builds a deepening layer
+of dry soil, under a blanket that stops rain reaching it, with only
+capillary flow from the sides to wet it.
+
+That is a coherent account of "the roots are not growing into it": roots
+drink from cell `aux`, and this soil has none. **It also predicts that N2
+gets worse exactly as the litter economy gets better**, which is the
+enrichment shape `PLAN.md`'s standing note warns about.
+
+*Measure before acting:* sum soil `aux` by depth under a littered column
+against a bare one over several rain epochs, and count root cells entering
+newly-decayed soil against established soil. Both are paired comparisons on
+one stand; neither exists yet.
+
+**Whose.** N1 is `decay.rs` + worldgen palette; N2 is `decay.rs` +
+`weather.rs` + the plant water model. Neither is in any lane of
+`creature-implementation-handoff-2026-08.md`'s split — recorded here by
+Lane B because the observation would otherwise live only in an answered
+review card, and this register is where "is this broken?" belongs.
+
 ### M. `main`'s CI has been red on two **gating** jobs since the world-scale merge, and a local `cargo test` cannot see it — **OPEN, 2026-08-23**
 
 **Trunk is red, and it is not bug A.** `.github/workflows/ci.yml`'s
