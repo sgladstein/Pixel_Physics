@@ -104,7 +104,7 @@ something that cost effort to find.
 ## Commands
 
 ```
-cargo test                                       # unit + integration
+cargo test -- --skip root_and_shoot_branching_read_different_slots   # unit + integration; the --skip is not optional -- see the red-suite gotcha
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
@@ -788,6 +788,20 @@ consider it at all.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
+- **A *red* suite proves even less: `cargo test` stops at the first failing
+  test binary, so a known-red lib test hides every integration test from a
+  local run.** Bug A lives in the lib target, so plain `cargo test` fails
+  there and never runs `tests/worldgen.rs` or `tests/determinism.rs` — they
+  do not appear in the output at all, not even as skipped. CI does not have
+  this blind spot, because its `test` jobs pass `--skip
+  root_and_shoot_branching_read_different_slots`: the lib goes green and the
+  integration binaries then run. That asymmetry hid **two gating failures on
+  `main` for a whole day** (`Reports/open-bugs-handoff.md` §M). So run the
+  gate the way CI runs it — `cargo test --release --locked -- --skip
+  root_and_shoot_branching_read_different_slots` — and treat the *absence*
+  of `Running tests/worldgen.rs` from the output as the tell, since it reads
+  as a pass rather than an error. The general rule: **while any gate is
+  quarantined, whatever runs after it is not being run locally.**
 - **Editing an asset `.ron` does nothing until the next build.** Materials
   and species are compiled into the binary via `include_str!`; only the
   app's F5 reload reads the directory, and headless harnesses do not. A

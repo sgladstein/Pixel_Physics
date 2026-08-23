@@ -1027,14 +1027,67 @@ pub struct CreatureDef {
     /// nest, and it belongs in species data because that trade-off is what
     /// separates a solitary forager from a social one.
     pub hunger_fraction: f32,
-    /// Materials this species will eat and carry, by name.
+    /// **The ancestral value of every heritable body trait**, indexed by
+    /// `CREATURE_TRAITS`' slot map. Slot 0 is `gut_bias`.
     ///
-    /// Owner open question #2: herbivory on live plants from day one, or
-    /// detritus only until the plant-damage interaction has been watched
-    /// once? The difference is one string in this list — herbivory works
-    /// with no new code at all, because a `Leaf` cell is just a cell and
-    /// the plant finds out through its own connectivity check.
-    pub food: Vec<String>,
+    /// Authored per species because two ancestors one number apart, living
+    /// in different parts of the world and coloured differently, *is* the
+    /// first half of guided divergence — no reproduction required for the
+    /// stage to be worth shipping (`creature-evolution-plan.md` §2.5).
+    #[serde(default)]
+    pub traits: [f32; CREATURE_TRAITS],
+    /// Per-trait mutation width, same indexing as `traits`.
+    ///
+    /// **Read by nothing until S6**, exactly as `MaterialDef::food_class`
+    /// was authored one stage ahead of the gut that reads it. It is here
+    /// now because the width is a *species* property — how far a lineage's
+    /// gut can wander in one birth — and authoring it beside the ancestral
+    /// value is what keeps the two from drifting apart in separate commits.
+    ///
+    /// Per-trait rather than one global step, on the same measurement that
+    /// retired the global brain step (E6, §13l): one width across traits of
+    /// different scales either never moves the wide one or shreds the
+    /// narrow one. This vector is the body-side half of that call.
+    #[serde(default)]
+    pub trait_variance: [f32; CREATURE_TRAITS],
+    /// Whether a **living nestmate counts as ground** — an ant walks over
+    /// another ant the way it walks over terrain.
+    ///
+    /// **Footing only, never passability**, and the asymmetry is the whole
+    /// design: a creature cell stays something you cannot *enter*, so two
+    /// chains never swap through each other. See `creature::Kin`.
+    ///
+    /// Default off, and opted into on the species rather than tested in the
+    /// footing loop — the dispatch site already holds the def, and the
+    /// alternative is a `bool` re-resolved for each of twenty-four
+    /// neighbour cells per step.
+    ///
+    /// This is the deliberate re-test of dead ends 775/829, which gridlocked
+    /// a shoulder-to-shoulder colony at 27,386 blocked ticks against a
+    /// single pickup and whose condition line reads *"re-test if creatures
+    /// gain pass-through or climb-over"*.
+    #[serde(default)]
+    pub climbs_over_kin: bool,
+    /// Whether this species will bite a **living** member of its own
+    /// species.
+    ///
+    /// **Data, because the diet axis cannot express it.** `ant` material is
+    /// `food_class: 1.0` worth 120 and a starved ant's corpse cell is
+    /// `food_class: 1.0` worth 120 — the same point on the axis and the
+    /// same number — so no `gut_bias` and no threshold tells a nestmate
+    /// from carrion. See `creature::is_living_kin`, which holds the full
+    /// account; this is the species-side opt-in, defaulting to the answer
+    /// that keeps a colony from eating itself.
+    ///
+    /// It replaces what `CreatureDef::food`'s name list was *really* doing
+    /// by the end. That list carried two separate claims — what is
+    /// nutritious, and whom it is acceptable to bite — and only the first
+    /// is a gut. S5 takes the first (`gut_bias` and the matched filter) and
+    /// this takes the second, which is why the list could finally go: the
+    /// plan's §2.3 note "the list stays as the selectivity gate until that
+    /// trait exists" was one trait short, not one stage short.
+    #[serde(default)]
+    pub eats_kin: bool,
     /// The material a nest is built from — what `AtNest` senses.
     pub nest: String,
     /// How hard this species can dig, against a material's
@@ -1385,6 +1438,20 @@ pub struct OrganismState {
     /// different view of the same one. A body follows its head by each
     /// segment stepping into its predecessor's old position, which is a
     /// question about order that a `HashMap` cannot answer.
+    /// **This individual's heritable body traits** — `CREATURE_TRAITS`
+    /// holds the slot map, and `TRAIT_GUT_BIAS` is the only live slot.
+    ///
+    /// A byte-copy of `CreatureDef::traits` at spawn today: nothing
+    /// reproduces, so every creature is its species' ancestral value and
+    /// the only way to move one is to author it. S6 is where a child takes
+    /// its *parent's* vector jittered by `CreatureDef::trait_variance`,
+    /// and the storage is here now because the trait has to change
+    /// behaviour before it can be worth inheriting.
+    ///
+    /// **Not in `genome`.** See `CREATURE_TRAITS` — a gut is not a synapse,
+    /// and a body block that grows independently is what keeps S8 from
+    /// shifting brain offsets.
+    pub traits: [f32; CREATURE_TRAITS],
     pub chain: Vec<(i32, i32)>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.
@@ -1568,6 +1635,37 @@ pub struct OrganismState {
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
 pub const GENOTYPE_TRAITS: usize = 9;
+
+/// How many heritable **body traits** a creature carries — the width of
+/// both `CreatureDef::traits` (the authored ancestral values) and
+/// `OrganismState::traits` (what this individual actually got).
+///
+/// **A separate block from the 584-slot brain genome, by design.** The
+/// genome is a wiring matrix laid out from reserved dimensions
+/// (`brain::GENOME_LEN`), and every one of its slots is a synapse weight;
+/// a gut is not a synapse. Keeping traits out of it means S8 can grow the
+/// body block without moving a single brain offset — the exact failure
+/// `brain.rs`'s reserved-dimension layout exists to prevent, and the one
+/// the "re-lay the genome output-major" dead end walks into
+/// (`creature-evolution-plan.md` §6).
+///
+///   0 gut_bias — where this animal's digestion sits on the diet axis
+///
+/// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
+/// dead by measurement in every species may be re-purposed once with the
+/// measurement record re-baselined; a live slot, never.
+pub const CREATURE_TRAITS: usize = 1;
+
+/// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
+/// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
+/// on the same axis through `creature::diet_yield`'s matched filter.
+///
+/// One scalar rather than a per-class vector, and that is a measured call
+/// (E4, `creature-evolution-plan.md` §2.5): a normalised vector's overall
+/// magnitude is a free dimension with nothing selecting on it, so a
+/// histogram of its alleles measures its own drift and reads as a result.
+/// A scalar on a bounded axis has no such dimension.
+pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
@@ -2991,6 +3089,38 @@ mod tests {
     fn every_embedded_species_parses() {
         let reg = SpeciesRegistry::builtin();
         assert_eq!(reg.len(), EMBEDDED.len(), "a species failed to load");
+    }
+
+    /// **The authored gut arrives, and is not the serde default.**
+    ///
+    /// `traits` carries `#[serde(default)]`, so a species that misspells
+    /// the field, or a RON tuple form that does not deserialize into a
+    /// fixed array, loads *silently* at `[0.0; N]` -- and neutral is a
+    /// perfectly plausible-looking gut. That is the disconnected-knob
+    /// failure `CLAUDE.md` records twice (the `include_str!` sweep whose
+    /// arms came back byte-identical, and the megastudy whose eight logs
+    /// were one population): the tell in both was output that could not
+    /// distinguish "set" from "defaulted". The beetle is what makes this
+    /// test able to fail -- the ant's authored value *is* the default, so
+    /// asserting on the ant alone would pass against a field that never
+    /// parsed.
+    #[test]
+    fn the_authored_gut_bias_survives_the_ron_round_trip() {
+        let reg = SpeciesRegistry::builtin();
+        let beetle = reg.get(reg.id_of("beetle").expect("beetle.ron should define \"beetle\""));
+        let beetle = beetle.creature.as_ref().expect("beetle is a creature");
+        assert_eq!(beetle.traits[TRAIT_GUT_BIAS], 1.0, "beetle.ron authors a carnivore gut; a 0.0 here means the field did not parse");
+        assert_eq!(beetle.trait_variance[TRAIT_GUT_BIAS], 0.15, "beetle.ron authors a mutation width; 0.0 means the field did not parse");
+
+        let ant = reg.get(reg.id_of("ant").expect("ant.ron should define \"ant\""));
+        let ant = ant.creature.as_ref().expect("ant is a creature");
+        // Back to neutral: the owner's verdict on review card
+        // 20260823T104411499Z-963f8d was "An omnivore should be viable",
+        // and the economy was widened to make it so rather than the animal
+        // narrowed to fit the economy. Note this assertion cannot fail for
+        // a *parse* error any more -- 0.0 is the serde default again --
+        // which is exactly why the beetle above carries this test.
+        assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors an omnivore gut -- see that file for the food-scale sweep behind the value");
     }
 
     #[test]

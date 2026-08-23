@@ -9,7 +9,10 @@ lip at the top of a jump is mantled, the sprite faces where it's going,
 holding `W` out of water puts him on the bank, left-clicking **a plant
 you are pointing at** shakes it while the pick sees straight through
 living wood to the rock behind, and with nobody summoned WASD scrolls the
-map instead. Cutting a tree down is deliberately not in yet.*
+map instead. Cutting a tree down is deliberately not in yet. Since
+2026-08-23: mining leaves about a tenth of what it cuts as spoil by
+default, and `F2` steps to none at all, or up through a third, a half and
+all of it.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -194,10 +197,21 @@ A bite doesn't erase rock, it breaks it: the stone cracks, comes apart,
 throws an impulse, and leaves rubble. But breaking alone can never open a
 cave — broken rock takes up the same room the solid rock did — so some of
 what he cuts is pulverised to dust and gone, and the rest stays as spoil
-underfoot. Roughly a third stays by default. You can change that balance
-while playing, from "nothing is lost, and you can barely dig" to "the
-rock simply goes"; the middle settings are the ones that leave you
-walking over your own diggings in a tunnel that still opens.
+underfoot. **By default about a tenth of it stays** — enough to see where
+you have been, not enough to close the bore behind you. You can change the
+balance while playing, from "the rock simply goes" through a tenth, a third
+and a half, to "nothing is lost, and you can barely dig".
+
+**A third is more than it sounds.** Cutting a level tunnel at that setting,
+you are wading in your own rubble by the twentieth bite and buried by the
+thirtieth, and you cover about a third of the ground you would have. The
+tenth is the setting that leaves visible diggings underfoot without the
+bore closing behind you.
+
+This is the *mining* balance, not destruction's. A collapse still breaks
+rock into pieces of every size and throws them, whatever this is set to —
+what the setting decides is how much of what a **pick** cuts is left
+lying there.
 
 That balance is not his alone — it is what *mining* does, whoever is
 doing it. The sandbox cut (`H`) digs by the same setting, so a hole you

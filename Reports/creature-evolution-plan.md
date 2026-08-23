@@ -31,7 +31,8 @@ overturned by measurement.
 | E2 | **First target is guided divergence**: one or two authored ancestors that evolution differentiates into niches. Open-ended is the stated direction; §7 assesses its feasibility rather than assuming it. | **Decided by the owner.** |
 | E3 | **Food value is static per-material data, plus a per-cell override for corpse only.** Not a new `Cell` field, not derived from plant carbon. | Call, §2.3. Overturns three of the four proposals. |
 | E4 | **Diet is one heritable scalar with a matched-filter yield**, not a vector, not a class list. | Call, §2.5. The vector is the generalisation if one axis proves too coarse. |
-| E5 | **Selection acts on individuals, by budding, on a new solitary ancestor** — not on colonies through queens as `creature-direction.md` §7b specifies. Ants and beetles stay authored showcase animals. | Call, §2.6. **Overturns §7b.** Reversible: §7b comes back the day a colony generation completes inside ~20,000 frames, and that is a number, not an opinion. |
+| E5 | **Selection acts on individuals, by budding, on a new solitary ancestor** — not on colonies through queens as `creature-direction.md` §7b specifies. Ants and beetles stay authored showcase animals. | ~~Call, §2.6, overturning §7b~~ — **ANSWERED BY THE OWNER 2026-08-23, and he wants both.** See E8. |
+| E8 | **Evolution is a dev tool as well as a mechanic: "we can use it to create new creatures that get saved and added to the game".** So both A and B — individual selection *and* colony-scale selection — and it "may not be visible in play". New creatures must **not** look like recoloured ants. | **Decided by the owner**, card `20260823T090318176Z-652436`. Supersedes E5's exclusive choice. |
 | E6 | **Mutation width is per-weight, and §7a's ±4.0 clamp is retired.** The ant's homing gate lives at ±30 in a genome whose other authored weights are 0.2–2.5. A ±4 clamp destroys homing on the first birth; one global step size either never moves the gate or shreds everything else (§13l measured both). | Call, §2.6. **Overturns §7a rule 2's clamp.** |
 | E7 | **Predation stays deferred** to a one-file probe, not a milestone. §13o measured beetles=0 and beetles=9 bit-identical over 6,000 frames; nothing in a herbivore/detritivore divergence depends on a predator that has never once caught anything. | Call, §5. |
 
@@ -604,6 +605,23 @@ sealed-box guards run on an ant-only colony, where ants do not eat ants, so the
 bound is tight there. Closing it means a sink for a stamp destroyed without
 becoming a corpse, and it belongs with S6, when a parent starts paying stamps.
 
+> **Update 2026-08-23 (WP-6): the sink now exists, and this seam is still
+> open on purpose.** `EnergyLedger::meat_lost` was added for the *other*
+> gap named in the same breath — meat destroyed by fire, an explosion or the
+> brush, which nothing booked, and which is why `max_standing_meat` was an
+> upper bound rather than a bound. It is exactly the shape this paragraph
+> asks for: an account for worth that leaves the world without being eaten.
+>
+> **It was deliberately not pointed at living flesh, and the reason is the
+> one this paragraph already gives.** The living-flesh gap is not a missing
+> account, it is a missing *transaction*: the stamp is not destroyed, it is
+> still standing in `stamped` against a body that has been partly eaten, and
+> booking it as lost would be a second wrong entry rather than the correction
+> of the first. What it waits on is a parent paying stamps for a child, so
+> that the stamp has somewhere to come *from* as well as somewhere to go.
+> Close it with S6, as written. `meat_lost`'s own doc carries a pointer back
+> here so the two are found together.
+
 ### 2.4 S4 — Litter: the canopy's production falls to where ants walk
 
 **The binding quantity is the fraction of animals that find food** (§13o's
@@ -931,6 +949,89 @@ filter is the wrong shape and an asymmetric penalty is the next thing to try.
 **Cost.** 4 bytes per organism; the predicate is cheaper than the string scan
 it replaces.
 
+#### As built (2026-08-23), and two things this section got wrong
+
+*(A third verdict landed the same day and is recorded at the mechanism
+rather than here: the spec's "render.rs lerps the creature palette by it"
+went to a blind A/B and lost — **A, untinted** — matching `ant.ron`'s
+standing note that contrast, not hue, is the readable signal at 1–2 px.
+`render.rs`'s gut-tint constants carry the verdict and the card id; the
+readout for the trait is the signed `GutBias` overlay, not the body
+colour.)*
+
+Recorded here rather than silently deviated from, per the implementation
+handoff's own instruction: *if a WP's measurement contradicts this document,
+the measurement wins.* Both were found by arithmetic and by the suite, before
+anything depended on them.
+
+**1. The cannibal trap cannot be closed by `gut_bias` and a threshold.** The
+handoff asks for the ant's gut and the eat threshold to be set "so ant-flesh
+yield for ants lands below threshold". They cannot be: `ant` material is
+`food_class: 1.0` worth 120, and a **starved** ant's corpse cell is
+`food_class: 1.0` worth `body_energy + 0/cells` — also exactly 120. Same point
+on the axis, same number. Any threshold that hides a living nestmate hides the
+starved corpse with it, and the starved corpse is precisely what §2.3's
+structural stamp exists to keep edible ("a starved animal still leaves meat").
+
+So the difference is stated as data instead, per `CLAUDE.md`, and the data was
+already in the world: `creature_dies` writes a corpse **without** an organism
+id. Edibility is `diet_yield > threshold` **and not a living member of my own
+species**, behind `CreatureDef::eats_kin`, default off. Beetle-eats-ant
+predation survives by construction — a beetle's kin is a beetle. It also stops
+an animal eating its own tail, which the name list had been preventing by the
+accident of "ant" not being on the ant's own menu.
+
+**2. There was no viable omnivore at the shipped economy, and the fix was to
+widen the economy rather than narrow the animal — the owner's call, not
+this document's.** Measured on the one scene that can answer it — one
+animal, an inexhaustible wall of leaf, nothing to do but eat
+(`creature::tests::print_grazer_viability_against_gut_bias`):
+
+| gut | leaf yield | intake/cost | survived |
+|---|---|---|---|
+| **−1.0** | 120.0 | 0.946 | **yes** |
+| −0.9 | 108.3 | 0.993 | yes |
+| −0.8 | 97.2 | 0.781 | no |
+| −0.5 | 67.5 | 0.793 | no |
+| 0.0 | 30.0 | 0.706 | no |
+
+A **perfectly matched** grazer already runs at 0.95 — *below* the 1.0 that
+would pay for its own existence. The margin is negative before the filter is
+applied at all, so every point of digestive mismatch comes straight out of a
+deficit, and the viable band is one tenth of the axis wide. That is a fact
+about the economy, not about the matched filter, and it makes §2.4's third
+coupled call (the abundance retune) a prerequisite for the two-humped survival
+curve this section asks for: **the carnivore hump cannot exist while no gut
+off the axis ends can feed an animal at all.** The falsifier note above
+anticipates a single hump and blames carrion scarcity; the measurement says
+the first cause is upstream of that.
+
+The first landing took that as a constraint and authored the ant at −1.0, a
+detritivore — which kept the plant economy bit-identical and cost the colony
+its scavenging. Card `20260823T104411499Z-963f8d` put the trade to the owner,
+whose verdict was, in full: **"An omnivore should be viable."**
+
+So the economy widened. The factor is measured
+(`print_omnivore_viability_against_food_scale`) rather than chosen: at **4x**
+face value a neutral gut draws 120 a mouthful and reaches intake/cost 0.946 —
+the *identical* ratio a perfectly matched gut had at the old scale, because
+the filter's 0.25 at neutral is exactly what 4x cancels. The shipped ant is
+therefore economically the pre-S5 ant: `ascii` is bit-identical to `main` at
+12,000 frames, and the only line that moves is the `food stock` census, which
+reads face values and so reads 4x while no animal extracts more.
+
+Not taken higher, deliberately: past 4x the shipped ant is *richer* than
+before, and a richer floor is §13i's sit-still attractor. Specialising is
+what pays now — a gut at −1.0 draws 480 from a leaf against the shipped
+ant's 120.
+
+**What this resolves for §2.5's own measurement plan.** The two-humped
+survival curve this section asks for was unreachable at the old scale,
+because no gut off the axis ends could feed an animal at all; the falsifier
+note above blames carrion scarcity, and the first cause was upstream of it.
+At 4x the curve is measurable — which is what makes the sweep worth running
+when Lane A's instruments land.
+
 ### 2.6 S6 — Reproduction, inheritance, mutation
 
 **The first milestone in which evolution exists, and it is cheap:**
@@ -1108,13 +1209,60 @@ first, both are small, and both touch files nobody else is in.
 
 Every stage re-runs these, and every one of them has a known-good reading.
 
-| Guard | Reads today | Fails when |
-|---|---|---|
-| **Foraging pays** — forager minus immobile advantage at 3,000 ticks, 8 seeds, paired | **+0.187** without moss, **+0.247** with | goes to zero or negative: the economy has been broken by whatever just landed |
-| **Ants fed** — fraction of individuals ever above starting energy | **0.42 / 0.55** | §13o's binding quantity; judge every environmental change on it |
-| **Frame cost** — `ascii` worst-frame and mean | 21.3 / 1.50 ms at 55 ants + 30 trees, against a 0-ant control at 24.1 / 1.59 | **re-measure the baseline in the same session**; a remembered figure once produced a phantom 25–50% regression |
-| **Determinism** — two `ascii` runs diff | nothing but timing lines | any creature counter differing |
-| **Reference genomes** — `authored` and `zero` rows | 0.504 / ~0.30 | used as the bit-identity check across refactors |
+**Re-baselined 2026-08-23** (implementation handoff WP-4), one machine, one
+session, on `main` at `9b54be3`. The `Reads today` column is that
+measurement; `Was` is what this table said before, kept beside it rather than
+overwritten, because the gap is the finding.
+
+| Guard | Reads today (2026-08-23) | Was | Fails when |
+|---|---|---|---|
+| **Foraging pays** — forager minus immobile advantage at 3,000 ticks, paired | **+0.460** without moss, **+0.479** with | +0.187 / +0.247 | goes to zero or negative: the economy has been broken by whatever just landed |
+| **Ants fed** — fraction of individuals ever above starting energy | **0.73 / 0.78** | 0.42 / 0.55 | §13o's binding quantity; judge every environmental change on it |
+| **Frame cost** — `ascii` colony scene, mean over 12,000 frames | **3.929 / 3.908 ms** over two runs (worst 55.6 / 60.0) | 2.979 ms mean | **re-measure the baseline in the same session**; a remembered figure once produced a phantom 25–50% regression |
+| **Determinism** — two `ascii` runs diff | **identical**, timing lines and the PID aside | nothing but timing lines | any creature counter differing |
+| **Reference genomes** — `authored` and `zero` rows | **0.709 / 0.298** | 0.504 / ~0.30 | used as the bit-identity check across refactors |
+
+**What was run.** `creature_space mode=economy seeds=4 frames=18000` — 3,000
+ticks, which is load-bearing (§2.3: the sign flips below it), and the
+*reduced* 4-seed pattern the handoff permits, in 44 minutes. The reference
+pair is `creature_space genomes=1 seeds=8 frames=18000`, so `authored` and
+`zero` are over the same eight seeds the recorded figures used.
+
+**Two of these are not "still green", they have moved a long way in the
+generous direction, and it is the same finding twice.** Foraging pays 2.5x
+what it did and the fed fraction has gone 0.42 → 0.73. Both say the world
+now feeds ants far better than when these were written — which is exactly
+what the `ascii` foraging scene says from the opposite direction, where the
+colony has stopped ranging because food is underfoot
+(`open-bugs-handoff.md` §L: 98 round trips → 2, and a food census that is
+88% standing canopy and triples over the run). Two independent instruments,
+one story. **Do not read a bigger advantage as the economy being healthier**;
+§13o's binding quantity is how many animals find food, and it rising because
+food is everywhere is the condition S7's larder premise assumes away.
+
+**`zero` has moved, and it is not the harness.** An animal that cannot move
+never eats and never pays a move cost, so its survival is a pure function of
+the world it is sitting in — which makes 0.300 → **0.298** a statement about
+the *scene*, not the instrument. `creature_space`'s own output was proven
+byte-identical across this session's echo fixes (data rows sorted, since its
+workers interleave), so the harness is ruled out by measurement rather than
+by argument. Not attributed further; the world-scale worldgen work is the
+obvious candidate and this lane did not chase it.
+
+**Frame cost is a reading, not a comparison.** 2.979 ms was measured on the
+owner's machine; 3.929 is a cloud container, and `CLAUDE.md`'s rule is that a
+regression may only be reported against a baseline re-measured in the same
+session on the same machine. It is quoted here so a future session has a
+same-instrument number, with two machine-speed proxies from the same run to
+normalise against: `ascii`'s parallel stress scene at **14.066 ms** worst and
+the field-stress scene at **14.435 ms**. The within-session worst-frame
+spread is visible even in two back-to-back runs (55.6 against 60.0), which is
+why only the mean is quoted.
+
+**Not re-derived here, deliberately:** the scarcity band. WP-4's step 4 —
+the target is a game-feel call (§2.4's third coupled call) and is on the
+owner's queue as card `20260823T091259637Z-9a41e4`. Measuring the current
+state is this lane's; choosing the target is not.
 
 ---
 
@@ -1213,14 +1361,47 @@ clusters that transplant symmetrically are three settings of one animal.
 
 ## 8. Open questions for the owner
 
+**Questions 1, 2 and 4 were answered 2026-08-23** on card
+`20260823T090318176Z-652436`. The answers are recorded inline below and in
+the decision log as E8; the original wording is kept because the *framing*
+the questions assumed is the thing that changed.
+
 1. **E5 overturns §7b.** Selection on individuals via a new solitary grazer,
    with ants and beetles left as authored showcase animals — or hold to
    colony-scale selection and accept that the evolution will be too slow to
    watch? The recommendation is the former, reversibly.
+   > **Answered: both.** *"We do want the evolution and it may not be visible
+   > in play but we can use it to create new creatures that get saved and
+   > added to the game. So it can be used as a dev tool."*
+   >
+   > **This dissolves the question rather than picking a side.** The whole
+   > case for E5 was that a colony generation is too slow to *watch*; an
+   > offline generator does not have to be watched, so §7b is not blocked by
+   > the ~20,000-frame number the plan set as its condition. What the two
+   > modes now differ on is throughput and determinism under a headless
+   > budget, not watchability — and that is a different comparison from the
+   > one §2.6 was written against.
 2. **A new ancestor species is a new animal on screen.** The grazer needs to
    be something worth looking at. Is a solitary surface grazer the right
    fantasy for the thing evolution will be visibly shaping, or should the
    ancestor be something else?
+   > **Answered, as a constraint rather than a species:** *"We definitely
+   > want new creatures to not look like a recolored ant. Not sure how we get
+   > good looking creatures with our pixel resolution or how we do that by
+   > evolution rather than direct design."*
+   >
+   > **That worry is already a measured result here, on the plant line, and
+   > it transfers verbatim.** `Reports/plant-appearance-design.md`: three
+   > discrete architectural levers were built, all three demonstrably fired
+   > (46–186 sympodial forks per shrub, 1,797–2,750 plagiotropic steps per
+   > conifer), and the owner's reading of the sheets was that nothing had
+   > changed — because every lever moved **which cell gets a label**, while
+   > the silhouette was set by two things none of them touched: composition
+   > (~90% wood, ~5% leaf in every species) and one four-brown palette
+   > shared by every plant in the world. A creature genome that evolves body
+   > *labels* will land in exactly the same place. **Palette and texture have
+   > to be part of what varies, or "not a recoloured ant" is unreachable by
+   > evolution however rich the encoding.**
 3. **Corpse `aux` is a third convention for that byte.** Accept it (documented
    in `Cell::aux`'s doc comment), or spend the `Cell` widening now and get
    graded plant value at the same time?
@@ -1229,6 +1410,37 @@ clusters that transplant symmetrically are three settings of one animal.
    satisfying enough to ship on its own, or should it be held until S6 makes
    it heritable? It is judged by eye either way, and the answer changes the
    order of two stages, not their content.
+   > **Returned to us as a question:** *"What do you recommend on ship S5 or
+   > wait for S6"*.
+   >
+   > **Recommendation: neither next. Fix the food economy first, then ship S5
+   > and S6 together.** Three measurements say so and they are the same
+   > measurement.
+   >
+   > - **S5's acceptance criterion cannot be met in this world.** It is a
+   >   *two-humped* survival curve across `gut_bias` in a scene holding
+   >   litter and carrion. The `ascii` foraging scene's census at 12,000
+   >   frames reads `of which corpse 0` — there is no carrion at all, and
+   >   nothing preys on anything (E7; §13o measured beetles=0 and beetles=9
+   >   bit-identical). The carnivore hump has nothing to stand on. §2.5's own
+   >   falsifier note predicts this and says the fix is ecology, not the
+   >   filter.
+   > - **There is no selection pressure for a diet gene to answer.** §4's
+   >   re-baseline: foraging now pays +0.460 against a recorded +0.187, ants
+   >   fed 0.73 against 0.42, and the standing food stock *triples* over a
+   >   run while the colony eats 0. A gut-specialisation gene is selected only
+   >   where food is scarce enough that gut match decides anything; a
+   >   herbivore gut is currently optimal everywhere.
+   > - **The reason to ship S5 alone has been withdrawn.** Its whole case was
+   >   *visible divergence sooner*. E8 says evolution "may not be visible in
+   >   play" and is wanted as a dev tool, so buying visibility a stage early
+   >   is no longer worth reordering for.
+   >
+   > Shipped into today's world, S5 would produce a single-humped curve and
+   > two ancestors that do not separate — and that reads as *S5 failed* when
+   > it is the world. The ecology work is not a detour from this: it is the
+   > owner's own top complaint on card `20260823T091259637Z-9a41e4` (leaves
+   > falling too fast, soil piling up), arriving from the art side.
 
 ---
 

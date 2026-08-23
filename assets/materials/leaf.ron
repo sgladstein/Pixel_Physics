@@ -141,6 +141,6 @@
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
     // by the move from eater-constant to food-property.
-    food_energy: 120.0,
+    food_energy: 480.0,
     food_class: -1.0,
 )

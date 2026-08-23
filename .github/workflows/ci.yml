@@ -91,12 +91,18 @@ concurrency:
 # red test marked the other five `skipped` -- not run, not reported, and
 # indistinguishable at a glance from passing.
 #
-# That is not hypothetical. With `root_and_shoot_branching_read_different_
-# slots` red on `main` (open-bugs-handoff.md bug A, a guard the owner keeps
-# deliberately), `ascii` and `acceptance` had not executed in CI at all.
-# Both were failing. `ascii` was failing *undiagnosed* -- see bug H, found
-# only by running the gates locally against a clean `origin/main` worktree.
-# A green tick for a gate that never ran is worse than a red one.
+# That is not hypothetical, and it has now happened twice. With
+# `root_and_shoot_branching_read_different_slots` red on `main`
+# (open-bugs-handoff.md bug A, a guard the owner keeps deliberately), `ascii`
+# and `acceptance` had not executed in CI at all. Both were failing. `ascii`
+# was failing *undiagnosed* -- see bug H, found only by running the gates
+# locally against a clean `origin/main` worktree. A green tick for a gate that
+# never ran is worse than a red one.
+#
+# The second time was the fix's own blind spot: `ascii` was made
+# `continue-on-error` in bulk because it could not exclude bug H by name, and
+# a much larger regression then landed behind that blanket and went unseen
+# for two commits. Quarantine by name, never in bulk.
 #
 # The cost is honest: every job builds its own copy, so this trades total
 # compute for wall-clock and for independent reporting. Wall-clock drops
@@ -129,12 +135,41 @@ jobs:
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
   # --- Known-red quarantine -------------------------------------------------
-  # Three gates are red on `main` today for reasons that have nothing to do
-  # with whatever branch is being pushed: bug A (the slot-1 root spread), bug H
-  # (`ascii`'s ants moisture-gradient scene asserts a gradient the scene no
-  # longer has) and bug Y (the gnome covers 98 cells of the `wood` case's 200).
-  # All three are recorded in `Reports/open-bugs-handoff.md` and are guards the
-  # owner keeps deliberately.
+  # **One** gate is red on `main` today for a reason that has nothing to do
+  # with whatever branch is being pushed: the `ascii` foraging scene, where
+  # the colony has gone sessile -- 2 round trips against a bar of 14 set from
+  # 98 on the same scene. It is recorded in `Reports/open-bugs-handoff.md`
+  # (§H2) and quarantined by name in `known-red-ascii` below.
+  #
+  # **Bug Y closed and bug H closed**, and their jobs are gone -- the
+  # mechanism working as intended, twice. Bug H's closure is the more
+  # instructive one: the whole `ascii` job was non-blocking because the
+  # example could not exclude one scene by name, and the foraging regression
+  # landed behind that blanket and went unseen for two commits. `ascii` gates
+  # again now, with `skip=foraging`. Quarantine by name, never in bulk.
+  #
+  # **Bug A's exclusion and its paired job are gone, and its bug is NOT
+  # closed** -- read this before assuming it was. The guard asserted a 10%
+  # slot-1 root ordering off a *single seed*; the 8-seed sweep says the lever
+  # is dead (mean of per-seed ratios 0.994, SE 0.046 -- 0.1 SE from exactly no
+  # effect). No bar with headroom exists over data consistent with 1.0, so the
+  # claim could not be honestly recalibrated and was **split** instead: what is
+  # measurably true (slot 1 does not move the shoot, and does not order roots
+  # backwards) is asserted seed-swept by
+  # `slot_1_is_a_root_locus_and_not_a_shoot_one` and gates in `test` and
+  # `test-debug`; the dead half survives as an `#[ignore]`d reproduction under
+  # the original name. A `continue-on-error` job pointed at an ignored test
+  # reports green, which this file's own rule calls worse than a red one --
+  # hence deletion rather than retargeting. `open-bugs-handoff.md` §A carries
+  # the gap.
+  #
+  # One caution that no exclusion covers: `tests/worldgen.rs`'s
+  # `a_forced_vault_world_is_sealed_and_arrives_at_rest` and
+  # `generated_terrain_is_already_at_rest` are both red on `main` itself
+  # (§H3, and both are *water* failing to settle), so a perfectly healthy
+  # branch shows a red `test` job. Attribute against `main` before touching
+  # it -- and note `cargo test --lib` does not run `tests/`, so a local
+  # `--lib` gate will not see them.
   #
   # Turning branch CI on without doing something about them would show every
   # agent four red jobs on push one, and a permanently-red signal teaches
@@ -153,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --release --locked
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
@@ -167,7 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --locked
 
   clippy:
     name: cargo clippy
@@ -185,41 +220,30 @@ jobs:
     # this is the same worst-frame-timing scene suite used to judge
     # performance regressions locally, run headless here as a smoke test.
     #
-    # Non-gating for now, and this one is a compromise rather than a clean
-    # quarantine. `ascii` has no scene selection, so bug H cannot be excluded
-    # by name the way the other two are, and `examples/ascii.rs` is touched by
-    # three unmerged branches right now -- adding selection to it mid-merge is
-    # how you turn one conflict into four. What saves it: the failing ants
-    # scene is the *last* of nineteen, so every other scene has already run and
-    # printed, worst-frame timings included. Nothing is lost by not blocking on
-    # it that was not already lost to the panic.
+    # **Gating again, and quarantined by name rather than in bulk.** This job
+    # was `continue-on-error` over bug H, for the stated reason that "ascii
+    # has no scene selection, so bug H cannot be excluded by name". It has
+    # selection now (`scene=`/`skip=`, matched against the title a scene
+    # prints), so the blanket comes off and one named scene stays behind in
+    # `known-red-ascii` below -- the same shape as bug A's `--skip`.
     #
-    # **Bug H is knife-edge, not simply broken, and a green run here does not
-    # mean it closed.** Measured 2026-08-23: run 137 (`push`, commit 6d2c2f4)
-    # failed it; run 139 (`pull_request`, same head merged with main) passed
-    # it -- and both printed the *same* numbers, `steep half 0.000, flat half
-    # 0.000`. The assertion is `wet_grad > dry_grad` over two quantities that
-    # are equal to three decimals, so it turns on a margin below 0.0005 and
-    # flips with any perturbation of the scene. Re-confirmed by hand on the
-    # merged tree: exit 0, still 0.000 vs 0.000.
+    # Taking the blanket off matters more than it sounds. While it was on,
+    # `forage_loop_scene` went red and nobody saw it for two commits: a
+    # quarantine wide enough to hide the bug it was opened for is wide enough
+    # to hide the next one, and it did. 30 of the 31 scenes run green here in
+    # 2m59s.
     #
-    # So do not read a passing `ascii` as evidence to re-gate this job -- that
-    # would put a coin-flip back on the critical path, which is the exact
-    # failure this quarantine exists to prevent. What closes bug H is the
-    # scene actually containing a gradient, or the guard comparing a
-    # continuous margin instead of two near-zero floats (CLAUDE.md: "prefer a
-    # continuous quantity over a count -- counts give knife-edge margins").
-    #
-    # Make this gating again once bug H is closed *on that basis*, or once
-    # `ascii` learns to select scenes -- whichever comes first. It is the only job here
-    # whose non-blocking status costs real coverage.
-    name: cargo run --example ascii (non-gating, bug H)
+    # Bug H itself is closed on the basis this comment used to ask for -- the
+    # scene now genuinely contains a gradient (a maintained spring, asserted
+    # standing), and the guard is a continuous margin averaged over 40
+    # samples (1.8146 measured, bar 0.5) instead of two near-zero floats
+    # compared with `>`.
+    name: cargo run --example ascii
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo run --release --example ascii --locked
+      - run: cargo run --release --example ascii --locked -- skip=foraging
 
   acceptance:
     # The structural acceptance cases, run rather than remembered. Each
@@ -263,13 +287,26 @@ jobs:
   # so that the day one starts passing, something says so. A green tick here is
   # the signal to delete both the job and its exclusion.
 
-  known-red-roots:
-    # Bug A: the slot-1 root spread. Excluded from `test` and `test-debug`.
-    name: "known red: bug A (slot-1 root spread)"
+  known-red-ascii:
+    # `forage_loop_scene`: the colony has gone sessile. Excluded from `ascii`
+    # above by `skip=foraging`; run alone here.
+    #
+    # Measured on main: 2 round trips of 8+ cells against a bar of 14 that was
+    # set in da252dc from 98 on this same scene, and a reach profile of
+    # [689, 22, 8, 2, 0, 0, 0, 0] against the [3858, 475, 185, 98, 1, 0, 0, 0]
+    # README's M18 status still quotes. Deterministic, not noise -- identical
+    # counters on contended and solo runs.
+    #
+    # Not attributed to a commit yet, and the bar is deliberately not moved.
+    # The scene's own food census says 88% of the colony's food is leaf on
+    # standing trees and the stock triples over the run while the ants eat 0,
+    # so "how scarce should the floor be" is on the owner's queue as
+    # 20260823T091259637Z-9a41e4 -- the target is a game-feel call, not a
+    # number to tune here.
+    name: "known red: the colony has gone sessile (ascii forage scene)"
     runs-on: ubuntu-latest
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
-
+      - run: cargo run --release --example ascii --locked -- scene=foraging

@@ -19,6 +19,7 @@
 
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
+use pixel_physics::sim::organism;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::{parallel, structural};
 use pixel_physics::worldgen::{self, Spec, WorldgenParams, WorldgenPresets};
@@ -778,6 +779,75 @@ fn flora_census(world: &World) -> (BTreeMap<String, usize>, BTreeMap<String, usi
         }
     }
     (sown, established)
+}
+
+/// Every woody species declares a palette range, and no two overlap.
+///
+/// **Written because the opposite shipped.** The edit that gave `conifer` its
+/// new bark range replaced the comment above the two fields and did not put
+/// the fields back, so `conifer.ron` went out with no `foliage_bands` and no
+/// `bark_bands` at all. Both are `#[serde(default)]`, so absent parses
+/// cleanly as `count: 0`, and `banded_shade` reads `count: 0` as "this
+/// species never declared a range" and answers with a uniform draw over the
+/// *whole* palette. The species that was supposed to be the blue-green one
+/// was wearing a random mix of all eight hues, on both axes, and a review
+/// card was judged on it before anyone noticed.
+///
+/// Nothing could have caught it: it is not a parse error, not a panic, and
+/// not a behaviour change any existing test looks at -- it is a *default*
+/// doing exactly what it promises. The only signal was the picture, and the
+/// picture had four species in it.
+///
+/// Lives in this file rather than beside the species loader because this is
+/// the file that owns "the world contains the flora it is supposed to", and
+/// a species drawing the wrong colours is the same claim as a species not
+/// being planted -- both are invisible until someone looks at a render.
+#[test]
+fn every_woody_species_declares_a_palette_range_and_they_are_disjoint() {
+    let world = World::new(Rect::new(0, 0, 31, 31));
+    let mut foliage: Vec<(&str, u8, u8)> = Vec::new();
+    let mut bark: Vec<(&str, u8, u8)> = Vec::new();
+    for name in WOODY {
+        let id = world.species.id_of(name).unwrap_or_else(|| panic!("{name} is a compiled-in species"));
+        let sp = world.species.get(id);
+        // `count: 0` is the "undeclared" sentinel, and for a species whose
+        // whole point is a distinct look it is always a mistake.
+        assert!(sp.foliage_bands.count > 0, "{name} declares no foliage_bands -- it will draw over the whole leaf palette");
+        assert!(sp.bark_bands.count > 0, "{name} declares no bark_bands -- it will draw over the whole wood palette");
+        foliage.push((name, sp.foliage_bands.first, sp.foliage_bands.count));
+        bark.push((name, sp.bark_bands.first, sp.bark_bands.count));
+    }
+    // Pairwise disjoint, which is the claim every one of these species files
+    // makes in its own header comment -- and `conifer.ron`'s said so while
+    // overlapping `tree` and `shrub`, which is how this started.
+    for (axis, ranges) in [("foliage", &foliage), ("bark", &bark)] {
+        for (i, &(a_name, a_first, a_count)) in ranges.iter().enumerate() {
+            for &(b_name, b_first, b_count) in ranges.iter().skip(i + 1) {
+                let a = a_first..a_first + a_count;
+                let b = b_first..b_first + b_count;
+                assert!(
+                    a.end <= b.start || b.end <= a.start,
+                    "{a_name} and {b_name} share {axis} bands: {a:?} overlaps {b:?}"
+                );
+            }
+        }
+    }
+    // And the ranges have to fit the palette they index, or a band wraps
+    // modulo the palette length at render time and silently lands on another
+    // species' colour -- the same collision by a different door.
+    let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+    let wood = world.materials.id_of("wood").expect("wood is compiled in");
+    let band = organism::PALETTE_BAND as usize;
+    for (axis, material, ranges) in [("foliage", leaf, &foliage), ("bark", wood, &bark)] {
+        let bands = world.materials.get(material).palette.len() / band;
+        for &(name, first, count) in ranges {
+            assert!(
+                (first + count) as usize <= bands,
+                "{name}'s {axis} range {first}..{} runs past the {bands} bands the palette has",
+                first + count
+            );
+        }
+    }
 }
 
 #[test]

@@ -75,6 +75,26 @@ tried?"*.
 - [underground-definition.md](underground-definition.md) — **settled,
   implemented.** What "underground" means, fixed at worldgen time; the
   wiki's world-cycles page describes the visible result.
+- [dark-bands-diagnosis.md](dark-bands-diagnosis.md) — **diagnosis, all
+  three cases fixed.** Overhangs, objects and open-cast digs: the
+  per-*column* baseline `underground-definition.md` settled, measured
+  (`examples/underground_probe.rs`) and replaced by a per-cell genesis map
+  plus a `ground_datum` for shading. Extends that report rather than
+  superseding it — its rejection of *inference* stands, and this stores more
+  history instead. Its postscript records the depth grade going off by
+  default on a playtest, and two framing errors in how a fix was shown.
+- [sky-light-design.md](sky-light-design.md) — **design round; shipped on
+  `F12`, /4 the default.** Measures the candidates for the open-cast-dig
+  case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
+  cannot drive it, why seeded propagation can, why block size 4 rather than
+  `FIELD_SCALE`'s 8, and — tested later — why a stored incrementally
+  maintained field is *not* worth it. Two of its own claims were wrong and
+  are corrected in place at the bottom.
+- [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
+  **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
+  propagation) and Noita (a coarse blurred fog of war, no classification at
+  all) answer "is this dark", and which of the two the still-open
+  open-cast-dig case needs.
 
 ## Liquids and granular
 
@@ -179,6 +199,22 @@ field rework — see `open-bugs-handoff.md`.
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
+  proposed plan, written the day S1–S4 merged.** Where the creature line
+  stands, the decisions never posted to the queue (E5, the abundance dial),
+  and the re-prioritised to-do list: gates first, the two meat-accounting
+  holes before S6, traffic/range as new work, the canopy as an S7 option.
+- [creature-implementation-handoff-2026-08.md](creature-implementation-handoff-2026-08.md)
+  — **execution plan for the review above, written to be run cold.** Ten
+  work packages with file anchors, steps, measurements and landing
+  checklists; the scope guard on what must not start before the owner's
+  verdicts (S6, S7's larder, new channels).
+- [foraging-range-measurement.md](foraging-range-measurement.md) —
+  **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
+  on landing (2026-08-23). Why `nest_visits` counted loitering and what
+  replaced it: the `forage_reach` profile, `FORAGE_TRIP_MIN` derived from a
+  sessile control, the 19-cell bubble, and the litter-in-the-canopy finding
+  with the owner's call and the paired table it produced.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.

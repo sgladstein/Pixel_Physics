@@ -25,6 +25,19 @@
     // 4-5 are new and are pine's own warm plated bark rather than a
     // borrowed brown -- see `wood.ron`, where the axis went from four
     // bands to eight for this.
+    //
+    // **These two lines were dropped by the edit that wrote the note above
+    // them, and shipped missing.** Both fields are `#[serde(default)]`, so
+    // absent means `count: 0`, which `banded_shade` reads as "undeclared"
+    // and answers with a uniform draw over the *whole* palette -- conifer
+    // was wearing a random mix of all eight hues on both axes, which is the
+    // exact opposite of what this range is for. It also pinned every
+    // conifer's founding `LOCUS_LEAF_ECONOMY` allele to 0, because that
+    // locus is derived from the foliage band. Restored 2026-08-23; the
+    // guard against a silent repeat is that a species asserting a disjoint
+    // range should be tested for one, which nothing does yet.
+    foliage_bands: (first: 0, count: 2),
+    bark_bands: (first: 4, count: 2),
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,

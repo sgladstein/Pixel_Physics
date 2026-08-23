@@ -441,6 +441,11 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     // `burn_temp`/`burns_into` are: the burnout branch below needs it after
     // `material`'s own borrow would otherwise still be live.
     let was_structural = matches!(material.kind, material::MaterialKind::Solid | material::MaterialKind::Plant);
+    // Same extraction, same reason, for the `meat_lost` booking in the
+    // burnout branch — `book_meat_lost` takes `&mut S`, so reading
+    // `material.worth_in_aux` at the call site would keep this borrow alive
+    // across it.
+    let source_worth_in_aux = material.worth_in_aux;
 
     // Burning radiates heat regardless of where the timer stands — a cell
     // one frame from burning out is exactly as hot as one that just ignited.
@@ -483,8 +488,31 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
             // Drawing a random shade for it would render a burnt ant as a
             // prime kill one time in five once that ramp is wide enough to
             // read -- so take the dark end, which is what it is.
-            let shades = surface.materials().get(into).palette.len().max(1) as u32;
-            let shade = if surface.materials().get(into).worth_in_aux { 0 } else { surface.rng().below(shades) as u8 };
+            let into_def = surface.materials().get(into);
+            let shades = into_def.palette.len().max(1) as u32;
+            let into_worth_in_aux = into_def.worth_in_aux;
+            let shade = if into_worth_in_aux { 0 } else { surface.rng().below(shades) as u8 };
+            // **Book what the fire just ate.** `corpse` is flammable
+            // (`corpse.ron`: `flammability: 0.15`, `burns_into: "ash"`), so
+            // a body left in a grassfire takes its stamped worth out of the
+            // world -- and before `EnergyLedger::meat_lost` existed it did so
+            // with nothing recording it, which is what made
+            // `max_standing_meat` an upper bound rather than a bound.
+            //
+            // Read off `material`, the *source* def already in hand a few
+            // lines up, not off `into`: the question is what is being
+            // destroyed, not what it becomes. The distinction is live in both
+            // directions here -- an ant burning has `burns_into: "corpse"`, so
+            // `into` is `worth_in_aux` while the source is not and nothing
+            // should be booked; a corpse burning is the exact inverse.
+            //
+            // Costs nothing the sweep was not already paying: this branch
+            // runs only on the frame a cell finishes burning, and both terms
+            // are already loaded (`material` for `burns_into`, `cell` to be
+            // overwritten on the next line).
+            if source_worth_in_aux && cell.aux() != 0 {
+                surface.book_meat_lost(cell.aux() as f64);
+            }
             *cell = Cell::new(into, shade).with_temperature(cell.temperature());
 
             // Architecture §5f: a burnout that produces ash specifically
@@ -529,6 +557,15 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                         next_frame: frame,
                     });
                 }
+                // Scheduling the check is only half of it: `World::chain_
+                // reach` also has to *license* the failure, and it only
+                // does so near something that reported itself disturbed.
+                // Fire eating a trunk is the realistic way a tree's base
+                // disappears -- `structural::tests::burning_a_trees_base_
+                // collapses_the_rest_of_the_trunk` is the end-to-end claim
+                // -- and without this it stopped bringing anything down
+                // the moment `TIGHT` became the default reach.
+                surface.record_disturbance(x, y, 0);
             }
         }
     }
@@ -1086,6 +1123,16 @@ fn transform<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell, i
                 next_frame: frame,
             });
         }
+        // A phase change across the structural boundary is a disturbance,
+        // so `World::chain_reach` licenses the failure the check above is
+        // being scheduled to find. A crust minted over open water is the
+        // case that names itself: nothing touched it, and it still has to
+        // be allowed to come apart. `NEW_SOLID_SETTLE_FRAMES` is 60 and
+        // `CHAIN_WINDOW_FRAMES` is 600, so the licence outlives the delay
+        // by a wide margin -- but the two are coupled now, and shortening
+        // the window below the delay would silently un-license every new
+        // solid.
+        surface.record_disturbance(x, y, 0);
     }
 }
 
@@ -1184,8 +1231,11 @@ mod tests {
     use crate::sim::material;
     use crate::sim::world::World;
 
+    /// The load model with no `chain_reach` leash -- see
+    /// `World::without_chain_limit` for why the model's own tests take it
+    /// off and the game does not.
     fn test_world() -> World {
-        World::new(Rect::new(0, 0, 63, 63))
+        World::new(Rect::new(0, 0, 63, 63)).without_chain_limit()
     }
 
     /// **A solid that has just appeared claims no support.**

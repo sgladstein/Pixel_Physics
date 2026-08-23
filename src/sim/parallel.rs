@@ -305,10 +305,23 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         for site in outcome.pending_active_sites {
             world.schedule_active_site(site);
         }
+        // After the sites, not before: `record_disturbance` coalesces
+        // against what is already in the ring, and the ring is the same
+        // one every worker's reports land in, so the order chunks are
+        // merged in decides which point of a burning region keeps a slot.
+        // That is fine -- any point of it licenses the same box -- but it
+        // does mean this is one of the places a merge order is visible,
+        // and `PLAN.md`'s determinism requirement is met by `run_pass`
+        // merging outcomes in a fixed chunk order rather than as they
+        // finish.
+        for (x, y, extent) in outcome.disturbances {
+            world.record_disturbance(x, y, extent);
+        }
         for (x, y, was, now) in outcome.organism_moves {
             world.reindex_organism_cell(x, y, was, now);
         }
         world.phase_changes.merge(outcome.phase_counts);
+        world.energy_ledger.meat_lost += outcome.meat_lost;
         // Summed in whole fill units per worker and converted once here, so
         // a pass credits the same total however the chunks were divided
         // between threads -- see `ChunkView::sky_condensate`.
@@ -361,6 +374,8 @@ struct ChunkOutcome {
     light_writes: Vec<(ChunkCoord, i32, i32, f32)>,
     field_touched: bool,
     pending_active_sites: Vec<ActiveSite>,
+    /// See `ChunkView::disturbances`'s own doc.
+    disturbances: Vec<(i32, i32, i32)>,
     /// Positions where a same-chunk write overwrote a `FLAG_MANAGED` cell
     /// (`Reports/liquid-heightfield-design.md` §5a) — see `ChunkView::set`'s
     /// own comment for why this is a genuinely separate queue from the
@@ -403,6 +418,8 @@ struct ChunkOutcome {
     phase_counts: crate::sim::fire::PhaseCounts,
     /// See `ChunkView::sky_condensate`'s own doc.
     sky_condensate: u64,
+    /// See `ChunkView::meat_lost`'s own doc.
+    meat_lost: f64,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -462,6 +479,17 @@ struct ChunkView<'w> {
     /// so every queued site is handled identically regardless of where it
     /// sits.
     pending_active_sites: Vec<ActiveSite>,
+    /// Disturbances reported via `CellSurface::record_disturbance` -- only
+    /// `World` owns the ring, so a worker queues them here and `run_pass`
+    /// replays them, the same shape as `pending_active_sites`.
+    ///
+    /// Not deduplicated here on purpose: `World::record_disturbance`
+    /// coalesces spatially at `chain_reach`, and doing it a second time
+    /// per worker would coalesce against the wrong set -- a worker sees
+    /// only its own chunk, so two adjacent burnouts either side of a chunk
+    /// edge would each survive its local dedup and then be merged
+    /// correctly by the one that can see both.
+    disturbances: Vec<(i32, i32, i32)>,
     /// See `ChunkOutcome::demotions`'s own doc.
     demotions: Vec<(i32, i32)>,
     /// See `ChunkOutcome::absorptions`'s own doc.
@@ -480,6 +508,18 @@ struct ChunkView<'w> {
     /// than cell-equivalents so the merge is an integer sum and no pass can
     /// lose a fraction of a cell to float ordering.
     sky_condensate: u64,
+    /// This worker's private sum of meat destroyed by the sweep
+    /// (`CellSurface::book_meat_lost`), merged into
+    /// `World::energy_ledger.meat_lost` by `run_pass` — only `World` owns
+    /// the ledger, same reasoning as `phase_counts`.
+    ///
+    /// An `f64` sum where `sky_condensate` is an integer one, and the
+    /// difference is deliberate rather than an oversight: fill units are
+    /// countable and stamps are not. Determinism is preserved by the merge
+    /// order, not by exactness of the type — `run_pass` folds chunk
+    /// outcomes in a fixed order, so the same run adds the same partial
+    /// sums in the same sequence. See the `determinism.rs` pair.
+    meat_lost: f64,
 }
 
 impl<'w> ChunkView<'w> {
@@ -495,12 +535,14 @@ impl<'w> ChunkView<'w> {
             light_writes: Vec::new(),
             field_touched: false,
             pending_active_sites: Vec::new(),
+            disturbances: Vec::new(),
             demotions: Vec::new(),
             absorptions: Vec::new(),
             splash_sites: Vec::new(),
             organism_moves: Vec::new(),
             phase_counts: crate::sim::fire::PhaseCounts::default(),
             sky_condensate: 0,
+            meat_lost: 0.0,
         }
     }
 
@@ -520,12 +562,14 @@ impl<'w> ChunkView<'w> {
             light_writes: self.light_writes,
             field_touched: self.field_touched,
             pending_active_sites: self.pending_active_sites,
+            disturbances: self.disturbances,
             demotions: self.demotions,
             absorptions: self.absorptions,
             splash_sites: self.splash_sites,
             organism_moves: self.organism_moves,
             phase_counts: self.phase_counts,
             sky_condensate: self.sky_condensate,
+            meat_lost: self.meat_lost,
         }
     }
 
@@ -729,6 +773,10 @@ impl CellSurface for ChunkView<'_> {
         self.pending_active_sites.push(site);
     }
 
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        self.disturbances.push((x, y, extent));
+    }
+
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
         self.absorptions.push((x, y, fill));
     }
@@ -760,6 +808,12 @@ impl CellSurface for ChunkView<'_> {
         // Tallied privately and merged by `run_pass` — only `World` owns
         // `phase_changes`, the same reasoning as `pending_active_sites`.
         self.phase_counts.record(event);
+    }
+
+    fn book_meat_lost(&mut self, worth: f64) {
+        // Summed privately and merged by `run_pass` — only `World` owns the
+        // ledger, exactly as for `phase_counts` above.
+        self.meat_lost += worth;
     }
 }
 

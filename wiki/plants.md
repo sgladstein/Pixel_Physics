@@ -5,10 +5,12 @@ file names — see `Reports/` for why any of it is built the way it is.*
 
 *Current as of: 2026-08-23. Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
-wood density and seed provisioning, again when grass arrived and plants
-stopped all being made of the same stuff, and again when worlds started
-arriving with four woody species in them instead of one. One plant-economy number is unsettled and
-its cause is still open — see `Reports/open-bugs-handoff.md`.*
+wood density and seed provisioning, and again when grass arrived and plants
+stopped all being made of the same stuff; again when roots stopped
+destroying the water they did not drink and the forest floor stopped
+keeping rain off the ground under it; and again when worlds started arriving
+with four woody species in them instead of one. One plant-economy number is
+unsettled and its cause is still open — see `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -29,6 +31,13 @@ inside its own canopy, or under a taller neighbour, earns almost nothing.
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
+
+A root beside open water drinks from it at the same rate it drinks from
+damp ground, and **takes only what it drinks**: the cell it is drinking
+from goes down a little at a time and is still there afterwards, rather
+than disappearing whole. A tree on a bank is a slow, visible drain on the
+pond over a long dry spell — not something that empties it in an afternoon,
+which is what used to happen and what nothing in the world was counting.
 
 Neither substitutes for the other. A plant in blazing sun with nothing to
 drink earns nothing at all, and this is the single most visible rule in the
@@ -183,6 +192,13 @@ branches — and lands as **leaf litter** on the ground below, where it drifts
 against trunks and piles into hollows. Litter is lighter than water, so it
 rafts on a pond rather than sinking, and it mats rather than slumping flat:
 a drift under a tree reads as a drift, not as a brown line across the world.
+
+Rain goes **through** it. A litter blanket is loose stuff lying on the
+ground, not a roof, so the soil beneath a deep forest floor still takes the
+weather — and because litter also rots into soil, a wooded floor ends up
+holding rather more water after a storm than bare ground does, which is
+what mulch is for. It used to do the opposite and seal the ground it lay
+on, and the blanket is deepest exactly where the roots are.
 
 It does not pile up forever. Litter **rots back into soil**, faster where the
 ground is damp, so a standing wood reaches a floor of roughly constant depth
