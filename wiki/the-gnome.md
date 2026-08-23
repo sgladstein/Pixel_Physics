@@ -8,8 +8,8 @@ lip at the top of a jump is mantled, the sprite faces where it's going,
 holding `W` out of water puts him on the bank, left-clicking a plant
 shakes it, and with nobody summoned WASD scrolls the map instead. Cutting
 a tree down is deliberately not in yet. Since 2026-08-23: mining leaves
-no spoil by default, and `F2` steps up through a tenth, a third, a half
-and all of it.*
+about a tenth of what it cuts as spoil by default, and `F2` steps to none
+at all, or up through a third, a half and all of it.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -175,11 +175,10 @@ A bite doesn't erase rock, it breaks it: the stone cracks, comes apart,
 throws an impulse, and leaves rubble. But breaking alone can never open a
 cave — broken rock takes up the same room the solid rock did — so some of
 what he cuts is pulverised to dust and gone, and the rest stays as spoil
-underfoot. **By default none of it stays**: the rock simply goes, and a
-bore is clear behind you. A playtest picked that over the older setting,
-which kept about a third. You can change the balance while playing, from
-"the rock simply goes" through a tenth, a third and a half, to "nothing is
-lost, and you can barely dig".
+underfoot. **By default about a tenth of it stays** — enough to see where
+you have been, not enough to close the bore behind you. You can change the
+balance while playing, from "the rock simply goes" through a tenth, a third
+and a half, to "nothing is lost, and you can barely dig".
 
 **A third is more than it sounds.** Cutting a level tunnel at that setting,
 you are wading in your own rubble by the twentieth bite and buried by the

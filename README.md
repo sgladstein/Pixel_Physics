@@ -1804,7 +1804,7 @@ digs out, rides a falling chunk body rather than being left behind by it,
 and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
 
 **All three selectors now default to what the playtest picked** -- `FLOATY`
-jump, `DIVER` water, and (since 2026-08-23) `CLEAN` spoil, each sitting at
+jump, `DIVER` water, and (since 2026-08-23) `TRACE` spoil, each sitting at
 index 0 of its list so `Tuning::default` and the named mode stay one thing
 (`the_defaults_are_the_first_feel_of_each_list` guards the mirror).
 
@@ -1820,9 +1820,19 @@ rubble for 7 ticks**, and covers 46 cells of ground against CLEAN's 120.
 
 That measurement also opened a gap in the list. It stepped 0 -> 0.35 ->
 0.55 -> 1.0, with nothing between "no rubble at all" and a third — and a
-third is what buries him. `TRACE` (0.10) sits in that gap, added on the
-owner's verdict that *"most of the options produce too much dust... 1/3 is
-even too much"*; it is one `F2` press off the default.
+third is what buries him. `TRACE` (0.10) fills that gap, added on the
+verdict that *"most of the options produce too much dust... 1/3 is even too
+much"*, **and is now the default**: shown CLEAN, TRACE and DUST as
+animations of the same 42 bites, TRACE is what was picked. It covers 90
+cells of ground against CLEAN's 120 and DUST's 46, leaves 140 cells of
+spoil underfoot against 1,108, and never buries him.
+
+Worth noting how that went, because it is the argument for the review queue
+rather than for reasoning: **CLEAN was the answer to the coarser card and
+was overturned by the finer one.** Two still frames that turned out to be
+cropped forty rows above the gnome produced *"I see no difference in these
+images"*; the same question as three animations, cropped on him, produced a
+specific answer in one round.
 
 The feel is data, not code: `player::Tuning` behind `O` -> PLAYER
 (persisted to `assets/player.ron`), with the three whole-feel families that
