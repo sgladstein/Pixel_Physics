@@ -192,6 +192,33 @@ pub trait CellSurface {
     /// as `field_writes`/`light_writes`.
     fn schedule_active_site(&mut self, site: ActiveSite);
 
+    /// Record that something at `(x, y)` disturbed load-bearing material,
+    /// licensing structural failures near it — see `World::chain_reach`
+    /// and `World::record_disturbance`.
+    ///
+    /// Reachable from inside the sweep because a burnout and a phase
+    /// change are both ways structural material appears or disappears
+    /// without anyone touching it, and both are exactly the kind of event
+    /// a collapse should be allowed to follow. Before this, only the three
+    /// verbs that hold a `&mut World` (`rigid::strike`, `rigid::mine`,
+    /// `explosion`) reported themselves, which was invisible while
+    /// `chain_reach` defaulted to no limit and became "burn through a
+    /// trunk and the tree hangs there" the moment `TIGHT` became the
+    /// default.
+    ///
+    /// `extent` is the outer limit of the damage the verb does *itself*,
+    /// as everywhere else — see `structural::Disturbance::extent`. Both
+    /// callers reached from here are **per cell** (a burnout removes one,
+    /// a phase change transforms one), so both pass `0` and let
+    /// `World::record_disturbance`'s coalescing collect a burning region
+    /// into a handful of records. A verb here that damages a *volume* must
+    /// pass its real reach instead.
+    ///
+    /// Only `World` owns the ring, so `ChunkView` queues this and replays
+    /// it in `parallel::run_pass` — the same shape as
+    /// `schedule_active_site`.
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32);
+
     /// Absorb `fill` units into the promoted liquid body that owns
     /// `(x, y)` — `Reports/liquid-heightfield-design.md` §6b/§8b.
     /// `update_liquid`'s only caller: when a falling liquid cell's vertical

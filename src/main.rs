@@ -623,6 +623,7 @@ impl Handler {
             // patterns` caught after the tree merge.
             KeyCode::Quote => self.app.renderer.cycle_glow_shape(),
             KeyCode::F11 | KeyCode::Digit0 => self.app.renderer.reveal_voids = !self.app.renderer.reveal_voids,
+            KeyCode::F12 => self.app.renderer.cycle_sky_light(),
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),

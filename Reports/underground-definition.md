@@ -141,6 +141,21 @@ switching at the boundary. That is what makes a cave mouth read as an opening
 rather than a hole cut out of the picture. It was the other half of the same
 "way too intense" report and has nothing to do with where the boundary is.
 
+## A sibling array, added later
+
+`World::sky_surface` answers *"is there anything above me"*, and that is the
+only question this report settled. Terrain **shading** needs a different one
+— *"how deep am I"* — and the two part company the moment a cliff brow is
+involved: a brow is ground, so it sets the skyline, and the grade then buried
+its whole column to bedrock behind a vertical tone seam.
+
+`World::ground_datum` is that second question, frozen beside this one: the top
+of the lowest run of cells the sky cannot reach, each column walked up from
+the bottom until an outdoors cell stops it. `Reports/dark-bands-diagnosis.md`
+has the measurements. Nothing here changes — `sky_surface` is still the
+definition of underground, and still the thing `is_outdoors` and the cave fade
+read.
+
 ## Guards
 
 - `digging_a_shaft_does_not_bring_the_sky_down_with_it` — now swept over
