@@ -1,0 +1,59 @@
+{
+  "id": "20260823T062851067Z-2d64ce",
+  "created": "2026-08-23T06:28:51Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "b378488",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Spoil default CLEAN vs DUST: the same 42 bites into the same massif",
+  "question": "You asked for CLEAN as the default. This is what it changes — is the clear bore what you want, or does losing the rubble underfoot cost something worth keeping?",
+  "context_md": "`scene=tunnel`, identical seed and identical gnome, 42 bites each. Only `dig_yield` differs.\n\n**The numbers are the story, not the picture.** At DUST he does not just leave rubble — he *wades* in it from bite 19, goes under at frame 225, and digs out 7 ticks later. He covers 46 cells of ground to CLEAN's 120 for the same effort.\n\nThat is worth a second opinion because the old doc comment argued the opposite: it said 0.0 'stops destruction producing debris, which this project has already rejected'. That reasoning was wrong — `dig_yield` is the **mining verb's** number only. A collapse still fractures and still throws graded debris whatever this is set to. `F2` still cycles all four.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "CLEAN (dig_yield 0.0, now the default)",
+      "files": [
+        "20260823T062851067Z-2d64ce/000-tunnel-00.png"
+      ],
+      "caption": "4 tiles, frames 60/150/240/330",
+      "meta": {
+        "bites": 42,
+        "cells displaced as spoil": 0,
+        "cells dusted": 1886,
+        "ground covered (cells)": 120,
+        "ticks buried in own spoil": 0,
+        "final state": "grounded"
+      },
+      "focus": null
+    },
+    {
+      "label": "DUST (dig_yield 0.35, the previous default)",
+      "files": [
+        "20260823T062851067Z-2d64ce/001-tunnel-035.png"
+      ],
+      "caption": "4 tiles, frames 60/150/240/330",
+      "meta": {
+        "bites": 42,
+        "cells displaced as spoil": 1108,
+        "cells dusted": 597,
+        "ground covered (cells)": 46,
+        "ticks buried in own spoil": 7,
+        "final state": "wading"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
