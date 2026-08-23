@@ -1,0 +1,43 @@
+{
+  "id": "20260823T185607581Z-9b278d",
+  "created": "2026-08-23T18:56:07Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "9108b79",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The desert has no lever — which one do we give it?",
+  "question": "Three ways to make a desert liveable for something. Which do we build, and does the water-table one get taken together with the taproot niche?",
+  "context_md": "**This is a decision, not a bug** — your own direction on the record is *do not fix this by watering deserts*. Arid ground is **sand**, and `soil.ron` is the only material in the whole asset directory that declares a water capacity, so sand's is zero. Not dry ground — ground that cannot hold water at all. That is why the fix once proposed for it (a per-species wilting point) does nothing here: no wilting point, however low, gets water out of a material whose capacity is zero.\n\nThe picture is the arid preset **in rain**. Nothing that falls on it is kept.\n\n---\n\n**(a) Give sand a water capacity.**\n\n- The cost the record names — *teaching the water tallies about held water first* — **is already paid**. The ledger keys on the field, not on a material name, so a second water-holding powder joins it automatically. The conservation guards need re-running, not re-writing.\n- The cost that is real is arithmetic: plant-available water is measured against the wilting point (180) as an **absolute** amount, not as a fraction of that material's own capacity. So *a small capacity does nothing* — at 150, a saturated sand cell is still below the wilting point and a plant gets exactly zero, now with an infiltration cost over every sand cell in the world. **The threshold is 180 before a plant gets one drop.**\n- It is not only deserts: every beach and dune starts absorbing water, darkens when wet, and — as of this branch — stops carrying fire.\n\n**(b) Let roots reach the water table.**\n\n- **There is no water table in the desert to reach.** The arid preset sets its table 4,000 cells below the datum, off the bottom of the world, on purpose. So the real question inside this lever is a worldgen one — *does the desert get a table at all* — and only after that is it a root-reach question.\n- Give it one and the existing terms put it of the order of 90–100 cells down. That is the taproot niche, so **this and B4 decide together.**\n- Bonus if it lands: the machinery that makes an aquifer daylight out of a cliff face is switched off for arid, not missing. Springs and seeps in a canyon wall come with it.\n\n**(c) Stored rain.**\n\n- Rain already falls on the desert and runs off — a flash flood, which is correct.\n- So this lever is really *let a storm leave something behind for a few thousand frames*: a decaying pulse of drinkable water. The engine already has the shape of it (there is an authored moisture floor evaporation may not go below, used for the aquifer).\n- **The catch: nothing in the species directory can use it.** Every plant we have is a perennial that accumulates. A desert annual — germinate, flower, set seed, die, all inside one wet week — is its own package. Biggest of the three, and the one that buys the most distinctive behaviour: dead for a season, green for a week.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the arid preset, raining",
+      "files": [
+        "20260823T185607581Z-9b278d/000-desert.png"
+      ],
+      "caption": "sand over strata; the rain is real and none of it is kept",
+      "meta": {
+        "sand cells laid by the arid pass": 7411,
+        "moisture cells written into them": 0,
+        "water table depth (arid preset)": "4000 cells below datum = off the bottom of the world",
+        "wilting point a plant must clear": 180,
+        "sand water_capacity today": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
