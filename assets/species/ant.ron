@@ -183,20 +183,42 @@
         // commits -- see `CreatureDef::trait_variance`.
         trait_variance: (0.15,),
 
-        // **WP-9 arm 1, authored off, and written out rather than left to
-        // the serde default so the next session can see the knob exists.**
-        // On, a living nestmate counts as *ground* -- footing only, never
-        // passability, so two ants still cannot pass through each other.
-        // It is the deliberate re-test of dead ends 775/829, whose
-        // condition line reads "re-test if creatures gain pass-through or
-        // climb-over".
+        // **A living nestmate counts as ground.** Footing only, never
+        // passability -- two ants still cannot walk through each other --
+        // so an ant walks *over* a nestmate the way it walks over terrain.
         //
-        // Off until it is measured. The instrument is `forage_probe
-        // seeds=8` (WP-4) and the success condition is weight appearing in
-        // the >=32/>=64 reach buckets *while deliveries hold within seed
-        // spread* -- today's known-good is deepest 12-18 with >=32 at zero.
-        // Nothing in this lane could run it, so nothing here picks a side.
-        climbs_over_kin: false,
+        // This is the deliberate re-test dead ends 775/829 asked for, and
+        // the answer is not subtle. `forage_probe seeds=8`, both arms, same
+        // seeds, median of 8:
+        //
+        //                        off        on
+        //     round trips          4      90.5
+        //     deepest             12      69.5
+        //     blocked/moves    0.614     0.065
+        //     moves           21,870    21,256
+        //     deliveries           0         0
+        //
+        // **Moves are flat.** This is not "they move more" -- it is that
+        // six moves in ten used to fail and now fewer than one in ten does.
+        // The 19-cell bubble those dead ends recorded was a traffic jam,
+        // and the jam is what the rule dissolves.
+        //
+        // Landed default-on per the work package's own decision rule (one
+        // arm clearly wins on the profile, deliveries flat). Two honest
+        // caveats travel with it: deliveries are **0 in both arms**, so
+        // "deliveries held" is true and proves little -- that is the
+        // separately filed sessile-colony bug, not this change -- and the
+        // look is on the owner's queue as card 20260823T152556591Z-7c87cf,
+        // which flips this one line if it comes back against.
+        //
+        // The 22x was checked for the obvious way it could be fake: ants
+        // climbing *each other* into the sky would move the depth metric
+        // without ranging anywhere. Rendered, they are on the ground and on
+        // terrain. `a_climbing_ant_is_never_its_own_foothold` is the guard
+        // that keeps it that way -- an animal's own tail is permanently in
+        // its head's neighbourhood, so `self` must be excluded or every ant
+        // becomes its own ladder.
+        climbs_over_kin: true,
 
         nest: "nest",
 
