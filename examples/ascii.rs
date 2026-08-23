@@ -7,6 +7,7 @@
 //! cargo run --example ascii                        # every scene
 //! cargo run --example ascii -- scene=foraging      # just the one
 //! cargo run --example ascii -- scene=ants,field    # any that match either
+//! cargo run --example ascii -- skip=foraging       # everything but that one
 //! cargo run --example ascii -- list=1              # the catalogue, run nothing
 //! ```
 //!
@@ -56,6 +57,14 @@ use std::sync::OnceLock;
 struct SceneFilter {
     /// Lower-cased substrings. Empty means "run everything".
     terms: Vec<String>,
+    /// Lower-cased substrings to *exclude*, applied after `terms`.
+    ///
+    /// This is what lets CI gate on the healthy scenes while a known red is
+    /// quarantined **by name** rather than by turning the whole example
+    /// non-blocking -- the failure mode that let a second, larger regression
+    /// in behind bug H unnoticed. The same shape as the `--skip` the test
+    /// jobs already use for bug A.
+    skip: Vec<String>,
     /// `list=1`: print every scene's title and run none of them. Costs one
     /// fast pass precisely because every scene is skipped.
     list_only: bool,
@@ -69,19 +78,22 @@ impl SceneFilter {
     /// asked for, and it looks exactly like one that did.
     fn from_args() -> Self {
         let mut terms = Vec::new();
+        let mut skip = Vec::new();
         let mut list_only = false;
         for arg in std::env::args().skip(1) {
             if let Some(v) = arg.strip_prefix("scene=") {
                 terms.extend(v.split(',').filter(|s| !s.is_empty()).map(str::to_ascii_lowercase));
+            } else if let Some(v) = arg.strip_prefix("skip=") {
+                skip.extend(v.split(',').filter(|s| !s.is_empty()).map(str::to_ascii_lowercase));
             } else if let Some(v) = arg.strip_prefix("list=") {
                 list_only = v != "0";
             } else {
                 eprintln!("ascii: unknown argument {arg:?}");
-                eprintln!("usage: ascii [scene=<term>[,<term>...]] [list=1]");
+                eprintln!("usage: ascii [scene=<term>[,<term>...]] [skip=<term>[,<term>...]] [list=1]");
                 std::process::exit(2);
             }
         }
-        Self { terms, list_only }
+        Self { terms, skip, list_only }
     }
 }
 
@@ -111,6 +123,10 @@ fn begin(title: &str) -> bool {
         SCENES_SKIPPED.fetch_add(1, Ordering::Relaxed);
         return false;
     }
+    if f.skip.iter().any(|t| lower.contains(t.as_str())) {
+        SCENES_SKIPPED.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
     SCENES_RUN.fetch_add(1, Ordering::Relaxed);
     println!("\n=== {title} ===");
     true
@@ -128,7 +144,11 @@ fn finish() {
     }
     println!("\nascii: {ran} scenes run, {skipped} skipped");
     if ran == 0 {
-        eprintln!("ascii: scene={} matched none of the {skipped} scenes", filter().terms.join(","));
+        eprintln!(
+            "ascii: scene={} skip={} left none of the {skipped} scenes to run",
+            filter().terms.join(","),
+            filter().skip.join(",")
+        );
         std::process::exit(2);
     }
 }
@@ -140,10 +160,10 @@ fn main() {
     let f = filter();
     if f.list_only {
         println!("ascii: list=1 -- the scene catalogue; nothing is run");
-    } else if f.terms.is_empty() {
-        println!("ascii: scene=<unset>, running every scene");
     } else {
-        println!("ascii: scene={}", f.terms.join(","));
+        let picked = if f.terms.is_empty() { "<unset>".to_string() } else { f.terms.join(",") };
+        let dropped = if f.skip.is_empty() { "<none>".to_string() } else { f.skip.join(",") };
+        println!("ascii: scene={picked} skip={dropped}");
     }
 
     scene("sand piling on a floor", 78, 30, 400, |w| {
@@ -1922,11 +1942,22 @@ fn forage_loop_scene() {
 /// Shared runner for the colony scenes: the full frame order the live app
 /// uses, so nothing here is testing a phase the player never sees.
 fn run_colony(world: &mut World, frames: usize) {
-    for _ in 0..frames {
+    run_colony_with(world, frames, |_, _| {});
+}
+
+/// `run_colony` with a per-frame hook.
+///
+/// A scene that needs a condition *maintained* — a spring that goes on
+/// running, a sample taken through the run rather than at the end — cannot
+/// express it against the plain loop, which hands control back only once
+/// everything is over. Bug H was both of those at once.
+fn run_colony_with(world: &mut World, frames: usize, mut each: impl FnMut(&mut World, usize)) {
+    for frame in 0..frames {
         parallel::step(world);
         world.step_active_sites();
         world.step_fields();
         world.step_pheromones();
+        each(world, frame);
     }
 }
 
@@ -2108,11 +2139,6 @@ fn construction_scene() {
         world.set(60, y, Cell::new(material::STONE, 0).with_attached(true));
         world.set(68, y, Cell::new(material::STONE, 0).with_attached(true));
     }
-    for x in 61..68 {
-        for y in (floor - 5)..floor {
-            world.set(x, y, Cell::new(material::WATER, 0));
-        }
-    }
     // Food spread thinly across the whole floor, so ants pick up wherever
     // they are and then carry across both halves.
     for x in (20..220).step_by(4) {
@@ -2122,25 +2148,87 @@ fn construction_scene() {
         world.plant_ant(22 + i * 3, floor - 2);
     }
 
-    run_colony(&mut world, 10000);
+    // **A spring, not a puddle — bug H's cause, measured rather than
+    // guessed.** The well was filled once at spawn and then left to the
+    // world, and the world took it: instrumented per 1,000 frames it went
+    // 34 cells -> 30 -> 39 -> 52 -> 66 -> 76 -> 98 -> 47 -> 1 -> 0. It does
+    // not simply evaporate; it *rises* first, because `weather::step` runs
+    // inside both CA drivers and rains into it, and then a dry spell takes
+    // the lot. So the moisture field this scene asserts on was being read at
+    // an arbitrary phase of a designed oscillator, and the phase frame
+    // 10,000 lands on is a dry one: steep half and flat half both measured
+    // 0.000000, peak included, and the guard `wet_grad > dry_grad` was
+    // deciding on a residue below the sixth decimal. That is what made it
+    // flip between CI runs 137 and 139 while printing identical numbers.
+    //
+    // CLAUDE.md's rule for a channel that oscillates by design is to divide
+    // the oscillator out of the decision. There is no `noon_equivalent`
+    // for weather, so the scene holds the *source* constant instead: the
+    // well is topped up every frame, which makes the left half wet at every
+    // phase, and rain can still wet the right half without ever making it a
+    // spring. The gradient is then a property of the scene rather than of
+    // the frame it was sampled on.
+    let refill_spring = |world: &mut World| {
+        for x in 61..68 {
+            for y in (floor - 5)..floor {
+                // The raw material, not `is_empty()`, which is
+                // managed-aware and reads a promoted body's container cells
+                // as occupied (`Cell::is_empty`'s own doc).
+                if world.get(x, y).material == material::EMPTY {
+                    world.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+        }
+    };
+    refill_spring(&mut world);
 
-    // Which half is which is measured, not assumed: the well is on the
-    // left, so the left half should be the steep one -- but a scene that
-    // contradicts the code looks like a bug in the code, so check.
-    let mean_grad = |x0: i32, x1: i32| -> f32 {
-        let mut total = 0.0;
-        let mut n = 0.0;
+    let count_water = |world: &World| -> usize {
+        (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == material::WATER).count()
+    };
+    let water_before = count_water(&world);
+
+    // **Which half is which is measured, not assumed**, and it is measured
+    // *through* the run rather than at one instant. Two instants fitted to
+    // one trajectory is the failure CLAUDE.md names by name; a mean over 40
+    // samples cannot be decided by whichever weather the last frame landed
+    // in, and it is a continuous quantity rather than a knife-edge count.
+    let mean_grad = |world: &World, x0: i32, x1: i32| -> f64 {
+        let mut total = 0.0f64;
+        let mut n = 0.0f64;
         for x in x0..x1 {
             for y in (floor - 10)..floor {
                 let gx = world.field_at_bilinear((x + 4) as f32, y as f32).moisture - world.field_at_bilinear((x - 4) as f32, y as f32).moisture;
                 let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
-                total += (gx * gx + gy * gy).sqrt();
+                total += ((gx * gx + gy * gy).sqrt()) as f64;
                 n += 1.0;
             }
         }
         total / n
     };
-    let (wet_grad, dry_grad) = (mean_grad(20, w / 2), mean_grad(w / 2, 220));
+
+    const GRAD_SAMPLE_EVERY: usize = 250;
+    // **Set from measurement with headroom, not from an aspiration.** This
+    // tree measures a margin of 1.8146 over 40 samples (steep 1.9206
+    // against flat 0.1061, on `field::MAX_MOISTURE` = 4.0). The bar is a
+    // little over a quarter of that: far enough below the measurement to
+    // survive an honest change to the weather or the field solve, and far
+    // enough above the flat half's own 0.1061 that a world where both
+    // halves are merely damp cannot clear it.
+    const MARGIN_BAR: f64 = 0.5;
+    let mut wet_sum = 0.0f64;
+    let mut dry_sum = 0.0f64;
+    let mut samples = 0u32;
+    run_colony_with(&mut world, 10000, |world, frame| {
+        refill_spring(world);
+        if frame % GRAD_SAMPLE_EVERY == GRAD_SAMPLE_EVERY - 1 {
+            wet_sum += mean_grad(world, 20, w / 2);
+            dry_sum += mean_grad(world, w / 2, 220);
+            samples += 1;
+        }
+    });
+
+    let water_after = count_water(&world);
+    let (wet_grad, dry_grad) = (wet_sum / samples as f64, dry_sum / samples as f64);
     // Drops land as material, so count what is standing where nothing was
     // placed: any corpse cell not on the original 4-cell lattice row.
     let dropped = |x0: i32, x1: i32| -> usize {
@@ -2150,14 +2238,104 @@ fn construction_scene() {
             .count()
     };
     let (wet_drops, dry_drops) = (dropped(20, w / 2), dropped(w / 2, 220));
+
+    // **What the scene's headline claim actually needs measured.** The
+    // left/right split above cannot see the deposition bias: with
+    // `moisture_gradient` deleted from `creature.rs`'s drop probability
+    // entirely, it read steep 18 / flat 0 against steep 6 / flat 0 with the
+    // bias in -- it passed *harder* for the broken build, because removing
+    // a multiplier below 1.0 simply raises the drop rate, and the flat half
+    // reads zero either way since the ants never get there. A guard that
+    // cannot fail for the replacement artifact is not a guard (CLAUDE.md).
+    //
+    // The claim is "deposition follows the moisture gradient", so measure
+    // that directly and as a ratio: the mean |grad moisture| *at the cells
+    // ants actually dropped on*, against the mean over the whole band they
+    // could have dropped on. Bias present pushes drops uphill in gradient
+    // and the ratio rises above 1; bias absent scatters them at ambient and
+    // it sits at 1. A ratio also divides out the overall drop rate, which
+    // is the thing the broken build moved.
+    let grad_at = |world: &World, x: i32, y: i32| -> f64 {
+        let gx = world.field_at_bilinear((x + 4) as f32, y as f32).moisture - world.field_at_bilinear((x - 4) as f32, y as f32).moisture;
+        let gy = world.field_at_bilinear(x as f32, (y + 4) as f32).moisture - world.field_at_bilinear(x as f32, (y - 4) as f32).moisture;
+        ((gx * gx + gy * gy).sqrt()) as f64
+    };
+    let (mut drop_grad, mut drop_n) = (0.0f64, 0u32);
+    let (mut band_grad, mut band_n) = (0.0f64, 0u32);
+    for x in 20..220 {
+        for y in (floor - 12)..floor {
+            band_grad += grad_at(&world, x, y);
+            band_n += 1;
+            if world.get(x, y).material == corpse && !(y == floor - 1 && x % 4 == 0) {
+                drop_grad += grad_at(&world, x, y);
+                drop_n += 1;
+            }
+        }
+    }
+    let ambient = band_grad / band_n.max(1) as f64;
+    let at_drops = drop_grad / drop_n.max(1) as f64;
+    let uphill = if ambient > 0.0 { at_drops / ambient } else { 0.0 };
     let st = world.creature_stats;
     println!("  pickups {} drops {} digs {} deaths {}", st.pickups, st.drops, st.digs, st.deaths);
-    println!("  mean |grad moisture|: steep half {wet_grad:.3}, flat half {dry_grad:.3}");
+    // The level the gradient is a gradient *of*: a flat field at zero and a
+    // flat field at saturation both print 0.000 as a gradient and mean
+    // opposite things, and it was the *level* being zero that turned out to
+    // be bug H.
+    let mean_moisture = |x0: i32, x1: i32| -> (f32, f32) {
+        let (mut total, mut peak, mut n) = (0.0f32, 0.0f32, 0.0f32);
+        for x in x0..x1 {
+            for y in (floor - 10)..floor {
+                let m = world.field_at_bilinear(x as f32, y as f32).moisture;
+                total += m;
+                peak = peak.max(m);
+                n += 1.0;
+            }
+        }
+        (total / n, peak)
+    };
+    let (wet_mean, wet_peak) = mean_moisture(20, w / 2);
+    let (dry_mean, dry_peak) = mean_moisture(w / 2, 220);
+    let margin = wet_grad - dry_grad;
+    println!("  spring: {water_before} water cells at spawn, {water_after} standing at the end");
+    println!("  mean |grad moisture| over {samples} samples: steep half {wet_grad:.4}, flat half {dry_grad:.4}, margin {margin:.4}");
+    println!("  moisture level at the end: steep mean {wet_mean:.3} peak {wet_peak:.3} | flat mean {dry_mean:.3} peak {dry_peak:.3}");
     println!("  material left standing: steep half {wet_drops}, flat half {dry_drops}");
-    assert!(wet_grad > dry_grad, "the scene must actually contain the gradient it is testing: {wet_grad:.3} vs {dry_grad:.3}");
-    assert!(st.drops > 0, "no ant ever dropped anything -- the verb never fired");
+    println!("  |grad moisture| at the {drop_n} standing drops {at_drops:.4} vs {ambient:.4} ambient over the band -- {uphill:.2}x");
+    // **The spring has to still be a spring**, checked before anything is
+    // concluded from the field it feeds. This is the assertion bug H
+    // actually needed: the old one asked whether the *gradient* was ordered,
+    // which a world with no water in it answers with two zeroes and a
+    // coin flip.
     assert!(
-        wet_drops > dry_drops,
-        "deposition should cluster where the moisture gradient is steep: {wet_drops} vs {dry_drops}"
+        water_after >= 20,
+        "the spring dried up, so the scene no longer contains the gradient it tests: {water_before} cells at spawn, {water_after} at the end"
     );
+    // **A continuous margin with headroom, not two floats compared with
+    // `>`.** See `MARGIN_BAR` above for where the number comes from. The
+    // predecessor turned on a difference below the sixth decimal and
+    // flipped between two CI runs that printed identical numbers.
+    assert!(
+        margin > MARGIN_BAR,
+        "the scene must actually contain the gradient it is testing: steep {wet_grad:.4} vs flat {dry_grad:.4}, margin {margin:.4} <= {MARGIN_BAR}"
+    );
+    assert!(st.drops > 0, "no ant ever dropped anything -- the verb never fired");
+    // **`wet_drops > dry_drops` was here and has been demoted to the print
+    // above, because it was measured to be vacuous.** Deleting
+    // `moisture_gradient` from the drop probability in `creature.rs`
+    // entirely -- the whole mechanism this scene is named for -- left it
+    // passing *harder*, steep 18 / flat 0 against steep 6 / flat 0: removing
+    // a multiplier below 1.0 raises the drop rate everywhere, and the flat
+    // half reads zero in both arms because the ants never travel that far.
+    // A green light that cannot go red is the same thing as a skipped gate,
+    // which is what this whole area has just cost us once already, so it
+    // does not stay as an assertion.
+    //
+    // Its successor is the `uphill` ratio printed above, which does separate
+    // the two arms -- 4.97x with the bias against 2.84x without, on the same
+    // seed and the same frame count. It is **not** an assertion yet and that
+    // is deliberate: both arms stand on 6 and 18 standing drops, and a bar
+    // set from a ratio of six cells is exactly the knife-edge this scene has
+    // already been bitten by. What it needs first is more drops to average
+    // over, and that is blocked on the same thing the foraging scene is --
+    // ants that leave home at all. Recorded here rather than tuned away.
 }

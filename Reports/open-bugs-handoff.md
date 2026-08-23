@@ -2685,7 +2685,7 @@ is settled.
 
 ---
 
-### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **OPEN, inherited from `main`, 2026-08-23**
+### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **CLOSED 2026-08-23. The well evaporated; the scene now maintains a spring, and the guard is a continuous margin.**
 
 `examples/ascii.rs:1850` fails its own setup assertion:
 
@@ -2723,6 +2723,67 @@ to follow. Note the printed 0.000 is rounded — the pre-merge explosion
 branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
+
+**Closed 2026-08-23, and the record's own steer was right: the scene, not
+the deposition rule.** The well is filled once at spawn and then left to the
+world. Instrumented per 1,000 frames it goes
+
+    34 -> 30 -> 39 -> 52 -> 66 -> 76 -> 98 -> 47 -> 1 -> 0
+
+so it does not simply evaporate — it *rises* first, because `weather::step`
+runs inside both CA drivers and rains into it, and then a dry spell takes the
+lot. **By frame 10,000 there is no standing water anywhere in the scene**, and
+the field it feeds reads `steep mean 0.000 peak 0.000 | flat mean 0.000 peak
+0.000`. So `wet_grad > dry_grad` was deciding between two numerical residues,
+which is why it flipped between CI runs 137 and 139 while printing identical
+numbers.
+
+That is `CLAUDE.md`'s "a channel that oscillates by design must be divided out
+of decisions", in weather's costume rather than light's. There is no
+`noon_equivalent` for weather, so the scene holds the *source* constant
+instead:
+
+1. **The well is topped up every frame** (`run_colony_with`'s new per-frame
+   hook), making the left half wet at every phase while rain can still wet
+   the right half without ever making it a spring.
+2. **The gradient is averaged over 40 samples through the run**, not read at
+   one instant — two instants fitted to one trajectory is the failure this
+   file's own §V records by name.
+3. **The spring is asserted to still be standing** (`water_after >= 20`)
+   before anything is concluded from the field it feeds.
+
+Measured after the fix: **steep half 1.9206, flat half 0.1061, margin 1.8146**
+on `MAX_MOISTURE` = 4.0, against a residue below the sixth decimal before. The
+bar is 0.5 — a little over a quarter of the measurement, and comfortably above
+the flat half's own 0.1061.
+
+**Both guards were broken deliberately to prove they bite**, and the result
+changed the fix. Removing the spring alone leaves the *averaged* margin at
+1.4033 — because the average still sees the rainy phases — so the time-average
+by itself would have "closed" bug H while the scene was still empty at the
+end. It is the standing-water assertion that catches it. Guard 3 exists
+because of that break test, not in spite of it.
+
+**One half of this scene is still not tested, and that is recorded rather than
+tuned away.** The headline assertion `wet_drops > dry_drops` is **vacuous**:
+deleting `moisture_gradient` from the drop probability in `creature.rs:1254`
+entirely — the whole mechanism the scene is named for — left it passing
+*harder*, steep 18 / flat 0 against steep 6 / flat 0. Removing a multiplier
+below 1.0 raises the drop rate everywhere, and the flat half reads zero in
+both arms because the ants never travel that far. It has been demoted to a
+printed measurement.
+
+Its successor is a **ratio**: mean `|grad moisture|` at the cells ants actually
+dropped on, over the mean across the whole band they could have dropped on.
+That does separate the arms — **4.97x with the bias against 2.84x without** —
+but both stand on 6 and 18 standing drops, and a bar from a ratio of six cells
+is the same knife-edge this scene has already been bitten by. It is printed,
+not asserted. What it needs is more drops to average over, which is blocked on
+the same thing everything else here is: **ants that leave home at all** (see
+the foraging entry below).
+
+`ascii` is gating in CI again on this basis, with `skip=foraging` naming the
+one scene still red instead of the whole example being non-blocking.
 
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
@@ -2833,6 +2894,74 @@ through a wall.
 fix; recorded because it is live, it is invisible (a probe that always says
 yes looks exactly like a probe that is working), and nothing else in the
 handoff names it.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, unattributed, found 2026-08-23**
+
+`examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
+`main`:
+
+```
+the colony has gone sessile: 2 round trips of 8+ cells (measured 98 here),
+deepest excursion 15 cells, reach profile [689, 22, 8, 2, 0, 0, 0, 0]
+```
+
+The bar (`forage_trips >= 14`) was set in `da252dc` from **98** measured on
+this same scene at 12,000 frames, with the profile
+`[3858, 475, 185, 98, 1, 0, 0, 0]` that README's M18 status still quotes.
+Every bucket is down about 5x and the long tail is gone. **The bar has not
+been moved**, and it should not be until the cause is known.
+
+**Deterministic, not noise.** Identical counters on a contended run and a solo
+one — `moves 5040 blocked 156 pickups 1340 drops 1310 deliveries 143` both
+times — with only the timings moving (worst 66.3 vs 89.8 ms, mean 3.928 vs
+3.957). One scene reproduces it in 50s (`ascii scene=foraging`).
+
+**Why nobody saw it.** Neither `da252dc` nor `5a9e594` lists `ascii` among its
+gates — both list tests, clippy, docscheck and acceptance — and the CI job had
+been `continue-on-error` over bug H since `0a345c4`. A blanket quarantine taken
+out for one known red absorbed a second, larger, unknown one, for two commits.
+That is the same defect as a skipped step, and it is why `ascii` now
+quarantines by scene name instead.
+
+**Not attributed.** 25 commits sit between `5a9e594` and `main`, including the
+world-scale branch's `worldgen`, `evaporation`, `field` and `weather` work, and
+this scene builds its world from `worldgen::generate` — so a terrain, rain or
+moisture change is as plausible as a creature one. A bisect over that range is
+the obvious next step and is cheap now that one scene runs in 50s.
+
+**What is ruled out, by measurement.** Not starvation and not a missing food
+supply — the opposite. The scene's food census, attributed by material for the
+first time, reads at 12,000 frames:
+
+```
+food stock 1459080 energy, of which corpse 0 | leaf 1279920 (88%),
+litter 164520 (11%), ant 7200 (0%), moss 4680 (0%), seed 2760 (0%)
+```
+
+The stock **triples** over the run (441,360 -> 1,459,080) while the colony
+eats **0** and delivers 143. So the world grows food faster than 55 ants can
+consume it, and it grows it *overhead* — 88% is leaf on standing trees, within
+a body length of wherever an ant is. This is README limitation #1 ("the floor
+feeds the colony and the colony stops ranging") arriving far more extreme than
+the numbers recorded there, and with the **canopy**, not the floor, as the
+term that dominates.
+
+Not the litter, also by measurement. Paired, same seed, rebuilt between arms:
+`litter.ron`'s `decay_chance_damp/dry` 0.5/0.1 -> 0.9/0.4 cuts standing litter
+**4.7x** (164,520 -> 34,800 energy, 11% -> 3%) and moves the colony from 2
+round trips to **3**, deepest 15 -> 15, moves 5,040 -> 4,863, deliveries 143 ->
+123. The knob is connected; the ants do not notice, because 96% of their food
+is still hanging above them.
+
+**Whether the colony *should* range more is a design call, not a bug fix**, and
+it is on the owner's queue as card `20260823T091259637Z-9a41e4` ("How scarce
+should the forest floor be?"). The bug here is narrower and stands whatever he
+answers: a guard set from a measurement now misses it by 7x, and nothing in CI
+said so.
+
+Blocks the deposition half of §H, which needs ants that travel to have
+anything to measure.
+
 
 ## Closed this session
 
