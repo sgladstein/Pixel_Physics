@@ -1,0 +1,72 @@
+{
+  "id": "20260823T064558069Z-7cf7f0",
+  "created": "2026-08-23T06:45:58Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "b378488",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Spoil: CLEAN vs the new TRACE (10%) vs DUST — watch him tunnel",
+  "question": "Is TRACE the 10% you wanted — diggings you can see underfoot, without the bore closing behind you? And is CLEAN still right as the default, or should TRACE be?",
+  "context_md": "**My last two cards were unreadable and you were right to say so.** The tunnel crop missed the gnome by 40 rows, and the chaining pair genuinely has nothing to see in a still — I measured it afterwards: only 0.3% of pixels differ on the final frame. Redone as animation, cropped on him.\n\n`scene=tunnel`, identical gnome and identical 42 bites. Only `dig_yield` differs. 20 frames, frame 20 to 324.\n\n`TRACE` at 0.10 is new, added on your verdict. The old list stepped 0 → 0.35 → 0.55 → 1.0 with nothing in between, and 0.35 is worse than it sounds: he **wades from bite 19, goes under at frame 225, digs out 7 ticks later**, and covers 46 cells of ground where CLEAN covers 120.\n\nCLEAN is the default as you asked. TRACE is one `F2` press away — say the word and they swap.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "CLEAN — 0% stays (the default)",
+      "files": [
+        "20260823T064558069Z-7cf7f0/000-tun-00.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.0,
+        "bites": 42,
+        "ground covered (cells)": 120,
+        "ticks buried in own spoil": 0
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "TRACE — 10% stays (new)",
+      "files": [
+        "20260823T064558069Z-7cf7f0/001-tun-010.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.1,
+        "bites": 42,
+        "ground covered (cells)": "see counter below",
+        "ticks buried in own spoil": "see counter below"
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "DUST — 35% stays (the old default)",
+      "files": [
+        "20260823T064558069Z-7cf7f0/002-tun-035.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "dig_yield": 0.35,
+        "bites": 42,
+        "ground covered (cells)": 46,
+        "ticks buried in own spoil": 7
+      },
+      "focus": null,
+      "gif_frames": 20
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
