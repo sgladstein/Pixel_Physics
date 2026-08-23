@@ -2145,6 +2145,23 @@ struct Args {
     /// `ignite=x,y,radius,frame` -- start a fire at a chosen frame, after
     /// the vegetation has had time to grow. Repeatable.
     ignitions: Vec<(i32, i32, i32, usize)>,
+    /// `dry=aux,frame` -- reset every water-holding cell in the world to
+    /// `aux` at `frame`, on `SOIL_SATURATED`'s scale.
+    ///
+    /// **A dry meadow cannot be grown, which is why this is a knob and not
+    /// a scene parameter.** Measured on this branch: a sward started at
+    /// soil 250 finishes 3,000 frames of growth with the ground at 289 and
+    /// climbing, because unplanted soil has three moisture sources and one
+    /// sink (`Reports/open-bugs-handoff.md` §F8, open). Every starting
+    /// value from 250 to 620 therefore grows the *same* sward on damp
+    /// ground, and a burn shot at any of them is a burn on damp ground.
+    ///
+    /// Resetting after growth and before the ignition gives **identical
+    /// fuel and one variable**, which is the paired comparison the burn
+    /// work needs -- the same reason `examples/fire_probe.rs` carries
+    /// `burnmoisture=`. Leave a few hundred frames between this and
+    /// `ignite=` for the moisture field to catch up with the ground.
+    dries: Vec<(u16, usize)>,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -2726,6 +2743,7 @@ fn parse() -> Args {
         plants: 0,
         soil_depth: common::SOIL_DEPTH,
         ignitions: Vec::new(),
+        dries: Vec::new(),
         preset: String::new(),
         start: 100,
         every: 60,
@@ -2815,6 +2833,11 @@ fn parse() -> Args {
                 let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
                 assert_eq!(n.len(), 4, "ignite=x,y,radius,frame");
                 a.ignitions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3] as usize));
+            }
+            "dry" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("dry")).collect();
+                assert_eq!(n.len(), 2, "dry=aux,frame");
+                a.dries.push((n[0] as u16, n[1] as usize));
             }
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
@@ -3231,6 +3254,41 @@ fn solid_surface_y(world: &World, x: i32) -> i32 {
 /// "Did the fire start in the grass" is a counter question: an ignition two
 /// rows above a sward looks identical on a contact sheet to one inside it,
 /// and it would smoulder out while reading as a fire that failed to spread.
+/// Apply every scheduled `dry=` whose frame has arrived. Same drain-based
+/// shape as `fire_due_ignitions` below and called from the same places,
+/// for the same reason: this has to land *after* the vegetation has grown,
+/// and growth is what makes the ground damp in the first place.
+///
+/// Reports the cell count it changed and what the ground was before, not
+/// just what it was set to. "Did the reset reach the bed" is a counter
+/// question -- a `dry=` aimed at a scene with no water-holding material in
+/// it changes nothing and looks, on a contact sheet, exactly like a dry
+/// meadow that refused to burn for some other reason.
+fn fire_due_dries(world: &mut World, pending: &mut Vec<(u16, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].1 <= now {
+            let (aux, _) = pending.remove(i);
+            let Some(b) = world.bounds() else { continue };
+            let (mut changed, mut before) = (0usize, 0u64);
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = world.get(x, y);
+                    if world.materials.get(c.material).water_capacity > 0 {
+                        before += u64::from(pixel_physics::sim::update::soil_moisture(c));
+                        changed += 1;
+                        world.set(x, y, c.with_aux(aux));
+                    }
+                }
+            }
+            let mean = if changed == 0 { 0 } else { before / changed as u64 };
+            println!("  dry: {changed} water-holding cells set to aux {aux} at frame {now} -- they averaged {mean} before");
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -4580,6 +4638,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     let mut depowder_first = true;
     let mut pending_pokes = args.pokes.clone();
     let mut pending_ignitions = args.ignitions.clone();
+    let mut pending_dries = args.dries.clone();
     let mut blasts = explosion::Blasts::new();
     if let Some(v) = args.joint_reach {
         blasts.tuning.joint_reach = v;
@@ -4644,6 +4703,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
                 fire_due_fell(&mut world, &mut pending_fell, step_no);
                 fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
                 fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+                fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
                 step_no += 1;
@@ -4654,7 +4714,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+            fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
             if args.stress {
@@ -4774,7 +4835,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+            fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             // Outside the timed region below on purpose: a panel capture is
             // harness cost, and folding it into the worst-frame number would
             // make the sheet's own instrument report the sheet.
@@ -4828,7 +4890,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         fire_due_fell(&mut world, &mut pending_fell, step_no);
         fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
         fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-        fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+        fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
         if let Some(p) = panels.as_mut() {
             p.capture(&world, &particles, &fired, step_no);
         }

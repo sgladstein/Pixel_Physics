@@ -148,6 +148,12 @@ tried?"*.
   implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+- [root-blob-and-uptake-surface-2026-08-23.md](root-blob-and-uptake-surface-2026-08-23.md)
+  — **measurement, no mechanism.** Sizes the owner's "a root cell not
+  touching soil cannot benefit the plant and has a cost" proposal before it
+  is built: a third of every root system is walled in, but the share does
+  not rise with mass, so the cost is a flat tax rather than a brake. The
+  argument that survives is the unpriced 51-79% per-plant contact spread.
 - [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
   **implemented.** Worldgen sows four woody species instead of the
   hardcoded `"tree"`, by weights over terrain facts that already existed;
@@ -249,6 +255,15 @@ field rework — see `open-bugs-handoff.md`.
   through.
 - [plant-work-split.md](plant-work-split.md) — **work split.** How the
   plant queue was divided between concurrent sessions.
+- [grassfire-and-the-desert-2026-08-23.md](grassfire-and-the-desert-2026-08-23.md)
+  — **W2: E5 shipped, E6 is a decision card awaiting the owner.** Why the
+  grassfire did not spread (a sward that looks continuous is 71 separate
+  4-connected islands, and contact ignition reaches one of them) and why
+  `MOISTURE_IGNITION_RESISTANCE` measured as inert (its channel reads
+  exactly 0.000 at 96.8% of fuel cells at *every* ground wetness, because a
+  field block holding a `Plant` cell is `blocked` and never diffuses). Ships
+  a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
+  three §X desert levers, two of which have changed since the record.
 
 ## Worldgen and world
 
@@ -319,7 +334,13 @@ field rework — see `open-bugs-handoff.md`.
   Carries the measurement that prices render-side sway at +8.0 ms/frame over
   a grown stand, and the deleted prototype that takes a fell from 1.7% to
   58% of the severed mass coming down as pieces. Supersedes
-  `felling-blockers.md` §2.
+  `felling-blockers.md` §2. **§11 is a later addendum** — wind-throw, with
+  roots as anchorage and slenderness as an independent failure mode, staged
+  as T6. Its three scheduling calls are decided (the economy half moves into
+  P2; wind geography is dispatched as W4; plasticity is built as a heritable
+  reaction norm), and §11.6a establishes from source that the genome already
+  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
+  been measured or rendered.
 
 ## Open working files
 

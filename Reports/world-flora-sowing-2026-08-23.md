@@ -513,6 +513,31 @@ once, which no architectural lever has managed. They also give `Reproduce`
 something visible to be, closing the oddity that a plant currently sets seed
 with no reproductive structure at all.
 
+### Re-confirmed on a corrected render, so the diagnosis no longer has a caveat
+
+The verdict above was given on a gallery in which **`conifer` was drawing
+uniformly over the whole palette** — its `foliage_bands` and `bark_bands`
+had been dropped by the edit that wrote the note above them, and `count: 0`
+means "undeclared" to `banded_shade`. One of the four species being judged
+for its look was noise, so the verdict carried an obvious objection: he had
+not seen the set the package actually built.
+
+Re-rendered with the bands restored and the objection removed:
+
+> *"Yes it look more different but my statement from before stands that most
+> of the difference between all of these is just size and color"*
+
+**The fix helped and the diagnosis is unchanged.** That matters more than it
+sounds: the architectural conclusion in this section can no longer be
+answered with "you judged a broken card", and the four-species set has now
+failed the same test twice, the second time cleanly. Colour was the one
+lever this package had left to pull, it was pulled correctly, and it moved
+the answer from "different-ish" to "more different" without moving it to
+"different plants".
+
+So the sequencing below is not a hedge — it is what is left after the cheap
+levers are spent.
+
 ### The honest limit
 
 Leaf **shape** is not reachable and should not be promised. A leaf is a blob
