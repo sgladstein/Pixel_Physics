@@ -129,12 +129,24 @@ jobs:
       - name: trunk has no stranded twin
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
-  # --- Known-red quarantine -------------------------------------------------
-  # Two gates are red on `main` today for reasons that have nothing to do with
-  # whatever branch is being pushed: bug H (`ascii`'s ants moisture-gradient
-  # scene asserts a gradient the scene no longer has) and bug Y (the gnome
-  # covers 98 cells of the `wood` case's 200). Both are recorded in
-  # `Reports/open-bugs-handoff.md` and are guards the owner keeps deliberately.
+  # --- Known-red quarantine, now empty --------------------------------------
+  # This block existed because three gates were red on `main` for reasons that
+  # had nothing to do with whatever branch was being pushed. All three are now
+  # resolved, by three different routes, and the quarantine machinery below is
+  # gone with them:
+  #
+  #   * **bug Y** -- FIXED on `main`. The `wood` acceptance case gates again.
+  #   * **bug A** -- guard SPLIT, bug still open. See below.
+  #   * **bug H** -- `ascii` stays non-gating, but no longer for bug H's
+  #     reason: it dies earlier now, on the colony sessility guard (§H2), and
+  #     never reaches bug H's assertion at all.
+  #
+  # One caution for whoever reads a red `cargo test` on a branch here:
+  # `tests/worldgen.rs`'s `a_forced_vault_world_is_sealed_and_arrives_at_rest`
+  # is red on `main` itself (§H3) and is *not* excluded from anything, so a
+  # perfectly healthy branch shows a red `test` job. Attribute against `main`
+  # before touching it -- and note `cargo test --lib` does not run `tests/`, so
+  # a local `--lib` gate will not see it.
   #
   # **Bug A's exclusion and its paired job are gone, and its bug is not
   # closed** -- read this before assuming it was. The guard asserted a 10%
@@ -150,17 +162,17 @@ jobs:
   # calls worse than a red one -- hence deletion rather than retargeting.
   # `Reports/open-bugs-handoff.md` §A carries the gap.
   #
-  # Turning branch CI on without doing something about them would show every
-  # agent four red jobs on push one, and a permanently-red signal teaches
-  # people to stop reading it -- the same defect as a gate that never runs,
-  # which this repo has already paid for (`capped` passed its acceptance case
-  # for two commits while the structure was frozen and never evaluated).
-  #
-  # So each known red is *excluded by name* from the gating job and re-run in
-  # its own `continue-on-error` job below. Nothing is skipped, hidden or
-  # deleted: the guard still executes and its output is still in the log. The
-  # only thing that changes is whether it blocks. Delete the exclusion the day
-  # its bug closes -- and the paired job is what tells you that day arrived.
+  # The reasoning that built the quarantine, kept because it is what to do if
+  # one is needed again: turning branch CI on with permanent reds would show
+  # every agent several red jobs on push one, and a permanently-red signal
+  # teaches people to stop reading it -- the same defect as a gate that never
+  # runs, which this repo has already paid for (`capped` passed its acceptance
+  # case for two commits while the structure was frozen and never evaluated).
+  # So a known red is *excluded by name* from the gating job and re-run in its
+  # own `continue-on-error` job, where it still executes and still logs, and
+  # the only thing that changes is whether it blocks. Delete the exclusion the
+  # day its bug closes -- and the paired job is what tells you that day
+  # arrived. That is exactly how bug Y's came off.
   test:
     name: cargo test (release)
     runs-on: ubuntu-latest
@@ -248,8 +260,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-        # `wood` is bug Y; it runs in the known-red job below.
-      - run: SKIP_CASES=wood bash scripts/acceptance.sh
+      - run: bash scripts/acceptance.sh
 
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
@@ -272,24 +283,32 @@ jobs:
       - run: cargo fmt --check
         continue-on-error: true
 
-  # --- The known reds, run where they cannot block ---------------------------
-  # Each pairs with an exclusion above. They exist so a recorded bug stays
-  # *visible and executing* rather than being skipped into invisibility -- and
-  # so that the day one starts passing, something says so. A green tick here is
-  # the signal to delete both the job and its exclusion.
-
-  known-red-gnome:
-    # Bug Y: the gnome covers 98 cells of the `wood` case's 200. Excluded from
-    # `acceptance` via SKIP_CASES; run alone here via ONLY_CASES.
-    #
-    # Measured 2026-08-23, paired, same build: litter on 98, litter off 195.
-    # So shed litter is essentially the whole shortfall, and the bar is nearly
-    # reachable without it -- 5 cells short, against 48 short when bug Y was
-    # written. The bar itself is sound: the case was authored at a measured 362.
-    name: "known red: bug Y (gnome through the wood)"
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
-      - run: ONLY_CASES=wood bash scripts/acceptance.sh
+  # --- No known-red jobs remain, and that is new ----------------------------
+  # This section held one `continue-on-error` job per recorded red, each paired
+  # with an exclusion in a gating job above, so that a known bug stayed
+  # *visible and executing* rather than being skipped into invisibility. Both
+  # are now gone, from opposite directions and in the same merge:
+  #
+  #   * **bug Y** (the gnome through the wood) was FIXED on `main`, which
+  #     deleted `known-red-gnome` and dropped `SKIP_CASES=wood` from the
+  #     gating `acceptance` job. The case gates again.
+  #   * **bug A** (the slot-1 root spread) had its guard *split* rather than
+  #     fixed. The lever measures dead -- 0.994, SE 0.046 over 8 seeds, 0.1 SE
+  #     from no effect -- so no bar with headroom exists over the forward
+  #     claim. What is measurably true (slot 1 does not move the shoot, and
+  #     does not order roots backwards) is asserted seed-swept by
+  #     `slot_1_is_a_root_locus_and_not_a_shoot_one` and gates in `test` and
+  #     `test-debug`; the dead half survives as an `#[ignore]`d reproduction
+  #     under the original name. A `continue-on-error` job pointed at an
+  #     ignored test reports green, which this file's own rule calls worse
+  #     than a red one -- hence deletion rather than retargeting.
+  #     `Reports/open-bugs-handoff.md` §A carries the gap; **the bug is not
+  #     closed.**
+  #
+  # `ascii` is still non-gating, but it needs no paired job: it carries its own
+  # `continue-on-error` above. Note it no longer fails for bug H -- it dies
+  # earlier now, on the colony sessility guard, which is §H2.
+  #
+  # If a red has to be quarantined again, restore the shape rather than
+  # inventing one: an exclusion by name in the gating job, and a
+  # `continue-on-error` job that runs the same thing where it cannot block.
