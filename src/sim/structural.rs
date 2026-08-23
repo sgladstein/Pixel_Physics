@@ -6231,6 +6231,11 @@ mod tests {
     /// is what the point-disturbance model was. `CLAUDE.md`: compare two
     /// runs, not one run against a remembered number.
     ///
+    /// Judged on **cells promoted** -- rock lifted out of the grid as a
+    /// moving body -- and not on the failure counters, which count
+    /// judgements rather than damage. See the comment at the assertion for
+    /// the measurement that forced the change.
+    ///
     /// Driven by `Blasts::trigger_with`, never `trigger_tuned`: only the
     /// former records a disturbance at all, so a guard written on the other
     /// has zero disturbances, behaves identically at every mode, and is
@@ -6290,11 +6295,40 @@ mod tests {
         let mut point = massif(tight);
         fire(&mut point, true);
 
-        let with_extent = wound.structural_failures.overloaded_cells + wound.structural_failures.unsupported_cells;
-        let without = point.structural_failures.overloaded_cells + point.structural_failures.unsupported_cells;
+        // **Rock that actually came away, not rock that was flagged.**
+        // `overloaded_cells`/`unsupported_cells` sum the *failing region* at
+        // every `record` call, and `record` runs before the free-face test,
+        // the erosion, the slicing and the fracture -- so the same rock is
+        // counted again on every re-evaluation and the totals can be large
+        // on a run where nothing moved at all. That made this guard read
+        // backwards once `origin/main`'s `grain_is_footing` landed and rubble
+        // stopped anchoring: the *leashed* arm, unable to fail decisively,
+        // grinds the same rock over and over -- **86 unsupported events
+        // against the licensed arm's 30** -- and out-accumulates the arm
+        // that collapsed once and was done. Measured at frame 600:
+        //
+        //     quantity                 wound     point     ordering
+        //     region sum (was)          1022      1586     inverted
+        //     promoted cells (now)       840       649     wound +29%
+        //     stone destroyed            657       648     wound +1.4%
+        //
+        // `promoted_cells` is the one with a margin worth a bar, and it is
+        // the honest question besides: did the blast's own seams come *away*.
+        // Stone destroyed orders correctly and is rejected on headroom --
+        // `CLAUDE.md` wants a bar set from measurement with room, not one
+        // sitting on it. Shortening the run was rejected too: it passes at
+        // 100 and 200 frames, but `CHAIN_WINDOW_FRAMES` is 600, so the
+        // licence is live for the whole run and stopping early would be
+        // tuning to green rather than measuring anything.
+        //
+        // Fourth time a count in this repo has caught a mode shift rather
+        // than a behaviour change -- see §17g's `roomcut` and case 6's
+        // `strike`. `CLAUDE.md`: a failure count is not a damage count.
+        let with_extent = wound.structural_failures.promoted_cells;
+        let without = point.structural_failures.promoted_cells;
         assert!(
             with_extent > without,
-            "the extent bought nothing: {with_extent} cells failed with the wound licensed against {without} with a point licence -- TIGHT is leashing the blast's own seams"
+            "the extent bought nothing: {with_extent} cells came away with the wound licensed against {without} with a point licence -- TIGHT is leashing the blast's own seams"
         );
 
         // ...and the chain past the wound is still leashed. Anything the
