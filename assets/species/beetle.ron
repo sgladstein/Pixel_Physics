@@ -44,6 +44,16 @@
         body_energy: 200.0,
         hunger_fraction: 0.8,
         food: ["ant", "corpse"],
+
+        // Pure carnivore: both foods on this menu sit at `food_class: 1.0`,
+        // so `+1.0` is the faithful translation and it costs the beetle
+        // nothing -- the filter reads 1.0 against flesh, which is the same
+        // mouthful it took before. It also makes the beetle blind to every
+        // plant food in the world for free, which the name-list was doing
+        // by omission.
+        traits: (1.0,),
+        trait_variance: (0.15,),
+
         nest: "nest",
         dig_force: 0.3,
         nest_memory: 3000,

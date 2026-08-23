@@ -742,6 +742,13 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         state.chain = positions;
         state.heading = 0; // east
         state.genome = genome;
+        // The ancestral body traits, byte-copied. **The one seam that puts
+        // a creature in the world, so the one place a trait can be seeded**
+        // -- `push_organism` leaves the neutral vector because it does not
+        // know whether it is allocating a plant. When S6 lands, the child's
+        // vector is the *parent's* jittered by `trait_variance`, and this
+        // line is what it replaces.
+        state.traits = def.traits;
         // Starts *at* the nest as far as scent goes: an ant that has just
         // hatched has, by construction, just been at home.
         state.since_nest = 0;

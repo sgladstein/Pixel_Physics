@@ -1452,6 +1452,16 @@ impl World {
             genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
             // Creature fields: a plant is a chainless, headingless organism
             // with no energy budget of its own, and stays at these.
+            //
+            // `traits` is the *neutral* vector rather than any species'
+            // authored one, because `push_organism` does not know whether
+            // it is allocating a plant or a creature. `plant_creature_seed`
+            // overwrites it from `CreatureDef::traits` one line after this
+            // returns; a creature that reached the world without going
+            // through that seam would eat as a generalist rather than
+            // silently as a carnivore, which is the failure direction to
+            // prefer.
+            traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
             heading: 0,
             energy: 0.0,

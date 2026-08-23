@@ -114,6 +114,28 @@
         // S4 measured was terrain, not feeding -- litter smooths the ground,
         // and `blocked` fell from 7,342 to 3,292 over the same run.
         food: ["corpse", "seed", "leaf", "moss", "litter"],
+
+        // **The heritable gut, slot 0 of `organism::CREATURE_TRAITS`.**
+        // Neutral, because this animal's menu above spans the whole diet
+        // axis -- four plant foods at `food_class: -1.0` and a corpse at
+        // `+1.0` -- and neutral is the only value that keeps all five
+        // edible. It is *not* a claim that a generalist gut is what an ant
+        // should have; that is a game-feel call on the owner's queue, and
+        // the value here is the one that changes the menu least.
+        //
+        // What it does change is the *yield*: the matched filter reads
+        // 0.25 at neutral against either end of the axis, so a mouthful
+        // pays 30 where it paid 120 before. Specialising is what buys that
+        // back (0.81 at +-0.8), which is the trade the stage exists to
+        // create -- but the colony economy has not been re-measured
+        // against it, because the instruments that would say so are WP-4's
+        // and were not on `main` when this landed. Flagged, not hidden.
+        traits: (0.0,),
+        // Read by nothing until S6. Authored here so the width and the
+        // ancestral value it widens cannot drift apart in separate
+        // commits -- see `CreatureDef::trait_variance`.
+        trait_variance: (0.15,),
+
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

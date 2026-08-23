@@ -788,6 +788,23 @@ pub enum OrganismOverlay {
     /// a sheet that read as blank because the ramp was red and the material
     /// brown.
     FoodValue,
+    /// **The heritable gut**, `-1` (plant matter) through `+1` (flesh),
+    /// over every cell of every creature.
+    ///
+    /// **Built before anything reads the trait for a decision**, the same
+    /// house law `FoodValue` above was built under: `gut_bias` is a
+    /// per-organism scalar that decides what an animal can even see as
+    /// food, and a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. The palette lerp
+    /// that ships beside it is *not* this readout — two pixels cannot
+    /// carry a quantity (the corpse-shade ramp spans 84..104 in red and
+    /// the owner judged a widened version "pretty minor"), so the colour
+    /// says "not all the same" and this says how much.
+    ///
+    /// Signed, so the ramp floor is a *herbivore* and not a missing value;
+    /// a cell that is not part of a creature returns `base` untouched, so
+    /// the two are still told apart by whether the cell is painted at all.
+    GutBias,
 }
 
 impl OrganismOverlay {
@@ -799,7 +816,8 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
             OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
-            OrganismOverlay::FoodValue => OrganismOverlay::Off,
+            OrganismOverlay::FoodValue => OrganismOverlay::GutBias,
+            OrganismOverlay::GutBias => OrganismOverlay::Off,
         }
     }
 
@@ -812,6 +830,7 @@ impl OrganismOverlay {
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
             OrganismOverlay::FoodValue => "FOOD VALUE",
+            OrganismOverlay::GutBias => "GUT BIAS",
         }
     }
 }
@@ -865,6 +884,11 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// moss and leaf, which are already green, and against corpse, which is
 /// already dull red.
 const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
+/// Distinct again from `SCALAR_RAMP_FOOD`: the two get switched between
+/// while asking one question ("can this animal eat that cell"), and reading
+/// a gut sheet as a food sheet is exactly the confusion two neighbouring
+/// ramps invite. Orange against food's cyan.
+const SCALAR_RAMP_GUT: [f32; 3] = [255.0, 150.0, 60.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -3463,6 +3487,30 @@ impl Renderer {
             }
             return out;
         }
+        if self.organism_overlay == OrganismOverlay::GutBias {
+            // Asks the *organism*, not the cell: `gut_bias` is a property of
+            // the animal, and every cell of a chain carries the same one.
+            // A plant organism has the neutral vector and would paint at
+            // mid-ramp, which would read as "this tree has a gut" -- so the
+            // creature test is `chain`, the field only a creature fills.
+            let Some(state) = world.organism(cell.organism_id()) else {
+                return base;
+            };
+            if state.chain.is_empty() {
+                return base;
+            }
+            // `-1..=1` onto `0..=1`: the ramp floor is a herbivore rather
+            // than a missing reading, and the guard above is what keeps
+            // "not a creature" distinguishable from "eats plants".
+            let t = (state.traits[organism::TRAIT_GUT_BIAS] + 1.0) / 2.0;
+            let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_GUT);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
         if cell.organism_id() == 0 {
             return base;
         }
@@ -3474,7 +3522,7 @@ impl Renderer {
             // about every cell in the world -- a fallen leaf and a corpse
             // are food and belong to no organism, which is exactly the case
             // the tissue guard below would drop.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
