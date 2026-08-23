@@ -255,6 +255,15 @@ field rework — see `open-bugs-handoff.md`.
   through.
 - [plant-work-split.md](plant-work-split.md) — **work split.** How the
   plant queue was divided between concurrent sessions.
+- [grassfire-and-the-desert-2026-08-23.md](grassfire-and-the-desert-2026-08-23.md)
+  — **W2: E5 shipped, E6 is a decision card awaiting the owner.** Why the
+  grassfire did not spread (a sward that looks continuous is 71 separate
+  4-connected islands, and contact ignition reaches one of them) and why
+  `MOISTURE_IGNITION_RESISTANCE` measured as inert (its channel reads
+  exactly 0.000 at 96.8% of fuel cells at *every* ground wetness, because a
+  field block holding a `Plant` cell is `blocked` and never diffuses). Ships
+  a flame body, a fuel-wetness gate, and `examples/fire_probe.rs`; costs the
+  three §X desert levers, two of which have changed since the record.
 
 ## Worldgen and world
 

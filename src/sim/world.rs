@@ -2230,6 +2230,20 @@ impl World {
         field::sample(&self.fields, self.bounds, world_x, world_y)
     }
 
+    /// See `field::ground_wetness_at` -- how wet the matter at and just
+    /// below `(x, y)` is, `0..=1`. `fire::try_ignite`'s moisture gate.
+    pub fn ground_wetness_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::ground_wetness_at(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// How strongly the field block at `(x, y)` sources moisture, `0..=1`.
+    /// `ChunkView`'s half of `ground_wetness_at` above -- it has to
+    /// assemble the two samples itself, because during a parallel pass one
+    /// of them may live in its own detached tile rather than in `self`.
+    pub(crate) fn moisture_source_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::moisture_source_at(&self.fields, self.bounds, world_x, world_y)
+    }
+
     /// Bilinear-interpolated field read at a fractional world position —
     /// architecture report §6a, "the resolution problem." Unlike `field_at`,
     /// two positions inside the same `FIELD_SCALE`-sided block don't
@@ -3641,6 +3655,11 @@ impl CellSurface for World {
     #[inline]
     fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
         World::field_at(self, x, y).moisture
+    }
+
+    #[inline]
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        World::ground_wetness_at(self, x, y)
     }
 
     #[inline]
