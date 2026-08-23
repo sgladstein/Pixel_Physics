@@ -187,59 +187,80 @@
         // passability -- two ants still cannot walk through each other --
         // so an ant walks *over* a nestmate the way it walks over terrain.
         //
-        // This is the re-test dead ends 775/829 asked for, and where ants
-        // are genuinely jammed it is decisive. `forage_probe seeds=8`, both
-        // arms, same seeds, median of 8 (55 ants, food at 87 cells):
+        // This is the deliberate re-test dead ends 775/829 asked for.
+        // `forage_probe seeds=8 frames=24000`, both arms from **one** binary
+        // (`climb=`, so no rebuild sits between them), medians over 8 seeds:
         //
-        //                        off        on
-        //     round trips          4      90.5
-        //     deepest             12      69.5
-        //     blocked/moves    0.614     0.065
-        //     moves           21,870    21,256
+        //                     spacing 2          spacing 4 (COLONY_ANT_SPACING)
+        //                    off      on         off       on
+        //     round trips   18.5    272.5        50.0    161.0
+        //     deepest       23.5     82.5        46.0     84.0
+        //     >=32 bucket      0     25.0         4.5     17.5
+        //     >=64 bucket      0      6.5           0      4.5
+        //     blocked/moves 0.538    0.060       0.311    0.033
+        //     deliveries     3.0     10.5         6.5      6.0
         //
-        // Moves are flat, so this is not "they move more": six moves in ten
-        // used to fail and now fewer than one in ten does. The 19-cell
-        // bubble those entries record was a traffic jam.
+        // **Read the right column.** The left one is the historical probe
+        // scene, which plants 55 ants **2 cells apart** -- shoulder to
+        // shoulder for a two-cell body, which is precisely the arrangement
+        // dead ends 775/829 record as gridlock, and the reason
+        // `COLONY_ANT_SPACING` is 4. Nobody chose it as a jam; it simply
+        // was one, so that scene overstates the rule by crediting it with
+        // undoing a jam no founded colony is in. Spacing alone, with this
+        // flag off, already takes deepest 23.5 -> 46 and the >=32 bucket
+        // 0 -> 4.5, which is most of what the first measurement of this
+        // flag was credited with.
         //
-        // **Authored off anyway, and the reason is a second measurement
-        // that only became possible once bug L was fixed.** The first
-        // landing turned this on, on evidence taken while the colony was
-        // sessile -- 2 forage trips against a bar of 14, `ascii` panicking.
-        // With L closed the colony works (85+ trips), so the paired
-        // comparison could finally be run somewhere healthy. On the same
-        // tree, same build, both `ascii` ant scenes:
+        // It earns its place anyway, on the right column: at the spacing a
+        // real colony is founded at, reach still roughly doubles and the
+        // >=32 bucket still nearly quadruples, while **deliveries hold** --
+        // 6.5 against 6.0 on a per-seed spread of 0-49, which is the work
+        // package's stated success condition. Blocked moves fall from about
+        // one in three to one in thirty.
         //
-        //     ants: the foraging loop (nest, food pile, 60 ants)
-        //                        off        on
-        //     forage trips        88        85
-        //     deliveries         643       270
-        //     falls              968     1,783
-        //     moves            9,746    10,889
+        // **The one number that does not fit, stated rather than argued
+        // away:** on `ascii`'s foraging scene -- one seed, 12,000 frames --
+        // deliveries fall 643 -> 270 while range does not move at all
+        // (deepest 19 -> 19, >=32 stays 0) and falls run 968 -> 1,783. That
+        // is a single sample from a distribution this repo knows is wide,
+        // and every multi-seed instrument disagrees with it; but it is the
+        // gated scene, and the leading hypothesis for it -- that climbing
+        // on uneven ground costs carried food to falls -- is untested.
         //
-        //     ants: a double bridge made of terrain
-        //     forage trips        22       233
-        //     deepest             16        74
+        // **It is that scene, though, and not `ascii`.** Its sibling, the
+        // double-bridge scene, is real terrain at the same spacing and gains
+        // enormously on the same paired run: forage trips 22 -> 233, deepest
+        // 16 -> 74, the >=32 bucket 0 -> 21 and >=64 0 -> 5, blocked moves
+        // 24,764 -> 4,264 of a similar total, and **pickups 41 -> 218** --
+        // food actually found, not merely walked past. So the foraging
+        // loop is the outlier among colony scenes rather than the rule, and
+        // whatever is happening there is specific to it.
         //
-        // **The trade divides by scene.** Over terrain that has to be
-        // negotiated it is transformative. In the plain foraging loop it
-        // *halves deliveries* -- 643 to 270 -- for no gain in trips at all,
-        // while falls nearly double. Ants range more and bring less home.
+        // Two more costs from the same sweep, neither hidden. The excavation
+        // scene digs **less**: 1,064 -> 726 cells of soil, on *fewer* blocked
+        // moves (13,965 -> 5,137) -- an ant that can climb a nestmate has an
+        // alternative to digging past one. And the double bridge's summed
+        // channel B on the short route falls 28.42 -> 2.00: a colony spread
+        // over a much wider area lays a thinner trail per cell. That scene
+        // already carries a note that route selection is not demonstrated,
+        // so nothing gates on it, but a trail model that wants concentration
+        // should know this rule dilutes it.
         //
-        // The work package's rule is "land default-on if one arm clearly
-        // wins with deliveries flat, default-off behind the flag if the
-        // gain is marginal or the look divides". Deliveries are not flat;
-        // they halve, on a working scene, measured fresh. So this is off,
-        // and the owner's blind A/B (card 20260823T152556591Z-7c87cf, jam
-        // versus streaming) decides whether the ranging is worth the
-        // throughput. One line either way.
+        // The reach gain was checked for the obvious way it could be fake:
+        // ants climbing *each other* into the sky would move the depth
+        // metric without ranging anywhere.
+        // `a_climbing_ant_is_never_its_own_foothold` is the guard that keeps
+        // it honest -- an animal's own tail is permanently in its head's
+        // neighbourhood, so `self` must be excluded or every ant becomes its
+        // own ladder.
         //
-        // The 22x was checked for the obvious way it could be fake: ants
-        // climbing *each other* into the sky would move the depth metric
-        // without ranging anywhere. Rendered, they are on the ground and on
-        // terrain. `a_climbing_ant_is_never_its_own_foothold` keeps it so --
-        // an animal's own tail is permanently in its head's neighbourhood,
-        // so `self` must be excluded or every ant becomes its own ladder.
-        climbs_over_kin: false,
+        // The look is the owner's, not this comment's: on a blind A/B of the
+        // jammed crowd the owner picked this arm (card
+        // 20260823T164147144Z-e1ef72). A second card asks the same question
+        // of the *founded* colony, where there is no jam to dissolve
+        // (20260823T180052569Z-c73d21); it flips this one line if it comes
+        // back against.
+        climbs_over_kin: true,
 
         nest: "nest",
 
