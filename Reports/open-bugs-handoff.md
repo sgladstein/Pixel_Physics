@@ -1866,7 +1866,8 @@ so the loss is silent. *Measure:* pond volume vs time, 2x2 over
 tree/no-tree and weather/no-weather, plus a conservation tally on that arm.
 
 **F4. Grass cannot die, and the guard that would have caught it was removed
-— LATENT, and it goes LIVE the day grass is plantable.** Both abscission
+— ~~LATENT~~ FIXED 2026-08-23, see §P3 below; read that before acting on
+this entry, which also gets the grass economy a third wrong.** Both abscission
 rules gate on `CellType::Leaf`; grass has `plastochron: 0` and never makes
 one, so it has no shade death, no drought death, no age death. Separately,
 the "do not germinate on another plant" guard was deleted on the explicit
@@ -2182,6 +2183,120 @@ still seeds). `plant-evolution-design.md` §5's own test — "if it reads ~0 at
 zero. Every plant result in this repo taken at 30k frames or less is a
 statement about the eight trees somebody planted, not about selection. That is
 A2/P3's brief, and it now has its number.
+
+### P3. The generation loop — §F4 closed, seeds given a clock, the slot ceiling made real — **2026-08-23**
+
+Package P3 of the plant implementation split (`Reports/plant-implementation-
+split-2026-08-23.md`), following P1. Four things, and the one worth reading
+first is the correction: **the review report's account of the grass economy
+is a third wrong, and the wrong third is the part that would have sent the
+fix at working code.**
+
+**The grass economy, since it now exists in writing.**
+`plant-project-review-2026-08-23.md` §3 files `grass.ron` as running "an
+undocumented economy": `plastochron: [0,0]` means "no nodes, no leaves,
+income permanently zero, `BudBreak` unreachable". Read against the code:
+
+| claim | verdict |
+|---|---|
+| no leaves | **true** — no `Leaf` cell type exists in the file, by construction |
+| income permanently zero | **FALSE** — `Photosynthesize` sits on `GrowingTip` *and* `MatureBody`, and both are dispatched (the tip from `organism_tick`, the retired blade from `organism_upkeep`'s cell-list walk). Grass earns from every blade it owns. |
+| `BudBreak` unreachable | **true, twice over** — `break_buds` sums intercepted light over `Leaf` only, so `supportable` is 0; and nothing ever *creates* a `DormantBud` for grass, because buds come from `thicken` and grass declares no `SecondaryThicken` |
+
+What is genuinely zero is every quantity **derived from `Leaf` cells**, which
+is a different statement and has one consequence nobody had noticed:
+`organism_upkeep` sums transpirational demand over `Leaf | GrowingTip`, so a
+tussock that has retired every tip has **demand exactly zero**, and
+`settle_water` returns status 1.0 and desiccation 0.0 for zero demand.
+Measured: the 8-founder 45,000-frame ensemble ends with **252 `MatureBody`
+cells and zero `GrowingTip`s**. So a mature grass plant is *drought-proof by
+construction*, and `drought_death` cannot fire on one however dry the ground
+is. The full path is now written into `grass.ron`'s own header and into
+`wiki/plants.md`.
+
+**§F4 is closed on the mortality half.** Both abscission rules gated on
+`cell_type == Leaf`. `plant::is_foliage` now asks per species — a species
+with a `Leaf` stage sheds leaves (bit-identical for `tree`, `conifer`,
+`shrub`, `creeper`), one without sheds shoot tissue that photosynthesises —
+and excludes root tissue by `reinforces_powder`. **That exclusion is
+load-bearing and is the §F4-shaped trap inside the §F4 fix**: grass retires
+its root tips into the same `MatureBody` that declares its
+`Photosynthesize`, and underground `darkness` is 1, so a cell-type-only test
+deletes every plant's root mat within a few ticks. Abscission also had to be
+added to the *frontier* path, because `organism_upkeep` `continue`s on every
+frontier cell and a grass `GrowingTip` was therefore unreachable by both
+rules at once.
+
+Given the zero-demand finding above, **the live arm for grass is shade, not
+drought.** Paired, same plant, same frames, the only difference being whether
+the light field was ever solved: **12 of 12 blades standing lit, 4 of 12
+dark** (300 organism ticks). Guard:
+`a_shaded_sward_thins_and_a_lit_one_does_not`.
+
+**A plant that can no longer earn is dead, and its remains rot** — the case
+`step_organisms` explicitly handed to somebody else ("left, deliberately and
+visibly, to whoever decides what a dead tree's wood should *be*"). An
+organism holding no cell that can photosynthesise, germinate or flush a bud
+is marked `senescent`, one-way, in the upkeep walk that already visits every
+cell; `rot_remains` then sheds its cells to litter at a species half-life and
+the existing empty-cell-list rule returns the slot. Nothing becomes powder,
+nothing falls, nothing schedules a structural check — those are the felling
+work's decisions, and a *severed* piece should behave quite differently from
+a *starved* one.
+
+**Two guard tests found two real defects in the rule, in one run.** Worth
+recording because both are the shapes `CLAUDE.md` names:
+
+- **Moss read as a corpse.** `organism_tick` retires a stale `GrowingTip` to
+  `MatureBody`, and `moss.ron` declares no `MatureBody`, so a retired moss
+  cell has *no behaviours at all*. The senescence rule is starvation-shaped
+  and moss has no economy to starve out of (`cost: 0.0`, no
+  `Photosynthesize`, deliberately — the moss overhaul is call 4). Gated on
+  `Species::has_economy`; without the guard test this would have shipped as
+  "moss patches slowly disappear".
+- **The paired shade test read 0 of 12 in *both* arms**, which looks exactly
+  like "the new rule eats everything". It was the scene: the handmade sod's
+  blades sat one row above its roots, and a shoot that does not connect to
+  anchored root tissue is unreached by `anchor_support` and comes down as
+  deadwood. "A scene that contradicts the code will look like a bug in the
+  code", verbatim. The test now asserts its own setup before measuring.
+
+**Seed decay (WP-D item 2).** A dormant seed was rescheduled for ever — the
+not-ready branch of `Behavior::Germinate` sets `found_candidate`, so a
+waiting seed never even reaches the staleness limit. Viability is now
+`SpeciesDef::seed_half_life`, a **constant per-frame hazard** rather than a
+lifespan, because `population-dynamics-research.md` §3 wants the bank to be
+the ecology's reservoir: a fixed lifespan empties a cohort on a cliff, an
+exponential tail settles at `input x 1.443 x half_life` and thins rather than
+empties. It is also memoryless, so no per-seed age counter is needed. Tree
+9,000 frames, grass 18,000 — the ruderal-versus-woody persistence axis as
+data. A decayed seed becomes litter, not nothing. Guard:
+`a_dormant_seed_bank_halves_over_a_half_life_and_does_not_empty` (**27 of 60
+survive one half-life**, against 30 expected; sd is 3.9).
+
+**The 4,095-slot ceiling is a release check.** `push_organism` returns
+`Option<u16>` and refuses at the ceiling, counting refusals in
+`World::organisms_refused`. The `Option` rather than a sentinel `0` is
+deliberate: a sentinel would stamp an *ownerless* organism cell on the grid,
+softer than corrupting an identity and still a leak. `organism_slot_usage`'s
+first element already *was* the concurrent high-water mark for free — the
+allocator pops the free list before it grows the vector — and
+`organism_slot_high_water` says so rather than leaving it to be rediscovered.
+Guard: `the_organism_slot_ceiling_refuses_a_birth_rather_than_aliasing_a_
+live_one`, which fills the table, checks the refusal is counted, and checks
+that a *differently-speciated* first organism still reads as itself.
+
+**What P3 does NOT fix, and who owns it.**
+
+- **Adult tree mortality.** Nothing kills a healthy tree; a mature tree
+  always holds dormant buds, so it is never senescent, which is correct. The
+  cause arrives with P2's superlinear maintenance respiration, and this
+  package is the plumbing that will carry it out.
+- **Grass drought death**, per the zero-demand finding above — an economy
+  change, P2's.
+- **A dead *tree's* wood as an object.** Rot is what a starved plant does;
+  what a *felled* one does is lane S's, and `BodyCell` carrying an organism
+  id through promotion is S2's.
 
 ### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
 

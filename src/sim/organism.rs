@@ -876,6 +876,41 @@ pub struct SpeciesDef {
     pub root_material: String,
     #[serde(default = "default_leaf_material")]
     pub leaf_material: String,
+    /// **How long this species' seeds stay viable**, as a half-life in
+    /// frames: the number of frames over which half a dormant seed bank
+    /// disappears. `0.0` means immortal, which is what every seed was
+    /// before this field existed.
+    ///
+    /// **A half-life rather than a lifespan, and that is the design call,
+    /// not a convenience.** `Reports/population-dynamics-research.md` §3
+    /// wants the seed bank to be the ecology's *reservoir* — the thing that
+    /// carries a species through a trough where an individual-based grid
+    /// otherwise hits the absorbing state at zero. A fixed lifespan empties
+    /// a cohort all at once and gives that reservoir a cliff; a constant
+    /// per-frame hazard gives it an exponential tail, so a bank fed at any
+    /// rate at all settles at `input x 1.443 x half_life` and *thins rather
+    /// than empties*. It is also the model seed-bank ecology actually uses,
+    /// and it is memoryless, so it needs no per-seed age counter.
+    ///
+    /// **Per species because the real axis is real.** Large-seeded woody
+    /// plants run transient banks (a season) and small-seeded ruderals run
+    /// persistent ones (years) — so a herb should out-*wait* a tree here,
+    /// not out-breed it only. That difference is what makes a seed bank a
+    /// strategy rather than a delay.
+    #[serde(default = "default_seed_half_life")]
+    pub seed_half_life: f32,
+    /// **How fast a dead individual's remains disappear**, as a half-life
+    /// in frames — the counterpart of `seed_half_life` at the other end of
+    /// the life cycle. See `plant::step_organisms`' senescence pass for
+    /// what "dead" means here (nothing left that can earn or restart), and
+    /// `OrganismState::senescent` for why the flag is one-way.
+    ///
+    /// The value differs by an order of magnitude between a sod and a
+    /// trunk for the obvious reason, so it is data rather than a constant.
+    /// `0.0` leaves remains standing for ever, which is the behaviour every
+    /// species had before this field existed.
+    #[serde(default = "default_remains_half_life")]
+    pub remains_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// Everything only a *creature* species needs. `#[serde(default)]` so
     /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
@@ -1128,6 +1163,28 @@ fn default_leaf_material() -> String {
     "leaf".to_string()
 }
 
+/// Set against the measured bank rather than from a target. On the
+/// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
+/// still climbing** — 42 at 28,800, so it was accelerating, not settling —
+/// and the whole point of a clock is that it should stop. See
+/// `SpeciesDef::seed_half_life`. 9,000 frames is 2.5 in-world days against
+/// a tree that reaches full size in about eight, so a seed outlives a dry
+/// spell and does not outlive the tree that dropped it; at the stand's own
+/// late-run seeding rate that predicts a bank settling near 50, which is a
+/// reservoir rather than a leak.
+fn default_seed_half_life() -> f32 {
+    9_000.0
+}
+
+/// See `SpeciesDef::remains_half_life`. The woody default: a dead sapling
+/// stands for a while and then goes, rather than either vanishing on the
+/// tick it dies (the all-or-nothing outcome `CLAUDE.md`'s ethos section
+/// rules out) or standing for ever holding a slot (the behaviour this
+/// replaces).
+fn default_remains_half_life() -> f32 {
+    6_000.0
+}
+
 pub struct Species {
     pub name: String,
     pub foliage_bands: PaletteBands,
@@ -1137,6 +1194,10 @@ pub struct Species {
     pub shoot_material: String,
     pub root_material: String,
     pub leaf_material: String,
+    /// See `SpeciesDef::seed_half_life`.
+    pub seed_half_life: f32,
+    /// See `SpeciesDef::remains_half_life`.
+    pub remains_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
     pub creature: Option<CreatureDef>,
     /// The authored genome, expanded once at load rather than per spawn.
@@ -1154,6 +1215,78 @@ impl Species {
             .map(|(_, b)| b.as_slice())
             .unwrap_or(&[])
     }
+
+    /// Whether this species grows a separate `Leaf` stage at all.
+    ///
+    /// **This is the question `plastochron` answers from the wrong end.** A
+    /// species with `plastochron: [0, 0]` places no leaves, so it has no
+    /// `Leaf` cells — but reading the plastochron means reading a `Grow`
+    /// entry that may not exist, per *order*, from whichever cell type you
+    /// happened to ask about. Whether the file declares a `Leaf` cell type
+    /// is the same fact stated once, and it is what `plant.rs`'s abscission
+    /// rules need: a species whose photosynthetic surface *is* its shoot
+    /// (this file's own `plastochron` doc anticipates exactly that case)
+    /// sheds shoot, because it has nothing else to shed.
+    pub fn has_leaf_stage(&self) -> bool {
+        self.cell_types.iter().any(|(ct, _)| *ct == CellType::Leaf)
+    }
+
+    /// Whether a cell of this type earns carbon for this species.
+    pub fn photosynthesises(&self, cell_type: CellType) -> bool {
+        self.behaviors(cell_type).iter().any(|b| matches!(b, Behavior::Photosynthesize { .. }))
+    }
+
+    /// **Does this species have a carbon economy at all** — i.e. is there
+    /// any cell type in it that earns?
+    ///
+    /// The gate on the senescence rule in `plant::step_organisms`, and it
+    /// is there because that rule is *starvation-shaped*: "nothing left
+    /// that can earn" is not a statement about a species that never earns.
+    /// `moss.ron` is exactly that — one cell type, `Divide` at `cost: 0.0`,
+    /// no `Photosynthesize` anywhere, and its own file records that giving
+    /// it a budget "would be a bigger behavioural change than this rewrite
+    /// is meant to make silently" (the moss overhaul is call 4, deliberately
+    /// deferred).
+    ///
+    /// **Found by the guard test, not by reading.** `organism_tick` retires
+    /// a stale `GrowingTip` to `MatureBody`, and moss declares no
+    /// `MatureBody`, so a retired moss cell has no behaviours whatsoever —
+    /// which read as a corpse and would have quietly made moss patches rot
+    /// away. That is a moss behaviour change wearing a plant-mortality
+    /// change's clothes, and it is out of scope twice over.
+    pub fn has_economy(&self) -> bool {
+        self.cell_types.iter().any(|(ct, _)| self.photosynthesises(*ct))
+    }
+
+    /// **Whether a cell of this type can keep its organism alive** — the
+    /// cell-type half of the senescence test in `plant::step_organisms`.
+    /// The other two halves are per *cell* (root tissue is never vital,
+    /// whatever its type declares) and per *species* (`has_economy` above).
+    ///
+    /// Three behaviours, and each is a distinct way of not being dead:
+    ///
+    /// - `Photosynthesize` — it earns.
+    /// - `Germinate` — it has not started yet. A seed is a *dormant* stage,
+    ///   which is the one thing the reservoir role turns on; treating "no
+    ///   foliage" as death here would kill the seed bank the same day it
+    ///   was given a decay clock.
+    /// - `BudBreak` — it can restart a shoot from nothing, which is exactly
+    ///   what makes a topped tree not a dead one.
+    ///
+    /// `Grow` is deliberately **not** on the list, and that is the whole
+    /// discrimination: a `RootTip` grows, and a root system with no shoot
+    /// left above it cannot ever earn the carbon its growth spends. Roots
+    /// are the remains, not the survivor.
+    ///
+    /// Neither is `Divide`, and that is the same call read from the other
+    /// side: a `Divide` economy needs no carbon, so a species running on one
+    /// is exempt at the species level (`has_economy`) rather than being
+    /// carried case by case here.
+    pub fn is_vital(&self, cell_type: CellType) -> bool {
+        self.behaviors(cell_type)
+            .iter()
+            .any(|b| matches!(b, Behavior::Photosynthesize { .. } | Behavior::Germinate { .. } | Behavior::BudBreak { .. }))
+    }
 }
 
 impl From<SpeciesDef> for Species {
@@ -1167,6 +1300,8 @@ impl From<SpeciesDef> for Species {
             shoot_material: def.shoot_material,
             root_material: def.root_material,
             leaf_material: def.leaf_material,
+            seed_half_life: def.seed_half_life,
+            remains_half_life: def.remains_half_life,
             cell_types: def.cell_types,
             creature: def.creature,
             genome,
@@ -1607,6 +1742,26 @@ pub struct OrganismState {
     /// dormancy do anything here. The count of *deferrals* would be a
     /// property of the polling interval, not of the mechanic.
     pub deferred_germination: bool,
+    /// **This individual is dead and what is left of it is rotting.** Set
+    /// by `plant::organism_upkeep` the tick an organism is found holding no
+    /// vital cell (see `Species::is_vital`), and never cleared.
+    ///
+    /// **One-way, deliberately.** Nothing that reaches this state can leave
+    /// it — the test is "no cell that could earn, grow for free, germinate
+    /// or flush", so there is no path back by construction, and a flag that
+    /// could flicker would let a plant rot halfway and then recover, which
+    /// is neither a plant nor a corpse. It is also what makes the flag a
+    /// safe gate for a *cause* of death that is not starvation: the herb
+    /// package's post-fruiting annual death sets this and the same rot pass
+    /// carries it out, with no second mechanism and no second tuning
+    /// (`Reports/plant-morphology-reach-2026-08-23.md` §7 call 3).
+    ///
+    /// Distinct from having an empty cell list, which is what
+    /// `World::free_organism` keys on: this is the state *between* dying
+    /// and the last cell going, and before this existed there was no such
+    /// state — an organism was live until its cells were gone, so a dead
+    /// trunk held its slot for ever.
+    pub senescent: bool,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -3193,7 +3348,7 @@ mod tests {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
         let wood = w.materials.id_of("wood").expect("wood is compiled in");
         let species = w.species.id_of("tree").expect("tree is compiled in");
-        let organism_id = w.push_organism(species);
+        let organism_id = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::GrowingTip)));
 
         let slot = w.organism_cell_mut(5, 5).expect("set should have registered the cell");
@@ -3214,8 +3369,8 @@ mod tests {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
         let wood = w.materials.id_of("wood").expect("wood is compiled in");
         let species = w.species.id_of("tree").expect("tree is compiled in");
-        let first = w.push_organism(species);
-        let second = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
+        let second = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(first).with_aux(pack_cell_type(CellType::GrowingTip)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = 3.0;
 
@@ -3249,12 +3404,12 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 31, 31));
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let first = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
         assert!(w.organism(first).is_some());
         w.free_organism(first);
         assert!(w.organism(first).is_none(), "a freed id must stop resolving");
 
-        let second = w.push_organism(species);
+        let second = w.push_organism(species).expect("an organism slot is free");
         assert!(w.organism(second).is_some());
         assert_ne!(first, second, "the reused slot must hand back a *different* encoded id -- same index, bumped generation");
         // The slot index is the low 12 bits; the reuse must be a genuine
@@ -3274,12 +3429,12 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 31, 31));
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let first = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
         w.free_organism(first);
         w.free_organism(first);
 
-        let a = w.push_organism(species);
-        let b = w.push_organism(species);
+        let a = w.push_organism(species).expect("an organism slot is free");
+        let b = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(a, b, "a double free must not hand the same slot to two live organisms");
         assert_ne!(a & 0x0FFF, b & 0x0FFF, "a double free must not put one slot index on the free list twice");
         assert!(w.organism(a).is_some() && w.organism(b).is_some());
@@ -3294,9 +3449,9 @@ mod tests {
         w.free_organism(0); // "no organism" -- must not touch slot 0's storage
         w.free_organism(1234); // never allocated
 
-        let live = w.push_organism(species);
+        let live = w.push_organism(species).expect("an organism slot is free");
         w.free_organism(live);
-        let reused = w.push_organism(species);
+        let reused = w.push_organism(species).expect("an organism slot is free");
         // The stale handle for the previous generation must not be able to
         // free the organism that now holds the slot.
         w.free_organism(live);
@@ -3316,11 +3471,11 @@ mod tests {
         let moss_material = w.materials.id_of("moss").expect("moss is compiled in");
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let doomed = w.push_organism(species);
+        let doomed = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(moss_material, 0).with_organism_id(doomed).with_aux(pack_cell_type(CellType::GrowingTip)));
         w.free_organism(doomed);
 
-        let heir = w.push_organism(species);
+        let heir = w.push_organism(species).expect("an organism slot is free");
         assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to actually inherit the slot");
 
         w.schedule_active_site(ActiveSite { x: 5, y: 5, kind: ActiveKind::Organism { organism: doomed, stale_ticks: 0, plastochron: 0 }, next_frame: 1 });
@@ -3345,11 +3500,11 @@ mod tests {
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
         assert_eq!(w.organism_generation_wraps, 0);
-        let first = w.push_organism(species); // generation 0
+        let first = w.push_organism(species).expect("an organism slot is free"); // generation 0
         w.free_organism(first);
         // Generations 1..=15: fifteen reuses, none of them a wrap.
         for _ in 0..15 {
-            let id = w.push_organism(species);
+            let id = w.push_organism(species).expect("an organism slot is free");
             assert_ne!(id, first, "generations 1..15 must all encode differently from generation 0");
             w.free_organism(id);
         }
@@ -3358,7 +3513,7 @@ mod tests {
         // The sixteenth reuse is the wrap -- and the aliasing it warns
         // about is real, which is exactly why it is worth counting: the
         // very first id reads live again.
-        let wrapped = w.push_organism(species);
+        let wrapped = w.push_organism(species).expect("an organism slot is free");
         assert_eq!(w.organism_generation_wraps, 1, "the sixteenth reuse of one slot should have wrapped its generation exactly once");
         assert_eq!(first, wrapped, "after sixteen reuses the encoded id repeats -- the accepted limitation, asserted so it stays known");
     }
@@ -3372,7 +3527,7 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_id = w.push_organism(SpeciesId(0));
+        let organism_id = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
@@ -3396,8 +3551,8 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_a = w.push_organism(SpeciesId(0));
-        let organism_b = w.push_organism(SpeciesId(0));
+        let organism_a = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
+        let organism_b = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_a).with_aux(pack_cell_type(CellType::MatureBody)));
         w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_b).with_aux(pack_cell_type(CellType::MatureBody)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
@@ -3432,7 +3587,7 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_id = w.push_organism(SpeciesId(0));
+        let organism_id = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         {
             let slot = w.organism_cell_mut(5, 5).expect("registered");
@@ -3458,7 +3613,7 @@ mod tests {
     fn polarity_organism(w: &mut World, cells: &[(i32, i32)]) -> u16 {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let species = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(species);
+        let organism_id = w.push_organism(species).expect("an organism slot is free");
         for &(x, y) in cells {
             w.set(x, y, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         }

@@ -112,13 +112,53 @@ fn main() {
         scene.species, w.seed, scene.soil_depth
     );
 
+    // **`census=N` -- the standing organism count every N frames.**
+    //
+    // A final count cannot answer the question a decay clock is judged on.
+    // "The seed bank falls" and "the seed bank falls and then *plateaus*"
+    // are the difference between a clock that thins a reservoir and one
+    // that is on its way to emptying it, and both look identical at any
+    // single frame. `CLAUDE.md`'s settling rule from the other end: read
+    // the quantity across consecutive tiles and check it has stopped
+    // moving.
+    //
+    // Off by default, so no existing invocation changes.
+    let census: u64 = std::env::args().find_map(|a| a.strip_prefix("census=").map(|v| v.parse().expect("census"))).unwrap_or(0);
+    if census > 0 {
+        println!("census (frame: live organisms / slots, standing seeds, senescent, born, died):");
+    }
+
     let mut awake_frames = 0u64;
-    for _ in 0..frames {
+    for f in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
         w.step_fields();
         if w.active_chunk_count() > 0 {
             awake_frames += 1;
+        }
+        if census > 0 && (f + 1).is_multiple_of(census) {
+            let (slots, live) = w.organism_slot_usage();
+            let (born, died) = w.organism_turnover();
+            let mut seeds = 0usize;
+            // One scan for both: the seed cells, and the distinct organisms
+            // that own any cell at all -- `live_organism_ids` is
+            // crate-private, and a set built from the grid is the same
+            // question asked from the side a harness can see.
+            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            for y in 0..height {
+                for x in 0..width {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    owners.insert(c.organism_id());
+                    if organism::cell_type(c.aux()) == Some(organism::CellType::Seed) {
+                        seeds += 1;
+                    }
+                }
+            }
+            let senescent = owners.iter().filter(|id| w.organism_state(**id).is_some_and(|s| s.senescent)).count();
+            println!("  {:>7}: {live} / {slots}, {seeds} seeds, {senescent} senescent, {born} born, {died} died", f + 1);
         }
     }
 
@@ -825,6 +865,30 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             per_k(born),
             per_k(died)
         );
+        // **The slot ceiling, printed rather than assumed.** `slots` above
+        // *is* the high-water mark of concurrently-live organisms -- see
+        // `World::organism_slot_high_water` for why that falls out of the
+        // allocator's reuse-before-growth ordering for free -- and
+        // `refused` is the number of births the 4,095 ceiling turned away.
+        // A world at the ceiling and a world where nothing is breeding read
+        // identically in every other line of this probe, which is exactly
+        // the failure the counter exists to end.
+        let (high_water, ceiling) = w.organism_slot_high_water();
+        let refused = w.organisms_refused();
+        println!(
+            "  organism slots: high-water {high_water} of {ceiling} ({:.1}%), {refused} births refused at the ceiling",
+            100.0 * high_water as f64 / ceiling as f64
+        );
+        // **Standing seeds and standing dead, separately.** The seed bank
+        // is the reservoir a decay clock is supposed to *thin*, and a
+        // senescent plant is a corpse mid-rot; both are "organisms that are
+        // not plants" and lumping them hides which of the two a falling
+        // live count came from.
+        let senescent = per_organism.keys().filter(|id| w.organism_state(**id).is_some_and(|s| s.senescent)).count();
+        // From the cell list this probe already built, not a second world
+        // scan.
+        let standing_seeds = cells.iter().filter(|(_, _, ty, _, _)| *ty == Some(organism::CellType::Seed)).count();
+        println!("  standing seed bank: {standing_seeds} seeds; {senescent} organisms senescent (dead, remains rotting)");
         let descendants = per_organism.keys().filter(|id| w.organism_state(**id).is_some_and(|s| s.generation >= 1)).count();
         let deepest = per_organism.keys().filter_map(|id| w.organism_state(*id).map(|s| s.generation)).max().unwrap_or(0);
         println!(
