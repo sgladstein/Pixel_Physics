@@ -1,0 +1,67 @@
+{
+  "id": "20260823T092749555Z-87b3f5",
+  "created": "2026-08-23T09:27:49Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/p1-instruments-water-book",
+    "commit": "e980df6",
+    "agent": null,
+    "session_id": "3ec68c4f-c8fc-5c12-984e-7378430e96f7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "How many separate trees can you count in each of these?",
+  "question": "In each strip, how many separate trees can you count? A number for each is the whole answer. If some merge and some do not, say roughly how many read as their own tree.",
+  "context_md": "**Calibrating a metric against your eye — not asking whether it looks good.**\n\n`open-bugs-handoff.md` §Z says the stand reads as one mass, and that no metric could fail for it: the old one (widest unbroken run of plant cells) reported success on the very picture you rejected. Two replacements are now built. Before I trust either, they have to agree with what you actually see.\n\nAll three strips: same species, same soil, same frame (28,800), same 512-wide world. **Only the spacing between the planted trees differs.** Nothing about the plants themselves changed between them.\n\nI have deliberately **not** said how many were planted in each — that is exactly what would bias a count.\n\nWhat I already measured, and where I am unsure: my metric calls A a single fused mass and C fully separate. **B is the one I cannot call**, and it is the one that decides whether the number is usable at all.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T092749555Z-87b3f5/000-grove8.png"
+      ],
+      "caption": "founders 56 cells apart",
+      "meta": {
+        "frame": 28800,
+        "world width": 512,
+        "founder spacing": 56
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T092749555Z-87b3f5/001-grove4.png"
+      ],
+      "caption": "founders 102 cells apart",
+      "meta": {
+        "frame": 28800,
+        "world width": 512,
+        "founder spacing": 102
+      },
+      "focus": null
+    },
+    {
+      "label": "C",
+      "files": [
+        "20260823T092749555Z-87b3f5/002-grove3.png"
+      ],
+      "caption": "founders 128 cells apart",
+      "meta": {
+        "frame": 28800,
+        "world width": 512,
+        "founder spacing": 128
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
