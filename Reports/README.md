@@ -65,6 +65,11 @@ tried?"*.
   measured (`examples/underground_probe.rs`) and replaced by a per-cell
   genesis map. Extends that report rather than superseding it — its
   rejection of *inference* stands, and this stores more history instead.
+- [sky-light-design.md](sky-light-design.md) — **design round, nothing
+  built.** Measures the three candidates for the still-open open-cast-dig
+  case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
+  cannot drive it, why seeded propagation can, and why block size 4 rather
+  than `FIELD_SCALE`'s 8. Carries the options and a recommendation.
 - [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
   **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
   propagation) and Noita (a coarse blurred fog of war, no classification at
