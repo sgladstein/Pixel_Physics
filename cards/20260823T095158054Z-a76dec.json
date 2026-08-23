@@ -1,0 +1,60 @@
+{
+  "id": "20260823T095158054Z-a76dec",
+  "created": "2026-08-23T09:51:58Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "322bae4",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Deep-fibrous against shallow-fibrous, on the one root axis that already exists",
+  "question": "Do these read as two different root morphologies — a mat against a dive — or as the same chaotic tangle with a bit more of it?",
+  "context_md": "**No new mechanism, and no root code was written for this.** This is genome slot 5 (root tropism gain) at the two ends of what it can *actually* reach today: it multiplies the root's `upward_weight` by `1 ± 0.4`, so the whole reachable axis is 0.36 to 0.84 either side of the authored 0.6. Both panes are that, and nothing else — within-treatment genome noise on slot 5 is zeroed so the pane shows the treatment rather than eight coin flips.\n\nSame scene, same seed, same frame (10,800), 8 founders, 4 shown. The grey band at the bottom is bedrock — how close a root gets to it is the question.\n\nThe method correction from `root-morphology-findings.md` applies and I have followed it: **single plants at zoom, never stand medians** — root cells span 90 to 1,435 within one stand, so a median is not a shape. The numbers under each pane are the *distribution*, not a summary.\n\nWhat I already measured, so you do not have to judge it: the two treatments genuinely differ. One puts 79% of its root cells in the top two fifths of the profile; the other spreads 21/21/17/21/17 all the way to bedrock. What I cannot tell from a number is whether that difference **reads** — which is the thing two owner verdicts have already said no to for root work, on tuning-level changes.\n\nThis is the baseline for Arc B, so a \"no\" here is as useful as a yes: it would say the reachable axis is not enough and the thickening and dominance mechanisms have to land before root form is worth showing again.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "slot 5 low (gain 0.36)",
+      "files": [
+        "20260823T095158054Z-a76dec/000-b1_slot5_low_deeproots.png"
+      ],
+      "caption": "weakest upward pull",
+      "meta": {
+        "median root cell, rows down": 16,
+        "deepest row below surface (mean)": 31.8,
+        "depth histogram surface->bedrock %": "21 / 21 / 17 / 21 / 17",
+        "root cells min/median/max": "149 / 242 / 635",
+        "lateral spread min/median/max": "19 / 27 / 100",
+        "root share of plant (mean)": "9.2%"
+      },
+      "focus": null
+    },
+    {
+      "label": "slot 5 high (gain 0.84)",
+      "files": [
+        "20260823T095158054Z-a76dec/001-b1_slot5_high_shallowroots.png"
+      ],
+      "caption": "strongest upward pull",
+      "meta": {
+        "median root cell, rows down": 8,
+        "deepest row below surface (mean)": 23.4,
+        "depth histogram surface->bedrock %": "40 / 39 / 14 / 4 / 0",
+        "root cells min/median/max": "120 / 252 / 395",
+        "lateral spread min/median/max": "18 / 34 / 60",
+        "root share of plant (mean)": "7.2%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
