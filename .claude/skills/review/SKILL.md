@@ -243,6 +243,30 @@ Use `--no-sync` (or `PIXEL_PHYSICS_REVIEW_NO_SYNC=1`) only when you deliberately
 want a local-only queue. Sync failure is never fatal: the card is written to disk
 first, so it survives and goes out on the next sync.
 
+## Being told when the verdict lands
+
+Posting is fire-and-forget, but you do not have to keep checking. Add `--notify`
+and you will be pinged when the owner releases your verdicts:
+
+```
+python3 scripts/review.py post --notify …
+```
+
+That starts **one** background watcher per session — not one per card — which
+delivers into this session and exits when none of your cards are open. The owner
+presses a single button in the page to release everything they have answered, so
+several verdicts for you arrive as **one** message, costing one wake-up turn
+rather than one per card.
+
+The ping is a digest: card title, choice, rating, first line of the comment.
+`review.py inbox` remains the source of truth for the full comment and the pin
+locations — read it when the ping arrives.
+
+If nothing is watching, nothing is lost: the verdict sits in the queue and
+`inbox` finds it exactly as it always did. `--notify` is an accelerator, never
+the only path. It needs a Claude Code session (it writes to that session's own
+inbox socket), and says so on stderr if there is none.
+
 ## Getting the verdict back
 
 Posting is **fire-and-forget**. Carry on with other work; the answer keeps.

@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import subprocess
 import time
 import shutil
 import sys
@@ -325,6 +327,10 @@ def cmd_post(args) -> int:
 
     card = build_card(root, spec)
     rl.save_card(root, card)
+    if getattr(args, "notify", False):
+        note = ensure_watcher(root)
+        if note:
+            print("review: --notify: %s" % note, file=sys.stderr)
     # The card is on disk before sync runs, so a transport failure costs
     # delivery time and never the question itself.
     emit(card, root, args.port, maybe_sync(args))
@@ -359,6 +365,10 @@ def cmd_ab(args) -> int:
         spec["kind"] = "frames"
     card = build_card(root, spec)
     rl.save_card(root, card)
+    if getattr(args, "notify", False):
+        note = ensure_watcher(root)
+        if note:
+            print("review: --notify: %s" % note, file=sys.stderr)
     emit(card, root, args.port, maybe_sync(args))
     if args.wait:
         return do_wait(root, card["id"], args.timeout)
@@ -374,6 +384,105 @@ def maybe_sync(args, root: Path = None) -> dict:
         print("review: sync failed (%s) — card is queued locally and will go "
               "out on the next sync" % result["error"], file=sys.stderr)
     return result
+
+
+def watcher_lock(root: Path) -> Path:
+    return root / ("watch-%s.pid" % (rl.session_id() or "unknown"))
+
+
+def ensure_watcher(root: Path) -> str:
+    """Start one deliverer per session, not one per card.
+
+    The lock is keyed on the session, so ten cards posted by one agent share a
+    single watcher -- which is the point: the owner releases a batch and the
+    agent is woken once.
+    """
+    if not os.environ.get(rl.SOCKET_ENV):
+        return "no %s — nothing to deliver into; verdicts stay in `inbox`" % rl.SOCKET_ENV
+    if not rl.session_id():
+        return "no %s — cannot address this session" % rl.SESSION_ENV
+    lock = watcher_lock(root)
+    existing = rl.read_json(lock)
+    if existing and _pid_alive(existing.get("pid")):
+        return ""
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "watch"],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdin=subprocess.DEVNULL, start_new_session=True)
+    rl.write_json_atomic(lock, {"pid": proc.pid, "session_id": rl.session_id(),
+                                "started": rl.utc_now()})
+    return ""
+
+
+def _pid_alive(pid) -> bool:
+    if not isinstance(pid, int):
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def compose_ping(entries: list) -> str:
+    lines = ["Review verdicts are in for %d of your card%s:"
+             % (len(entries), "" if len(entries) == 1 else "s")]
+    for i, e in enumerate(entries, 1):
+        lines.append("  %d. %s" % (i, e.get("digest") or e["card_id"]))
+    lines.append("")
+    lines.append("Run `review.py inbox` for the full comments and pin locations, "
+                 "then act on them.")
+    return "\n".join(lines)
+
+
+def cmd_watch(args) -> int:
+    """Deliver released verdicts into this session, batched.
+
+    Runs detached in the agent's own environment, so the write comes from a
+    process the session spawned -- which carries the child token and bypasses
+    the inbound gate a stranger process would be held by.
+    """
+    root = rl.review_root()
+    sid = rl.session_id()
+    if not sid:
+        print("watch: %s not set — cannot tell which session to deliver to"
+              % rl.SESSION_ENV, file=sys.stderr)
+        return 1
+    if not os.environ.get(rl.SOCKET_ENV):
+        print("watch: %s not set — no inbox to deliver into" % rl.SOCKET_ENV,
+              file=sys.stderr)
+        return 1
+
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        if not args.no_sync:
+            rl.sync_now(root)
+        entries = rl.take_outbox(root, sid)
+        if entries:
+            err = rl.send_to_own_session(compose_ping(entries))
+            if err:
+                print("watch: %s" % err, file=sys.stderr)
+                return 1
+            # Marker first, then drop the outbox entry: a crash between them
+            # re-delivers rather than losing the verdict.
+            rl.mark_delivered(root, entries, sid)
+        mine_open = [c for c in rl.load_cards(root)
+                     if (c.get("origin") or {}).get("session_id") == sid
+                     and c["notify"] in ("unanswered", "pending", "released")]
+        if not mine_open:
+            return 0
+        time.sleep(args.interval)
+    return 0
+
+
+def cmd_notify(args) -> int:
+    """The button's job, from the command line."""
+    root = rl.review_root()
+    result = rl.release_verdicts(root)
+    if not args.no_sync:
+        rl.sync_now(root)
+    print(json.dumps(result, indent=2))
+    return 0
 
 
 def cmd_sync(args) -> int:
@@ -553,6 +662,11 @@ def main(argv=None) -> int:
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    def add_notify(sp):
+        sp.add_argument("--notify", action="store_true",
+                        help="be pinged when the owner releases the verdict "
+                             "(starts one background watcher per session)")
+
     def add_no_sync(sp):
         sp.add_argument("--no-sync", action="store_true",
                         help="skip the git transport (offline, or a local-only queue)")
@@ -596,6 +710,7 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
     add_no_sync(sp)
+    add_notify(sp)
     sp.set_defaults(func=cmd_post)
 
     sp = sub.add_parser("ab", help="post an A/B comparison")
@@ -614,6 +729,7 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_port(sp)
     add_no_sync(sp)
+    add_notify(sp)
     sp.set_defaults(func=cmd_ab)
 
     sp = sub.add_parser("list", help="list cards")
@@ -638,6 +754,17 @@ def main(argv=None) -> int:
     sp.add_argument("--timeout", type=float, default=1800)
     add_no_sync(sp)
     sp.set_defaults(func=cmd_wait)
+
+    sp = sub.add_parser("watch", help="deliver released verdicts into this session")
+    sp.add_argument("--interval", type=float, default=60.0)
+    sp.add_argument("--timeout", type=float, default=6 * 3600)
+    add_no_sync(sp)
+    sp.set_defaults(func=cmd_watch)
+
+    sp = sub.add_parser("notify",
+                        help="release every answered verdict to the agent that asked")
+    add_no_sync(sp)
+    sp.set_defaults(func=cmd_notify)
 
     sp = sub.add_parser("sync", help="exchange cards and verdicts with the remote")
     sp.set_defaults(func=cmd_sync)
