@@ -20,7 +20,13 @@ into a building now takes the corner it was made in rather than the whole
 building, and a very large collapse now arrives in stages that spread out
 from the break rather than in one frame. Loose material piled on rock now
 weighs on it, which is new and is what makes a blasted cave roof drop its
-own muck through — expect to find that in play before anywhere else.
+own muck through — expect to find that in play before anywhere else. A
+falling piece that tumbles can no longer turn through the rock beside it:
+until 2026-08-23 the check that was supposed to stop that never actually
+ran, so a piece wedged in a gap would spin freely and end up somewhere it
+could not have reached. Expect slightly less rock to come away from a
+worked root as a result, because a piece that cannot turn is more likely
+to jam and settle where it is than to keep coming apart.
 Digging into open ground no longer spreads: a hole is a hole,
 and the rock around it stops where the damage stops. What is still in flux
 is **how big a room you can build**: a wide, thin-walled one can still
