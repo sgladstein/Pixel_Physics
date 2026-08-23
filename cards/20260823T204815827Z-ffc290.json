@@ -1,0 +1,58 @@
+{
+  "id": "20260823T204815827Z-ffc290",
+  "created": "2026-08-23T20:48:15Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/wp11-economy-retune",
+    "commit": "b75aec1",
+    "agent": null,
+    "session_id": "7e737eab-37cf-564e-a14e-51ef925d9ada",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "The cost of the slower leaf fall: do these crowns still read as separate stands?",
+  "question": "Do the trees in the second image still read as individual crowns with sky between them — or has it become one green mass?",
+  "context_md": "This is the other half of the leaf-fall change, and the half I cannot judge for you.\n\nSlowing leaf fall fixes the floor by **keeping leaves on the plant**, so the canopy necessarily gets denser. The question is whether it has got *too* dense.\n\n**The numbers that matter here are composition, not cell counts** — a canopy's silhouette is set by how much of it is leaf against wood, and this project has already been burned once reading a stand as \"unchanged\" from counters that moved hugely while composition did not:\n\n| | before | after |\n|---|---|---|\n| leaf cells | 12,764 | **17,489** |\n| wood cells | 12,649 | 12,330 |\n| **leaf share** | **50.2%** | **58.7%** |\n\nWood is essentially unchanged. **Every cell this change added is leaf** — so if the silhouette moved, it moved for the one reason that actually moves silhouettes.\n\nSame scene, same seed, frame 12,000, one binary per arm.\n\nIf this reads as too full, the fix is not to abandon the slower fall — it is to take the other three species part-way (say 0.0015 instead of 0.00075) and leave `tree` where you put it. Say the word and I will render that arm.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — old leaf-fall rate",
+      "files": [
+        "20260823T204815827Z-ffc290/000-crown-A.png"
+      ],
+      "caption": "50.2% leaf",
+      "meta": {
+        "leaf cells": 12764,
+        "wood cells": 12649,
+        "leaf share": "50.2%",
+        "living plant tissue": 28776,
+        "soil cells at frame 12000": 6971
+      },
+      "focus": null
+    },
+    {
+      "label": "after — quarter rate on all four",
+      "files": [
+        "20260823T204815827Z-ffc290/001-crown-C.png"
+      ],
+      "caption": "58.7% leaf",
+      "meta": {
+        "leaf cells": 17489,
+        "wood cells": 12330,
+        "leaf share": "58.7%",
+        "living plant tissue": 33425,
+        "soil cells at frame 12000": 3358
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
