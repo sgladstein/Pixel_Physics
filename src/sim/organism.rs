@@ -3114,7 +3114,13 @@ mod tests {
 
         let ant = reg.get(reg.id_of("ant").expect("ant.ron should define \"ant\""));
         let ant = ant.creature.as_ref().expect("ant is a creature");
-        assert_eq!(ant.traits[TRAIT_GUT_BIAS], -1.0, "ant.ron authors a detritivore gut -- see that file for the viability sweep behind the value");
+        // Back to neutral: the owner's verdict on review card
+        // 20260823T104411499Z-963f8d was "An omnivore should be viable",
+        // and the economy was widened to make it so rather than the animal
+        // narrowed to fit the economy. Note this assertion cannot fail for
+        // a *parse* error any more -- 0.0 is the serde default again --
+        // which is exactly why the beetle above carries this test.
+        assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors an omnivore gut -- see that file for the food-scale sweep behind the value");
     }
 
     #[test]

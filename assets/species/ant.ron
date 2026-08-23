@@ -57,7 +57,7 @@
         // ant's own meat at 120 a cell leaves scavenging worth precisely
         // what it was worth yesterday -- the pump closes because the value
         // is now finite and booked at spawn, not because meat got cheaper.
-        body_energy: 120.0,
+        body_energy: 480.0,
         // Eat only when genuinely low; otherwise carry it home. See
         // CreatureDef::hunger_fraction -- getting this wrong deletes the
         // foraging loop while leaving a colony that looks right.
@@ -128,14 +128,14 @@
         // list was doing by omitting "ant" -- see `eats_kin` below.
 
         // **The heritable gut, slot 0 of `organism::CREATURE_TRAITS`.**
-        // A detritivore, at the plant end of the axis.
+        // An omnivore, in the middle of the axis: this ant eats litter and
+        // leaves and will also take carrion, which is the five-item menu
+        // the deleted `food:` list described.
         //
-        // **This was authored neutral first, and the suite measured it
-        // dead.** `a_lone_grazer_cannot_farm_a_moss_lawn_forever`'s control
-        // arm -- one animal, an inexhaustible wall of leaf, nothing to do
-        // but eat -- starved at every gut from -0.8 inward. The sweep
-        // (`print_grazer_viability_against_gut_bias`) says why, and it is
-        // not about this species:
+        // **It was authored -1.0 for one commit, and the owner overturned
+        // that.** The sweep below (`print_grazer_viability_against_gut_bias`)
+        // measured a neutral gut starving -- one animal, an inexhaustible
+        // wall of leaf, nothing to do but eat:
         //
         //     gut    leaf yield   intake/cost   survived
         //    -1.0         120.0         0.946   yes
@@ -144,32 +144,40 @@
         //    -0.5          67.5         0.793   no
         //     0.0          30.0         0.706   no
         //
-        // **A perfectly matched grazer already runs at 0.95, below the 1.0
-        // that would pay for its own existence.** The margin is negative
-        // before the filter is applied at all, so every point of digestive
-        // mismatch comes straight out of a deficit, and the cliff is one
-        // tenth of the axis wide. There is no viable omnivore at this
-        // economy -- which is a fact about the economy, not about the
-        // matched filter, and it is the *third coupled call* the evolution
-        // plan's S4 notes reserve for the owner. Recorded here rather than
-        // tuned away.
+        // A perfectly matched grazer already ran at 0.946, *below* the 1.0
+        // that pays for its own existence, so every point of digestive
+        // mismatch came out of a deficit and the viable band was one tenth
+        // of the axis wide. The conclusion drawn from that was to narrow
+        // the animal to fit the economy. Review card
+        // 20260823T104411499Z-963f8d put it to the owner, whose answer was
+        // in full: **"An omnivore should be viable."**
         //
-        // -1.0 is therefore both the honest ant and the safe landing: the
-        // filter reads exactly 1.0 against `food_class: -1.0`, so leaf,
-        // moss, seed and litter pay the same 120 they paid before S5 and
-        // the colony economy is untouched, bit for bit.
+        // So the economy widened instead, and the factor is measured
+        // rather than chosen (`print_omnivore_viability_against_food_scale`):
         //
-        // **What it does change: this ant no longer scavenges.** Corpse is
-        // `food_class: +1.0`, the filter reads 0.0 against it, and no
-        // threshold can rescue that. That is a real, player-visible loss
-        // and `wiki/ants.md` currently promises the opposite -- it is on
-        // the owner's queue, and it is also the exact behaviour §13i
-        // measured as the colony's sit-still attractor ("a starved ant
-        // feeds the ants around it and a colony sustains itself on its own
-        // dead without foraging at all"), which is the thing the owner's
-        // "I don't want ants sitting in one spot eating fallen leaves"
-        // complaint is about. Both readings are live; the card decides.
-        traits: (-1.0,),
+        //     food scale   gut 0.0 yield   intake/cost   survived
+        //            1.0            30.0         0.706   no
+        //            2.0            60.0         0.783   no
+        //            3.0            90.0         0.796   no
+        //            4.0           120.0         0.946   yes
+        //
+        // **4x, and it is a restoration rather than a bar.** The filter
+        // reads 0.25 at neutral against either end of the axis, so 4x face
+        // value hands a neutral gut exactly the 120 every ant got before S5
+        // existed -- 0.946 is the identical ratio the matched gut had at
+        // the old scale. `ascii` confirms it: the colony is bit-identical
+        // to `main` at 12,000 frames (76 organisms, moves 5040, pickups
+        // 1340, deliveries 143, reach [689, 22, 8, 2, 0, 0, 0, 0]). The
+        // only line that moves is the `food stock` census, which reads face
+        // values and so reads 4x -- no animal extracts any more than it did.
+        //
+        // Not chosen higher, deliberately: above 4x the shipped ant would
+        // be *richer* than it is today, and a richer floor is the sit-still
+        // attractor the owner's "I don't want ants sitting in one spot
+        // eating fallen leaves" is about. Specialising is what pays now --
+        // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+        // which is the trade S5 exists to create.
+        traits: (0.0,),
         // Read by nothing until S6. Authored here so the width and the
         // ancestral value it widens cannot drift apart in separate
         // commits -- see `CreatureDef::trait_variance`.
