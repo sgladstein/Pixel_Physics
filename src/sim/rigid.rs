@@ -4179,4 +4179,75 @@ mod tests {
         );
         assert!(!open.chunk_bodies.is_empty(), "an open blast must still throw its rim as pieces");
     }
+
+    /// **Bug K's reproduction, and it fails today.** A body wedged in a slot
+    /// must refuse to rotate when the turned shape would land in rock.
+    ///
+    /// `advance` builds a probe, turns it, and asks `try_step` whether the
+    /// turned shape fits — but it passes the probe its **own** position as
+    /// the target. `try_step`'s first guard is
+    ///
+    /// ```text
+    ///     if (tx, ty) == (cx, cy) { continue }
+    /// ```
+    ///
+    /// and with `ox = probe.x.round()` against `cell_position`'s
+    /// `probe.x.round() + cell.dx`, the two are equal for *every* cell by
+    /// construction. So every cell is skipped, `horizontal` and `vertical`
+    /// are never set, `axis` is always `None`, and the caller reads that as
+    /// "the turn fits". A body wedged in a gap rotates straight through the
+    /// wall beside it — which is exactly the cheat the probe's own comment
+    /// says it exists to prevent.
+    ///
+    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
+    /// outlives the report.** Whoever fixes the probe gets a red test
+    /// instead of a paragraph, and `--ignored` is the only thing in the
+    /// engine that can currently tell a working probe from a vacuous one —
+    /// a probe that always answers "clear" looks identical to one that
+    /// works. Present in *both* parents of the water merge, so it is not
+    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    ///
+    /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
+    /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
+    /// bar is 1x3 and its two new cells land in the rock above and below.
+    #[test]
+    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
+    fn a_wedged_body_will_not_rotate_through_the_wall() {
+        let mut w = test_world();
+        for y in 0..64 {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The slot the bar lies in, and nothing else, is open.
+        for x in 14..=16 {
+            w.set(x, 32, Cell::EMPTY);
+        }
+        let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
+        let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
+
+        // The probe exactly as `advance` builds it, arguments included.
+        let mut probe = body.clone();
+        probe.rotate_quarter();
+        for cell in &probe.cells {
+            let (px, py) = probe.cell_position(cell);
+            if (px, py) != (15, 32) {
+                assert_eq!(
+                    w.get(px, py).material,
+                    material::STONE,
+                    "test setup: the turned bar must land in rock at ({px}, {py}), or this proves nothing"
+                );
+            }
+        }
+        let shape = BodyShape {
+            density: mean_density(&w, &probe),
+            floats: body_floats(&w, &probe),
+            reach: body_extent(&probe) + 1,
+        };
+        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
+        assert!(
+            axis.is_some(),
+            "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
+        );
+    }
 }
