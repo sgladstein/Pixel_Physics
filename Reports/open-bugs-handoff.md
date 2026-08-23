@@ -2430,6 +2430,36 @@ have been a speculative economy change to one species with no live case
 behind it — `CLAUDE.md`'s "reproduce before you fix", earning its keep in the
 direction that saves work rather than the one that finds a bug.
 
+**A green PR check board does not mean your head is green.** Worth its own
+paragraph, because it cost a real exchange and it will recur.
+
+On head `7b1becb`, CI produced two runs with **opposite conclusions**:
+
+| run | event | started | conclusion |
+|---|---|---|---|
+| 32657999471 | `push` | 18:25:40 | **failure** — `generated_terrain_is_already_at_rest`, `a_forced_vault_world_is_sealed_and_arrives_at_rest` |
+| 32659449058 | `pull_request` | 18:52:57 | **success**, all seven jobs |
+
+Same `head_sha`. The workflow triggers on both `push` and `pull_request`, and
+a **`pull_request` run checks out `refs/pull/N/merge`** — the head already
+merged with the base — while a `push` run checks out the head alone. PR #24
+merged at **18:51:21**, between the two, so the second run was testing a tree
+that contained #24's `weather_override` fix and the first was not.
+
+Two wrong readings were on the table and both are false: it was not this
+package's diff moving the water, and it was not a determinism violation. The
+tell that settles it is that **#24's own settle table records `terraced 3` at
+57 cells**, which is exactly the count measured here on the unfixed tree — a
+figure produced by `main`, reproduced here, and reported as this branch's.
+(The `wetland seed 3 / 87` other runs saw is the same loop reaching a
+different preset first: it panics on the first failing seed, and release and
+debug builds do not order them the same way.)
+
+The general form, for whoever meets it next: **when a PR board is green and a
+local run on the same commit is red, compare the run's `event`, not the
+`head_sha`.** A `pull_request` board is a statement about the merge result.
+The `push` board is the one that describes your branch.
+
 **What P3 does NOT fix, and who owns it.**
 
 - **Adult tree mortality.** Nothing kills a healthy tree; a mature tree
@@ -2445,6 +2475,35 @@ direction that saves work rather than the one that finds a bug.
 - **A dead *tree's* wood as an object.** Rot is what a starved plant does;
   what a *felled* one does is lane S's, and `BodyCell` carrying an organism
   id through promotion is S2's.
+
+**Two things the next packages asked for, answered here.**
+
+*Did the slot-ceiling work free a genome slot? No, and it could not have.*
+The two budgets are unrelated: this package touched `Cell::organism_id`'s
+12-bit **slot index**, which addresses *which organism a cell belongs to*,
+while `GENOTYPE_TRAITS = 9` is the width of
+`OrganismState::genotype_draws: [f32; 9]` and of each species'
+`genotype_variance` tuple — sidecar state on the organism, not bits in the
+8-byte `Cell`. Widening it is nevertheless **cheap**, precisely because it is
+not a `Cell` budget: one added trait costs 4 bytes per live organism (~16 KB
+at the full 4,095 ceiling) plus a field appended to `genotype_variance` in
+all six species files, which is fixed-arity in RON so they must change
+together. The binding constraint is `plant-genome-design.md`'s
+positional-forever rule — a new slot must be **appended at index 9**, never
+inserted, or every measured phenotype in the record silently re-keys. So a
+heritable reaction norm can have its slot; it costs a coordinated `.ron`
+edit, not a `Cell` redesign.
+
+*Anchorage, for whoever picks up wind-throw.* The quantities a later
+anchorage rule can read **for free** are already computed once per organism
+tick and then discarded: `plant::anchor_support` runs a Dijkstra from the
+anchor set over the organism's own cell list, and `is_structural_anchor` is
+the predicate deciding membership (touching `Solid`, or root tissue embedded
+in water-holding `Powder`). The anchor *set* itself is never materialised —
+the walk seeds its heap from it and drops it — so an anchorage term wanting
+"how many anchors, and how wide is their footprint" needs a tally added
+inside that seeding loop, not a new traversal. `OrganismCell::support` is the
+per-cell distance the same walk already writes.
 
 ### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
 
