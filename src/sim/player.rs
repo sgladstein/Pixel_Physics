@@ -146,6 +146,59 @@ pub struct Tuning {
     /// Horizontal speed multiplier while any powder overlaps him. Slogging
     /// through a drift should cost something, or wading is only a visual.
     pub wade_slowdown: f32,
+    /// How much loose powder **in any one row** above the wade line he
+    /// shoulders past instead of stopping against, in cells.
+    ///
+    /// **This exists because scattered grains were a wall.** `wade_rows`
+    /// says powder may reach his knees and no higher, which is the right
+    /// claim about walking into a *drift* and the wrong one about the
+    /// stray grains a forest floor, a dug tunnel or a splash leaves lodged
+    /// in a canopy. Measured in `scene=wood`: first a single `soil` cell
+    /// at (108,194) held him for eleven thousand frames, and behind it a
+    /// scatter of four to seven more, spread one and two to a row over
+    /// (112..116, 180..187). None of them is an obstacle; together they
+    /// were a fence.
+    ///
+    /// **Per row, not per rect, and the distinction is the whole fix.** A
+    /// drift is made of *courses* — its face fills rows across his whole
+    /// width — while a scatter is one or two cells in each of several
+    /// rows. A rect-wide total cannot tell seven scattered grains from one
+    /// full course of seven, so it has to be set below a course to keep a
+    /// drift solid, which leaves it too small to clear a scatter; measured
+    /// that way the gnome got 98 cells through the wood at 0 and 103 at 6.
+    /// Counting per row separates them cleanly at every setting, which is
+    /// why the panel's whole range is safe: at 6 a full course of 7 still
+    /// stops him, so `he_sinks_into_a_deep_drift_but_only_to_the_knee`
+    /// holds however this is tuned.
+    ///
+    /// **4 from a sweep, not from taste**, over six start frames of
+    /// `scene=wood` (the stand takes no seed, so the frame window is the
+    /// axis that redraws it). Cells travelled, min and median across the
+    /// six:
+    ///
+    /// | allowance | min | median |
+    /// |---|---|---|
+    /// | 0 (the old veto) | 1 | 44 |
+    /// | 2 | 44 | 93 |
+    /// | 3 | 49 | 94 |
+    /// | **4** | **50** | **161** |
+    /// | 5 | 51 | 166 |
+    /// | 6 | 47 | 47 |
+    ///
+    /// 6 is a cliff, not a plateau's end: one short of a full course, he
+    /// sinks into the forest floor instead of walking over it and does
+    /// worse than the veto. 4 and 5 are indistinguishable on the worst
+    /// case, so 4 takes the one with two steps of margin from that edge
+    /// rather than one.
+    ///
+    /// **Confirmed by playtest, blind**, which is the half a sweep cannot
+    /// answer: the distance is a number, but "does he now look like he is
+    /// cheating through solid ground" is not. Shown against the old veto
+    /// as an unlabelled A/B of the same walk (review card
+    /// `20260823T082002879Z-a61726`), the owner picked this one.
+    ///
+    /// 0 restores the old veto exactly, for A/B.
+    pub shoulder_grains: u8,
     /// Vertical acceleration in water, as a multiple of `gravity`.
     /// Negative: he is lighter than water and rises. -0.3 rises slowly
     /// enough to read as floating up rather than as a balloon.
@@ -244,6 +297,7 @@ impl Default for Tuning {
             dig_cooldown: 8,
             wade_rows: 4,
             wade_slowdown: 0.4,
+            shoulder_grains: 4,
             buoyancy: 0.18,
             swim_damp: 0.84,
             stroke_impulse: 1.3,
@@ -801,8 +855,8 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
 }
 
 /// Whether the rectangle with top-left `(x, y)` is somewhere the gnome may
-/// stand: no hard blocker anywhere in it, and loose powder only in the
-/// bottom `wade` rows.
+/// stand: no hard blocker anywhere in it, and above the bottom `wade` rows
+/// no row holding more than `shoulder` cells of loose powder.
 ///
 /// That second clause is the wade. Allowing powder at the feet and not at
 /// the chest is what makes him sink into a drift to about the knee and
@@ -810,13 +864,31 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
 /// through it as if it were air. It is also, deliberately, the same
 /// predicate `depenetrate` uses, so sand arriving around his boots is not
 /// treated as an invasion needing a shove — only sand up to his chest is.
-fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32) -> bool {
+///
+/// **The chest test is per row, and it counts rather than vetoing.** The
+/// veto read "any powder above the knee is a wall" — a claim about a drift
+/// applied to individual cells, under which one stray `soil` grain lodged
+/// in a canopy stopped the gnome dead for eleven thousand frames of
+/// `scene=wood`. Step-up could not save him either: lifting slides the
+/// offending cell *down* his body toward the wade rows, so a grain at
+/// chest height wants a lift of `chest - dy`, one more than `step_up`
+/// reaches at exactly the height that grain sat. A drift's face fills
+/// whole courses across his width and still stops him at any setting of
+/// the allowance; see `Tuning::shoulder_grains` for why the row is the
+/// right unit and the rect is not.
+fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32, shoulder: i32) -> bool {
     let chest = PLAYER_HEIGHT - wade;
     for dy in 0..PLAYER_HEIGHT {
+        let mut grains = 0;
         for dx in 0..PLAYER_WIDTH {
             match footing(world, bodies, x + dx, y + dy) {
                 Footing::Hard => return false,
-                Footing::Soft if dy < chest => return false,
+                Footing::Soft if dy < chest => {
+                    grains += 1;
+                    if grains > shoulder {
+                        return false;
+                    }
+                }
                 _ => {}
             }
         }
@@ -831,6 +903,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         return;
     };
     let wade = tuning.wade_rows as i32;
+    let shoulder = tuning.shoulder_grains as i32;
     // Body cells near him, once. The margin covers this tick's whole
     // sweep — the furthest he can travel plus the depenetration reach —
     // so the window is gathered before he moves and is still valid after.
@@ -843,7 +916,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // on us. Shortest clear push wins; up is tried first at each distance
     // because material arrives from above, and "on top of the pile" is
     // the right place to end up.
-    depenetrate(world, &bodies, &mut p, wade);
+    depenetrate(world, &bodies, &mut p, wade, shoulder);
 
     if p.buried {
         // Entombed: no movement, no jump, velocities dead. Coyote and the
@@ -1144,7 +1217,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_x != 0.0 {
             let next_x = p.x + step_x;
             let (nxi, nyi) = (next_x.round() as i32, p.y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade) {
+            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
                 p.x = next_x;
             } else {
                 // Lift the same horizontal move over whatever blocked it,
@@ -1186,7 +1259,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 };
                 let mut climbed = false;
                 for lift in 1..=lift_limit {
-                    if !rect_free(world, &bodies, nxi, nyi - lift, wade) {
+                    if !rect_free(world, &bodies, nxi, nyi - lift, wade, shoulder) {
                         continue;
                     }
                     if mantling {
@@ -1215,7 +1288,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_y != 0.0 {
             let next_y = p.y + step_y;
             let (nxi, nyi) = (p.x.round() as i32, next_y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade) {
+            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
                 p.y = next_y;
             } else {
                 // Landing or head bonk: the vertical axis dies, the
@@ -1281,7 +1354,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
             // ahead it was already further than this window reaches. He
             // then spent the whole collapse in free fall beside it.
             let catchable = world.chunk_bodies.get(i).is_some_and(|b| b.vy >= 0.0);
-            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade) {
+            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade, shoulder) {
                 p.y = (row - PLAYER_HEIGHT) as f32;
                 p.grounded = true;
                 carrier = Some(i);
@@ -1447,10 +1520,28 @@ pub fn shake_target(world: &World, p: &Player, aim: (i32, i32), tuning: &Tuning)
     if p.buried {
         return None; // buried digs upward, whatever is out there
     }
-    let at = face_toward(world, p.center(), aim, tuning.shake_reach as i32);
-    let cell = world.get(at.0, at.1);
-    (cell.organism_id() != 0 && world.materials.get(cell.material).climbable).then_some(at)
+    let (cx, cy) = p.center();
+    let (dx, dy) = (aim.0 - cx, aim.1 - cy);
+    if dx * dx + dy * dy > (tuning.shake_reach as i32).pow(2) {
+        return None; // out of arm's reach: whatever it is, this is not it
+    }
+    let living = |(x, y): (i32, i32)| {
+        let cell = world.get(x, y);
+        cell.organism_id() != 0 && world.materials.get(cell.material).climbable
+    };
+    // The cursor, plus a cell or two of forgiveness — a twig is one pixel
+    // at zoom 1 and a trunk is a few, and neither should need pixel-perfect
+    // pointing. Nearest first, so a cursor between a branch and the ground
+    // takes the branch it is closest to rather than whichever the scan
+    // reached first.
+    (0..=SHAKE_SNAP)
+        .flat_map(|r| ring_offsets(r).map(move |(ox, oy)| (aim.0 + ox, aim.1 + oy)))
+        .find(|&at| world.in_bounds(at.0, at.1) && living(at))
 }
+
+/// How far from the cursor a shake will look for something to take hold
+/// of. Small: this is forgiveness for a one-pixel twig, not aim assist.
+const SHAKE_SNAP: i32 = 2;
 
 /// How much of a plant one shake reaches through — a backstop against a
 /// pathological organism, not a design knob.
@@ -1754,18 +1845,34 @@ fn face_toward(world: &World, from: (i32, i32), aim: (i32, i32), reach: i32) -> 
         let cell = (from.0 + (sx * t).round() as i32, from.1 + (sy * t).round() as i32);
         match footing(world, &Bodies::none(), cell.0, cell.1) {
             Footing::Hard => return cell,
-            // A tree stops the *aim* even though it no longer stops the
-            // body, and that split is the whole reason `Climb` is not
-            // `Free`. Movement collision and aim collision are different
-            // questions and this function only ever asked the first one;
-            // once a trunk became passable, the ray would have looked
-            // straight through it and put the dig ring on the cliff
-            // behind, with no way to point at the tree in front of you.
-            Footing::Climb => return cell,
-            // And at a formation, for the same reason plus a sharper one:
-            // the pick is aimed down this ray, so a stalagmite the ray flew
-            // through would be unminable — visible, walk-through, and
-            // impossible to remove.
+            // Living tissue is **invisible to the pick's aim**, and that
+            // is a reversal worth reading before changing it back.
+            //
+            // This returned the cell, on the argument that a tree stops the
+            // aim even though it no longer stops the body — so you could
+            // point at a trunk standing in front of a cliff. The split was
+            // right and the place was wrong: movement collision, aim
+            // collision and *cut* collision are three questions, and that
+            // merged the last two. `mine_swept` skips organism cells, so a
+            // tree the ray stopped at was a bite that did nothing — a trunk
+            // between `shake_reach` and `dig_reach` was a dead click, which
+            // `Tool::Dig`'s own doc forbids.
+            //
+            // The shake asks its own question now (`shake_target`, off the
+            // cursor rather than off a ray), so this function only has to
+            // answer the pick's: where is the nearest thing I can cut.
+            Footing::Climb => {}
+            // A formation **does** stop the aim, and the contrast with the
+            // arm above is the rule rather than an exception to it: this ray
+            // stops at whatever the pick can cut. A stalagmite is scenery he
+            // walks through, but `mine_swept` cuts it like any other rock, so
+            // a ray that flew through one would leave it visible and
+            // impossible to remove. Living tissue is the opposite case —
+            // passable *and* uncuttable — so the ray passes through it.
+            //
+            // Walk-through is therefore not what either arm keys on. If a
+            // third passable material ever arrives, ask the only question
+            // that decides this: can the pick cut it?
             Footing::Scenery => return cell,
             Footing::Soft => {
                 first_loose.get_or_insert(cell);
@@ -1904,15 +2011,15 @@ fn inside_player(p: &Player, x: i32, y: i32) -> bool {
 /// each distance (see `step`'s call-site comment), then sideways, then
 /// down — down last because being squeezed downward through a floor gap
 /// is the least expected outcome of being landed on.
-fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32) {
+fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32, shoulder: i32) {
     let (xi, yi) = p.rect_origin();
-    if rect_free(world, bodies, xi, yi, wade) {
+    if rect_free(world, bodies, xi, yi, wade, shoulder) {
         p.buried = false;
         return;
     }
     for d in 1..=DEPENETRATE_REACH {
         for (dx, dy) in [(0, -d), (-d, 0), (d, 0), (0, d)] {
-            if rect_free(world, bodies, xi + dx, yi + dy, wade) {
+            if rect_free(world, bodies, xi + dx, yi + dy, wade, shoulder) {
                 p.x += dx as f32;
                 p.y += dy as f32;
                 p.buried = false;
@@ -2076,7 +2183,11 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert!(!p.buried, "one intruding cell should be escapable");
         let (nx, ny) = p.rect_origin();
-        assert!(rect_free(&world, &Bodies::none(), nx, ny, Tuning::default().wade_rows as i32), "the rect should be clear after depenetration");
+        let t = Tuning::default();
+        assert!(
+            rect_free(&world, &Bodies::none(), nx, ny, t.wade_rows as i32, t.shoulder_grains as i32),
+            "the rect should be clear after depenetration"
+        );
 
         // Entomb him completely: buried, and motionless.
         let (xi, yi) = world.player.as_ref().unwrap().rect_origin();
@@ -2277,17 +2388,18 @@ mod tests {
         world.player = Some(Player::at(66, 84));
         let tuning = Tuning::default();
         let wade = tuning.wade_rows as i32;
+        let shoulder = tuning.shoulder_grains as i32;
         for i in 0..40 {
             // Legal *before* the bite, so the assertion after it is about
             // the bite and not about where he had already walked.
             let (bx, by) = world.player.as_ref().unwrap().rect_origin();
-            if !rect_free(&world, &Bodies::none(), bx, by, wade) {
+            if !rect_free(&world, &Bodies::none(), bx, by, wade, shoulder) {
                 continue;
             }
             dig(&mut world, (74, 84), &tuning);
             let (ax, ay) = world.player.as_ref().unwrap().rect_origin();
             assert!(
-                rect_free(&world, &Bodies::none(), ax, ay, wade),
+                rect_free(&world, &Bodies::none(), ax, ay, wade, shoulder),
                 "bite {i} shoved spoil into a position the gnome was standing in"
             );
             tick(&mut world, PlayerInput::default());
@@ -2779,7 +2891,7 @@ mod tests {
         use crate::sim::scheduler::ActiveKind;
         let mut world = world_with_leafy_tree();
         let before = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
-        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &Tuning::default()).expect("aimed at the tree");
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &Tuning::default()).expect("aimed at the tree");
         shake(&mut world, target, &Tuning::default()).expect("a shake should fire");
         let after = world.active_sites_for_test().iter().filter(|s| s.kind == ActiveKind::StructuralCheck).count();
         assert_eq!(before, after, "a shake must schedule no structural check");
@@ -2796,7 +2908,7 @@ mod tests {
         let before = count(&world);
         let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
         for _ in 0..40 {
-            let Some(target) = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning) else {
+            let Some(target) = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning) else {
                 break;
             };
             shake(&mut world, target, &tuning);
@@ -2814,7 +2926,7 @@ mod tests {
             world.set(x, 61, Cell::new(sand, 0));
         }
         let tuning = Tuning::default();
-        let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+        let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning).expect("aimed at the tree");
         let shake_result = shake(&mut world, target, &tuning).expect("a shake should fire");
         assert!(shake_result.dislodged > 0, "nothing came off the branches: {shake_result:?}");
     }
@@ -2832,7 +2944,7 @@ mod tests {
             // oscillator is at — which is the point of going through it.
             world.add_light(72, 70, 24, light);
             let tuning = Tuning { shake_shed: 1.0, ..Default::default() };
-            let target = shake_target(&world, world.player.as_ref().unwrap(), (127, 87), &tuning).expect("aimed at the tree");
+            let target = shake_target(&world, world.player.as_ref().unwrap(), (71, 80), &tuning).expect("aimed at the tree");
             shake(&mut world, target, &tuning).expect("a shake should fire").shed
         }
         let dark = shed_with(0.0);
@@ -2841,15 +2953,32 @@ mod tests {
     }
 
     #[test]
-    fn pointing_at_rock_still_digs_and_pointing_at_a_tree_shakes() {
+    fn the_shake_takes_what_you_point_at_and_nothing_else() {
         // One button, two verbs, and no dead click: `Tool::Dig`'s recorded
         // lesson is that a reach may bound where a verb lands and must
         // never decide whether it happens.
+        //
+        // **Pointing, not a ray.** This used to walk out from the gnome and
+        // take the first living thing on the line, so a cursor anywhere at
+        // all shook whatever tree happened to be in the way -- and standing
+        // inside one, that was every direction.
         let world = world_with_leafy_tree();
         let p = world.player.as_ref().unwrap();
         let tuning = Tuning::default();
-        assert!(shake_target(&world, p, (127, 87), &tuning).is_some(), "pointing at the trunk should shake");
+        assert!(shake_target(&world, p, (71, 80), &tuning).is_some(), "pointing at the trunk should shake");
         assert!(shake_target(&world, p, (64, 92), &tuning).is_none(), "pointing at the floor should dig");
+        // Past the trunk at its own height: the tree is on the line but not
+        // under the cursor, so the pick gets the click.
+        assert!(
+            shake_target(&world, p, (127, 80), &tuning).is_none(),
+            "a tree merely in the way must not steal the click"
+        );
+        // A couple of cells off the trunk still counts -- a twig is one
+        // pixel and should not need pixel-perfect pointing.
+        assert!(
+            shake_target(&world, p, (68, 80), &tuning).is_some(),
+            "just off the trunk should still take hold"
+        );
     }
 
     #[test]
@@ -2893,17 +3022,50 @@ mod tests {
     }
 
     #[test]
-    fn the_dig_aim_still_stops_at_a_tree_he_can_walk_through() {
-        // Movement collision and aim collision are different questions.
-        // Without the split, the ray looks straight through the trunk and
-        // the dig ring lands on whatever is behind it.
-        let world = world_with_tree(80, 5, 60);
-        let mut world = world;
+    fn the_pick_aims_through_a_tree_at_the_rock_behind_it() {
+        // **This replaces a test that asserted the opposite**, and the flip
+        // is the point. `face_toward` was taught to stop at living tissue
+        // so the shake could aim at a tree standing in front of a cliff --
+        // right split, wrong place. Movement collision, aim collision and
+        // *cut* collision are three questions, and that change merged the
+        // last two: the pick cannot cut an organism cell (`mine_swept`
+        // skips them), so a tree it stopped at was a bite that did nothing.
+        // A trunk between `shake_reach` and `dig_reach` was therefore a
+        // dead click, which `Tool::Dig`'s own doc forbids. The shake asks
+        // its own question now (`shake_target`), so this ray only has to
+        // answer the pick's.
+        let mut world = world_with_tree(85, 3, 60);
+        let stone = material::STONE;
+        for y in 60..88 {
+            for x in 88..96 {
+                world.set(x, y, Cell::new(stone, 0));
+            }
+        }
         world.player = Some(Player::at(60, 80));
         let p = world.player.take().expect("just placed");
-        let at = bite_point(&world, &p, (127, 80), &Tuning::default());
+        let at = bite_point(&world, &p, (127, 87), &Tuning::default());
         world.player = Some(p);
-        assert_eq!(at.0, 80, "the aim should stop at the near face of the trunk, landed at {at:?}");
+        assert_eq!(
+            world.get(at.0, at.1).material,
+            stone,
+            "the pick should reach past the trunk to the rock, landed at {at:?}"
+        );
+    }
+
+    #[test]
+    fn standing_inside_a_tree_pointing_at_rock_is_a_dig() {
+        // Reported as a green marker that would not go away; the marker was
+        // the symptom. The shake aimed with a ray *from the gnome*, so
+        // standing inside a trunk the nearest living tissue was distance 1
+        // in every direction -- the shake won the routing whatever you
+        // pointed at, and you could not dig at all in a wood.
+        let mut world = world_with_tree(60, 12, 40);
+        world.player = Some(Player::at(64, 80));
+        let p = world.player.as_ref().expect("just placed");
+        assert!(
+            shake_target(&world, p, (78, 92), &Tuning::default()).is_none(),
+            "pointing at the floor from inside a tree must still be a dig"
+        );
     }
 
     /// A pool of water in a stone basin, surface at `surface_y`.
@@ -2928,6 +3090,94 @@ mod tests {
             }
         }
         world
+    }
+
+    /// Walk him right for `ticks` and report how far he got, against a
+    /// world the caller has already furnished.
+    fn distance_walked(world: &mut World, tuning: &Tuning, ticks: usize) -> f32 {
+        let start = world.player.as_ref().expect("a gnome").x;
+        for _ in 0..ticks {
+            step(world, PlayerInput { right: true, ..Default::default() }, tuning);
+        }
+        world.player.as_ref().expect("a gnome").x - start
+    }
+
+    /// One grain of soil at chest height, in his path, on open floor.
+    fn world_with_a_stray_grain(grains: i32) -> World {
+        let mut world = world_with_floor();
+        let soil = world.materials.id_of("soil").expect("soil is compiled in");
+        // Standing on the floor at y=88 puts his rect at rows 74..=87, so
+        // rows 74..=83 are the chest and 84..=87 are the wade.
+        //
+        // **y=79 is not an arbitrary chest row, it is the one step-up
+        // cannot reach.** Lifting slides an offender *down* the body, so a
+        // grain at `dy` needs a lift of `chest - dy` to fall into the wade
+        // rows: `dy` 5 wants 5, and `step_up` is 4. A grain one row lower
+        // is cleared by the existing step-up and reproduces nothing --
+        // which is exactly what the first draft of this test placed, and
+        // its control caught it.
+        for i in 0..grains {
+            world.set(40 + i, 79, Cell::new(soil, 0));
+        }
+        world.player = Some(Player::at(10, 81));
+        world
+    }
+
+    #[test]
+    fn a_stray_grain_at_chest_height_is_not_a_wall() {
+        // **The bug this rule was rewritten for.** Found in `scene=wood`:
+        // a single `soil` cell at (108,194), lodged in a canopy, stopped
+        // the gnome dead for eleven thousand frames. Step-up cannot save
+        // him — lifting slides the offending cell *down* his body toward
+        // the wade rows, so a grain at chest height wants a lift of
+        // `chest - dy`, which at that height was one more than `step_up`
+        // reaches.
+        let tuning = Tuning::default();
+        let mut world = world_with_a_stray_grain(1);
+        let went = distance_walked(&mut world, &tuning, 200);
+        assert!(went > 40.0, "one grain should not stop him; he covered {went:.1} cells");
+
+        // **The control, and it is what keeps this test honest.** At
+        // `shoulder_grains: 0` the rule is the old veto exactly, and the
+        // same grain must still stop him — otherwise this passes for some
+        // reason other than the change under test.
+        let vetoing = Tuning { shoulder_grains: 0, ..Default::default() };
+        let mut world = world_with_a_stray_grain(1);
+        let stopped = distance_walked(&mut world, &vetoing, 200);
+        assert!(stopped < 30.0, "the old veto should still wall him; he covered {stopped:.1} cells");
+    }
+
+    #[test]
+    fn a_bank_of_soil_is_still_a_wall() {
+        // **Written to fail for the *replacement* artifact**, per the house
+        // rule: the risk in counting rather than vetoing is that the wade
+        // line stops meaning anything and he strolls through a bank. A
+        // course of powder across his whole width is what a drift is made
+        // of, and it must stop him at every setting the panel offers —
+        // which is why the count is per row and the allowance is capped
+        // below `PLAYER_WIDTH`.
+        for shoulder in 0..=6u8 {
+            let tuning = Tuning { shoulder_grains: shoulder, ..Default::default() };
+            let mut world = world_with_floor();
+            let soil = world.materials.id_of("soil").expect("soil is compiled in");
+            for y in 60..88 {
+                for x in 40..52 {
+                    world.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            world.player = Some(Player::at(10, 81));
+            let went = distance_walked(&mut world, &tuning, 200);
+            // Not "he never touches it" — he leans into the face by up to
+            // `shoulder` columns, which is the allowance doing exactly what
+            // it says and reads as sinking into the edge of a drift. The
+            // claim is that he never gets *through*: the bank spans
+            // x=40..=51, so clearing it would put his centre past 54, i.e.
+            // 44 cells covered.
+            assert!(
+                went < 40.0,
+                "a 12-wide bank must stop him at shoulder_grains={shoulder}, he covered {went:.1} cells"
+            );
+        }
     }
 
     #[test]
