@@ -3069,6 +3069,48 @@ it does". Both runs above deliver food (main: 1,340 pickups, 143 deliveries),
 so the colony is not starving; it is finding food without going 8 cells to get
 it.
 
+### H3. `a_forced_vault_world_is_sealed_and_arrives_at_rest` is red on `main`, and it is water — **OPEN, inherited, 2026-08-23**
+
+Not a new bug — `plant-implementation-split-2026-08-23.md` already warns that
+main is red here. Recorded because the *content* of the failure was not, and
+because it is the reason a plant branch's CI looks broken when it is not.
+
+`tests/worldgen.rs:1794` snapshots every `(x, y, material)` in a forced-vault
+world, steps 120 frames, and requires nothing to have left its position. The
+cells that move are **material 6 — water** (`stone` is 2, `sand` 3, `gravel` 4,
+`ash` 5, `water` 6, in `MATERIAL_FILES` order), so this is a liquid-at-rest
+failure wearing a worldgen test's name. The assertion is inside the
+preset/seed loop, so the run stops at the **first** failing case and says
+nothing about the ones after it.
+
+Measured, paired, same machine and session — `origin/main`'s `src/` swapped
+into a clean tree against P1's:
+
+| | first failing case | cells that moved |
+|---|---|---|
+| `origin/main` `a0fa433` | **rolling seed 3** | **47** |
+| P1 (this branch) | wetland seed 3 | **8** |
+
+**P1 gets past `rolling seed 3` entirely**, which main does not, and then stops
+on a later case with a sixth as many cells. So the water fixes move this the
+right way rather than causing it. What P1 does *not* establish is whether main
+also fails `wetland seed 3` — main never reaches it, and finding out means
+making the loop collect failures instead of panicking on the first, which is a
+`tests/worldgen.rs` change and belongs to whoever owns worldgen.
+
+**Why a plant package looked responsible for it, which is worth knowing before
+the next one wastes the time.** §F3's fix leaves a partly-drunk water cell as
+*partial fill* where the old code deleted the cell outright, and partial fill
+is mobile — it seeks its level. That is a real, plausible route from a plant
+change to "water did not hold still", and it is why this was measured against
+main rather than waved through on the split document's say-so. The measurement
+says the opposite of the suspicion.
+
+**And the reason it reached CI at all: `cargo test --lib` does not run
+`tests/`.** P1's local gate was `cargo test --release --lib` — 851 passed, 0
+failed — which never compiled the integration tests. CI runs `cargo test
+--release`, which does. Run the bare form locally before believing a green.
+
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
