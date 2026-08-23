@@ -1101,7 +1101,9 @@ fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &Creatu
 /// **What one cell is worth to *this gut*** — S5's matched filter, and the
 /// only definition of it.
 ///
-///     yield = food_value(cell) * (1 - |gut_bias - food_class| / 2)^2
+/// ```text
+/// yield = food_value(cell) * (1 - |gut_bias - food_class| / 2)^2
+/// ```
 ///
 /// A gut tuned for cellulose is bad at flesh, so specialising costs
 /// something and there is no free lunch. No transcendental, and — the
@@ -1142,10 +1144,12 @@ pub fn diet_yield(world: &World, cell: Cell, gut_bias: f32) -> f32 {
 /// Derived from the filter's own arithmetic rather than measured, and the
 /// gap is left visible per `CLAUDE.md` rather than relabelled away:
 ///
-///   gut     plant (class -1)     flesh (class +1)     reads as
-///   0.0     120 * 0.25 =  30     worth * 0.25         generalist, sees both
-///  -0.8     120 * 0.81 =  97     120  * 0.01 =  1.2   blind to carrion
-///  +0.8     120 * 0.01 = 1.2     120  * 0.81 =  97    blind to plants
+/// ```text
+/// gut     plant (class -1)     flesh (class +1)     reads as
+/// 0.0     120 * 0.25 =  30     worth * 0.25         generalist, sees both
+/// -0.8    120 * 0.81 =  97     120  * 0.01 =  1.2   blind to carrion
+/// +0.8    120 * 0.01 = 1.2     120  * 0.81 =  97    blind to plants
+/// ```
 ///
 /// The bar has to sit below a generalist's 30 and above a specialist's
 /// 1.2; a tenth of a mouthful is the round number in that gap. **It wants
