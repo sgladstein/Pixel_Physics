@@ -1,0 +1,62 @@
+{
+  "id": "20260823T204413045Z-25c85d",
+  "created": "2026-08-23T20:44:13Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/wp11-economy-retune",
+    "commit": "b75aec1",
+    "agent": null,
+    "session_id": "7e737eab-37cf-564e-a14e-51ef925d9ada",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "The soil pile, as depth over time — the card I should have sent",
+  "question": "Watch the ground line rise in the first clip and hold flat in the second. Is that the floor you wanted — or is it still filling too fast?",
+  "context_md": "My last card asked you to compare three stills of a stand and you said, fairly, *\"What am i supposed to be looking at.\"* That was the card failing, not the change. You complained about **a giant pile of soil** — a depth that builds up — and I sent you a grid of single moments framed on the canopy. Depth over time is not something a still can show.\n\nSo this is the same question re-asked properly: **cropped to the floor with the sky cut away, and animated over 12,000 frames** so the accumulation is the thing moving.\n\nI also had to build the measurement your words named, because nothing in the engine counted it — soil cells in the world, sampled every 600 frames.\n\n| frame | before | after |\n|---|---|---|\n| 600 | 3,470 | 3,429 |\n| 3,000 | 3,333 | 3,169 |\n| 6,000 | 3,815 | 2,973 |\n| 9,000 | 5,235 | 3,091 |\n| 12,000 | **6,971** | **3,358** |\n\nThe floor **doubles** in the before clip and **ends where it started** in the after.\n\n**Two things I want you to distrust me on:**\n\n1. *Both* clips dip before frame 6,000 — soil leaves as well as arrives, and I do not yet know what consumes it. So the after clip is not \"decay stopped\", it is \"decay stopped outrunning whatever removes it\".\n2. The after world carries **more leaf on the plants** (33,425 living cells against 28,776) — the leaves that stop falling stay up there. If the crowns now read as one mass instead of separate stands, that is the cost of this, and I would rather hear it now. I am sending a separate card framed on the crowns for exactly that.\n\nWhat changed: the quarter leaf-fall rate you already picked (\"C is best\") now applies to all four woody species the world sows, not just `tree`. It was only on `tree` because the other three arrived in a later merge.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — leaf fall at the old rate",
+      "files": [
+        "20260823T204413045Z-25c85d/000-floor-A.gif"
+      ],
+      "caption": "all four species at 0.003; the ground line climbs across the clip",
+      "meta": {
+        "soil cells, frame 600": 3470,
+        "soil cells, frame 12000": 6971,
+        "net floor change": "+3501",
+        "soil-writing decay events": 5061,
+        "leaves shed": 6314,
+        "living plant tissue": 28776
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "after — your rate, on all four",
+      "files": [
+        "20260823T204413045Z-25c85d/001-floor-C.gif"
+      ],
+      "caption": "all four at 0.00075; the ground line holds",
+      "meta": {
+        "soil cells, frame 600": 3429,
+        "soil cells, frame 12000": 3358,
+        "net floor change": "-71",
+        "soil-writing decay events": 1532,
+        "leaves shed": 1913,
+        "living plant tissue": 33425
+      },
+      "focus": null,
+      "gif_frames": 20
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
