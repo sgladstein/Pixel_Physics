@@ -1,0 +1,94 @@
+{
+  "id": "20260823T233741804Z-31974a",
+  "created": "2026-08-23T23:37:41Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-c",
+    "branch": "claude/pixel-physics-lane-c-wp8-9-byuvop",
+    "commit": "c801769",
+    "agent": null,
+    "session_id": "43e361e1-6da3-5d35-91b1-5cf42cd7a522",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-c"
+  },
+  "title": "Ants walking over each other, in motion: does the colony stream or jam?",
+  "question": "Which pane reads as ants going about their business rather than jamming - and in that pane, is anything standing on nothing?",
+  "context_md": "You answered the still version of this (`20260823T152556591Z-7c87cf`) with\n*\"need an animation to tell\"*. Same question, in motion: **20 frames, 6 ticks\napart — 2 seconds of play — on one shared scrubber, so both panes step to the\nsame instant.** Drag it or press the arrow keys.\n\n**The change.** A living nestmate counts as **ground**: footing only, never\npassability, so two ants still cannot walk through each other. It is the\ndeliberate re-test of a dead end (775/829) whose own condition line said to\nre-open it *\"if creatures gain pass-through or climb-over\"*. It is one line in\n`ant.ron` either way, and it is currently **off** — this card decides that.\n\n**What is different from the first card, and why.** That one used the default\nworld seed and had 17 ants. The default seed now panics in the scene, and of\nthe seeds that do work, several plant most of the colony *on a lake* — so this\nis `seed=12`, 31 ants, on a hill the colony has dug a chamber into. Captured at\nnoon (`start=1200`), because the scene's 2,400-frame warmup otherwise lands the\ncapture two thirds through the day/night cycle and the first attempt came back\nas a sheet of night.\n\n**The numbers, deliberately not attributed to a pane.** `forage_probe`,\nmedians of 8 seeds, both arms, same seeds, re-measured after the sessile-colony\nbug was closed — the earlier card's figures were taken while the colony was not\nforaging at all and should be ignored:\n\n| | one arm | the other |\n|---|---|---|\n| deliveries | 643 | 270 |\n| falls | 968 | 1,783 |\n| moves | 9,746 | 10,889 |\n| forage trips, over a terrain bridge | 22 | 233 |\n| deepest excursion, same scene | 16 | 74 |\n\nSo the trade is real and it divides by scene: over terrain that has to be\nnegotiated it is transformative; in the plain foraging loop it **halves\ndeliveries** for no gain in trips, while falls nearly double. The work\npackage's rule is *land default-on only if one arm clearly wins with\ndeliveries flat*. They are not flat. That is why this is your call and not\nmine — and why the panes are blind.\n\n**One thing to ignore, because I already checked it.** At the far right of the\nframe there is open water, and an ant or two is standing on its surface. That\nis in **both** panes, it happens with this change off, and it is not this\nchange: `found_colony` will plant an ant on a liquid surface, and nothing\nafterwards makes it sink. Filed as §R of `Reports/open-bugs-handoff.md`.\n\nRendered on the `gutbias` overlay — ants are 2 cells each and invisible against\nsoil otherwise. Pale = a neutral omnivore gut, which is what every ant is.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T233741804Z-31974a/000-a_00.png",
+        "20260823T233741804Z-31974a/001-a_01.png",
+        "20260823T233741804Z-31974a/002-a_02.png",
+        "20260823T233741804Z-31974a/003-a_03.png",
+        "20260823T233741804Z-31974a/004-a_04.png",
+        "20260823T233741804Z-31974a/005-a_05.png",
+        "20260823T233741804Z-31974a/006-a_06.png",
+        "20260823T233741804Z-31974a/007-a_07.png",
+        "20260823T233741804Z-31974a/008-a_08.png",
+        "20260823T233741804Z-31974a/009-a_09.png",
+        "20260823T233741804Z-31974a/010-a_10.png",
+        "20260823T233741804Z-31974a/011-a_11.png",
+        "20260823T233741804Z-31974a/012-a_12.png",
+        "20260823T233741804Z-31974a/013-a_13.png",
+        "20260823T233741804Z-31974a/014-a_14.png",
+        "20260823T233741804Z-31974a/015-a_15.png",
+        "20260823T233741804Z-31974a/016-a_16.png",
+        "20260823T233741804Z-31974a/017-a_17.png",
+        "20260823T233741804Z-31974a/018-a_18.png",
+        "20260823T233741804Z-31974a/019-a_19.png"
+      ],
+      "caption": "one line of ant.ron",
+      "meta": {
+        "ants placed in this scene": 31,
+        "frames / ticks apart": "20 / 6",
+        "ant cells that move per sample (mean)": 24,
+        "cells differing from the other pane, per frame": 140
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T233741804Z-31974a/020-b_00.png",
+        "20260823T233741804Z-31974a/021-b_01.png",
+        "20260823T233741804Z-31974a/022-b_02.png",
+        "20260823T233741804Z-31974a/023-b_03.png",
+        "20260823T233741804Z-31974a/024-b_04.png",
+        "20260823T233741804Z-31974a/025-b_05.png",
+        "20260823T233741804Z-31974a/026-b_06.png",
+        "20260823T233741804Z-31974a/027-b_07.png",
+        "20260823T233741804Z-31974a/028-b_08.png",
+        "20260823T233741804Z-31974a/029-b_09.png",
+        "20260823T233741804Z-31974a/030-b_10.png",
+        "20260823T233741804Z-31974a/031-b_11.png",
+        "20260823T233741804Z-31974a/032-b_12.png",
+        "20260823T233741804Z-31974a/033-b_13.png",
+        "20260823T233741804Z-31974a/034-b_14.png",
+        "20260823T233741804Z-31974a/035-b_15.png",
+        "20260823T233741804Z-31974a/036-b_16.png",
+        "20260823T233741804Z-31974a/037-b_17.png",
+        "20260823T233741804Z-31974a/038-b_18.png",
+        "20260823T233741804Z-31974a/039-b_19.png"
+      ],
+      "caption": "the other",
+      "meta": {
+        "ants placed in this scene": 31,
+        "frames / ticks apart": "20 / 6",
+        "ant cells that move per sample (mean)": 25,
+        "cells differing from the other pane, per frame": 140
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
