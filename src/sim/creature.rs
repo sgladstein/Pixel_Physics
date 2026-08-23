@@ -688,22 +688,19 @@ const PERSIST_MAX: f32 = 2.0;
 // `TUMBLE_ON_FAILED_MOVE` is gone: it is `BrainOutput::Tumble` now. The
 // lesson it recorded still stands and is worth keeping — "how often do I
 // step" and "how often do I change my mind" are different questions, and
-// conflating them (tumbling on *every* failed move) collapsed food
-// discovery from 33 pickups to 1 by destroying the persistent run that
-// covers ground. What changed is that a creature can now be selected for
-// its answer instead of being told mine.
+// conflating them (tumbling on *every* failed move) makes a creature that
+// fails half its move rolls change heading half the time: a diffusive
+// random walk, which is the worst possible way to *find* anything.
+// Measured at 1.0, food discovery collapsed from 33 pickups to 1, because
+// the persistent run that covers ground had been destroyed. The authored
+// answer used to be 0.35. What changed is that a creature can now be
+// selected for its answer instead of being told mine.
+//
+// (The `0.35` doc comment this paragraph absorbed had outlived its own
+// `const` and slid onto `CROWDING_SCALE` below, which then documented a
+// tumble chance for a crowding divisor. Deleting a `const` takes its doc
+// with it — check what the next declaration inherited.)
 
-/// Chance that a failed move roll also re-orients the creature.
-///
-/// **Not 1.0, and the difference matters more than it looks.** "How often
-/// do I step" and "how often do I change my mind" are different questions,
-/// and conflating them makes a creature that fails half its move rolls
-/// change heading half the time — a diffusive random walk, which is the
-/// worst possible way to *find* anything. Measured at 1.0: food discovery
-/// collapsed from 33 pickups to 1, because the persistent run that covers
-/// ground had been destroyed. At 0.35 a creature still runs in roughly
-/// straight lines and still re-orients often enough for the gradient term
-/// to steer it.
 /// Divisor turning that count into a 0..1-ish input.
 const CROWDING_SCALE: f32 = 8.0;
 
@@ -942,7 +939,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     let p_move = outputs[brain::BrainOutput::Move as usize].clamp(0.0, 1.0);
     let mut moved = false;
     if draw.unit_f32() < p_move {
-        moved = step_chain(world, organism, heading, &outputs, def, &mut draw, material_id);
+        moved = step_chain(world, organism, heading, &outputs, def, &mut draw);
         if moved {
             spent += def.move_cost;
             world.energy_ledger.moved += def.move_cost as f64;
@@ -992,8 +989,14 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
     (inputs, outputs, active)
 }
 
-/// The 14 brain inputs. Slot indices are `brain::BrainInput`'s and are a
-/// permanent public contract — see that enum.
+/// Fills all `brain::BRAIN_INPUTS` inputs. Slot indices are
+/// `brain::BrainInput`'s and are a permanent public contract — see that
+/// enum.
+///
+/// The count is deliberately **not** written out here. This line said "the
+/// 14 brain inputs" for two appends past 14 (it is 16), because a literal
+/// in prose has nothing that fails when the enum grows — and the one law
+/// this file has is that inputs may be appended freely. Name the const.
 fn sense(world: &World, x: i32, y: i32, organism: u16, heading: u8, def: &CreatureDef) -> [f32; brain::BRAIN_INPUTS] {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
@@ -1452,7 +1455,6 @@ fn step_chain(
     outputs: &[f32; brain::BRAIN_OUTPUTS],
     def: &CreatureDef,
     draw: &mut rng::Rng,
-    material_id: material::MaterialId,
 ) -> bool {
     let Some(chain) = world.organism(organism).map(|s| s.chain.clone()) else {
         return false;
@@ -1662,7 +1664,6 @@ fn step_chain(
             world.creature_stats.forage_depth_max = world.creature_stats.forage_depth_max.max(depth as u64);
         }
     }
-    let _ = material_id;
     true
 }
 
@@ -3961,9 +3962,6 @@ mod tests {
                 "{standing:.2} of meat is standing in a box that only ever had {ceiling:.2} put into it"
             );
         }
-        // And the live identity still closes, which is the *other* thing the
-        // ledger can see and this one cannot: a charge debited but never
-        // taken off a creature.
         // And the live identity still closes, which is the *other* thing the
         // ledger can see and this one cannot: a charge debited but never
         // taken off a creature.

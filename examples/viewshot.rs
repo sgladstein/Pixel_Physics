@@ -44,10 +44,16 @@ struct Args {
     settle: usize,
     rain: String,
     mine: bool,
+    /// `aim=N` — centre the shots on this world x instead of spreading them.
+    aim: Option<i32>,
+    /// `quarry=W` — width of an open-cast pit cut into the skyline.
+    quarry: i32,
     vault: bool,
     boulder: bool,
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
+    /// `skylight=` — which sky-light mode to render through (`9`/`F12`).
+    sky_light: pixel_physics::render::SkyLight,
     glow: pixel_physics::render::GlowShape,
     spring: i32,
     age: Option<f32>,
@@ -121,10 +127,13 @@ fn main() {
         settle: 60,
         rain: String::new(),
         mine: false,
+        aim: None,
+        quarry: 0,
         vault: false,
         boulder: false,
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
+        sky_light: pixel_physics::render::SkyLight::default(),
         glow: pixel_physics::render::GlowShape::default(),
         spring: 0,
         age: None,
@@ -159,7 +168,24 @@ fn main() {
             // pick down a hole". Shafts of three different widths, because
             // the failure was reported for a *narrow* one and a fix that only
             // worked for narrow ones would be worth knowing about.
+            // `aim=N` centres every shot on one world x. Added after a
+            // contact sheet was posted to a card asking "is there a vertical
+            // seam here": the sheet's own tile joins are hard vertical edges,
+            // and one of them landed at the edge of the focused region. The
+            // reply was "there is still a clear seam". A single tile aimed at
+            // the thing has no joins in it at all.
+            "aim" => a.aim = Some(v.parse().expect("aim=WORLD_X")),
             "mine" => a.mine = v != "0",
+            // `quarry=W` is `mine=`'s other half, and it is the half that
+            // separates two readings of the same darkness. A shaft is a
+            // *tunnel*, so drawing it as one is arguable; a W-wide pit with
+            // nothing over it is open sky by inspection, and the frozen
+            // skyline blacks it out anyway because "is there solid material
+            // above me in this column" is answered from frame one. 64 is
+            // wider than the widest shaft the reach rules ever discriminated
+            // (`Reports/underground-definition.md`), so no width threshold
+            // can be mistaken for the cause.
+            "quarry" => a.quarry = v.parse().expect("quarry=WIDTH"),
             // `vault=1` aims the camera at a sealed chamber and sinks a shaft
             // into it, which is the only way to photograph the round-2 vault
             // pass at all: a vault sits 200+ rows below the surface, so every
@@ -189,6 +215,19 @@ fn main() {
                     "near" => pixel_physics::render::GlowShape::Near,
                     "field" | "blocks" => pixel_physics::render::GlowShape::Field,
                     other => panic!("unknown glow {other:?} (near|field)"),
+                }
+            }
+            // `skylight=4|2|1` renders through the propagated sky-light
+            // modes instead of the depth-based cave fade, so the selector the
+            // app carries on `F12` can be A/B'd headlessly. Named by
+            // block size, which is the only thing that differs between them.
+            "skylight" => {
+                a.sky_light = match v {
+                    "off" | "depth" => pixel_physics::render::SkyLight::Depth,
+                    "4" => pixel_physics::render::SkyLight::Coarse4,
+                    "2" => pixel_physics::render::SkyLight::Coarse2,
+                    "1" | "exact" => pixel_physics::render::SkyLight::Exact,
+                    other => panic!("unknown skylight {other:?} (off|4|2|1)"),
                 }
             }
             // `light=flat` renders the pre-review look, for A/B strips of
@@ -446,6 +485,7 @@ fn main() {
     let mut renderer = Renderer::new();
     renderer.glow_shape = a.glow;
     renderer.terrain_light = a.light;
+    renderer.sky_light = a.sky_light;
     renderer.reveal_voids = a.reveal;
     renderer.zoom = a.scale;
     renderer.zoom_out_stride = a.stride;
@@ -802,11 +842,13 @@ fn main() {
         // render of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
         let x = match (a.vault || a.boulder, a.mine, aimed) {
+            _ if a.aim.is_some() => a.aim.expect("checked"),
             (true, _, _) => vault_at
                 .or(boulder_at)
                 .map(|(vx, _)| vx)
                 .unwrap_or(WORLD_WIDTH as i32 / 2),
             (_, true, _) => WORLD_WIDTH as i32 / 4,
+            _ if a.quarry > 0 => WORLD_WIDTH as i32 / 4,
             (_, _, Some(sx)) => sx,
             _ => ((shot as f32 + 0.5) / a.shots as f32 * WORLD_WIDTH as f32) as i32,
         };
@@ -977,6 +1019,25 @@ fn main() {
             // `end_step` -- so without this the next draw's dirty-rect skip
             // has nothing to repaint and the shafts are invisible for a
             // reason that has nothing to do with the skyline.
+            pixel_physics::sim::parallel::step(&mut world);
+        }
+        if a.quarry > 0 && shot == 0 {
+            // An open pit, cut into the skyline itself rather than down
+            // from it: the top 40 rows off a `quarry`-wide patch, with
+            // nothing left overhead. Every cell of it is open to the sky by
+            // inspection, which is what makes it the clean reading of the
+            // dark-band report -- a narrow shaft can be argued to be a
+            // tunnel and this cannot.
+            let cx = cam_x + WIDTH as i32 / 2;
+            let top = (0..WORLD_HEIGHT as i32)
+                .find(|&y| world.get(cx, y).material != material::EMPTY)
+                .unwrap_or(0);
+            for x in cx - a.quarry / 2..=cx + a.quarry / 2 {
+                for y in top..top + 40 {
+                    world.set(x, y, pixel_physics::sim::cell::Cell::EMPTY);
+                }
+            }
+            println!("  quarried a {}-wide open pit at x={cx}, 40 deep from y={top}", a.quarry);
             pixel_physics::sim::parallel::step(&mut world);
         }
 
