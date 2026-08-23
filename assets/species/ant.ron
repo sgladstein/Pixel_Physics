@@ -57,7 +57,7 @@
         // ant's own meat at 120 a cell leaves scavenging worth precisely
         // what it was worth yesterday -- the pump closes because the value
         // is now finite and booked at spawn, not because meat got cheaper.
-        body_energy: 120.0,
+        body_energy: 480.0,
         // Eat only when genuinely low; otherwise carry it home. See
         // CreatureDef::hunger_fraction -- getting this wrong deletes the
         // foraging loop while leaving a colony that looks right.
@@ -113,7 +113,91 @@
         // food that no animal in the world would touch. The delivery rise
         // S4 measured was terrain, not feeding -- litter smooths the ground,
         // and `blocked` fell from 7,342 to 3,292 over the same run.
-        food: ["corpse", "seed", "leaf", "moss", "litter"],
+        // **The list this comment was attached to is gone (S5).** What is
+        // nutritious is now `gut_bias` against `MaterialDef::food_class`
+        // through `creature::diet_yield`, and whom it is acceptable to bite
+        // is `eats_kin` -- two claims the one list was making at once. The
+        // account above is kept because the *failure* it records outlives
+        // the field: a material can be rich food that no animal will touch,
+        // and the census that judged S4 could not see the difference.
+        //
+        // Under the filter, this ant's old five-item menu survives intact
+        // at a neutral gut: corpse (class +1.0) and seed/leaf/moss/litter
+        // (class -1.0) all clear `EAT_YIELD_THRESHOLD` at 30 against a bar
+        // of 12. What it will *not* do is bite a living nestmate, which the
+        // list was doing by omitting "ant" -- see `eats_kin` below.
+
+        // **The heritable gut, slot 0 of `organism::CREATURE_TRAITS`.**
+        // An omnivore, in the middle of the axis: this ant eats litter and
+        // leaves and will also take carrion, which is the five-item menu
+        // the deleted `food:` list described.
+        //
+        // **It was authored -1.0 for one commit, and the owner overturned
+        // that.** The sweep below (`print_grazer_viability_against_gut_bias`)
+        // measured a neutral gut starving -- one animal, an inexhaustible
+        // wall of leaf, nothing to do but eat:
+        //
+        //     gut    leaf yield   intake/cost   survived
+        //    -1.0         120.0         0.946   yes
+        //    -0.9         108.3         0.993   yes
+        //    -0.8          97.2         0.781   no
+        //    -0.5          67.5         0.793   no
+        //     0.0          30.0         0.706   no
+        //
+        // A perfectly matched grazer already ran at 0.946, *below* the 1.0
+        // that pays for its own existence, so every point of digestive
+        // mismatch came out of a deficit and the viable band was one tenth
+        // of the axis wide. The conclusion drawn from that was to narrow
+        // the animal to fit the economy. Review card
+        // 20260823T104411499Z-963f8d put it to the owner, whose answer was
+        // in full: **"An omnivore should be viable."**
+        //
+        // So the economy widened instead, and the factor is measured
+        // rather than chosen (`print_omnivore_viability_against_food_scale`):
+        //
+        //     food scale   gut 0.0 yield   intake/cost   survived
+        //            1.0            30.0         0.706   no
+        //            2.0            60.0         0.783   no
+        //            3.0            90.0         0.796   no
+        //            4.0           120.0         0.946   yes
+        //
+        // **4x, and it is a restoration rather than a bar.** The filter
+        // reads 0.25 at neutral against either end of the axis, so 4x face
+        // value hands a neutral gut exactly the 120 every ant got before S5
+        // existed -- 0.946 is the identical ratio the matched gut had at
+        // the old scale. `ascii` confirms it: the colony is bit-identical
+        // to `main` at 12,000 frames (76 organisms, moves 5040, pickups
+        // 1340, deliveries 143, reach [689, 22, 8, 2, 0, 0, 0, 0]). The
+        // only line that moves is the `food stock` census, which reads face
+        // values and so reads 4x -- no animal extracts any more than it did.
+        //
+        // Not chosen higher, deliberately: above 4x the shipped ant would
+        // be *richer* than it is today, and a richer floor is the sit-still
+        // attractor the owner's "I don't want ants sitting in one spot
+        // eating fallen leaves" is about. Specialising is what pays now --
+        // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
+        // which is the trade S5 exists to create.
+        traits: (0.0,),
+        // Read by nothing until S6. Authored here so the width and the
+        // ancestral value it widens cannot drift apart in separate
+        // commits -- see `CreatureDef::trait_variance`.
+        trait_variance: (0.15,),
+
+        // **WP-9 arm 1, authored off, and written out rather than left to
+        // the serde default so the next session can see the knob exists.**
+        // On, a living nestmate counts as *ground* -- footing only, never
+        // passability, so two ants still cannot pass through each other.
+        // It is the deliberate re-test of dead ends 775/829, whose
+        // condition line reads "re-test if creatures gain pass-through or
+        // climb-over".
+        //
+        // Off until it is measured. The instrument is `forage_probe
+        // seeds=8` (WP-4) and the success condition is weight appearing in
+        // the >=32/>=64 reach buckets *while deliveries hold within seed
+        // spread* -- today's known-good is deepest 12-18 with >=32 at zero.
+        // Nothing in this lane could run it, so nothing here picks a side.
+        climbs_over_kin: false,
+
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots
