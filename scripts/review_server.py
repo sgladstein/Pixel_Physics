@@ -83,7 +83,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 # a transport that has quietly stopped working becomes visible
                 # without the page asking a second question.
                 return self._json({"rev": rl.queue_revision(self.root),
-                                   "sync": rl.sync_state(self.root)})
+                                   "sync": rl.sync_state(self.root),
+                                   "pending_release": rl.pending_release_count(self.root)})
             if path == "/api/cards":
                 return self._cards(parse_qs(url.query))
             if path.startswith("/media/"):
@@ -97,6 +98,16 @@ class ReviewHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         try:
+            if path == "/api/notify":
+                # Release every pending verdict to the session that asked for
+                # it. The server deliberately does not write to any socket: a
+                # server on this machine cannot reach a cloud agent's container,
+                # so delivery belongs to a watcher inside the agent's own
+                # process tree. This only publishes; sync carries it.
+                result = rl.release_verdicts(self.root)
+                sync = rl.sync_now(self.root)
+                result["synced"] = bool(sync.get("ok"))
+                return self._json(result)
             parts = path.strip("/").split("/")
             if len(parts) == 4 and parts[0] == "api" and parts[1] == "cards":
                 card_id, action = parts[2], parts[3]
@@ -126,6 +137,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
             "rev": rl.queue_revision(self.root),
             "root": str(self.root),
             "sync": rl.sync_state(self.root),
+            "pending_release": rl.pending_release_count(self.root),
             "boards": rl.load_boards(cards),
             "cards": filtered,
             "counts": {

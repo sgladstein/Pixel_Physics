@@ -32,6 +32,9 @@ from pathlib import Path
 # Kept in one place because the CLI, the server and the skill doc all quote it.
 DEFAULT_PORT = 7373
 ROOT_ENV = "PIXEL_PHYSICS_REVIEW_DIR"
+SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET"
+TOKEN_ENV = "CLAUDE_CODE_MESSAGING_TOKEN"
+SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
 
 KINDS = ("single", "before_after", "ab", "gallery", "frames")
 
@@ -72,7 +75,8 @@ def review_root(create: bool = True) -> Path:
         root = Path(os.path.realpath(out)) / "pixel-physics-review"
 
     if create:
-        for sub in ("cards", "responses", "seen", "media", "bin"):
+        for sub in ("cards", "responses", "seen", "media", "bin",
+                    "outbox", "delivered"):
             (root / sub).mkdir(parents=True, exist_ok=True)
     return root
 
@@ -170,6 +174,9 @@ def origin_info() -> dict:
         # as the same user, so `inbox --mine` would have matched every card in
         # the queue and quietly stopped being a filter at all.
         "agent": os.environ.get("PIXEL_PHYSICS_REVIEW_AGENT") or None,
+        # Which Claude Code session asked. This is the address a verdict is
+        # released to; without it a card is answerable but not notifiable.
+        "session_id": os.environ.get(SESSION_ENV) or None,
         "user": os.environ.get("USER") or os.environ.get("USERNAME"),
         "cwd": str(Path.cwd()),
     }
@@ -280,6 +287,7 @@ def load_cards(root: Path) -> list:
         card["response"] = read_json(responses_dir(root) / path.name)
         card["seen"] = (seen_dir(root) / path.name).exists()
         card["status"] = card_status(card)
+        card["notify"] = notify_state(root, card)
         out.append(card)
     out.sort(key=lambda c: c.get("id", ""), reverse=True)
     return out
@@ -659,3 +667,194 @@ def sync_now(root: Path, cwd=None, attempts: int = 4) -> dict:
     result = {"ok": False, "error": last_error or "sync failed", "pulled": [], "pushed": []}
     _record_sync(root, False, dict(result))
     return result
+
+
+# --------------------------------------------------------------------------
+# Telling the agent its verdict is in
+# --------------------------------------------------------------------------
+#
+# Answering a card told nobody, so the owner had to visit each agent by hand.
+#
+# The server never writes to a session socket. It only *releases* verdicts into
+# `outbox/<session_id>/`; the agent's own watcher delivers them. That split is
+# deliberate on two counts. A server on the owner's machine cannot reach a cloud
+# agent's container at all, so a server-writes-directly design would work for
+# local agents and silently not for the rest of the fleet -- releasing through
+# the queue, which already syncs over git, makes both identical. And a process
+# the agent itself spawned carries the *child* token, which bypasses the inbound
+# gate; a stranger process is subject to `crossSessionInbound`, whose default is
+# mode-parity and would be *held* against a session running in bypassPermissions.
+#
+# Releases are batched by the owner pressing a button, not fired per card: six
+# verdicts for one agent must cost one wake-up turn, not six. That wake replaces
+# the turn the owner would otherwise spend saying "I reviewed your card", so
+# batched it is roughly free and un-batched it multiplies with every card.
+
+MAX_FRAME = 1024 * 1024          # the reader destroys the connection past 1 MiB
+
+
+def outbox_dir(root: Path) -> Path:
+    return root / "outbox"
+
+
+def delivered_dir(root: Path) -> Path:
+    return root / "delivered"
+
+
+def session_id() -> str:
+    return os.environ.get(SESSION_ENV) or ""
+
+
+def notify_state(root: Path, card: dict) -> str:
+    """pending -> released -> delivered. Derived, never stored on the card."""
+    if not (card.get("response") or {}).get("answered_at"):
+        return "unanswered"
+    cid = card["id"]
+    if (delivered_dir(root) / ("%s.json" % cid)).exists():
+        return "delivered"
+    sid = (card.get("origin") or {}).get("session_id")
+    if sid and (outbox_dir(root) / sid / ("%s.json" % cid)).exists():
+        return "released"
+    return "pending"
+
+
+def verdict_digest(card: dict) -> str:
+    """One line per card. The ping only has to make the agent look; `inbox`
+    remains the source of truth for pins and the full comment."""
+    r = card.get("response") or {}
+    bits = []
+    if r.get("choice_label"):
+        bits.append("chose %s" % r["choice_label"])
+    elif r.get("choice") == -1:
+        bits.append("chose neither")
+    if r.get("rating") is not None:
+        bits.append("rating %s" % r["rating"])
+    comment = (r.get("comment") or "").strip().splitlines()
+    if comment:
+        bits.append('"%s"' % comment[0][:160])
+    if r.get("annotations"):
+        bits.append("%d pin(s)" % len(r["annotations"]))
+    return "%s — %s" % (card.get("title", "(untitled)"), "; ".join(bits) or "answered")
+
+
+def release_verdicts(root: Path) -> dict:
+    """Group every pending verdict by the session that asked, and release it.
+
+    One file per card under the asking session's directory: one writer, one
+    file, so a second press cannot duplicate an entry and two presses racing
+    cannot lose one -- the same property the rest of the queue relies on.
+    """
+    by_session, orphans = {}, []
+    for card in load_cards(root):
+        if notify_state(root, card) != "pending":
+            continue
+        sid = (card.get("origin") or {}).get("session_id")
+        if not sid:
+            # Visibly un-notifiable rather than silently skipped: the owner is
+            # told which branches these came from so they can chase by hand.
+            orphans.append({"id": card["id"], "title": card.get("title"),
+                            "branch": (card.get("origin") or {}).get("branch")})
+            continue
+        by_session.setdefault(sid, []).append(card)
+
+    released = {}
+    for sid, cards in by_session.items():
+        for card in cards:
+            write_json_atomic(outbox_dir(root) / sid / ("%s.json" % card["id"]),
+                              {"card_id": card["id"], "session_id": sid,
+                               "released_at": utc_now(), "digest": verdict_digest(card)})
+        released[sid] = [c["id"] for c in cards]
+    return {"released": released, "orphans": orphans,
+            "agents": len(released), "verdicts": sum(len(v) for v in released.values())}
+
+
+def pending_release_count(root: Path) -> dict:
+    """What the button should say before it is pressed."""
+    agents, verdicts, orphans = set(), 0, 0
+    for card in load_cards(root):
+        if notify_state(root, card) != "pending":
+            continue
+        sid = (card.get("origin") or {}).get("session_id")
+        if sid:
+            agents.add(sid); verdicts += 1
+        else:
+            orphans += 1
+    return {"agents": len(agents), "verdicts": verdicts, "orphans": orphans}
+
+
+def take_outbox(root: Path, sid: str) -> list:
+    d = outbox_dir(root) / sid
+    if not d.is_dir():
+        return []
+    out = [read_json(f) for f in sorted(d.glob("*.json"))]
+    return [e for e in out if e]
+
+
+def mark_delivered(root: Path, entries: list, sid: str) -> None:
+    """Delivered marker first, then drop the outbox entry.
+
+    This order matters: a crash between the two re-delivers (harmless, the agent
+    sees the digest twice) rather than losing the verdict entirely.
+    """
+    for e in entries:
+        write_json_atomic(delivered_dir(root) / ("%s.json" % e["card_id"]),
+                          {"card_id": e["card_id"], "delivered_at": utc_now(), "session_id": sid})
+    for e in entries:
+        try:
+            (outbox_dir(root) / sid / ("%s.json" % e["card_id"])).unlink()
+        except OSError:
+            pass
+
+
+def send_to_own_session(text: str) -> str:
+    """Write one message into this session's inbox socket. Returns "" on success.
+
+    The wire format is newline-delimited JSON: an auth frame first (optional on
+    macOS/Linux, required on Windows, and it sets the sender class either way),
+    then the message. `type` must be "user" and the text must live at
+    `message.content` -- a frame like {"type":"message","text":...} has a valid
+    string type, so it passes the type check and falls through to an
+    unhandled-type branch that logs at debug level and does nothing. That shape
+    failed silently twice before the protocol was read properly; the selftest
+    asserts it still delivers nothing.
+
+    priority "next" rather than "now": the verdict lands between turns instead
+    of interrupting mid-work and making the agent re-establish where it was.
+    """
+    sock_path = os.environ.get(SOCKET_ENV)
+    if not sock_path:
+        return "%s is not set — not running inside a Claude Code session" % SOCKET_ENV
+    frames = []
+    token = os.environ.get(TOKEN_ENV)
+    if token:
+        frames.append({"type": "auth", "token": token})
+    frames.append({"type": "user", "priority": "next",
+                   "message": {"role": "user", "content": text}})
+    payload = b"".join((json.dumps(f) + "\n").encode("utf-8") for f in frames)
+    if max(len(json.dumps(f)) for f in frames) >= MAX_FRAME:
+        return "message too large for one frame (%d byte cap)" % MAX_FRAME
+    try:
+        import socket as _socket
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(10)
+        s.connect(sock_path)
+        s.sendall(payload)
+        s.close()
+    except OSError as exc:
+        return "could not write to %s: %s" % (sock_path, exc)
+    return ""
+
+
+def live_sessions() -> list:
+    """Every running Claude Code session, from a plain subprocess.
+
+    Not needed to deliver -- the watcher writes to its own socket -- but it is
+    how a card's recorded session id is checked against reality, and how the
+    watcher knows its session has ended.
+    """
+    try:
+        proc = subprocess.run(["claude", "agents", "--json"],
+                              capture_output=True, text=True, timeout=60)
+        return json.loads(proc.stdout) if proc.returncode == 0 else []
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return []

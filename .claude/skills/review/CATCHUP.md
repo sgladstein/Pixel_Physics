@@ -102,7 +102,9 @@ Two house rules, both from failures already paid for here:
 - **Prefer a paired comparison** over one run against a remembered impression.
 
 Posting is fire-and-forget: post, carry on, collect with `review.py inbox` later
-or in a later session. `--wait` is for one case only — a wrong guess would waste
+or in a later session. Add `--notify` to be pinged when the owner releases your
+verdicts — one background watcher per session, and several verdicts arrive as a
+single message. `--wait` is for one case only — a wrong guess would waste
 the work you are about to do.
 
 ## 5. Then

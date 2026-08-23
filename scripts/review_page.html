@@ -101,6 +101,12 @@
   .hint { color: var(--dim); font-size: 12px; }
   kbd { background: var(--panel-2); border: 1px solid var(--line); border-bottom-width: 2px;
         border-radius: 4px; padding: 0 5px; font-size: 11px; font-family: ui-monospace, monospace; }
+  #notify { width: 100%; margin-top: 12px; }
+  #notify.ready { border-color: var(--good); color: var(--good); }
+  #notify:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+  #notify-note { font-size: 11px; color: var(--dim); margin-top: 6px; }
+  #notify-note.warn { color: var(--warn); }
+  .tag.sent { color: var(--good); border-color: var(--good); }
   .syncbox { margin-top: 14px; font-size: 12px; color: var(--dim);
              border-top: 1px solid var(--line); padding-top: 10px; }
   .syncbox.bad { color: var(--bad); }
@@ -150,6 +156,8 @@
       <kbd>e</kbd> archive
     </div>
     <div class="hint" id="rootpath" style="margin-top:18px; word-break:break-all"></div>
+    <button id="notify" disabled>Send verdicts</button>
+    <div id="notify-note"></div>
     <div class="syncbox" id="syncbox"></div>
   </div>
   <div id="feed"></div>
@@ -172,7 +180,7 @@
 
 const state = {
   cards: [], boards: [], counts: {}, rev: null,
-  board: null, status: "open", active: 0, sync: null,
+  board: null, status: "open", active: 0, sync: null, pending: null,
   drafts: new Map(),   // card id -> {choice, rating, comment, annotations}
   view: new Map(),     // card id -> {frame, playing, zoom, timer, rating_arm}
 };
@@ -398,6 +406,7 @@ async function load() {
   state.counts = data.counts;
   state.rev = data.rev;
   state.sync = "sync" in data ? data.sync : { unsupported: true };
+  state.pending = data.pending_release || null;
   document.getElementById("rootpath").textContent = data.root;
   // Blocking cards first: a session is actually parked on those.
   state.cards.sort((a, b) =>
@@ -412,6 +421,8 @@ async function poll() {
   try {
     const info = await (await fetch("/api/rev")).json();
     state.sync = "sync" in info ? info.sync : { unsupported: true };
+    if (info.pending_release) state.pending = info.pending_release;
+    renderNotify();
     if (info.rev !== state.rev) await load(); else renderSync();
   } catch (_) { /* server restarted mid-session; next tick retries */ }
 }
@@ -421,9 +432,43 @@ setInterval(poll, 2000);
 
 function render() {
   renderRail();
+  renderNotify();
   renderSync();
   renderFeed();
 }
+
+// Batched on a press, never per card: six verdicts for one agent must cost that
+// agent one wake-up turn, not six. That wake replaces the turn the owner would
+// otherwise spend telling it by hand, so batched it is roughly free.
+function renderNotify() {
+  const b = document.getElementById("notify");
+  const note = document.getElementById("notify-note");
+  if (!b) return;
+  const p = state.pending || { agents: 0, verdicts: 0, orphans: 0 };
+  b.disabled = p.verdicts === 0;
+  b.classList.toggle("ready", p.verdicts > 0);
+  b.textContent = p.verdicts
+    ? `Send ${p.verdicts} verdict${p.verdicts === 1 ? "" : "s"} to ${p.agents} agent${p.agents === 1 ? "" : "s"}`
+    : "No verdicts to send";
+  note.className = p.orphans ? "warn" : "";
+  note.textContent = p.orphans
+    ? `${p.orphans} answered card${p.orphans === 1 ? "" : "s"} recorded no agent — chase those by hand`
+    : "";
+}
+
+document.getElementById("notify").addEventListener("click", async () => {
+  const b = document.getElementById("notify");
+  b.disabled = true; b.textContent = "Sending…";
+  try {
+    const r = await (await fetch("/api/notify", { method: "POST" })).json();
+    toast(r.verdicts
+      ? `Sent ${r.verdicts} verdict${r.verdicts === 1 ? "" : "s"} to ${r.agents} agent${r.agents === 1 ? "" : "s"}`
+      : "Nothing to send");
+  } catch (e) {
+    toast("Send failed: " + e.message);
+  }
+  await load();
+});
 
 // A transport that has quietly stopped looks exactly like nobody having posted
 // anything, so it gets said out loud rather than inferred from an empty queue.
@@ -522,6 +567,8 @@ function renderCard(card, index) {
     `<span class="tag">${esc(card.kind)}</span>`,
     isBlind(card) ? `<span class="tag">blind</span>` : "",
     answered ? `<span class="tag answered">${esc(card.status)}</span>` : "",
+    card.notify === "delivered" ? `<span class="tag sent">sent</span>`
+      : card.notify === "released" ? `<span class="tag">queued to send</span>` : "",
   ].join("");
 
   const origin = card.origin || {};

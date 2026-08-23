@@ -441,6 +441,111 @@ def test_focus_is_validated_at_post_time(root: Path, art: Path) -> None:
           "a card with no --focus stores none, so its zoom cycle is unchanged")
 
 
+def test_verdicts_batch_per_agent(root: Path, art: Path) -> None:
+    """Six verdicts for one agent must cost one wake-up turn, not six.
+
+    This is the whole reason the release is a button rather than a per-card
+    ping: the wake replaces the turn the owner would spend saying "I reviewed
+    your card", so batched it is roughly free and un-batched it multiplies with
+    every card answered in a sitting. A per-card design would pass every other
+    check in this suite, so the batching is asserted directly.
+    """
+    print("\nbatched verdict release")
+    sids = {"agent-alpha": 6, "agent-beta": 2, "agent-gamma": 1}
+    ids = {}
+    for sid, n in sids.items():
+        for i in range(n):
+            env = dict(os.environ, **{rl.SESSION_ENV: sid})
+            proc = subprocess.run(
+                [sys.executable, str(HERE / "review.py"), "post", "--title",
+                 "%s card %d" % (sid, i), "--question", "q", "--image", str(art)],
+                capture_output=True, text=True,
+                env=dict(env, **{rl.ROOT_ENV: str(root)}))
+            ids.setdefault(sid, []).append(json.loads(proc.stdout)["id"])
+
+    for sid, cards in ids.items():
+        for cid in cards:
+            rl.save_response(root, cid, {
+                "card_id": cid, "answered_at": rl.utc_now(), "choice": 0,
+                "choice_label": "A", "rating": 4, "comment": "looks right",
+                "annotations": [], "archived": False})
+
+    pend = rl.pending_release_count(root)
+    check(pend == {"agents": 3, "verdicts": 9, "orphans": 0},
+          "the button counts 9 verdicts across 3 agents", str(pend))
+
+    res = rl.release_verdicts(root)
+    check(res["agents"] == 3 and res["verdicts"] == 9, "one press releases all of them")
+    for sid, n in sids.items():
+        got = rl.take_outbox(root, sid)
+        check(len(got) == n, "%s gets exactly its own %d" % (sid, n), "got %d" % len(got))
+
+    # The assertion the feature exists for: ONE message, not one per card.
+    entries = rl.take_outbox(root, "agent-alpha")
+    ping = compose_ping_via_cli(entries)
+    check(ping.count("\n  ") == 6, "all 6 of one agent's verdicts go in ONE message",
+          "found %d lines" % ping.count("\n  "))
+    for sid in ("agent-beta", "agent-gamma"):
+        check(sid not in ping, "and it carries nothing belonging to %s" % sid)
+
+    again = rl.release_verdicts(root)
+    check(again["verdicts"] == 0, "a second press releases nothing", str(again))
+
+    rl.mark_delivered(root, entries, "agent-alpha")
+    check(rl.take_outbox(root, "agent-alpha") == [], "delivery empties that agent's outbox")
+    card = rl.load_card(root, ids["agent-alpha"][0])
+    check(rl.notify_state(root, card) == "delivered", "and the card reads as delivered")
+    check(rl.notify_state(root, rl.load_card(root, ids["agent-beta"][0])) == "released",
+          "while an undelivered agent's card stays released")
+
+
+def compose_ping_via_cli(entries):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("review_cli", HERE / "review.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.compose_ping(entries)
+
+
+def test_unnotifiable_cards_are_reported(root: Path, art: Path) -> None:
+    """A card with no session id must be visible, not silently skipped."""
+    print("\nun-notifiable verdicts")
+    env = {k: v for k, v in os.environ.items() if k != rl.SESSION_ENV}
+    proc = subprocess.run(
+        [sys.executable, str(HERE / "review.py"), "post", "--title", "no session",
+         "--question", "q", "--image", str(art)],
+        capture_output=True, text=True, env=dict(env, **{rl.ROOT_ENV: str(root)}))
+    cid = json.loads(proc.stdout)["id"]
+    check(rl.load_card(root, cid)["origin"].get("session_id") in (None, ""),
+          "a card posted with no session id records none")
+    rl.save_response(root, cid, {"card_id": cid, "answered_at": rl.utc_now(),
+                                 "choice": 0, "choice_label": "A", "rating": 3,
+                                 "comment": "", "annotations": [], "archived": False})
+    res = rl.release_verdicts(root)
+    check(any(o["id"] == cid for o in res["orphans"]),
+          "and is reported as un-notifiable rather than dropped")
+    check(rl.pending_release_count(root)["orphans"] >= 1,
+          "the button surfaces the orphan count too")
+
+
+def test_socket_frame_shape() -> None:
+    """Guard the exact frame. `{"type":"message","text":…}` has a valid string
+    type, so it passes the reader's type check and falls through to an
+    unhandled-type branch that logs at debug level and does nothing. That shape
+    failed silently twice before the protocol was read properly."""
+    print("\nsocket frame")
+    src = (HERE / "review_lib.py").read_text(encoding="utf-8")
+    body = src[src.index("def send_to_own_session"):]
+    body = body[:body.index("\ndef ")]
+    check('"type": "user"' in body, 'the message frame is type "user"')
+    check('"content": text' in body, "and the text lives at message.content")
+    check('"type": "auth"' in body, "an auth frame is sent first")
+    check('"type": "message"' not in body,
+          'the silently-ignored {"type":"message"} shape is not used')
+    check('"priority": "next"' in body,
+          'priority is "next" so it lands between turns, not mid-work')
+
+
 def test_every_page_button_traces_to_a_card() -> None:
     """A control the click handler cannot resolve is silently dead.
 
@@ -545,6 +650,9 @@ def main() -> int:
         test_inbox_is_never_silently_empty(base / "q4", art_a)
         test_focus_is_validated_at_post_time(base / "q6", art_a)
         test_single_frame_gif_is_refused(base / "q7", base)
+        test_verdicts_batch_per_agent(base / "q8", art_a)
+        test_unnotifiable_cards_are_reported(base / "q9", art_a)
+        test_socket_frame_shape()
         test_every_page_button_traces_to_a_card()
         test_root_is_shared_across_worktrees()
         transport = Path(tempfile.mkdtemp(prefix="review-transport-"))
