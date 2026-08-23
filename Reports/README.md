@@ -161,6 +161,11 @@ field rework — see `open-bugs-handoff.md`.
   material rather than on the eater, corpse worth in `Cell::aux`, and the
   edible forest floor. Its "As built" notes carry the measurements; every
   S4 number in them predates the litter merge and is superseded by it.
+- [creature-review-2026-08.md](creature-review-2026-08.md) — **review +
+  proposed plan, written the day S1–S4 merged.** Where the creature line
+  stands, the decisions never posted to the queue (E5, the abundance dial),
+  and the re-prioritised to-do list: gates first, the two meat-accounting
+  holes before S6, traffic/range as new work, the canopy as an S7 option.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
@@ -273,6 +278,11 @@ flags the mismatch).
 
 - `load-concentration-review.md`, `load-concentration-review-reply.md` —
   branch `load-share`.
+- `foraging-range-measurement.md` — branch
+  `claude/creatures-m18-merge-ijdlnp`. The measured record behind the
+  foraging-range instrument that landed on `main` via `da252dc` (the
+  19-cell bubble, the crowd-jam numbers, the `FORAGE_TRIP_MIN` derivation);
+  its §0 predates the S1–S4 merge and needs correcting when it lands.
 - `performance-audit.md` — worktree `perf-audit` (untracked).
 - `measurement-under-contention.md` — worktree `perf-lock` (untracked,
   with a CLAUDE.md edit adding `scripts/perf.sh`).
