@@ -501,7 +501,7 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
                     x,
                     y,
                     kind: ActiveKind::Decay,
-                    next_frame: surface.frame() + DECAY_TICK_INTERVAL,
+                    next_frame: surface.organism_due(DECAY_TICK_INTERVAL),
                 });
             }
 

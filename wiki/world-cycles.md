@@ -1,6 +1,39 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-23.*
+*Current as of: 2026-08-23. New since the last pass: how long a day lasts
+is a setting, and so are the paces of growth, weather, creatures and the
+gnome — five separate knobs, none of which changes how fast things fall;
+and daylight now reaches into what you dig, so an overhang no longer hangs
+a dark rectangle in the sky beneath it.*
+
+## How fast the world runs
+
+A full day used to take one minute of real time and could not be changed.
+It is a **setting** now, and so are four other paces, each independent of the
+others: how long a **day** lasts, how fast **plants grow**, how fast the
+**weather** changes its mind, how fast **creatures** act, and how fast the
+**gnome** moves. They live under `O` → WORLD (`PageUp`/`PageDown` to reach
+the menu), and each one is a whole multiple of its normal speed — 8 means
+eight times slower. The day is named on the title bar at every setting.
+
+**Slowing the world does not slow the world's physics.** Sand falls at the
+same rate, water flows at the same rate, a collapse comes down at the same
+rate, whatever these are set to. What changes is how fast the world *ages*.
+That separation is real rather than approximate: a scene run at every
+setting comes out cell-for-cell identical.
+
+The day ships at **eight minutes**. Half of any day is night, and night is a
+flat, unchanging dark — so a longer day is a proportionally longer night
+too, and eight minutes means four minutes of it. That is the trade the
+setting makes; if what you want is for dawn and dusk to *linger* rather than
+for the cycle to come round less often, this is not the knob for it.
+
+One thing to know before turning the growth knob up: a plant grown slowly is
+not simply the same plant arriving later. Measured across eight worlds, a
+tree at four times slower ends up anywhere between **a sixth of its normal
+size and a third larger than it**, for the same amount of growing — usually
+smaller, occasionally larger, and which way depends on the world. The knob
+changes what grows, not only how fast it does.
 
 ## The sky
 

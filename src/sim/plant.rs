@@ -889,7 +889,7 @@ fn deposit_canopy(world: &mut World, x: i32, y: i32, density: f32) {
 /// old `MOSS_TICK_INTERVAL` — not yet a per-species value, since moss is
 /// the only caller; a second species needing a different cadence is the
 /// actual trigger to make this data instead of a constant.
-const ORGANISM_TICK_INTERVAL: u64 = 45;
+pub const ORGANISM_TICK_INTERVAL: u64 = 45;
 
 /// Upper bound on how many behaviors one cell type may carry, sized so the
 /// dispatch buffer above never allocates. Raise it if a species file needs
@@ -907,7 +907,7 @@ const MAX_BEHAVIORS_PER_CELL_TYPE: usize = 8;
 /// is within a handful and `relocated_seed` can find it. A seed is also
 /// exactly one cell that exists only briefly, so the extra checks cost
 /// nothing worth measuring.
-const SEED_TICK_INTERVAL: u64 = 4;
+pub const SEED_TICK_INTERVAL: u64 = 4;
 
 // `SEED_FALL_SEARCH` lived here and is gone with the search cone it
 // bounded -- `relocated_seed` reads the organism's own cell list now, which
@@ -1058,7 +1058,7 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 /// economy. `phototropism_dir` deliberately stays raw: it compares two
 /// readings, so the phase factor cancels.
 pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
-    super::field::noon_equivalent_light(world.field_at(x, y).light, world.frame)
+    super::field::noon_equivalent_light(world.field_at(x, y).light, world.sky_frame())
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -1262,7 +1262,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     write_path_len(world, tx, ty, own_path);
                     resource -= cost;
                     write_carbon(world, x, y, resource);
-                    next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                    next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
                 }
             }
             // `Reports/tree-rewrite-design.md` §0/§2/§3: direction-biased,
@@ -1941,7 +1941,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 if prime_due {
                     write_primed(world, x, y, true);
                 }
-                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
+                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.organism_due(ORGANISM_TICK_INTERVAL)));
 
                 // §3's branching: a second successful `Grow`, in a
                 // different direction, this same tick -- gated by the
@@ -2129,7 +2129,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             resource -= branch_step_cost;
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
-                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
 
                             // **A sympodial tier forks instead of
                             // decorating: the fork replaces the axis.** The
@@ -2277,7 +2277,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             write_order(world, cx, cy, order);
                             write_path_len(world, cx, cy, own_path);
                             deposit_canopy(world, cx, cy, GROW_CANOPY_DEPOSIT);
-                            next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
                         }
                     }
                 }
@@ -2437,7 +2437,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // 45 frames after it lands. No longer a *correctness* requirement:
     // `relocated_seed` reads the cell list and finds a seed wherever it
     // went, however long it fell.
-    let interval = if cell_type == CellType::Seed { SEED_TICK_INTERVAL } else { ORGANISM_TICK_INTERVAL };
+    // **The seed cadence is deliberately *not* scaled by `growth_slowdown`,
+    // and the organism one is.** See this constant's own doc: 4 frames is not
+    // a statement about how fast a seed grows, it is bookkeeping against how
+    // fast a seed *falls* -- about a cell a frame, which is the physics rate
+    // and does not slow down when growth does. Scaling it was written and
+    // reverted: at `growth_slowdown: 8` a falling seed is 32 cells from where
+    // its `ActiveSite` says it is, which is the exact drift the 4 was chosen
+    // to avoid.
+    let due = if cell_type == CellType::Seed {
+        world.frame + SEED_TICK_INTERVAL
+    } else {
+        world.organism_due(ORGANISM_TICK_INTERVAL)
+    };
     // **A cell that is no longer a frontier leaves the schedule.** Its
     // upkeep runs from `step_organisms` over the organism's own cell list.
     // This is what makes the active-site heap track the number of *growing*
@@ -2453,9 +2465,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // roll succeeded) -- reset the staleness counter, mirroring
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
-        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + interval));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, due));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
-        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + interval));
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
     } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
@@ -2488,7 +2500,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
         // at the standard interval, so it doesn't just go permanently
         // silent the instant it transitions.
-        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.organism_due(ORGANISM_TICK_INTERVAL)));
     }
     // Otherwise (any other cell type, e.g. a permanently enclosed
     // `RootTip`): permanently enclosed -- stop checking, matching the old
@@ -2528,9 +2540,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 /// Organisms are staggered by id so they do not all fall due on one frame.
 pub fn step_organisms(world: &mut World) {
     for organism_id in world.live_organism_ids() {
+        // Which kind of organism this is, resolved *before* the cadence gate
+        // rather than after it -- see the long note below for what the
+        // distinction means, and this paragraph for why it has to be known
+        // this early.
+        //
+        // **A creature is gated on the creature knob, a plant on the growth
+        // knob**, because this one loop does two jobs: the plant economy
+        // inside the guard below, and organism-slot reclamation outside it,
+        // which is genuinely for every organism. Gating the whole loop on
+        // `growth_slowdown` -- as the first version did -- meant the *plant*
+        // knob throttled how fast a dead ant's slot came back. At
+        // `growth_slowdown: 30` a colony's slots would return every 1,350
+        // frames, which with a busy nest is a slot-exhaustion path opened by
+        // a knob that has nothing to do with creatures. Found by review, not
+        // by a test; there is no guard that would have shown it.
+        let is_creature =
+            world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         // Spread the load: each organism keeps the same cadence as the
         // active-site schedule, on its own offset.
-        if !(world.frame + organism_id as u64).is_multiple_of(ORGANISM_TICK_INTERVAL) {
+        //
+        // Scaled, exactly like the active-site reschedules -- for a plant
+        // this pass *is* the economy (photosynthesis, transport, upkeep,
+        // thickening), so running it on a different cadence from the growth
+        // rolls it funds would make a slowed tree a rich one rather than a
+        // slow one. See `sim::clock::Clock::growth_slowdown`, which is the
+        // whole argument for one knob per subsystem.
+        let interval = if is_creature {
+            world.clock.creature_interval(ORGANISM_TICK_INTERVAL)
+        } else {
+            world.clock.organism_interval(ORGANISM_TICK_INTERVAL)
+        };
+        if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
         }
         // **The plant passes are for plants.** Creatures share this
@@ -2560,7 +2601,6 @@ pub fn step_organisms(world: &mut World) {
         // `collar_y`/`shoot_cells`/`shoot_top_y` onto the creature's own
         // state. A `collar_y` guard would switch itself off on the second
         // tick and look like it was working.
-        let is_creature = world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         if !is_creature {
             // Transport first, then upkeep. The order matters and is the same
             // order the two had before this pass existed: transport ran on the
@@ -3133,7 +3173,7 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
     // before any income.
     let stake = world.carbon_at(bx, by).max(cost);
     write_carbon(world, bx, by, stake);
-    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
     world.schedule_active_site(site);
 }
 
@@ -3302,7 +3342,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     if let Some(slot) = world.organism_cell_mut(bx, by) {
         slot.heading = (0.0, 0.0);
     }
-    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
     world.schedule_active_site(site);
 }
 
@@ -3918,7 +3958,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 // fresh frontier cell reads its carbon before any income.
                 let stake = world.carbon_at(bx, by).max(root_step_cost);
                 write_carbon(world, bx, by, stake);
-                let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+                let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
                 world.schedule_active_site(site);
             }
         }
@@ -4256,7 +4296,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     if stake > 0.0 {
         write_carbon(world, x, y, stake);
     }
-    let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
+    let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL))];
     // The companion root starts wherever this species' own `RootTip` could
     // *grow*, which since Decision 1(ii) includes penetrable soil and not
     // just open air.
@@ -4296,7 +4336,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip));
         displace_soil_water(world, x, y + 1);
         world.set(x, y + 1, root_cell);
-        next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
     }
     next
 }
@@ -4634,7 +4674,7 @@ impl World {
         // `genotype_variance` is all zeroes, and correct the moment a
         // species with a `Divide` economy wants individuality.
         seed_genotype(self, organism_id, x, y);
-        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        let site = reschedule_organism(x, y, organism_id, 0, 0, self.organism_due(ORGANISM_TICK_INTERVAL));
         self.schedule_active_site(site);
     }
 

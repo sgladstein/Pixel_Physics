@@ -907,23 +907,36 @@ pub fn step(world: &mut World) {
     // frames actually differ by more than the epsilon, a full solve runs
     // and catches everything up, the same way any other epsilon-bounded
     // settling check in this file already tolerates.
-    // `saturating_sub`, not `wrapping_sub`: at frame 0 (a world that has
-    // never had `begin_step` called on it at all, e.g. `field::step` driven
+    // This used to spell "last frame" as `world.frame.saturating_sub(1)`, and
+    // the `saturating` was load-bearing: at frame 0 (a world that has never
+    // had `begin_step` called on it at all, e.g. `field::step` driven
     // directly in isolation, as several tests and the `field_sleep_scene`
     // ascii example do) there is no meaningful "frame -1" to compare
-    // against, and wrapping to `u64::MAX` would compare against whatever
-    // `sky_light_amplitude(u64::MAX)` happens to land on by coincidence of
-    // `u64::MAX % DAY_NIGHT_PERIOD_FRAMES` rather than anything meaningful.
-    // Saturating at 0 instead means "no time has passed since frame 0" reads
-    // as exactly zero change, which is the actually correct answer.
+    // against, and wrapping to `u64::MAX` would have compared against
+    // whatever `sky_light_amplitude(u64::MAX)` happens to land on by
+    // coincidence of `u64::MAX % DAY_NIGHT_PERIOD_FRAMES` rather than
+    // anything meaningful. `World::prev_sky_frame` keeps that property for
+    // free -- it is 0 on a world that has never stepped, so "no time has
+    // passed since frame 0" still reads as exactly zero change.
     // Exact inequality, not an epsilon: `sky_light_amplitude` is quantised to
     // `SKY_LIGHT_STEP`, so consecutive frames either hold the identical value
     // or differ by a whole step. An epsilon here would be asking whether a
     // discrete value changed by more than a fraction of its own step, which
     // it cannot -- and the old epsilon test is precisely why this flag never
     // fired and the sky had to be driven by tiles that never slept.
+    //
+    // **`prev_sky_frame`, not `sky_frame() - 1`.** Under a lengthened day
+    // (`sim::clock`) the sky clock holds still for `day_minutes` real frames
+    // at a time, and "the previous sky frame" is a change that already
+    // happened -- comparing against it would report a change on every one of
+    // those frames instead of on the one the sky actually moved, so a slower
+    // day would cost *more* field solves than a fast one. Comparing against
+    // the value this expression saw last real frame fires exactly once per
+    // genuine step, which makes a longer day proportionally cheaper here.
+    // Identical at the default `day_minutes: 1`, where the two spellings are
+    // the same number.
     let amplitude_changed =
-        sky_light_amplitude(world.frame) != sky_light_amplitude(world.frame.saturating_sub(1));
+        sky_light_amplitude(world.sky_frame()) != sky_light_amplitude(world.prev_sky_frame());
     // The same argument, one channel over, and it needs its own term rather
     // than riding on the light one: the two halves of the cycle do not line
     // up. Light is flat all night (`sky_light_amplitude` clips at the night
@@ -940,14 +953,15 @@ pub fn step(world: &mut World) {
     // the CA grid were already opening. An epsilon comparison against the
     // raw cosine could never fire at all — its
     // per-frame step is smaller than `SETTLE_EPSILON_TEMPERATURE`.
-    let sky_temperature_changed = sky_temperature_offset(world.frame) != sky_temperature_offset(world.frame.saturating_sub(1));
+    let sky_temperature_changed =
+        sky_temperature_offset(world.sky_frame()) != sky_temperature_offset(world.prev_sky_frame());
     if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed && !sky_temperature_changed {
         return;
     }
 
     let coords: Vec<ChunkCoord> = world.chunks().map(|c| c.coord).collect();
     let bounds = world.bounds();
-    let amplitude = sky_light_amplitude(world.frame);
+    let amplitude = sky_light_amplitude(world.sky_frame());
 
     // **Which tiles actually need solving.**
     //
@@ -1231,7 +1245,7 @@ pub fn step(world: &mut World) {
     // Every pass upstream overwrites the cells it touches unconditionally,
     // so writing this any earlier would simply be clobbered.
     timing.time("sky temperature", || {
-        apply_sky_temperature_to(sky_temperature_offset(world.frame), &coords, &mut next);
+        apply_sky_temperature_to(sky_temperature_offset(world.sky_frame()), &coords, &mut next);
     });
     timing.time("moisture", || apply_moisture_sources(&solve, &mut next));
 
@@ -1488,7 +1502,7 @@ fn debug_drift(world: &World, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, 
     // "555 tiles solved, 0 of them unsettled" is a contradiction until you
     // can say which of the three seeds put them there, and the halo turns
     // every seed into up to nine.
-    let amplitude = sky_light_amplitude(world.frame);
+    let amplitude = sky_light_amplitude(world.sky_frame());
     let (mut no_tile, mut unsettled_seed, mut chunk_seed, mut sky_seed) = (0, 0, 0, 0);
     for chunk in world.chunks() {
         let tile = old.get(&chunk.coord);

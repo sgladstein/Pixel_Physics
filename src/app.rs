@@ -446,6 +446,29 @@ impl App {
             build_world_reporting(&mut world, &worldgen_presets, &worldgen_preset, worldgen_seed, progress);
         }
 
+        // **World time comes from the asset, and only in the app.**
+        // `World::new` leaves the clock at baseline, so every test, harness
+        // and acceptance scene that builds a `World` directly is untouched by
+        // whatever is shipped here -- which is what makes the default-is-
+        // unchanged safety argument hold everywhere except the one place the
+        // owner is actually playing. The divergence is deliberate and is
+        // asserted by `the_shipped_clock_asset_parses_and_says_what_it_is`.
+        //
+        // A parse failure is reported rather than swallowed: a silently
+        // baseline clock is indistinguishable from a working one until
+        // somebody wonders why the day is still a minute long.
+        match crate::sim::clock::Clock::load() {
+            Ok(Some(clock)) => world.clock = clock,
+            Ok(None) => {}
+            Err(e) => {
+                let e = format!("{}: {e}", crate::sim::clock::Clock::ASSET_PATH);
+                message = Some(match message {
+                    Some(m) => format!("{m}; {e}"),
+                    None => e,
+                });
+            }
+        }
+
         let paintable = world.materials.paintable();
         // Start on sand: the material that most obviously shows whether the
         // simulation is behaving.
@@ -852,6 +875,7 @@ impl App {
         let mut out = tunables::from_materials(&self.world.materials);
         out.extend(tunables::from_explosion(&self.blasts.tuning));
         out.extend(tunables::from_player(&self.player_tuning));
+        out.extend(tunables::from_clock(&self.world.clock));
         out
     }
 
@@ -921,6 +945,18 @@ impl App {
         if t.group == TunableGroup::Player {
             tunables::apply_player(&mut self.player_tuning, &t.name, new_value);
             self.message = Some(format!("{}.{} = {new_value:.3}", t.category, t.name));
+            return;
+        }
+        if t.group == TunableGroup::World {
+            // The frame is not decoration: `apply_clock` re-anchors the phase
+            // clocks before writing a rate, so that changing the rate does
+            // not reinterpret the elapsed history at the new one and jump the
+            // sun. See `tunables::apply_clock`.
+            tunables::apply_clock(&mut self.world.clock, self.world.frame, &t.name, new_value);
+            // Whole multiples, so no decimals -- `{:.3}` would render the day
+            // length as "8.000 minutes", which reads like a precision this
+            // knob does not have.
+            self.message = Some(format!("{}.{} = {}", t.category, t.name, new_value.round() as i64));
             return;
         }
         let Some(id) = self.world.materials.id_of(&t.category) else {
@@ -1021,6 +1057,14 @@ impl App {
             self.message = Some(match self.player_tuning.save() {
                 Ok(()) => format!("saved {}", player::Tuning::ASSET_PATH),
                 Err(e) => format!("{}: {e}", player::Tuning::ASSET_PATH),
+            });
+            self.assets_dirty = dirty_asset_count();
+            return;
+        }
+        if t.group == TunableGroup::World {
+            self.message = Some(match self.world.clock.save() {
+                Ok(()) => format!("saved {}", crate::sim::clock::Clock::ASSET_PATH),
+                Err(e) => format!("{}: {e}", crate::sim::clock::Clock::ASSET_PATH),
             });
             self.assets_dirty = dirty_asset_count();
             return;
@@ -2126,6 +2170,7 @@ impl App {
 
     pub fn reset(&mut self) {
         let bounds = self.world.bounds().expect("fixed world always has bounds");
+        let clock = self.world.clock;
         let mut world = World::new(bounds);
         // Carry the loaded materials across rather than dropping back to the
         // compiled-in set.
@@ -2141,6 +2186,13 @@ impl App {
         // arms was therefore comparing SPREAD against SPREAD, which is how
         // "LOCAL and TIGHT do not contain anything" came to be reported.
         self.world.chain_reach = crate::sim::structural::CHAIN_MODES[self.chain_mode].reach;
+        // Same reasoning as `chain_reach` immediately above, and the same bug
+        // if it is omitted: world time is a *player setting*, not a property
+        // of the terrain, so a rebuilt world would silently revert to a
+        // one-minute day on every `F6`/`F7`/`F8` while the status line went
+        // on naming the day length the player chose. Re-anchored at frame 0
+        // because the new world's clock starts there.
+        self.world.clock = clock;
     }
 
     pub fn toggle_overlay(&mut self) {
@@ -2150,8 +2202,15 @@ impl App {
     /// Status line for the window title — cheaper than rendering text, and
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
+        // **The trailing `{}` run must be counted, not eyeballed, after any
+        // merge.** Two branches each appending one indicator append the
+        // *identical* `{}` token to this one line, so git applies it once and
+        // the result silently loses a slot -- it merges clean and fails to
+        // compile with "argument never used" pointing at the last argument,
+        // which is the one furthest from the cause. Landing the world clock
+        // hit exactly this against `main`'s sky-light indicator.
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2163,6 +2222,33 @@ impl App {
             self.worldgen_preset,
             self.worldgen_seed,
             if self.paused { " — PAUSED" } else { "" },
+            // **World time breaks the silent-at-the-default rule below, on
+            // purpose.** The day length is named on every screenshot, even
+            // at the baseline one minute, because this knob is the one thing
+            // on the status line whose *absence* is indistinguishable from
+            // its being broken: an asset that failed to parse, a rebuilt
+            // world that dropped the setting, a harness that never had it.
+            // `CLAUDE.md`'s harness-echo rule is the general form -- a knob
+            // whose value you cannot see is a knob you cannot tell is
+            // disconnected -- and it was written after a 3.5-hour study
+            // turned out to be three populations wearing 24 logs. The other
+            // four axes follow the ordinary rule and stay quiet at baseline,
+            // since the day is the one anybody sets.
+            {
+                let c = &self.world.clock;
+                let mut out = format!(" — day {}min", c.day_minutes);
+                for (label, n) in [
+                    ("growth", c.growth_slowdown),
+                    ("weather", c.weather_slowdown),
+                    ("creatures", c.creature_slowdown),
+                    ("gnome", c.gnome_slowdown),
+                ] {
+                    if n != 1 {
+                        out.push_str(&format!(" {label} {n}x"));
+                    }
+                }
+                out
+            },
             // Only shown once it has been changed, so the ordinary status
             // line is untouched until someone is actually comparing modes.
             if self.renderer.grain == render::GrainMode::Position {

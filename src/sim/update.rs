@@ -595,7 +595,11 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                 x,
                 y,
                 kind: crate::sim::scheduler::ActiveKind::Decay,
-                next_frame: surface.frame() + crate::sim::decay::DECAY_TICK_INTERVAL,
+                // Scaled through `Surface::organism_due`, not `frame() +
+                // DECAY_TICK_INTERVAL`: decay rides `growth_slowdown`, and
+                // this site landed on `main` after the world clock was cut,
+                // so the merge is where it would otherwise have opted out.
+                next_frame: surface.organism_due(crate::sim::decay::DECAY_TICK_INTERVAL),
             });
         }
     }
