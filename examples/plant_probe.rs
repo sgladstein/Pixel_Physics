@@ -671,16 +671,29 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             );
         }
 
-        // **The sky-gap census, §Z's other candidate.** A column counts as
-        // occupied if anything of any plant stands over the ground in it,
-        // so this asks the question the eye asks -- is there sky between
-        // those two trees -- rather than whether foliage happens to touch.
+        // **The sky-gap census, §Z's other candidate.**
+        //
+        // **Foliage, not any organism cell, and the first version got this
+        // wrong.** Counting any plant cell in the column reported *zero*
+        // interior gaps on a 4-founder stand whose render plainly shows sky
+        // between three of its four crowns -- because the shed litter and
+        // root mound at the foot of a stand is continuous across every
+        // column, so the census was measuring the forest floor. `CLAUDE.md`:
+        // look at the artifact before trusting the number, and ask what a
+        // metric counts when nothing is wrong. Sky between crowns is a
+        // question about crowns.
         //
         // Interior gaps only: the open world either side of the stand is
         // not a gap between trees, and counting it would put a floor of two
         // under every reading.
-        let occupied: Vec<bool> =
-            (0..width).map(|x| (0..ground).any(|y| w.get(x, y).organism_id() != 0)).collect();
+        let occupied: Vec<bool> = (0..width)
+            .map(|x| {
+                (0..ground).any(|y| {
+                    let c = w.get(x, y);
+                    c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(organism::CellType::Leaf)
+                })
+            })
+            .collect();
         let first = occupied.iter().position(|&o| o);
         let last = occupied.iter().rposition(|&o| o);
         let mut gaps: Vec<usize> = Vec::new();
@@ -704,12 +717,44 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             gaps.len(),
             trees.saturating_sub(1)
         );
+        // **A one-cell gap is not a gap.** §Z's own lesson: "crowns interleave
+        // with one- and two-cell gaps: every row breaks, and the eye still
+        // reads one mass". The raw count above finds a 1-cell gap in the
+        // fused 8-founder stand; graded against the founder spacing it finds
+        // none, which is what the owner reported seeing.
+        let real_gaps = gaps.iter().filter(|&&g| g as i32 * 4 >= spacing).count();
+        println!("  founder spacing is {spacing} cells; gaps at least a quarter of it: {real_gaps}");
+        // **The two readings to trust, and the one not to.** Swept over
+        // founder spacing on the default 512-wide stand at 28,800 frames:
+        //
+        //   trees  spacing  components  largest  gaps found/possible  old run
+        //     8      56          1       100%          0 / 7            38
+        //     5      85          1       100%          0 / 4            43
+        //     4     102          1       100%          0 / 3            43
+        //     3     128          5        38%          2 / 2            39
+        //     2     170          2        58%          1 / 1            36
+        //
+        // The **largest component's share** and the **gap census** both flip
+        // cleanly between 102 and 128 cells of spacing, which is where the
+        // stand stops being one mass. The **component count** does not: it
+        // reads 5 for 3 trees, because a sparse crown breaks into separate
+        // blocks — more components than founders means gappy foliage, not
+        // extra trees, so the count alone is not the number to read.
+        //
+        // And the last column is `thickest contiguous run`, the metric §Z
+        // records as having lied: **36 to 43 across the whole range**,
+        // highest on the stands that are completely fused. It cannot tell an
+        // eight-tree mass from two separate trees. That is the comparison
+        // this block exists to make.
+        let largest_share = 100 * components(1).1 / blocks_with_any.max(1);
         println!(
-            "  founder spacing is {spacing} cells; gaps at least a quarter of it: {}",
-            gaps.iter().filter(|&&g| g as i32 * 4 >= spacing).count()
+            "  --> canopy fusion {largest_share}% (100% = one mass), {real_gaps} of {} crown-scale gaps found \
+({} raw)",
+            trees.saturating_sub(1),
+            gaps.len()
         );
         println!(
-            "  (calibration: the owner's absolute verdict on this stand was \"one big mass, I cannot identify\n   individual trees\", so a metric that tracks the eye must read well under {trees} here. See\n   Reports/open-bugs-handoff.md §Z.)"
+            "  (calibration: the owner's absolute verdict on this stand was \"one big mass, I cannot identify\n   individual trees\"; at 8 founders this reads 100% fusion and 0 of 7 gaps, so the metric CAN fail\n   where the eye fails. See Reports/open-bugs-handoff.md §Z.)"
         );
     }
 

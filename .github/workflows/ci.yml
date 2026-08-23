@@ -92,8 +92,9 @@ concurrency:
 # indistinguishable at a glance from passing.
 #
 # That is not hypothetical. With `root_and_shoot_branching_read_different_
-# slots` red on `main` (open-bugs-handoff.md bug A, a guard the owner keeps
-# deliberately), `ascii` and `acceptance` had not executed in CI at all.
+# slots` red on `main` at the time (open-bugs-handoff.md bug A; it is now an
+# `#[ignore]`d reproduction -- see the quarantine block below), `ascii` and
+# `acceptance` had not executed in CI at all.
 # Both were failing. `ascii` was failing *undiagnosed* -- see bug H, found
 # only by running the gates locally against a clean `origin/main` worktree.
 # A green tick for a gate that never ran is worse than a red one.
@@ -129,12 +130,25 @@ jobs:
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
   # --- Known-red quarantine -------------------------------------------------
-  # Three gates are red on `main` today for reasons that have nothing to do
-  # with whatever branch is being pushed: bug A (the slot-1 root spread), bug H
-  # (`ascii`'s ants moisture-gradient scene asserts a gradient the scene no
-  # longer has) and bug Y (the gnome covers 98 cells of the `wood` case's 200).
-  # All three are recorded in `Reports/open-bugs-handoff.md` and are guards the
-  # owner keeps deliberately.
+  # Two gates are red on `main` today for reasons that have nothing to do with
+  # whatever branch is being pushed: bug H (`ascii`'s ants moisture-gradient
+  # scene asserts a gradient the scene no longer has) and bug Y (the gnome
+  # covers 98 cells of the `wood` case's 200). Both are recorded in
+  # `Reports/open-bugs-handoff.md` and are guards the owner keeps deliberately.
+  #
+  # **Bug A's exclusion and its paired job are gone, and its bug is not
+  # closed** -- read this before assuming it was. The guard asserted a 10%
+  # slot-1 root ordering off a *single seed*, and the 8-seed sweep says the
+  # lever is dead: mean of per-seed ratios 0.994, SE 0.046, which is 0.1 SE
+  # from exactly no effect. No bar with headroom exists over data consistent
+  # with 1.0, so the claim could not be honestly recalibrated -- it was split
+  # instead. What is measurably true (slot 1 does not move the shoot, and does
+  # not order roots *backwards*) is asserted seed-swept and runs in `test`;
+  # the dead half survives as an `#[ignore]`d reproduction under the original
+  # name, with all three measurements in its doc comment. A `continue-on-error`
+  # job pointed at an ignored test reports green, which this file's own rule
+  # calls worse than a red one -- hence deletion rather than retargeting.
+  # `Reports/open-bugs-handoff.md` §A carries the gap.
   #
   # Turning branch CI on without doing something about them would show every
   # agent four red jobs on push one, and a permanently-red signal teaches
@@ -153,7 +167,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --release --locked
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
@@ -167,7 +181,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --locked
 
   clippy:
     name: cargo clippy
@@ -258,21 +272,11 @@ jobs:
       - run: cargo fmt --check
         continue-on-error: true
 
-  # --- The three known reds, run where they cannot block ---------------------
+  # --- The known reds, run where they cannot block ---------------------------
   # Each pairs with an exclusion above. They exist so a recorded bug stays
   # *visible and executing* rather than being skipped into invisibility -- and
   # so that the day one starts passing, something says so. A green tick here is
   # the signal to delete both the job and its exclusion.
-
-  known-red-roots:
-    # Bug A: the slot-1 root spread. Excluded from `test` and `test-debug`.
-    name: "known red: bug A (slot-1 root spread)"
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
 
   known-red-gnome:
     # Bug Y: the gnome covers 98 cells of the `wood` case's 200. Excluded from

@@ -7544,47 +7544,114 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         stat("shoot mature", &mut shoot_mature);
     }
 
-    /// **Root and shoot branching read different slots, and slot 1 finally
-    /// reaches the world.**
+    /// **Slot 1 is a root locus, not a shoot one — the half of bug §A's
+    /// guard that is still true, swept over seeds rather than run on one.**
     ///
-    /// The guard the genome re-map promised and could not write. Slot 1 was
-    /// wired correctly from the day it landed and produced a *bit-identical*
-    /// stand at every draw, because its consumer sat behind a gate that
-    /// demanded a second step's carbon in the tick the first was paid: 351
-    /// root growth steps, 2 affordable, 0 fired
-    /// (`Reports/plant-genome-design.md` §8a). The economy was not the
-    /// defect and was not changed; the shape of the purchase was
-    /// (`OrganismCell::primed`).
+    /// The original guard asserted two things at once off a **single seed**:
+    /// that root mass orders with the draw, and that shoot mass does not.
+    /// The first is dead (see `root_and_shoot_branching_read_different_slots`
+    /// below, now the `#[ignore]`d reproduction). The second is not, and it
+    /// is not vacuous either: what it catches is the draw reaching *slot 0's*
+    /// consumer, which is a real way for a genome re-map to go wrong and the
+    /// reason slot 1 exists separately from slot 0 at all.
     ///
-    /// Both halves of the claim are asserted. **Root mass must order with
-    /// the draw** — that is the lever working. **Shoot mass must not** —
-    /// that is the lever being a *root* lever, which is the whole point of
-    /// slot 1 existing separately from slot 0.
+    /// Four seeds and an order statistic, per `CLAUDE.md` — a guard over a
+    /// system whose twelve identical trees span 31 to 153 cells cannot be one
+    /// seed per arm, and that is precisely how §A came to flip red and green
+    /// on unrelated changes to ground cover. Four rather than eight is a CI
+    /// cost decision; see `GUARD_FRAMES` for what was measured and rejected.
     ///
-    /// Bars are set from the measured pairing with headroom, per house
-    /// convention, never sitting on it: measured 336 / 386 / 448 root cells
-    /// at draws −1 / 0 / +1 (a 33% spread) against shoot 2418 / 2380 / 2432
-    /// (2%). The bars below are 10% and 20% — comfortably inside the
-    /// measured effect and comfortably outside the measured noise, so the
-    /// test fails on the mechanism dying rather than on a re-tune.
+    /// Two bars, both set from the sweep with headroom and neither sitting on
+    /// it.
     ///
-    /// Two runs rather than three: the endpoints carry the claim and the
-    /// midpoint costs another 12,000 frames.
-    /// `print_root_branch_slot_pairing` keeps the full reproduction.
+    /// `SHOOT_SPREAD_BAR` stays at the original guard's 20% — what changes is
+    /// that it now stands on a sweep instead of one seed. Measured over all
+    /// eight: per-seed spreads 1, 3, 0, 8, 2, 0, 0, 13 %, mean **4.8%, SE
+    /// 1.8%**. Over this guard's own four: **mean 3.0%, worst 8%**. So the bar
+    /// is far above the quantity it tests on either reading, and clear of the
+    /// worst seed in the whole population — which is what stops it flaking the
+    /// way §A's root half did.
+    ///
+    /// `ROOT_INVERSION_BAR` is the *other* side of the dead lever. The mean
+    /// ratio measures **0.994, SE 0.046** over eight seeds (1.02 over this
+    /// guard's four) — 0.1 SE from exactly no effect — so a two-sided bar is
+    /// impossible and a *forward* bar is unreachable. A floor at 0.85 catches
+    /// slot 1 coming back **backwards** (three SE below the measurement)
+    /// without punishing anyone who revives it forwards. One-sided is the only
+    /// honest shape when the measured value is no effect at all.
     #[test]
-    fn root_and_shoot_branching_read_different_slots() {
-        let (root_low, shoot_low) = root_slot_run(1, 1, -1.0, 12_000);
-        let (root_high, shoot_high) = root_slot_run(1, 1, 1.0, 12_000);
-
-        assert!(
-            root_high as f32 > root_low as f32 * 1.10,
-            "slot 1 must order root mass: draw -1 grew {root_low} root cells, draw +1 grew {root_high}              (measured 336 against 448; before the primed-site repair both were 352, bit-identical)"
+    fn slot_1_is_a_root_locus_and_not_a_shoot_one() {
+        const SHOOT_SPREAD_BAR: f32 = 0.20;
+        const ROOT_INVERSION_BAR: f32 = 0.85;
+        let sweep = root_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES);
+        let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+        let shoot = mean(sweep.iter().map(|r| r.shoot_spread()).collect());
+        let root = mean(sweep.iter().map(|r| r.root_ratio()).collect());
+        let worst = sweep.iter().map(|r| r.shoot_spread()).fold(0.0f32, f32::max);
+        println!(
+            "slot 1 over {GUARD_SEEDS} seeds at {GUARD_FRAMES} frames: mean root ratio {root:.3}, \
+mean shoot spread {:.1}% (worst seed {:.1}%)",
+            100.0 * shoot,
+            100.0 * worst
         );
-        let shoot_spread = (shoot_high as f32 - shoot_low as f32).abs() / shoot_low.max(1) as f32;
         assert!(
-            shoot_spread < 0.20,
-            "slot 1 is a ROOT slot and must not move the shoot: {shoot_low} against {shoot_high} is {:.0}%              (measured 2%). A shoot moving with it means the draw is reaching slot 0's consumer.",
-            shoot_spread * 100.0
+            shoot < SHOOT_SPREAD_BAR,
+            "slot 1 is moving the shoot: mean spread over {GUARD_SEEDS} seeds is {:.1}%, bar {:.1}%. A shoot that moves \
+with a ROOT draw means the draw is reaching slot 0's consumer.",
+            100.0 * shoot,
+            100.0 * SHOOT_SPREAD_BAR
+        );
+        assert!(
+            root > ROOT_INVERSION_BAR,
+            "slot 1 is ordering root mass BACKWARDS: mean of per-seed ratios is {root:.3} over {GUARD_SEEDS} seeds, \
+floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- see \
+`root_and_shoot_branching_read_different_slots` for why the forward claim is not asserted."
+        );
+    }
+
+    /// **Bug §A's reproduction, and it fails — `#[ignore]`d, not deleted.**
+    ///
+    /// The claim: slot 1 orders *root* mass with the draw. That is what makes
+    /// it the root-branching gene, and it is what Arc B's heritable root form
+    /// is meant to be built on.
+    ///
+    /// Three measurements of the same pairing, and the arc is the whole
+    /// story. Ratio is `root(+1) / root(-1)`; the guard's bar was 1.10.
+    ///
+    /// | when | mean of per-seed ratios | seeds clearing 1.10 |
+    /// |---|---|---|
+    /// | at calibration, one seed (336 against 448) | **1.33** | — |
+    /// | 2026-08-22, 8 seeds (`open-bugs-handoff.md` §A) | 0.92, SE 0.056 | 1/8 |
+    /// | 2026-08-23, 8 seeds, after the P1 water fixes | **0.994, SE 0.046** | 2/8 |
+    ///
+    /// **0.1 SE from exactly no effect.** `CLAUDE.md` says to set a bar from
+    /// measurement with headroom and, where a report asks for a number the
+    /// engine cannot hit, to *record both and leave the gap visible rather
+    /// than relabelling it away*. There is no bar with headroom over data
+    /// consistent with 1.0, so this is the gap, left visible: the claim
+    /// stands here, asserted, failing, and runnable by name. The half that is
+    /// still true was split out into
+    /// `slot_1_is_a_root_locus_and_not_a_shoot_one` above, which runs in CI.
+    ///
+    /// Note what the P1 water fixes did to the number: 0.92 -> 0.994. The
+    /// small apparent *inversion* was an artifact of the water book and is
+    /// gone; what is left is flat.
+    ///
+    /// Not deleted, per the revert convention: the reproduction is the thing
+    /// that says whether a future change revived the lever.
+    /// `print_root_branch_slot_seed_sweep` prints the full table.
+    #[test]
+    #[ignore = "bug A: the slot-1 root lever measures dead (0.994, SE 0.046 over 8 seeds). Reproduction kept."]
+    fn root_and_shoot_branching_read_different_slots() {
+        let sweep = root_branch_slot_sweep(8, 12_000);
+        let ratios: Vec<f32> = sweep.iter().map(|r| r.root_ratio()).collect();
+        let mean = ratios.iter().sum::<f32>() / ratios.len() as f32;
+        let cleared = sweep.iter().filter(|r| r.ordered()).count();
+        println!("slot 1 root ordering over 8 seeds: mean ratio {mean:.3}, {cleared}/8 clear the 1.10 bar");
+        assert!(
+            mean > 1.10,
+            "slot 1 does not order root mass: mean of per-seed ratios is {mean:.3} over 8 seeds and only \
+{cleared}/8 clear 1.10 (calibrated at 1.33 on one seed; measured 0.92 on 2026-08-22 and 0.994 on 2026-08-23)"
         );
     }
 
@@ -7979,25 +8046,106 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     #[test]
     #[ignore]
     fn print_root_branch_slot_seed_sweep() {
-        let (mut lows, mut highs, mut agree) = (Vec::new(), Vec::new(), 0usize);
-        println!("seed   root(-1)  root(+1)   ratio  ordered");
-        for seed in 1u64..=8 {
-            let (low, _) = root_slot_run(seed, 1, -1.0, 12_000);
-            let (high, _) = root_slot_run(seed, 1, 1.0, 12_000);
-            let ratio = high as f32 / low.max(1) as f32;
-            let ok = high as f32 > low as f32 * 1.10;
-            if ok {
-                agree += 1;
-            }
-            println!("{seed:>4}   {low:>8}  {high:>8}   {ratio:>5.2}  {}", if ok { "yes" } else { "NO" });
-            lows.push(low as f32);
-            highs.push(high as f32);
+        let s = root_branch_slot_sweep(8, 12_000);
+        println!("seed   root(-1)  root(+1)   ratio  ordered | shoot(-1) shoot(+1)  spread");
+        for (i, r) in s.iter().enumerate() {
+            println!(
+                "{:>4}   {:>8}  {:>8}   {:>5.2}  {:>7} | {:>9} {:>9}  {:>5.0}%",
+                i + 1,
+                r.root_low,
+                r.root_high,
+                r.root_ratio(),
+                if r.ordered() { "yes" } else { "NO" },
+                r.shoot_low,
+                r.shoot_high,
+                100.0 * r.shoot_spread()
+            );
         }
-        let mean = |v: &Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
-        let (ml, mh) = (mean(&lows), mean(&highs));
-        println!("mean   {ml:>8.1}  {mh:>8.1}   {:>5.2}", mh / ml.max(1.0));
-        println!("seeds where +1 beat -1 by the guard's 10%: {agree}/8");
+        let stat = |v: Vec<f32>| {
+            let m = v.iter().sum::<f32>() / v.len() as f32;
+            let var = v.iter().map(|x| (x - m) * (x - m)).sum::<f32>() / (v.len() as f32 - 1.0);
+            (m, (var / v.len() as f32).sqrt())
+        };
+        let (rm, rse) = stat(s.iter().map(|r| r.root_ratio()).collect());
+        let (sm, sse) = stat(s.iter().map(|r| r.shoot_spread()).collect());
+        println!("mean of per-seed root ratios   {rm:.3}  SE {rse:.3}   ({:.1} SE from 1.0)", ((rm - 1.0) / rse).abs());
+        println!("mean of per-seed shoot spreads {:.1}%  SE {:.1}%   max {:.1}%", 100.0 * sm, 100.0 * sse, 100.0 * s.iter().map(|r| r.shoot_spread()).fold(0.0, f32::max));
+        println!("seeds where +1 beat -1 by the guard's 10%: {}/8", s.iter().filter(|r| r.ordered()).count());
     }
+
+    /// What the guard's shorter arm costs it — the measurement `GUARD_FRAMES`
+    /// was chosen from. Prints the same two statistics at both lengths.
+    #[test]
+    #[ignore]
+    fn print_root_branch_slot_guard_length() {
+        for frames in [GUARD_FRAMES, 12_000] {
+            let s = root_branch_slot_sweep(8, frames);
+            let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+            let shoot: Vec<f32> = s.iter().map(|r| r.shoot_spread()).collect();
+            println!(
+                "{frames:>6} frames: mean root ratio {:.3}, mean shoot spread {:.1}%, worst seed {:.1}%",
+                mean(s.iter().map(|r| r.root_ratio()).collect()),
+                100.0 * mean(shoot.clone()),
+                100.0 * shoot.iter().copied().fold(0.0, f32::max)
+            );
+        }
+    }
+
+    /// One seed's pairing of slot 1 at draws -1 and +1.
+    struct SlotPair {
+        root_low: u32,
+        root_high: u32,
+        shoot_low: u32,
+        shoot_high: u32,
+    }
+
+    impl SlotPair {
+        fn root_ratio(&self) -> f32 {
+            self.root_high as f32 / self.root_low.max(1) as f32
+        }
+        /// The guard's original ordering test: +1 beats -1 by a tenth.
+        fn ordered(&self) -> bool {
+            self.root_high as f32 > self.root_low as f32 * 1.10
+        }
+        /// How far the *shoot* moved — slot 1 is a root locus, so this is
+        /// the number that must stay small.
+        fn shoot_spread(&self) -> f32 {
+            (self.shoot_high as f32 - self.shoot_low as f32).abs() / self.shoot_low.max(1) as f32
+        }
+    }
+
+    /// The 8-seed pairing both the guard and the probe read. One place, so
+    /// the bar and the number it was set from cannot drift apart.
+    fn root_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
+        (1..=seeds)
+            .map(|seed| {
+                let (root_low, shoot_low) = root_slot_run(seed, 1, -1.0, frames);
+                let (root_high, shoot_high) = root_slot_run(seed, 1, 1.0, frames);
+                SlotPair { root_low, root_high, shoot_low, shoot_high }
+            })
+            .collect()
+    }
+
+    /// How long a `root_slot_run` arm is given inside the *live* guard, and
+    /// how many seeds it pairs.
+    ///
+    /// **A shorter arm was tried and is vacuous — do not retry it.** Eight
+    /// seeds at 12,000 frames is 16 runs and **181 s** in release, so 4,000
+    /// was measured as a cheaper length. At 4,000 the two draws produce
+    /// *identical* plants: mean root ratio **1.000**, mean shoot spread
+    /// **0.0%**, worst seed 0.0%. Nothing has diverged yet, so a guard there
+    /// would pass because the mechanism had not run — the bit-identical state
+    /// §A explicitly warns about, and `CLAUDE.md`'s "a test can pass because
+    /// the code under it is dead". The length is not the lever.
+    ///
+    /// The seed count is. §A's whole record is measured at 12,000 frames, so
+    /// the guard stays there and pays for the sweep with seeds instead: four
+    /// rather than eight, which is 90 s in release and still an order
+    /// statistic rather than the single seed that let this guard flip red and
+    /// green on unrelated changes to ground cover. The reproduction and
+    /// `print_root_branch_slot_seed_sweep` keep all eight.
+    const GUARD_FRAMES: usize = 12_000;
+    const GUARD_SEEDS: u64 = 4;
 
     /// **Does `break_root_tips` fire at all in this world — bug §A's own
     /// named "measurement that would do it".**
