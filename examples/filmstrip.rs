@@ -4750,6 +4750,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // the standing total. `None` on the first tile, which prints +0.00 rather
     // than a delta against a number that does not exist.
     let mut last_bank: Option<f64> = None;
+    // **The floor's depth, which is the quantity the abscission complaint
+    // actually named** -- "creating a giant pile of soil". Soil has no exit
+    // channel (§O), so every soil cell decay writes is still there, and the
+    // rise since the first sample IS the manufactured floor. Counted as an
+    // absolute, deliberately: the neighbouring census records that an
+    // earlier *exposed*-soil version was confounded because a leafier world
+    // covers more ground, moving the denominator with the treatment. A bare
+    // count has no denominator to move.
+    let mut first_soil: Option<usize> = None;
     // Cross-tile state for the ice churn readout -- see the `ice:` line.
     let mut last_ice: Option<(u32, u32, i64)> = None;
     while captured < args.count {
@@ -5496,6 +5505,71 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             world.decayed_damp,
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
+        );
+        // The decay events above are downstream of leaf fall, and leaf fall
+        // has three causes with separate knobs. The retune's lever question
+        // -- "which pressure is filling the floor" -- needs the split.
+        let soil_id = world.materials.id_of("soil");
+        if let Some(soil_id) = soil_id {
+            let mut soil_now = 0usize;
+            for x in 0..WIDTH {
+                for y in 0..HEIGHT {
+                    if world.get(x, y).material == soil_id {
+                        soil_now += 1;
+                    }
+                }
+            }
+            let base = *first_soil.get_or_insert(soil_now);
+            // **Net, not manufactured, and the difference is not pedantry.**
+            // The first version of this line called the rise "manufactured by
+            // decay" and clamped the negative case to zero. Then the retuned
+            // arm ran -171, -265, -201, -114 before ending at +120: soil is
+            // leaving as well as arriving, so decay's writes are only the
+            // gross inflow and this column has never been able to see them
+            // separately. `world.decayed_damp + decayed_dry` on the line
+            // above IS the gross inflow; read the two together and the
+            // difference between them is whatever is consuming soil.
+            println!(
+                "    floor: {soil_now} soil cells, {:+} net since the first sample",
+                soil_now as i64 - base as i64,
+            );
+        }
+        // **Leaf against wood, because that is what sets a silhouette.**
+        // `Reports/plant-appearance-design.md` is the reason this is a
+        // separate line from the living-tissue total: three architectural
+        // levers all fired, all printed their counters, and the owner still
+        // read the sheets as unchanged, because every species was ~90% wood
+        // and ~5% leaf and a lever that relabels a cell cannot move a
+        // silhouette that composition sets. Any question of the form "does
+        // the crown read differently" needs this ratio beside the picture,
+        // not the cell count.
+        if let (Some(leaf_id), Some(wood_id)) =
+            (world.materials.id_of("leaf"), world.materials.id_of("wood"))
+        {
+            let (mut leaf, mut wood) = (0usize, 0usize);
+            for x in 0..WIDTH {
+                for y in 0..HEIGHT {
+                    let m = world.get(x, y).material;
+                    if m == leaf_id {
+                        leaf += 1;
+                    } else if m == wood_id {
+                        wood += 1;
+                    }
+                }
+            }
+            let total = (leaf + wood).max(1);
+            println!(
+                "    composition: {leaf} leaf + {wood} wood = {} ({:.1}% leaf)",
+                leaf + wood,
+                100.0 * leaf as f64 / total as f64,
+            );
+        }
+        println!(
+            "    shed: {} shade + {} drought + {} stranded = {} leaves",
+            world.shed_shade,
+            world.shed_drought,
+            world.shed_stranded,
+            world.shed_shade + world.shed_drought + world.shed_stranded,
         );
         // **How much of the failure became grit rather than pieces.** The
         // mean region size cannot answer this and was misread as answering
