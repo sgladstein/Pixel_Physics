@@ -222,6 +222,14 @@ field rework — see `open-bugs-handoff.md`.
   census Phase 3 should measure itself against. Carries the finding that a
   feature left at its old size in a 4x world loses *fourteen* times its
   significance, not four.
+- [world-scale-phase-3.md](world-scale-phase-3.md) — **built, verdict
+  outstanding.** Caves carved by a dissolution trunk instead of a thresholded
+  Worley field, aimed at the owner's own sentence (*"longer ... chains of
+  caves ... the voroni patter is too much"*) rather than at Phase 2's two
+  proxy numbers. Carries the reason the old carve could not be tuned into it
+  — Worley boundaries are perpendicular bisectors, straight by construction —
+  and the finding that `MAX_CEILING_SPAN` has **never fired** and is waiting
+  for exactly the flat roofs dissolution produces.
 - [worldgen-round6-handoff.md](worldgen-round6-handoff.md) — **handoff.**
   What round 6 landed, what was ruled, and what the owner then rejected on
   the review cards. The starting point for rounds 7+.

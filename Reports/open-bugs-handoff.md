@@ -129,6 +129,48 @@ SPREAD — the shipped default, and what acceptance and CI run — is untouched:
 record: `Reports/explosion-stone-review.md` §17, and the test's doc comment
 at `src/sim/structural.rs`.
 
+### 0j. `a_forced_vault_world_is_sealed_and_arrives_at_rest` is red on `main`, and local `cargo test` cannot see it — **OPEN, 2026-08-23**
+
+**CI's gating job has been failing on `main` since the Phase 2 merge
+(`a0fa433`) and nothing recorded it.** Confirmed from the run's own log:
+`cargo test (release)` -> `test result: FAILED. 38 passed; 1 failed; 16
+ignored`, failing `a_forced_vault_world_is_sealed_and_arrives_at_rest`.
+`cargo test (debug, compiles the debug_assert guards)` fails identically.
+Both are gating jobs, not the quarantined ones.
+
+**Why nobody saw it, which is the transferable part.** `cargo test` stops at
+the first test *binary* that fails, and `--lib` fails first on
+`root_and_shoot_branching_read_different_slots` (bug A, known and
+quarantined). So a local `cargo test --release` reports "847 pass, 1 fail"
+and **never runs `tests/worldgen.rs` at all** -- the merge commit's own
+verification says exactly that and was reading a truncated run. CI passes
+`-- --skip root_and_shoot_branching_read_different_slots`, gets past `--lib`,
+and reaches the integration tests, where this second failure lives.
+
+*So: locally, always run `cargo test --release -- --skip root_and_shoot_
+branching_read_different_slots`, or `--test worldgen` explicitly. A green
+local run is not evidence the integration tests ran.*
+
+**Reproduction:** `cargo test --release --test worldgen
+a_forced_vault_world_is_sealed_and_arrives_at_rest`. Fails as `wetland seed
+3: 8 cells left their position in a forced-vault world`, at
+`(1861..1866, 132..133)`. The listed order varies between runs because the
+test diffs two `HashSet`s; **the set of cells does not vary.**
+
+**What has been ruled out.** Not the cave carve: measured paired against a
+worktree build, the Phase 3 dissolution trunk fails with the *same eight
+cells at the same coordinates* as the Worley honeycomb it replaced. Not the
+cave's position either -- the test builds at `vault_min_depth: 40`, so its
+caves sit around y 135-180, but the moving cells are at y 132-133 and the
+`VERT_MARGIN` fade that pushes the cave top further from the surface changes
+them by nothing.
+
+**Its shape matches `0h` above**: loose cells in motion near the *surface* in
+a forced-vault world, with the cave not implicated. `0h`'s reproduction is
+`pocket_density` at 33x shipped; this one is `vault_density: 4.0` with
+`spring_flow: 0.0`, so the common factor is a forced density rather than the
+feature being forced. Worth attacking as one bug.
+
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 
 `ponds` fills any hollow that reaches the open surface, and an overhang

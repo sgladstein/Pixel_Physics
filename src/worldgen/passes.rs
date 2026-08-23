@@ -987,17 +987,37 @@ impl CaveEnv {
     ///
     /// `u^EXP` with `EXP > 1` pushes the mass toward the minimum: at 3.0
     /// the median system sits at about 1/8 of the way up the range and
-    /// only the top few percent of draws get near the cap. Width and
-    /// height are drawn from the *same* unit sample deliberately -- a
-    /// system that is 400 wide and 44 tall is a crack, not a cave, and the
-    /// aspect ratio is the round-3 spec's, kept.
+    /// only the top few percent of draws get near the cap.
     fn draw(seed: u64, k: i32, cx: i32) -> Self {
         const EXP: f32 = 3.0;
         let u = noise::unit(seed, Purpose::CaveSize, k, cx).powf(EXP);
-        CaveEnv {
-            half_w: MIN_CAVE_HALF_W + (u * (MAX_CAVE_HALF_W - MIN_CAVE_HALF_W) as f32) as i32,
-            half_h: MIN_CAVE_HALF_H + (u * (MAX_CAVE_HALF_H - MIN_CAVE_HALF_H) as f32) as i32,
-        }
+        let half_w = MIN_CAVE_HALF_W + (u * (MAX_CAVE_HALF_W - MIN_CAVE_HALF_W) as f32) as i32;
+        // **Height draws separately, and that is the whole of *"longer"*.**
+        // Both extents used to come from this one `u`, and because
+        // 220/88, 580/232 and 800/320 are all 2.5, the ratio cancelled for
+        // every value of it: **every cave in the game was exactly 2.5:1**,
+        // large ones included. A size draw cannot produce a long cave if it
+        // only produces bigger copies of one shape. The old doc justified
+        // the coupling as "a system that is 400 wide and 44 tall is a crack,
+        // not a cave" -- true, and an argument for an aspect *bound*, which
+        // is below, not for one fixed ratio.
+        //
+        // Its own stream (`CaveVariety`, reserved and until now unused for
+        // exactly this) rather than a second sample of `CaveSize`, so the
+        // aspect is not correlated with the size -- otherwise every long
+        // cave would also be a big one and the variety is half illusory.
+        let v = noise::unit(seed, Purpose::CaveVariety, k, cx);
+        let half_h = MIN_CAVE_HALF_H + (v * (MAX_CAVE_HALF_H - MIN_CAVE_HALF_H) as f32) as i32;
+        // Clamped to an aspect band rather than left free: one end is the
+        // crack the old doc warned about, the other is a shaft, which is a
+        // different feature and not what a dissolution trunk is. The band is
+        // wide enough that the draw does real work -- 1.5:1 through 8:1,
+        // against the single 2.5:1 it replaces.
+        let half_h = half_h
+            .min((half_w as f32 / MIN_ASPECT) as i32)
+            .max((half_w as f32 / MAX_ASPECT) as i32)
+            .clamp(MIN_CAVE_HALF_H, MAX_CAVE_HALF_H);
+        CaveEnv { half_w, half_h }
     }
 
     #[inline]
@@ -1008,28 +1028,6 @@ impl CaveEnv {
     #[inline]
     fn grid_h(self) -> i32 {
         2 * self.half_h + 1
-    }
-
-    /// The Worley lattice cell size for *this* envelope.
-    ///
-    /// **Scaled with the envelope, not held fixed**, and measuring the
-    /// difference is what made A2 work. Growing the envelope with
-    /// [`CAVE_CELL`] left constant does not make a bigger cave: it makes a
-    /// cave with *more rooms of the same size*, because the lattice is a
-    /// density and the envelope only says how much of it to cut. Measured
-    /// on canyon over 16 seeds with the cell fixed: span across went to
-    /// max 372 as intended, and largest-walkable fell 38% -> 23% with
-    /// contrast 5.5x -> 4.5x -- both bars missed, because the extra area
-    /// went into finer structure the player cannot occupy.
-    ///
-    /// Scaling by the linear size ratio makes a large system a *scaled-up*
-    /// version of a small one: same topology, same chamber-to-passage
-    /// contrast, chambers 2x bigger in a 2x envelope. That is the thing the
-    /// owner asked for -- *"caves should be bigger"* -- rather than a
-    /// bigger box with the same furniture in it.
-    #[inline]
-    fn cell(self) -> f32 {
-        CAVE_CELL * self.half_w as f32 / ROUND_3_HALF_W as f32
     }
 
     #[inline]
@@ -1055,83 +1053,124 @@ impl CaveEnv {
     }
 }
 
-/// Size of one Worley lattice cell, in *sheared* cave-space cells.
-///
-/// Together with [`CAVE_SQUASH`] this sets how many lattice cells the
-/// envelope holds: `(2 * env.half_w / CAVE_CELL)` across and
-/// `(2 * env.half_h * CAVE_SQUASH / CAVE_CELL)` down. Round 3 shipped 52,
-/// which gives ~3.5 x 2.7 = 9 -- and round 5 measured what that actually
-/// means: the whole envelope is one open lens with the ceiling guard's
-/// stone teeth in it read as pillars, median open column 30 in a 69-tall
-/// box (`Reports/cave-beauty-review-2026-08.md`'s measured addendum). Round
-/// 5 dropped it to 22.0 (~8.2 x 3.8 = 31 lattice cells) to buy back
-/// anatomy.
-///
-/// **Round 6's A1 retuned this to 62.0, then reverted it.** The retune was
-/// built against a broken ruler: `cave_probe`'s "reachable by player %"
-/// counted every speleothem cell as solid, when Phase 0 made `flowstone`/
-/// `spar` scenery the player walks through, so the metric was measuring
-/// formation density, not passage geometry (finding A1-1, still on record
-/// below). Once the ruler was fixed to know about `Material::scenery`,
-/// round 5's shipped 22.0 measured **reachable/largest-walkable 33-37%,
-/// one connected region** -- the cave was already traversable end to end;
-/// the un-reached 65% is thin lattice fringe, not blockage. The 62.0 retune
-/// measured 95-96% reachable at the *cost* of collapsing to one rounded
-/// bubble (contrast 5.4x -> 2.1x, span across 136 -> 70) -- reproducing
-/// the "looks like a single room" complaint it existed to fix. Reverted;
-/// A1-1's diagnosis (the ruler) stood, its prescription (retune the
-/// lattice) did not survive the corrected measurement.
-const CAVE_CELL: f32 = 22.0;
 
-/// Vertical compression applied before the field is sampled, so everything
-/// the threshold carves -- chambers and passages both -- comes out wider
-/// than tall, lying along the bedding rather than cutting across it.
-///
-/// Round 3 shipped 2.0; round 5 dropped it to 1.2, landed together with
-/// [`CAVE_CELL`] and [`CAVE_THRESHOLD`] because the three only mean
-/// anything as a set. Round 6's A1 inverted it to 0.55 (taller-than-wide)
-/// and reverted it along with the other two once the corrected `cave_probe`
-/// showed round 5's 1.2 was already traversable -- see [`CAVE_CELL`]'s
-/// comment for the numbers. This is still the anisotropy of the *lattice*,
-/// not of the bedding dip -- that is `strata_offset`'s shear, applied
-/// separately below, and unaffected by this constant.
-const CAVE_SQUASH: f32 = 1.2;
 
-/// Cells over which the threshold fades to nothing at the envelope edge,
-/// per axis. Without the fade, a passage crossing the boundary is sawn off
-/// into a dead-plumb face the full height of the envelope -- the round-2
-/// scan-cap lesson arriving at envelope scale, seen in the first ASCII dump
-/// as a 70-row straight wall at the bbox edge. Fading the threshold pinches
-/// every void shut before it reaches the wall, so the system ends in
-/// naturally narrowing passages instead of a cut. The vertical fade is half
-/// the horizontal one for the same reason [`CAVE_SQUASH`] is 1.2 (round 3's
-/// 2, before it): a fade that reads as the same *shape* on both axes has to
-/// match the anisotropy. (Round 6's A1 inverted `CAVE_SQUASH` to 0.55 and
-/// left this pair unmatched, which would have been a landmine for the next
-/// session to inherit; moot now that A1 reverted.)
-const CAVE_EDGE_FADE_X: f32 = 14.0;
-const CAVE_EDGE_FADE_Y: f32 = 7.0;
 
-/// The one threshold: a cell is void where `F2 - F1 < CAVE_THRESHOLD`.
+
+/// Aspect band for [`CaveEnv::draw`], width over height. Replaces the single
+/// 2.5:1 that fell out of drawing both extents from one sample.
+const MIN_ASPECT: f32 = 1.5;
+const MAX_ASPECT: f32 = 8.0;
+
+/// Dissolution trunk constants (Phase 3). Every length is a *fraction* of
+/// the envelope, not an absolute, so a bigger cave is a bigger cave rather
+/// than a zoom of a small one -- which is the failure `CaveEnv::cell` was
+/// built to avoid and the reason round 6's A2 rejected scaling the lattice.
 ///
-/// `F2 - F1` is zero along Worley-cell boundaries and grows toward centres,
-/// so a low threshold carves the boundary network -- passages -- and the
-/// junctions where boundaries meet open into wider bulges -- chambers. The
-/// spec sketched a second sub-threshold (`t_chamber`, carving discs around
-/// the *centres*), and that sketch does not survive the geometry: a disc
-/// around a feature point never touches the boundary web (at radius 0.3 of
-/// a unit lattice the gap to the `F2 - F1 < 0.12` strip is ~0.14 of solid
-/// stone), so every chamber it adds is a sealed satellite the component
-/// keep below then throws away. One threshold on one field is also exactly
-/// what the research names (`Reports/worldgen-design.md` §7). See the
-/// round-3 finding.
+/// Radius of the conduit between rooms, in cells. Absolute rather than
+/// fractional: a *passage* is a passage at any system size -- what scales is
+/// how far it runs and how big the rooms on it are. 9 puts the gnome (7x14)
+/// through it with the section aspect below.
+const TRUNK_RADIUS: f32 = 9.0;
+
+/// How far a room opens, as a fraction of the envelope half-height. This is
+/// what makes chamber-to-passage contrast a *designed* quantity rather than
+/// an accident of where Worley cells happened to meet.
+const ROOM_GAIN: f32 = 1.60;
+
+/// Wavelength of the room field, in cells. Long, so rooms are beads on a
+/// conduit rather than a corrugation. Irregular by construction (`fbm`, not
+/// a sine): a regular spacing reads as graph paper, which this repo has
+/// already paid for once with a crack lattice on a fixed 6x6 grid.
+const ROOM_SCALE: f32 = 170.0;
+
+/// How much of the room field opens at all. Above it the trunk swells;
+/// below it stays a passage. Raising it makes rooms rarer and larger.
+const ROOM_THRESHOLD: f32 = 0.22;
+
+/// Meander of the conduit, as a fraction of the envelope half-height, and
+/// its wavelength in cells. Small and slow: this is a river's wander, not
+/// noise on a line.
+const TRUNK_WANDER: f32 = 0.28;
+const TRUNK_WANDER_SCALE: f32 = 420.0;
+
+/// Roughness on the radius, and its wavelength. **Load-bearing beyond
+/// looks:** a constant radius gives a flat roof, and `MAX_CEILING_SPAN`
+/// drops a stone tooth into any roof run past 36 columns. The Worley web
+/// never triggered that guard (measured: zero teeth, every system, every
+/// seed), so a smooth conduit would be the first thing in the game to wake
+/// it, and it would saw the trunk into segments. The wavelength is
+/// deliberately well under 36.
+const ROUGH_GAIN: f32 = 0.45;
+const ROUGH_SCALE: f32 = 23.0;
+
+/// Section aspect: how much wider than tall the conduit is. Carries the job
+/// `CAVE_SQUASH` did for the field -- everything lies along the bedding
+/// rather than cutting across it.
+const SECTION_ASPECT: f32 = 1.6;
+
+/// Fraction of the half-height the conduit must stay clear of, top and
+/// bottom.
 ///
-/// Round 3 shipped 0.34, which at the round-3 [`CAVE_CELL`] opened ~53% of
-/// a 9-lattice-cell envelope -- one flooded room, not a network. Round 5
-/// dropped it to 0.09 alongside the smaller lattice cell above; the two
-/// changes are not independent. Round 6's A1 raised it to 0.22 alongside
-/// 62.0 / 0.55 and reverted it with them -- see [`CAVE_CELL`]'s comment.
-const CAVE_THRESHOLD: f32 = 0.09;
+/// **The old field faded its threshold on *both* axes and the first version
+/// of this carve kept only the horizontal half.** The consequence is not
+/// cosmetic: a room can swell until it touches the envelope's top, which sits
+/// `VAULT_RIND` (2 cells) below the depth band's ceiling, so all that is left
+/// over the void is two cells of stone. At `vault_min_depth: 40` -- the
+/// forced-vault tests' setting, caves within 42 rows of the surface -- that
+/// is two cells of rock between a chamber and the soil.
+///
+/// **Added on reasoning, not on a failure, and the difference is worth
+/// recording.** It went in while chasing a red
+/// `a_forced_vault_world_is_sealed_and_arrives_at_rest`, and that test turns
+/// out to fail identically without this carve: the same 8 cells, the same
+/// preset and seed, on a worktree build of the previous commit. So this
+/// fixed nothing that was measured to be broken. It is kept because the
+/// asymmetry with the field it replaces is real and the argument below is
+/// the field's own -- but nobody has yet produced the artifact it prevents.
+///
+/// The horizontal fade below has the same justification the removed
+/// `CAVE_EDGE_FADE_Y` did, one axis over: without it a passage crossing the
+/// boundary is sawn off into a dead-plumb face, the round-2 scan-cap lesson
+/// at envelope scale.
+const VERT_MARGIN: f32 = 0.14;
+
+/// Fraction of the half-width over which the conduit pinches shut at the
+/// envelope wall. Without it a passage crossing the boundary is sawn off
+/// into a dead-plumb face -- the round-2 scan-cap lesson at envelope scale.
+const EDGE_FADE: f32 = 0.22;
+
+/// How much of the envelope's height the trunk may sit in, and how many
+/// samples pick its bed. Dissolution follows the rock that gives, so the
+/// softest band sampled wins; sampling rather than solving keeps it a pure
+/// function of position with no search.
+const BED_BAND: f32 = 0.55;
+const BED_SAMPLES: usize = 9;
+
+/// Feeders per system, and how far each runs as a fraction of the envelope
+/// half-height. A trunk with nothing off it is a corridor; these are what
+/// make it a system, and they are most of the void (see the arithmetic in
+/// `carve_cave_void`).
+const TRIB_MIN: i32 = 4;
+const TRIB_MAX: i32 = 9;
+const TRIB_LEN_MIN: f32 = 0.35;
+const TRIB_LEN_MAX: f32 = 1.05;
+
+/// A feeder's radius as a fraction of the trunk's, and how sharply it tapers
+/// to nothing. Narrower than the trunk, because that is the direction water
+/// gathers: many small feeders into one conduit, never the reverse.
+const TRIB_RADIUS: f32 = 0.72;
+const TRIB_TAPER: f32 = 0.55;
+
+/// How strongly a feeder follows the local dip sideways as it descends, and
+/// how much it meanders on top of that. Dip-following is what stops a feeder
+/// reading as a drilled shaft.
+const TRIB_DIP: f32 = 2.2;
+const TRIB_WANDER: f32 = 0.30;
+
+/// Wavelengths of meander over a feeder's whole length. Under one, so a
+/// branch bends once rather than corrugating -- see `trib_wander`.
+const TRIB_WANDER_WAVES: f32 = 0.9;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic
@@ -1798,39 +1837,246 @@ thread_local! {
 /// lengthen a roof run enough to cross [`MAX_CEILING_SPAN`]. Looping until
 /// none of the three changes anything terminates because each one that
 /// fires removes at least one void cell from a finite grid.
+/// One column of the conduit: an elliptical section, wider than tall.
+///
+/// Swept along x by its own half-width, so consecutive steps overlap and the
+/// conduit comes out continuous rather than as a row of discs -- which is
+/// what a naive per-step stamp gives on any path that is not axis-aligned,
+/// and it reads as a string of beads.
+///
+/// Wider than tall carries the job [`CAVE_SQUASH`] did for the old field:
+/// everything lies along the bedding instead of cutting across it.
+fn stamp_section(env: CaveEnv, void: &mut [bool], x: f32, ty: f32, r: f32) {
+    let rv = r;
+    let rh = r * SECTION_ASPECT;
+    let lo = (ty - rv).floor() as i32;
+    let hi = (ty + rv).ceil() as i32;
+    for dy in lo..=hi {
+        if dy.abs() > env.half_h {
+            continue;
+        }
+        let dyf = dy as f32 - ty;
+        if (dyf / rv).abs() >= 1.0 {
+            continue;
+        }
+        let span = rh * (1.0 - (dyf / rv).powi(2)).sqrt();
+        let x0 = (x - span).floor() as i32;
+        let x1 = (x + span).ceil() as i32;
+        for ex in x0..=x1 {
+            if ex.abs() <= env.half_w {
+                void[env.idx(ex, dy)] = true;
+            }
+        }
+    }
+}
+
+/// A feeder's sideways meander, as a pure function of its own index and how
+/// far along it is -- so two feeders of one system wander differently and
+/// nothing depends on iteration order.
+///
+/// **The frequency is the whole of whether this reads as a passage or as a
+/// lightning bolt.** At `f * 6.0` the first render came out as sharp
+/// switchbacks: several wavelengths over a branch a hundred cells long, with
+/// a lateral swing of tens of cells between steps one cell apart. A feeder
+/// meanders; it does not corrugate.
+fn trib_wander(sys: u64, k: i32, b: i32, f: f32) -> f32 {
+    noise::fbm_1d_c(sys, Purpose::CaveVariety, f * TRIB_WANDER_WAVES + (k * 31 + b * 7) as f32, 2)
+}
+
+/// Stamp the conduit along the segment between two centres.
+///
+/// **Not the endpoints, the segment.** Stamping only at sampled centres
+/// leaves gaps the moment consecutive samples are further apart than a
+/// section is wide -- which happens on any path that turns, and comes out as
+/// a string of beads or a torn passage. Half-cell steps are below the
+/// smallest section this ever draws, so the sweep is continuous by
+/// construction rather than by the sampling happening to be fine enough.
+fn stamp_run(env: CaveEnv, void: &mut [bool], from: (f32, f32), to: (f32, f32), r: f32) {
+    let (dx, dy) = (to.0 - from.0, to.1 - from.1);
+    let steps = ((dx * dx + dy * dy).sqrt() * 2.0).ceil().max(1.0);
+    for i in 0..=(steps as i32) {
+        let t = i as f32 / steps;
+        stamp_section(env, void, from.0 + dx * t, from.1 + dy * t, r);
+    }
+}
+
 fn carve_cave_void(ctx: &Ctx, env: CaveEnv, world: &World, k: i32, cx: i32, cy: i32) -> Option<Vec<bool>> {
     // A per-system field seed derived from the placement stream: two systems
     // in one world must not share a Worley lattice, or a pair placed near
     // each other would carve correlated shapes.
+    // A per-system field seed derived from the placement stream: two systems
+    // in one world must not share a field, or a pair placed near each other
+    // would carve correlated shapes.
     let sys = noise::hash(ctx.terrain.seed, Purpose::Vault, k, 97);
     let mut void = vec![false; env.area()];
-    // Bedding shear: the field's vertical coordinate is measured against the
-    // local strata surface -- the same `y + strata_offset(x)` locus the shade
-    // pass bands the rock with, the benches snap to and the lenses lie in --
-    // so the system elongates along the visible dip, tilt and fold included,
-    // and a cave reads as geology rather than as noise. Fourth consumer of
-    // that one pure function; it has to agree with the other three.
+
+    // The bedding locus this system is measured against -- the same
+    // `y + strata_offset(x)` the shade pass bands the rock with, the benches
+    // snap to and the lenses lie in. Fifth consumer of that one pure
+    // function; it has to agree with the other four.
     let base_off = ctx.terrain.strata_offset(cx);
-    let cell = env.cell();
-    // The edge fades scale with the envelope for the same reason the lattice
-    // cell does: a 14-cell fade is a quarter of a lattice cell at the round-3
-    // size and a ninth of one at the cap, so held fixed it would pinch a
-    // large system's passages shut over a shorter and shorter fraction of
-    // their own width.
-    let fade_scale = cell / CAVE_CELL;
-    for dy in -env.half_h..=env.half_h {
-        for dx in -env.half_w..=env.half_w {
-            let v = (dy as f32 + ctx.terrain.strata_offset(cx + dx) - base_off) * CAVE_SQUASH;
-            let (f1, f2) =
-                noise::worley_f2_f1(sys, Purpose::Cave, dx as f32 / cell, v / cell);
-            // Threshold fades to zero at the envelope edge -- see
-            // `CAVE_EDGE_FADE_X` for the sawn-off face it removes.
-            let fade = ((env.half_w - dx.abs()) as f32 / (CAVE_EDGE_FADE_X * fade_scale))
-                .min((env.half_h - dy.abs()) as f32 / (CAVE_EDGE_FADE_Y * fade_scale))
-                .clamp(0.0, 1.0);
-            if f2 - f1 < CAVE_THRESHOLD * fade {
-                void[env.idx(dx, dy)] = true;
+    let hardness = ctx.terrain.hardness_field();
+
+    // ---- the trunk: one conduit along one bed, opening into rooms ----
+    //
+    // Stamped as a swept disc whose centre follows the bedding and whose
+    // radius varies continuously. Three things fall out of that shape which
+    // the Worley web could not give:
+    //
+    // - **It is a chain, not a net.** Rooms are beads on one conduit, so a
+    //   player walks from one to the next instead of choosing between
+    //   ninety-two pockets. That is the owner's *"chains of caves"*.
+    // - **Its length is its own parameter.** A trunk is as long as the
+    //   envelope, so *"longer"* is now a size draw rather than a shape
+    //   accident (see `CaveEnv::draw`).
+    // - **No straight segments.** `F2 - F1` is zero along Worley cell
+    //   boundaries, which are perpendicular bisectors -- straight by
+    //   construction, meeting at 120-degree junctions, and read as cracked
+    //   mud rather than as rock. *"The voroni patter is too much."*
+    //
+    // **The radius must never hold still, and that is structural as well as
+    // aesthetic.** A constant-radius tube along a constant bed has a flat
+    // roof, and `MAX_CEILING_SPAN` drops a stone tooth into any roof run
+    // past 36 columns. That guard has never once fired against the Worley
+    // web (measured: zero teeth, every system, every seed -- a curved roof
+    // never gives 36 columns at one height), so a flat-roofed conduit would
+    // wake it up and saw the trunk into segments, which is the one thing a
+    // chain cannot survive. The `fbm` on the radius keeps every roof run
+    // short by construction. Read `ceiling teeth` in `vaults detail`
+    // alongside any change here.
+    let half_w = env.half_w as f32;
+    let half_h = env.half_h as f32;
+
+    // Where the trunk sits in the envelope, and which bed it dissolves.
+    // Biased toward a *soft* band: dissolution follows the rock that gives.
+    // Sampled at the system's own centre, so one bed is chosen for the whole
+    // conduit rather than the trunk wandering between beds as it goes.
+    let bed_pick = {
+        let mut best = (f32::MAX, 0.0f32);
+        for i in 0..BED_SAMPLES {
+            let f = (i as f32 / (BED_SAMPLES - 1) as f32) * 2.0 - 1.0;
+            let e = ctx.terrain.datum() - (cy as f32 + f * half_h * BED_BAND);
+            let h = hardness.at(cx, e);
+            if h < best.0 {
+                best = (h, f);
             }
+        }
+        best.1 * half_h * BED_BAND
+    };
+
+    // **The trunk's centreline, named once, because a feeder that does not
+    // start exactly on it is thrown away.** `keep_seed_component` keeps only
+    // the component containing the envelope centre, so a branch seeded at
+    // the bed while the trunk had wandered off it is a disconnected
+    // satellite and goes back to being stone -- silently, and looking
+    // exactly like "feeders add no void". Measured that way: adding feeders
+    // moved void 0.121% -> 0.138% and *raised* `walk_regions` max from 3 to
+    // 10, which is the signature of fragments being culled rather than
+    // branches being joined.
+    let trunk_y = |x: f32| {
+        // The conduit lies *in* its bed, so it rises and falls with the dip,
+        // tilt and fold included -- the same shear the old field applied,
+        // kept, because it is what makes a cave read as geology.
+        let bed = base_off - ctx.terrain.strata_offset(cx + x as i32);
+        // A slow wander so the conduit is not a ruled line. Low frequency
+        // and small amplitude: this is meander, not noise.
+        let wander = noise::fbm_1d_c(sys, Purpose::Cave, x / TRUNK_WANDER_SCALE, 2)
+            * half_h
+            * TRUNK_WANDER;
+        bed_pick + bed + wander
+    };
+
+    for dx in -env.half_w..=env.half_w {
+        let x = dx as f32;
+        let ty = trunk_y(x);
+
+        // Radius: a narrow conduit that opens into rooms. The room field is
+        // a slower `fbm` than the roughness one, so rooms are spaced along
+        // the trunk at irregular intervals rather than periodically -- a
+        // regular spacing reads as graph paper, which this repo has already
+        // paid for once with a crack lattice.
+        let room = noise::fbm_1d_c(sys, Purpose::CaveVariety, x / ROOM_SCALE, 2);
+        let open = ((room - ROOM_THRESHOLD) / (1.0 - ROOM_THRESHOLD)).clamp(0.0, 1.0);
+        let rough = noise::fbm_1d_c(sys, Purpose::Cave, x / ROUGH_SCALE + 41.0, 3);
+        let r = (TRUNK_RADIUS + open * open * half_h * ROOM_GAIN) * (1.0 + rough * ROUGH_GAIN);
+
+        // Pinch shut before the envelope wall, or a passage crossing the
+        // boundary is sawn off into a dead-plumb face the full height of the
+        // envelope -- the round-2 scan-cap lesson at envelope scale, and the
+        // reason the old field faded its threshold at the edge.
+        let fade = ((half_w - x.abs()) / (half_w * EDGE_FADE)).clamp(0.0, 1.0);
+        // Horizontal pinch, then the vertical clamp: the section may not
+        // reach within `VERT_MARGIN` of the envelope's top or bottom, or the
+        // rind is the only rock left over the void. See `VERT_MARGIN`.
+        let r = (r * fade).min(((1.0 - VERT_MARGIN) * half_h - ty.abs()).max(0.0));
+        if r < 1.0 {
+            continue;
+        }
+
+        stamp_section(env, &mut void, x, ty, r);
+    }
+
+    // ---- tributaries: feeders into the trunk, down the dip ----
+    //
+    // **The trunk alone is not enough cave, and that is arithmetic rather
+    // than tuning.** A conduit is a one-dimensional structure through a
+    // two-dimensional envelope, so it fills a far smaller fraction of it
+    // than a space-filling threshold field did: measured, trunk-only put
+    // void at **0.121%** of the deep massif against the honeycomb's 0.563%,
+    // which is the same "a 4x world with round-7 caves has essentially no
+    // caves in it" failure §4 of the Phase 2 report measures, arrived at
+    // from the other direction. Widening the trunk to close that gap would
+    // buy one enormous tube; feeders buy the same area as *cave system*.
+    //
+    // They also answer what a trunk cannot: a single conduit is a corridor,
+    // and what makes a cave feel explorable is somewhere to turn off. Each
+    // starts at a point on the trunk and runs down the dip -- the direction
+    // water actually moves -- with its own wander and a radius that tapers
+    // to nothing at the far end, so it reads as a feeder narrowing rather
+    // than a tube stopping.
+    let branches = TRIB_MIN
+        + (noise::unit(sys, Purpose::CaveVariety, k, 7) * (TRIB_MAX - TRIB_MIN + 1) as f32) as i32;
+    for b in 0..branches {
+        // Where it leaves the trunk, and how far it runs. Both drawn on the
+        // branch index so two systems' feeders are uncorrelated.
+        let at = (noise::unit(sys, Purpose::CaveVariety, k, 100 + b) * 2.0 - 1.0) * half_w * 0.8;
+        let len = (TRIB_LEN_MIN
+            + noise::unit(sys, Purpose::CaveVariety, k, 200 + b) * (TRIB_LEN_MAX - TRIB_LEN_MIN))
+            * half_h;
+        // Up or down from the trunk, and the dip it follows sideways.
+        let down = if noise::unit(sys, Purpose::CaveVariety, k, 300 + b) < 0.5 { -1.0 } else { 1.0 };
+        let dip = (ctx.terrain.strata_offset(cx + at as i32 + 8)
+            - ctx.terrain.strata_offset(cx + at as i32 - 8))
+            / 16.0;
+
+        let steps = len.ceil() as i32;
+        let mut prev: Option<(f32, f32)> = None;
+        for i in 0..=steps {
+            let f = i as f32 / steps.max(1) as f32;
+            // Along the dip as it descends, so a feeder cuts across bedding
+            // at the shallow angle water does, not at right angles.
+            let x = at + f * len * (dip * TRIB_DIP + trib_wander(sys, k, b, f) * TRIB_WANDER);
+            // Anchored on the trunk at its own start, then descending from
+            // there -- not on the bed, which the trunk has usually wandered
+            // off by the time it reaches this column.
+            let ty = trunk_y(at) + down * f * len;
+            // Tapers to nothing: a feeder narrows into the rock rather than
+            // ending in a flat wall, which is the same reason the trunk
+            // pinches shut at the envelope edge.
+            let r = TRUNK_RADIUS * TRIB_RADIUS * (1.0 - f).powf(TRIB_TAPER)
+                * (1.0 + noise::fbm_1d_c(sys, Purpose::Cave, f * len / ROUGH_SCALE + 91.0, 3) * ROUGH_GAIN);
+            let fade = ((half_w - x.abs()) / (half_w * EDGE_FADE)).clamp(0.0, 1.0);
+            let r = (r * fade).min(((1.0 - VERT_MARGIN) * half_h - ty.abs()).max(0.0));
+            if r < 1.0 || ty.abs() > half_h {
+                prev = None;
+                continue;
+            }
+            if let Some(p) = prev {
+                stamp_run(env, &mut void, p, (x, ty), r);
+            } else {
+                stamp_section(env, &mut void, x, ty, r);
+            }
+            prev = Some((x, ty));
         }
     }
 

@@ -1778,9 +1778,23 @@ from 3 cells to 11. The macro surface deliberately did **not** scale —
 region *density* is held constant at two to five per screen-width, so
 crossing the world still changes country at the same rate — and
 `Reports/world-scale-phase-2.md` sets out why those two halves cannot both
-scale, along with what the growth cost: a cave's void is now split across
-many more disjoint walkable pockets, which is the honeycomb that the next
-round of cave-shape work exists to replace.
+scale, along with what the growth cost: a cave's void was split across many
+more disjoint walkable pockets.
+
+**That honeycomb has since been replaced.** Caves are no longer a thresholded
+Worley field — its boundaries are perpendicular bisectors, so the passages
+were straight segments meeting at 120 degrees however the constants were set,
+which is the owner's *"the voroni patter is too much"* and is not a tuning
+complaint. A cave is now a **dissolution trunk**: a conduit traced along the
+softest strata band, following the same bedding locus the shade pass bands the
+rock with, swelling into rooms strung along it and fed by branches running
+down the dip. A system used to break into as many as 29 separate walkable
+regions and now breaks into at most 3, and the share of one reachable from a
+single place went from 30% to 90%. **Known limitation:** there is about a
+third of the void there used to be (0.187% of the deep massif against 0.563%),
+and the largest room in most systems is still a rasterised ellipse from the
+older `grow_monumental_chamber`. `Reports/world-scale-phase-3.md` carries both,
+and the owner's verdict on the trade is outstanding.
 
 **Standing rock became a place rather than a rate**, on the owner's verdict
 that Phase 2's answer had missed: *"They should not exist at all in most

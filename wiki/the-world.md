@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: 2026-08-22.*
+*Current as of: 2026-08-23.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -143,14 +143,21 @@ pocket, in the quiet rock a couple of hundred rows down. Most worlds hold
 one system, some none, sometimes two, and nothing on the surface marks
 where.
 
-**No two are the same size.** Most are modest — a few rooms and the
-passages between them, the work of a few minutes. A rare one is enormous,
-several times that across and deep enough that its far end is a separate
-expedition, with chambers to match: a big cave is a big cave all through,
-not a small one with more rooms in it. You cannot tell which you have
-found until you are inside. Dig deep enough in the right place and the wall breaks into a real
-cave: rooms joined by narrower passages, stretched along the same rock
-banding you can see in every cut face, with stone pillars holding the
+**No two are the same size or shape.** Most are modest — a few rooms and
+the passages between them, the work of a few minutes. A rare one is
+enormous, several times that across and deep enough that its far end is a
+separate expedition, with chambers to match: a big cave is a big cave all
+through, not a small one with more rooms in it. Some run long and low, a
+gallery you follow for a while; others are shorter and taller. You cannot
+tell which you have found until you are inside.
+
+Dig deep enough in the right place and the wall breaks into a real cave.
+**A system is a route, not a warren.** One main passage runs through it,
+following a single soft band of rock — so it lies along the same banding
+you can see in every cut face, rising and falling with it — and the rooms
+are strung out along that passage one after another, with narrower side
+branches leading off and down. You can walk it end to end; the far rooms
+are further along, not somewhere else. Stone pillars hold the wider
 galleries apart. The floors are rubble — gravel banked into uneven mounds,
 not tile — and stalactites hang from the high ceilings with stalagmites
 rising to meet them, a pale fringe of flowstone with the occasional pair

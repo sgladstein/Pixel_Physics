@@ -129,12 +129,27 @@ because `CaveEnv::cell()` scales the lattice with the envelope, so a big cave
 is a literal zoom of a small one. Phase 2 and Phase 3 are judged together, or
 the first strip after Phase 2 reads as a regression.
 
-**Phase 3 — cave shape.** Two candidates, built and compared on a blind A/B
-at play zoom: warp the lattice (sample Worley at `(x + A*fbm, y + B*fbm)`,
-vary the threshold along a slow field, and decouple aspect from the size
-draw) versus carve by process (dissolution following the strata and the water
-table — the only candidate that can produce the *chains* the owner asked
-for). `Purpose::CaveVariety = 29` is reserved and unused for exactly this.
+**Phase 3 — cave shape. BUILT 2026-08-23; see
+`Reports/world-scale-phase-3.md`.** The choice was made rather than compared:
+**carve by process**, because it is the only candidate that produces the
+*chains* the owner asked for, and because the lattice warp cannot reach the
+other half of his sentence — Worley boundaries are perpendicular bisectors, so
+a warp bends the web without removing a straight edge from it. A trunk is
+traced along the softest bed (`HardnessField`) following `strata_offset`, with
+rooms as beads on it and feeders down the dip. `Purpose::CaveVariety = 29` is
+now spent, on the aspect draw and the feeders.
+
+Measured against the honeycomb: separate walkable regions per system max
+**29 -> 3**, largest walkable share **30% -> 90%**; void fell 0.563% -> 0.187%
+of the deep massif, which is the open question and the one on the owner's
+card. The lattice warp survives as the recorded fallback in
+`Reports/dead-ends.md`, together with the Worley trio's whole settings
+history, for the case where the verdict is "not enough cave".
+
+Two things a successor should not have to rediscover: `MAX_CEILING_SPAN` has
+**never fired once** in the shipped configuration, and dissolution is exactly
+the shape that will wake it; and `grow_monumental_chamber` still stamps a
+literal ellipse, which is now the loudest drawn primitive left in the carve.
 
 **Already refused — do not re-propose:** discs around feature points; a
 second `F3 - F1` threshold (*"buys size, not drama"*); the lattice-trio
