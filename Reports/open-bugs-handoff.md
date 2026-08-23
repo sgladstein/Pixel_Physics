@@ -791,6 +791,62 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
+---
+
+**C4's metrics were built, calibrated against the owner's eye, and FAILED.
+§Z is cards-only. — 2026-08-23, P1**
+
+Both candidates this entry names were built in `examples/plant_probe.rs`:
+connected canopy components at the field's 8x8 resolution (reported as
+*fusion*, the largest component's share of canopy blocks), and the sky-gap
+census. Three stands were rendered at frame 28,800 and put to the owner
+**with the founder counts withheld**, asking only "how many separate trees
+can you count?" — cards `20260823T092919055Z-ac816a` and `...-87b3f5`,
+answered identically, so the reading is stable.
+
+| founders | spacing | raw gaps (widths) | gaps + 1 | >=8-cell gaps + 1 | fusion | **owner counted** |
+|---|---|---|---|---|---|---|
+| 8 | 56 | 1 (`[1]`) | 2 | 1 | 99% | **2** |
+| 4 | 102 | 1 (`[4]`) | 2 | 1 | **100%** | **4** |
+| 3 | 128 | 2 (`[1, 32]`) | 3 | 2 | 38% | **3** |
+| 2 | 170 | 1 (`[13]`) | 2 | 2 | 58% | not carded |
+
+**The 4-founder stand settles it.** The owner counts *all four*. Fusion
+reads **100%** — the strongest possible "one mass" — and the gap census
+finds a single 4-cell gap where the eye finds three separations. The claim
+P1 made before asking, that fusion "splits cleanly and in one place", is
+**false**: the split it draws puts a stand read as four distinct trees on
+the fused side.
+
+**Why no column census can be made to work here, which is the reusable
+part.** A gap is a fully empty column. The eye separates crowns that
+*overlap*, on trunk position and crown outline — cues carried by the shape
+of the occupancy, not by whether any column is empty. At 102 cells apart
+these four crowns touch and are still four obvious trees. That is a
+structural limit of the measurement, not a threshold to retune. Anyone
+proposing a third column-based candidate should explain how it sees a
+boundary with no empty column in it.
+
+**Two thresholds, both invented to explain away a reading I doubted, both
+strictly harmful.** First a quarter of the founder spacing, which scored two
+obviously separate trees 170 apart at zero (a quarter of 170 is 42). Then an
+absolute 8 cells, which scores **0 of 3** against the owner where the
+*unthresholded* count scores **2 of 3** — because the 1-cell gap at 8
+founders that I discarded as noise is exactly the separation behind the
+owner's answer of "2". Raw gaps + 1 gives 2, 2, 3 against 2, 4, 3.
+
+**What survives, and it is not nothing.** The negative result this entry
+already recorded is confirmed hard: `thickest contiguous run` reads **36 to
+51 across the whole spacing range** and is *highest* on the stand the owner
+counts as 2 of 8. It cannot tell a fused stand from a separate one in either
+direction. And the component count must never be read alone — it exceeds the
+founder count on a widely spaced stand, because a sparse crown breaks into
+separate blocks.
+
+So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
+as description, labelled as having failed calibration, so nobody spends the
+round trip discovering this again.
+
 ### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
 
 Found by inspection during the `creatures-m18` merge review, **not created by
