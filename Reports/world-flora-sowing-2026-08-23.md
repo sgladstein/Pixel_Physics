@@ -292,6 +292,26 @@ before root form is worth showing again. Two prior owner verdicts already
 said tuning-level root variety does not read; this is the third, now with
 the scene error ruled out rather than suspected.
 
+### The presentation mattered as much as the bed
+
+Re-shot a third time on the integrator's relay, at the presentation
+`root-morphology-findings.md` lists *first* — **single plants at high zoom**
+rather than the N-per-treatment band, in the same 100-row bed. The two do
+separate more clearly there than at stand scale: the low-gain plants send
+strands down and out, the high-gain plants build a crust near the surface
+and stop. Same numbers underneath (32.0 against 21.6 mean deepest row), so
+nothing quantitative changed — what changed is that a stand-scale band
+averages the shape away and a single plant does not.
+
+That is worth recording as method rather than as a result: the findings
+report offers two presentations and they are **not** equivalent for a shape
+question. The band was the weaker one, and it was the one this package
+reached for twice.
+
+Posted blind. The standing conclusion above (the reachable axis is not
+enough) is unchanged until that verdict comes back — it is written from the
+numbers, and the numbers did not move.
+
 **Method note for whoever runs the next root comparison:** set `soil=` well
 past the deepest root you expect *and* check the max against it, because a
 root system resting on the scene floor and one that chose its depth are the
