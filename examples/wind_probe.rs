@@ -62,11 +62,12 @@ fn main() {
     let seeds: u64 = arg("seeds", 1);
     let wind: f32 = arg("wind", 1.0);
     let step: i32 = arg("step", 16);
+    let gusts: u64 = arg("gusts", 0);
 
     // **Line one, every parameter.** See the module doc.
     println!(
         "wind_probe: preset={preset} seed={seed} seeds={seeds} wind={wind:+.2} \
-         world={WIDTH}x{HEIGHT} step={step} fetch_columns={} half_slope={} neutral={}",
+         world={WIDTH}x{HEIGHT} step={step} gusts={gusts} fetch_columns={} half_slope={} neutral={}",
         weather::FETCH_COLUMNS,
         weather::EXPOSURE_HALF_SLOPE,
         weather::NEUTRAL_EXPOSURE,
@@ -74,6 +75,10 @@ fn main() {
 
     if seeds > 1 {
         sweep(&preset, seed, seeds, wind);
+        return;
+    }
+    if gusts > 0 {
+        gust_census(&preset, seed, gusts);
         return;
     }
 
@@ -182,4 +187,70 @@ fn sweep(preset: &str, first: u64, count: u64, wind: f32) {
             pct(&slopes, 1.0),
         );
     }
+}
+
+/// Every gust `frames` frames of weather would fire, and what each delivered.
+///
+/// **The discrete count that goes in a review card's `meta`.** A picture of
+/// a windy world cannot show whether the exposure scaling is what produced
+/// it -- `CLAUDE.md`'s standing example is a collapse read as "chunks are
+/// working" whose body count was zero for the whole run. So this counts the
+/// gusts, and prints what each one delivered against what it would have
+/// delivered before this package existed.
+///
+/// Reads `weather::planned_gust`, the same function `weather::gust` itself
+/// uses to decide, rather than reimplementing the schedule here.
+fn gust_census(preset: &str, seed: u64, frames: u64) {
+    let mut world = build(preset, seed);
+    world.seed = seed;
+
+    // The two ends of this world, found before any gust fires, so the
+    // sample points are the terrain's own extremes and not cherry-picked.
+    let reference_wind = 1.0;
+    let (mut lo, mut hi, mut lo_x, mut hi_x) = (f32::MAX, f32::MIN, 0, 0);
+    for x in 0..WIDTH {
+        let Some(s) = surface(&world, x) else { continue };
+        let v = weather::exposure(&world, x, s, reference_wind);
+        if v < lo {
+            lo = v;
+            lo_x = x;
+        }
+        if v > hi {
+            hi = v;
+            hi_x = x;
+        }
+    }
+    println!("  sample points at wind {reference_wind:+.2}: sheltered x={lo_x} exposure {lo:.3} | exposed x={hi_x} exposure {hi:.3}");
+
+    let (mut fired, mut sum_delivered, mut sum_unsheltered) = (0u64, 0.0f64, 0.0f64);
+    let (mut weakest, mut strongest) = (f32::MAX, f32::MIN);
+    let mut sheltered_half = 0u64;
+    for frame in 0..frames {
+        world.frame = frame;
+        let w = weather::at(seed, frame);
+        let Some(g) = weather::planned_gust(&world, w) else { continue };
+        fired += 1;
+        sum_delivered += g.delivered as f64;
+        sum_unsheltered += g.unsheltered as f64;
+        weakest = weakest.min(g.delivered / g.unsheltered);
+        strongest = strongest.max(g.delivered / g.unsheltered);
+        if g.exposure < weather::NEUTRAL_EXPOSURE {
+            sheltered_half += 1;
+        }
+    }
+    if fired == 0 {
+        println!("  gusts fired: 0 over {frames} frames -- nothing to report, and that is the finding");
+        return;
+    }
+    println!(
+        "  gusts fired: {fired} over {frames} frames ({:.2}% of frames), {sheltered_half} of them over ground below neutral",
+        100.0 * fired as f64 / frames as f64,
+    );
+    println!(
+        "  delivered pressure: {:.1} total against {:.1} unsheltered ({:.1}% of the old fixed strength)",
+        sum_delivered,
+        sum_unsheltered,
+        100.0 * sum_delivered / sum_unsheltered
+    );
+    println!("  per-gust share of full strength: weakest {weakest:.3}  strongest {strongest:.3}");
 }

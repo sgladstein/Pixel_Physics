@@ -733,6 +733,23 @@ const GUST_STRENGTH: f32 = 34.0;
 /// Radius of a gust, in world cells.
 const GUST_RADIUS: i32 = 26;
 
+/// The share of a gust's strength that reaches even the most sheltered
+/// ground, before [`exposure`] scales the rest.
+///
+/// A gust in a deep hollow is a *weaker squall*, not an absence of weather.
+/// Scaling all the way to zero would make half the world silently stop
+/// having gusts at all, which is the all-or-nothing outcome `CLAUDE.md`'s
+/// ethos section names as a failure that passes every test it has -- and it
+/// would leave the sheltered end with no legible feedback whatever, so a
+/// reviewer could not tell "sheltered" from "the mechanism is dead".
+///
+/// At 0.35 the range delivered runs 0.35x to 1.0x of the old fixed value,
+/// so nothing anywhere in the world gets a *stronger* gust than it used to:
+/// the change can only ever subtract pressure from the field, which is the
+/// safe direction against the settling guard `a_gust_disperses` exists to
+/// hold.
+const MIN_GUST_SHARE: f32 = 0.35;
+
 /// How far upwind [`exposure`] looks, in columns.
 ///
 /// Set from the terrain's own length scale rather than by eye.
@@ -1056,6 +1073,77 @@ pub fn ground_exposure(world: &World, x: i32, wind: f32) -> Option<f32> {
     Some(exposure(world, x, s, wind))
 }
 
+/// What a gust at this frame would be, or `None` if none fires.
+///
+/// Split out of [`gust`] so the harness that *reports* gusts and the code
+/// that *delivers* them are one code path. `CLAUDE.md`: a debug readout
+/// that reimplements the mechanism can disagree with it, and then the
+/// numbers printed beside a picture are evidence about the harness.
+///
+/// Pure — it reads the world and changes nothing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Gust {
+    /// Where the high-pressure half lands.
+    pub x: i32,
+    pub y: i32,
+    /// Offset from `x` to the low-pressure half.
+    pub lead: i32,
+    /// [`exposure`] of the ground under `x`, the factor that makes a gust
+    /// over a hollow weaker than one over a ridge.
+    pub exposure: f32,
+    /// Pressure actually delivered to each half, after `exposure`.
+    pub delivered: f32,
+    /// What it would have been before this package existed — `exposure` at
+    /// its maximum. The paired figure a report quotes against `delivered`.
+    pub unsheltered: f32,
+}
+
+pub fn planned_gust(world: &World, w: Weather) -> Option<Gust> {
+    if w.wind.abs() < GUST_THRESHOLD {
+        return None;
+    }
+    // Fires on a schedule rather than every frame. A gust every frame is a
+    // steady wind wearing a different hat, and would rediscover the whole
+    // problem above.
+    if !world.frame.is_multiple_of(GUST_INTERVAL) {
+        return None;
+    }
+    let bounds = world.bounds()?;
+    let mut r = rng::stream(world.seed, 0x4755_5354, world.frame, 0);
+    let width = (bounds.max_x - bounds.min_x + 1) as u64;
+    let x = bounds.min_x + (r.next_u64() % width) as i32;
+    // Somewhere in the upper air, where there is room for it to disperse.
+    // A gust delivered inside rock is absorbed by `blocked` field cells and
+    // is simply wasted work.
+    let span = bounds.max_y - bounds.min_y;
+    let y = bounds.min_y + span / 8 + (r.next_u64() % (span / 4).max(1) as u64) as i32;
+    let lead = (GUST_RADIUS as f32 * 1.5 * w.wind.signum()) as i32;
+
+    // **Scaled by the exposure of the ground this squall lands over.** The
+    // whole point of `exposure`: before it, a hollow and a ridge got the
+    // same gust because `at` has no position at all.
+    //
+    // Asked at the *ground*, not at `y`. A gust fires in the upper air by
+    // construction (the span arithmetic above), where every point is far
+    // above all terrain, so the point form would read ~1.0 for every gust in
+    // every world and the mechanism would be invisible — the "exposure reads
+    // flat everywhere" trap, arrived at honestly.
+    //
+    // Read here rather than inside `add_pressure_impulse`, at the call site
+    // that already has the position (`CLAUDE.md`): this runs once per gust,
+    // which is once every `GUST_INTERVAL` frames and only while the wind is
+    // up, not once per cell per frame. `ground_exposure` is a read — it
+    // wakes no chunk and unsettles no field tile, which is what keeps this
+    // off the list of things that cost the dirty-rect render skip.
+    //
+    // `None` means open sky over nothing solid, which is neither sheltered
+    // nor prominent: the neutral reading, not a free full-strength gust.
+    let exposure = ground_exposure(world, x, w.wind).unwrap_or(NEUTRAL_EXPOSURE);
+    let unsheltered = GUST_STRENGTH * w.wind.abs();
+    let delivered = unsheltered * (MIN_GUST_SHARE + (1.0 - MIN_GUST_SHARE) * exposure);
+    Some(Gust { x, y, lead, exposure, delivered, unsheltered })
+}
+
 /// Wind, delivered as gusts.
 ///
 /// # The mistake this is shaped around
@@ -1072,30 +1160,21 @@ pub fn ground_exposure(world: &World, x: i32, wind: f32) -> Option<f32> {
 /// moment: the field disperses it, reaches equilibrium, and goes back to
 /// sleep. The world is disturbed while the squall passes and settles after
 /// it, which is both what weather does and what the field is built to
-/// handle. `a_gust_settles_again` is the guard, and it exists specifically
-/// to catch anyone reintroducing the steady term.
+/// handle. `a_gust_disperses` is the guard, and it exists specifically to
+/// catch anyone reintroducing the steady term. (It was named
+/// `a_gust_settles_again` in this doc for as long as the doc has existed;
+/// no test of that name has ever been in the tree.)
+///
+/// **Strength now varies with place, and that is also a read, not a write.**
+/// [`exposure`] scales what each gust delivers, so a hollow gets a weaker
+/// squall than the ridge above it. That is a pure function of terrain
+/// sampled at the moment the gust fires — it stores nothing and wakes
+/// nothing, which is exactly the line between it and the reverted term.
 ///
 /// Everything downstream is free: `update_gas`'s bias blows smoke, and
 /// `organism::wind_lean_dir` leans trees, both off the field this writes to.
 fn gust(world: &mut World, w: Weather) {
-    if w.wind.abs() < GUST_THRESHOLD {
-        return;
-    }
-    // Fires on a schedule rather than every frame. A gust every frame is a
-    // steady wind wearing a different hat, and would rediscover the whole
-    // problem above.
-    if !world.frame.is_multiple_of(GUST_INTERVAL) {
-        return;
-    }
-    let Some(bounds) = world.bounds() else { return };
-    let mut r = rng::stream(world.seed, 0x4755_5354, world.frame, 0);
-    let width = (bounds.max_x - bounds.min_x + 1) as u64;
-    let x = bounds.min_x + (r.next_u64() % width) as i32;
-    // Somewhere in the upper air, where there is room for it to disperse.
-    // A gust delivered inside rock is absorbed by `blocked` field cells and
-    // is simply wasted work.
-    let span = bounds.max_y - bounds.min_y;
-    let y = bounds.min_y + span / 8 + (r.next_u64() % (span / 4).max(1) as u64) as i32;
+    let Some(g) = planned_gust(world, w) else { return };
     // **A dipole, not a single blob.** A lone positive impulse injects net
     // pressure into a closed world, and there is nowhere for it to go: it
     // drives velocity, velocity drives advection, and the tiles around it
@@ -1106,10 +1185,11 @@ fn gust(world: &mut World, w: Weather) {
     // What a gust physically is, is air moving *from* somewhere *to*
     // somewhere. High pressure behind and low pressure ahead sums to zero,
     // pushes the air between them along the wind, and leaves the field with
-    // nothing left over to keep solving once it has equalised.
-    let lead = (GUST_RADIUS as f32 * 1.5 * w.wind.signum()) as i32;
-    world.add_pressure_impulse(x, y, GUST_RADIUS, GUST_STRENGTH * w.wind.abs());
-    world.add_pressure_impulse(x + lead, y, GUST_RADIUS, -GUST_STRENGTH * w.wind.abs());
+    // nothing left over to keep solving once it has equalised. Both halves
+    // take the same `delivered`, so the sum stays exactly zero however the
+    // exposure scaling moves it.
+    world.add_pressure_impulse(g.x, g.y, GUST_RADIUS, g.delivered);
+    world.add_pressure_impulse(g.x + g.lead, g.y, GUST_RADIUS, -g.delivered);
 }
 
 /// One frame of weather acting on the world.
@@ -1926,6 +2006,104 @@ mod tests {
                 assert_eq!(exposure(&w, x, 140, 1.0), first, "exposure disagreed with itself at x={x}");
             }
         }
+    }
+
+    /// **The payoff, and the thing the whole package is for.** The *same*
+    /// gust, at the same seed, the same frame and the same place, delivers
+    /// less pressure over sheltered ground than over exposed ground.
+    ///
+    /// Paired inside one comparison rather than measured against a
+    /// remembered number (`CLAUDE.md`). `gust` picks its column from
+    /// `rng::stream(seed, .., frame, ..)` and the world bounds alone, so two
+    /// worlds built with the same seed, frame and bounds are struck in
+    /// exactly the same spot — and then the *only* difference left between
+    /// the runs is the shape of the ground under it, which is the variable
+    /// under test.
+    ///
+    /// Measured as summed absolute field pressure, because that is what a
+    /// gust delivers and what every consumer downstream reads. This is a
+    /// direct read of the impulse, not the dispersal question
+    /// `a_gust_disperses` asks — that one deliberately counts unconverged
+    /// tiles instead, after three attempts to measure dispersal through
+    /// summed pressure each measured something else.
+    #[test]
+    fn a_gust_delivers_less_over_sheltered_ground() {
+        let seed = 5;
+        // A frame with the wind well over the gust threshold, and on a
+        // multiple of GUST_INTERVAL so the gust actually fires this frame.
+        let frame = (0..WEATHER_EPOCH_FRAMES * 40)
+            .step_by(GUST_INTERVAL as usize)
+            .find(|&f| {
+                let w = at(seed, f);
+                f.is_multiple_of(GUST_INTERVAL) && w.wind.abs() > GUST_THRESHOLD + 0.3
+            })
+            .expect("some frame is gusty");
+
+        // Where the gust will land, recomputed exactly as `gust` does it, so
+        // the two terrains can be shaped around the same column.
+        let bounds = Rect::new(0, 0, 255, 191);
+        let mut r = rng::stream(seed, 0x4755_5354, frame, 0);
+        let width = (bounds.max_x - bounds.min_x + 1) as u64;
+        let strike_x = bounds.min_x + (r.next_u64() % width) as i32;
+
+        let wind = at(seed, frame).wind;
+        // Upwind is opposite the direction the air travels.
+        let upwind = if wind >= 0.0 { -1 } else { 1 };
+
+        // Sheltered: a tall wall immediately upwind of the strike column.
+        // Exposed: the same wall placed *downwind*, so the fetch is open.
+        // Same material, same cell count, same everything but which side.
+        let build = |wall_side: i32| {
+            let mut w = World::new(bounds);
+            w.seed = seed;
+            w.frame = frame;
+            for x in 0..256 {
+                for y in 150..192 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            let wall_x = strike_x + wall_side * 12;
+            for x in (wall_x - 4)..=(wall_x + 4) {
+                for y in 120..150 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            w
+        };
+        let mut sheltered = build(upwind);
+        let mut exposed = build(-upwind);
+
+        let pressure = |w: &World| -> f32 {
+            let mut sum = 0.0;
+            for x in (0..256).step_by(2) {
+                for y in (0..192).step_by(2) {
+                    sum += w.field_at(x, y).pressure.abs();
+                }
+            }
+            sum
+        };
+
+        let before_sheltered = pressure(&sheltered);
+        let before_exposed = pressure(&exposed);
+        gust(&mut sheltered, at(seed, frame));
+        gust(&mut exposed, at(seed, frame));
+        let delivered_sheltered = pressure(&sheltered) - before_sheltered;
+        let delivered_exposed = pressure(&exposed) - before_exposed;
+
+        assert!(delivered_exposed > 0.0, "the gust delivered nothing at all over open ground");
+        assert!(
+            delivered_sheltered < delivered_exposed,
+            "sheltered ground took {delivered_sheltered} and exposed took {delivered_exposed}; \
+             the wall upwind should weaken the gust"
+        );
+        // And it must be a *weaker squall*, not an absent one -- see
+        // `MIN_GUST_SHARE`. A version that scaled to zero would satisfy the
+        // inequality above and be wrong.
+        assert!(
+            delivered_sheltered > 0.25 * delivered_exposed,
+            "sheltered ground got {delivered_sheltered} against {delivered_exposed}: \
+             a sheltered gust should be weaker, not missing"
+        );
     }
 
     /// A frame at which `seed` is raining, so a test can assert about rain
