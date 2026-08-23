@@ -30,8 +30,16 @@ on:
 # matrix behind the last -- the cost that makes per-branch CI unaffordable.
 # The guard on `main` is deliberate: cancelling a trunk run would leave a
 # commit that nobody ever gated, which is the exact hole this change closes.
+# The group keys on the PR number when there is one, and only falls back to
+# the ref otherwise. Keying on `github.ref` alone looks right and is not: a
+# push to a branch that has an open PR fires *both* triggers, and the two
+# events carry different refs (`refs/heads/claude/foo` vs `refs/pull/11/
+# merge`), so they land in different groups and neither cancels the other.
+# Observed on PR #11 -- one push, runs 32623617551 and 32623619969, the full
+# nine-job matrix twice. Exactly double the cost on the branches most worth
+# gating, which is the opposite of what this block is for.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # **The toolchain is pinned, and it was `@stable` until it broke.** Run 136's
