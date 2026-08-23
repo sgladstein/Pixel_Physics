@@ -1,0 +1,68 @@
+{
+  "id": "20260823T185810758Z-97d2d0",
+  "created": "2026-08-23T18:58:10Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "9108b79",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Grassfire: dry meadow vs wet meadow",
+  "question": "You asked for moisture vs dryness to play a role. Does this read as it playing a role — one meadow carries the fire, the other refuses it?",
+  "context_md": "**The same sward, grown once, burnt twice.** A dry meadow cannot be *grown* — unplanted soil fills up as it goes — so both arms grow on identical ground and the bed is reset 600 frames before the ignition. Identical fuel, one number different: how wet the ground under it is.\n\n**Why this changed anything.** The moisture term has existed for two milestones and measured as doing nothing. It was not too weak. Its input — the diffused humidity at the cell — reads **exactly 0.000 at 96.8% of fuel cells, at every ground wetness from the wilting point to saturated**. A field block containing a plant cell is marked blocked, and a blocked block never diffuses, so *the presence of fuel is what makes a block read bone dry*. Over the whole dry-to-saturated span the old term moved ignition by 5%.\n\nIt now reads the wetness of the ground itself, which comes out 0.00 / 0.18 / 0.62 / 1.00 at the fuel for the four beds, exactly as it should.\n\n**Swept, not one run:** 12 different swards (4 founder counts x 3 weather windows), each burnt at three wetnesses. At field capacity **no sward lost more than 8% of itself**; when dry, **5 of the 12 burnt out entirely**. Front distance: 67-489 cells dry, never past 74 damp.\n\nWhat I would like your eye on rather than the numbers: whether the wet arm reads as *the meadow refusing to burn*, or just as a fire that fizzled.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "dry ground (soil water 0)",
+      "files": [
+        "20260823T185810758Z-97d2d0/000-flame_0.png",
+        "20260823T185810758Z-97d2d0/001-flame_1.png",
+        "20260823T185810758Z-97d2d0/002-flame_2.png",
+        "20260823T185810758Z-97d2d0/003-flame_3.png",
+        "20260823T185810758Z-97d2d0/004-flame_4.png",
+        "20260823T185810758Z-97d2d0/005-flame_5.png",
+        "20260823T185810758Z-97d2d0/006-flame_6.png",
+        "20260823T185810758Z-97d2d0/007-flame_7.png"
+      ],
+      "caption": "ground wetness 0.00 at every fuel cell",
+      "meta": {
+        "grass cells consumed": "1993 of 1993 (all)",
+        "front reached": "x=488",
+        "contact ignitions": "thousands"
+      },
+      "focus": null
+    },
+    {
+      "label": "saturated ground (soil water 1000)",
+      "files": [
+        "20260823T185810758Z-97d2d0/008-wet_0.png",
+        "20260823T185810758Z-97d2d0/009-wet_1.png",
+        "20260823T185810758Z-97d2d0/010-wet_2.png",
+        "20260823T185810758Z-97d2d0/011-wet_3.png",
+        "20260823T185810758Z-97d2d0/012-wet_4.png",
+        "20260823T185810758Z-97d2d0/013-wet_5.png",
+        "20260823T185810758Z-97d2d0/014-wet_6.png",
+        "20260823T185810758Z-97d2d0/015-wet_7.png"
+      ],
+      "caption": "ground wetness 1.00 at every fuel cell",
+      "meta": {
+        "grass cells consumed": "10 of 1993",
+        "front reached": "x=53 (lit at x=51)",
+        "contact ignitions": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
