@@ -797,7 +797,19 @@ fn main() {
                     sp.span,
                     world.springs.len()
                 );
-                Some((sp.x, sp.y))
+                // **Aimed below the outlet, not at it.** A fall goes *down*
+                // from its lip, so centring the outlet spends the upper half
+                // of the frame on sky and pushes the cascade and its plunge
+                // pool off the bottom -- which is what the first four
+                // candidate renders came back as, and it is the same class of
+                // mistake as the vault finder aiming at `WORLD_HEIGHT / 2`:
+                // the harness pointed at the thing's *anchor* rather than at
+                // the thing. Dropping the target by a third of the longest
+                // fall the pass will build (`MAX_FALL` is 120) puts the lip in
+                // the upper part of the frame with the water and the pool
+                // below it.
+                const FALL_AIM_DROP: i32 = 40;
+                Some((sp.x, sp.y + FALL_AIM_DROP))
             }
             None => {
                 println!("  NO SPRING in this world -- try another seed");
