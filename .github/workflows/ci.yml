@@ -38,8 +38,30 @@ on:
 # Observed on PR #11 -- one push, runs 32623617551 and 32623619969, the full
 # nine-job matrix twice. Exactly double the cost on the branches most worth
 # gating, which is the opposite of what this block is for.
+# **`github.event.pull_request.number` was tried here first and is inert.**
+# Recorded because it looks obviously right and cost a round trip to disprove:
+# the `push` payload has no `pull_request` field at all, so on the very event
+# that needed to match, `.number` is null and the fallback fires. The push run
+# landed in `CI-refs/heads/claude/foo` while the PR run sat in `CI-11` --
+# still two groups. Measured on head 8b1324b: runs 142 (`push`) and 143
+# (`pull_request`) both ran the full nine-job matrix to completion.
+#
+# `github.head_ref` is the expression that is actually populated on a
+# pull_request event (the source branch), and empty everywhere else, so:
+#
+#   push to claude/foo   head_ref empty -> ref_name "claude/foo" -> CI-claude/foo
+#   PR from claude/foo   head_ref "claude/foo"                   -> CI-claude/foo
+#
+# ...one group, so the newer run cancels the older. `ref_name` rather than
+# `ref` is load-bearing: `ref` would give "refs/heads/claude/foo" on the push
+# side and never match the bare branch name `head_ref` returns.
+#
+# `main` is unaffected: head_ref is empty, ref_name is "main", and
+# cancel-in-progress still keys on `github.ref` so a trunk run is never
+# cancelled -- leaving a commit nobody gated is the hole this all exists to
+# close.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # **The toolchain is pinned, and it was `@stable` until it broke.** Run 136's
