@@ -293,15 +293,25 @@ field rework — see `open-bugs-handoff.md`.
 
 - [m9-gnome-character-plan.md](m9-gnome-character-plan.md) — **build plan;
   shipped** (`player.rs`, wiki/the-gnome.md). Historical.
-- [felling-blockers.md](felling-blockers.md) — **investigation.** Why
-  cutting a tree down is not in yet.
+- [felling-blockers.md](felling-blockers.md) — **investigation; §1 and §2
+  superseded.** Why cutting a tree down was not in yet. Its §1 premise was
+  superseded by `open-bugs-handoff.md` §0d and its §2 redesigns by
+  `physical-trees-design-2026-08-23.md`; its §3 ordering still holds.
+- [physical-trees-t1-implementation.md](physical-trees-t1-implementation.md)
+  — **shipped.** The build half of `physical-trees-design-2026-08-23.md`
+  §8's T1 stage: the fragment ladder's floor, the 8-connected flood for
+  organism tissue, the three debris tiers and the `log` material,
+  `BodyCell::organism_id`. Carries the before/after on one cut (1.7% → 44%
+  of severed mass promoted), the cost bars re-measured against `main` in one
+  session, and three defects the new material found that the design could
+  not have known — including a fallen log anchoring the tree it fell off.
 
 ## Open working files
 
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
-- [dead-ends.md](dead-ends.md) — **live index.** 542 tried-and-reverted
+- [dead-ends.md](dead-ends.md) — **live index.** 544 tried-and-reverted
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.

@@ -2528,3 +2528,59 @@ per that job's own instruction. Not §M: springs place zero in this
 scene's world (0 cliff candidates, measured), and §M's water-at-rest reds
 stand — though their counts move with the terrain (wetland seed 3: 87
 cells now fails first, was terraced 57 / rolling 47), recorded there.
+
+## T1 — a felled tree comes down as pieces (lane S, 2026-08-23)
+
+`Reports/physical-trees-design-2026-08-23.md` §5 and §8's first stage,
+built; the account is `Reports/physical-trees-t1-implementation.md`.
+
+The owner's verdict on the first felling GIF was *"it reads as a tree
+disintegrating into dust"*, and the cause was one wrong ladder. `wood` drew
+rock's fragment sizes — {2, 4, 8, 16, 32} cells, two rungs of which sit
+under `MIN_BODY_CELLS` and are grit before shape is considered — and
+`take_fragment` flooded four neighbours where `Grow` places organism cells
+at eight. On one cut severing 2,648 cells, **45 (1.7%) survived as pieces**.
+
+Same seed, same tree, same cut: **1,160 cells (44%) promoted, 25 bodies, two
+over 256 cells, 624 cells lying as `log` at rest**, and the felling census's
+"bodies carrying plant material" off zero at 1,211 at peak. `fragment_floor`
+and `woody` on `MaterialDef`; a `log` material as the piece tier with
+`deadwood` staying the grit and foliage going to `litter`;
+`BodyCell::organism_id` so a landed limb settles as dead tissue;
+`detached_organism_piece` handing the whole 8-connected detached run to the
+ladder in one call. §9.2 and §9.5 fixed rather than filed.
+
+§8's bar was ≥50% and this is 44%, recorded rather than relabelled: **91% of
+the *woody* mass promotes**, and the shortfall is composition — this
+individual is over half foliage, where the prototype's stand was 60% wood.
+
+**Two defects the new material found on arrival**, both fixed here and both
+latent until a `Solid` that is *debris* existed. `plant::is_structural_anchor`
+counted any `Solid` neighbour as ground, so an axe chip landing beside the
+stump held the whole crown up — `acceptance.sh`'s `fell` case went from 2,360
+cells severed to **0**, with the cut working perfectly. And
+`load::evaluate_within` clamped capacity to `bearing_moment` even for a
+material `capacity_within` had already declared out of the structural system,
+crushing half of every fall's landed pieces back to powder (1,191 delivered,
+431 standing).
+
+Costs, re-measured against `main` in the same session: `ascii`'s organism
+scene mean 4.603 ms against 4.509 (worst 57.7 against 58.2), inside the
+spread that scene is known to have; `seedsweep.sh` order statistics exactly
+equal (max 324, p90 202, median 0 both arms; 23 of 24 rows byte-identical);
+`acceptance.sh` green. The ant scene does move — 76 → 73 organisms,
+deliveries 643 → 188 — because leaf debris is `litter` now and `litter` is
+food; attributed, not hidden.
+
+Filed, not fixed: `load::grain_is_footing` reads *attachment* where it means
+*supported*, so a settled piece resting on grit resting on another settled
+piece reads as unsupported — which is what a fall makes
+(`open-bugs-handoff.md` T1a). §1c's settle loss is now a printed counter
+(236 cells on the measured cut), per the brief.
+
+Posted for the owner's judgement, board `felling`: cards
+`20260823T205007532Z-6cd949` (the fall, blind A/B, twelve frames a side) and
+`20260823T205101430Z-3ed269` (the settled end state at 5x, blind A/B) — the
+second is the acceptance question, and my own reading of it is that the
+result is a lumpy pile with log-coloured masses in it rather than a trunk
+lying on the ground, since the fall is still straight down until T2.

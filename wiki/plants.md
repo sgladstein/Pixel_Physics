@@ -3,7 +3,7 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-23. Written when water became a real currency and
+*Current as of: 2026-08-23 (second update that day). Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff; again when roots stopped
@@ -12,7 +12,9 @@ keeping rain off the ground under it; and again when worlds started arriving
 with four woody species in them instead of one. Updated again the same day,
 when the pick and the chisel started being able to touch a tree at all — see
 **Cutting a plant down**, which is new and is the part most worth playing.
-One plant-economy number is unsettled and its cause is still open — see
+Updated again the same day, when a felled crown stopped turning into sawdust
+and started coming apart into logs, broken wood and leaf litter. One
+plant-economy number is unsettled and its cause is still open — see
 `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
@@ -233,13 +235,30 @@ cells across and each swing takes a bite of about a third of that, so it is
 three or four swings and then a pause before anything happens. The pause is
 real and is the tree standing on nothing.
 
-**What comes down is, for now, sawdust.** The crown dies where it stands,
-browns, and then dissolves into a cone of loose deadwood — a handful of
-pieces come away as pieces, near where you actually hit, and the other
-ninety-odd per cent does not. That is the known and next thing to fix, it
-is the exact failure this project has rejected before ("a uniform dissolve
-into powder"), and it is written here rather than left to be discovered:
-the tree *falling* works, the tree *coming apart* does not yet.
+**What comes down comes down in three sizes**, and this is the part that
+changed most. A crown that let go used to dissolve into a cone of sawdust —
+one loose grain per cell, piling at its angle of repose, which is literally
+the same shape a pile of sand makes. Now it comes apart the way a tree does:
+
+- **Logs.** Big coherent chunks of the bole and the major limbs break away
+  whole, tumble, and lie where they land. They do not flow or pile — a log
+  is something you can stand on and climb, and it burns and rots on its own
+  slow schedule.
+- **Broken wood.** Smaller breaks, and whatever a log gives way into later,
+  become loose deadwood: that still piles like any other debris.
+- **Leaf litter.** Foliage does not come off as chunks. It scatters, and it
+  is the same litter that already carpets a forest floor — so it rots into
+  soil quickly, and the ants will carry it off.
+
+Which of the three a given part of the tree becomes depends on how big the
+piece it belonged to was, not on a switch, so a heavy bole and a thin twig
+genuinely come apart differently. Expect a few big pieces, a good deal of
+loose wood, and a lot of leaf litter over the top of both.
+
+**What it does not do yet is topple.** The tree lets go and comes straight
+down rather than leaning over and falling across the ground, so what you are
+left with is a heap with logs in it rather than a trunk lying full length.
+That is the next piece of work and it is the honest half of this section.
 
 **Burning a trunk out from under a crown** now brings the crown down too,
 which it did not before at the tighter `F9` settings — the fire licenses
@@ -269,4 +288,6 @@ takes the same path but much faster; it does not reseed, or every shed leaf
 would be a chance at a new tree and a stand would carpet itself.
 
 Dead and broken plant tissue becomes deadwood, which falls and piles like any
-other loose material.
+other loose material — except for the big pieces of a tree that has been cut
+down, which become logs and lie where they fall. See **Cutting a plant
+down**.

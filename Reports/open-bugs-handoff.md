@@ -4425,3 +4425,72 @@ world this test looks at. `spring_flow = 0.0` is set too, so the moving
 cells are not a spring either — they are standing water in a `terraced`
 world, which points at the placement or settling of pooled water rather than
 at any live process.
+
+---
+
+## Landing notes — lane S, package T1 (fell as pieces), 2026-08-23
+
+Appended by the T1 session; the full account, with every figure, is
+`Reports/physical-trees-t1-implementation.md`. One new open bug, one bug
+closed, and one number now printed rather than remembered.
+
+### T1a. `load::grain_is_footing` reads *attachment* where it means *supported* — **OPEN**
+
+A settled piece resting on loose grit is not recognised as standing on
+anything, once the grit is itself resting on another settled piece.
+
+`grain_is_footing` probes down a column of powder and, on reaching body
+material, returns `cell.attached()`. Attachment means *terrain* — a landed
+`ChunkBody` is deliberately unattached (`rigid::settle`'s own note: "landing
+must not silently re-attach it"). So the probe reads "there is an unattached
+solid under this grain, therefore the grain is on its way down", which is
+right for a piece in flight and wrong for one that stopped moving. In a deep
+pile of alternating piece and grit — which is exactly what a felled tree
+makes — every piece above the first fails as *unsupported*.
+
+**Measured**, `scene=fell fell=7150` at frame 8,750, after the bearing-clamp
+fix in T1: **318 unsupported failures / 1,307 cells**, and `log` standing at
+624 of the **1,191** cells `settle` actually delivered. Before that fix the
+same run read 431 standing, so this is the residue of a bigger problem, not
+the whole of it.
+
+**Ruled out by measurement**, so do not re-derive them:
+
+- It is not the overload path. `log` leaves `max_unsupported_span` unset, so
+  `capacity_within` returns `i64::MAX`; after the T1b fix below, `overloaded`
+  on that scene is **0 (0 cells)**, from 275 (711 cells).
+- It is not decay. `log` runs `decay_chance_damp: 0.02`; the settled count
+  drifts 445 → 431 over 1,200 frames while the litter beside it goes 1,232 →
+  510.
+- It is not `insubstantial`. That flag reaches `player.rs` only.
+- Making `log` unbreakable is not a workaround, it is a treadmill: with
+  `breaks_into` removed the same run reported **42,267 unsupported failures
+  / 158,230 cells**, because a failure that cannot convert is rescheduled
+  forever.
+
+**The shape of the fix.** Ask whether the body-material cell under the grain
+*reaches an anchor*, not whether it is attached — `chain_reaches_anchor`
+already answers exactly that, with a memo, and `grain_is_footing` has
+neither. It is a load-model change and was outside T1's surface.
+
+### T1b. The structural opt-out did not hold against bearing — **CLOSED**
+
+`load::capacity_within` returns `i64::MAX` for `max_unsupported_span ==
+u16::MAX` and documents it as "this material does not participate in the
+structural system at all". `evaluate_within` then clamped that to
+`bearing_moment`, and `i64::MAX.min(x)` is `x` — so the opt-out held against
+bending and silently did not hold against the one mode left. Latent until
+`log` arrived, because `log` is the first material to want the opt-out *and*
+to spend its life lying on loose rubble. Fixed by guarding the clamp on the
+opt-out itself; it reaches only `log` and `nest` in the shipped set.
+
+### T1c. §1c's settle loss is now a counter
+
+`FailureCounts::settle_lost_cells` counts every cell `rigid::settle` could
+not place anywhere. It matters more than it did: before T1 a body landed on
+terrain, and now a felled crown's pieces land in a large pile of the same
+crown's own grit, which is where `nearest_free`'s rings come back empty.
+**188 of 1,160** promoted cells on the measured cut. Printed by `filmstrip`
+beside the felling census, per the T1 brief; deliberately not fixed there,
+because fixing it means deciding where a cell with nowhere to go *should*
+end up, which is a settling question rather than a fragmentation one.

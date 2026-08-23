@@ -2035,7 +2035,7 @@ one. Design, prior art and the measurements in
 [`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
-## Felling status — the verb exists, what it produces does not
+## Felling status — the verb works, and what it produces is pieces
 
 **A tool can damage a plant, and cutting through a bole brings the crown
 down.** Landed 2026-08-23 (`Reports/plant-project-review-2026-08-23.md` D1
@@ -2062,17 +2062,57 @@ nothing, so an erased or burnt-through trunk left its crown standing — was
 record_disturbance`, with coalescing and a phase-change caller this branch did
 not have). Two sessions built it in parallel; that one won on the merge.
 
-**Known limitation, judged by the owner and now the head of the queue.** A
-felled crown converts to single `deadwood` powder cells rather than coming
-apart into pieces: measured 2,360 of 2,427 cells that way, with only 67
-leaving as bodies and all of those from the axe's own chip zone. Shown to the
-owner as a GIF, whose verdict was *"it reads as a tree disintegrating into
-dust"* — and, more consequentially, a request to stop and design for
-**physical, partially-rigid trees** (sway in wind, branches breaking under a
-fallen rock) rather than patch the fragment ladder. `ChunkBody` cannot express
-a hinge (`spin` accrues from *speed*, rotation is quarter-turn snaps), so this
-is a redesign and not a constant. Building D3 as originally scoped is
-**on hold** pending that design. A topped tree also does not resprout yet
+**The crown now comes down as pieces.** Landed 2026-08-23 as package T1 of
+`Reports/physical-trees-design-2026-08-23.md` (§5 and §8); the build report,
+with every figure, is
+[`Reports/physical-trees-t1-implementation.md`](Reports/physical-trees-t1-implementation.md).
+
+The complaint the owner made of the first felling GIF — *"it reads as a tree
+disintegrating into dust"* — was one wrong ladder. `wood` drew rock's
+fragment sizes, {2, 4, 8, 16, 32} cells, two rungs of which sit under
+`rigid::MIN_BODY_CELLS` and so are grit before shape is even considered; and
+`rigid::take_fragment` flooded four neighbours where `Grow` places organism
+cells at eight, so a crown of diagonal twigs was cut at every diagonal. On
+one cut severing 2,648 cells, **45 of them (1.7%) survived as pieces**.
+
+What changed, on the same cut: **1,160 cells (44%) promoted, in 25 bodies,
+two of them over 256 cells**, with 624 cells still lying as `log` when the
+run settles and 1,211 cells of plant tissue riding in bodies at the peak —
+a counter that read 0 for the whole run before.
+
+- `MaterialDef::fragment_floor` beside `fragment_rungs` — where the ladder
+  *starts*, defaulting to the exponent that shipped before it existed, so
+  every other material breaks exactly as it did. `MAX_BODY_CELLS` is
+  deliberately untouched: a crown wants to be several pieces, not one slab.
+- `MaterialDef::woody` — organism structural tissue floods at eight and
+  severs as pieces. Rock stays 4-connected on purpose and
+  `diagonal_only_contact_does_not_connect_two_components` still says why.
+- **Three debris tiers**, one mechanism per size class: a new `log` material
+  (`Solid`, climbable, decayable) is the piece that lies where it fell,
+  `deadwood` stays the grit, and foliage goes down `breaks_into` to
+  `litter` — the switch-over `litter.ron`'s own note was waiting for.
+- `rigid::BodyCell::organism_id`, two bytes into existing padding, so a
+  landed limb settles as dead tissue rather than as live wood, the census
+  can see plant mass in flight, and `promote` declines to schedule a
+  structural check into a crown that is already leaving.
+
+Two defects the new material found on arrival, both fixed here:
+`plant::is_structural_anchor` counted any `Solid` neighbour as ground, so an
+axe chip landing beside the stump held the whole crown up (2,360 cells
+severed → 0, with the cut working perfectly) — now
+`MaterialDef::anchors_organisms`; and `load::evaluate_within` clamped
+capacity to `bearing_moment` even for a material `capacity_within` had
+already declared out of the structural system, which crushed half of every
+fall's landed pieces back into powder.
+
+**Known limitations.** The fall is straight down — segmenting and shear
+velocity are T2 — so a felled crown lands where it stood and the settled
+result reads as a lumpy pile with log-coloured masses in it rather than as a
+trunk lying on the ground. `rigid::settle` still drops a cell with nowhere
+to go, and a crown landing in its own grit is where that bites hardest: 188
+of 1,160 promoted cells on the measured cut, printed as
+`FailureCounts::settle_lost_cells` rather than fixed here
+(`Reports/open-bugs-handoff.md` §1c). A topped tree still does not resprout
 (D4). Play-facing:
 [`wiki/plants.md`](wiki/plants.md#cutting-a-plant-down).
 
