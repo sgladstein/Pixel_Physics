@@ -236,6 +236,56 @@ Still open too: the fall is thin. Some of that was the drains taking water as
 fast as it landed, which the sink fix addresses; the rest is that `render.rs`
 dims a liquid toward black by *fill*.
 
+## "Too thin": which constant, measured — 2026-08-23
+
+The owner has said the fall is too thin **twice**, and three review rounds
+went to placement instead. Three candidate causes had been named and none
+tested. Two of the three are now ruled out by measurement, and the third is
+in front of him (card `20260823T092729596Z-2fa6b0`, blind).
+
+**It is not `spring::MAX_SPAN`.** The pass takes
+`span = budget.min(MAX_SPAN)` where the budget is the preset's `spring_flow`
+— **5.0 on every preset that has springs at all**, against a cap of 6. Every
+generated spring in the game is therefore *budget*-limited, and raising the
+cap alone moves **exactly nothing**. This is the "a change that moves
+nothing" shape from `CLAUDE.md`: the lever was disconnected, not weak, and a
+round spent tuning it would have produced a bit-identical world.
+
+**It is not `fill_dimming` either, and that one was worth testing.** Water
+draws dimmer the emptier the cell is (`render.rs`, `strength = (1 - dimming)
++ dimming * fill`), so a low-fill falling sheet should be faint as well as
+narrow — a good hypothesis, and the reason the paragraph above names it.
+Rendered at `0.25` against the shipped `0.65`, same seed, same camera, same
+frame: the two PNGs differ, so the knob is connected, but the picture is
+visually indistinguishable. **The falling water is already near-full**, so
+there is nothing for the dimming to brighten. Recorded rather than dropped,
+because "the fall is dark" is an obvious hypothesis that will occur to the
+next session too.
+
+**It is the flow budget, and the budget also decides how many falls there
+are.** `spring_flow` is spent whole on the first accepted candidate before
+the next is considered, so it trades *width* against *number of falls* — 12.0
+buys one 12-wide cascade, or two 6-wide ones in different places. Rendered at
+12.0 the fall reads as a sheet rather than a stain; that is the question on
+the card.
+
+**Width is close to free, which is what makes this affordable.** Paired,
+`viewshot spring=` on canyon seed 1 at `settle=1500`, against `spring=0`:
+
+| span | mean ms/frame | delta |
+|---|---|---|
+| 0 | 8.048 | — |
+| 1 | 9.785 | +1.737 |
+| 3 | 9.264 | +1.216 |
+| 6 | 9.732 | +1.684 |
+
+Not monotonic and all within each other's spread, so what this supports is
+the *negative*: there is **no large span-proportional term**. Six columns do
+not cost six times one. The bill is dominated by the fixed cost of a spring
+existing at all — the world never sleeps again and the field early-out is
+lost — which the corrected river-cost scene puts at **3.025 ms/frame**. One
+run per point, so read it as an order of magnitude, not a curve.
+
 ## Explicitly deferred, at the owner's request
 
 **Cliff faces are where springs go for now, and the owner has said a wider

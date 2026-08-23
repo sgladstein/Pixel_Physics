@@ -348,11 +348,30 @@ fn main() {
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: a.seed as u64 });
     let build_ms = build.elapsed().as_secs_f64() * 1000.0;
 
-    // The clock. Set so the *rendered* frame is `frame=`, which means backing
-    // off the settle the loop below is about to run -- the `rain=` branch
-    // just below computes its own `chosen` the same way and overwrites this,
-    // because finding a frame is the whole job of `rain=`.
-    world.frame = (a.frame as u64).saturating_sub(a.settle as u64);
+    // The clock. Set so the *rendered* frame lands on `frame=`, which means
+    // backing off the settle the loop below is about to run -- the `rain=`
+    // branch just below computes its own `chosen` the same way and overwrites
+    // this, because finding a frame is the whole job of `rain=`.
+    //
+    // **Modulo the day, not saturating.** A plain `frame - settle` clamps to
+    // zero whenever the settle is longer than the frame asked for, which puts
+    // the render back at `settle` -- the exact bug this line exists to fix,
+    // surviving in the one case most likely to hit it. `settle=1200
+    // frame=600` came back at night, again, after the first version of this
+    // fix. The sky is a pure periodic function of the frame
+    // (`DAY_NIGHT_PERIOD_FRAMES`), so stepping back a whole number of days
+    // lands on the same time of day with a non-negative start, at any settle.
+    //
+    // Weather is a *different* period (`WEATHER_EPOCH_FRAMES`), so this pins
+    // the time of day and not the weather. That is the right trade for a knob
+    // whose documented use is "night, for stars and moon"; `rain=` is the one
+    // that pins weather, and it overwrites this.
+    {
+        let day = pixel_physics::sim::field::DAY_NIGHT_PERIOD_FRAMES;
+        let want = a.frame as u64 % day;
+        let back = a.settle as u64 % day;
+        world.frame = (want + day - back) % day;
+    }
 
     // `rain=wet` / `rain=dry` pick a frame that is *both* the weather asked
     // for and the same time of day, so the two renders differ by the weather

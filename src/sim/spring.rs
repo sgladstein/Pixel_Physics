@@ -14,10 +14,18 @@
 //! water cells from the sky at a capped rate and evaporation deletes them
 //! unbanked (`weather.rs`, `evaporation.rs`). A spring is rain that comes
 //! out of a wall. The measured standing bill for one spring feeding a fall
-//! and pool, at the 2048x640 size the world shipped at when this was
-//! measured, is **+0.97 ms/frame** (`ascii`'s river-cost scene, 2026-08 —
-//! the number that opened this track; re-measure there before changing
-//! budgets). Not re-measured since the world grew to 8192x2560.
+//! and pool is **+3.025 ms/frame** at the shipped 8192x2560 (`ascii`'s
+//! river-cost scene, re-measured 2026-08-23).
+//!
+//! **That supersedes the +0.97 ms this file quoted everywhere, and the old
+//! number was not merely stale — the scene producing it was broken.** It
+//! drained at the *world's* lowest column, 2030 columns from its own outlet
+//! at the shipped size, so it reported `drained 0` and priced a bath filling
+//! rather than a river at steady state; and its "spring off" control
+//! silently contained a generated spring, because the `springs` worldgen
+//! pass landed after the scene was written. Both faults made the bill look
+//! smaller. `Reports/springs-in-generated-worlds.md` carries the full
+//! correction; re-measure there before changing budgets.
 //!
 //! # Where springs live
 //!
@@ -81,14 +89,37 @@ const THROTTLE_FILL: u16 = (material::LIQUID_FULL as u32 * 9 / 10) as u16;
 /// falls, so the budget counts columns of emission. Stated where it is
 /// enforced: registration refuses past it, loudly, rather than silently
 /// skipping springs at step time. Sixteen columns is ~11 storms of water
-/// per frame — set from the measured headroom (the one-column prototype
-/// stood at +0.97 ms against the 2.0 ms bar; the paired timing in
-/// `viewshot spring=` is the instrument for re-checking as spans grow).
+/// per frame.
+///
+/// **This number's justification no longer holds, and nothing has replaced
+/// it yet.** It was set from measured headroom — "the one-column prototype
+/// stood at +0.97 ms against the 2.0 ms bar" — and that measurement came
+/// from a river-cost scene that was draining nowhere and comparing against a
+/// contaminated control (see the module header). Re-measured at the shipped
+/// size, **one column costs 3.025 ms**, already past the 2.0 ms bar the
+/// sixteen was checked against. Whether cost is linear in span is not
+/// measured either way.
+///
+/// So: treat 16 as an unaudited ceiling, not as headroom anybody has
+/// verified, and **measure before spending it**. `ascii`'s river-cost scene
+/// is the instrument (fixed now); `viewshot spring=` gives a paired delta
+/// but its control also carries the generated spring, so read it as a
+/// difference and never as an absolute.
 pub const MAX_TOTAL_SPAN: i32 = 16;
 
 /// Widest single spring. A face weeping over six columns reads as a real
 /// cascade; past that it reads as the ocean falling in, and the budget is
 /// better spent on a second fall somewhere else.
+///
+/// **That claim has never had a picture behind it, and this constant is not
+/// what makes the shipped fall thin.** The pass takes
+/// `span = budget.min(MAX_SPAN)` where the budget is the preset's
+/// `spring_flow` — **5.0 on every preset that has springs at all**, and 0.0
+/// on `arid` and `flat` — so every generated spring in the game is
+/// *budget*-limited and raising this alone moves exactly nothing. The owner
+/// has called the fall too thin twice; the lever is `spring_flow`, and the
+/// trade it makes is width against *number of falls*, since the budget is
+/// spent whole on the first spring before the next candidate is considered.
 pub const MAX_SPAN: i32 = 6;
 
 /// One spring: an outlet at `(x, y)` weeping across `span` columns —
@@ -106,7 +137,7 @@ pub struct Spring {
 /// write-safety proof is not in play. Cheap by construction: a handful of
 /// point reads and at most one write per spring/drain per frame; the cost
 /// that matters is what the emitted water *does*, and that is the measured
-/// +0.97 ms above.
+/// +3.025 ms above.
 pub fn step(world: &mut World) {
     if world.springs.is_empty() && world.drains.is_empty() {
         return;
