@@ -1,0 +1,56 @@
+{
+  "id": "20260823T152556591Z-7c87cf",
+  "created": "2026-08-23T15:25:56Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-c",
+    "branch": "claude/pixel-physics-lane-c-wp8-9-byuvop",
+    "commit": "f6a6f76",
+    "agent": null,
+    "session_id": "43e361e1-6da3-5d35-91b1-5cf42cd7a522",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-c"
+  },
+  "title": "Ants walking over each other: does the colony stream or does it look wrong?",
+  "question": "Which colony looks more like ants going about their business — and does either one look like they are cheating, standing on nothing?",
+  "context_md": "WP-9 arm 1. A living nestmate now counts as **ground** — footing only, never passability, so two ants still cannot walk through each other. It is the deliberate re-test of a dead end (775/829) whose own condition line said to re-open it \"if creatures gain pass-through or climb-over\".\n\n**The numbers are not subtle.** `forage_probe seeds=8`, both arms, same seeds, median of 8:\n\n| | off | on |\n|---|---|---|\n| round trips | 4 | **90.5** |\n| deepest excursion | 12 | **69.5** |\n| blocked / moves | 0.614 | **0.065** |\n| moves | 21,870 | 21,256 |\n| deliveries | 0 | 0 |\n\nMoves are flat, so this is not \"they move more\" — it is that six moves in ten used to fail and now fewer than one in ten does. The jam is gone.\n\n**What I checked before believing it, and what I could not check.** A 22x jump made me suspect the depth metric was counting ants climbing *each other* into the sky, which would be a bug wearing a result's clothes. The pictures say no — they are on the ground and on terrain, not stacked. What I cannot settle by measurement is whether it *looks* right, which is why this is here.\n\nTwo honest caveats: **deliveries are 0 in both arms**, so \"deliveries held\" is true but proves little — that is the separately-filed sessile-colony bug (§L), not this change. And this scene has **17 ants** where the probe has 55, so the difference you see here is milder than the numbers above.\n\nRendered on the `gutbias` overlay so the ants are findable at all — they are 1-2 cells each and invisible against soil otherwise. Pale = a neutral omnivore gut, which is what every ant now is.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260823T152556591Z-7c87cf/000-OFF_jam.png"
+      ],
+      "caption": "nestmate is an obstacle",
+      "meta": {
+        "round trips (median of 8 seeds)": 4,
+        "deepest": 12,
+        "blocked/moves": 0.614,
+        "ants in scene": 17
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260823T152556591Z-7c87cf/001-ON_climb.png"
+      ],
+      "caption": "nestmate is ground",
+      "meta": {
+        "round trips (median of 8 seeds)": 90.5,
+        "deepest": 69.5,
+        "blocked/moves": 0.065,
+        "ants in scene": 17
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
