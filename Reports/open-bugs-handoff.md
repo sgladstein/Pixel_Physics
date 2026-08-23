@@ -1014,14 +1014,26 @@ P1 made before asking, that fusion "splits cleanly and in one place", is
 **false**: the split it draws puts a stand read as four distinct trees on
 the fused side.
 
-**Why no column census can be made to work here, which is the reusable
-part.** A gap is a fully empty column. The eye separates crowns that
-*overlap*, on trunk position and crown outline — cues carried by the shape
-of the occupancy, not by whether any column is empty. At 102 cells apart
-these four crowns touch and are still four obvious trees. That is a
-structural limit of the measurement, not a threshold to retune. Anyone
-proposing a third column-based candidate should explain how it sees a
-boundary with no empty column in it.
+**Why the column census misses it was guessed at, and the guess was wrong
+— this is the retraction.** This entry first argued that no column census
+can ever work: a gap is a fully empty column, the crowns at 102 cells apart
+touch, so the eye must be reading trunk position and crown outline, cues
+carried by the shape of the occupancy rather than by any empty column. Card
+`20260823T150917441Z-d236fd` put the question to the owner directly, and he
+answered: **"The gaps of sky. The two on the left are starting to merge but
+still read separate. The two on the right are clearly separated with no
+touching. I think the piles of soil are making it hard to read."**
+
+So the cue **is** sky, the structural-limit argument above is **withdrawn**,
+and a column census is not doomed — it is **looking at the wrong rows**. Two
+of his three separations are clean, no-touching sky, and the census still
+reported a single 4-cell gap across the whole stand. Something is occupying
+those columns in rows the eye does not read as canopy, and he names the
+suspect himself: the piles of soil. A census that kills a gap on any
+occupied cell anywhere in the column is answering *"is this column clear
+from the ground to the sky"*, where the eye is asking *"is there sky between
+these two crowns"*. Those are different questions and only one of them was
+carded.
 
 **Two thresholds, both invented to explain away a reading I doubted, both
 strictly harmful.** First a quarter of the founder spacing, which scored two
@@ -1043,15 +1055,23 @@ So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
 as description, labelled as having failed calibration, so nobody spends the
 round trip discovering this again.
 
-**The open question for whoever tries again**, put to the owner as card
-`20260823T150917441Z-d236fd`: *what is the eye using* on the 4-founder
-stand? The crowns touch, so it is not sky. If the answer is "the trunks",
-that is countable and a third candidate exists — count distinct
-trunk columns crossing a band above the litter line, which is a
-*shape* question the column census cannot ask but a per-organism one can.
-If the answer is crown outline, it is much harder, and worth knowing that
-before anyone spends a week on it. Do not start a third metric before that
-card is answered.
+**The next experiment, now that the card is answered, and it is the cheap
+one.** Restrict the sky-gap census to a **canopy band** — the rows the
+foliage mass actually occupies — instead of the full column, and re-score
+the same three stands against the same three answers (2, 4, 3). That is a
+*row* restriction, not another gap-width threshold; both thresholds tried
+here were strictly harmful and a third would be the same mistake in a new
+costume. The falsifiable prediction: the 4-founder stand gains at least the
+two separations the owner calls clean and no-touching. If a band-restricted
+census still reads one gap there, the mounds are not the occluder and the
+trunk/outline reading comes back into play — but measured this time, not
+argued.
+
+**Not started, deliberately.** P1 closed with §Z cards-only and the card
+arrived after it had landed; this entry records the answer so the next
+session starts from the owner's own words rather than from the argument
+withdrawn above. Until the band census is run and scored against those three
+numbers, §Z stays judged by eye and by card.
 
 ### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
 
@@ -2990,6 +3010,19 @@ before assuming it is negligible in general.
 
 Found while fixing §1h, measured, not fixed.
 
+**Partly stale as written — re-read against the source 2026-08-23 before
+acting on it.** Two of the three walks named below are charged now:
+`subtree_sum` (`load.rs:1090`) and `supported_subtree` (`load.rs:1149`)
+both take `budget: &mut u32` and decrement per cell, as does
+`detached_piece`, and `failing_along_support_chain` itself checks
+`*budget == 0` at two points. What is **still** uncharged is
+`chain_reaches_anchor` (`load.rs:643`), whose signature takes no budget at
+all. So the defect is narrower than the paragraph below claims, and the
+118 ms measurement predates the change — it wants re-taking before anyone
+concludes anything from it.
+
+The original text follows.
+
 The budget is decremented once per cell of `is_supported`'s BFS and nowhere
 else, so `chain_reaches_anchor`'s walks, `subtree_sum`, and the repeated
 `evaluate_within` along `failing_along_support_chain` are all free of it.
@@ -3005,26 +3038,17 @@ actually caps. Do not raise it as a fix for anything until that is settled —
 raising it from 12,000 to 20,000 earlier this session bought nothing on this
 scene, by the measurement above.
 
-### 1i. The rigid-body rotation probe is vacuous, and a body can turn through a wall
+### 1i. ~~The rigid-body rotation probe is vacuous, and a body can turn through a wall~~ — **DUPLICATE of §K, and FIXED there 2026-08-23**
 
-Found while fixing §1h, not fixed with it — the fix changes how every
-tumbling piece in the engine behaves and wants its own measurement.
+Kept as a pointer rather than deleted, because the duplication is the
+finding. This entry (written while fixing §1h, naming the function
+`blocked_axis`) and **§K** below (written during the water-merge review,
+naming it `try_step` after the rename) are the *same defect*, logged twice
+in two sessions, neither cross-referencing the other — so the handoff
+carried it as two open bugs and any count of what was outstanding was one
+too high.
 
-`advance` guards a quarter-turn with *"only turn if the turned shape
-actually fits. Otherwise a body wedged in a gap would rotate straight
-through the wall beside it, which is the one way this transform can
-cheat."* The guard never fires. It builds a rotated `probe` at the body's
-own position and calls `blocked_axis(world, &probe, probe.x, probe.y, …)`,
-which skips every cell whose target equals its current position — and with
-`ox == probe.x.round()`, `tx == ox + cell.dx` *is* `cell_position(cell)`
-for every cell. The loop body never runs and the probe always returns
-`None`.
-
-To fix it, `blocked_axis` needs the **pre-turn** footprint to compare
-against rather than deriving one from a single integer offset;
-`rotate_reserved` already computes exactly that pair of sets and is the
-natural place to hang it. Expect it to change tumbling on every dry scene,
-so measure `worked`, `ligament` and `strike` before and after.
+The fix, the measurement and the standing guard are all recorded at §K.
 
 ### (was) 1h. Falling rock grinds itself to powder in deep water — three coupled defects
 
@@ -3479,14 +3503,25 @@ panicked: the scene must actually contain the gradient it is testing: 0.000 vs 0
 line. So this is `main`'s, not the explosion merge's, and the merge
 reproduces it exactly.
 
-**Why no one has seen it.** `.github/workflows/ci.yml` runs all five gates
-as *sequential steps of one job*. `cargo test` is step 4 and is currently
-red on `main` (bug A, the slot-1 lever). When it fails, steps 5-9 —
-including `cargo run --example ascii` and `scripts/acceptance.sh` — are
-marked **`skipped`**, not run. Verified on run `32604849243`: one job, one
-failure, five skipped steps. **So "main is green" cannot be concluded from
-CI for any gate after `cargo test`, and has not been true for at least
-these two.** A local run of all five is currently the only way to know.
+**Why no one had seen it — the CI history, kept because the lesson outlived
+the bug.** `.github/workflows/ci.yml` once ran all five gates as *sequential
+steps of one job*. `cargo test` was step 4 and was red on `main` (bug A, the
+slot-1 lever); when it failed, steps 5-9 — including `cargo run --example
+ascii` and `scripts/acceptance.sh` — were marked **`skipped`**, not run.
+Verified on run `32604849243`: one job, one failure, five skipped steps. So
+"main is green" could not be concluded from CI for any gate after `cargo
+test`, and had not been true for some time.
+
+That topology is gone: the workflow is a parallel job matrix, so one red
+gate no longer hides the rest. **Both quarantines this entry used to
+describe are also gone**, in opposite directions — bug A's `--skip` was
+retired when its test was `#[ignore]`d behind a seed-swept replacement
+guard, and `ascii`'s blanket `continue-on-error` came off once `ascii`
+learned scene selection, leaving `skip=foraging` and the one named scene in
+`known-red-ascii` (§H2). The general lesson is the part worth keeping: **a
+quarantine wide enough to hide the bug it was opened for is wide enough to
+hide the next one**, and while the blanket was on, `forage_loop_scene` went
+red and nobody saw it for two commits.
 
 The assertion is a *setup* check — `wet_grad > dry_grad`, i.e. "the scene
 contains the gradient this test is about" — so it is `CLAUDE.md`'s "a scene
@@ -3665,6 +3700,34 @@ says the opposite of the suspicion.
 failed — which never compiled the integration tests. CI runs `cargo test
 --release`, which does. Run the bare form locally before believing a green.
 
+**The failing seed RELOCATES under unrelated work, which is the strongest
+argument yet for making the loop collect. — 2026-08-23, later the same day**
+
+Measured on a head that differs from `main` `86e73d5` in exactly two files, a
+report and an example's comment block, with `src/worldgen`, `src/sim` and
+`tests/worldgen.rs` byte-identical to it — so this is `main`'s behaviour by
+construction, not an interaction:
+
+| `generated_terrain_is_already_at_rest` | first failing case | cells that moved | suite |
+|---|---|---|---|
+| main `eda560d` | `terraced seed 3` | 57, first `(82,147)` water | 37 passed, 2 failed |
+| main `86e73d5` | **`wetland seed 3`** | **87**, first `(114,133)` water | 40 passed, 2 failed |
+
+The world-scale lane's worldgen work landed in between. `terraced seed 3` now
+**passes**; a different preset fails instead, with more cells. The test name,
+the failure count and the red/green of the job are all unchanged — only the
+fingerprint moved, and nothing but reading the panic message would show it.
+
+**So the headline number is not comparable across commits, and nobody can say
+whether that change was an improvement.** Two presets swapped places at the
+front of a loop that stops at the first failure; whether the total number of
+failing seeds went from 4 to 2 or from 2 to 6 is not observable from anything
+CI prints. This is the same blind spot the entry above describes, now caught
+actively rather than argued: it is not a hypothetical cost of panicking on the
+first seed, it is a measurement that was already lost once. Collecting the
+failures — the `tests/worldgen.rs` change this entry says belongs to whoever
+owns worldgen — is what turns this pair of tests back into a signal.
+
 **A second at-rest test joins it, and it is water too —
 `generated_terrain_is_already_at_rest`, `tests/worldgen.rs:182`.** It arrived
 on `main` at `9b54be3` and P1 inherited it by merging main in to clear a
@@ -3787,6 +3850,61 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
 
+### Q. Settled debris stands in one-cell vertical needles that never topple — **OPEN, owner-reported 2026-08-23**
+
+The owner's verdict on review card `20260823T155727949Z-b17b87`, which asked
+which of two settled rubble piles read as real broken rock:
+
+> **"Neither. and it is because the long skiny vertical pieces should fall
+> over. instead of all standing upright"**
+
+**Worth recording how it was found, because the card asked the wrong
+question.** The card was a blind A/B on §K's rotation fix, and it explicitly
+told the owner the thin spires were *"in both sides and not what I am asking
+about ... a separate defect"*. They were the only thing he answered about.
+Both arms were rejected on a feature the poster had bracketed off — which is
+the `CLAUDE.md` "resolve an ambiguous complaint before building anything"
+lesson arriving from the other direction: the thing you set aside as
+background can be the whole of what a player sees.
+
+**Reproduction.** `filmstrip scene=worked start=1500 every=1 count=1
+crop=0,225,230,95 zoom=4 daylight=1.0` — any settled frame past ~800 shows
+them. Present *before and after* §K's fix, so it is neither caused nor cured
+by it, and visible in both panes of the card above.
+
+**Two candidate owners, and the first step is to tell them apart** — this is
+not yet measured and must not be treated as if it were:
+
+1. **Settled rigid bodies.** `rigid::settle` writes a landed body back as
+   `Cell::new(cell.material, cell.shade)`, i.e. **unattached** stone, and
+   `structural.rs` then asks only whether it reaches an anchor. A 1-wide,
+   20-tall column standing on the ground does. There is no slenderness
+   ratio, no tipping moment and no bearing width anywhere in the load model,
+   so a knife-edge column is indistinguishable from a wall. `worked`'s own
+   census agrees the model is content: **1** unattached cell reaches no
+   anchor in the whole scene.
+2. **Rubble that will not avalanche.** `rubble` is a `Powder`
+   (`rubble.ron`), stone `breaks_into` it, and powder takes no part in
+   `structural.rs` at all — it falls via `update::update_powder`. That
+   function tries straight down, then both diagonals, so a 1-wide column in
+   open air *should* topple on the next frame, every frame. If these are
+   rubble, something is refusing that diagonal and the bug is in the powder
+   rule or its `flowing`/repose hysteresis, not in the load model.
+
+**So the decisive first measurement is simply: what material is a standing
+needle made of?** Nothing in the harness reports it today. Until that is
+answered, do not tune either system — the two explanations want opposite
+fixes, and `CLAUDE.md`'s "a scene that contradicts the code will look like a
+bug in the code" applies to both readings.
+
+If it turns out to be (1), the shape of the fix is the question `CLAUDE.md`
+already names: **which object does this rule evaluate — a cell, a section,
+or a whole piece?** A bearing rule needs a contact width and a tipping
+moment, and neither is defined for a single cell. That is the same defect
+recorded there as "a slab lying on its own rubble was judged as many
+separate knife-edge footings", pointing the other way: here the knife edge
+is what stands.
+
 ### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
 
 *(Re-lettered from L at the 2026-08-23 lane landing: three unrelated bugs
@@ -3818,6 +3936,33 @@ signature is stable on most seeds and unstable on a few — which is the worst
 possible shape, because the unstable ones are the ones carrying the signal, and
 a single-sample grid cannot tell an unstable seed from a real regression.
 
+**It is not confined to `worldcrack`, measured 2026-08-23.** `scene=ligament`
+at `start=2 every=900 count=5` (frame 3,602), one release binary, three
+identical invocations:
+
+| run | bodies promoted | cells promoted | quarter turns asked |
+|---|---|---|---|
+| 1 | 166 | 5,939 | 48 |
+| 2 | 398 | 10,327 | 166 |
+| 3 | 407 | 10,689 | 166 |
+
+A **1.8x spread in promoted mass** between runs of the same binary, and run 1
+diverges so early that it asks a third as many rotations as the other two. The
+paired control that makes this attributable rather than suggestive:
+`scene=worked`, same treatment, came back **bit-identical three times over**
+(40 bodies / 1,701 cells / 48 turns asked / 5 refused), so the harness, the
+timing and the machine are not the variable — the scene is.
+
+**What this costs:** `ligament` is one of `acceptance.sh`'s eight structural
+cases, and it is the scene §1c's withdrawn fix was measured on
+(18.1 ms -> 86.6 ms). Its acceptance bar is `min_overloaded=1` over a
+~350-frame window, which is loose enough that the spread above cannot flip it
+— so the gate is not currently flaky. But **no before/after comparison taken
+on `ligament` at a long budget means anything**, including the ones already in
+this file, and anything measured there in future needs a repeat count and an
+order statistic rather than a single run. Prefer `worked` as the deterministic
+control when a rigid-body change needs a paired reading.
+
 **Leads, not verified.** Two candidates for a per-process perturbation that
 chaos then amplifies: `structural.rs`'s single per-frame `world.load_budget` is
 drained across all sites, so any ordering change moves which checks come back
@@ -3826,6 +3971,33 @@ drained across all sites, so any ordering change moves which checks come back
 re-seeds **per process**, with `find_body_at` returning the first match in that
 list. Either would give exactly this stable-on-most-seeds picture. Neither has
 been confirmed.
+
+**Four candidate sources checked and eliminated, 2026-08-23** — recorded so
+the next session does not re-walk them:
+
+| candidate | verdict |
+|---|---|
+| `scheduler::step`'s `HashMap` drain (`PLAN.md` issue #7 / §8b) | **fixed, not the cause.** Now a `BinaryHeap<Reverse<ActiveSite>>` with `Ord` on `next_frame` then `(x, y, kind)` — a total order, stable across runs. §8b can no longer be quoted as the explanation for this bug. |
+| `field::step`'s tile solve | **sorted.** `solve.sort_unstable_by_key(\|c\| (c.y, c.x, c.slice))`, with a comment naming this exact requirement. |
+| `rigid.rs`'s fracture seeding | **sorted.** `remaining.sort_unstable()` before the seed loop, and the `left` set is only ever `contains`/`remove`d, never iterated; `take_fragment` is a `VecDeque` BFS over `NEIGHBOURS_4` in fixed order. |
+| the `body_index` lead above | **weak.** `body_index` is a `HashMap<_, Vec<BodyId>>` whose per-chunk `Vec` is in *insertion* order, not hash order, so the `HashSet` iteration it is built from does not reorder it — and liquid-body promotion is test-only today, so `find_body_at` is not on this scene's path at all. |
+
+**What the search should look at instead: `World::rng` is one shared
+mutable stream** (`world.rs:286`), drawn at event time — `world.rng.below(
+rungs)` is called *per fragment seed* inside `fracture_failing_region`, and
+many other systems draw from the same sequence. So any upstream perturbation
+that changes **how many draws happen before a given fracture** reshuffles
+every random outcome after it. That is the amplifier, whatever the source
+turns out to be, and it is what makes the first lead above (the
+`load_budget` drain moving which checks come back `Deferred`) sufficient on
+its own: it does not need to change *what* fails, only *when*, for every
+fragment size downstream to change with it.
+
+That also says what the remedy looks like, and the project has already
+applied it once: per-organism RNG (`f9ab577`). A per-site stream derived
+from `(x, y, frame, seed)` rather than drawn from a shared sequence makes
+fracture immune to upstream draw-count drift, which is a narrower change
+than finding the perturbation.
 
 **Why it matters beyond one change.** `seedsweep.sh` is the instrument
 `CLAUDE.md` prescribes for every change to a model over procedural content, and
@@ -3836,20 +4008,87 @@ the root cause, and is much cheaper than finding it.
 
 ---
 
-### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
+### K. ~~`try_step`'s rotation-fit probe compares every cell against itself~~ — **FIXED 2026-08-23.** (Was also filed separately as §1i; same defect, two write-ups.)
 
 Also from the merge review. In `rigid.rs` around the rotation fit, the probe
-calls `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
-position is its own current position. The `if (tx, ty) == (cx, cy) { continue }`
-guard at the top of the scan then skips **every** cell, `horizontal` and
-`vertical` are never set, and `axis` is always `None` — the probe reports
-"nothing blocks this rotation" unconditionally, so a wedged body rotates
-through a wall.
+called `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
+position was its own current position. The `if (tx, ty) == (cx, cy) { continue }`
+guard at the top of the scan then skipped **every** cell, `horizontal` and
+`vertical` were never set, and `axis` was always `None` — the probe reported
+"nothing blocks this rotation" unconditionally, so a wedged body rotated
+through a wall. Live for the entire life of the mechanism, in both parents of
+the water merge.
 
-**In both parents.** Not introduced by the merge and not this branch's to
-fix; recorded because it is live, it is invisible (a probe that always says
-yes looks exactly like a probe that is working), and nothing else in the
-handoff names it.
+**The fix is `rigid::rotation_fits`, a read-only predicate**, and it is not
+the obvious one. Correcting the offset and calling back into `try_step` was
+rejected: `clear_or_displaceable` **mutates** as it answers — `displace`
+shoves powder and the `Gas` arm calls `world.set(…, Cell::EMPTY)` inline — so
+a probe built on it would rearrange the world to decide a turn it may then
+refuse, which is §J's speculative-write defect on a path that discards the
+answer. `rotation_fits` asks the same *classification* question and does
+nothing but return it. `BodyCell::rotated` is now the single definition of
+the quarter turn, so the predicted turn and the performed one cannot drift
+apart.
+
+**Powder is deliberately treated as yielding** without asking whether
+`displace` could actually find it somewhere to go, which is more permissive
+than the real move. A read-only ring search per cell per turn is the exact
+cost, and refusing on a failed search would stop a piece tumbling the moment
+it touched its own debris — the medium a collapse happens *in*. The cheat
+this guard exists to stop is turning through a **wall**.
+
+**Measured, `scene=worked`** (`start=2 every=900 count=5`), which returns
+**bit-identical numbers across three runs of the same binary**, so this is
+the change and not run-to-run spread. Both arms were taken at the same base
+(`d5e7af8`, before this branch merged the lane landing in), which is what
+makes the pair comparable — the absolute numbers will have moved since, the
+delta between the arms is the result:
+
+| | before | after |
+|---|---|---|
+| quarter turns asked / refused | 48 / **0** (probe vacuous) | 48 / **5** (10%) |
+| bodies promoted | 76 | 40 |
+| cells promoted | 2,847 | 1,701 |
+| cells to dust | 683 | 577 |
+| chunk by mass | 80% | 74% |
+| all at rest by frame | 741 | 388 |
+
+**The control that isolates it:** `scene=strike` asks **zero** quarter turns
+(its pieces never reach `spin >= 1.0` at 1.05 cells/frame) and its output is
+byte-identical across the change — same 20 bodies, 670 cells, 270 shattered.
+A scene that never consults the probe is unmoved by repairing it, which is
+what says the delta above is the probe and not collateral.
+
+Two things that are **not** evidence, recorded so they are not read as such.
+`scene=ligament` moved too, and its numbers are void — it is nondeterministic
+(see §P). And every scene's worst-frame timing improved, including
+`strike`'s, which moved 196 ms -> 60 ms *while producing byte-identical
+output* — so the timings in this environment are noise-dominated and **no
+performance claim is made here** in either direction.
+
+**Judged by eye — and the verdict came back about something else.** The
+baseline's debris pile is full of mushroom-capped one-cell stems (bodies
+that turned into places they could not have reached) and those are gone; the
+cost is 40% less rock coming away, because a piece that cannot turn jams and
+re-embeds instead of cascading. Posted blind as review card
+`20260823T155727949Z-b17b87`. The owner rejected **both** arms — *"Neither.
+and it is because the long skiny vertical pieces should fall over. instead of
+all standing upright"* — on the artifact the card had explicitly bracketed
+off as not-the-question. That is filed as **§Q** and is present either side
+of this change, so it neither vindicates nor condemns the fix: **this
+repair is kept on correctness grounds** (bodies were passing through rock)
+and the thing the owner is actually looking at is a different bug. Re-ask
+the chunk-size question only once §Q is fixed, since until then the pile is
+dominated by an artifact neither arm controls.
+
+**Guarded by `a_wedged_body_will_not_rotate_through_the_wall`**, which was
+`#[ignore]`d against this bug and is live again, now asserting **both**
+directions — the wedged bar is refused, and the same bar fits once the slot
+above and below it is opened. A probe that always refuses is exactly as
+useless as one that always allows, and the one-sided version could not tell
+them apart. `FailureCounts::rotations_asked` / `rotations_refused` are the
+running readout (`filmstrip` prints `quarter turns:`); **refused == 0 on a
+scene with walls in it is the tell that it has gone vacuous again.**
 
 ### N. Decayed litter makes soil that does not match the soil around it, and roots will not enter it — **OPEN, owner-reported 2026-08-23, both causes found**
 
@@ -3958,7 +4197,83 @@ over-production (88% of the colony's food is standing leaf, the stock triples,
 the colony has stopped ranging). One economy, three symptoms — sessile ants,
 a rising floor, and soil that does not match.
 
-### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
+### M. ~~Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest~~ — **FIXED 2026-08-23. It was the sky, and the generator was innocent.**
+
+> **The cause is weather, and both "where to start" leads below are wrong.**
+> Recorded prominently because this entry sends the next session at the
+> generator, and the generator turns out to have nothing to do with it.
+>
+> `weather::step` runs inside `parallel::step`, so the at-rest tests were
+> asserting that a generated world holds still **while snow falls on it**.
+> `weather::at` is a pure function of `(seed, frame)`, so this is checkable
+> without simulating anything:
+>
+> | seed | sky |
+> |---|---|
+> | 1, 2, 5 | never precipitates in 12,000 frames — **passed** |
+> | **3** | precipitates from **frame 0** (Snow, intensity 0.36; 1,786 wet frames in 12,000) — **the seed both tests failed on** |
+> | 4 | first precipitation at frame 5,981 — outside the 120-frame window |
+>
+> **The settle curve killed the "unsettled placement" reading first.**
+> `probe_m_does_generated_water_ever_settle` samples displacement-from-origin
+> at a ladder of frame counts. Water that was merely slow to settle would
+> *decay* toward zero. It climbs:
+>
+> | world | 120 | 240 | 600 | 1200 | 2400 | 4800 | 9600 |
+> |---|---|---|---|---|---|---|---|
+> | `terraced 3` | 57 | 85 | 287 | 271 | 309 | 324 | 362 |
+> | `wetland 3` | 37 | 36 | 35 | 599 | 615 | 611 | 641 |
+> | `terraced 2` | 0 | 0 | 0 | 0 | 0 | 18 | 41 |
+>
+> `terraced 2` is the tell: **perfectly at rest for 2,400 frames, then it
+> starts moving.** Nothing that settles does that. (Seed 2 never
+> precipitates, so its late drift is the other weather path —
+> `DRY_FROST_CHILL`, "a clear freezing night still freezes", which changes
+> standing water to ice *in place* and so changes the `(x, y, material)`
+> triple the snapshot compares.)
+>
+> **The control, and what actually exonerates the generator.** The same
+> worlds with `world.weather_override = Some(Weather::CLEAR)`:
+> `terraced seed 3` reports **0 at every sample**, and the whole sweep
+> reports **0 at 120 frames** — the gate's own budget. What is left is 2–3
+> cells on `rolling 3` and `wetland 2`, appearing only after frame 1,200.
+>
+> **The fix is the test's scope, not the generator.** Both tests now hold
+> the sky still. This is the treatment the terrain test *already* applies to
+> plants, moss and `spring_flow`, each with a comment saying a growing thing
+> is "a live process, not a placement defect"; weather arrived later and
+> never got it. It is **not** a seed dodge — the seed list is untouched, and
+> picking quiet seeds would have been tuning the sweep to the answer.
+> `World::weather_override` is the hook, resolved once in `World::weather()`
+> so the simulation and the renderer cannot disagree about the sky.
+>
+> **Left open, deliberately:** the 2–3 cells at 1,200+ frames under a clear
+> sky are a real if tiny at-rest defect that the 120-frame gate does not
+> reach. Not chased here — they are three orders of magnitude below what
+> this entry was about, and the probe that finds them is kept
+> (`probe_m_does_generated_water_ever_settle`, `#[ignore]`d). They are also
+> the evidence the repaired gate is **not vacuous**: raise its budget to
+> 1,200 and it goes red again.
+
+
+> **Still red five merges later, and it is now blocking every pull request
+> (confirmed 2026-08-23 from CI, not from this file).** `main`'s own CI has
+> gone red on **every** run today — `d5e7af8`, `95f0a0d`, `7409d88`,
+> `135c9a9`, `9f165ec` and `eda560d3` — and at `eda560d3` the failed jobs are
+> exactly `cargo test (release)`, `cargo test (debug)` and the
+> `continue-on-error` H2 quarantine. PR #24 reproduces it identically after
+> merging `eda560d3` in, on a diff that touches only `rigid.rs`, two `u32`
+> counters and a `println!`. Locally, `cargo test --release --locked --test
+> worldgen` gives **37 passed / 2 failed**, the same two names.
+>
+> **A methodological note that cost this session a wrong claim.** `cargo test
+> --lib` reports **879 passed / 0 failed** on the same tree, because it does
+> not build or run the integration binaries *at all* — `tests/worldgen.rs`
+> never appears in its output, not even as skipped. `CLAUDE.md`'s red-suite
+> gotcha covers the case where a red lib test *hides* the integration
+> binaries; this is the quieter sibling, where a **green** `--lib` is read as
+> a green gate and is not evidence of one. Run it the way CI does
+> (`cargo test --release --locked`) before claiming the test gate is green.
 
 **Two** tests, not one, and neither is in any handoff's list — which records
 `main` as one red (bug A). Neither is quarantined, so this is a **gating**
@@ -4065,6 +4380,31 @@ Recorded so the next reader does not bisect the count change to the wrong
 cause. Not the same root as §L: springs place zero in the foraging scene's
 world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
 springs-pass lead above is untouched by §L's fix.
+
+**Correction to the bullet above, measured 2026-08-23: the 705 stone cells
+are the sky too, not "the stress configuration meeting the band".** The
+note is right that the count changed shape and right that it needed saying
+precisely; the attribution is the part to drop, because it sends the next
+reader at `vault_min_depth` and the widened band, neither of which is
+load-bearing. Paired run, one binary, the only difference being whether the
+sky is held still:
+
+| `a_forced_vault_world_is_sealed_and_arrives_at_rest` | result |
+|---|---|
+| weather running | `rolling seed 3: 705 cells` of stone — reproduces the count above exactly |
+| `weather_override = Weather::CLEAR` | **passes** |
+
+So the mechanism is snow and frost *loading* the spires the widened band
+now carries, over chambers forced five times shallower than natural — the
+spire is real and the forced chamber is real, but neither moves until
+something lands on it. Which is why the water half and the stone half have
+one fix between them: both tests were reading a live sky as a placement
+defect.
+
+Worth noting for **§Q**, which is about exactly these spires: a one-cell
+stone needle that stands indefinitely in still air but comes down under a
+snowfall is evidence that what holds it up is a *bearing* rule with no
+slenderness term, rather than anything about the terrain it grew from.
 
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 

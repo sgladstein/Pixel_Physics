@@ -739,6 +739,29 @@ pub struct World {
     /// How often evaporation found the air above a surface already
     /// saturated, split by surface kind -- see `evaporation::DrynessCounts`.
     pub dryness_counts: crate::sim::evaporation::DrynessCounts,
+    /// Holds the sky at one state instead of reading `weather::at(seed,
+    /// frame)`. `None` in play, and in every test that is not *about*
+    /// holding it still.
+    ///
+    /// **Exists because a live sky silently invalidated a placement
+    /// claim.** `tests/worldgen.rs`'s `generated_terrain_is_already_at_rest`
+    /// asserts that generation emits a world which does not slump. It
+    /// already switches off the live processes it knew about — plants, moss,
+    /// `spring_flow`, each with a comment saying a growing thing is "a live
+    /// process, not a placement defect". Weather arrived afterwards and got
+    /// no such treatment, so on any seed whose sky is busy the test was
+    /// asserting that terrain holds still *while snow falls on it*. Seed 3
+    /// precipitates from frame 0 (`Snow`, intensity 0.36, 1,786 wet frames
+    /// in 12,000) and is the seed both at-rest tests failed on
+    /// (`open-bugs-handoff.md` §M); seeds 1, 2 and 5 never precipitate at
+    /// all in that window, and passed.
+    ///
+    /// `Weather::CLEAR`'s own doc already called itself "the one every 'does
+    /// this stay settled' test asserts against". This is what lets a test
+    /// actually do that, on the seed it was given rather than on a seed
+    /// picked for having a quiet sky — which would be tuning the sweep to
+    /// the answer.
+    pub weather_override: Option<crate::sim::weather::Weather>,
     /// **The atmosphere's water, in liquid-water cell-equivalents** — the
     /// credit half of the outer water cycle, and the one number that closes
     /// it.
@@ -1116,6 +1139,24 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Quarter turns a falling body asked for, and how many the fit probe
+    /// refused.
+    ///
+    /// **These exist because the probe they measure was dead for the life
+    /// of the mechanism and nothing could tell.** `rigid::rotation_fits`
+    /// used to compare every cell against its own position, so it answered
+    /// "clear" unconditionally and every body rotated through whatever was
+    /// beside it (`Reports/open-bugs-handoff.md` bug K). A probe that always
+    /// says yes and a probe that works produce the same tumbling on a
+    /// contact sheet at the zoom one is read at; only the refusal count
+    /// separates them, which is `CLAUDE.md`'s "did it fire at all needs a
+    /// counter, not a picture" in its purest form.
+    ///
+    /// `refused` at exactly zero over a scene with walls in it is the tell
+    /// that the probe has gone vacuous again — a *ratio* is a tuning
+    /// question, but a zero is a wiring one.
+    pub rotations_asked: u32,
+    pub rotations_refused: u32,
     /// Organism cells the plant-support check broke free — a limb that lost
     /// its anchor becoming deadwood.
     ///
@@ -1173,6 +1214,15 @@ impl FailureCounts {
     pub fn record_staged(&mut self, cells: usize) {
         self.staged_slices += 1;
         self.staged_cells += cells as u32;
+    }
+
+    /// One quarter turn offered to the fit probe, and whether it fitted.
+    /// See `rotations_asked`.
+    pub fn record_rotation(&mut self, fits: bool) {
+        self.rotations_asked = self.rotations_asked.saturating_add(1);
+        if !fits {
+            self.rotations_refused = self.rotations_refused.saturating_add(1);
+        }
     }
 
     /// One body, `cells` cells, actually lifted off the grid. See
@@ -1314,6 +1364,7 @@ impl World {
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
             dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
+            weather_override: None,
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
@@ -2114,6 +2165,19 @@ impl World {
     #[inline]
     pub fn storm_supply(&self) -> f32 {
         crate::sim::weather::supply(self.atmospheric_bank)
+    }
+
+    /// The sky this frame: `weather::at(seed, frame)` unless
+    /// [`Self::weather_override`] is holding it.
+    ///
+    /// **One resolution point, read by both the simulation and the
+    /// renderer**, for the same reason `storm_supply` above is a method
+    /// rather than a local: the storm that is drawn and the storm that lands
+    /// have to be the same storm, and an override honoured by only one of
+    /// them would draw snow that never settles on anything.
+    #[inline]
+    pub fn weather(&self) -> crate::sim::weather::Weather {
+        self.weather_override.unwrap_or_else(|| crate::sim::weather::at(self.seed, self.frame))
     }
 
     /// Register every chunk `body`'s current full footprint touches in
