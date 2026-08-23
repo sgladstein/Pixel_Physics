@@ -1,0 +1,61 @@
+{
+  "id": "20260823T045504683Z-7e96e6",
+  "created": "2026-08-23T04:55:04Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/dark-bands-overhangs-75ek9p",
+    "commit": "10f4285",
+    "agent": null,
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Brow seam closed: rock shaded from the ground, not the skyline",
+  "question": "Left tile of each pane, about a third across — the vertical seam should be gone and nothing else should have moved. Does that hold, and does the rock read the same everywhere else?",
+  "context_md": "You said do it, so it is done and pushed.\n\n`World::ground_datum`, frozen at genesis beside `sky_surface`: **the top of the lowest run of cells the sky cannot reach**, each column walked up from the bottom until an outdoors cell stops the walk. `light_datum` is built from that instead of the skyline.\n\nA brow is skipped because open air sits under it; a cave is not, because cave air is not outdoors and the walk carries straight through; a notch is untouched, so the opening still has the same job. Stored history, no inference, no width threshold, ~8 KB and one genesis scan. **Draw cost unchanged** — 16.69/16.73 ms against 15.3–16.8 before.\n\n| seed | rock un-darkened by >=8 rows | >=24 (visible) | largest patch |\n|---|---|---|---|\n| 2 | 48,114 | 2,958 | x 518..523, y 144..639 |\n| 3 | 25,476 | 5,394 | x 493..502, y 97..639 |\n| 5 | 39,644 | 2,987 | x 332..337, y 139..639 |\n| 7 | 35,449 | 982 | x 1941 (one column), y 146..639 |\n\n### Two things I got wrong on the way, both recorded\n\n**The first metric was a tautology and read as a triumph.** After the fix the probe said **0 over-darkened cells on every seed** — because it compared the grade's depth against the walk-up depth, and the new datum is *defined* as the top of the walk-up run. Same arithmetic twice; zero whatever the code does. It reports the size of the *correction* now, which is non-zero for a real reason and returns to zero if the datum is ever reverted.\n\n**The first guard sampled where the ramp is flat and passed with the bug still in.** Rock fifty rows down under a brow against fifty rows down in a plain column: depths plainly wrong (115 against 55), brightnesses 241 against 248 — under 3%, inside tolerance, green. The grade is a smoothstep flat at both ends, so a sixty-row error costs almost nothing near the floor and **~36% ten rows down**. Moved to ten rows down it reads 237 against 378 and fails hard.\n\nThat corrects how I sized this for you earlier: \"worst 37 rows\" was the wrong number. What matters is *where on the ramp* those rows sit — the seam is loudest just under the surface, where you actually stand, and fades to nothing at depth. So it was somewhat more visible than I told you, not less.\n\n761 tests, clippy and docscheck clean, acceptance clean apart from the pre-existing `wood` case.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before",
+      "files": [
+        "20260823T045504683Z-7e96e6/000-stripe5_now.png"
+      ],
+      "caption": "Seed 5, left tile, world x 300..380. Vertical tone seam about a third across, running the full height.",
+      "meta": {
+        "visible patch": "2,987 cells at x 332..337",
+        "depth error": "up to 36 rows"
+      },
+      "focus": [
+        0,
+        0,
+        480,
+        1140
+      ]
+    },
+    {
+      "label": "after",
+      "files": [
+        "20260823T045504683Z-7e96e6/001-stripe5_fixed.png"
+      ],
+      "caption": "Same frame. Seam gone; the rest should be untouched, since the datum only moves in brow columns.",
+      "meta": {
+        "guard": "a_cliff_brow_does_not_shade_the_rock_beneath_it_to_bedrock",
+        "draw cost": "unchanged"
+      },
+      "focus": [
+        0,
+        0,
+        480,
+        1140
+      ]
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
