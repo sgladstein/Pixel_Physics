@@ -81,7 +81,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     };
 
     let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
-    let chance = if damp { DECAY_CHANCE_DAMP } else { DECAY_CHANCE_DRY };
+    // **Per material, falling back to ash's globals.** One pair of constants
+    // cannot be right for both a mineral and a leaf; see
+    // `MaterialDef::decay_chance_damp` for the measurement that forced the
+    // split. A material that declares nothing behaves exactly as it did.
+    let mat = world.materials.get(cell.material);
+    let chance = if damp {
+        mat.decay_chance_damp.unwrap_or(DECAY_CHANCE_DAMP)
+    } else {
+        mat.decay_chance_dry.unwrap_or(DECAY_CHANCE_DRY)
+    };
     if !world.rng.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
     }

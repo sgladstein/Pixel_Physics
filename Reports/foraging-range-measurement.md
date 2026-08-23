@@ -2,7 +2,7 @@
 
 **Status: MEASURED, instrument landed, 2026-08-23.** The metric described
 here is built and on the `ascii` gate. The two findings it produced —
-a colony that works an 18-cell bubble, and litter that lands in the canopy
+a colony that works a 19-cell bubble, and litter that lands in the canopy
 — are measurements, not fixes. Nothing behavioural changed.
 
 Written because the creature plan's next three stages all turn on
@@ -133,7 +133,7 @@ counter it exists to replace.
 of `CROWDING_RADIUS`'s neighbourhood, so a jammed knot of ants shuffling at
 the nest mouth provably cannot make one. **16 was tried and rejected** —
 it takes the 55-ant foraging arm to 0 trips against a real deepest excursion
-of 10 cells, so a colony improving from 10-cell to 14-cell ranging would
+of 12 cells, so a colony improving from 12-cell to 15-cell ranging would
 read 0 → 0 and the headline would hide the progress it exists to report.
 
 ### The probe is paired, deliberately
@@ -151,36 +151,65 @@ situation they claimed to measure.
 | Scene | `nest_visits` | `forage_trips` | deepest | profile |
 |---|---|---|---|---|
 | control: 1 ant, nest, no food | 340 | 3 | 42 | `[340, 4, 3, 3, 1, 1, 0, 0]` |
-| 55 ants, food 87 cells away | 5,834 | 5 | **10** | `[5834, 49, 12, 5, 0, 0, 0, 0]` |
-| `ascii` foraging loop, 60 ants, 12,000 frames | 4,758 | 107 | **18** | `[4764, 563, 236, 107, 7, 0, 0, 0]` |
-| `ascii` double bridge | 13,179 | 21 | **15** | `[13179, 193, 78, 21, 0, 0, 0, 0]` |
+| 55 ants, food 87 cells away | 5,793 | 3 | **12** | `[5793, 43, 12, 3, 0, 0, 0, 0]` |
+| `ascii` foraging loop, 60 ants, 12,000 frames | 6,014 | 143 | **19** | `[6020, 787, 313, 143, 8, 0, 0, 0]` |
+| `ascii` double bridge | 13,502 | 16 | **14** | `[13502, 193, 61, 16, 0, 0, 0, 0]` |
 
 Three things fall straight out.
 
-**The colony works an 18-cell bubble.** In a 512-wide world, the deepest
-excursion any of 60 ants made over 12,000 frames was 18 cells, and *zero*
+**The colony works a 19-cell bubble.** In a 512-wide world, the deepest
+excursion any of 60 ants made over 12,000 frames was 19 cells, and *zero*
 excursions in any scene reached 32. `wiki/ants.md` already said "ants do not
 range far from home"; nothing had ever put a number on it, and the number is
 much smaller than the prose suggests.
 
 **The old counter is off by two to three orders of magnitude, and in the
-flattering direction.** 13,179 against 21 on the double bridge is 628:1.
+flattering direction.** 13,502 against 16 on the double bridge is 844:1.
 
-**A crowd is worse than a single ant.** The 55-ant arm reaches 10 cells
-where one ant with nothing to forage for reached 42 — 0.091 trips per ant
-against 3.0. It also blocks 13,201 of 21,773 moves. They jam each other, and
+**A crowd is worse than a single ant.** The 55-ant arm reaches 12 cells
+where one ant with nothing to forage for reached 42 — 0.055 trips per ant
+against 3.0. It also blocks 13,136 of 21,847 moves. They jam each other, and
 every verb counter stays healthy while it happens: `moves`, `pickups`,
 `drops` and `nest_visits` all climb. This is precisely the failure mode
 nothing could see.
 
 ### The guards now on the gate
 
-`ascii`'s foraging scene asserts `forage_trips >= 20` (measured 107) and
-`forage_depth_max >= 8` (measured 18); the double bridge asserts
-`forage_trips >= 5` (measured 21). Bars at roughly a fifth of measurement,
+`ascii`'s foraging scene asserts `forage_trips >= 20` (measured 143) and
+`forage_depth_max >= 8` (measured 19); the double bridge asserts
+`forage_trips >= 5` (measured 16). Bars at a seventh and a third of measurement,
 per house convention, because outcome spread here is large. The
 `nest_visits > 0` assertions stay, demoted in wording to what they actually
 prove.
+
+### The instrument was behaviour-neutral only on the second try
+
+Worth recording, because every gate this project has said green and the
+paired run is the only thing that caught it.
+
+The first version of the trip counter **dropped `state.since_nest = 0`**
+from the nest-contact block while adding the booking code around it — the
+one line the homing gradient depends on, since the channel-A deposit is
+scaled by `1 - since_nest / nest_memory`. With it gone, every ant's homing
+trail decays to nothing.
+
+What did **not** catch it: `cargo test` (827 passed), `cargo clippy` (clean),
+`ascii`'s own foraging scene (still delivered food, still passed every
+assertion including the new ones), and reading the diff, which showed only
+lines added. The colony degrades rather than breaking, so nothing has a
+threshold it crosses.
+
+What caught it: running `ascii` on `origin/main` **in the same session on the
+same machine** and comparing the counters, which is meant to be a frame-cost
+check. `main` measured 13,980 moves / 222 deliveries / 72 organisms against
+11,997 / 217 / 68. A measurement-only change must reproduce the baseline
+*exactly*; any divergence at all is the finding.
+
+Restored, the scenes now match `main` digit for digit — 13,980 moves, 6,014
+nest visits, 222 deliveries, 74,649 moves on the double bridge — which is
+the proof that the counters are inert. This is `CLAUDE.md`'s "re-read the
+function, not the diff" arriving in a new costume: not a stash this time, a
+regex replacement whose anchor swallowed a line.
 
 ---
 
@@ -225,7 +254,76 @@ sample; it integrates the canopy's shedding rather than reaching equilibrium.
 (WP-B2's "converging" refers to *pending decay sites*, which is a different
 quantity and is not in dispute.)
 
-### The question that is with the owner, unanswered
+### The owner's call, and what was built on it
+
+Review card `20260823T030418481Z-3c42b3`, answered 2026-08-23:
+
+> *"Ideally some would land in the crown but the vast majority would land on
+> the ground. It is probably simpler to just make it all go to the ground
+> though and that is fine. I don't want to overcomplicate it."*
+
+So: all of it to the ground, no retention fraction. Two changes, both
+measured as a paired comparison on the same stand at frame 10,800.
+
+**1. `shed_to_litter` drops the leaf through its own crown.** It passes
+through anything organism-owned and through air, and lands on the lowest
+*air* cell it reaches before hitting something that is neither — terrain,
+standing litter or water. Landing on the lowest **air** cell rather than the
+lowest cell reached is what stops it overwriting the branch it fell past;
+litter must never delete plant tissue. `LITTER_FALL_REACH` is 64, a cap on
+work and never a gate on whether the leaf is shed.
+
+**2. `litter.ron` declares its own decay rates.** New optional
+`decay_chance_damp` / `decay_chance_dry` on `MaterialDef`, falling back to
+`decay.rs`'s globals so nothing that does not ask changes. Litter takes
+0.5 / 0.1 against ash's 0.05 / 0.002.
+
+| at frame 10,800 | main | + landing | + landing & rates |
+|---|---|---|---|
+| standing litter | 4,330 | 4,054 | **1,018** |
+| resting on terrain | 503 (12%) | 1,432 (35%) | 513 (50%) |
+| resting on a branch | 3,825 (88%) | 2,617 (65%) | 503 (49%) |
+| within 1 row of terrain | 22% | 23% | **61%** |
+| within 4 rows | 28% | 38% | **80%** |
+| within 8 rows | 32% | 51% | **86%** |
+| within 32 rows | 57% | 89% | 99% |
+| rotted, of ~4,600 ever shed | 263 | 609 | **3,659** |
+
+Three things in that table are worth reading twice.
+
+**The landing change alone did not finish the job**, and the reason is not a
+placement failure. It took *height* to see it: the on-terrain/on-plant split
+mis-sorts a deep drift piled against a trunk, which bottoms out on the root
+collar and reads as "on a branch" while being unambiguously forest floor.
+`litter.ron` asks for exactly those drifts (`friction_angle: 42.0` — "a drift
+piles up against a trunk rather than running out to a level sheet"), so they
+are the design working. The height profile is in `litter_probe` now for that
+reason, and it is what showed the residual was **accumulation, not
+misplacement** — the floor was growing because nothing was rotting.
+
+**Damp decay events rose 4.3x from the landing change alone** (114 → 490),
+before any rate changed. `Reports/dead-ends.md`'s note on this predicted it
+and it is now confirmed independently: the moisture field is sampled at the
+litter's own block, so litter in a canopy samples *air* and reads dry. Moving
+litter to the ground moves it into damp ground's field. A placement fix
+turned out to be a decay fix too.
+
+**The floor is an equilibrium now rather than an accumulator.** 3,659 of
+~4,600 shed cells have rotted, against 263 before.
+
+### The part that is not finished, and is with the owner
+
+**The layer works and you cannot see it.** Rendered at 4x on the real
+`grove` scene, the floor is essentially invisible: litter's palette is
+browns 88–126 and soil's is the same range, so the mat reads as more soil.
+WP-B2 already flagged this as an open cosmetic question — *"litter's palette
+may be too close to soil's to read"* — and the fix above makes it matter,
+because before this there was barely any floor to look at. This is on the
+review queue.
+
+### The question the landing change did not settle
+
+
 
 The creature plan reads canopy litter as a defect: floor litter is what a
 foraging ant can reach, and litter on a branch costs sweep time and feeds

@@ -3,7 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-21. Written when water became a real currency and
+*Current as of: 2026-08-23. Shed leaves now fall to the ground instead of
+lodging in the crown, and rot at their own pace. Before that: written when
+water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff. One plant-economy number is unsettled and
@@ -28,6 +30,15 @@ inside its own canopy, or under a taller neighbour, earns almost nothing.
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
+
+Shed leaves do not vanish. They fall through the crown to the ground and
+collect there as leaf litter — a layer that drifts up against trunks rather
+than spreading out flat, floats on a pond instead of sinking, burns fast
+enough to carry a fire across open ground, and rots back into soil over
+time. A standing wood therefore builds a floor and then holds it roughly
+steady, because leaves are arriving and rotting at similar rates. It is
+subtle to look at: the colours are close to soil's on purpose, so it reads
+as ground texture rather than as a second canopy lying down.
 
 Neither substitutes for the other. A plant in blazing sun with nothing to
 drink earns nothing at all, and this is the single most visible rule in the

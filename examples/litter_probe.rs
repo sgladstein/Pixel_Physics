@@ -142,10 +142,24 @@ fn main() {
     let soil = world.materials.id_of("soil").expect("soil is a compiled-in material");
     let (w, h) = (scene.width, scene.height);
 
+    // **Height above the local terrain, as a profile.** The on-terrain /
+    // on-plant split answers "what is holding this up" and is the right
+    // question for litter hanging in a crown -- but it mis-sorts a deep
+    // drift piled against a trunk, which bottoms out on the root collar and
+    // reads as "on a branch" while being unambiguously part of the forest
+    // floor. `litter.ron` asks for exactly those drifts (`friction_angle:
+    // 42.0` -- "a drift piles up against a trunk rather than running out to
+    // a level sheet"), so they are the design working, not a defect.
+    //
+    // Height cannot be fooled that way, and it is the quantity a foraging
+    // creature actually cares about: how far above the ground is the food.
+    // A count needs a bar; this profile does not.
+    const HEIGHT_BANDS: [i32; 6] = [1, 2, 4, 8, 16, 32];
     println!("  frame | canopy |  litter | on-terrain  on-plant  airborne | <=3 rows | rotted (damp/dry)");
     let sample = |world: &World| {
         let canopy = common::canopy_top(world).map(|y| y.to_string()).unwrap_or_else(|| "NONE".into());
         let (mut total, mut on_terrain, mut on_plant, mut airborne, mut near) = (0u32, 0u32, 0u32, 0u32, 0u32);
+        let mut bands = [0u32; HEIGHT_BANDS.len()];
         for x in 0..w {
             let top = terrain_top(world, soil, x, 0, h - 1);
             for y in 0..h {
@@ -162,6 +176,15 @@ fn main() {
                     if (t - y) <= 3 && y < t {
                         near += 1;
                     }
+                    // Cumulative: band `i` counts litter within
+                    // `HEIGHT_BANDS[i]` rows of the terrain top. Litter at or
+                    // below the terrain line (buried by a slump) counts as
+                    // ground, which it is.
+                    for (i, &b) in HEIGHT_BANDS.iter().enumerate() {
+                        if (t - y) <= b {
+                            bands[i] += 1;
+                        }
+                    }
                 }
             }
         }
@@ -169,6 +192,14 @@ fn main() {
             "  {:>6} | {:>6} | {:>7} | {:>10} {:>9} {:>9} | {:>8} | {} / {}",
             world.frame, canopy, total, on_terrain, on_plant, airborne, near, world.decayed_damp, world.decayed_dry
         );
+        if total > 0 {
+            let pct: Vec<String> = HEIGHT_BANDS
+                .iter()
+                .zip(&bands)
+                .map(|(b, n)| format!("<={b}: {:.0}%", 100.0 * *n as f32 / total as f32))
+                .collect();
+            println!("         within N rows of terrain -- {}", pct.join("  "));
+        }
         (total, on_terrain, on_plant, near)
     };
 

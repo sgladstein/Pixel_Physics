@@ -1,6 +1,7 @@
 # The Gnome
 
-*Current as of: 2026-08-22. New since the last pass: living plants are
+*Current as of: 2026-08-23. New since the last pass: he runs through leaf
+litter without being slowed or stuck by it. Before that: living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
@@ -133,6 +134,12 @@ and keeps going, noticeably slower for as long as any of it is around him.
 Deeper than that and it stops being wading: material up to his chest holds
 him where he is, and material all around him is the burial described
 below.
+
+**Fallen leaves are the exception.** Leaf litter on a forest floor is loose
+material like any other — it falls, it drifts against trunks, it rots into
+soil — but he runs straight through it as though it were not there. No
+slowdown at any depth, and no getting stuck in it. Leaves are not sand, and
+a wood you cannot walk through is not much of a wood.
 
 Water he swims in. Falling in, he goes under with whatever speed he
 arrived with, the water eats that speed quickly, and how he behaves after

@@ -605,7 +605,15 @@ consider it at all.
   claimed a behaviour change shipped only its *doc comment* — the code kept
   the old predicate, and nobody noticed for four commits, because the
   message read correctly and the tests still passed. After any stash, rebase
-  or merge, re-read the function, not the diff.
+  or merge, re-read the function, not the diff. **A scripted edit does it
+  too**: a regex replacement while adding the foraging counters swallowed
+  `state.since_nest = 0`, the one line the ants' homing gradient is scaled
+  by. 827 tests passed, clippy was clean, and `ascii`'s foraging scene still
+  delivered food — the colony degrades rather than breaking, so nothing has
+  a threshold to cross. Which gives the general rule: **a change that claims
+  to be measurement-only must reproduce the baseline's counters exactly, and
+  any divergence at all is the finding.** Running `ascii` on `origin/main` in
+  the same session is what caught it, and it was being run for frame cost.
 - **The app locks its own exe.** While the sandbox is running, `cargo build`
   fails with "failed to remove `pixel-physics.exe`" — and so does plain
   `cargo test`, which builds the bin target to run `main.rs`'s eight tests.

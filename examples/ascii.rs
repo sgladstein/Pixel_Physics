@@ -1616,9 +1616,9 @@ fn forage_loop_scene() {
     // with a nest and no food at all scores `moves 678, nest_visits 340`.
     assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
     // The real one. Bars set from measurement with headroom, not from an
-    // aspiration: this scene measures **107 trips, deepest 18 cells** over
+    // aspiration: this scene measures **143 trips, deepest 19 cells** over
     // 12,000 frames (`examples/forage_probe.rs` has the paired control).
-    // A fifth of the trip count and under half the depth, because outcome
+    // A seventh of the trip count and under half the depth, because outcome
     // spread here is large and a bar near the measurement flakes.
     //
     // What this catches that nothing else did: the colony going sessile.
@@ -1627,7 +1627,7 @@ fn forage_loop_scene() {
     // and this is the only one that goes to zero.
     assert!(
         st.forage_trips >= 20,
-        "the colony has gone sessile: {} round trips of {}+ cells (measured 107 here), deepest excursion {} cells, reach profile {:?}",
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 143 here), deepest excursion {} cells, reach profile {:?}",
         st.forage_trips,
         pixel_physics::sim::creature::FORAGE_TRIP_MIN,
         st.forage_depth_max,
@@ -1635,7 +1635,7 @@ fn forage_loop_scene() {
     );
     assert!(
         st.forage_depth_max >= 8,
-        "no ant got further than {} cells from home (measured 18 here)",
+        "no ant got further than {} cells from home (measured 19 here)",
         st.forage_depth_max
     );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
@@ -1773,14 +1773,14 @@ fn double_bridge_scene() {
     println!("  NOTE: route selection is not yet demonstrated -- see Reports/creature-direction.md §13.");
     assert!(st.moves > 0 && st.pickups > 0, "ants should at least have crossed and foraged");
     // See the foraging scene's note: `nest_visits` counts loitering. The
-    // trip counter is what says the colony left. Measured here: 13,179
-    // "visits" against **21 actual round trips**, deepest 15 cells -- a
-    // 628:1 gap, and the clearest illustration in the suite of what the old
+    // trip counter is what says the colony left. Measured here: 13,502
+    // "visits" against **16 actual round trips**, deepest 14 cells -- an
+    // 844:1 gap, and the clearest illustration in the suite of what the old
     // counter was reporting.
     assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
     assert!(
         st.forage_trips >= 5,
-        "the colony never left the nest: {} round trips (measured 21 here), deepest {} cells, reach {:?}",
+        "the colony never left the nest: {} round trips (measured 16 here), deepest {} cells, reach {:?}",
         st.forage_trips,
         st.forage_depth_max,
         st.forage_reach

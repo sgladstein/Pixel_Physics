@@ -206,8 +206,8 @@ pub const FORAGE_REACH_BUCKETS: [u16; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
 /// diameter of `CROWDING_RADIUS`'s neighbourhood, so a jammed knot of ants
 /// shuffling around the nest mouth provably cannot manufacture one. Higher
 /// was tried and rejected for a reason worth recording: at 16 the 55-ant
-/// foraging scene reads **0 trips** against a real deepest excursion of 10
-/// cells, so a colony that improved from 10-cell ranging to 14-cell ranging
+/// foraging scene reads **0 trips** against a real deepest excursion of 12
+/// cells, so a colony that improved from 12-cell ranging to 15-cell ranging
 /// would show 0 -> 0 and the headline would hide the progress it exists to
 /// report.
 ///
@@ -1357,6 +1357,18 @@ fn step_chain(
                 world.creature_stats.nest_visits += 1;
             }
             let state = world.organism_mut(organism).expect("live");
+            // **The reset the homing gradient depends on.** `recency` in
+            // the deposit block above is `1 - since_nest / nest_memory`, so
+            // without this every ant's channel-A deposit decays to zero and
+            // the trail stops pointing home. An edit here dropped this one
+            // line while adding the trip counter below, and *nothing in the
+            // suite went red* -- 827 tests passed, clippy was clean, and
+            // `ascii`'s own scenes still delivered food. The paired
+            // baseline run is what caught it: 13,980 moves and 222
+            // deliveries on `main` against 11,997 and 217 with the line
+            // gone. Re-read this function after any edit to it, not the
+            // diff.
+            state.since_nest = 0;
             let depth = state.forage_max;
             // Re-anchor on *every* contact, including the ones that book
             // nothing. That is what stops an ant strolling the length of a

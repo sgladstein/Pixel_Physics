@@ -828,6 +828,42 @@ if he cannot, that is a regression whoever set the number. **Not fixed
 here**: the fix is the missing bole, which is the tree-architecture
 programme, not a merge repair.
 
+**UPDATE 2026-08-23 — the litter half is gone; the bole half is all that is
+left, and the case still fails.** Two changes on the creature branch, both
+made for other reasons, removed litter from this bug entirely:
+
+- `shed_to_litter` now drops the leaf through its own crown to the ground
+  instead of writing it in place, so litter stops accumulating on branches
+  at gnome height (88% of standing litter was resting on plant tissue).
+- `litter.ron` declares its own decay rates (0.5/0.1 against ash's
+  0.05/0.002), so the floor reaches an equilibrium instead of integrating
+  the canopy's shedding. Standing litter at frame 10,800 went **4,330 →
+  1,018**.
+
+Measured on `wood`: **34 → 98 cells travelled.** Bar is still 200, so the
+case is still red.
+
+Then, at the owner's direction — *"I think we just make it so the gnome can
+run through leaf litter as if it was nothing"* — litter got
+`Material::insubstantial`, and `player.rs`'s `footing` returns `Free` for
+it: no wade drag, and no `wade_rows` cliff into *stuck*. Guarded by
+`player::tests::litter_is_a_powder_the_gnome_runs_straight_through`, which
+asserts sand is still `Soft` in the same breath so it cannot pass by
+`footing` having stopped telling powders apart.
+
+**That last change buys 0 additional cells on this scene, and the zero is
+the finding.** With the flag off he travels 98; with it on, 98. Litter's
+footing contributes nothing to his travel any more, because the depth fix
+above had already taken it out of his way. Kept regardless: it is what the
+owner asked for, it costs a `Vec` index, and it makes the outcome robust
+against the canopy getting denser or the rot rate being retuned.
+
+So the residual is **entirely** the shape argument this entry already
+makes. He now stops at x = 107, at the *second* founder rather than short of
+the first, with 77 of his 98 cells behind foliage. A tree whose foliage
+reaches the ground is a hedge; that is the tree-architecture programme, and
+it still owns this case.
+
 ### X. A desert with no desert plants — **DESIGN DIRECTION, 2026-08-22. Do not "fix" this by watering deserts.**
 
 **CORRECTED 2026-08-22: the stated mechanism below was wrong, and the

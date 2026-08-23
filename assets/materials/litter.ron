@@ -55,7 +55,29 @@
     // rather than an accumulator. No `decay_reseeds`: leaf fall under a
     // standing canopy is not a succession event, and a reseed roll per shed
     // leaf would carpet the world in trees.
+    // **The gnome runs straight through it.** Owner's call, 2026-08-23. A
+    // forest floor deep enough to see is deep enough to bog him down --
+    // `player.rs` grades powder drag by how many of his rows are in it and
+    // turns *stuck* on at four -- and the `wood` acceptance case measured
+    // exactly that: 34 cells covered against a bar of 200. Leaves are not
+    // sand. See `Material::insubstantial`; nothing in the CA sweep reads
+    // it, so litter still falls, piles and rots unchanged.
+    insubstantial: true,
     decays_into: "soil",
+    // **Its own rates, because ash's are a rock's.** Without these, litter
+    // inherits `decay.rs`'s globals (damp 0.05, dry 0.002 per 200-frame
+    // check) -- a ~100,000-frame dry lifetime against runs of ~10,000, so
+    // the floor integrates the canopy's shedding instead of reaching an
+    // equilibrium. Measured on a standard stand at frame 10,800 with the
+    // globals: 263 cells rotted against 4,593 ever shed, standing count
+    // still climbing at every sample.
+    //
+    // A shed leaf is not a mineral. Damp leaf litter is one of the fastest
+    // things in a forest to disappear; dry litter is the fuel that sits
+    // through a season, which is why the two differ by 5x rather than the
+    // globals' 25x.
+    decay_chance_damp: Some(0.5),
+    decay_chance_dry: Some(0.1),
     // Mandatory for anything fire can heat — see `ash.ron`'s note on why a
     // material with no conductivity keeps its chunk awake forever holding
     // heat it cannot shed.

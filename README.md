@@ -1694,12 +1694,45 @@ carries no threshold at all; `FORAGE_TRIP_MIN` is a headline bar set from
 the sessile control. `examples/forage_probe.rs` runs that control against a
 real foraging arm — neither is worth anything alone.
 
-What it says about the colony as built: the foraging scene measures **107
-round trips against 4,758 "nest visits"**, deepest excursion **18 cells** in
-a 512-wide world, and the double-bridge scene **21 trips against 13,179**.
+What it says about the colony as built: the foraging scene measures **143
+round trips against 6,014 "nest visits"**, deepest excursion **19 cells** in
+a 512-wide world, and the double-bridge scene **16 trips against 13,502**.
 The colony works a small bubble around the nest, which
 [`wiki/ants.md`](wiki/ants.md) already described qualitatively and nothing
 had ever put a number on. Known limitation, not a regression.
+
+**Shed litter reaches the ground now.** `plant.rs::shed_to_litter` used to
+write litter in place at the leaf's position and let the powder fall, so a
+leaf shed mid-crown landed on the first branch under it: 88% of standing
+litter was resting on plant tissue. It now falls through its own crown —
+past anything organism-owned, landing on the lowest air cell above the first
+thing that is neither air nor plant, capped at `LITTER_FALL_REACH` rows.
+`MaterialDef` also gained optional `decay_chance_damp`/`decay_chance_dry`,
+falling back to `decay.rs`'s globals so nothing that does not ask changes;
+`litter.ron` takes 0.5/0.1 against ash's 0.05/0.002, because a
+~100,000-frame dry lifetime is right for a mineral and means a leaf never
+rots. Together, at frame 10,800 on the standard stand: litter within four
+rows of the ground went **28% → 80%**, standing litter 4,330 → 1,018, and
+cells rotted 263 → 3,659 — a forest floor at equilibrium rather than an
+accumulator. Owner's call on where it lands, review card
+`20260823T030418481Z-3c42b3`. **Known limitation:** the layer is hard to see
+— litter's palette sits inside soil's range, which WP-B2 had already flagged
+and this makes visible.
+
+Litter also carries `Material::insubstantial`, so `player.rs`'s `footing`
+returns `Free` for it: the gnome runs through a drift of leaves with no wade
+drag and no `wade_rows` cliff into *stuck*. Owner's call — *"we just make it
+so the gnome can run through leaf litter as if it was nothing"*. It is a
+player property only; nothing in the CA sweep reads it and
+`creature::move_cost` is untouched, so litter still falls, piles and rots,
+and an ant is as impeded by a drift as it ever was. On the `wood` acceptance
+case the gnome went **34 → 98 cells** — all of it from the depth fix above,
+with the flag itself worth 0 extra cells there, because litter was already
+out of his way by then. The case is still red against its bar of 200;
+`Reports/open-bugs-handoff.md` bug Y now attributes the whole residual to
+tree architecture (foliage reaching the ground), which it already owned.
+A future item granting free movement would live on `Tuning`, not on the
+material — noted at `Material::insubstantial`, deliberately not built.
 
 ## M19 status — started
 

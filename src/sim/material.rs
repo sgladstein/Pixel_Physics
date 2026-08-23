@@ -446,6 +446,39 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether this powder is too light to impede the character at all --
+    /// he moves through it as if it were not there.
+    ///
+    /// **Leaf litter, and the owner's call on it (2026-08-23):** *"I think
+    /// we just make it so the gnome can run through leaf litter as if it was
+    /// nothing."* `player.rs` grades a powder's drag by how many of his
+    /// fourteen rows are in it and treats four rows as the point where
+    /// wading becomes *stuck*, which is right for sand and a drift of soil
+    /// and wrong for fallen leaves. Measured: the `wood` acceptance case had
+    /// the gnome cover **34 cells against a bar of 200**, and disabling
+    /// shedding entirely took him to 152 -- litter was 118 of the
+    /// 166-cell shortfall (`Reports/open-bugs-handoff.md` bug Y).
+    ///
+    /// A flag rather than a rule inferred from `density`, because the
+    /// difference the character cares about is not one geometry can be
+    /// trusted to state -- the same argument `climbable` and `scenery` are
+    /// already here for.
+    ///
+    /// **A *player* property, like `climbable`.** Nothing in the CA sweep
+    /// reads it: litter still falls, still piles at its friction angle,
+    /// still rots, and `creature::move_cost` is untouched, so an ant is as
+    /// impeded by a drift as it ever was.
+    ///
+    /// **Where the future item goes.** The owner also asked for this to be
+    /// grantable -- *"in the future game you can get an item that lets you
+    /// move freely"*. That switch belongs on `Tuning`, not here: this field
+    /// says *which materials are light enough to be waded freely*, and the
+    /// item says *whether this character can*. It is deliberately not built
+    /// yet, because it means threading `Tuning` through `footing` and its
+    /// seven readers for a capability nothing can grant. When it lands, the
+    /// one line to change is `footing`'s test of this flag.
+    #[serde(default)]
+    pub insubstantial: bool,
     /// Whether the character walks *through* this material without climbing
     /// it — cave formations, and anything else that is scenery rather than
     /// architecture.
@@ -640,6 +673,26 @@ pub struct MaterialDef {
     /// Default `false`, so a new decaying material has to ask.
     #[serde(default)]
     pub decay_reseeds: bool,
+    /// Per-check decay chance for this material once it reads as damp, and
+    /// when it reads dry. **Unset means "use `decay.rs`'s globals"**, which
+    /// are ash's, so nothing that does not ask changes.
+    ///
+    /// They exist because litter and ash weather at genuinely different
+    /// speeds and one pair of constants cannot be right for both. Ash is
+    /// mineral, and its dry chance of 0.002 per 200-frame check is a
+    /// ~100,000-frame lifetime -- correct for ash, and against runs of
+    /// ~10,000 frames it means litter effectively never rots. Measured on a
+    /// standard stand at frame 10,800: **263 cells rotted against 4,593 ever
+    /// shed**, with the standing count climbing at every sample. That is not
+    /// an equilibrium, it is an accumulator integrating the canopy's
+    /// shedding.
+    ///
+    /// A leaf is not a rock. Set them on the material that wants them.
+    #[serde(default)]
+    pub decay_chance_damp: Option<f32>,
+    /// See `decay_chance_damp`.
+    #[serde(default)]
+    pub decay_chance_dry: Option<f32>,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -1095,6 +1148,8 @@ pub struct Material {
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::insubstantial`.
+    pub insubstantial: bool,
     /// See `MaterialDef::scenery`.
     pub scenery: bool,
     /// See `MaterialDef::fall_drag`.
@@ -1180,6 +1235,11 @@ pub struct Material {
     pub decays_into: Option<MaterialId>,
     /// See `MaterialDef::decay_reseeds`.
     pub decay_reseeds: bool,
+    /// See `MaterialDef::decay_chance_damp`. `None` means `decay.rs`'s
+    /// global default applies.
+    pub decay_chance_damp: Option<f32>,
+    /// See `MaterialDef::decay_chance_dry`.
+    pub decay_chance_dry: Option<f32>,
     pub reactions: Vec<Reaction>,
 }
 
@@ -1403,6 +1463,7 @@ impl From<MaterialDef> for Material {
             dissipation: def.dissipation.clamp(0.0, 1.0),
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
+            insubstantial: def.insubstantial,
             scenery: def.scenery,
             fall_drag: def.fall_drag,
             palette: def
@@ -1480,6 +1541,8 @@ impl From<MaterialDef> for Material {
             burns_into_name: def.burns_into,
             decays_into_name: def.decays_into,
             decay_reseeds: def.decay_reseeds,
+            decay_chance_damp: def.decay_chance_damp,
+            decay_chance_dry: def.decay_chance_dry,
             breaks_into_name: def.breaks_into,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
@@ -1668,6 +1731,7 @@ impl MaterialRegistry {
             dissipation: 0.0,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
@@ -1688,6 +1752,8 @@ impl MaterialRegistry {
             burns_into: String::new(),
             decays_into: String::new(),
             decay_reseeds: false,
+            decay_chance_damp: None,
+            decay_chance_dry: None,
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             floats: false,
@@ -1721,6 +1787,7 @@ impl MaterialRegistry {
             dissipation: 0.0,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
@@ -1741,6 +1808,8 @@ impl MaterialRegistry {
             burns_into: String::new(),
             decays_into: String::new(),
             decay_reseeds: false,
+            decay_chance_damp: None,
+            decay_chance_dry: None,
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any

@@ -4016,6 +4016,43 @@ fn is_frontier(cell_type: CellType) -> bool {
 /// and has no `material::` constant. This runs on an abscission event, not
 /// per cell per frame, so the string hash is not on a hot path. Falls back
 /// to emptying the cell so a stripped asset set still sheds.
+/// How far a shed leaf may fall looking for the ground, in rows. Generous
+/// against the tallest crown the stand grows (canopy top measured at row 82
+/// over ground at 200, so 118 rows of tree — but a leaf starts *in* the
+/// crown, not above it, and 64 clears the deepest measured drop several
+/// times over). A cap, not a gate: a leaf that runs out of reach lands
+/// wherever it got to rather than not being shed, per `CLAUDE.md`'s rule
+/// that a size cap must bound work and never decide whether something
+/// happens.
+const LITTER_FALL_REACH: i32 = 64;
+
+/// Turn a shed leaf into litter, **on the ground rather than where the leaf
+/// was**.
+///
+/// The obvious implementation writes litter in place and lets the powder
+/// fall, which is what this did. It does not work, because a leaf shed in
+/// the middle of a crown lands on the first branch under it and stays
+/// there: measured over a standard 8-tree stand at frame 10,800, **3,825 of
+/// 4,330 standing litter cells were resting on plant tissue** and only 410
+/// were within three rows of the terrain surface. A forest floor is what
+/// litter is for — it is what a foraging creature can reach and what rots
+/// into soil — and 88% of it was hanging in the canopy costing sweep time
+/// and feeding nothing.
+///
+/// So the leaf falls through its own crown first. It passes through
+/// anything organism-owned (its own branches, a neighbour's, a creature
+/// standing under the tree) and through air, and lands on the lowest **air**
+/// cell it reaches before hitting something that is neither — terrain,
+/// standing litter, or water. Landing on the lowest *air* cell rather than
+/// simply the lowest cell reached is what stops it overwriting the branch it
+/// fell past; litter must never delete plant tissue.
+///
+/// **Owner's call, 2026-08-23** (review card `20260823T030418481Z-3c42b3`):
+/// *"Ideally some would land in the crown but the vast majority would land
+/// on the ground. It is probably simpler to just make it all go to the
+/// ground though and that is fine. I don't want to overcomplicate it."* So
+/// there is deliberately no retention fraction here. If one is ever wanted,
+/// it is a roll at the top of this function, not a change to the walk.
 fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     let Some(litter) = world.materials.id_of("litter") else {
         world.set(x, y, Cell::EMPTY);
@@ -4023,7 +4060,28 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     };
     let shades = world.materials.get(litter).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
-    world.set(x, y, Cell::new(litter, shade));
+    // Clear the leaf before the walk, so its own cell reads as air and is a
+    // valid landing spot for the boxed-in case below.
+    world.set(x, y, Cell::EMPTY);
+    // Lowest air cell reached. Starts at the leaf's own now-empty cell,
+    // which is where a leaf walled in by solid tissue on every side stays.
+    let mut landing = y;
+    let mut probe = y;
+    for _ in 0..LITTER_FALL_REACH {
+        let below = world.get(x, probe + 1);
+        // Raw `material == EMPTY`, not `is_empty()`: the managed-aware
+        // helper reads a promoted liquid body's container cells as
+        // not-empty, and the question here is "can a leaf pass through".
+        let air = below.material == material::EMPTY;
+        if !air && below.organism_id() == 0 {
+            break;
+        }
+        probe += 1;
+        if air {
+            landing = probe;
+        }
+    }
+    world.set(x, landing, Cell::new(litter, shade));
 }
 
 /// After a leaf is shed, drop any of its neighbouring leaves that no

@@ -95,7 +95,7 @@ whole loop runs; put it across the map and they will not find it.
 
 How far is "not far"? Measured, and smaller than it looks: in a world five
 hundred cells wide, the furthest any ant got from its nest over a long run
-was **eighteen cells** — about a body length either side of the nest patch.
+was **nineteen cells** — about a body length either side of the nest patch.
 A colony looks busy the whole time, because there is constant traffic around
 the nest mouth; almost none of it is going anywhere.
 

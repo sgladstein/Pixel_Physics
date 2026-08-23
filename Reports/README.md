@@ -175,7 +175,7 @@ field rework — see `open-bugs-handoff.md`.
   plant queue was divided between concurrent sessions.
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured, instrument landed (2026-08-23).** `nest_visits` was counting
-  loitering, not trips; the colony works an 18-cell bubble; shed litter
+  loitering, not trips; the colony works a 19-cell bubble; shed litter
   lands in the canopy rather than on the floor. §0 records that the
   `creatures-m18` branch is unreachable.
 
