@@ -749,12 +749,20 @@ of `Reports/open-bugs-handoff.md` §G; full account in
   killed by a timeout before its restore line ran produced four
   measurements of a fuel nobody meant to test.
 
-**Known limitation, and it is `render.rs`'s.** Every burning thing saturates
-the heat ramp (400C above ambient; grass burns at 520C, a flame at 780C), and
-the top of that ramp is a pale yellow-white, so a burning meadow still draws
-as *straw*. A two-constant prototype reads as fire and is not shipped: those
-constants also colour lava, quench crust and warm water. The A/B is with the
-owner.
+**And fire is orange now, which took a render change and an owner verdict.**
+Every burning thing saturates the heat ramp (400C above ambient; grass burns
+at 520C, a flame at 780C), so every fire in the world draws at whatever
+colour sits at the *top* of that ramp — and that was a pale yellow-white, so
+a burning meadow came out as **straw**. `FIRE_TINT_LOW`/`HIGH` are now
+(150,30,12)/(255,138,36), picked by the owner off a blind A/B rather than
+chosen here, because the same two constants also colour lava, fresh quench
+crust and warm water. Lava and the quench crust both read *better* for it
+(a falling blob goes from sandy cream to molten orange); the warm-water arm
+is **unverified** — the pan has cooled by the time it is worth
+photographing, and at the frames where it is hot the tint barely registers
+against the blue. Widening the ramp instead was tried first and is the wrong
+direction (`Reports/dead-ends.md`, rendering): a lower heat ratio blends the
+tint over the fuel's own colour, and the fire came out olive.
 
 ## M7 status
 
