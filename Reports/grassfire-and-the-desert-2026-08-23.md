@@ -271,14 +271,70 @@ recorded here and in `Reports/dead-ends.md`:
   ratio the tint is `FIRE_TINT_LOW`-ward and is blended over the fuel's own
   green. Reverted.
 
-**The finding, which is render's to take and not this lane's:**
-`FIRE_TINT_HIGH` is (255, 210, 110) — a pale yellow-white — and every
-burning thing sits at the top of the ramp, so a burning meadow draws as
-*straw*. Prototyped in-place (LOW (150,30,12) / HIGH (255,138,36)) the same
-front comes out a strong orange and reads as fire at a glance. It is two
-constants. It is not shipped because it moves lava, quench crust and warm
-water — three looks the owner has already judged — and that trade is not
-W2's to make. The A/B is on the owner's queue.
+**And the third thing tried is shipped, because the owner picked it.**
+`FIRE_TINT_HIGH` was (255, 210, 110) — a pale yellow-white — and *every*
+burning thing sits at the top of the ramp, so a burning meadow drew as
+**straw**. That is most of what "cycling colors" was describing. The pair is
+now LOW (150,30,12) / HIGH (255,138,36).
+
+**It was put to the owner rather than decided here**, because those two
+constants are not fire's alone — they colour lava, fresh quench crust and
+warm water, three looks already judged — and that trade was not W2's to
+make. Blind A/B, panes reversed; the owner chose the orange. The collateral
+then went back as a second card, and this is what it shows:
+
+| | old pair | the owner's pick |
+|---|---|---|
+| a grassfire | straw | orange, reads as fire at a glance |
+| lava (`scene=lavadrop`, falling blob) | pale sandy cream | saturated orange — **better**, more molten rock and less sand |
+| fresh quench crust at the waterline | muted tan | reads more clearly as hot |
+| warm water (`scene=simmer`) | **unverified** | **unverified** |
+
+**The warm-water row is recorded as unverified rather than as checked**,
+which is the honest state: by the time the pan is worth photographing it has
+cooled to ambient, and at the frames where it is hot the tint barely
+registers against the blue. I could not construct a frame where the
+difference was visible, so I did not claim one. It wants an eye on a scene
+where a pan is actually hot in shot.
+
+If any of the collateral turns out worse, the escape is cheap and named on
+the card: give fire its own tint pair instead of sharing one, at the cost of
+a second pair of constants.
+
+### 6a. The in-between: it was already there, and the card showed the wrong thing
+
+The owner's verdict on both burn cards was *"clear and good but an inbetween
+everything burns and nothing burns would be good"*. Worth recording because
+the mistake was in the **demo**, not the model: both cards paired 0.00
+against 1.00 — the two extremes — to demonstrate the gate, which is exactly
+the wrong pair for the question *is there a middle*.
+
+Swept finely on one sward, cells consumed of 1,993:
+
+| ground wetness | consumed | front |
+|---|---|---|
+| 0.00 | **1,993 (100%)** | x=488 |
+| 0.20 | 442 (22%) | x=110 |
+| 0.30 | 1,599 (80%) | x=386 |
+| 0.40 | 440 (22%) | x=110 |
+| 0.45 | 1,960 (98%) | x=484 |
+| 0.50 | 229 (11%) | x=100 |
+| 0.55 | 436 (22%) | x=110 |
+| 0.60 | 137 (7%) | x=63 |
+| 1.00 | 10 (0.5%) | x=53 |
+
+**Partial burns are the common case; total ones are the extreme.** Across
+the 12-sward sweep at bone dry, 5 burned out entirely and the other 7
+landed between 11% and 42%.
+
+**But it is not a dial, and that is inherent rather than untuned.** Spread
+is a percolation, so at a given wetness the outcome turns on whether the
+front happens to cross one particular gap — which is why 0.30 burns 80% and
+0.40 burns 22% on the *same sward*. What the model can offer is "partial
+burns are likely in the middle of the range"; what it cannot offer is "burn
+exactly half". Anyone asked to make the in-between *reliable* rather than
+*common* should know that going in: it means changing the shape of the
+threshold, not the value of a constant.
 
 ### 7. Two answers lane S asked for, measured rather than read off the source
 

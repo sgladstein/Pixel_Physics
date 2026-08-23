@@ -430,8 +430,30 @@ const HEAT_GLOW_RANGE: f32 = 400.0;
 /// orange regardless of intensity. A cooling coal and an actively raging
 /// fire should not read as the identical colour just because both cross
 /// `is_burning()`'s own threshold.
-const FIRE_TINT_LOW: [f32; 3] = [180.0, 55.0, 20.0];
-const FIRE_TINT_HIGH: [f32; 3] = [255.0, 210.0, 110.0];
+///
+/// **Re-picked 2026-08-23, by the owner, off a blind A/B** — the card
+/// *"Fire colour: straw or orange?"*, which put the old pair against this
+/// one on an identical grassfire with the panes reversed. The old
+/// `FIRE_TINT_HIGH` was a pale yellow-white, and because *everything* that
+/// burns saturates `HEAT_GLOW_RANGE` (it tops out 400C above ambient;
+/// grass burns at 520C, a flame at 780C), every fire in the world drew at
+/// that one colour. Over green grass it came out as **straw**, which is
+/// most of what the standing grassfire verdict — *"Just looks like you are
+/// cycling colors"* — was actually describing.
+///
+/// **Widening the ramp instead was tried first and is the wrong
+/// direction** (`Reports/dead-ends.md`, rendering): at a lower heat ratio
+/// the tint sits near `FIRE_TINT_LOW` and is *blended over the fuel's own
+/// colour*, so a grassfire came out murky olive. The fix had to be the
+/// colour at the top of the ramp, because that is where everything sits.
+///
+/// **This pair is not fire's alone**, which is why it went to the owner
+/// rather than being changed in passing: the same two constants colour
+/// lava, fresh quench crust, and warm water. See
+/// `Reports/grassfire-and-the-desert-2026-08-23.md` §6 for what each of
+/// those three looks like on both pairs.
+const FIRE_TINT_LOW: [f32; 3] = [150.0, 30.0, 12.0];
+const FIRE_TINT_HIGH: [f32; 3] = [255.0, 138.0, 36.0];
 /// Frames per flicker step for an actively burning cell — a real flame's
 /// visible flicker rate is on the order of 10-15Hz, not a 60fps repaint, so
 /// re-rolling every single frame would read as noise, not fire. `jitter3`

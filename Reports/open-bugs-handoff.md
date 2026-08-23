@@ -2396,17 +2396,26 @@ number in `Reports/grassfire-and-the-desert-2026-08-23.md`:
   Swept over 12 procedurally different swards: at field capacity no sward
   loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
 
-**Still open, and it is `render.rs`'s, not fire's.** The fire now has a body,
-a plume and a char scar, and it still draws *pale*. Every burning thing
-saturates the heat ramp (it tops out 400C above ambient; grass burns at
-520C, a flame at 780C) and the top of that ramp, `FIRE_TINT_HIGH`, is
-(255, 210, 110) — a yellow-white. A burning meadow therefore draws as
-**straw**. A two-constant prototype (LOW (150,30,12) / HIGH (255,138,36))
-reads as fire at a glance and is **not shipped**, because those constants
-also colour lava, quench crust and warm water — three looks the owner has
-already judged. The A/B is on the owner's review queue; whoever takes it
-owns re-checking those three. Two attempts that made it worse are in
-`Reports/dead-ends.md` under *rendering*.
+- ***"Just looks like you are cycling colors"* — closed by an owner verdict
+  on a blind A/B, not by a judgement made here.** The fire now has a body,
+  a plume and a char scar, and it still drew *pale*, because every burning
+  thing saturates the heat ramp (400C above ambient; grass burns at 520C, a
+  flame at 780C) and the top of that ramp was a yellow-white — so a burning
+  meadow came out as **straw**. `FIRE_TINT_LOW`/`HIGH` are now
+  (150,30,12)/(255,138,36). It went to the owner rather than being changed
+  in passing because the same two constants colour **lava, fresh quench
+  crust and warm water**, three looks already judged; the collateral is on
+  its own card. Lava and the quench crust read *better* for it — a falling
+  blob goes from sandy cream to molten orange. **The warm-water arm is
+  unverified**, and is recorded that way rather than as checked: the pan
+  has cooled by the time it is worth photographing, and where it is hot the
+  tint barely registers against the blue. Two attempts that made it worse
+  (flame `glow`, a widened `HEAT_GLOW_RANGE`) are in
+  `Reports/dead-ends.md` under *rendering*.
+
+**What is left of §G**: nothing in fire. The one loose thread is the
+warm-water collateral above, which wants an eye on a scene where a pan is
+actually hot in frame.
 
 <details>
 <summary>The original entry, kept because the verdict is the bar</summary>
