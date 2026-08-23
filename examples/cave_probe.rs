@@ -116,6 +116,8 @@ fn main() {
             // Handled before the sweep loop; accepted here so the arg parser
             // does not reject its own mode.
             "field" | "t" | "t3" | "halfw" | "halfh" | "cell" | "squash" | "fseed" => {}
+            // Read in `deep_y`, not here.
+            "deep" => {}
             _ => panic!("unknown argument {arg:?}"),
         }
     }
@@ -256,8 +258,39 @@ fn main() {
 /// depth band matches the pass's own `vault_min_depth` intent rather than
 /// reading it, because what is being measured is "what is down there", not
 /// "did the knob take".
+///
+/// **The default is measurably too deep at the shipped size, and `deep=N`
+/// exists to show it rather than to fix it.** Caves are placed from
+/// `plan.surface_y + vault_min_depth` (`passes.rs`, the `vaults` pass),
+/// which is about row 341 -- `sky_rows` is 95 and does not scale with world
+/// height, so the band's top barely moves when the world does. At the
+/// 2048x640 this was written against, `WORLD_HEIGHT / 2` was 320 against a
+/// true 341 and the window was right by arithmetic accident. At 8192x2560
+/// it is 1280, and the census reads the bottom half of a band that starts
+/// a quarter of the way down.
+///
+/// Measured paired on one build, canyon, 6 seeds, `deep=1280` against
+/// `deep=341`: systems 20 -> 26 (worlds with no system at all, 1 -> **0**),
+/// formations 166 -> 244, contrast p95/med 2.68x -> 3.68x, walk_regions p90
+/// 36 -> 29, void 0.806% -> 0.562% of the deep massif. `Reports/world-scale-
+/// phase-2.md` §4 is written from the 1280 column, so two of its conclusions
+/// move: cave *rarity* is substantially the ruler, and the contrast fall is
+/// a quarter rather than a third. Formation base width -- the number that
+/// answers the owner's complaint -- is identical in both windows.
+///
+/// **The default deliberately stays at `WORLD_HEIGHT / 2`** so that adding
+/// this knob moves no number anyone has already quoted; changing it is a
+/// decision about §4's table, not a drive-by. The honest replacement is
+/// per-column (`surface(x) + vault_min_depth`), which is the pass's own
+/// rule and cannot go stale at the next size change -- a global constant
+/// here has now been wrong once and right by luck once.
 fn deep_y() -> i32 {
-    pixel_physics::app::WORLD_HEIGHT as i32 / 2
+    static DEEP: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *DEEP.get_or_init(|| {
+        std::env::args()
+            .find_map(|a| a.strip_prefix("deep=").map(|v| v.parse().expect("deep=N")))
+            .unwrap_or(pixel_physics::app::WORLD_HEIGHT as i32 / 2)
+    })
 }
 
 fn deep_area(world: &World) -> (usize, usize) {

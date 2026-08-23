@@ -19,7 +19,8 @@
 //! ```text
 //! cargo run --release --example viewshot
 //! cargo run --release --example viewshot -- seed=7 preset=arid shots=6
-//! cargo run --release --example viewshot -- frame=1800   # night, for stars and moon
+//! cargo run --release --example viewshot -- settle=1800  # night, for stars and moon
+//! cargo run --release --example viewshot -- fall=1 scale=2  # the generated waterfall
 //! cargo run --release --example viewshot -- vault=1 crop=180,90,160,140 zoom=4
 //! ```
 //!
@@ -46,6 +47,16 @@ struct Args {
     mine: bool,
     vault: bool,
     boulder: bool,
+    /// Aim the camera at the `springs` pass's own waterfall.
+    ///
+    /// **Nothing in this harness could do this, and that is part of why the
+    /// shipped source-basin fix (`7a186d0`) has never been put in front of
+    /// the owner.** `spring=N` is a different thing: it installs the harness's
+    /// *own* spring from its own cliff scan, so it renders a fall the
+    /// generated world does not have and can disagree with the pass about
+    /// where one belongs. This reads `world.springs`, which is what the pass
+    /// actually wrote.
+    fall: bool,
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
     glow: pixel_physics::render::GlowShape,
@@ -114,15 +125,22 @@ fn main() {
         seed: 1,
         preset: String::new(),
         shots: 4,
-        // Mid-morning by default: the sky is lit, which is the harder case
-        // for judging ground colour. `frame=1800` is the other half of the
-        // cycle and is where stars and the moon are.
+        // **`frame` is the step *between* shots, not the clock.** It has
+        // never set `world.frame`: that is assigned in exactly one place
+        // (the `rain=` branch below), and otherwise the world starts at 0
+        // and advances only by being stepped. So the first tile always
+        // renders at `world.frame == settle`, and `settle=` is the de facto
+        // time of day -- `settle=2500` comes back at night, moon and stars,
+        // which has now cost a render. `frame / shots` frames elapse between
+        // tiles so a sheet's skies are not bit-identical, and `strip`
+        // disables even that (see `strip`'s own doc).
         frame: 600,
         settle: 60,
         rain: String::new(),
         mine: false,
         vault: false,
         boulder: false,
+        fall: false,
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
         glow: pixel_physics::render::GlowShape::default(),
@@ -179,6 +197,7 @@ fn main() {
             // `vault` finds its chamber -- the position is a draw and a
             // hardcoded coordinate goes stale.
             "boulder" => a.boulder = v != "0",
+            "fall" => a.fall = v != "0",
             // `reveal=1` turns on the F11 void X-ray, so a strip can show
             // where every sealed chamber and cavity sits without digging.
             "reveal" => a.reveal = v != "0",
@@ -679,6 +698,32 @@ fn main() {
         None
     };
 
+    // The `springs` pass's own outlet, read back rather than re-derived.
+    // Named loudly when absent for the same reason the vault finder is: a
+    // preset with `spring_flow: 0.0` (arid, flat) and a preset that simply
+    // offered no qualifying rim produce the same empty picture, and only the
+    // line below tells them apart.
+    let fall_at = if a.fall {
+        match world.springs.first() {
+            Some(sp) => {
+                println!(
+                    "  spring found at ({}, {}) span {} ({} springs in this world)",
+                    sp.x,
+                    sp.y,
+                    sp.span,
+                    world.springs.len()
+                );
+                Some((sp.x, sp.y))
+            }
+            None => {
+                println!("  NO SPRING in this world -- try another seed");
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     // Camera targets spread across the world's width at the height of the
     // ground, so each shot frames a different region rather than a different
     // patch of sky. Reported next to the image, because a contact sheet
@@ -801,9 +846,10 @@ fn main() {
         // world sixteen screens wide, so a shot framed anywhere else is a
         // render of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
-        let x = match (a.vault || a.boulder, a.mine, aimed) {
+        let x = match (a.vault || a.boulder || a.fall, a.mine, aimed) {
             (true, _, _) => vault_at
                 .or(boulder_at)
+                .or(fall_at)
                 .map(|(vx, _)| vx)
                 .unwrap_or(WORLD_WIDTH as i32 / 2),
             (_, true, _) => WORLD_WIDTH as i32 / 4,
@@ -813,7 +859,7 @@ fn main() {
         // Normally the camera is aimed at the skyline, which is the right
         // target for every other scene here and exactly wrong for a vault:
         // the whole feature is below the bottom of that frame.
-        let ground = match (a.vault || a.boulder, vault_at.or(boulder_at)) {
+        let ground = match (a.vault || a.boulder || a.fall, vault_at.or(boulder_at).or(fall_at)) {
             (true, Some((_, vy))) => vy,
             _ => (0..WORLD_HEIGHT as i32)
                 .find(|&y| world.get(x, y).material != material::EMPTY)
@@ -1045,6 +1091,19 @@ fn main() {
                 gaps.join(", ")
             );
         }
+    }
+    if a.fall {
+        // The count beside the picture, per CLAUDE.md: a fall on screen with
+        // `emitted 0` is pond water wandering into frame, and `throttled`
+        // climbing is an outlet that has drowned in its own plunge pool --
+        // both look like a working waterfall in a still.
+        let l = world.spring_ledger;
+        println!(
+            "spring ledger: emitted {} drained {} throttled {} ({} cells emitted); world.frame {}",
+            l.emitted, l.drained, l.throttled,
+            l.emitted / pixel_physics::sim::material::LIQUID_FULL as u64,
+            world.frame
+        );
     }
     if a.spring > 0 {
         // The counter next to the picture. A fall on screen with emitted=0
