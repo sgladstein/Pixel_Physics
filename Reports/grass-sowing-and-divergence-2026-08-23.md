@@ -313,3 +313,111 @@ The plasticity mechanism §11.6 recommends (a repeatedly-shaken tree putting
 carbon into root and stem instead of height) is lane P's economy work, not
 this instrument's. This measures the divergence; it does not create it.
 
+## 9. Grass is a transient in a mature world, and the control says why
+
+The long run is the finding this package would have shipped without if it had
+stopped at the establishment rate. Two seeds, 2,048 columns, **45,000 frames**:
+
+| | sown | established at 45,000 | grass cells |
+|---|---|---|---|
+| **with the woody layer** (shipped) | 40 / 42 | **3 / 4** | 72 / 20 |
+| **woody layer off** (control) | 43 / 43 | **63 / 44** | 1,186 / 885 |
+
+Grass establishes at 96% and is down to **3 of 40** by frame 45,000 in a
+shipped world. The obvious reading — the sowing rule is wrong — is the wrong
+one, and the control is what says so: with `treedensity=0 mossdensity=0` on the
+same worlds, grass ends at **63 established from 43 sown**. More than were
+sown, so it bred; 1,186 cells standing.
+
+So grass does not fail on its own. **It is shaded out as the woody flora
+matures** — conifer alone ends those runs at 49,070 cells — which is exactly
+the succession story `grass.ron`'s own header says P3's shade death was for:
+*"a sward thins where a canopy closes over it"*. It is the mechanism working,
+observed at a scale nobody had run it at.
+
+**It is still a limitation worth stating plainly rather than filing as a
+success.** A world 45,000 frames old has almost no grass in it, and the sowing
+rule cannot fix that on its own: grass is already placed where the woody sum is
+lowest, and the canopy grows over it anyway because the sum is a *country*
+reading and a stand is not. Three levers exist and none of them is this
+package's:
+
+1. **Woody density** (`tree_density`) is a preset knob and a one-line change —
+   but "is this world too full" is a question the owner answers by eye, and
+   W1's panorama card already asked it.
+2. **Grass's shade tolerance** (`Photosynthesize::shade_death`, 0.004) is an
+   economy constant and belongs to lane P's single re-derivation.
+3. **Disturbance** — fire is W2's, and a grassfire that clears a canopy patch
+   is exactly what would keep a sward in a mature world. That is the
+   ecologically right answer and it is already queued.
+
+**The organism-slot ceiling is not a concern, measured rather than assumed.**
+High-water 229 and 112 of 4,095 with the woody layer, 76 and 65 in the control
+where grass is breeding freely, and **0 births refused** in all four runs. The
+`grass_density: 3.0` guard bar remains the thing standing between a future
+density edit and that ceiling.
+
+## 10. Cost
+
+`examples/ascii`, this branch against `origin/main`, both rebuilt and run **in
+the same session on the same machine**, and run **four times each** — because
+at two runs a side the worst-frame column was unreadable: one branch run
+reported 42.4 ms on a 512x320 scene whose other three runs read 6.1, 4.7 and
+4.7, and a later `main` run reported 25.3 ms on the same scene. Both sides
+produce container hiccups, and a two-run comparison would have attributed one
+of them to the change.
+
+Medians of four runs a side:
+
+| `examples/ascii` line | main | branch |
+|---|---|---|
+| river-cost 8,192x2,560, spring OFF, **mean** | 11.16 ms | 11.18 ms |
+| river-cost 8,192x2,560, spring ON, **mean** | 13.08 ms | 13.23 ms |
+| river-cost 512x320, spring OFF, **mean** | 1.29 ms | 1.26 ms |
+| river-cost 512x320, spring ON, **mean** | 2.87 ms | 2.81 ms |
+| organism scene, **mean** (61 vs 79 live organisms) | 3.57 ms | **3.15 ms** |
+| river-cost 8,192x2,560, spring OFF, **worst** | 48.9 ms | 45.1 ms |
+| river-cost 8,192x2,560, spring ON, **worst** | 51.1 ms | **68.0 ms** |
+
+Three readings, and they are not the same reading:
+
+- **Mean frame cost is unchanged on every scene.** The largest gap is
+  +0.15 ms on the shipped world with the spring on, against a branch spread of
+  0.59 ms across four runs of the *same* binary. Inside the noise floor.
+- **The organism scene is 0.43 ms (12%) cheaper on the branch, in all four
+  runs against all four**, and that is *not* "grass is free". The branch's
+  scene holds 79 live organisms against main's 61 — but adding organisms
+  reshuffles every subsequent RNG draw, so the woody plants in it are not the
+  same plants. Measured on the shipped world at 3,600 frames, total plant cells
+  come out 70,996 on the branch against 72,610 on main: the branch's stand is
+  simply a slightly smaller one. Read this as "the scene changed", not as a
+  speedup.
+- **The worst frame on the spring-ON shipped scene is the one number that may
+  be a real cost**: median 51.1 to 68.0 ms, with branch maxima of 81.8 and 84.6
+  against main's 60.9. Four runs a side is not enough to call that definitively
+  — the same column carries 40 ms outliers on both sides — but it is the same
+  direction, the same scene and the same stated cause as W1's own finding
+  (53 to 62 ms, *"more organisms means more organism ticks landing together on
+  some frames"*), so it is named rather than averaged away. A worst frame is
+  what a player feels.
+
+**The lever, if that is too much, is `grass_density`** — a preset field, thinning
+the sward without moving where it goes.
+
+## 11. What this leaves open
+
+- **Grass's long-run fate** (§9) — the mature world is nearly grass-free, and
+  the three levers are all other packages'. Worth an owner call on whether a
+  45,000-frame world *should* be a closed forest.
+- **The divergence instrument is proven at scouting length only** (§7).
+  Root:shoot diverges 8 of 8 at 10,800 frames; whether it survives to 25,200
+  and 43,200 is one run and has not been made.
+- **Slenderness has no confirmed driver.** It did not respond to moisture, and
+  the plasticity mechanism that §11.6 expects to move it is lane P's economy
+  work.
+- **Pointing the instrument at wind** needs terrain-derived exposure and
+  nothing else (§8).
+- **`plant_tree_species`'s doc** now understates what it plants — it says the
+  seed germinates into a `wood`-material `GrowingTip`, and grass germinates
+  into `grassblade`. Left for whoever is next in `plant.rs`, which two other
+  packages are live in.
