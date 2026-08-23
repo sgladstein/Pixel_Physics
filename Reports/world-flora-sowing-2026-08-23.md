@@ -262,10 +262,47 @@ showing again.
 
 ## 7. Cost
 
-Numbers to be quoted from `examples/ascii`'s generated-terrain worst-frame
-line, measured against `origin/main` **in the same session on the same
-machine** (`CLAUDE.md`: a regression measured against a remembered number is
-not a regression). See the PR body.
+`examples/ascii`, this branch against its own base `origin/main`
+(`a0fa433`), **built and run in the same session on the same machine**, and
+run **twice** so the run-to-run spread is visible rather than assumed —
+which matters, because on one of the four figures the spread is larger than
+the difference being reported.
+
+| `examples/ascii` line | main | branch |
+|---|---|---|
+| river-cost 8,192×2,560, spring OFF, **mean** | 11.24 ms | 11.02 ms |
+| river-cost 8,192×2,560, spring ON, **mean** | 13.10 ms | 12.94 ms |
+| river-cost 8,192×2,560, spring OFF, **worst** | 52.98 ms | **62.30 ms** |
+| river-cost 512×320, spring OFF, **mean** | 0.95 ms | 1.13 ms |
+| world generation, 8,192×2,560 | 5,880 ms | 5,253 ms |
+| ant colony, 12,000 frames, mean | 3.18 ms | 2.98 ms |
+
+Three readings, and they are not the same reading:
+
+- **Mean frame cost at the shipped world size is unchanged.** The
+  difference is 0.2 ms in the branch's *favour*, and two runs of the
+  *same* binaries spread by 0.6 ms — so this is inside the noise floor,
+  in both directions. Same for world generation and the structural pass,
+  which also swing further between runs than between branches.
+- **Mean frame cost on the 512×320 generated scene rises ~0.15 ms/frame
+  (~15%)**, consistently across both runs and well outside that scene's
+  own ~0.05 ms spread. That is the plant tick, and it is the honest price
+  of 50% more plant cells: in a small world the organisms are a large
+  share of the awake work, and at shipped size the field solve dominates
+  them.
+- **Worst frame at the shipped world size rises ~9 ms (53 → 62 ms),
+  consistently across both runs.** This is the one number that is a real
+  cost rather than noise, and it is worth naming rather than averaging
+  away: a worst frame is what a player feels. It is the same cause —
+  more organisms means more organism ticks landing together on some
+  frames.
+
+**The lever, if that is too much, is one divisor.** Total woody density is
+`weight / max(1, Σ weights)`; raising the floor above 1.0 thins every
+species proportionally without changing which species goes where. It has
+deliberately not been pre-emptively tuned, because the question "is this
+world too full" is one the owner answers by eye, and the panorama card asks
+it directly.
 
 ## 8. What this leaves open
 
