@@ -1588,6 +1588,27 @@ the only counter that said so (`Reports/open-bugs-handoff.md` §L, closed
 fallback). `examples/forage_probe.rs` pairs the scene against a sessile control —
 one ant, a nest, no food — and neither arm is worth anything alone.
 
+**Ants climb over each other (WP-9 arm 1, `CreatureDef::climbs_over_kin`,
+default on for ants).** A living nestmate counts as a *foothold* — footing
+only, never passability, so two ants still cannot swap places. Measured with
+`forage_probe`, 8 seeds x 24,000 frames, at `COLONY_ANT_SPACING`: deepest
+excursion **46 → 84** cells, excursions past 32 cells **4.5 → 17.5**, past 64
+**0 → 4.5**, blocked moves **0.311 → 0.033**, with deliveries flat (6.5 vs
+6.0 on a per-seed spread of 0–49). Known limitation: falls roughly double on
+uneven ground (deaths stay 0), and on the `ascii` foraging scene — one seed —
+deliveries fall 643 → 270 with range unmoved, which every multi-seed
+instrument contradicts but which is the gated scene; the untested hypothesis
+is that climbing costs carried food to falls.
+
+The probe now takes `climb=0|1` (forces the arm at runtime, so both arms come
+out of one binary and no rebuild can silently produce two identical "arms")
+and `spacing=` (cells between planted ants). The second exists because the
+probe's own 2-cell spacing is the gridlock dead ends 775/829 record: spacing
+alone, flag off, already moves deepest 23.5 → 46 and the ≥32 bucket 0 → 4.5,
+so the "≥32 at zero" baseline this feature's success condition was written
+against described that scene rather than a founded colony
+(`Reports/foraging-range-measurement.md` §3's correction).
+
 **`Material::insubstantial` bought zero cells on `wood`, and the zero is
 recorded.** The gnome runs through leaf litter with no wade drag, on the
 owner's direct instruction. It does not move `scripts/acceptance.sh`'s `wood`

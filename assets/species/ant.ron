@@ -187,37 +187,60 @@
         // passability -- two ants still cannot walk through each other --
         // so an ant walks *over* a nestmate the way it walks over terrain.
         //
-        // This is the deliberate re-test dead ends 775/829 asked for, and
-        // the answer is not subtle. `forage_probe seeds=8`, both arms, same
-        // seeds, median of 8:
+        // This is the deliberate re-test dead ends 775/829 asked for.
+        // `forage_probe seeds=8 frames=24000`, both arms from **one** binary
+        // (`climb=`, so no rebuild sits between them), medians over 8 seeds:
         //
-        //                        off        on
-        //     round trips          4      90.5
-        //     deepest             12      69.5
-        //     blocked/moves    0.614     0.065
-        //     moves           21,870    21,256
-        //     deliveries           0         0
+        //                     spacing 2          spacing 4 (COLONY_ANT_SPACING)
+        //                    off      on         off       on
+        //     round trips   18.5    272.5        50.0    161.0
+        //     deepest       23.5     82.5        46.0     84.0
+        //     >=32 bucket      0     25.0         4.5     17.5
+        //     >=64 bucket      0      6.5           0      4.5
+        //     blocked/moves 0.538    0.060       0.311    0.033
+        //     deliveries     3.0     10.5         6.5      6.0
         //
-        // **Moves are flat.** This is not "they move more" -- it is that
-        // six moves in ten used to fail and now fewer than one in ten does.
-        // The 19-cell bubble those dead ends recorded was a traffic jam,
-        // and the jam is what the rule dissolves.
+        // **Read the right column.** The left one is the historical probe
+        // scene, which plants 55 ants **2 cells apart** -- shoulder to
+        // shoulder for a two-cell body, which is precisely the arrangement
+        // dead ends 775/829 record as gridlock, and the reason
+        // `COLONY_ANT_SPACING` is 4. Nobody chose it as a jam; it simply
+        // was one, so that scene overstates the rule by crediting it with
+        // undoing a jam no founded colony is in. Spacing alone, with this
+        // flag off, already takes deepest 23.5 -> 46 and the >=32 bucket
+        // 0 -> 4.5, which is most of what the first measurement of this
+        // flag was credited with.
         //
-        // Landed default-on per the work package's own decision rule (one
-        // arm clearly wins on the profile, deliveries flat). Two honest
-        // caveats travel with it: deliveries are **0 in both arms**, so
-        // "deliveries held" is true and proves little -- that is the
-        // separately filed sessile-colony bug, not this change -- and the
-        // look is on the owner's queue as card 20260823T152556591Z-7c87cf,
-        // which flips this one line if it comes back against.
+        // It earns its place anyway, on the right column: at the spacing a
+        // real colony is founded at, reach still roughly doubles and the
+        // >=32 bucket still nearly quadruples, while **deliveries hold** --
+        // 6.5 against 6.0 on a per-seed spread of 0-49, which is the work
+        // package's stated success condition. Blocked moves fall from about
+        // one in three to one in thirty.
         //
-        // The 22x was checked for the obvious way it could be fake: ants
-        // climbing *each other* into the sky would move the depth metric
-        // without ranging anywhere. Rendered, they are on the ground and on
-        // terrain. `a_climbing_ant_is_never_its_own_foothold` is the guard
-        // that keeps it that way -- an animal's own tail is permanently in
-        // its head's neighbourhood, so `self` must be excluded or every ant
-        // becomes its own ladder.
+        // **The one number that does not fit, stated rather than argued
+        // away:** on `ascii`'s foraging scene -- one seed, 12,000 frames --
+        // deliveries fall 643 -> 270 while range does not move at all
+        // (deepest 19 -> 19, >=32 stays 0) and falls run 968 -> 1,783. That
+        // is a single sample from a distribution this repo knows is wide,
+        // and every multi-seed instrument disagrees with it; but it is the
+        // gated scene, and the leading hypothesis for it -- that climbing
+        // on uneven ground costs carried food to falls -- is untested.
+        //
+        // The reach gain was checked for the obvious way it could be fake:
+        // ants climbing *each other* into the sky would move the depth
+        // metric without ranging anywhere.
+        // `a_climbing_ant_is_never_its_own_foothold` is the guard that keeps
+        // it honest -- an animal's own tail is permanently in its head's
+        // neighbourhood, so `self` must be excluded or every ant becomes its
+        // own ladder.
+        //
+        // The look is the owner's, not this comment's: on a blind A/B of the
+        // jammed crowd the owner picked this arm (card
+        // 20260823T164147144Z-e1ef72). A second card asks the same question
+        // of the *founded* colony, where there is no jam to dissolve
+        // (20260823T180052569Z-c73d21); it flips this one line if it comes
+        // back against.
         climbs_over_kin: true,
 
         nest: "nest",
