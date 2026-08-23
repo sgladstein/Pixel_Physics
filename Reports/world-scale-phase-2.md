@@ -165,6 +165,91 @@ systems unless the column says otherwise.
 | near-pairs (per preset) | 10 | 2 | **0** |
 | `vaults` pass wall time | 10-22 ms | — | 42-870 ms |
 
+### 4a. Correction, 2026-08-23: the ruler was too deep, and two of the readings above move
+
+**Every number in the table was measured through a census window that starts
+below where most caves are.** `cave_probe`'s `deep_y()` returned
+`WORLD_HEIGHT / 2`, but `vaults` places from `plan.surface_y +
+vault_min_depth` — about row 341, because `sky_rows` is 95 and does not scale
+with world height, so the band's top barely moves when the world does. At the
+2048x640 the probe was written against, `WORLD_HEIGHT / 2` was 320 against a
+true ~341 and the window was **right by arithmetic accident**. At 8192x2560
+it is 1280, and the census read the bottom half of a band that starts a
+quarter of the way down. This is the same shape as the two defects §2 records
+— a literal that stopped matching when the world went 4x — and it was inside
+the *instrument* rather than the generator, which is why nothing caught it.
+
+Re-measured paired, one build, one session, canyon, 6 seeds, the shipped
+window against the pass's own:
+
+| | window 1280 | window 341 (true) |
+|---|---|---|
+| systems (6 seeds) | 20 | **26** |
+| worlds with **no** system | 1 | **0** |
+| formations | 166 | **244** |
+| formation base width, med | 11 | **11** |
+| contrast p95/med | 2.68x | **3.68x** |
+| walkable regions, p90 | 36 | **29** |
+| walkable regions, max | 92 | **92** |
+| void % of the deep massif | 0.806 | 0.562 |
+| tallest open column, med | 35 | **53** |
+
+**Two conclusions above move.**
+
+- **Cave rarity was partly the ruler.** "3 of 8 with none" in the Phase 2
+  column, and "5 of 8" in the control, count some worlds whose systems sat
+  *above* the window rather than worlds without one. How much is a **sample
+  size question, and six seeds is not enough to answer it**: on the corrected
+  window canyon has a system in all six seeds above, but over **16** seeds it
+  is 4 worlds with none (2.5 systems/world). Take the 16-seed figure — the
+  six-seed one is exactly the single-sample claim this repo keeps having to
+  retract.
+- **The contrast fall is a quarter, not a third** (483 -> 368, not -> 327).
+  Real, and smaller than stated.
+
+**Two do not, and that matters more.**
+
+- **Formation base width med 3 -> 11 is identical in both windows.** The
+  complaint that started the round is answered, and the correction does not
+  touch it.
+- **`walk_regions` max is 92 either way.** The fragmentation §8 hands to
+  Phase 3 is real at any window.
+
+The void fraction is now 0.562% against round 7's 0.591% — and round 7's was
+measured at 2048x640, where the old window was accidentally correct, so the
+two are comparable and the "this is a *scaled* world" check in the next
+paragraph still holds. It is if anything better supported.
+
+`deep_y()` is now a per-column profile (`surface(x) + vault_min_depth`),
+derived rather than written down: a single number here has been wrong once
+and right by luck once, so a third literal would be the same bug with a fresh
+number. `deep=N` overrides it flat, which is how the pair above was measured
+and how the next size change can re-check this in one build instead of two.
+
+**The corrected window, swept properly: 16 seeds x every preset.** This is
+the baseline Phase 3 should be read against, and it says the two Phase 2
+findings are systematic rather than a canyon accident:
+
+| preset | systems (16 seeds) | walk_regions med / p90 / max | contrast p95/med | formation base width, med | void % |
+|---|---|---|---|---|---|
+| `arid` | 30 (4 with none) | 4 / 44 / **98** | 4.28x | 10 | 0.284 |
+| `canyon` | 40 (4 with none) | 2 / 39 / **92** | 3.71x | 11 | 0.318 |
+| `rolling` | 37 (3 with none) | 3 / 44 / **89** | 4.00x | 11 | 0.316 |
+| `terraced` | 35 (4 with none) | 3 / 36 / **87** | 3.94x | 11 | 0.316 |
+| `wetland` | 39 (4 with none) | 3 / 25 / **92** | 4.14x | 12 | 0.323 |
+| `flat` | none in any seed | — | — | — | — |
+
+Formation base width is **10-12 in every preset**, so the answer to the
+owner's complaint holds everywhere, not just where it was measured. And
+`walk_regions` reaches **87-98 in all five**, with the *median* at 2-4 rather
+than 1 — the fragmentation is a property of the mechanism, not of a seed.
+`flat` has no cave in any of 16 seeds, which is its `table_offset` sentinel
+and relief doing what §2 fixed them to do.
+
+**Not re-derived: the round-7 and control columns.** Both would need a
+worktree build at a pre-Phase-2 commit, and neither changes the direction of
+anything — the gap is recorded here rather than relabelled away.
+
 **The control is the justification for the whole phase, and it is starker
 than the handoff's sentence.** *"A feature that stays the same size in a 4x
 world has become 4x less significant"* — measured, it is **fourteen times**
@@ -430,7 +515,27 @@ looking for:
 The handoff's Phase 3 is unchanged and this does not narrow it: two cave-shape
 candidates, built and compared on a blind A/B at play zoom. What it now has
 that it did not is a **baseline at the size the shape work will actually run
-at** — the table in §4 — and a specific target: the honeycomb's fragmentation
-(`walk_regions` p90 35, max 92) and its chamber-to-passage contrast falling
-by a third, which are the two numbers that got worse and the two a better
-shape rule should move.
+at** — the table in §4, **read through §4a's correction** — and a specific
+target: the honeycomb's fragmentation (`walk_regions` p90 **29**, max 92) and
+its chamber-to-passage contrast falling by a **quarter**, which are the two
+numbers that got worse and the two a better shape rule should move.
+
+**A caution about both of them, added 2026-08-23.** They are proxies, and the
+owner's own specification for Phase 3 is not in them. He said: *"you could go
+bigger or more even better longer or have chains of caves for the bigger. The
+stalagmite and stalactites look way better. The voroni patter is too much. I
+like a little of it, but there is too much."* Nothing in that sentence is
+`walk_regions` or a contrast ratio, and a render answers it where a census
+cannot: the chamber is a rasterised ellipse (`grow_monumental_chamber`) and
+the passages are Worley perpendicular bisectors — straight segments meeting
+at 120° junctions. Move these two numbers if a better rule moves them, but do
+not aim at them.
+
+**And check `MAX_CEILING_SPAN` before blaming the honeycomb for the
+fragmentation.** `settle_cave_void` drops a 3-row stone tooth into the middle
+of every roof run longer than 36 and repeats until all comply. The player is
+7x14 with crouch unimplemented, so a tooth blocks him in any passage under
+17 rows tall while leaving the void *connected* — which reads as one system
+to the census and as several caves to the player. That predicts both the
+`walk_regions` count and the divergence between `reachable` and
+`largest_walkable`, and it is cheap to test.

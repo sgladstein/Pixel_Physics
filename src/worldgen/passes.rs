@@ -3070,6 +3070,68 @@ fn world_top(world: &World, x: i32, h: i32) -> i32 {
     (0..h).find(|&ty| world.get(x, ty).material != material::EMPTY).unwrap_or(h)
 }
 
+/// Where a fall's water ends up, as drain positions: the plunge pool at its
+/// foot, and the next low ground its overflow runs on to.
+///
+/// **Public, and shared with the harnesses, because getting this wrong is
+/// silent.** A drain in the wrong column is not an error anywhere -- the
+/// ledger just reports `drained 0` and the scene fills like a bath while
+/// still printing a "standing" frame cost. Both harnesses had their own copy
+/// of the rule and both had the same bug: `viewshot spring=` and `ascii`'s
+/// river-cost scene each drained at the *world's* lowest column, which in
+/// that scene lands 2030 columns from the outlet. One rule, one place.
+///
+/// Nested reaches, because "where the water ends up" is not one place: a fall
+/// makes a plunge pool at its foot, and what that pool overflows runs on to
+/// the next low ground. Which of the two a given world's water actually
+/// settles in depends on terrain nobody is going to simulate here. Draining
+/// both is cheap -- a drain only ever removes work, so there is no budget on
+/// them the way there is on springs -- and it is the difference between a
+/// river and a rising bath. Seed 7 emitted 4.2M fill units into a
+/// single-reach drain and returned `drained 0`.
+///
+/// The height is [`SPRING_POOL_DEPTH`] above the basin floor, **not on it**.
+/// The drain's *height* is what decides whether a pool stands, and the rate
+/// is not: `spring::step` takes only from a drain cell that currently holds
+/// a liquid, so a drain above the waterline is inert. Nothing leaves until
+/// the pool has risen to it, and then it takes at most `DRAIN_FILL` per
+/// frame -- which equals `EMIT_FILL`, so one drain balances one emission
+/// column and the pool settles *at the drain's height* with the throughput
+/// passing through. The first version seated drains one cell above the floor,
+/// which is this with the pool depth set to zero: it took the water as fast
+/// as it landed and nothing ever stood at the bottom. The owner, shown it:
+/// *"it looks like it comes from nowhere and goes nowhere ... Ideally it
+/// should also end in a pool."*
+pub fn spring_drains(world: &World, from_x: i32, dir: i32, span: i32, w: i32, h: i32) -> Vec<(i32, i32)> {
+    let mut out = Vec::new();
+    let mut seen: Vec<i32> = Vec::new();
+    for reach in [MAX_FALL / 3, SPRING_DRAIN_REACH] {
+        let mut basin = from_x;
+        for d in 1..=reach {
+            let x = (from_x + dir * d).clamp(0, w - 1);
+            if world_top(world, x, h) > world_top(world, basin, h) {
+                basin = x;
+            }
+        }
+        if seen.contains(&basin) {
+            continue;
+        }
+        seen.push(basin);
+        let floor = world_top(world, basin, h);
+        for d in 0..span {
+            let dx = (basin + d - span / 2).clamp(0, w - 1);
+            // Follow the basin's own floor where it is lower than the centre
+            // column's, so a drain never ends up buried in a bank that
+            // happens to be higher than where the pool bottoms out.
+            let dy = world_top(world, dx, h).min(floor) - SPRING_POOL_DEPTH;
+            if dy >= 0 {
+                out.push((dx, dy));
+            }
+        }
+    }
+    out
+}
+
 /// Springs where the water table daylights on a cliff face, each with a drain
 /// in the basin its fall feeds.
 ///
@@ -3329,73 +3391,11 @@ pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
         }
 
         // **The sink, in the plunge pool -- not at the world's low point.**
-        // Lowest *world* ground on the falling side within reach, and the
-        // drain sits in the air cell directly on top of it, which is where
-        // water stands.
-        //
-        // Both halves of that were got wrong first and measured. Reading
-        // `surface` (the plan) instead of the built world puts the drain
-        // inside talus, where it never sees a liquid cell and the ledger
-        // reports `drained 0`. And reaching far puts it somewhere the water
-        // never arrives: `viewshot`'s hand-placed drain goes to the *world's*
-        // lowest column, and in `ascii`'s river-cost scene that lands 2030
-        // columns from the outlet and drains nothing in 1400 frames. The fall
-        // makes its pool at the foot, so that is where the sink belongs.
-        // Nested reaches, because "where the water ends up" is not one place.
-        // A fall makes a plunge pool at its foot, and what that pool overflows
-        // runs on to the next low ground; which of the two a given world's
-        // water actually settles in depends on terrain the pass is not going
-        // to simulate. Draining both is cheap -- a drain only ever removes
-        // work, so there is no budget on them the way there is on springs --
-        // and it is the difference between a river and a rising bath. Seed 7
-        // emitted 4.2M fill units into a single-reach drain and returned
-        // `drained 0`.
-        let mut seen = [i32::MIN; 2];
-        for (n, reach) in [MAX_FALL / 3, SPRING_DRAIN_REACH].into_iter().enumerate() {
-            let mut basin = ex;
-            for d in 1..=reach {
-                let x = (ex + dir * d).clamp(0, w - 1);
-                if world_top(world, x, h) > world_top(world, basin, h) {
-                    basin = x;
-                }
-            }
-            if seen.contains(&basin) {
-                continue;
-            }
-            seen[n] = basin;
-            // **At the pool's surface, not on its floor** -- the drain's
-            // *height* is what decides whether a pool stands, and the rate
-            // is not. `spring::step` takes only from a drain cell that
-            // currently holds a liquid, so a drain above the waterline is
-            // inert: nothing leaves until the pool has risen to it, and then
-            // it takes at most `DRAIN_FILL` per frame. `DRAIN_FILL` and
-            // `EMIT_FILL` are both `LIQUID_FULL`, so one drain balances one
-            // emission column and the pool settles *at the drain's height*
-            // with the throughput passing through it. A pool with an outlet
-            // at its lip, self-levelling, and conserving.
-            //
-            // The first version seated drains one cell above the basin floor,
-            // which is the same construction with the pool depth set to
-            // zero: it took the water as fast as it landed, 90-98% of
-            // everything emitted, so nothing ever stood at the bottom. The
-            // owner, shown it: *"it looks like it comes from nowhere and goes
-            // nowhere ... Ideally it should also end in a pool."*
-            //
-            // It is very likely the thinness complaint from the same card as
-            // well. `render.rs` dims a liquid toward black by *fill*, so
-            // water being removed as fast as it arrives is never near full
-            // and draws almost black against the rock.
-            let floor = world_top(world, basin, h);
-            for d in 0..span {
-                let dx = (basin + d - span / 2).clamp(0, w - 1);
-                // Follow the basin's own floor where it is lower than the
-                // centre column's, so a drain never ends up buried in a bank
-                // that happens to be higher than where the pool bottoms out.
-                let dy = world_top(world, dx, h).min(floor) - SPRING_POOL_DEPTH;
-                if dy >= 0 {
-                    world.add_drain(dx, dy);
-                }
-            }
+        // The rule, and the long account of how each half of it was got
+        // wrong first, live in `spring_drains` -- shared with the harnesses,
+        // which each had their own broken copy of it.
+        for (dx, dy) in spring_drains(world, ex, dir, span, w, h) {
+            world.add_drain(dx, dy);
         }
         budget -= span;
         placed_at.push(rim);

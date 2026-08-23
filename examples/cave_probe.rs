@@ -178,7 +178,8 @@ fn main() {
             let mut world = World::new(bounds);
             worldgen::generate(&mut world, worldgen::Spec::Generated { params, seed });
 
-            let found = census(&world, &mut forms, &mut vug_list);
+            let deep = deep_profile(&world, params);
+            let found = census(&world, &deep, &mut forms, &mut vug_list);
             if found.is_empty() {
                 worlds_with_none += 1;
             }
@@ -191,7 +192,7 @@ fn main() {
                 }
             }
             systems.extend(found);
-            let (v, r) = deep_area(&world);
+            let (v, r) = deep_area(&world, &deep);
             void_total += v;
             rock_total += r;
         }
@@ -254,49 +255,56 @@ fn main() {
     }
 }
 
-/// Void, deep enough to be cave rather than an open surface hollow. The
-/// depth band matches the pass's own `vault_min_depth` intent rather than
-/// reading it, because what is being measured is "what is down there", not
-/// "did the knob take".
+/// Where "deep" starts, per column: the ground plus `vault_min_depth`.
 ///
-/// **The default is measurably too deep at the shipped size, and `deep=N`
-/// exists to show it rather than to fix it.** Caves are placed from
-/// `plan.surface_y + vault_min_depth` (`passes.rs`, the `vaults` pass),
-/// which is about row 341 -- `sky_rows` is 95 and does not scale with world
-/// height, so the band's top barely moves when the world does. At the
-/// 2048x640 this was written against, `WORLD_HEIGHT / 2` was 320 against a
-/// true 341 and the window was right by arithmetic accident. At 8192x2560
-/// it is 1280, and the census reads the bottom half of a band that starts
-/// a quarter of the way down.
+/// **This was `WORLD_HEIGHT / 2`, and that is not where caves are.** The
+/// `vaults` pass places from `plan.surface_y + p.vault_min_depth`
+/// (`passes.rs`), and `sky_rows` is 95 and does not scale with world height,
+/// so the band's top barely moves when the world does. At the 2048x640 this
+/// was written against, `WORLD_HEIGHT / 2` was 320 against a true ~341 and
+/// the window was right by arithmetic accident; at 8192x2560 it is 1280 and
+/// the census read the bottom half of a band that starts a quarter of the
+/// way down. The same shape as the `table_offset: 400` sentinel and
+/// `MAX_TOTAL_REGIONS = 64` that Phase 2 fixed inside the generator.
 ///
 /// Measured paired on one build, canyon, 6 seeds, `deep=1280` against
 /// `deep=341`: systems 20 -> 26 (worlds with no system at all, 1 -> **0**),
 /// formations 166 -> 244, contrast p95/med 2.68x -> 3.68x, walk_regions p90
 /// 36 -> 29, void 0.806% -> 0.562% of the deep massif. `Reports/world-scale-
-/// phase-2.md` §4 is written from the 1280 column, so two of its conclusions
-/// move: cave *rarity* is substantially the ruler, and the contrast fall is
-/// a quarter rather than a third. Formation base width -- the number that
-/// answers the owner's complaint -- is identical in both windows.
+/// phase-2.md` §4 is written from the 1280 column, and its own §4 note now
+/// records which of its conclusions that moves.
 ///
-/// **The default deliberately stays at `WORLD_HEIGHT / 2`** so that adding
-/// this knob moves no number anyone has already quoted; changing it is a
-/// decision about §4's table, not a drive-by. The honest replacement is
-/// per-column (`surface(x) + vault_min_depth`), which is the pass's own
-/// rule and cannot go stale at the next size change -- a global constant
-/// here has now been wrong once and right by luck once.
-fn deep_y() -> i32 {
-    static DEEP: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    *DEEP.get_or_init(|| {
-        std::env::args()
-            .find_map(|a| a.strip_prefix("deep=").map(|v| v.parse().expect("deep=N")))
-            .unwrap_or(pixel_physics::app::WORLD_HEIGHT as i32 / 2)
-    })
+/// **Per column, and derived rather than written down.** A single number
+/// here has now been wrong once and right by luck once, so a third literal
+/// would be the same bug with a fresh number. Reading the *built* world's
+/// surface rather than the plan's is deliberate: talus, brows and residuals
+/// sit on top of the plan, and the question is only "is this air
+/// underground". A column with no ground at all yields `h`, i.e. contributes
+/// nothing, rather than admitting its whole sky.
+///
+/// `deep=N` overrides every column with one flat value. It is kept for
+/// re-running the paired comparison above -- it is how the defect was
+/// measured, and it is how a future size change can re-check this in one
+/// build instead of two.
+fn deep_profile(world: &World, params: &worldgen::WorldgenParams) -> Vec<i32> {
+    let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
+    let flat: Option<i32> = std::env::args()
+        .find_map(|a| a.strip_prefix("deep=").map(|v| v.parse().expect("deep=N")));
+    (0..w)
+        .map(|x| {
+            flat.unwrap_or_else(|| {
+                (0..h)
+                    .find(|&y| world.get(x, y).material != material::EMPTY)
+                    .map_or(h, |g| g + params.vault_min_depth)
+            })
+        })
+        .collect()
 }
 
-fn deep_area(world: &World) -> (usize, usize) {
+fn deep_area(world: &World, deep: &[i32]) -> (usize, usize) {
     let (mut void, mut rock) = (0usize, 0usize);
-    for y in deep_y()..pixel_physics::app::WORLD_HEIGHT as i32 {
-        for x in 0..pixel_physics::app::WORLD_WIDTH as i32 {
+    for x in 0..pixel_physics::app::WORLD_WIDTH as i32 {
+        for y in deep[x as usize]..pixel_physics::app::WORLD_HEIGHT as i32 {
             let c = world.get(x, y);
             if c.material == material::EMPTY {
                 void += 1;
@@ -311,9 +319,13 @@ fn deep_area(world: &World) -> (usize, usize) {
 /// Flood-fill every deep void component and measure it. 8-connected,
 /// because that is the neighbourhood the carve writes at and a 4-connected
 /// read of an 8-connected writer sees fragments (CLAUDE.md).
-fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<System> {
+fn census(world: &World, deep: &[i32], forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<System> {
     let (w, h) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
-    let top = deep_y();
+    // The array bound is the shallowest column's threshold; the *test* is
+    // still per column, in `is_void` below. Indexing off the minimum keeps
+    // the flood's scratch buffer one flat rectangle without letting a deep
+    // column's sky leak into the census.
+    let top = deep.iter().copied().min().unwrap_or(h).clamp(0, h);
     let idx = |x: i32, y: i32| ((y - top) * w + x) as usize;
     let mut seen = vec![false; ((h - top) * w) as usize];
     let mut out = Vec::new();
@@ -322,7 +334,14 @@ fn census(world: &World, forms: &mut Formations, vugs: &mut Vec<System>) -> Vec<
     // standing water a flooded chamber holds, because a flooded passage is
     // still a passage and measuring it as stone would say a water-filled
     // system does not exist.
+    //
+    // The depth test lives here rather than in the loop bounds so that a
+    // flood cannot walk *up* out of the band through a column whose ground
+    // is higher than its neighbour's.
     let is_void = |x: i32, y: i32| {
+        if y < deep[x as usize] {
+            return false;
+        }
         let c = world.get(x, y);
         c.material == material::EMPTY || world.materials.kind(c.material) == MaterialKind::Liquid
     };
