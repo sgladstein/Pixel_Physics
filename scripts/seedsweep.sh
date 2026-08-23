@@ -96,12 +96,36 @@ stats() {
   # the two columns: `lost` is worst when most positive, `rock` when most
   # negative (rock only ever goes away). So `rock` is negated on the way in
   # and reported back as a magnitude.
+  #
+  # **`total` is reported because it is the only stable number here.** At
+  # these sample counts p90 is an extreme order statistic wearing a
+  # percentile's clothes: nearest-rank puts it at the *second worst* of 18
+  # runs and the *third worst* of 24, so one chaotic seed moves it bodily.
+  # Not hypothetical -- a review of the load-sharing change ran this with 3
+  # seeds instead of 4 and reported an **84% regression that did not exist**
+  # (p90 4,358 against a true 2,351). A sum over every run cannot do that,
+  # and it is what settled the same question: +5.5%.
+  #
+  # Read them together. `total` says whether the change costs anything on
+  # aggregate; `max` and `p90` say whether it has a new worst case; a gap
+  # between them means the distribution reshuffled, which is the normal
+  # state of affairs here and not a regression on its own.
   echo "$2" | tr ' ' '\n' | grep -E '^-?[0-9]+$' | sort -n | awk -v label="$1" '
-    { v[NR] = $1 }
+    { v[NR] = $1; if ($1 > 0) total += $1 }
     END {
       if (NR == 0) { print label ": NO RESULTS PARSED -- the census line format probably changed"; exit }
-      printf "%s over %d runs: max %d, p90 %d, median %d, min %d\n", label, NR, v[NR], v[int((NR * 9 + 9) / 10)], v[int((NR+1)/2)], v[1]
+      printf "%s over %d runs: total %d, max %d, p90 %d, median %d, min %d\n", label, NR, total, v[NR], v[int((NR * 9 + 9) / 10)], v[int((NR+1)/2)], v[1]
     }'
 }
+
+# Loud, because the alternative is a plausible-looking number. Anything
+# short of the full grid puts p90 within one seed of the maximum, and the
+# people most likely to trim the seed list are the ones in a hurry.
+sample_count=$(echo "$losses" | tr ' ' '\n' | grep -cE '^-?[0-9]+$')
+if [ "$sample_count" -lt 24 ]; then
+  echo "!! WARNING: only $sample_count runs. p90 is within one seed of the max at this size and is"
+  echo "!!          not comparable across changes -- a 3-seed sweep once reported an 84% regression"
+  echo "!!          that did not exist. Read total, or restore the full PRESETS x SEEDS grid."
+fi
 stats "cells lost" "$losses"
 stats "rock destroyed" "$(echo "$rocks" | tr ' ' '\n' | awk 'NF { print -$1 }')"
