@@ -581,9 +581,11 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     // burns into the soil reads as the world being on fire rather than the
     // grass.
     //
-    // The roll comes before the neighbour scan, not after, so a burning
-    // cell buried in a fuel bed -- with no empty neighbour at all, which is
-    // most of them -- pays one `chance` and no `get`s.
+    // The roll comes before the neighbour scan, not after, and that is the
+    // whole of what this costs: on the frames the roll fails -- most of
+    // them, at any sane rate -- a burning cell pays one `chance` and not a
+    // single `get`. Only a winning roll scans, and it stops at the first
+    // empty cell it finds.
     if let Some(flame) = flame_into {
         if flame_chance > 0.0 && surface.rng().chance(flame_chance) {
             let flame_def = surface.materials().get(flame);
