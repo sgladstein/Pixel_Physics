@@ -199,12 +199,17 @@ pub struct CreatureStats {
 /// evolution actually needs (P-20): **no lineage may extract unbounded
 /// energy from a cycle it controls.**
 ///
-/// `meat_lost` is not an account here, because nothing hooks the seam a
-/// corpse is destroyed through (decay, fire, an explosion, the brush).
-/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `meat_lost` **is** an account here as of 2026-08-23. It was not, and the
+/// meat identity was an upper bound rather than an equality because nothing
+/// hooked the seam a corpse is destroyed through. Three of the four paths
+/// that entry named are now booked — fire burning a corpse to ash, an
+/// explosion consuming one, the brush erasing one — and the fourth (decay)
+/// does not exist: `corpse.ron` declares no `decays_into`, so a corpse does
+/// not rot, and the day it does is the day that hook is needed.
 /// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
-/// asserts it as one. In a sealed box where nothing eats corpses but the
-/// ants, it is tight.
+/// still asserts a `<=`, because meat riding a `Particle` between a throw
+/// and a landing is standing nowhere; what closes exactly is
+/// `a_destroyed_corpse_is_booked_rather_than_forgotten`.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
     /// **Source.** Metabolic energy created at spawn — a creature's
@@ -251,6 +256,33 @@ pub struct EnergyLedger {
     /// by a tick is honest behaviour and pretending it did not is how a
     /// counterweight constant gets born.
     pub overdrawn: f64,
+    /// **Sink.** Meat destroyed rather than eaten: the worth stamped into a
+    /// `worth_in_aux` cell that something removed from the world without an
+    /// animal getting it. Fire burning a corpse to ash, an explosion
+    /// consuming one, the brush erasing one.
+    ///
+    /// Booked at the few call sites that destroy such a cell, **never in
+    /// `World::set`** — that is per-cell hot-path work on the sweep's
+    /// busiest seam, and `CLAUDE.md`'s "guard hot-path work at the call site
+    /// that already has the data" applies exactly: each of those sites has
+    /// already read the outgoing cell for its own reasons, so the hook costs
+    /// a `Vec` index on a branch that was taken anyway.
+    ///
+    /// **This is what turns `max_standing_meat` from a hope into a bound.**
+    /// Before it existed, meat could quietly go missing and every guard
+    /// passed: the meat identity was a `<=`, and `creature_biomass` is
+    /// asserted monotone non-increasing, which a loss also satisfies.
+    ///
+    /// **The other seam is still open and is deliberately not this one.**
+    /// Living flesh carries a stamp that nothing pays for, because its sink
+    /// — a parent paying stamps for a child — does not exist until S6
+    /// reproduction (`Reports/creature-evolution-plan.md` §2.3, "One seam
+    /// left open"; `creature.rs`'s `food_value` and `ant.ron`'s
+    /// `food_energy == body_energy` equality are the load-bearing pieces).
+    /// Close that one *with* S6, not here: without the sink there is nothing
+    /// for the booking to balance against. The two are recorded together on
+    /// purpose so whoever finds one finds the other.
+    pub meat_lost: f64,
 }
 
 impl EnergyLedger {
@@ -265,10 +297,32 @@ impl EnergyLedger {
             + self.overdrawn
     }
 
-    /// The most meat that can be standing in the world. An **upper bound**,
-    /// not an equality — see the type doc on `meat_lost`.
+    /// The most meat that can be standing in the world.
+    ///
+    /// **Was an upper bound and is now a real one**, because `meat_lost`
+    /// books the destruction paths that used to make it a hope: every joule
+    /// of meat was either stamped in, eaten out, or destroyed, and all three
+    /// are now accounts. What keeps it a `<=` rather than an `==` is only
+    /// meat in flight — a corpse cell riding a `Particle` between the throw
+    /// and the landing is standing nowhere.
     pub fn max_standing_meat(&self) -> f64 {
-        self.stamped + self.stored_in_meat - self.harvested_corpse
+        self.stamped + self.stored_in_meat - self.harvested_corpse - self.meat_lost
+    }
+
+    /// The worth of a cell about to be destroyed, or `None` if destroying it
+    /// loses no meat.
+    ///
+    /// The shared predicate behind every `meat_lost` booking, so the four
+    /// call sites cannot drift apart on what counts. Deliberately mirrors
+    /// `creature::food_value`'s gate — `worth_in_aux` **and** a non-zero
+    /// stamp — because the quantity being destroyed has to be the same
+    /// quantity an animal would have eaten. An unstamped corpse (`aux == 0`,
+    /// which `fire.rs`'s burnout writes deliberately) is worth the material
+    /// fallback to an eater but books nothing here: it never had a stamp to
+    /// lose, and charging the fallback would invent a sink out of a
+    /// material default.
+    pub fn meat_worth_of(materials: &MaterialRegistry, cell: Cell) -> Option<f64> {
+        (materials.get(cell.material).worth_in_aux && cell.aux() != 0).then(|| cell.aux() as f64)
     }
 }
 
@@ -2853,7 +2907,25 @@ impl World {
                 // protection as `Solid` -- a grown tree is exactly as
                 // deliberately placed as a stone wall, and without this the
                 // brush could erase it cell by cell same as any loose powder.
-                let existing_material = self.get(x, y).material;
+                let existing = self.get(x, y);
+                let existing_material = existing.material;
+                // **The brush is a destruction path like any other.** Erasing
+                // a stamped corpse takes real meat out of the world, and
+                // before `meat_lost` existed it did so silently -- so a
+                // player tidying up a battlefield could make
+                // `max_standing_meat` a lie. Free here: the outgoing cell was
+                // already read on the line above for the solid-terrain guard.
+                //
+                // Only on an erase. Painting over a corpse is blocked for
+                // `Solid`/`Plant` and permitted otherwise, and that permitted
+                // case destroys meat too -- but it is a *replacement*, and
+                // charging it here would double-book against whatever the
+                // replacement is worth. Erasing is the unambiguous half.
+                if material == material::EMPTY {
+                    if let Some(worth) = EnergyLedger::meat_worth_of(&self.materials, existing) {
+                        self.energy_ledger.meat_lost += worth;
+                    }
+                }
                 if material != material::EMPTY
                     && existing_material != material::EMPTY
                     && matches!(
@@ -3461,6 +3533,10 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn book_meat_lost(&mut self, worth: f64) {
+        self.energy_ledger.meat_lost += worth;
+    }
+
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         self.phase_changes.record(event);
     }
@@ -3510,6 +3586,164 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    // --- meat_lost: the destruction seam ---------------------------------
+
+    /// A world with a corpse slab in it, every cell stamped `worth`.
+    fn meat_world(worth: u16) -> (World, MaterialId, Rect) {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        let slab = Rect::new(50, 100, 77, 107);
+        for y in slab.min_y..=slab.max_y {
+            for x in slab.min_x..=slab.max_x {
+                w.set(x, y, Cell::new(corpse, 0).with_aux(worth));
+            }
+        }
+        (w, corpse, Rect::new(0, 0, 127, 127))
+    }
+
+    /// **Meat that leaves the world is booked, not forgotten.**
+    ///
+    /// The guard for `EnergyLedger::meat_lost`. Before it, a corpse burnt,
+    /// blasted or erased simply stopped existing and nothing recorded it —
+    /// which is what made `max_standing_meat` an upper bound rather than a
+    /// bound, and it could not be caught by any existing guard: the meat
+    /// identity was asserted as `<=`, and `creature_biomass` is asserted
+    /// monotone non-increasing, so a *loss* satisfied both.
+    ///
+    /// Asserted as **conservation across each arm** — meat standing
+    /// afterwards plus meat booked lost equals meat standing before — rather
+    /// than against the ledger's source terms, because this scene places its
+    /// corpses by hand rather than through `creature_dies`, so `stamped` is
+    /// legitimately 0 here and an identity built on it would be measuring
+    /// the wrong thing.
+    ///
+    /// **The control arm is the point of the test as much as the other
+    /// three.** A hook that fires when nothing is being destroyed is exactly
+    /// as wrong as one that never fires, and it is the failure a
+    /// conservation assertion alone cannot see.
+    #[test]
+    fn a_destroyed_corpse_is_booked_rather_than_forgotten() {
+        use crate::sim::creature::standing_meat;
+        const WORTH: u16 = 1_020;
+
+        // --- control: nothing destroys anything ---------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            for _ in 0..200 {
+                crate::sim::update::step(&mut w);
+            }
+            assert_eq!(
+                w.energy_ledger.meat_lost, 0.0,
+                "meat was booked lost in a world where nothing burns, blasts or erases"
+            );
+            assert!(
+                (standing_meat(&w, all) - before).abs() < 1.0,
+                "the control arm lost meat on its own ({before} -> {})",
+                standing_meat(&w, all)
+            );
+        }
+
+        // --- fire, on both drivers ---------------------------------------
+        // `corpse.ron` is flammable and burns into ash, so a body in a
+        // grassfire takes its stamp out of the world. Run under both drivers
+        // because this is the one destruction path that happens *inside* the
+        // CA sweep: the serial one books straight into the ledger and the
+        // parallel one tallies per chunk and merges in `run_pass`, and a
+        // merge that was dropped would show up here and nowhere else.
+        for parallel in [false, true] {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.ignite_circle(63, 103, 20);
+            for _ in 0..2_000 {
+                if parallel {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+            }
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            let driver = if parallel { "parallel" } else { "serial" };
+            assert!(lost > 0.0, "the {driver} driver burnt corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "{driver}: {before} of meat became {after} standing and {lost} booked lost — \
+                 {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- the brush ----------------------------------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.paint_circle(63, 103, 10, material::EMPTY);
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the brush erased corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "brush: {before} of meat became {after} standing and {lost} booked lost — {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- an explosion -------------------------------------------------
+        // The arm with two halves: a cell the blast *consumes* is meat
+        // destroyed, and a cell it *throws* is meat in flight, whose stamp
+        // rides `Particle::aux` (bug Z, fixed alongside this). Booking the
+        // throw would put `max_standing_meat` below the truth, so the
+        // identity here has to include what is still in the air — which is
+        // also the sharpest way to state that the two fixes are halves of
+        // one thing.
+        {
+            let (mut w, corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            let mut ps = crate::sim::particle::ParticleSystem::new();
+            crate::sim::explosion::trigger(&mut w, &mut ps, 63, 103, 20, 180.0);
+            let in_flight: f64 = ps
+                .iter()
+                .filter(|p| p.material == corpse && p.aux != 0)
+                .map(|p| p.aux as f64)
+                .sum();
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the blast consumed corpses and booked nothing ({before} -> {after})");
+            assert!(in_flight > 0.0, "test setup: the blast threw no stamped corpse, so the in-flight half is untested");
+            assert!(
+                (before - after - lost - in_flight).abs() < 1.0,
+                "blast: {before} of meat became {after} standing, {lost} booked lost and {in_flight} in flight — \
+                 {} unaccounted for",
+                before - after - lost - in_flight
+            );
+
+            // And once it lands, the in-flight half is standing again and
+            // nothing further is booked.
+            let lost_before_landing = w.energy_ledger.meat_lost;
+            for _ in 0..600 {
+                if ps.is_empty() {
+                    break;
+                }
+                ps.step(&mut w);
+            }
+            assert!(ps.is_empty(), "{} particles never landed", ps.len());
+            assert_eq!(
+                w.energy_ledger.meat_lost, lost_before_landing,
+                "landing a particle booked meat as lost — a throw is not a destruction"
+            );
+            let landed = standing_meat(&w, all);
+            assert!(
+                (before - landed - lost).abs() < 1.0,
+                "after landing: {before} of meat became {landed} standing and {lost} booked lost — {} unaccounted for",
+                before - landed - lost
+            );
+        }
     }
 
     // --- §11: touched_chunks --------------------------------------------

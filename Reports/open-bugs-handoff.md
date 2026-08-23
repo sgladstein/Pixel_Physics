@@ -873,7 +873,92 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
-### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
+### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
+
+> **Closed by WP-5 of the creature handoff.** Reproduced first, then fixed,
+> then broken deliberately in both directions to prove the guards bite.
+>
+> **The reproduction, which this entry said had never been done.** A slab of
+> `corpse` stamped 1,020 per cell, blasted at radius 20 through the real
+> `explosion::trigger` path (`sim::particle::tests::
+> a_blasted_corpse_lands_worth_what_it_was_worth`): **114 cells thrown, and
+> every one landed worth 120.** The census over the survivors read **254.3
+> per cell against 1,020** — arithmetic that resolves exactly to "the 20
+> cells never thrown kept their stamp and all 114 thrown ones lost it".
+> **102,600 energy destroyed by one blast**, and the estimate in this entry
+> was right on the nose: 8.5x, on the one material whose value is per-cell.
+>
+> **The fix.** `Particle` gains `aux: u16`, taken from the source cell at
+> spawn and written back by `land` **only when the landing material declares
+> `Material::worth_in_aux`** — gated on the *flag*, not on the value, because
+> an unstamped corpse (`aux == 0`) is a real case that `fire.rs`'s burnout
+> writes deliberately, and `creature::food_value` should stay the only place
+> that turns a 0 back into the material fallback.
+>
+> The cell-sourced entry point takes the **`Cell` itself** (`spawn_from_cell`)
+> rather than an `aux` parameter: every caller that had this bug already held
+> the `Cell` and passed two of its three fields, so a parameter would have
+> been exactly as easy to forget again. Three callers source from a live
+> cell — `explosion.rs:1639` and `:1826`, plus the splash path at
+> `particle.rs`'s `throw_splashes`, which this entry did not list. The
+> brush's debug burst (`app.rs::spawn_burst`) has no source cell and keeps
+> the plain `spawn`.
+>
+> **`rigid.rs`'s `BodyCell` is left alone, as this entry says it should be**,
+> and the reason is now recorded in `Particle::aux`'s own doc comment so the
+> asymmetry is not "fixed" by symmetry later: a body only ever holds
+> `Solid`/`Plant`, where `aux` is the organism packing, so carrying it would
+> let a landing body silently re-attach.
+>
+> **Both guards, and both were made to fail.** The corpse case above, and its
+> opposite — `a_blasted_grain_does_not_land_carrying_its_moisture`, because
+> the artifact a fix like this *introduces* is over-copying: on soil `aux` is
+> saturation on `SOIL_SATURATED`'s scale, so an unconditional copy lands
+> every blasted grain soaking wet. Deleting the gate fires the moisture
+> guard (a grain landed carrying `aux` 1000); reverting the whole fix fires
+> the corpse guard (254.3 against 1,020); with both in place the pair is
+> green.
+>
+> **The first version of that second guard was vacuous and is worth
+> recording.** It asserted through `creature::food_value`, which *already*
+> gates on `worth_in_aux` — so it reported soil's flat `food_energy`
+> whatever the stamp said, could not fail, and duly passed with the gate
+> deleted. It was measuring the gate it existed to guard, through a second
+> copy of that gate. It only showed up because the fix was deliberately
+> broken; on green alone it would have shipped. Rewritten to assert the raw
+> `aux` on grains that landed *outside* the original slab footprint, which
+> are the only ones that can have been thrown.
+>
+> **Nothing on screen changed, and that is the sharpest thing about this
+> bug.** A corpse's *shade* is baked in at death by `creature_dies`
+> (`creature.rs:1907`, a ramp over the animal's `start_energy`) and rides on
+> `Particle::shade`, which was always carried. Only `aux` was dropped. So a
+> blasted corpse landed **still drawn pale, as a fresh kill, while being
+> worth 120** — the picture said rich and the number said carrion, and the
+> picture was the one a person would have checked. `CLAUDE.md`'s division of
+> labour, in the flesh: an image tells you *what* and *where*, and only a
+> census tells you *how much*. No review card was posted for this fix,
+> because there is nothing to look at; the evidence is the census.
+>
+> Determinism pair green on both drivers — a new field on `Particle` does
+> not perturb replay. `ParticleSystem::step` runs once per frame from
+> `App::update`, outside the CA sweep, so this path is driver-independent by
+> construction rather than by test.
+>
+> **The other half landed with it (WP-6).** This preserves the worth of a
+> corpse the blast *throws*; `EnergyLedger::meat_lost` now books the one it
+> *consumes*, along with fire and the brush, so `max_standing_meat` is a
+> real bound rather than a hope. The two were built together because they
+> are two halves of one branch — booking a *throw* would charge for meat
+> merely in flight and put the bound below the truth, and the guard
+> `world.rs::a_destroyed_corpse_is_booked_rather_than_forgotten` asserts
+> exactly that by carrying the in-flight term explicitly. The bar in this
+> section's own test is worth *per surviving cell* rather than on the sum
+> for the same reason: the total is allowed to fall, and what may not happen
+> is a cell coming back cheaper.
+
+**The original entry, kept as the record of what was inferred and what it
+cost:**
 
 Found by inspection during the `creatures-m18` merge review, **not created by
 it**. `Particle` carries `material` and `shade` but not `aux`, and landing
@@ -2898,6 +2983,13 @@ is settled.
 
 ### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **CLOSED 2026-08-23. The well evaporated; the scene now maintains a spring, and the guard is a continuous margin.**
 
+> **Read §L first (2026-08-23).** As of `main` at `a0fa433`, `ascii` panics
+> at `:1678` on a *foraging* assert and **never reaches the `:1850`
+> assertion below**. The reproduction in this section is real and was real
+> when it was written, but you cannot currently observe it by running
+> `ascii`: §L has to be got past first. The two are unrelated failures
+> sharing one quarantined gate.
+
 `examples/ascii.rs:1850` fails its own setup assertion:
 
 ```
@@ -3091,7 +3183,11 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
 
-### L. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed — **OPEN, pre-existing on `main`, 2026-08-23**
+### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
+
+*(Re-lettered from L at the 2026-08-23 lane landing: three unrelated bugs
+had been filed as §L by three lines. The colony-sessile entry keeps the
+letter — it is the one the lane PRs and CI job names cite.)* — **OPEN, pre-existing on `main`, 2026-08-23**
 
 `CLAUDE.md` lists same-build determinism as **required**. It does not hold on
 the scene the seed sweep is built out of.
@@ -3203,6 +3299,19 @@ to let the new cell inherit them from the soil it is replacing — and, for the
 roots, to establish how long capillary wetting actually takes before deciding
 there is anything to fix.
 
+**Merged at landing (2026-08-23) — Lane B filed this bug independently, and
+its unique finding is a coupling.** The capillary remedy above is defeated by
+the very material producing the dry layer: §F1 (LIVE, verified) has
+`weather::step`'s soak loop `break` at the first cell with `water_capacity ==
+0`, and `litter.ron` declares none — so a column under a litter blanket takes
+**zero** rain. Fast rot then deepens a dry layer under a blanket that blocks
+the rain, with only sideways capillary flow to wet it, and it predicts this
+bug gets worse exactly as the litter economy gets better — the enrichment
+shape `PLAN.md`'s standing note warns about. Measures specced before acting,
+neither built yet, both paired: soil `aux` summed by depth under a littered
+column against a bare one across rain epochs; root cells entering
+newly-decayed soil against established soil.
+
 Reported, not fixed: `decay.rs`, `plant.rs` and the palette passes are not
 this lane's files.
 
@@ -3300,7 +3409,35 @@ Reported, not fixed: `tests/worldgen.rs`, the load model and the liquid rules
 are not this lane's files, and the point of finding it is that nothing said
 it was red.
 
-### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, unattributed, found 2026-08-23**
+**Merged at landing (2026-08-23) — Lane B's independent filing adds the run
+history, the local blind spot, and a starting commit:**
+
+- Red on every `main` CI run since `a0fa433`; last green was **#146 on
+  `c6ffba2`**, the creature-line parent of that merge. Consistent with the
+  load-port worsening above: at `a0fa433` the failure was `wetland seed 3: 8
+  cells` and `rolling` still passed.
+- **A plain local `cargo test` cannot see this.** `cargo test` stops after
+  the first failing test *binary*; bug A fails in the lib target, so a local
+  run never executes `tests/worldgen.rs` or `tests/determinism.rs` at all —
+  no error, no "skipped", just absence. Run the gate the way CI runs it:
+
+  ```
+  cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+  ```
+
+  The tell that you have the short version is the *absence* of
+  `Running tests/worldgen.rs` from the output. The quarantine that made CI
+  honest about bug A made local gate-running dishonest, in the direction
+  that hides failures.
+- **Where to start:** the world-scale line landed its springs/river pass
+  immediately before the merge (`4b044b2`, `7120741`, `f5f3b19`); water
+  placed by a new pass that has not settled by the time the at-rest
+  assertion samples is the shape of the original 8-cell failure. Run both
+  tests at seed 3 against `4b044b2^` first, then walk forward. Do not close
+  this by widening the settle budget until that has been checked — 0 cells
+  to 57 is a behaviour change, not a drift past a threshold.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, found 2026-08-23; bisected to the world-scale merge (see the merged filing at the end of this entry)**
 
 `examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
 `main`:

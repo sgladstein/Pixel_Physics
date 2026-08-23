@@ -605,6 +605,23 @@ sealed-box guards run on an ant-only colony, where ants do not eat ants, so the
 bound is tight there. Closing it means a sink for a stamp destroyed without
 becoming a corpse, and it belongs with S6, when a parent starts paying stamps.
 
+> **Update 2026-08-23 (WP-6): the sink now exists, and this seam is still
+> open on purpose.** `EnergyLedger::meat_lost` was added for the *other*
+> gap named in the same breath — meat destroyed by fire, an explosion or the
+> brush, which nothing booked, and which is why `max_standing_meat` was an
+> upper bound rather than a bound. It is exactly the shape this paragraph
+> asks for: an account for worth that leaves the world without being eaten.
+>
+> **It was deliberately not pointed at living flesh, and the reason is the
+> one this paragraph already gives.** The living-flesh gap is not a missing
+> account, it is a missing *transaction*: the stamp is not destroyed, it is
+> still standing in `stamped` against a body that has been partly eaten, and
+> booking it as lost would be a second wrong entry rather than the correction
+> of the first. What it waits on is a parent paying stamps for a child, so
+> that the stamp has somewhere to come *from* as well as somewhere to go.
+> Close it with S6, as written. `meat_lost`'s own doc carries a pointer back
+> here so the two are found together.
+
 ### 2.4 S4 — Litter: the canopy's production falls to where ants walk
 
 **The binding quantity is the fraction of animals that find food** (§13o's
