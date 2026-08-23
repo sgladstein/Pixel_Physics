@@ -1,0 +1,45 @@
+{
+  "id": "20260823T054744371Z-2f58ce",
+  "created": "2026-08-23T05:47:44Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/merge-m18",
+    "branch": "merge-m18-work",
+    "commit": "7b97c13",
+    "agent": null,
+    "session_id": "fe2b4bf4-9d52-5d78-8ea6-8f586e1d44ef",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/merge-m18"
+  },
+  "title": "Merged litter: 8x less hung up, but still not on the floor",
+  "question": "You said the vast majority should land on the ground, and that sending it all there was fine. It is much better than it was -- 8x fewer cells hung up on branches -- but only 30% is within three rows of the ground; the rest sits in a band up in the lower crown. Is that good enough, or should a shed leaf go all the way down every time?",
+  "context_md": "Cyan = litter resting on the ground. Magenta = litter resting on a branch. 8 trees, 12,000 frames, world 512x320, ground at row 200.\n\nBefore this merge the same scene stood at **4,330 litter cells, 3,825 of them on plant tissue (88%)**. The shed leaf is now walked down through its own crown instead of being written where it hung.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "merged",
+      "files": [
+        "20260823T054744371Z-2f58ce/000-litter-merged.png"
+      ],
+      "caption": "",
+      "meta": {
+        "standing": 1049,
+        "on ground": "583 (55.6%)",
+        "on a branch": "466 (44.4%)",
+        "within 3 rows of ground": "309 (29.5%)",
+        "ever shed": 5407,
+        "rotted away": "4358 (80.6%)",
+        "on-branch before the merge": "3825 (88%)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
