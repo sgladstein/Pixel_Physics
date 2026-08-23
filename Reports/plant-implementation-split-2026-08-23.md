@@ -231,6 +231,20 @@ each names its prerequisite PR and reads the predecessor's landing notes in
   organ package and the divergence instrument (A4) all gate on P3. The
   organ/determinacy package (morphology-reach §6) enters the lane after
   P3, carrying the three decided defaults; P2 follows.
+- **P2 gains the root-blob economy, owner directive, 2026-08-23** (card
+  `20260823T163504317Z-3cef7b`, answering the long-run root render where
+  both slot-5 treatments converged into one blob): *"There should be a
+  disadvantage for growing a big blob of roots that fully fills in all
+  space. If the root cell isn't touching soil it cannot benefit the plant
+  and has a cost… set up a system that leads to interesting and
+  heterogenous results, not every plant root eventually grows into the same
+  blob that is worst case."* Mechanism to build in P2, as the root twin of
+  crown recession: uptake credit only for root cells with soil-contact
+  surface, upkeep charged on all — interior root mass runs a deficit the
+  same way interior wood does under superlinear respiration, one economy
+  re-derivation covers both. This is also what unblocks root
+  *differentiation* (B1's axis washed out because the blob endpoint erases
+  it), so B-lane measurement re-runs after P2, not before.
 - **Model/effort:** these are build-and-measure packages against a documented
   queue — Opus at high effort with `auto` permission mode fits (never `plan`
   mode for an unattended session; it stalls at the approval prompt).
