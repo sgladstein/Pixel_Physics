@@ -476,6 +476,45 @@ WP-10         ─── gated on verdicts
 `src/sim/creature.rs` is the collision hotspot (WP-5, WP-8, WP-9): serial
 order or separate quick-landing PRs, per CLAUDE.md's contested-file rule.
 
+### Running this with more than one agent: the lane split
+
+A single agent following the WP order above is fully viable — the packages
+are already sequenced for it. If parallelising, use **these lanes and no
+finer**: the split is drawn on file ownership and on who produces the
+numbers others quote, which are the two ways parallel work has actually
+failed here (the `src/app.rs` collisions; the ten-branch fan-out that
+never pulled main forward — both recorded in CLAUDE.md).
+
+| Lane | WPs, in order | Owns (files) | Starts |
+|---|---|---|---|
+| **A — gates & instruments** | WP-1 → WP-3 → WP-4 | `examples/*` (`ascii`, `creature_space`, `forage_probe`, `ant_ablation`), the review queue, `ci.yml` | now |
+| **B — accounting & docs** | WP-2 → WP-7 → WP-5 → WP-6 | `Reports/*`, `wiki/*`, `PLAN.md` (land same-day), `particle.rs`, `explosion.rs`, `fire.rs`, `world.rs` ledger | now |
+| **C — S5 & traffic** | WP-8 → WP-9 (serial within the lane) | `creature.rs`, `organism.rs`, `material.rs`, `brain.rs`, `render.rs`, `assets/species/*` | when Lane A lands WP-4 (or immediately for WP-8 steps 1–5, deferring every measurement claim until WP-4 is on main) |
+
+Rules that make the split safe, all already paid for:
+
+1. **One lane owns `creature.rs` at a time.** Lane B's only touch is
+   WP-7's comment fixes — land those in its first day, before Lane C
+   starts. Lane B's WP-5/6 guard tests go in `particle.rs`/`world.rs`
+   test modules, not `creature.rs`, for exactly this reason.
+2. **Lane A is the source of truth for numbers.** No other lane publishes
+   a foraging/economy claim measured on pre-WP-4 instruments; a lane that
+   needs a number Lane A has not produced yet measures it locally, says
+   so, and re-measures after WP-4 lands. Baselines are still same-session,
+   same-machine, per lane — house law, unchanged.
+3. **Each lane: own worktree, own `claude/**` branch, PR opened on day
+   one** (CI now runs per-branch — this is what the last fan-out lacked),
+   `branchcheck.sh` at session start, and pull `main` in daily. Landing
+   order when PRs stack: A, then B, then C.
+4. **Verdict-gated work stays gated regardless of headcount.** More
+   agents do not unlock S6 or S7's larder; only the WP-1 cards do. Do not
+   spend a third agent on WP-10 speculation while the cards are
+   unanswered.
+5. **Do not go wider than three.** WP-10 is gated, the remaining packages
+   are small, and the owner's review bandwidth is the real bottleneck —
+   three lanes already produce three PRs and several cards into one
+   person's queue.
+
 ## Reporting back
 
 Per session: verdicts collected from the inbox; per WP landed: the
