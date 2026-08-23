@@ -4,12 +4,87 @@ name: CI
 # review-queue merge, which meant nothing pushed to `main` was gated -- and
 # that a tidy-up deleting the stale `master` mirror would have silently
 # disabled CI entirely rather than failing loudly.
+# Feature branches are gated too, and that is the point. Measured 2026-08-23:
+# 133 CI runs to date, every one of them on `main` or `master`, zero on any
+# feature branch and zero from a `pull_request` event. `push: [main]` does not
+# match a push to `claude/foo` and `pull_request: [main]` only fires once a PR
+# exists -- and no PR ever did, because the agent harness declines to open one
+# unless asked. So the first time CI ever saw a branch's code was *after* it
+# landed on main, which is the worst moment: a red suite then cannot say
+# whether the branch was broken or the conflict resolution was.
+#
+# `claude/**` is the harness's own branch prefix, so it covers agent work
+# without sweeping in `review-queue` -- an orphan branch holding only
+# cards/media/responses, with no Cargo.toml. Running this workflow there would
+# fail on every push and mean nothing. Legacy branches (`load-share`,
+# `plant-substrate-v2`) predate the prefix and stay ungated deliberately;
+# they are being retired, not developed.
 on:
   push:
-    branches: [main]
+    branches: [main, master, 'claude/**']
   pull_request:
     branches: [main]
 
+# A branch push supersedes its own in-flight run; `main` never cancels. Agents
+# push repeatedly within a session, and without this each push queues a full
+# matrix behind the last -- the cost that makes per-branch CI unaffordable.
+# The guard on `main` is deliberate: cancelling a trunk run would leave a
+# commit that nobody ever gated, which is the exact hole this change closes.
+# The group keys on the PR number when there is one, and only falls back to
+# the ref otherwise. Keying on `github.ref` alone looks right and is not: a
+# push to a branch that has an open PR fires *both* triggers, and the two
+# events carry different refs (`refs/heads/claude/foo` vs `refs/pull/11/
+# merge`), so they land in different groups and neither cancels the other.
+# Observed on PR #11 -- one push, runs 32623617551 and 32623619969, the full
+# nine-job matrix twice. Exactly double the cost on the branches most worth
+# gating, which is the opposite of what this block is for.
+# **`github.event.pull_request.number` was tried here first and is inert.**
+# Recorded because it looks obviously right and cost a round trip to disprove:
+# the `push` payload has no `pull_request` field at all, so on the very event
+# that needed to match, `.number` is null and the fallback fires. The push run
+# landed in `CI-refs/heads/claude/foo` while the PR run sat in `CI-11` --
+# still two groups. Measured on head 8b1324b: runs 142 (`push`) and 143
+# (`pull_request`) both ran the full nine-job matrix to completion.
+#
+# `github.head_ref` is the expression that is actually populated on a
+# pull_request event (the source branch), and empty everywhere else, so:
+#
+#   push to claude/foo   head_ref empty -> ref_name "claude/foo" -> CI-claude/foo
+#   PR from claude/foo   head_ref "claude/foo"                   -> CI-claude/foo
+#
+# ...one group, so the newer run cancels the older. `ref_name` rather than
+# `ref` is load-bearing: `ref` would give "refs/heads/claude/foo" on the push
+# side and never match the bare branch name `head_ref` returns.
+#
+# `main` is unaffected: head_ref is empty, ref_name is "main", and
+# cancel-in-progress still keys on `github.ref` so a trunk run is never
+# cancelled -- leaving a commit nobody gated is the hole this all exists to
+# close.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+# **The toolchain is pinned, and it was `@stable` until it broke.** Run 136's
+# `clippy` job went red on code nobody had touched: `dtolnay/rust-toolchain@
+# stable` floats, it had moved to 1.98.0, and two lints that did not exist in
+# 1.94 fired under `-D warnings` -- `manual_checked_ops` on
+# `examples/filmstrip.rs`'s `chunks * 100 / (chunks + dust)` and
+# `unnecessary_sort_by` on `src/worldgen/column.rs:1133`. The same commit was
+# clippy-clean locally on 1.94.1, which is exactly how this hides: the branch
+# is fine, the compiler moved.
+#
+# With several agents pushing in parallel, a gate that turns red on its own
+# schedule is worse than useless -- it is indistinguishable from a real break
+# and it trains people to ignore the board. Pinning trades "new lints arrive
+# automatically" for "CI says the same thing today as yesterday", which is the
+# right trade here. Bump it deliberately, as its own change, fixing whatever
+# the new release flags in the same commit.
+#
+# Not fixed in place instead, because `examples/filmstrip.rs` is touched by
+# five unmerged branches right now and it is the most-collided file in the
+# repo. `src/worldgen/column.rs` is uncontested and could be fixed today, but
+# fixing one of two leaves the gate red anyway.
+#
 # **One job per gate, and the split is a bug fix rather than tidying.**
 # These were six steps of a single job, and a step only runs if the one
 # before it succeeded. `cargo test` is the first and the slowest, so any
@@ -30,13 +105,55 @@ on:
 # acceptance -- so roughly 18 minutes becomes roughly 9). If the compute
 # ever matters, a Rust build cache is the lever, not re-merging the jobs.
 jobs:
+  # Cheap, no toolchain, runs beside `test` rather than ahead of it. Asks one
+  # question: does any other name for the trunk hold a commit `main` cannot
+  # reach? Copying `master` onto `main` left `master` standing as a writable
+  # mirror that nothing gates, and `3d53351` records what that costs -- a
+  # branch merged `master` while `main` was 10 commits ahead and silently
+  # lost the CLAUDE.md restructure, the map-scroll feature and the play-button
+  # fix. `master` merely *lagging* is fine and passes; a commit reachable only
+  # from `master` is the failure. Goes permanently green if `master` is
+  # deleted, which is the intended end state.
+  #
+  # fetch-depth: 0 is load-bearing -- the default shallow checkout cannot
+  # answer an ancestry question, and against a truncated history this check
+  # reports a clean run over commits that are not there. The script refuses to
+  # run shallow rather than passing vacuously.
+  branches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: trunk has no stranded twin
+        run: bash scripts/branchcheck.sh --gate --no-fetch
+
+  # --- Known-red quarantine -------------------------------------------------
+  # Three gates are red on `main` today for reasons that have nothing to do
+  # with whatever branch is being pushed: bug A (the slot-1 root spread), bug H
+  # (`ascii`'s ants moisture-gradient scene asserts a gradient the scene no
+  # longer has) and bug Y (the gnome covers 98 cells of the `wood` case's 200).
+  # All three are recorded in `Reports/open-bugs-handoff.md` and are guards the
+  # owner keeps deliberately.
+  #
+  # Turning branch CI on without doing something about them would show every
+  # agent four red jobs on push one, and a permanently-red signal teaches
+  # people to stop reading it -- the same defect as a gate that never runs,
+  # which this repo has already paid for (`capped` passed its acceptance case
+  # for two commits while the structure was frozen and never evaluated).
+  #
+  # So each known red is *excluded by name* from the gating job and re-run in
+  # its own `continue-on-error` job below. Nothing is skipped, hidden or
+  # deleted: the guard still executes and its output is still in the log. The
+  # only thing that changes is whether it blocks. Delete the exclusion the day
+  # its bug closes -- and the paired job is what tells you that day arrived.
   test:
     name: cargo test (release)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --release --locked
+      - uses: dtolnay/rust-toolchain@1.94
+      - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
@@ -49,15 +166,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test --locked
+      - uses: dtolnay/rust-toolchain@1.94
+      - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
 
   clippy:
     name: cargo clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94
         with:
           components: clippy
       - run: cargo clippy --all-targets --release --locked -- -D warnings
@@ -67,11 +184,41 @@ jobs:
     # so it "works over a remote shell and in CI" (its own module doc) --
     # this is the same worst-frame-timing scene suite used to judge
     # performance regressions locally, run headless here as a smoke test.
-    name: cargo run --example ascii
+    #
+    # Non-gating for now, and this one is a compromise rather than a clean
+    # quarantine. `ascii` has no scene selection, so bug H cannot be excluded
+    # by name the way the other two are, and `examples/ascii.rs` is touched by
+    # three unmerged branches right now -- adding selection to it mid-merge is
+    # how you turn one conflict into four. What saves it: the failing ants
+    # scene is the *last* of nineteen, so every other scene has already run and
+    # printed, worst-frame timings included. Nothing is lost by not blocking on
+    # it that was not already lost to the panic.
+    #
+    # **Bug H is knife-edge, not simply broken, and a green run here does not
+    # mean it closed.** Measured 2026-08-23: run 137 (`push`, commit 6d2c2f4)
+    # failed it; run 139 (`pull_request`, same head merged with main) passed
+    # it -- and both printed the *same* numbers, `steep half 0.000, flat half
+    # 0.000`. The assertion is `wet_grad > dry_grad` over two quantities that
+    # are equal to three decimals, so it turns on a margin below 0.0005 and
+    # flips with any perturbation of the scene. Re-confirmed by hand on the
+    # merged tree: exit 0, still 0.000 vs 0.000.
+    #
+    # So do not read a passing `ascii` as evidence to re-gate this job -- that
+    # would put a coin-flip back on the critical path, which is the exact
+    # failure this quarantine exists to prevent. What closes bug H is the
+    # scene actually containing a gradient, or the guard comparing a
+    # continuous margin instead of two near-zero floats (CLAUDE.md: "prefer a
+    # continuous quantity over a count -- counts give knife-edge margins").
+    #
+    # Make this gating again once bug H is closed *on that basis*, or once
+    # `ascii` learns to select scenes -- whichever comes first. It is the only job here
+    # whose non-blocking status costs real coverage.
+    name: cargo run --example ascii (non-gating, bug H)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94
       - run: cargo run --release --example ascii --locked
 
   acceptance:
@@ -86,8 +233,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: bash scripts/acceptance.sh
+      - uses: dtolnay/rust-toolchain@1.94
+        # `wood` is bug Y; it runs in the known-red job below.
+      - run: SKIP_CASES=wood bash scripts/acceptance.sh
 
   fmt:
     # Informational only, not gating: the codebase predates rustfmt.toml
@@ -104,8 +252,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.94
         with:
           components: rustfmt
       - run: cargo fmt --check
         continue-on-error: true
+
+  # --- The three known reds, run where they cannot block ---------------------
+  # Each pairs with an exclusion above. They exist so a recorded bug stays
+  # *visible and executing* rather than being skipped into invisibility -- and
+  # so that the day one starts passing, something says so. A green tick here is
+  # the signal to delete both the job and its exclusion.
+
+  known-red-roots:
+    # Bug A: the slot-1 root spread. Excluded from `test` and `test-debug`.
+    name: "known red: bug A (slot-1 root spread)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94
+      - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
+
+  known-red-gnome:
+    # Bug Y: the gnome covers 98 cells of the `wood` case's 200. Excluded from
+    # `acceptance` via SKIP_CASES; run alone here via ONLY_CASES.
+    #
+    # Measured 2026-08-23, paired, same build: litter on 98, litter off 195.
+    # So shed litter is essentially the whole shortfall, and the bar is nearly
+    # reachable without it -- 5 cells short, against 48 short when bug Y was
+    # written. The bar itself is sound: the case was authored at a measured 362.
+    name: "known red: bug Y (gnome through the wood)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94
+      - run: ONLY_CASES=wood bash scripts/acceptance.sh

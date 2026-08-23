@@ -39,13 +39,36 @@ pub const HEIGHT: u32 = 320;
 
 /// Size of the world itself, in cells.
 ///
-/// Wider than the viewport so there is somewhere to walk to, and only a little
-/// taller: depth costs as much per cell as width and the interesting part of a
-/// world is its surface, so height buys less than width does. Worldgen keeps
-/// its regions window-sized as this grows (`worldgen::region`), so a wider
-/// world is more places rather than the same places stretched.
-pub const WORLD_WIDTH: u32 = 2048;
-pub const WORLD_HEIGHT: u32 = 640;
+/// Wider than the viewport so there is somewhere to walk to, and taller than
+/// it so there is somewhere to dig to. Worldgen keeps its regions
+/// window-sized as this grows (`worldgen::region`), so a wider world is more
+/// places rather than the same places stretched.
+///
+/// **4x linear on round 7's 2048x640, which is sixteen times the cells.**
+/// The owner's decision, and not a tuning one: round 6's renders were
+/// rejected because *"everything needs to be bigger, the whole world, the
+/// caves. You cannot create good looking crystals or stalagmites and
+/// stalactites that are only 1-2 pixels wide."* A feature only has a
+/// silhouette, a taper and an interior if it is many cells across, and there
+/// is no room for a many-cells-across cave in a world four screens wide --
+/// so the world had to grow before anything in it could.
+///
+/// The cost was measured before the size was taken, not after
+/// (`Reports/field-settling-2026-08.md`, and `examples/scale_probe.rs` is
+/// the instrument): generation 6516 ms behind a loading screen, peak RSS
+/// 358 MiB, the field 16.7 ms amortised over a full day/night cycle. The
+/// one target missed -- 4 ms amortised -- is recorded as a gap in
+/// `Reports/world-scale-handoff.md` rather than relabelled away.
+///
+/// **Not the number to change to test something at a smaller size.** Every
+/// probe that builds a world takes its own size (`scale_probe size=WxH`,
+/// `viewshot`, the `tests/worldgen.rs` suite at 512x320); this is what the
+/// app ships.
+pub const WORLD_WIDTH: u32 = 8192;
+pub const WORLD_HEIGHT: u32 = 2560;
+
+/// The pair above, for the constructors that take a size.
+const SHIPPED_SIZE: (u32, u32) = (WORLD_WIDTH, WORLD_HEIGHT);
 
 /// Fraction of the brush filled per application for loose material. Low enough
 /// that a moving brush lays down separated grains, high enough that a stationary
@@ -98,13 +121,18 @@ fn build_world_reporting(
 /// point — a room comfortably inside it would show that rooms work, which
 /// nobody doubts, rather than whether the ceiling is in a sensible place.
 ///
-/// 200 wide against a 512-wide world is 39% of it, which is the number the
-/// eye is actually being asked to judge.
+/// 200 wide against the 512-wide viewport (`WIDTH`) is 39% of it, which is
+/// the number the eye is actually being asked to judge —
+/// `stamp_reference_room` places it at the cursor and it is judged by
+/// looking at it on screen, not against the far larger world it is
+/// stamped into.
 const REFERENCE_ROOM_SPAN: i32 = 200;
 
 /// Tall enough to stand a structure up rather than draw a lintel: the roof
 /// has to be carried by walls doing real work, or the span is not being
-/// tested. 160 is half the world's height.
+/// tested. 160 is half the viewport's height (`HEIGHT`, 320) — the same
+/// "judged on screen" reasoning as `REFERENCE_ROOM_SPAN` above, not a claim
+/// about the world's own (now much taller) height.
 const REFERENCE_ROOM_HEIGHT: i32 = 160;
 
 pub struct App {
@@ -273,10 +301,12 @@ pub enum Tool {
     /// click *within `dig_reach` of him* dug and anything further painted.
     /// Reported from the first playtest as "I cannot dig. The mouse
     /// either makes sand/material or erases it" — and correctly, because
-    /// at zoom 1 that reach is a fourteen-*pixel* bullseye around a 3x6
-    /// pixel character, with no indication it is there and the ordinary
-    /// brush as the failure mode. Nothing on screen said a second verb
-    /// existed, so the verb effectively did not.
+    /// at zoom 1 that reach is a fourteen-*pixel* bullseye around what was,
+    /// at the time, a 3x6 pixel character (he has since grown twice more,
+    /// to 5x10 and now 7x14 — see `player::PLAYER_WIDTH`/`PLAYER_HEIGHT`),
+    /// with no indication it is there and the ordinary brush as the
+    /// failure mode. Nothing on screen said a second verb existed, so the
+    /// verb effectively did not.
     ///
     /// The general lesson is one `CLAUDE.md` already states about size
     /// caps: a reach may bound *where* something happens and must never
@@ -329,13 +359,13 @@ fn dirty_asset_count() -> Option<usize> {
 impl App {
     /// A fully built world, generated on this thread.
     pub fn new() -> Self {
-        Self::build(true, &mut |_, _| {})
+        Self::build(true, SHIPPED_SIZE, &mut |_, _| {})
     }
 
     /// A fully built world, announcing each generation stage as it starts —
     /// what the loading screen in `main.rs` runs on a worker thread.
     pub fn new_reporting(progress: worldgen::Progress) -> Self {
-        Self::build(true, progress)
+        Self::build(true, SHIPPED_SIZE, progress)
     }
 
     /// Everything except the world, which is left empty.
@@ -349,11 +379,30 @@ impl App {
     /// seconds at startup would be the tail wagging the dog. The real one
     /// replaces this wholesale when the worker finishes.
     pub fn new_pending() -> Self {
-        Self::build(false, &mut |_, _| {})
+        Self::build(false, SHIPPED_SIZE, &mut |_, _| {})
     }
 
-    fn build(generate: bool, progress: worldgen::Progress) -> Self {
-        let mut world = World::new(Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1));
+    /// [`App::new`] at a stated world size rather than the shipped one.
+    ///
+    /// **Exists for the test suite, and the reason is a number.** Generating
+    /// the shipped 8192x2560 costs seconds and a third of a gigabyte of peak
+    /// RSS, and thirty-odd tests in this file want *an app with a world in
+    /// it* rather than the shipped world specifically -- the cheque came due
+    /// the moment the world grew 16x in area, with `cargo test --lib` going
+    /// from about a minute to over ten and several 358 MiB worlds coexisting
+    /// across cargo's test threads.
+    ///
+    /// Not a way to make a test pass that would fail at the shipped size:
+    /// the tests here already ask the world where its own edges are
+    /// (`world_bottom`, `world_cells`), which is what makes them honest at
+    /// any size, and `a_shipped_size_world_is_generated_and_at_rest` still
+    /// builds the real thing so the size that ships is exercised somewhere.
+    pub fn with_world_size(w: u32, h: u32) -> Self {
+        Self::build(true, (w, h), &mut |_, _| {})
+    }
+
+    fn build(generate: bool, (w, h): (u32, u32), progress: worldgen::Progress) -> Self {
+        let mut world = World::new(Rect::new(0, 0, w as i32 - 1, h as i32 - 1));
 
         // Load over the compiled-in set, so edits made before launch apply and
         // a broken assets directory still leaves a working engine. Species
@@ -2314,20 +2363,135 @@ mod tests {
     }
 
     /// Every world cell. The scans below used `0..WIDTH x 0..HEIGHT`, which
-    /// was the whole world only while the world was exactly one screen; on a
-    /// world four screens wide they would have quietly searched the
-    /// top-left corner and reported "nothing anywhere" about a quarter of a
-    /// quarter of it.
+    /// was the whole world only while the world was exactly one screen; on
+    /// the world this ships at now — sixteen screens wide and eight deep —
+    /// they would have quietly searched the top-left corner and reported
+    /// "nothing anywhere" about a sixteenth of an eighth of it (1/128).
     fn world_cells(app: &App) -> impl Iterator<Item = (i32, i32)> {
         let b = app.world.bounds().expect("the app's world is bounded");
         (b.min_x..=b.max_x).flat_map(move |x| (b.min_y..=b.max_y).map(move |y| (x, y)))
     }
 
+    /// The size the tests in this file build at, and why it is not the
+    /// shipped one.
+    ///
+    /// **A cost, measured, not a preference.** The shipped world is
+    /// 8192x2560 and takes 9.0 s to generate on this machine at 359 MiB of
+    /// peak RSS (`examples/scale_probe.rs`, the instrument). Thirty-odd
+    /// tests here build one, and cargo runs them on several threads at once,
+    /// so `cargo test --lib` went from about a minute to past ten and held
+    /// several third-of-a-gigabyte worlds simultaneously. At 2048x640 the
+    /// same build is ~0.46 s.
+    ///
+    /// **What it must not become is a smaller question.** Nothing here is
+    /// asserted against a coordinate this size supplies: the helpers ask the
+    /// world for its own edges (`world_bottom`, `world_cells`), which is what
+    /// already made these tests honest when the world outgrew the viewport.
+    /// The size that ships is still exercised --
+    /// `a_shipped_size_world_is_generated_and_at_rest` builds the real thing
+    /// -- so a bug that only appears at 8192x2560 has somewhere to show up.
+    ///
+    /// 2048x640 rather than something smaller because it is the size round 7
+    /// shipped: every test in this file passed against it, so choosing it
+    /// changes what these tests measure by exactly nothing.
+    pub(super) const TEST_WORLD: (u32, u32) = (2048, 640);
+
+    pub(super) fn test_app() -> App {
+        App::build(true, TEST_WORLD, &mut |_, _| {})
+    }
+
     fn legacy_app() -> App {
-        let mut app = App::new();
+        let mut app = test_app();
         app.worldgen_preset = worldgen::LEGACY.to_string();
         app.reset();
         app
+    }
+
+    /// The world the app actually ships generates, arrives at rest, and has
+    /// rock in it.
+    ///
+    /// The one test here that pays for the shipped 8192x2560 (9.0 s, 359 MiB
+    /// peak). It exists because every other test in this file now builds at
+    /// [`TEST_WORLD`], and a suite where nothing ever constructs the shipped
+    /// size is a suite that cannot see a bug that only appears there -- and
+    /// this engine has shipped exactly that shape of miss before, most
+    /// recently a "below the world floor" water table that stopped being
+    /// below the world floor two size changes ago and was asserted against a
+    /// literal the whole time.
+    ///
+    /// Asserts the two properties that are genuinely size-dependent: the
+    /// generator fills a world this large (a pass that silently declines on
+    /// a bigger world writes nothing, and `every_pass_writes_something` runs
+    /// at 512x320), and the result is at rest (the at-rest guarantee is
+    /// about placement, and placement reads the world's own dimensions).
+    #[test]
+    fn a_shipped_size_world_is_generated_and_at_rest() {
+        let mut app = App::new();
+        let b = app.world.bounds().expect("the app's world is bounded");
+        assert_eq!((b.max_x + 1, b.max_y + 1), (WORLD_WIDTH as i32, WORLD_HEIGHT as i32));
+
+        // Sampled rather than censused: a full scan here is 21M `get`s, and
+        // the question is "is there a world", not "how much of it".
+        let solid = (b.min_y..=b.max_y)
+            .step_by(32)
+            .flat_map(|y| (b.min_x..=b.max_x).step_by(32).map(move |x| (x, y)))
+            .filter(|&(x, y)| app.world.get(x, y).material != material::EMPTY)
+            .count();
+        assert!(solid > 1000, "a {}x{} world has only {solid} sampled cells in it", WORLD_WIDTH, WORLD_HEIGHT);
+
+        // A **census**, not a chunk count. `CLAUDE.md`: a failure count is
+        // not a damage count, and here the same distinction bites the other
+        // way -- an *awake* chunk has only been scheduled for a sweep that
+        // will confirm it is still, which is not the same as a cell having
+        // moved. The first version of this asserted `active_chunk_count() ==
+        // 0` within 20 frames and failed, and the world was at rest the whole
+        // time: 5120 chunks simply take longer to walk down to sleeping than
+        // 320 did (traced below: 4936 awake on frame 1, 35 by frame 60, and
+        // nothing moving in any of them).
+        //
+        // What is actually worth asserting at this size is that the terrain
+        // does not avalanche, and mineral cells only ever *leave* when
+        // something ran -- plants add cells and never remove rock, so this
+        // survives the life pass being on, which a positional snapshot would
+        // not.
+        let mineral = |app: &App| {
+            let mut n = 0usize;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let m = app.world.get(x, y).material;
+                    if m != material::EMPTY && matches!(app.world.materials.get(m).kind, MaterialKind::Solid | MaterialKind::Powder) {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let before = mineral(&app);
+
+        let total = app.world.chunk_count();
+        let mut trace = Vec::new();
+        for _ in 0..60 {
+            app.update();
+            trace.push(app.world.active_chunk_count());
+        }
+        let after = mineral(&app);
+        println!("awake chunks of {total} over 60 frames: {trace:?}");
+        println!("mineral cells: {before} -> {after}");
+
+        // A bar with headroom rather than equality: a generated world has
+        // real powder in it, and a handful of grains finding a lower seat is
+        // the ordinary case the at-rest suite already characterises exactly
+        // (`tests/worldgen.rs::generated_terrain_is_already_at_rest`, which
+        // asserts *zero* over 120 frames at 512x320 with life off). What
+        // this catches is the class that only appears at size: a slope that
+        // holds at 640 rows and runs at 2560.
+        let lost = before.saturating_sub(after);
+        assert!(
+            lost * 1000 < before,
+            "the shipped {WORLD_WIDTH}x{WORLD_HEIGHT} world lost {lost} of {before} mineral cells \
+             in 60 frames -- it is avalanching, not settling"
+        );
+        assert!(trace[59] < trace[0] / 10, "awake chunks are not draining: {trace:?}");
     }
 
     /// Step until every chunk is asleep, asserting that it happens quickly.
@@ -2364,14 +2528,14 @@ mod tests {
 
     #[test]
     fn starts_on_sand() {
-        let app = App::new();
+        let app = test_app();
         assert_eq!(app.selected_material(), id(&app, "sand"));
         assert_eq!(app.selected_name(), "Sand");
     }
 
     #[test]
     fn materials_load_from_the_assets_directory() {
-        let app = App::new();
+        let app = test_app();
         // Every shipped material should be offered in the picker.
         for name in ["stone", "sand", "gravel", "ash", "water", "oil", "smoke"] {
             let m = id(&app, name);
@@ -2390,7 +2554,7 @@ mod tests {
     /// reaches, from a cursor position deliberately far from him.
     #[test]
     fn a_click_far_from_the_gnome_still_digs_rather_than_painting() {
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         // A wall to his right, and open ground to stand on.
         for y in 40..70 {
@@ -2441,7 +2605,7 @@ mod tests {
     /// would pass whichever verb fired.
     #[test]
     fn a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting() {
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         let wood = id(&app, "wood");
         let sand = id(&app, "sand");
@@ -2521,7 +2685,7 @@ mod tests {
         // on a gnome every frame, so a pan that *did* work while one existed
         // would be visibly yanked back on the next frame, and a control that
         // fights back is worse than one that is not there.
-        let mut app = App::new();
+        let mut app = test_app();
         let before = (app.renderer.camera_x, app.renderer.camera_y);
         assert!(app.pan_camera((1, 0), 0.5), "no gnome: the view must be free to move");
         assert_ne!(
@@ -2547,7 +2711,7 @@ mod tests {
     fn the_tunables_panel_keeps_its_own_keys_while_it_is_open() {
         // `S` saves a tunable while the panel is open. Without this gate it
         // would both save and scroll on the same keypress.
-        let mut app = App::new();
+        let mut app = test_app();
         app.show_tunables = true;
         let before = (app.renderer.camera_x, app.renderer.camera_y);
         assert!(!app.pan_camera((0, 1), 0.5), "the panel owns S while it is open");
@@ -2562,7 +2726,7 @@ mod tests {
 
     #[test]
     fn reloading_materials_keeps_the_current_selection() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.select_material(2);
         let before = app.selected_material();
         app.reload_materials();
@@ -2575,7 +2739,7 @@ mod tests {
         // — what the working tree actually contains while the suite runs is
         // not this test's to assert. What is: a real count reaches the eye,
         // and both "clean" and "git couldn't answer" stay silent.
-        let mut app = App::new();
+        let mut app = test_app();
         app.assets_dirty = Some(2);
         assert!(app.status(60.0).contains("ASSETS EDITED (2)"), "a dirty asset count must be visible in the title");
         app.assets_dirty = Some(0);
@@ -2625,7 +2789,7 @@ mod tests {
 
     #[test]
     fn cycling_materials_wraps_in_both_directions() {
-        let mut app = App::new();
+        let mut app = test_app();
         let n = app.paintable.len();
         let first = app.selected_material();
         for _ in 0..n {
@@ -2644,7 +2808,7 @@ mod tests {
 
     #[test]
     fn number_keys_select_and_ignore_out_of_range() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.select_material(1);
         assert_eq!(app.selected_material(), app.paintable[0]);
         let before = app.selected_material();
@@ -2655,7 +2819,7 @@ mod tests {
 
     #[test]
     fn brush_radius_is_clamped() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.adjust_brush(-1000);
         assert_eq!(app.brush_radius, 1);
         app.adjust_brush(1000);
@@ -2763,7 +2927,7 @@ mod tests {
         // corner would also fail the wall checks, which is the failure mode
         // worth catching -- for a structure, a corner gap means the roof is
         // not actually carried by the walls.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
         app.cycle_tool(); // Rect
@@ -2807,7 +2971,7 @@ mod tests {
         // And it must be **the size it claims**, because the whole point of
         // a reference is that its dimensions are known -- this is the
         // measured edge of the model's envelope, not a round number.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         let sand = id(&app, "sand");
         assert_eq!(app.selected_material(), sand, "test setup: the app is expected to start on sand");
@@ -2872,7 +3036,7 @@ mod tests {
         // out shorter when there is less space is worse than no measuring
         // stick. Asserts the refusal changes *nothing*, not merely that it
         // does not crash.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         let count_stone =
             |app: &App| world_cells(app).filter(|&(x, y)| app.world.get(x, y).material == stone).count();
@@ -2897,7 +3061,7 @@ mod tests {
         // "the preset is fine" plus "the key is fine" adding up to a key
         // that refuses everywhere on the preset built for it is exactly the
         // shape of failure this repo keeps shipping.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         let count_stone = |app: &App| {
             world_cells(app).filter(|&(x, y)| app.world.get(x, y).material == stone).count()
@@ -2932,7 +3096,7 @@ mod tests {
         // an assertion about pixels is not the same as having looked at
         // them -- and a colour ramp is exactly the kind of thing that
         // passes a numeric test while being unreadable on screen.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         // A cantilever off the left cliff: something with a real stress
         // gradient along it rather than a uniform blob.
@@ -2978,7 +3142,7 @@ mod tests {
         // and the middle are filled and that the gesture commits on
         // *release*, not on press -- pressing alone must not leave a blob
         // at the corner.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         app.select_material(app.paintable.iter().position(|&m| m == stone).unwrap() + 1);
         app.cycle_tool();
@@ -3012,7 +3176,7 @@ mod tests {
 
     #[test]
     fn painting_adds_material_and_erasing_removes_it() {
-        let mut app = App::new();
+        let mut app = test_app();
         let sand = id(&app, "sand");
         app.paint(100, 50, false);
         assert!(count_near(&app, 100, 50, 8, sand) > 0, "brush laid down nothing");
@@ -3024,7 +3188,7 @@ mod tests {
     fn a_held_brush_fills_in_within_a_few_frames() {
         // Emitting a scatter must not make the brush feel unresponsive: holding
         // still should still produce a solid mass quickly.
-        let mut app = App::new();
+        let mut app = test_app();
         let sand = id(&app, "sand");
         app.brush_radius = 4;
         for _ in 0..12 {
@@ -3037,7 +3201,7 @@ mod tests {
     #[test]
     fn a_dragged_brush_lays_down_a_sparse_trail() {
         // The point of the scatter: a single fast drag emits grains, not a slab.
-        let mut app = App::new();
+        let mut app = test_app();
         let sand = id(&app, "sand");
         app.brush_radius = 3;
         app.paint_stroke((20, 20), (120, 20), false);
@@ -3052,7 +3216,7 @@ mod tests {
     #[test]
     fn a_solid_brush_is_not_scattered() {
         // Building terrain needs a crisp, fully filled brush.
-        let mut app = App::new();
+        let mut app = test_app();
         let stone = id(&app, "stone");
         app.brush_radius = 3;
         app.select_material(1);
@@ -3069,7 +3233,7 @@ mod tests {
 
     #[test]
     fn the_eraser_sweeps_the_whole_drag_path() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.brush_radius = 3;
         app.select_material(1);
         app.paint_stroke((20, 20), (120, 20), false);
@@ -3081,7 +3245,7 @@ mod tests {
 
     #[test]
     fn pausing_freezes_the_simulation() {
-        let mut app = App::new();
+        let mut app = test_app();
         app.paint(100, 20, false);
         app.paused = true;
         let before = app.world.get(100, 20);
@@ -3205,6 +3369,7 @@ mod tests {
 
 #[cfg(test)]
 mod loading_path {
+    use super::tests::{test_app, TEST_WORLD};
     use super::*;
 
     /// `App` can cross a thread boundary.
@@ -3246,9 +3411,9 @@ mod loading_path {
             acc
         }
 
-        let quiet = App::new();
+        let quiet = test_app();
         let mut stages: Vec<&'static str> = Vec::new();
-        let reported = App::new_reporting(&mut |_, name| stages.push(name));
+        let reported = App::build(true, TEST_WORLD, &mut |_, name| stages.push(name));
 
         assert!(!stages.is_empty(), "vacuous: nothing reported a stage");
         assert_eq!(checksum(&quiet), checksum(&reported), "the reported build produced a different world");
@@ -3257,7 +3422,7 @@ mod loading_path {
     /// The placeholder is empty, and cheap because it is.
     #[test]
     fn a_pending_app_has_not_generated_anything() {
-        let pending = App::new_pending();
+        let pending = App::build(false, TEST_WORLD, &mut |_, _| {});
         let bounds = pending.world.bounds().expect("the app world has bounds");
         let solid = (bounds.min_y..=bounds.max_y)
             .step_by(16)

@@ -920,10 +920,25 @@ fn terrain_generation_cost() {
     // ...and at the size the app actually ships, which is the number that
     // decides whether `R` and `F6` feel instant or feel like a stall. The
     // 512x320 figures above stay because they are the historical series;
-    // this is the live one. Generation is O(area), so four times the area
-    // should cost four times as much -- what this watches for is a *worse*
-    // than linear term, which is what `compute_world_distances` would
-    // contribute if its per-cell `World::get` started missing chunk lookups.
+    // this is the live one. What this watches for is a *worse* than linear
+    // term, which is what `compute_world_distances` would contribute if its
+    // per-cell `World::get` started missing chunk lookups.
+    //
+    // **Ratioed against solid cells, not against area, and the difference
+    // reversed the verdict.** Against area it read "199x the build for 128x
+    // the area -- WORSE THAN LINEARLY" at 8192x2560, which is true and
+    // means nothing: `sky_rows` does not scale with world height, so a
+    // taller world is a proportionally *more solid* one -- 59% filled at
+    // 512x320 against 94% at the shipped size. Solid cells went up 204x for
+    // that 128x of area, so the same generator doing the same per-cell work
+    // is bound to look super-linear in area and is in fact slightly
+    // sub-linear in the thing it actually writes. `PASS_TIMING=1` confirms
+    // it: `stone_massif` is 3946 of 5188 ms and 201 ns per cell placed,
+    // against ~300 ns/cell at 512x320.
+    //
+    // This is `CLAUDE.md`'s "ask what a metric counts when nothing is
+    // wrong", and it cost a wrong hypothesis and a reverted change before
+    // anyone asked it (`Reports/world-scale-phase-2.md` §7).
     let (ww, wh) = (pixel_physics::app::WORLD_WIDTH as i32, pixel_physics::app::WORLD_HEIGHT as i32);
     let mut big = World::new(Rect::new(0, 0, ww - 1, wh - 1));
     let start = std::time::Instant::now();
@@ -935,16 +950,21 @@ fn terrain_generation_cost() {
     pixel_physics::worldgen::generate_only(&mut big_bare, spec());
     let big_without_pass = start.elapsed();
 
+    let big_solid = (0..ww)
+        .map(|x| (0..wh).filter(|&y| big.get(x, y).material != material::EMPTY).count())
+        .sum::<usize>();
     let area_ratio = (ww as f64 * wh as f64) / (512.0 * 320.0);
+    let solid_ratio = big_solid as f64 / (gen_solid as f64).max(1.0);
     let cost_ratio = big_with_pass.as_secs_f64() / gen_with_pass.as_secs_f64().max(f64::EPSILON);
     println!(
-        "{ww}x{wh} generated terrain -- THE SHIPPED WORLD SIZE ({name}, seed 1): {:.2} ms to build and relax, \
-         {:.2} ms to place alone -- structural pass {:.2} ms. That is {cost_ratio:.2}x the 512x320 build for \
-         {area_ratio:.1}x the area, so the build scales {} in world area. Paid on start, R, F6, F7 and F8.",
+        "{ww}x{wh} generated terrain -- THE SHIPPED WORLD SIZE ({name}, seed 1), {big_solid} solid cells: \
+         {:.2} ms to build and relax, {:.2} ms to place alone -- structural pass {:.2} ms. That is \
+         {cost_ratio:.2}x the 512x320 build for {area_ratio:.1}x the area but {solid_ratio:.1}x the solid \
+         cells, so the build scales {} in the cells it writes. Paid on start, R, F6, F7 and F8.",
         big_with_pass.as_secs_f64() * 1000.0,
         big_without_pass.as_secs_f64() * 1000.0,
         (big_with_pass.saturating_sub(big_without_pass)).as_secs_f64() * 1000.0,
-        if cost_ratio > area_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly" },
+        if cost_ratio > solid_ratio * 1.35 { "WORSE THAN LINEARLY" } else { "linearly or better" },
     );
 }
 
@@ -1472,7 +1492,45 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
-        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
+        // **Range, printed next to the verb counters, because none of them
+        // can say it.** `nest-visits` above counts loitering, not trips --
+        // see `CreatureStats::nest_visits`. A colony that never leaves the
+        // nest mouth scores high on it and zero here.
+        println!(
+            "{label}: forage trips {} (bar {}) mean depth {:.1} deepest {} | reach {:?}",
+            st.forage_trips,
+            pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+            if st.forage_trips > 0 { st.forage_depth_sum as f64 / st.forage_trips as f64 } else { 0.0 },
+            st.forage_depth_max,
+            st.forage_reach
+        );
+        // **The standing food stock, in energy rather than in cells.** A
+        // count of edible cells rises as a stand of trees grows whatever is
+        // happening to the animals, which is how §13m's tree-killing bug
+        // hid: the metric that would have shown it was a cell count, and it
+        // kept going up. Summed worth also makes the corpse stamp visible as
+        // a "did it fire" number -- corpse cells with zero worth mean
+        // `creature_dies` did not stamp them, which a picture of a corpse
+        // pile cannot show.
+        let (food_stock, corpse_stock) = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .map(|(x, y)| world.get(x, y))
+            .fold((0.0f64, 0.0f64), |(all, meat), cell| {
+                let v = pixel_physics::sim::creature::food_value(world, cell) as f64;
+                let is_meat = world.materials.get(cell.material).worth_in_aux;
+                (all + v, meat + if is_meat { v } else { 0.0 })
+            });
+        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
+        // **Every material on the menu, not just `leaf`.** This counted leaf
+        // alone, which sat directly under the `food stock` line above --
+        // which prices everything -- so the two disagreed by construction the
+        // moment litter became edible. A named-material column is blind by
+        // construction to any food invented later; that is exactly how S4
+        // shipped inert and three rounds of measurement missed it.
+        let food_left = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel_physics::sim::creature::food_value(world, world.get(x, y)) > 0.0)
+            .count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
         // **In thirds, not as one total.** A homing gradient that points
@@ -1594,7 +1652,42 @@ fn forage_loop_scene() {
     let st = world.creature_stats;
     assert!(st.moves > 0, "no ant ever moved");
     assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
-    assert!(st.nest_visits > 0, "no ant ever reached the nest");
+    // **Kept, but demoted to what it actually proves, and given the guard
+    // it was mistaken for.** `nest_visits` counts loitering, not arrivals:
+    // it increments on any move made while nest-adjacent, and its
+    // `since_nest > 0` guard is false exactly once per lifetime because
+    // `since_nest` is bumped every tick (`CreatureStats::nest_visits`). So
+    // `> 0` here is not the sessility guard it reads as -- **a colony that
+    // never left the nest mouth passes it trivially**.
+    assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
+    // The real one. **Bars set from measurement on this tree, with
+    // headroom** -- not from an aspiration, and not inherited: this scene
+    // measures **98 trips, deepest 18, mean depth 10.3** over 12,000 frames
+    // after the litter merge. A branch that predates the merge measured 143
+    // and 19 on the same scene, so a bar carried over from it would have sat
+    // above what the code now does. That gap is the litter effect, not a
+    // regression -- see the README's S1-S4 limitations.
+    //
+    // A seventh of the trip count and under half the depth, because outcome
+    // spread here is large and a bar near the measurement flakes.
+    //
+    // What this catches that nothing else did: the colony going sessile.
+    // Every counter above stays healthy for a colony milling around the
+    // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
+    // and this is the only one that goes to zero.
+    assert!(
+        st.forage_trips >= 14,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 98 here), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+    assert!(
+        st.forage_depth_max >= 8,
+        "no ant got further than {} cells from home (measured 18 here)",
+        st.forage_depth_max
+    );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
     assert!(phero_b > 0, "carriers laid no food trail at all");
     assert!(
@@ -1607,15 +1700,32 @@ fn forage_loop_scene() {
     // once stage 4 turns mutation on.
     let live = world.live_creature_energy();
     let expected = world.energy_ledger.expected_live_total();
+    let led = world.energy_ledger;
     println!(
-        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} eaten {:.0} metabolized {:.0} moved {:.0} synapses {:.2} died-holding {:.0}",
+        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} plant {:.0} corpse {:.0} metabolized {:.0} moved {:.0} synapses {:.2} stored-in-meat {:.0} dissipated {:.0}",
         live - expected,
-        world.energy_ledger.granted,
-        world.energy_ledger.eaten,
-        world.energy_ledger.metabolized,
-        world.energy_ledger.moved,
-        world.energy_ledger.synapse_tax,
-        world.energy_ledger.died_holding
+        led.granted,
+        led.harvested_plant,
+        led.harvested_corpse,
+        led.metabolized,
+        led.moved,
+        led.synapse_tax,
+        led.stored_in_meat,
+        led.dissipated
+    );
+    // **The other stock, and the bound it has to sit under.** The live
+    // identity above only says the charges landed; it cannot say whether
+    // value was created, because `granted` and `harvested_plant` are free
+    // by construction. `harvested_corpse` is not free -- every joule of it
+    // came out of meat that was booked when a body was built or when one
+    // died -- so this line is the one that would show §13l's pump running
+    // again. `<=` rather than `==` on purpose; see `standing_meat`.
+    let meat = pixel_physics::sim::creature::standing_meat(&world, Rect::new(0, 0, w - 1, h - 1)) + pixel_physics::sim::creature::carried_meat(&world);
+    println!(
+        "meat census: standing {meat:.0} vs ceiling {:.0} (headroom {:.0}); stamped {:.0}",
+        led.max_standing_meat(),
+        led.max_standing_meat() - meat,
+        led.stamped
     );
 }
 
@@ -1713,6 +1823,7 @@ fn double_bridge_scene() {
         "  moves {} blocked {} | pickups {} drops {} deliveries {} nest-visits {} deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.nest_visits, st.deaths
     );
+    println!("  forage trips {} deepest {} | reach {:?}", st.forage_trips, st.forage_depth_max, st.forage_reach);
     println!("  summed channel B over 32 samples -- short route (tunnel) {short:.2} vs long route (over the top) {long:.2}");
     // **Recorded, not asserted, and the earlier version of this assertion
     // was measuring the wrong thing.** An intermediate build did report

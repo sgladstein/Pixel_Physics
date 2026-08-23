@@ -108,10 +108,52 @@ pub struct CreatureStats {
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
     pub deliveries: u64,
-    /// Arrivals at the nest after having been away. Splits "never got
-    /// home" from "never picked anything up", which the delivery count
-    /// alone cannot.
+    /// **Not a trip counter, and not a sessility guard — read
+    /// `forage_trips` for either.** It increments on any move made while
+    /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
+    /// `since_nest` is bumped unconditionally every tick, so that guard is
+    /// false exactly once in a creature's life and this counts *loitering*.
+    /// One ant, a nest and no food scores `moves 648, nest_visits 389`.
+    ///
+    /// Kept because the ratio against `moves` is still a real readout — an
+    /// immobile colony drives it toward 1 and a ranging one toward 0 — and
+    /// because deleting it would silently change every scene that prints
+    /// it. What it is not is "arrivals at the nest after having been away",
+    /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
+    /// from home and came back.** The thing `nest_visits` was believed to
+    /// be counting and never was.
+    ///
+    /// Booked at the moment of nest contact, off
+    /// `OrganismState::forage_max` — a spatial depth that re-anchors on
+    /// every contact, so neither loitering nor `tick_interval` can inflate
+    /// it. See that field for why the obvious `since_nest` fix is unsound.
+    pub forage_trips: u64,
+    /// Summed depth of the trips in `forage_trips`, in cells. `/
+    /// forage_trips` is the mean foraging range — **the quantity that was
+    /// missing, and the reason no foraging change could be judged.**
+    pub forage_depth_sum: u64,
+    /// Deepest single excursion any creature has made, in cells. Bounds the
+    /// mean: a colony with a good mean and a small max is commuting a fixed
+    /// route, which is a different animal from one that ranges.
+    pub forage_depth_max: u64,
+    /// **The excursion-depth profile, and the reason this metric does not
+    /// live or die on one threshold.** Bucket `i` counts excursions that
+    /// reached at least `FORAGE_REACH_BUCKETS[i]` cells from home — a
+    /// cumulative distribution, so it is monotonically non-increasing and
+    /// bucket 0 is every excursion there was.
+    ///
+    /// A single count needs a bar, and a bar set from an aspiration is how
+    /// this project gets numbers that cannot fail for the right reason. The
+    /// profile needs none: an immobile colony is a spike in bucket 0 that
+    /// vanishes by bucket 2, and a ranging one carries weight out to the
+    /// distance of whatever it is ranging *to*. That shape is the readout,
+    /// and it is what `forage_trips`'s bar was then set from.
+    ///
+    /// It also separates two colonies a mean cannot: a hundred short hops
+    /// and ten real trips average the same as a hundred medium ones.
+    pub forage_reach: [u64; 8],
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -119,55 +161,114 @@ pub struct CreatureStats {
 
 /// Where every joule went. See `World::energy_ledger`.
 ///
-/// The invariant, asserted in the ascii scenes:
-/// `sum(live creature energy) == granted + eaten - metabolized - moved
-/// - synapse_tax - died_holding`.
+/// Two stocks, not one. **Live** is the energy inside creatures; **meat**
+/// is the energy standing in the world as corpse cells (and in whatever a
+/// carrier is holding). Every account below is a monotone counter, and each
+/// one is labelled as a *source* (value created out of nothing), a *sink*
+/// (value destroyed) or a *transfer* (value moved between the two stocks).
+///
+/// ```text
+/// live = granted + harvested_plant + harvested_corpse + overdrawn
+///        - metabolized - moved - synapse_tax - stored_in_meat - dissipated
+///
+/// meat = stamped + stored_in_meat - harvested_corpse - meat_lost
+/// ```
 ///
 /// # What this can and cannot catch, because the difference has been
 /// # misread once
 ///
 /// It catches **charges that do not land**: a cost debited from the ledger
 /// but never taken off a creature, or vice versa. That is a real class of
-/// bug and the identity finds it immediately.
+/// bug and the first identity finds it immediately.
 ///
-/// It **cannot catch energy creation**, and reading a balanced census as
-/// "energy is conserved" is a mistake. `granted`, `eaten` and
-/// `died_holding` are all *free terms defined as whatever happened*, so
-/// they move the two sides of the identity together by construction. When
-/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
-/// a constant with no relationship to what the victim had -- and
-/// `died_holding` deletes the victim's remainder; both are booked, the
-/// identity holds, and 300 joules were conjured. If the bite only takes a
-/// trailing segment there is no sink at all and the identity still holds.
+/// It **cannot be a conservation law**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `stamped` and
+/// `harvested_plant` are genuinely free — the sun is the largest source in
+/// the world by far and lives entirely outside these numbers, and nothing
+/// books photosynthesis yet.
 ///
-/// So this is an *accounting* ledger, not a conservation law. The property
-/// evolution actually needs (P-20) is weaker and different: **no lineage
-/// may extract unbounded energy from a cycle it controls.** That is what
-/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
-/// and it does not pass today -- see its doc for the pump it reproduces.
-/// A closed ledger is only reachable once plants book photosynthesis into
-/// the same accounts, since the sun is the largest free source in the
-/// world by far and lives entirely outside these numbers.
+/// **What changed at S3, and why it matters more than the tidiness.** The
+/// old ledger had one `eaten` account and it was a free term *defined as
+/// whatever happened*: `eat_energy` was a constant of the **eater**, so
+/// when a beetle bit an ant, `eaten` grew by the beetle's number, the
+/// victim's remainder was written off, both were booked, the identity held,
+/// and 300 joules were conjured (§13l). `harvested_corpse` is not free: it
+/// is matched, joule for joule, by meat that was booked into `stamped` when
+/// the animal was built or into `stored_in_meat` when it died. That is what
+/// makes the second identity above worth asserting, and it is the property
+/// evolution actually needs (P-20): **no lineage may extract unbounded
+/// energy from a cycle it controls.**
+///
+/// `meat_lost` is not an account here, because nothing hooks the seam a
+/// corpse is destroyed through (decay, fire, an explosion, the brush).
+/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
+/// asserts it as one. In a sealed box where nothing eats corpses but the
+/// ants, it is tight.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
-    /// Energy created out of nothing, at spawn. The only source besides
-    /// eating, and the one that has to be counted or nothing balances.
+    /// **Source.** Metabolic energy created at spawn — a creature's
+    /// `start_energy`, the pool it can actually spend.
     pub granted: f64,
-    /// **Also created out of nothing** -- `eat_energy` is a property of the
-    /// eater, not of the food, and no food cell has an energy account for
-    /// it to come out of. Counted so the identity closes, not because
-    /// anything was transferred. See the type doc.
-    pub eaten: f64,
+    /// **Source.** Structural energy created at spawn: `body_energy` for
+    /// every cell of the body. The animal can never spend this; it exists
+    /// so that a *starved* creature, dead at exactly 0, still leaves food
+    /// behind. Booked separately from `granted` because it is never part of
+    /// the live stock — it goes straight into meat when the animal dies.
+    pub stamped: f64,
+    /// **Source.** Eating something whose worth comes from its material:
+    /// leaf, moss, seed, a live animal's flesh. Free until plants book
+    /// photosynthesis into the same accounts.
+    pub harvested_plant: f64,
+    /// **Transfer**, out of the meat stock and into the live one. Eating a
+    /// cell that carries its own worth in `Cell::aux`.
+    pub harvested_corpse: f64,
     pub metabolized: f64,
     pub moved: f64,
     pub synapse_tax: f64,
-    pub died_holding: f64,
+    /// **Transfer**, out of the live stock and into meat: what a creature
+    /// still had in the bank when it died, written into its corpse cells
+    /// alongside the stamp. Was `died_holding`, and the rename is the
+    /// point — it is not destroyed, it is what makes a fresh kill better
+    /// eating than carrion.
+    pub stored_in_meat: f64,
+    /// **Sink.** Leftover energy with nowhere to go: a creature died in a
+    /// world with no `corpse` material compiled in, so there was nothing to
+    /// write the worth into. Should read 0 in every real scene; it is here
+    /// so that the case does not silently unbalance the live identity.
+    pub dissipated: f64,
+    /// **A correction, and the only term that adds back.** Charges that
+    /// landed on a creature which could not pay them: an animal dies *at*
+    /// zero in the accounting but arrives there having been debited past
+    /// it, so its last tick of metabolism came out of an empty bank.
+    ///
+    /// Found by `the_standing_meat_never_exceeds_what_was_put_into_it` the
+    /// first time the live identity was ever asserted rather than printed
+    /// — 2.16 joules across twelve ants over 40,000 frames, which is small,
+    /// real, and exactly the kind of free term that becomes an attractor
+    /// the moment something can select on it. Booked rather than clamped
+    /// away at the charge sites, because a creature that overshoots zero
+    /// by a tick is honest behaviour and pretending it did not is how a
+    /// counterweight constant gets born.
+    pub overdrawn: f64,
 }
 
 impl EnergyLedger {
     /// What the live population's total energy should equal.
     pub fn expected_live_total(&self) -> f64 {
-        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+        self.granted + self.harvested_plant + self.harvested_corpse
+            - self.metabolized
+            - self.moved
+            - self.synapse_tax
+            - self.stored_in_meat
+            - self.dissipated
+            + self.overdrawn
+    }
+
+    /// The most meat that can be standing in the world. An **upper bound**,
+    /// not an equality — see the type doc on `meat_lost`.
+    pub fn max_standing_meat(&self) -> f64 {
+        self.stamped + self.stored_in_meat - self.harvested_corpse
     }
 }
 
@@ -283,8 +384,9 @@ pub struct World {
     /// air under it into a cave.
     ///
     /// **Every attempt to infer this from the shape of the world has been
-    /// wrong in a new way**, which is what makes storing it worth the eight
-    /// kilobytes. Measured on the version this replaced, which took the
+    /// wrong in a new way**, which is what makes storing it worth the
+    /// kilobytes (see below for how many, at the size that ships now).
+    /// Measured on the version this replaced, which took the
     /// topmost non-empty cell and then patched up anything with higher
     /// ground within six columns either side: one floating cell put twenty
     /// rows of cave under it, a plank of *any* width from one cell to fifty
@@ -294,9 +396,10 @@ pub struct World {
     /// built this" from "this is a hill", and no reach or threshold makes it
     /// able to.
     ///
-    /// A `Vec` over the world's width, which is 8 KB at 2048 wide. M10's
-    /// streaming will want this keyed per chunk column instead, alongside
-    /// everything else that is currently sized to a resident world.
+    /// A `Vec` over the world's width, which is 32 KB at the shipped 8192
+    /// wide (was 8 KB at 2048 before the world grew). M10's streaming will
+    /// want this keyed per chunk column instead, alongside everything else
+    /// that is currently sized to a resident world.
     sky_surface: Vec<i32>,
     /// The same dedup idea as `pending_structural_checks`, for
     /// `ActiveKind::Decay`, and it exists for a different reason worth
@@ -352,9 +455,13 @@ pub struct World {
     /// normal case) resolves to `None` via `organism`/`organism_mut`
     /// rather than silently reading a *different*, unrelated organism's
     /// state once the slot is recycled.
-    /// The two stigmergy planes (`Reports/creature-direction.md` §5) —
-    /// ~640 KB at 512x320, and CA resolution rather than `FIELD_SCALE`,
-    /// for the measured reason in `pheromone.rs`'s module doc.
+    /// The two stigmergy planes (`Reports/creature-direction.md` §5) — 2
+    /// channels x 2 buffers x 1 byte, CA resolution rather than
+    /// `FIELD_SCALE`, for the measured reason in `pheromone.rs`'s module
+    /// doc. That was ~640 KB at the 512x320 world this was sized against;
+    /// at the shipped 8192x2560 it is ~84 MB, allocated eagerly in
+    /// `Pheromones::new` whether or not a creature exists anywhere in the
+    /// world — a real, standing cost, not a hypothetical one.
     ///
     /// A `World` field rather than something creatures own, for the same
     /// reason `fields` is: the signal outlives whoever deposited it, which
@@ -1380,6 +1487,8 @@ impl World {
             energy: 0.0,
             carrying: None,
             since_nest: 0,
+            forage_anchor: (0, 0),
+            forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
             shoot_top_y: None,

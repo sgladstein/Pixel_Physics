@@ -378,10 +378,11 @@ fn a_lake_survives_the_gale_that_dries_the_puddle() {
     // onward for the rest of that epoch. Sustained gusts advect the humid
     // layer off the top of a lake — traced at 2.31 -> 0.23 within ten frames
     // of the crossing, and 2.31 -> 0.42 with the lake down to 39% of its
-    // volume on the full 2048x640 world. Under humidity alone the mechanic
-    // could not tell a lake from a puddle in a gale, because a gale mixes the
-    // atmosphere and the air over both is equally dry, so every lake in the
-    // world went.
+    // volume on the full 2048x640 world this trace was taken at (grown
+    // since to 8192x2560; not re-traced there). Under humidity alone the
+    // mechanic could not tell a lake from a puddle in a gale, because a
+    // gale mixes the atmosphere and the air over both is equally dry, so
+    // every lake in the world went.
     //
     // This runs *through* that crossing and well past it. It fails outright
     // if `evaporation::shelter` is removed, or if it is ever made a function

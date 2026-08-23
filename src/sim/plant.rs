@@ -3999,6 +3999,27 @@ fn is_frontier(cell_type: CellType) -> bool {
     matches!(cell_type, CellType::Seed | CellType::GrowingTip | CellType::RootTip)
 }
 
+/// How far down a shed leaf will look for somewhere to rest.
+///
+/// It bounds the work and nothing else: a leaf that finds no rest inside it
+/// stays where the walk got to, never nowhere.
+///
+/// **It was 64, and 64 was gating the outcome rather than bounding the
+/// work.** A grown crown in the `litter_probe` scene tops out around 125 rows
+/// above the ground, so a leaf shed high in it ran the walk out *inside the
+/// canopy* and came to rest on the first branch below wherever the count
+/// expired. Measured on that scene at 12,000 frames, standing litter resting
+/// on plant tissue: **44.4% at 64, 39.3% here**, and litter within three rows
+/// of the ground **29.5% -> 35.4%**. `CLAUDE.md`: any `if too_big { return }`
+/// is a claim that the largest cases deserve the least behaviour -- here the
+/// tallest trees, whose leaves have furthest to fall, were the ones whose
+/// litter never reached the floor.
+///
+/// Larger than any world is tall on purpose, so the bound is real (the loop
+/// always terminates) without ever being the thing that decides where a leaf
+/// lands.
+const LITTER_FALL_REACH: i32 = 512;
+
 /// What a shed leaf leaves behind: a `litter` cell, not a hole.
 ///
 /// **The shed cell stops being the plant's** -- `Cell::new` carries no
@@ -4016,14 +4037,62 @@ fn is_frontier(cell_type: CellType) -> bool {
 /// and has no `material::` constant. This runs on an abscission event, not
 /// per cell per frame, so the string hash is not on a hot path. Falls back
 /// to emptying the cell so a stripped asset set still sheds.
+///
+/// **The leaf is carried down to where it would have landed, rather than
+/// written where it hung.** Writing in place and letting the powder sweep
+/// take it looked equivalent and is not: a crown catches its own leaf fall.
+/// Measured on the forest scene, 3,825 of 4,330 standing litter cells were
+/// resting on plant tissue, with 9.5% within three rows of the surface --
+/// a canopy full of debris that costs sweep time and feeds nobody, which is
+/// neither what a wood looks like nor what S4 wanted litter *for*.
+///
+/// Requiring clear air below instead was tried and reverted: at eight cells
+/// almost no leaf in a dense crown qualifies, litter fell to 157 cells and
+/// the mat disappeared from the picture entirely. That filter removed the
+/// mechanic rather than its waste.
 fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     let Some(litter) = world.materials.id_of("litter") else {
         world.set(x, y, Cell::EMPTY);
         return;
     };
-    let shades = world.materials.get(litter).palette.len().max(1) as u32;
+    // `base_shades`, not `palette.len()`: a material may ship several
+    // four-tone region families, and a random pick across all of them
+    // speckles. Litter has one family today, so these agree -- reading the
+    // right one now means this does not silently break if that changes.
+    let shades = world.materials.get(litter).base_shades.max(1) as u32;
     let shade = world.rng.below(shades) as u8;
-    world.set(x, y, Cell::new(litter, shade));
+    // Cleared before the walk, so the leaf's own cell reads as air and is a
+    // valid landing spot for the boxed-in case below.
+    world.set(x, y, Cell::EMPTY);
+    // Lowest air cell reached. **Starts at the leaf's own now-empty cell**,
+    // which is where a leaf walled in on every side stays. An earlier version
+    // started this at "no landing found" and returned without writing
+    // anything, which *deleted* every leaf whose next cell down was solid --
+    // a leaf low over soil or stone, or one directly above litter already
+    // lying there. That is exactly the surface-reachable foliage this
+    // mechanism exists to turn into food, and `CLAUDE.md` names the shape:
+    // a bound on work must never gate whether the thing happens at all.
+    let mut landing = y;
+    let mut probe = y;
+    for _ in 0..LITTER_FALL_REACH {
+        let below = world.get(x, probe + 1);
+        // Raw `material == EMPTY`, not `is_empty()`: the managed-aware helper
+        // reads a promoted liquid body's container cells as not-empty, and
+        // the question here is "can a leaf pass through".
+        let air = below.material == material::EMPTY;
+        // **Passes through anything owned by an organism, not merely through
+        // `MaterialKind::Plant`.** A leaf does not rest on a branch it just
+        // let go of, nor on an ant standing under the tree; and testing
+        // ownership means litter can never be written over an organism cell.
+        if !air && below.organism_id() == 0 {
+            break;
+        }
+        probe += 1;
+        if air {
+            landing = probe;
+        }
+    }
+    world.set(x, landing, Cell::new(litter, shade));
 }
 
 /// After a leaf is shed, drop any of its neighbouring leaves that no
@@ -4638,6 +4707,128 @@ mod tests {
             slot.carbon = carbon;
             slot.canopy_density = density;
         }
+    }
+
+    /// **What a tree lets go of has to land somewhere an animal can find it.**
+    ///
+    /// Both abscission paths wrote `Cell::EMPTY`, so a forest could double
+    /// its foliage over a run while the food an ant could reach *fell*:
+    /// `creature_space`'s census (CENSUS=1) measured the whole colony band
+    /// ending at 240..480 energy across 8 seeds, with three of four presets
+    /// having seeds that finish at literally zero, against fifty-two ants
+    /// each needing 900 to live.
+    ///
+    /// Driven through `shed_stranded_leaves` rather than through a grown
+    /// tree, for the reason the eat tests record: whether a *particular*
+    /// canopy happens to strand a spray in N frames is a different question,
+    /// and mixing it in makes this a test of tree geometry.
+    #[test]
+    fn a_shed_leaf_becomes_litter_rather_than_nothing() {
+        let mut w = test_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let litter = w.materials.id_of("litter").expect("litter");
+        let organism = 7u16;
+
+        // A spray of leaves attached to nothing: no wood, no tip, no bud, so
+        // `shed_stranded_leaves` sees an unanchored component and drops it.
+        // A floor for it to land on. Without one the litter has nowhere to
+        // come to rest and is simply dropped -- correct behaviour over a pit,
+        // and a scene that would test nothing.
+        for x in 40..70 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        let spray = [(50, 50), (51, 50), (52, 50)];
+        for &pos in &spray {
+            place(&mut w, pos, leaf, organism, CellType::Leaf, (0.0, 0.0));
+        }
+        assert_eq!(
+            spray.iter().filter(|&&(x, y)| w.get(x, y).material == leaf).count(),
+            spray.len(),
+            "test setup: the spray was not placed, so this would pass on an empty scene"
+        );
+
+        shed_stranded_leaves(&mut w, 49, 50, organism);
+
+        // **Counted where it lands, not where it hung**, which is the whole
+        // of the change this assertion had to be rewritten for: a leaf falls
+        // through its own crown and comes to rest on the floor, so the cells
+        // it used to occupy are empty and the litter is on the ground below.
+        // The earlier version looked only at the spray's own positions and
+        // went red for the fix rather than for a fault.
+        for &(x, y) in &spray {
+            assert_eq!(w.get(x, y).material, material::EMPTY, "the leaf itself is gone from where it hung");
+        }
+        let landed: Vec<(i32, i32)> = (45..60)
+            .flat_map(|x| (40..100).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == litter)
+            .collect();
+        assert_eq!(landed.len(), spray.len(), "a shed spray must become litter somewhere, not vanish -- {} of {} did", landed.len(), spray.len());
+        for &(x, y) in &landed {
+            assert_eq!(w.get(x, y).organism_id(), 0, "litter belongs to nobody; leaving the tree's id on it makes a falling powder part of an organism");
+            assert!(y > 50, "litter must end up *below* the leaf it fell from, and this landed at {y} against a shed height of 50");
+        }
+    }
+
+    /// **Shedding must not schedule a structural check**, and this is the one
+    /// guard standing between S4 and a measured 26x collapse.
+    ///
+    /// `CLAUDE.md` records it: the organism support search is hop-bounded, so
+    /// a check fired high in a crown reads everything past the span limit as
+    /// unsupported and converts it to deadwood. Growth deliberately schedules
+    /// none; an earlier abscission that scheduled one destroyed every shedding
+    /// sweep at every setting, and it read as "the mechanism is wrong" through
+    /// eight settings before anyone found the one line.
+    ///
+    /// S4 makes shedding *write a cell* where it used to erase one, which is
+    /// exactly the kind of change that invites a helpful "shouldn't we tell
+    /// the structure about this?" -- so the prohibition is asserted rather
+    /// than left as a comment.
+    ///
+    /// **Why the bar is now zero sites rather than one per leaf.** Shedding
+    /// used to schedule the decay site itself, at the cell it wrote, so this
+    /// asserted `added == spray.len()`. Decay sites are scheduled by
+    /// `World::end_step`'s awake->settled chunk scan instead, which does not
+    /// run in a unit test -- so shedding correctly adds nothing here.
+    ///
+    /// A bare `added == 0` would be worse than useless: it cannot tell "no
+    /// structural check was scheduled" from "`shed_stranded_leaves` never ran
+    /// at all", which is exactly how a guard goes vacuous. So the zero is
+    /// paired with a positive check that the spray really did become litter.
+    #[test]
+    fn shedding_a_leaf_schedules_decay_and_never_a_structural_check() {
+        let mut w = test_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let organism = 9u16;
+        for x in 40..70 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        let spray = [(50, 50), (51, 50)];
+        for &pos in &spray {
+            place(&mut w, pos, leaf, organism, CellType::Leaf, (0.0, 0.0));
+        }
+        let before = w.active_site_count();
+
+        shed_stranded_leaves(&mut w, 49, 50, organism);
+
+        // **The mechanism actually ran** -- without this the zero below passes
+        // for a `shed_stranded_leaves` that did nothing at all.
+        let litter = w.materials.id_of("litter").expect("litter is a compiled-in material");
+        let landed = (40..70)
+            .flat_map(|x| (40..60).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == litter)
+            .count();
+        assert_eq!(landed, spray.len(), "the spray had to become {} litter cells for this test to be asking anything; {landed} did", spray.len());
+
+        // Nothing scheduled. A structural check fans out over a
+        // neighbourhood, so it would land here as a count well above the
+        // number of cells shed; the decay sites come from the settle scan,
+        // which a unit test never drives.
+        let added = w.active_site_count() - before;
+        assert_eq!(
+            added, 0,
+            "shedding {} leaves added {added} active sites; it should add none. Anything here is a structural check fanning out, which amputates a crown -- see the doc on this test",
+            spray.len()
+        );
     }
 
     /// Plant a seed **on ground**, which every tree test now needs.

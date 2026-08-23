@@ -590,6 +590,30 @@ const CLIFF_DROP_FAR: i32 = 20;
 const MAX_BROW_REACH: i32 = 20;
 const MAX_TALUS_PEAK: i32 = 30;
 
+/// Columns of context `brows` reads beyond the ones it writes: the far
+/// detection run to find the face, then the reach it hangs the lip out over.
+///
+/// **An expression, not a number, and that is the point.** Every margin in
+/// this table has now been silently wrong at least once -- `talus` declared 3
+/// while walking 120, `vaults` declared 96 while reaching 202 -- and each
+/// time the number was correct on the day it was written and had no way to
+/// stay correct when the constant behind it moved. A margin is the contract a
+/// per-chunk generator will plan against, so an understated one is a promise
+/// to produce different cells at a chunk edge, and nothing checks it at
+/// runtime: `pass_summary()`'s only consumer reads the GLOBAL list, not the
+/// numbers. `every_local_pass_declares_the_margin_it_reaches` in
+/// `tests/worldgen.rs` is the check; writing the derivation is what stops it
+/// having anything to catch.
+pub const BROWS_MARGIN: i32 = RUN_FAR + MAX_BROW_REACH;
+
+/// Columns of context `talus` reads: the far detection run, the walk down to
+/// the foot of the fall, and the apron laid out either side of it.
+///
+/// The apron term is `2 * MAX_TALUS_PEAK` because the heap runs out at a
+/// slope of about a half (`for step in 0..peak * 2` at the write site), so a
+/// heap starting at the cap reaches twice the cap in columns.
+pub const TALUS_MARGIN: i32 = RUN_FAR + MAX_FALL + 2 * MAX_TALUS_PEAK;
+
 /// Cliff edges as `(edge_x, direction, drop)`, where `direction` is +1 when
 /// the ground falls away to the right and -1 when it falls to the left.
 fn cliff_edges(plans: &[ColumnPlan], w: i32) -> Vec<(i32, i32, i32)> {
@@ -853,7 +877,15 @@ pub fn talus(ctx: &Ctx, world: &mut World) -> usize {
 /// collapses into dust. A chamber too large for this is drawn smaller; a
 /// massif too thin for the depth band simply has no chamber, and the counter
 /// says so.
-const MAX_VAULT_EXTENT: i32 = 30;
+///
+/// **4x for the 4x world** (Phase 2), with the vug's own semi-axes and its
+/// crystal lining thickness moved with it. Scaling the cap alone would have
+/// done nothing -- the draw never reached 30 -- and scaling the draw without
+/// the lining would have left the one bright thing in the deep massif rimmed
+/// by a hairline: a 1-3 cell ring is a rim on a 16-cell ellipse and a scratch
+/// on a 64-cell one, which is round 2's *"reads as a generator's shape, not a
+/// geode's"* finding arriving from the other direction.
+const MAX_VAULT_EXTENT: i32 = 120;
 
 /// How thick the solid stone rind around a chamber must be, in cells.
 ///
@@ -881,17 +913,60 @@ pub const VAULT_RIND: i32 = 2;
 /// exponent is the knob; see [`CaveEnv::draw`].
 /// The half-width every lattice constant in this file was tuned against,
 /// and the reference `CaveEnv::cell` scales from. Round 3's fixed envelope.
+///
+/// **Deliberately not scaled with the world, and that is the whole
+/// mechanism.** `CaveEnv::cell` is `CAVE_CELL * half_w / ROUND_3_HALF_W`, so
+/// this and [`CAVE_CELL`] are the *denominator* every cave-space length is
+/// expressed against. Scaling them alongside the envelope would leave every
+/// ratio unchanged and produce a bigger box with the same furniture in it --
+/// which is precisely what A2 measured and rejected: with the lattice cell
+/// held fixed, span across reached its target and largest-walkable fell 38%
+/// -> 23%, because the extra area went into finer structure the player
+/// cannot occupy. Leaving the reference alone is what makes a 4x envelope a
+/// 4x *cave*.
 const ROUND_3_HALF_W: i32 = 90;
-const MIN_CAVE_HALF_W: i32 = 55;
-const MIN_CAVE_HALF_H: i32 = 22;
+
+/// Half-extents of a cave system's envelope, **4x round 7's, for the 4x
+/// world** (`Reports/world-scale-handoff.md`, Phase 2).
+///
+/// The owner's rejection of round 6 was that features have no room to have a
+/// shape: *"You cannot create good looking crystals or stalagmites and
+/// stalactites that are only 1-2 pixels wide."* The world grew to make room;
+/// this is a cave growing into it. Everything the envelope is the
+/// denominator of follows for free -- the lattice cell, the edge fades,
+/// `min_system_cells`, the monumental chamber's `chamber_scale` -- because
+/// each of those is already a ratio against [`ROUND_3_HALF_W`] rather than
+/// an absolute size. That was A2's design and it is what makes this a
+/// four-line change rather than a re-tune.
+///
+/// **What does not follow, and is Phase 3's business, not a bug here:**
+/// [`MAX_CEILING_SPAN`] is a roof-*structure* bound (how far stone spans
+/// unsupported), not a cave-size one, so a 4x system gets roughly 4x the
+/// stone teeth dropped into its roof. The handoff predicts this in as many
+/// words -- *"expect Phase 2 alone to look worse"* -- because the honeycomb
+/// gets larger rather than better until the shape work lands.
+const MIN_CAVE_HALF_W: i32 = 220;
+const MIN_CAVE_HALF_H: i32 = 88;
 /// The upper limit, and the number `vaults`' declared column margin has to
 /// cover. **Raising either of these without raising `Pass::margin` in
 /// `worldgen/mod.rs` breaks the streaming contract silently** -- nothing
 /// checks it at runtime, because `pass_summary()`'s only consumer looks at
 /// the GLOBAL list and not at the numbers. `a_cave_cannot_reach_past_its_
-/// declared_margin` in `tests/worldgen.rs` is what catches it instead.
-pub const MAX_CAVE_HALF_W: i32 = 200;
-const MAX_CAVE_HALF_H: i32 = 80;
+/// declared_margin` in `tests/worldgen.rs` is what catches it instead, and
+/// the margin is now *derived* from these ([`VAULTS_MARGIN`]) so the two
+/// cannot drift apart again.
+pub const MAX_CAVE_HALF_W: i32 = 800;
+const MAX_CAVE_HALF_H: i32 = 320;
+
+/// Columns of context the `vaults` pass reads beyond the ones it writes.
+///
+/// Derived here rather than written as a literal in the pass table, because
+/// a literal is what let it be silently wrong before: round 6's A2 raised
+/// [`MAX_CAVE_HALF_W`] from 90 to 200 and the declared margin stayed at 96,
+/// a promise to produce different cells at a chunk edge that nothing checked
+/// at runtime. The geode vug's [`MAX_VAULT_EXTENT`] plus its rind sits well
+/// inside this.
+pub const VAULTS_MARGIN: i32 = MAX_CAVE_HALF_W + VAULT_RIND;
 
 /// One system's envelope: its half-extents, and the local grid arithmetic
 /// that used to be `const`.
@@ -1067,7 +1142,16 @@ const MAX_CEILING_SPAN: i32 = 36;
 /// A kept component smaller than this is not a system: a sliver of passage
 /// with no chamber is a dig reward of nothing. Rejected wholesale, same as
 /// a failed seal.
+///
+/// An *area*, not a length, and already envelope-relative in use --
+/// `CaveEnv::min_system_cells` is `(area / 160).max(MIN_SYSTEM_CELLS)` -- so
+/// the 4x envelope carries it without this number moving.
 const MIN_SYSTEM_CELLS: usize = 80;
+
+/// Columns a cavity needs before its floor gets breakdown mounds, **4x for
+/// the 4x world** (Phase 2). See the mound block in `carve_cave_void` for
+/// why this could not stay at 20.
+const MOUND_MIN_WIDTH: usize = 80;
 
 /// Chance a placement draw is a geode vug rather than a cave system. The
 /// vug stays as the rare jewel variant; the cave is the main event.
@@ -1120,9 +1204,17 @@ const SPELEO_PAIR: f32 = 0.25;
 /// 5 did, per the owner's explicit instruction to spend the budget on size
 /// rather than count now that formations are scenery and cost nothing in
 /// walkability.
-const SPELEO_SPACING_MIN: i32 = 9;
-const SPELEO_SPACING_MAX: i32 = 28;
-const DRIP_SCALE: f32 = 40.0;
+/// **4x for the 4x world** (Phase 2). Spacing, width and count are the same
+/// budget spent three ways, and the envelope's own 4x growth already spends
+/// the count side of it: a system four times wider offers four times the
+/// candidate columns at the same spacing, so holding these fixed would have
+/// bought back exactly the *"way too many, way too thin"* distribution A3
+/// was undoing, at four times the scale. Growing the gaps with the cave
+/// keeps formations-per-chamber where round 6 left it and leaves the width
+/// budget below free to actually be spent.
+const SPELEO_SPACING_MIN: i32 = 36;
+const SPELEO_SPACING_MAX: i32 = 112;
+const DRIP_SCALE: f32 = 160.0;
 
 /// Base width of a formation's cone, in cells, drawn per placement --
 /// round 6's A3, replacing round 5's "a minority go two cells wide, the
@@ -1142,8 +1234,23 @@ const DRIP_SCALE: f32 = 40.0;
 /// formation's root.
 const CONE_ANCHOR_SEARCH: i32 = 3;
 
-const SPELEO_WIDTH_MIN: i32 = 3;
-const SPELEO_WIDTH_MAX: i32 = 8;
+/// **The owner's complaint, in one pair of numbers, 4x'd for the 4x world**
+/// (Phase 2). Round 6's A3 got these from 1-2 cells to 3-8 and the round-7
+/// census still measured median base width **3** across 16 seeds and every
+/// preset (`examples/cave_probe.rs`) -- which is what *"you cannot create
+/// good looking crystals or stalagmites and stalactites that are only 1-2
+/// pixels wide"* is about. Three cells has no silhouette, no taper and no
+/// interior at any zoom; twelve has all three.
+///
+/// The overlap proof at the write site is unchanged and still by
+/// construction, not by inspection: every footprint's half-width is clamped
+/// to `(min_spacing - 1) / 2`, so two neighbouring cones cannot touch. With
+/// [`SPELEO_SPACING_MIN`] at 36 that clamp is 17 and this ceiling's own half
+/// is 16, so the width draw is what binds -- the same ordering round 6 had
+/// (floor 9 clamping to 4 against a half-ceiling of 4), which is what keeps
+/// the taper reachable rather than permanently clipped.
+const SPELEO_WIDTH_MIN: i32 = 12;
+const SPELEO_WIDTH_MAX: i32 = 32;
 
 /// Round-5 task 5: how many cells below the waterline a column's floor may
 /// sit and still be a candidate -- too far below and a stalagmite would
@@ -1161,7 +1268,7 @@ const SPELEO_WIDTH_MAX: i32 = 8;
 /// table needs more room than that to break through -- so there is
 /// nothing left to spend a chance draw on rejecting. See the round-5
 /// finding for the bar this did and did not reach.
-const WATERLINE_FLOOR_REACH: i32 = 4;
+const WATERLINE_FLOOR_REACH: i32 = 16;
 const WATERLINE_CHANCE: f32 = 1.0;
 const WATERLINE_CRYSTAL: f32 = 0.5;
 
@@ -1333,8 +1440,8 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         // unioned into lumpy caverns is superseded by the cave system above;
         // the one-entry lobe list survives because the shape test and the cap
         // below are written against it and verified in that form.)
-        let a = 8.0 + noise::unit(seed, Purpose::Vault, k * 17, 4) * 12.0;
-        let b = 6.0 + noise::unit(seed, Purpose::Vault, k * 17, 5) * 6.0;
+        let a = 32.0 + noise::unit(seed, Purpose::Vault, k * 17, 4) * 48.0;
+        let b = 24.0 + noise::unit(seed, Purpose::Vault, k * 17, 5) * 24.0;
         // **The cap is applied to the lobe, not to the scan box**, and
         // the difference is a correctness bug rather than a preference.
         // Capping the scan instead was the first version: a lobe reaching
@@ -1393,7 +1500,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
                     // three cells, per cell -- at the round-2 one-to-two the
                     // rim read as a perfect ring, which is a generator's
                     // shape, not a geode's.
-                    let thickness = 1.0 + 2.0 * noise::unit(seed, Purpose::Vault, px, py);
+                    let thickness = 4.0 + 8.0 * noise::unit(seed, Purpose::Vault, px, py);
                     if vug && !inside(fx, fy, -thickness) {
                         lining.push((px, py));
                     } else {
@@ -1422,7 +1529,7 @@ pub fn vaults(ctx: &Ctx, world: &mut World) -> usize {
         // gravel was a two-cell strip at the very bottom of the bowl.
         let floor_y = hollow.iter().map(|&(_, y)| y).max().unwrap_or(cy);
         let ceiling_y = hollow.iter().map(|&(_, y)| y).min().unwrap_or(cy);
-        let thickness = 2 + (noise::unit(seed, Purpose::Vault, k, 8) * 3.0) as i32;
+        let thickness = 8 + (noise::unit(seed, Purpose::Vault, k, 8) * 12.0) as i32;
         // Never fill the chamber solid: leave at least two rows of head-room,
         // or a small grotto becomes a lump of buried gravel with no void in
         // it and there is nothing to find.
@@ -2099,7 +2206,17 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
         let end = col;
         col += 1;
         // One nominal depth per cavity, drawn on its first column.
-        let base = 2 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 3.0) as i32;
+        //
+        // Depth, mound size and the "large cavity" bar are all **4x for the
+        // 4x world** (Phase 2), and they had to move together with the
+        // envelope rather than be left alone. A cavity in a 4x system is four
+        // times wider, so a bar of 20 columns is met by every cavity there is
+        // and one to three mounds five rows tall become a fine stipple along
+        // a floor four times longer -- the count knob left pointing the wrong
+        // way, which is the same trade the speleothem constants above spell
+        // out. `MOUND_MIN_WIDTH` scaled with the cavity keeps "one to three
+        // heaps per large cavity" meaning what it says.
+        let base = 8 + (noise::unit(seed, Purpose::CaveFloor, cx + start as i32, k) * 12.0) as i32;
         // Breakdown mounds: one to three heaps per large cavity, proposed as
         // unit-slope triangles on top of the base fill -- a cave floor is
         // rubble fallen from the roof, not tile, and a dead-flat fill from
@@ -2108,14 +2225,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
         // the verifier guards their toes like everything else's.
         let width = end - start + 1;
         let mut mound = vec![0i32; width];
-        if width >= 20 {
+        if width >= MOUND_MIN_WIDTH {
             let sx = cx + start as i32;
             let count = 1 + (noise::unit(seed, Purpose::CaveFloor, sx, k * 31 + 1) * 3.0) as i32;
             for m in 0..count {
                 let at = (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 2)
                     * width as f32) as i32;
                 let peak =
-                    2 + (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 3) * 4.0) as i32;
+                    8 + (noise::unit(seed, Purpose::CaveFloor, sx + m * 7, k * 31 + 3) * 16.0) as i32;
                 for (i, e) in mound.iter_mut().enumerate() {
                     *e = (*e).max(peak - (i as i32 - at).abs());
                 }
@@ -2230,7 +2347,11 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                         run = 0;
                     }
                 }
-                best >= 12
+                // 4x for the 4x world (Phase 2): "tall enough to read as a
+                // chamber rather than a passage" is a claim about the
+                // cavity, and cavities in a 4x envelope are 4x taller, so
+                // 12 rows had stopped separating the two.
+                best >= 48
             })
             .collect();
         let mut i = 0usize;
@@ -2243,7 +2364,9 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
             while i < tall.len() && tall[i] {
                 i += 1;
             }
-            if i - start >= 6 {
+            // Likewise 4x: six columns of tall void is a junction in a 4x
+            // system, not a room.
+            if i - start >= 24 {
                 chambers += 1;
                 chamber_floors.push((start..i).map(fs).max().unwrap_or(0));
                 for c in chamber_col.iter_mut().take(i).skip(start) {
@@ -2415,7 +2538,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                 };
                 let fs = b - h; // lowest open row: the floor surface
                 let span = fs - t + 1;
-                if span < 5 {
+                // **4x for the 4x world** (Phase 2), and the reason is the
+                // cone rather than the count. A formation's trunk length is
+                // drawn from this span (`lt` below) while its base width is
+                // drawn from `SPELEO_WIDTH_*`, which Phase 2 took to 12-32
+                // -- so a 5-row cavity would now hold a 32-cell-wide, 3-row
+                // pancake. Every gate in this block that reads `span` moves
+                // with the envelope for the same reason.
+                if span < 20 {
                     continue;
                 }
                 // A distinct sub-range of the noise coordinate per run, so
@@ -2435,13 +2565,13 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                 // left ordinary passage -- most of a system's length --
                 // essentially undecorated regardless of how wet it read.
                 let wet = noise::smoothstep(0.1, 0.4, focus);
-                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(3.0, 5.0, span as f32);
+                let chance = SPELEO_DENSITY * 4.0 * wet * noise::smoothstep(12.0, 20.0, span as f32);
                 if noise::unit(seed, Purpose::Speleothem, px, ry) >= chance {
                     continue;
                 }
                 let kind = noise::unit(seed, Purpose::Speleothem, px, ry + 1);
                 let crystal = noise::unit(seed, Purpose::Speleothem, px, ry + 2) < SPELEO_CRYSTAL;
-                let pair = kind < SPELEO_PAIR && span >= 7;
+                let pair = kind < SPELEO_PAIR && span >= 28;
                 let stalactite = pair || kind < SPELEO_PAIR + 0.45;
                 // Round-5 task 4a: a heavy-tailed draw scaled to the local
                 // open span, replacing the old `2 + unit * 6` -- a uniform
@@ -2487,10 +2617,14 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
                         }
                     }
                 }
-                if lt < 2 {
+                // A trunk shorter than this is dropped rather than drawn: at
+                // the 4x base width a two-row stub is a wide flat lump, not
+                // a formation. 4x round 7's 2, for the same reason the span
+                // gate above moved.
+                if lt < 8 {
                     lt = 0;
                 }
-                if lg < 2 {
+                if lg < 8 {
                     lg = 0;
                 }
                 if lt == 0 && lg == 0 {
@@ -2690,7 +2824,12 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
             if fs < water_line || fs - water_line > WATERLINE_FLOOR_REACH {
                 continue;
             }
-            if last_wl.is_some_and(|l| dx - l < 2) {
+            // 4x for the 4x world (Phase 2): two columns apart was a real
+            // gap when a formation was 3 cells wide and is an overlap now
+            // that it is 12-32. The main pass's own overlap proof is
+            // `SPELEO_SPACING_MIN`-derived; this is the same guarantee for
+            // the targeted pass, which does not go through it.
+            if last_wl.is_some_and(|l| dx - l < SPELEO_WIDTH_MAX) {
                 continue;
             }
             let span = fs - t + 1;
@@ -2842,6 +2981,434 @@ fn cave_system(ctx: &Ctx, env: CaveEnv, world: &mut World, k: i32, cx: i32, cy: 
         // than any one system.
         build_ms: 0.0,
     }
+}
+
+/// Minimum columns between two springs. A world that spent its whole budget
+/// on one escarpment would read as a leak, not as a country with rivers in
+/// it -- and every column along an escarpment is its own `cliff_edges`
+/// candidate, so without this the budget goes to six adjacent faces.
+const SPRING_SPACING: i32 = 900;
+
+/// How far downhill the pass walks looking for the basin its fall feeds.
+///
+/// This is the *drain*'s reach, and the drain is the whole point of placing
+/// one: without a sink the pool rises until it drowns its own outlet and the
+/// river stops being a river. `PLAN.md` asks for "a real source ... and a
+/// real sink"; this is how far the sink is allowed to be from the source.
+///
+/// Bounded rather than global, and the bound is what keeps this a
+/// finite-margin pass. `viewshot`'s hand-placed spring drains at the *world's*
+/// lowest column, which is a global read and also does not work: in `ascii`'s
+/// river-cost scene the drain sits 2030 columns from the outlet and the
+/// ledger reports `drained 0` after 1400 frames -- the water never gets
+/// there. Placed within reach instead, the same mechanism drains 83% of what
+/// it emits.
+const SPRING_DRAIN_REACH: i32 = 150;
+
+/// The source basin cut into the shelf behind the lip: how wide it may run,
+/// the least shelf that will take one, and how deep the bowl goes at its
+/// middle.
+///
+/// Set from a census over six seeds and three presets. The shelf -- ground
+/// behind the rim standing at or above the lip -- runs a median 107 columns on
+/// `canyon` and 120 on `rolling` and `terraced` (the probe's search cap, so
+/// those are floors), and 73-94% of rims carry at least 16 columns of it, so
+/// the minimum below is comfortable rather than binding. The depth is set
+/// against the gnome, who is 14 rows tall: a 12-deep pool reads as water he
+/// could stand in up to the chest, which is a tarn rather than a puddle.
+const SPRING_BASIN_W: i32 = 40;
+const SPRING_BASIN_MIN_W: i32 = 12;
+const SPRING_BASIN_DEPTH: i32 = 12;
+
+/// How far above the lip the basin's ground may stand. Small on purpose: see
+/// the shelf comment in `springs` for the trench this stops.
+const SPRING_BASIN_RIM: i32 = 8;
+
+/// Columns of untouched ground the basin keeps either side of itself.
+const SPRING_BASIN_CLEARANCE: i32 = 3;
+
+/// How far above the lip -- and so above the pool's own surface, which the lip
+/// pins -- the outlet sits. Clear of the water for good, for the two reasons
+/// in the seating comment in `springs`: a drowned outlet stops emitting, and a
+/// partly-wet one stalls without even reporting a throttle.
+const SPRING_SOURCE_LIFT: i32 = 8;
+
+/// How deep the pool at the foot of a fall stands before it starts draining
+/// away, in cells. The drain sits this far above the basin floor, and the
+/// pool self-levels there -- see the seating comment in `springs`.
+///
+/// Sized to be seen rather than to be right: `render.rs` dims a liquid by
+/// fill and `ponds` already refuses pools too shallow to read as water at
+/// all, so a plunge pool that is technically present and two cells deep buys
+/// nothing the owner asked for.
+const SPRING_POOL_DEPTH: i32 = 10;
+
+/// How far a spring stays clear of either world edge.
+const SPRING_EDGE_MARGIN: i32 = 64;
+
+/// Air below the outlet needed before a face counts as a fall rather than a
+/// damp patch. Cheap insurance against the failure mode `World::add_spring`
+/// cannot catch: it validates nothing about position, so an outlet inside
+/// ground is not an error -- it is permanently `walled`, emits zero forever,
+/// and shows only as a rising `throttled` count.
+const SPRING_MIN_AIR: i32 = 12;
+
+/// Columns beyond the ones it decides for that `springs` reads.
+///
+/// `RUN_FAR` for the same cliff detection `brows` and `talus` do, `MAX_FALL`
+/// down to the foot of the face, then `SPRING_DRAIN_REACH` along the falling
+/// side for the basin -- the deepest of the three, and they compose rather
+/// than overlap, so the sum is the honest bound. `MAX_SPAN` covers the
+/// emission columns themselves hanging off the rim.
+pub const SPRINGS_MARGIN: i32 =
+    RUN_FAR + MAX_FALL + SPRING_DRAIN_REACH + crate::sim::spring::MAX_SPAN;
+
+/// Topmost occupied cell of a column in the built world, or `h` if the column
+/// is empty all the way down. The plan's `surface_y` is not this: `talus`,
+/// `brows`, `residuals` and `ponds` all write after it.
+fn world_top(world: &World, x: i32, h: i32) -> i32 {
+    (0..h).find(|&ty| world.get(x, ty).material != material::EMPTY).unwrap_or(h)
+}
+
+/// Springs where the water table daylights on a cliff face, each with a drain
+/// in the basin its fall feeds.
+///
+/// **The pass owns all geometric validity.** `World::add_spring` validates
+/// nothing about position (`world.rs`) -- its only rejections are a span
+/// outside `1..=MAX_SPAN` and the summed-span budget, and
+/// `add_spring(-9999, -9999, 1)` returns `true`. An outlet seated in rock is
+/// therefore not an error anywhere downstream; it is a spring that emits
+/// nothing for the life of the world and reports it only as a climbing
+/// `throttled` count. So every candidate is checked against the *finished*
+/// world before it is registered, and a failure moves to the next candidate
+/// rather than aborting.
+///
+/// Runs after `ponds`, because the drowned-spring throttle reads the standing
+/// pool level and `ponds` writes into EMPTY only; and before `soil_moisture`,
+/// because that pass builds its saturated zone from the liquid cells actually
+/// present and its own doc warns that a pool over dry soil "spends its
+/// opening minutes drinking its own bed and banks".
+///
+/// Returns 0 cells always: it registers emitters, it does not write terrain.
+/// `every_pass_writes_something` asserts that explicitly rather than skipping
+/// the pass, for the reason `vaults` and `boulders` get the same treatment --
+/// an exclusion that stops being true should fail loudly.
+pub fn springs(ctx: &Ctx, world: &mut World) -> usize {
+    let p = ctx.terrain.params;
+    let mut budget = p.spring_flow.round() as i32;
+    if budget <= 0 {
+        return 0;
+    }
+    let (w, h) = (ctx.terrain.w, ctx.terrain.h);
+    let plans = &ctx.plans;
+    let seed = ctx.terrain.seed;
+
+    // **Scan from a seed-dependent origin, wrapping.** `cliff_edges` returns
+    // candidates in x order, and taking the first that qualifies put every
+    // world's waterfall in its first thousand columns -- measured across six
+    // canyon seeds at x = 1, 392, 409, 505, 873 and 1035, in a world 8192
+    // wide, with one of them literally against the world edge. Rotating the
+    // scan costs nothing, stays a pure function of the seed, and does not
+    // spend any of the scarce candidates the way a sparse acceptance draw
+    // does (that was tried: it cut placement from 1.0 springs per world to
+    // 0.2, because after the real gates a world offers only a handful).
+    let origin = (noise::unit(seed, Purpose::Spring, 0, 0) * w as f32) as i32;
+    let mut candidates = cliff_edges(plans, w);
+    let split = candidates.partition_point(|&(x, _, _)| x < origin);
+    candidates.rotate_left(split);
+
+    let mut placed_at: Vec<i32> = Vec::new();
+    // Why candidates are refused, printed under `SPRING_DEBUG=1`. Kept
+    // because placement here is a chain of gates over the *built* world, and
+    // "0 springs placed" is the same output for six different causes -- three
+    // successive models were told apart only by these counts. `probe_p1_
+    // where_can_a_spring_go` is the probe that reads them.
+    let (mut n_cand, mut n_spacing, mut n_soil) = (0usize, 0usize, 0usize);
+    let (mut n_table, mut n_edge, mut n_blocked) = (0usize, 0usize, 0usize);
+    let (mut n_shelf, mut filled) = (0usize, 0usize);
+    let mut n_placed = 0usize;
+    for (rim, dir, _drop) in candidates {
+        n_cand += 1;
+        if budget <= 0 {
+            break;
+        }
+        if placed_at.iter().any(|&px| (rim - px).abs() < SPRING_SPACING) {
+            n_spacing += 1;
+            continue;
+        }
+        let plan = plans[rim as usize];
+        // A loose Powder top is not rock for water to weep from -- the same
+        // test `brows` makes, and for the same reason.
+        if plan.soil_depth > 0 {
+            n_soil += 1;
+            continue;
+        }
+        // The dry-preset gate, the same one `moisture_init` uses: `arid` and
+        // `flat` put the table past the world floor, so no face intersects it
+        // and the pass falls out for free rather than by a special case.
+        if plan.table_y >= h {
+            n_table += 1;
+            continue;
+        }
+        // The table is a gate on *whether*, not on where -- see the seating
+        // comment below for why these are perched springs.
+        //
+        // An earlier version also required the table to lie between the rim's
+        // ground and the foot of the face, the literal reading of "the aquifer
+        // daylights here". Dropped, because it is the wrong question once the
+        // outlet is perched, and it was doing real damage: it rejected 65-92%
+        // of every preset's candidates and **all** of `canyon`'s, which ships
+        // `table_offset: 70` and so keeps its table below even its valley
+        // floors. Canyon is the preset with the best waterfall faces in the
+        // game; a gate that switches it off entirely was measuring the wrong
+        // thing.
+        if plan.table_y <= plan.surface_y {
+            n_table += 1;
+            continue;
+        }
+        let span = budget.min(crate::sim::spring::MAX_SPAN);
+        // **The source pool is cut, not found.**
+        //
+        // Looking for one is a recorded dead end (`Reports/dead-ends.md`): for
+        // a basin to spill over *this* cliff, this cliff's lip has to be the
+        // basin's lowest exit, and requiring that placed zero springs across
+        // four presets and six seeds. It is not a tuning failure -- a cliff
+        // edge is a local high point, so the ground behind it rises.
+        //
+        // That same fact is what makes cutting one work. The ground behind the
+        // lip standing *at or above* it is exactly the back wall a pool needs,
+        // so a basin cut into that shelf is closed by construction and spills
+        // forward over the cliff rather than running away inland. Measured
+        // over six seeds: the shelf runs a median 107 columns on `canyon` and
+        // 120 on `rolling` and `terraced` (the probe's search cap, so those
+        // are floors), and 73-94% of rims carry at least 16 columns of it.
+        let lip = plans[rim as usize].surface_y;
+        let back = -dir;
+        // The shelf: ground standing at or above the lip. Carve the whole of
+        // it up to `SPRING_BASIN_W`.
+        //
+        // No back wall is required, and requiring one placed **nothing** on
+        // any preset: the ground behind a rim is *flat at the lip*, not
+        // rising, so a column standing strictly above the lip within a
+        // basin's width essentially never occurs. It is not needed either --
+        // water filled to the lip has two ways out, the cliff at distance 0
+        // and the far end of the shelf a hundred columns away, and it reaches
+        // the cliff first. That is the whole mechanism.
+        // **Level ground, not merely ground above the lip.** The shelf test was
+        // `surface_y <= lip`, which admits ground *well* above it -- and since
+        // the cut clears each column from the sky down to the bowl floor, a
+        // basin sited on rising ground is a sheer trench gouged through a
+        // hillside. Shown one, the owner: *"a weird cut through a sharp piece
+        // of stone"*. So the ground has to be within `SPRING_BASIN_RIM` rows
+        // of the lip for its whole width: the cut is then shallow everywhere
+        // and reads as a hollow in flat ground rather than as an excavation.
+        let mut shelf = 0;
+        while shelf < SPRING_BASIN_W && {
+            let g = plans[(rim + back * (shelf + 1)).clamp(0, w - 1) as usize].surface_y;
+            g <= lip && g >= lip - SPRING_BASIN_RIM
+        } {
+            shelf += 1;
+        }
+        if shelf < SPRING_BASIN_MIN_W {
+            n_shelf += 1;
+            continue;
+        }
+        let (near, far) = (rim + back, rim + back * shelf);
+        let (bx0, bx1) = (near.min(far), near.max(far));
+        if bx0 < SPRING_EDGE_MARGIN || bx1 >= w - SPRING_EDGE_MARGIN {
+            n_edge += 1;
+            continue;
+        }
+
+        // The bowl floor: deepest in the middle, tapering to nothing at both
+        // ends, with a little wobble so it is a tarn and not a quarry. Held as
+        // a closure over the plan so the volume can be inspected before a
+        // single cell is removed.
+        let floor_at = |x: i32| -> i32 {
+            let t = (x - bx0) as f32 / ((bx1 - bx0).max(1)) as f32;
+            let bowl = 1.0 - (2.0 * t - 1.0).powi(2);
+            let wobble = noise::value_1d(seed, Purpose::Spring, x as f32 / 9.0) - 0.5;
+            lip + ((SPRING_BASIN_DEPTH as f32) * bowl + wobble * 3.0).round().max(1.0) as i32
+        };
+
+        // **Refuse anything that is not ordinary ground**, before removing a
+        // cell. The rest of this file keeps a never-overwrite-a-sealed-feature
+        // contract and this is that contract: crystal, flowstone, spar and
+        // standing water all mean some other pass has already authored here.
+        // It is also what keeps the vault seal's `assert_eq!` out of play --
+        // chambers sit `vault_min_depth` (200) rows down and this cuts at the
+        // surface, so the two should never meet, and this check is what makes
+        // that a guarantee rather than an expectation.
+        let ordinary = |m: material::MaterialId| {
+            m == material::EMPTY || m == ctx.stone || m == ctx.soil || m == ctx.sand || m == ctx.gravel
+        };
+        // The flanks are checked too, not just the carve volume. A basin cut
+        // hard against an existing pond merges with it, and two pools at
+        // different levels touching is a head difference: the water flows,
+        // the world is not at rest, and `every_pool_has_a_level_surface`
+        // reports a surface that "steps from 176 to 163 between x 406 and
+        // 407" -- which is exactly what it caught here.
+        let clean = (bx0 - SPRING_BASIN_CLEARANCE..=bx1 + SPRING_BASIN_CLEARANCE).all(|bx| {
+            let bx = bx.clamp(0, w - 1);
+            let in_carve = bx >= bx0 && bx <= bx1;
+            if in_carve {
+                return plans[bx as usize].soil_depth == 0
+                    && (0..=floor_at(bx)).all(|by| by >= h || ordinary(world.get(bx, by).material));
+            }
+            // On the flanks, only water matters, and only water near this
+            // pool's own level -- a pond far below in the same canyon cannot
+            // merge with it, but one within a bowl-depth of the lip can. The
+            // first version checked a fixed depth from the lip and bottomed
+            // out one row short of the pond that actually merged.
+            let band = SPRING_BASIN_DEPTH + SPRING_BASIN_CLEARANCE;
+            ((lip - band).max(0)..=(lip + band).min(h - 1))
+                .all(|by| world.get(bx, by).material != ctx.water)
+        });
+        if !clean {
+            n_blocked += 1;
+            continue;
+        }
+
+        // Cut it. Every column is cleared from the top of the world down to
+        // its bowl floor, so nothing is ever left overhanging -- material only
+        // comes off from above, which is what makes the carve structurally
+        // safe by construction rather than by a check afterwards.
+        for bx in bx0..=bx1 {
+            let floor = floor_at(bx);
+            for by in 0..floor {
+                if world.get(bx, by).material != material::EMPTY {
+                    world.set(bx, by, Cell::EMPTY);
+                }
+            }
+            // Then fill to the lip. `ponds`' convention verbatim: `aux` is
+            // left alone because on a `Liquid` `aux == 0` means **full**, and
+            // writing a literal here is the documented way to manufacture
+            // water out of nothing.
+            for by in lip..floor {
+                world.set(bx, by, Cell::new(ctx.water, loose_shade(ctx, Purpose::Shade, bx, by)));
+                filled += 1;
+            }
+        }
+
+        // **The outlet sits clear above the pool it feeds.** Two mechanisms
+        // measured on the way here, both recorded in `dead-ends.md`: a spring
+        // emitting into the pool it is filling switches *itself* off, because
+        // `spring::step` counts an outlet drowned at `THROTTLE_FILL` (90% of a
+        // cell); and an outlet holding *partly* filled water neither emits nor
+        // counts as throttled, so it stalls silently while the ledger still
+        // looks healthy. Above the lip the outlet stays in air for good,
+        // because the pool cannot rise past the lip -- it spills there
+        // instead, which is the whole mechanism.
+        let y = lip - SPRING_SOURCE_LIFT;
+        let mid = (bx0 + bx1) / 2;
+        let x0 = (mid - span / 2).clamp(0, w - span);
+        if y < 0 || y >= h {
+            n_edge += 1;
+            continue;
+        }
+        let outlet_clear = (0..span).all(|d| world.get(x0 + d, y).material == material::EMPTY);
+        if !outlet_clear {
+            n_blocked += 1;
+            continue;
+        }
+        // And a real drop on the other side for the overflow to fall down.
+        if (1..=RUN_FAR)
+            .map(|d| world_top(world, (rim + dir * d).clamp(0, w - 1), h))
+            .max()
+            .unwrap_or(lip)
+            < lip + SPRING_MIN_AIR
+        {
+            n_blocked += 1;
+            continue;
+        }
+        let ex = (rim + dir).clamp(0, w - 1);
+        if !world.add_spring(x0, y, span) {
+            // The engine's own budget refused it. Nothing further will fit
+            // either, since every remaining span is at least this wide.
+            break;
+        }
+
+        // **The sink, in the plunge pool -- not at the world's low point.**
+        // Lowest *world* ground on the falling side within reach, and the
+        // drain sits in the air cell directly on top of it, which is where
+        // water stands.
+        //
+        // Both halves of that were got wrong first and measured. Reading
+        // `surface` (the plan) instead of the built world puts the drain
+        // inside talus, where it never sees a liquid cell and the ledger
+        // reports `drained 0`. And reaching far puts it somewhere the water
+        // never arrives: `viewshot`'s hand-placed drain goes to the *world's*
+        // lowest column, and in `ascii`'s river-cost scene that lands 2030
+        // columns from the outlet and drains nothing in 1400 frames. The fall
+        // makes its pool at the foot, so that is where the sink belongs.
+        // Nested reaches, because "where the water ends up" is not one place.
+        // A fall makes a plunge pool at its foot, and what that pool overflows
+        // runs on to the next low ground; which of the two a given world's
+        // water actually settles in depends on terrain the pass is not going
+        // to simulate. Draining both is cheap -- a drain only ever removes
+        // work, so there is no budget on them the way there is on springs --
+        // and it is the difference between a river and a rising bath. Seed 7
+        // emitted 4.2M fill units into a single-reach drain and returned
+        // `drained 0`.
+        let mut seen = [i32::MIN; 2];
+        for (n, reach) in [MAX_FALL / 3, SPRING_DRAIN_REACH].into_iter().enumerate() {
+            let mut basin = ex;
+            for d in 1..=reach {
+                let x = (ex + dir * d).clamp(0, w - 1);
+                if world_top(world, x, h) > world_top(world, basin, h) {
+                    basin = x;
+                }
+            }
+            if seen.contains(&basin) {
+                continue;
+            }
+            seen[n] = basin;
+            // **At the pool's surface, not on its floor** -- the drain's
+            // *height* is what decides whether a pool stands, and the rate
+            // is not. `spring::step` takes only from a drain cell that
+            // currently holds a liquid, so a drain above the waterline is
+            // inert: nothing leaves until the pool has risen to it, and then
+            // it takes at most `DRAIN_FILL` per frame. `DRAIN_FILL` and
+            // `EMIT_FILL` are both `LIQUID_FULL`, so one drain balances one
+            // emission column and the pool settles *at the drain's height*
+            // with the throughput passing through it. A pool with an outlet
+            // at its lip, self-levelling, and conserving.
+            //
+            // The first version seated drains one cell above the basin floor,
+            // which is the same construction with the pool depth set to
+            // zero: it took the water as fast as it landed, 90-98% of
+            // everything emitted, so nothing ever stood at the bottom. The
+            // owner, shown it: *"it looks like it comes from nowhere and goes
+            // nowhere ... Ideally it should also end in a pool."*
+            //
+            // It is very likely the thinness complaint from the same card as
+            // well. `render.rs` dims a liquid toward black by *fill*, so
+            // water being removed as fast as it arrives is never near full
+            // and draws almost black against the rock.
+            let floor = world_top(world, basin, h);
+            for d in 0..span {
+                let dx = (basin + d - span / 2).clamp(0, w - 1);
+                // Follow the basin's own floor where it is lower than the
+                // centre column's, so a drain never ends up buried in a bank
+                // that happens to be higher than where the pool bottoms out.
+                let dy = world_top(world, dx, h).min(floor) - SPRING_POOL_DEPTH;
+                if dy >= 0 {
+                    world.add_drain(dx, dy);
+                }
+            }
+        }
+        budget -= span;
+        placed_at.push(rim);
+        n_placed += 1;
+    }
+    if std::env::var("SPRING_DEBUG").is_ok() {
+        println!(
+            "  springs: {n_cand} cliff candidates -> refused {n_spacing} too close, {n_soil} soil-topped, \
+             {n_table} no groundwater, {n_shelf} no shelf to cut into, {n_edge} at the world edge, \
+             {n_blocked} blocked; PLACED {n_placed} ({filled} cells of source pool)"
+        );
+    }
+    filled
 }
 
 pub fn ponds(ctx: &Ctx, world: &mut World) -> usize {
@@ -3343,6 +3910,33 @@ const TREE_SPACING: i32 = 7;
 /// between "a lens in the rock" and "a spot".
 const LENS_STRETCH: (f32, f32) = (2.0, 4.0);
 
+/// How far a lens's outline departs from the ellipse it is built on, as a
+/// fraction of its own radius: a few low harmonics that make it lumpy, and a
+/// finer field that roughens the edge cell by cell.
+///
+/// **The owner's words: *"The ovals of sand throughout the stone looks bad
+/// and should be fixed. It should be a more natural shape than perfect
+/// ovals."*** An exact rotated ellipse is a *drawn primitive*, and the round-6
+/// review rejected the drawn things by name while leaving alone the ones that
+/// come out of a process. At the sizes these draw -- a semi-major axis of 8
+/// to 60 cells -- the long arc is smooth over tens of cells, and nothing else
+/// in the rock has an edge like that.
+///
+/// Three harmonics rather than one, at 3/5/8, because a single sine is an egg
+/// and two is a peanut; odd, non-multiple frequencies stop the outline
+/// closing back on any symmetry. Phases are drawn per lens.
+///
+/// The lobe term is a fraction of *radius*, so it is worth 2-17 cells along
+/// the long axis and well under a cell across the short one -- which is the
+/// right asymmetry: a lens is 2-12 cells thick, so there is no room for
+/// shape across it, and the long smooth arc is the part that reads as drawn.
+/// Where the two combine to pull the boundary inside its own centre the lens
+/// simply pinches out, which is what a real lens does at its ends.
+const LENS_LOBE: f32 = 0.30;
+const LENS_GRAIN: f32 = 0.12;
+/// Cells per cycle of the edge-grain field.
+const LENS_GRAIN_SCALE: f32 = 7.0;
+
 /// Sand and gravel lenses sealed inside the rock.
 ///
 /// Loose material the player only finds by digging, and which behaves the
@@ -3370,6 +3964,11 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
         return n;
     }
     const REGION: i32 = 64;
+    // Clamped at the read rather than trusted from the file: a negative
+    // roughness would invert the bound the scan box and the early-out are
+    // both derived from, and a lens could then be written outside the region
+    // that was seal-checked.
+    let rough = p.lens_roughness.max(0.0);
     let seed = ctx.terrain.seed;
     let w = ctx.terrain.w;
     for ry in 0..ctx.terrain.h.div_euclid(REGION) + 1 {
@@ -3440,8 +4039,22 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                 // The rotated ellipse's bounding box, so the scan still
                 // covers the whole shape once the long axis is no longer
                 // along x. Same +1 margin the rind always had.
-                let ext_x = ((a * cos_t).abs() + (b * sin_t).abs()).ceil() as i32 + 1;
-                let ext_y = ((a * sin_t).abs() + (b * cos_t).abs()).ceil() as i32 + 1;
+                // Grown by the most the outline can bulge, or the scan would
+                // clip a lobe -- and a clipped lobe is not merely a smaller
+                // lens: its cells would be written without ever being
+                // seal-checked, which is the sawn-off-face bug the vault
+                // pass records under its own cap.
+                let bulge = 1.0 + rough * (LENS_LOBE + LENS_GRAIN);
+                let (ea, eb) = ((a + 1.0) * bulge, (b + 1.0) * bulge);
+                let ext_x = ((ea * cos_t).abs() + (eb * sin_t).abs()).ceil() as i32 + 1;
+                let ext_y = ((ea * sin_t).abs() + (eb * cos_t).abs()).ceil() as i32 + 1;
+                // The lens's own outline, drawn once per lens rather than per
+                // cell: three seeded phases for the lobes.
+                let phase = |k: i32| {
+                    noise::unit(seed, Purpose::PocketEdge, cx.wrapping_mul(13).wrapping_add(k), cy.wrapping_mul(7))
+                        * std::f32::consts::TAU
+                };
+                let (p1, p2, p3) = (phase(0), phase(1), phase(2));
                 'lens: for dy in -ext_y..=ext_y {
                     for dx in -ext_x..=ext_x {
                         let (px, py) = (cx + dx, cy + dy);
@@ -3449,11 +4062,53 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                         // `v` across it.
                         let u = dx as f32 * cos_t + dy as f32 * sin_t;
                         let v = -(dx as f32) * sin_t + dy as f32 * cos_t;
-                        let d = (u / a).powi(2) + (v / b).powi(2);
+                        // The outline, in the ellipse's own normalised frame:
+                        // radius 1.0 is the ellipse, and `wobble` moves it.
+                        // **The same `wobble` is applied to the lens and to
+                        // its rind**, and the rind is the same shape built on
+                        // the grown axes -- which is what keeps the seal
+                        // sound. For any cell `d_out <= d_in` because
+                        // `a + 1 > a`, so every cell inside the lens is
+                        // inside the rind by construction, whatever the
+                        // outline does. Perturbing the two independently
+                        // would let a lobe push the lens through its own
+                        // rind and outcrop on a free face, which is the one
+                        // failure this pass exists to prevent.
+                        // **Reject on the cheap bound before paying for the
+                        // outline.** The scan box is 1.42x the ellipse in
+                        // each axis now, so most of what it visits is outside
+                        // the shape entirely -- and the outline costs an
+                        // `atan2`, three `sin`s and a two-octave fBm per
+                        // cell. Computing it for cells that cannot possibly
+                        // be inside took the pass from 45.9 ms to 244.4 ms.
+                        //
+                        // Safe because `wobble` is bounded by construction:
+                        // the harmonics are normalised to +-1 and scaled by
+                        // `LENS_LOBE`, the grain to +-1 by `LENS_GRAIN`, so
+                        // nothing can be inside a radius past
+                        // `1 + LENS_LOBE + LENS_GRAIN`. A cell rejected here
+                        // would have been rejected by the full test.
+                        let (nu, nv) = (u / a, v / b);
+                        let outer = ((u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2)).sqrt();
+                        if outer > 1.0 + rough * (LENS_LOBE + LENS_GRAIN) {
+                            continue;
+                        }
+                        let theta = nv.atan2(nu);
+                        let lobe = (0.60 * (3.0 * theta + p1).sin()
+                            + 0.30 * (5.0 * theta + p2).sin()
+                            + 0.25 * (8.0 * theta + p3).sin())
+                            / 1.15;
+                        let grain = noise::value_2d(
+                            seed,
+                            Purpose::PocketEdge,
+                            (cx + dx) as f32 / LENS_GRAIN_SCALE,
+                            (cy + dy) as f32 / LENS_GRAIN_SCALE,
+                        ) - 0.5;
+                        let wobble = rough * (LENS_LOBE * lobe + LENS_GRAIN * 2.0 * grain);
+                        let d = (nu * nu + nv * nv).sqrt();
                         // The rind: one cell beyond the lens must also be
                         // stone, so the lens is never flush with a free face.
-                        let rind = (u / (a + 1.0)).powi(2) + (v / (b + 1.0)).powi(2);
-                        if rind > 1.0 {
+                        if outer > 1.0 + wobble {
                             continue;
                         }
                         if px < 0 || px >= w || py < 0 || py >= ctx.terrain.h {
@@ -3464,7 +4119,7 @@ pub fn pockets(ctx: &Ctx, world: &mut World) -> usize {
                             sealed = false;
                             break 'lens;
                         }
-                        if d <= 1.0 {
+                        if d <= 1.0 + wobble {
                             lens.push((px, py));
                         }
                     }

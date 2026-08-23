@@ -331,8 +331,13 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // four hours to re-derive that would be re-deriving a known result.
     // What is open is whether ground-level food changes the sign, so `moss`
     // is the arm and everything else is held at two levels -- including
-    // `eat_energy` at its extremes, which doubles as the connectivity
+    // `food_energy` at its extremes, which doubles as the connectivity
     // check: with nothing eating, 120 and 700 came out bit-identical.
+    // **Re-read that check after S3b**: it now reprices four materials and
+    // the corpse stamp rather than one field on the eater, so identical
+    // columns here mean something different than they did -- either still
+    // nothing is eating, or the repricing loop is naming materials that do
+    // not exist. `eats` beside the outcome tells those apart.
     // Held fixed, and each for a measured reason rather than by default:
     // `trees` because §13n's census found the canopy is out of reach at
     // every density; `move_cost` because §13k already mapped it and it is
@@ -341,9 +346,9 @@ fn economy_sweep(seeds: u64, frames: usize) {
     // yet part of the loop (§13o).
     let (trees, move_cost, beetles) = (2i32, 0.08f32, BEETLES);
     for &moss in &[false, true] {
-        for &eat_energy in &[120.0f32, 700.0] {
+        for &food_energy in &[120.0f32, 700.0] {
             {
-                let econ = Economy { eat_energy, move_cost, trees, moss, preset: PRESET, beetles };
+                let econ = Economy { food_energy, move_cost, trees, moss, preset: PRESET, beetles };
                 let fs = mean_of((0..seeds).map(|s| run_one(&authored, frames, 0xC0DE + s, econ)).collect());
                 let f = fs.survival;
                 let z = mean_of((0..seeds).map(|s| run_one(&zero, frames, 0xC0DE + s, econ)).collect()).survival;
@@ -354,11 +359,11 @@ fn economy_sweep(seeds: u64, frames: usize) {
                 // as a column of identical numbers; a count of actual
                 // meals says which of the two is happening, and it is what
                 // makes `eat_energy` falsifiable as a knob at all.
-                println!("{beetles:<8} {:<6} {eat_energy:<8.0} {move_cost:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
+                println!("{beetles:<8} {:<6} {food_energy:<8.0} {move_cost:>10.2} {f:>10.3} {z:>9.3} {adv:>11.3} {:>11.2}   placed {:.0}", if moss { "yes" } else { "no" }, fs.eats, fs.placed);
                 // Scarcity guard: an advantage bought by making food
                 // abundant is not the band we are looking for.
                 if f < 0.9 && best.as_ref().is_none_or(|(b, _)| adv > *b) {
-                    best = Some((adv, format!("moss {moss}, eat {eat_energy:.0}, move {move_cost:.2} (forager {f:.3})")));
+                    best = Some((adv, format!("moss {moss}, eat {food_energy:.0}, move {move_cost:.2} (forager {f:.3})")));
                 }
             }
         }
@@ -567,21 +572,59 @@ fn spawn_census() {
 
 /// Count the food in the scene, in the band the ants are actually spawned
 /// into, before running anything on it.
+/// What food exists where an ant can reach it, per preset.
+///
+/// **The instrument S4 (litter) is judged by, and it is built before the
+/// mechanism on purpose.** `CENSUS_SEEDS` sweeps the generator rather than
+/// trusting one world: outcomes here are chaotic in the seed, so a
+/// single-seed baseline gets rubber-stamped and whichever seed is worst
+/// reshuffles on any legitimate change (`CLAUDE.md` -- gate an order
+/// statistic, not a seed). The median is what a later run should be compared
+/// against; the spread is printed beside it so nobody reads a move inside it
+/// as a result.
 fn scene_food_census(seed: u64) {
-    println!("scene census (seed {seed:#x}), no ants -- what food exists at ant height, and does it grow?");
-    println!("{:<10} {:<12} {:>10} {:>14} {:>16} {:>10} {:>14}", "preset", "frame", "moss", "moss surface", "moss in colony", "leaf", "leaf surface");
+    let seeds: u64 = std::env::var("CENSUS_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    println!("scene census (seed {seed:#x}, {seeds} seed(s)), no ants -- what food exists at ant height, and does it grow?");
+    println!(
+        "{:<10} {:<12} {:>10} {:>14} {:>16} {:>10} {:>14} {:>14} {:>16}",
+        "preset", "frame", "moss", "moss surface", "moss in colony", "leaf", "leaf surface", "surface food", "colony food"
+    );
+    // **The "did it fire at all" counter, printed beside the energy.** A
+    // forest floor with food on it looks the same whether litter produced it
+    // or moss did, and `CLAUDE.md`'s collapse-that-read-as-chunks is the
+    // standing warning: two very different mechanisms are identical at the
+    // zoom a sheet is read at. `litter` at 0 with `colony food` up means the
+    // energy came from somewhere else and S4 is not what moved it.
+    println!("(litter columns are the did-it-fire counter for S4; at shade_death 0.0 they must read exactly 0)");
+    let mut summary: Vec<(String, Vec<f64>)> = Vec::new();
     for preset in ["rolling", "wetland", "terraced", "canyon"] {
-        census_one(seed, preset);
+        let mut colony = Vec::new();
+        for s in 0..seeds {
+            colony.push(census_one(seed + s, preset));
+        }
+        summary.push((preset.to_string(), colony));
+    }
+    if seeds > 1 {
+        println!("
+colony-band food energy at +6000, across {seeds} seeds -- the number S4 has to move");
+        println!("{:<10} {:>10} {:>10} {:>10} {:>10}", "preset", "min", "median", "max", "spread");
+        for (preset, mut v) in summary {
+            v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN in a sum of finite worths"));
+            let (min, max, med) = (v[0], v[v.len() - 1], v[v.len() / 2]);
+            println!("{preset:<10} {min:>10.0} {med:>10.0} {max:>10.0} {:>10.0}", max - min);
+        }
     }
     println!();
 }
 
-fn census_one(seed: u64, preset: &str) {
+/// Returns the colony-band food energy at +6000 -- the one number the S4
+/// guard reads. Everything else it prints is diagnostic.
+fn census_one(seed: u64, preset: &str) -> f64 {
     let (w, h) = (512i32, 160i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     world.seed = seed;
     let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
-    let Some(params) = presets.get(preset) else { return };
+    let Some(params) = presets.get(preset) else { return 0.0 };
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed });
     let surface = |world: &World, x: i32| -> i32 {
         (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
@@ -611,14 +654,37 @@ fn census_one(seed: u64, preset: &str) {
     // The ants are planted at `24 + i*4` for 52 of them, so 24..232 is the
     // colony's own band; the rest of the map is where it would have to
     // travel to.
+    // **What an ant could actually eat if it were standing here, in energy.**
+    //
+    // The per-material columns above are diagnostic and stay, but they are
+    // named columns, and a named column is blind to any food that did not
+    // exist when it was written -- which is the whole of `CLAUDE.md`'s
+    // "check that a guard's inputs actually vary what it guards": litter
+    // (S4) would have grown a canopy's worth of ground food and this census
+    // would have gone on printing leaf and moss. Asking `food_value` instead
+    // means every future edible is counted the day it exists.
+    //
+    // Energy rather than a cell count for §13m's reason: a *count* of edible
+    // cells rose steadily all the way through the run in which one bite was
+    // killing whole trees. The quantity that matters to an animal is what
+    // the mouthful is worth.
+    let food_energy = |world: &World, band: std::ops::Range<i32>| -> f64 {
+        band.flat_map(|x| ((surface_at[x as usize] - 3).max(0)..(surface_at[x as usize] + 4).min(h)).map(move |y| (x, y)))
+            .map(|(x, y)| pixel_physics::sim::creature::food_value(world, world.get(x, y)) as f64)
+            .sum()
+    };
     let report = |world: &World, label: &str| {
         println!(
-            "{preset:<10} {label:<12} {:>10} {:>14} {:>16} {:>10} {:>14}",
+            "{preset:<10} {label:<12} {:>10} {:>14} {:>16} {:>10} {:>14} {:>14.0} {:>16.0} | litter {:>6} surface {:>6}",
             count(world, "moss", 0..w, false),
             count(world, "moss", 0..w, true),
             count(world, "moss", 24..232, true),
             count(world, "leaf", 0..w, false),
             count(world, "leaf", 0..w, true),
+            food_energy(world, 0..w),
+            food_energy(world, 24..232),
+            count(world, "litter", 0..w, false),
+            count(world, "litter", 0..w, true),
         );
     };
     report(&world, "warmup end");
@@ -629,6 +695,7 @@ fn census_one(seed: u64, preset: &str) {
         world.step_pheromones();
     }
     report(&world, "+6000");
+    food_energy(&world, 24..232)
 }
 
 fn report_spread(name: &str, samples: &[Sample], f: impl Fn(&Sample) -> f32) {
@@ -659,7 +726,7 @@ fn authored_genome() -> Vec<f32> {
     reg.get(reg.id_of("ant").expect("ant species")).genome.clone()
 }
 
-const DEFAULT_ECONOMY: Economy = Economy { eat_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
+const DEFAULT_ECONOMY: Economy = Economy { food_energy: 120.0, move_cost: 0.25, trees: 2, moss: true, preset: "wetland", beetles: BEETLES };
 
 /// Named because the "did this ant ever eat" detector reads against it.
 const START_ENERGY: f32 = 90.0;
@@ -684,7 +751,7 @@ const BEETLES: usize = 9;
 /// `CLAUDE.md` says not to compare against.
 #[derive(Clone, Copy)]
 struct Economy {
-    eat_energy: f32,
+    food_energy: f32,
     move_cost: f32,
     trees: i32,
     moss: bool,
@@ -708,7 +775,7 @@ struct Economy {
     /// eats well and is eaten anyway scores exactly like a forager that
     /// never found anything, and the food knobs cannot tell those apart --
     /// which is consistent with survival coming out bit-identical at
-    /// `eat_energy` 120 and 700 while `move_cost` moved it freely. Zero
+    /// `food_energy` 120 and 700 while `move_cost` moved it freely. Zero
     /// beetles is the control that isolates it.
     beetles: usize,
 }
@@ -745,7 +812,22 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // which is the one worth asking.
     let mut def = world.species.get(species).creature.as_ref().expect("ant is a creature").clone();
     def.start_energy = START_ENERGY;
-    def.eat_energy = econ.eat_energy;
+    // **The nutrition knob moved off the eater and onto the food (S3b), and
+    // so did this line.** `def.eat_energy` used to pay the same number for
+    // any mouthful; there is no such field now, and a sweep that kept
+    // setting one would have been a knob connected to nothing -- the exact
+    // failure this arm was added to detect. Every material the ant eats is
+    // repriced together, plus `body_energy`, because a corpse carries its
+    // worth per cell from the animal's own stamp rather than from its
+    // `.ron`. Holding those equal is what `ant.ron` does deliberately
+    // (`food_energy: 120.0` against `body_energy: 120.0`), so scaling them
+    // together keeps a scavenged mouthful worth a foraged one.
+    for name in ["leaf", "moss", "seed"] {
+        if let Some(id) = world.materials.id_of(name) {
+            world.materials.get_mut(id).food_energy = econ.food_energy;
+        }
+    }
+    def.body_energy = econ.food_energy;
     def.move_cost = econ.move_cost;
     // **Scale the synapse tax with the budget, or the control is not a
     // control.** `ant.ron` sets 0.002 per active synapse against a starting
@@ -760,7 +842,15 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // That is `CLAUDE.md`'s rule arriving in the usual disguise: when a fix
     // changes what a number *means*, re-deriving the constants that read it
     // is part of the fix. Held at the ratio ant.ron actually authored.
-    def.synapse_cost = 0.002 * (def.start_energy / 900.0);
+    //
+    // **And the correction that used to live here is gone**, because the
+    // species file now authors the ratio itself (`synapse_fraction`) and
+    // the charge is `fraction * start_energy` wherever the budget is set.
+    // The line was `def.synapse_cost = 0.002 * (def.start_energy / 900.0)`,
+    // and it was a correction one harness happened to remember: any other
+    // caller cutting `start_energy` re-created the whole §13j failure in
+    // silence. Deleted here rather than kept, because keeping it would
+    // apply the correction twice.
     // **Corpses are off the menu here, and finding that out was the point
     // of the readiness check.** With "corpse" in the food list, a starved
     // ant feeds the ants around it, so a colony sustains itself on its own

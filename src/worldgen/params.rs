@@ -119,6 +119,25 @@ pub struct WorldgenParams {
     /// Expected sand/gravel lenses per 64x64 region. Fractional values mean
     /// "sometimes one".
     pub pocket_density: f32,
+    /// How far a lens's outline departs from the ellipse it is built on,
+    /// as a multiplier on `LENS_LOBE` and `LENS_GRAIN` in `passes.rs`.
+    ///
+    /// **`0.0` is the pre-review behaviour** -- an exact rotated ellipse --
+    /// kept reachable so the change can be judged by eye rather than argued
+    /// about, which is this repo's convention for a look-at-it question.
+    ///
+    /// Here because the owner has an opinion about it and it is a `.ron`
+    /// field away from being tunable with F5 in the running app: *"The ovals
+    /// of sand throughout the stone looks bad and should be fixed. It should
+    /// be a more natural shape than perfect ovals."* `Reports/design-
+    /// philosophy.md` §2a says a constant graduates to hot-reloadable data
+    /// the moment a non-programmer might plausibly want to tune it, and
+    /// *before* heavy tuning starts rather than after.
+    ///
+    /// Above about 1.5 the outline starts pinching lenses into disconnected
+    /// lobes -- which real lenses do at their ends, so it is not a bug, but
+    /// it stops reading as one body.
+    pub lens_roughness: f32,
     /// Tallest gravel apron heaped at the base of a cliff. Zero disables.
     pub talus_max_height: f32,
     /// Chance that a given cliff edge grows an overhanging lip, 0..1. Zero
@@ -232,9 +251,48 @@ pub struct WorldgenParams {
     // ---- residual landforms ----
     /// Expected residual sites (tors, stacks, pinnacles) per 256-column
     /// region, before the region's own `Character::formation` multiplies
-    /// it up or down. Zero disables the pass entirely and leaves the world
-    /// byte-identical -- the same contract `pocket_density` and
-    /// `vault_density` make.
+    /// it up or down.
+    ///
+    /// **Back at 1.4 after a round trip through 0.45.** The knob answers
+    /// *how emphatic is rock country where there is rock country*; whether
+    /// there is any here at all belongs to `region::FORMATION_BARREN`, and
+    /// conflating the two is what the round trip was.
+    ///
+    /// Phase 2 cut it 1.4 -> 0.45 against the owner's *"they shouldn't be
+    /// common ... shouldn't be dominate"*, set from a sweep, and it was
+    /// rejected on the render: *"Spires should not just be thinned out. They
+    /// should be part of a specific biome. They should not exist at all in
+    /// most biomes but some biomes should have them and they can be more
+    /// regular. **I didn't mean a uniform decrease in spires.**"*
+    ///
+    /// The measurement that set 0.45, kept because it is the bar the gate had
+    /// to beat -- `probe_p2_how_common_are_standing_features`, spires per
+    /// 512-column screen over 48 screens, **paired against
+    /// `residual_density: 0.0`** so the count is the residual pass and not
+    /// `boulders`, `brows` or a proud talus toe (half of them on `canyon` and
+    /// nearly all of them on `rolling`; tuning against the unpaired number
+    /// would have been tuning `boulders`):
+    ///
+    /// | density | canyon med/p90/max | rolling med/p90/max | heights p90 |
+    /// |---|---|---|---|
+    /// | 3.0 | 2 / 5 / 7 | 2 / 4 / 5 | 35 / 36 |
+    /// | 1.4 | 1 / 3 / 5 | 1 / 2 / 3 | 35 / 33 |
+    /// | 0.45 | 0 / 2 / 4 | 0 / 1 / 2 | 28 / 23 |
+    ///
+    /// (controls: canyon 0 / 2 / 3, rolling 0 / 1 / 2.)
+    ///
+    /// Read across, that table is the whole argument against tuning this knob
+    /// for the complaint. At 0.45 `rolling` is **identical to its control in
+    /// all three statistics** -- the pass had stopped contributing anything,
+    /// so what remained on screen was boulders and talus that this knob
+    /// cannot reach, and no further cut could have helped. And `heights` p90
+    /// fell with it (33 -> 23): thinning the count also shrinks the
+    /// monuments, because a smaller count is fewer draws at the tall tail.
+    /// A median of 1 at 1.4 is the other half -- every other screen holding a
+    /// spire is "formations everywhere", which is what needed fixing.
+    ///
+    /// Zero disables the pass entirely and leaves the world byte-identical --
+    /// the same contract `pocket_density` and `vault_density` make.
     ///
     /// Round 6 Track B, B2 (`Reports/worldgen-implementation-tasks-round6-
     /// formations.md`). B1 measured that plan-space erosion never produces
@@ -243,6 +301,29 @@ pub struct WorldgenParams {
     /// never once crossing into the 12-120 cell band a residual occupies --
     /// so this is authored placement, not a rate this pass tunes toward.
     pub residual_density: f32,
+
+    /// Columns of spring emission to spend on this world -- the engine's own
+    /// budget unit (`sim::spring::MAX_TOTAL_SPAN`), not an invented one, so
+    /// the number here and the number the simulation enforces are the same
+    /// number. `5.0` is one waterfall; `sim::spring::MAX_SPAN` (6) caps a
+    /// single outlet, so a larger budget buys more *places*, not a wider
+    /// sheet.
+    ///
+    /// `0.0` switches the pass off and leaves the world byte-identical --
+    /// the same contract `residual_density`, `pocket_density` and
+    /// `vault_density` make. `arid` and `flat` ship `0.0` explicitly, and
+    /// would place nothing anyway: both put the water table past the world
+    /// floor, so no cliff face can intersect it.
+    ///
+    /// **The measured price of switching it on**, at 8192x2560, from
+    /// `ascii`'s river-cost scene (the instrument the rivers track was
+    /// opened with): a spring, its fall and its pool cost **+2.645 ms/frame**
+    /// standing -- 7.135 -> 9.780 ms over 1400 frames -- and take the world
+    /// from **0 awake chunks to 7** of 5120. That is over the 2.0 ms bar the
+    /// harness prints and under the ~3.5 ms wind-revert class. It is a
+    /// standing cost with no end: the world never sleeps again while a
+    /// spring runs.
+    pub spring_flow: f32,
 
     // ---- history ----
     /// How much simulated history the terrain has been through, `0` none.
@@ -308,6 +389,7 @@ impl Default for WorldgenParams {
             strata_tilt: 0.06,
             strata_fold: 6.0,
             pocket_density: 0.6,
+            lens_roughness: 1.0,
             talus_max_height: 12.0,
             brow_chance: 0.8,
             table_damping: 0.35,
@@ -323,6 +405,7 @@ impl Default for WorldgenParams {
             region_variation: 0.75,
             palette_field: 0.30,
             residual_density: 1.4,
+            spring_flow: 5.0,
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
@@ -428,11 +511,16 @@ mod tests {
     #[test]
     fn arid_preset_is_a_dry_world() {
         // The stated pivot lever: if the water table turns out not to be fun,
-        // one preset switch removes all of it. That only holds if the offset
-        // really is past any world height we would run.
+        // one preset switch removes all of it.
+        // The `table_offset > world height` half of the lever lives in
+        // `tests/worldgen.rs`'s `the_dry_presets_keep_their_table_below_the_
+        // world_floor`, not here: it has to be asserted against
+        // `app::WORLD_HEIGHT`, and `worldgen` sits *below* `app` in this
+        // crate's layering. It used to be a literal `> 320.0` in this
+        // function, which is exactly how it came to be a bar that no longer
+        // meant anything.
         let (presets, _) = WorldgenPresets::load();
         let arid = presets.get("arid").expect("arid preset exists");
-        assert!(arid.table_offset > 320.0, "arid must put the table below the world floor");
         assert_eq!(arid.moss_density, 0.0);
         assert_eq!(arid.tree_density, 0.0);
     }

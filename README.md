@@ -44,7 +44,7 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
 | `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height) — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking a plant **shakes** it rather than cutting it (the ring turns green): loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
-| `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world in about six seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is four screens wide and two deep, so there is a good deal to see — the bottom-left readout shows where the view is |
+| `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world's pannable width (7680 cells) in about 30 seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is sixteen screens wide and eight deep, so there is a good deal to see — the bottom-left readout shows where the view is |
 | `F10` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode |
 | `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
@@ -216,8 +216,18 @@ src/worldgen/  M10's worldgen half: a playable 2D slice cut from coarse 3D
                width), column.rs (per-column shaping), passes.rs (the pass
                pipeline), erosion.rs (plan-space erosion, which is what
                makes the mesas and benches), residual.rs (tors and stacks),
-               spring.rs (spring placement), legacy.rs (the old hand-built
-               practice terrain)
+               legacy.rs (the old hand-built practice terrain),
+               passes::springs (spring and drain placement, added after the
+               note below was written)
+src/sim/spring.rs
+               springs and drains -- water entering and leaving the 2D
+               slice. The mechanism; `worldgen::passes::springs` is what
+               puts one in a world. **It did not until 2026-08-22**, which
+               is why nobody had seen a river: every caller of
+               `World::add_spring` was a unit test or
+               `examples/viewshot.rs spring=`, and this map had listed the
+               module under `src/worldgen/` as "spring placement", which is
+               where the belief that worlds already had rivers came from.
 src/render.rs  cells to pixels; dirty-region skipping, overlays, grain
 src/sky.rs     the sky: day/night gradient, dawn and dusk, stars, the moon,
                storm dimming -- and the ground lit by time of day
@@ -1399,6 +1409,109 @@ generation-wrap counter), and a positive existence assertion added to
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
 
+### M18 S1–S4: the creature economy, and an edible forest floor
+
+Merged from `creatures-m18` on 2026-08-23. `Reports/creature-evolution-plan.md`
+holds the staged plan and the "As built" measurements; **every S4 number in it
+predates this merge and is superseded by the numbers here.**
+
+**S1–S2 — the genome.** The heritable genome grew from 248 slots to 584 on a
+scheme that can extend on any axis without re-keying what is already there,
+with a manifest hash so a stale genome cannot be read as a fresh one.
+`BRAIN_OUTPUTS` is 10. `synapse_cost` became `synapse_fraction`, a fraction of
+`start_energy` rather than an absolute: as an absolute it was silently a
+different tax every time anything changed the energy budget, and one harness
+spent 80% of a creature's life on thinking without anyone noticing.
+
+**S3 — food is worth what it is.** Nutrition used to be `eat_energy`, a
+constant of the *eater*, so a corpse was worth whatever bit it. Worth now
+lives on the material (`food_energy`, `food_class`), except for the one case
+that genuinely varies — a corpse is worth what the animal was made of, and
+carries that per cell in `Cell::aux` (`worth_in_aux`). `body_energy` is
+granted at spawn and can never be spent, so a creature starved to exactly 0
+still leaves food behind. The `EnergyLedger` was reworked into two stocks,
+live and meat, which closes the pump §13l recorded: the old ledger balanced
+while conjuring 300 joules per bite.
+
+**S4 — the canopy feeds the floor.** All three abscission sites write `litter`
+instead of erasing the leaf, and litter is on the ants' menu. A shed leaf is
+carried down through its own crown to where it would have landed, rather than
+written where it hung: writing in place looked equivalent and was not, because
+a crown catches its own leaf fall — 3,825 of 4,330 standing litter cells were
+resting on plant tissue. Litter rots back to soil on `decay.rs`'s channel at
+its own per-material rate, so the floor reaches equilibrium instead of
+integrating the canopy's shedding forever.
+
+**What it costs, measured paired in one session on one machine.** The colony
+scene at 12,000 frames went **mean 3.121 ms → 2.979 ms** — litter that reaches
+the floor and rots is *cheaper* than the bare canopy it replaced. That is the headline
+result and it is not a rounding artifact: the same mechanism measured **+45%**
+(1.875 → 2.714 ms) on `creatures-m18`, where litter never rotted and simply
+accumulated. Worst-frame moved 46.1 → 66.4 ms and is *not* quoted as a
+regression — worst-frame spread on identical binaries has been measured at
+3.5x here, so only the mean is usable.
+
+**Known limitations.**
+
+- **The floor feeds the colony, and the colony stops ranging.** Same run:
+  deliveries 222 → 260 (+17%), but moves 13,980 → 9,595 (−31%), nest-visits
+  6,014 → 3,852 (−36%), digs 79 → 43 (−46%). This is the owner's stated
+  constraint arriving as a measurement — a complex system whose visible
+  result is ants sitting still eating fallen leaves is not wanted. Litter's
+  rot rate is therefore a **design** knob, not a performance one, and the
+  values here (damp 0.5 / dry 0.1) are a starting point pending a verdict.
+- Most litter is **dry**, whatever the weather: the moisture field is sampled
+  at the litter's own block, which is air, so only 2–7% of standing litter
+  reads above the damp gate. The dry rate is the one that governs.
+- `decay_chance_*` is resolved from a serde default at parse time rather than
+  a `0.0`-means-shared sentinel, so `decay_chance_dry: 0.0` means what it says.
+- **"Against plant" is not "stuck in a tree", and the probe used to imply it
+  was.** 39% of standing litter has a live organism cell underneath it, and
+  almost all of that is a drift piled against a trunk *at floor level* — 88%
+  of all litter sits within four rows of the ground and none of it is more
+  than 32 rows up. A litter cell is a grid cell and cannot go behind a tree
+  the way the gnome can: he is an entity with his own collision rules, it is
+  a material, and two materials cannot share a cell. So resting on a trunk
+  base is `litter.ron`'s 42-degree friction angle working, not failing.
+  `litter_probe` now names the column `against-plant` and refuses to be read
+  without the height bands.
+
+**Two follow-ups the owner judged by eye, after the merge landed.** Litter's
+palette is warmer and lighter than the browns it shipped with: the original
+set was deliberately close to soil so a layer would read as ground *texture*,
+and at play zoom that lost — the floor was there and could not be seen. Chosen
+from a blind A/B. And `LITTER_FALL_REACH` went 64 → 512, because a grown crown
+tops out ~125 rows above the ground and the walk was running out *inside the
+canopy*: the tallest trees, whose leaves have furthest to fall, were the ones
+whose litter never reached the floor. Litter against plant 44.4% → 39.3%,
+within three rows of the ground 29.5% → 35.4%.
+
+**Foraging range, and why `nest_visits` was never the guard it read as.**
+`CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is
+incremented unconditionally every tick — so the guard is false exactly once
+per lifetime and the counter scores every move made while nest-adjacent. It
+counts loitering. `assert!(nest_visits > 0)` therefore passes trivially for a
+colony that never leaves the nest mouth, which is the failure it looked like
+it was guarding.
+
+The replacement is a spatial excursion depth re-anchored at every nest contact
+(`OrganismState::forage_anchor`), booked as `forage_trips` /
+`forage_depth_sum` / `forage_depth_max` and a threshold-free cumulative
+profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
+the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
+`[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
+(a seventh of the count, under half the depth) because outcome spread here is
+large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+one ant, a nest, no food — and neither arm is worth anything alone.
+
+**`Material::insubstantial` bought zero cells on `wood`, and the zero is
+recorded.** The gnome runs through leaf litter with no wade drag, on the
+owner's direct instruction. It does not move `scripts/acceptance.sh`'s `wood`
+case, which reads **98 travelled against a bar of 200 on all three of**
+`origin/main`, the merge, and the merge plus the flag. Earlier notes citing 34
+predate main's own plant work and no longer reproduce; the residual is tree
+architecture, not litter depth (`Reports/open-bugs-handoff.md` bug Y).
+
 ## UI improvements — overnight run, section 9
 
 The engine's first on-screen text, and everything built on top of it.
@@ -1640,9 +1753,74 @@ it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
+**The world ships at 8192 x 2560 cells** — sixteen viewport-widths across
+and eight deep, 4x linear on the 2048x640 it shipped at through round 7 and
+sixteen times the cells. That is the owner's call, taken because round 6's
+renders were rejected for having no room in them: *"everything needs to be
+bigger, the whole world, the caves. You cannot create good looking crystals
+or stalagmites and stalactites that are only 1-2 pixels wide."* A feature
+only has a silhouette, a taper and an interior if it is many cells across,
+and there was no room for a many-cells-across cave in a world four screens
+wide.
+
+It costs 9.0 s to generate (behind the loading screen) at 359 MiB of peak
+RSS, with the field solve at 51.8 ms on its worst settled frame;
+`examples/scale_probe.rs` is the instrument and
+`Reports/field-settling-2026-08.md` holds the performance work that made the
+size affordable. The one target not met — 4 ms amortised over a day/night
+cycle, against 16.7 measured — is recorded as a gap in
+`Reports/world-scale-handoff.md` rather than relabelled away.
+
+The features underground grew with it: a cave system's envelope reaches
+800 x 320 cells against 200 x 80, and a stalagmite's base is 12-32 cells
+wide against 3-8, which took the median formation across a 16-seed census
+from 3 cells to 11. The macro surface deliberately did **not** scale —
+region *density* is held constant at two to five per screen-width, so
+crossing the world still changes country at the same rate — and
+`Reports/world-scale-phase-2.md` sets out why those two halves cannot both
+scale, along with what the growth cost: a cave's void is now split across
+many more disjoint walkable pockets, which is the honeycomb that the next
+round of cave-shape work exists to replace.
+
+**Standing rock became a place rather than a rate**, on the owner's verdict
+that Phase 2's answer had missed: *"They should not exist at all in most
+biomes but some biomes should have them and they can be more regular. I
+didn't mean a uniform decrease in spires."* Phase 2 had cut
+`residual_density` 1.4 -> 0.45 uniformly, and measurement afterwards showed
+that was worse than a thinning — on `rolling` the spire census at 0.45 was
+*identical to a residuals-off control*, so the pass had stopped contributing
+at all, and the monuments shrank with it (`heights` p90 33 -> 23).
+
+Whether a stretch of world grows residuals is now a low-frequency
+**rock-country field** (`region::ROCK_COUNTRY_SCALE`, ~1700 columns per
+feature) rather than the per-region `formation` draw, because a region is
+102-256 columns — a fifth to a half of one screen — and a country smaller
+than the view reads as a cluster. Measured: gating per region at 87% barren
+gave *the same* per-screen census as the rejected uniform thinning. With the
+country field, 64% of the world is barren, rock country runs a median 1572
+columns, and residuals add 3.1 spires per 1000 columns inside it against
+0.031 outside — a 100x contrast, guarded by
+`residual_landforms_are_confined_to_rock_country`, which fails for the old
+draw. Every world gets at least one such stretch, enforced the same way the
+elevation-spread guarantee is.
+
+**Accepted provisionally.** The owner's verdict on the render: *"This is fine
+for now ... My overall desire is for rocks be of all different shapes and sizes
+not rock country with these unusual tall pillar rocks and then barren with no
+boulders, but we can revise the rock formation generation in the future."* The
+distribution question is answered; the open one is **variety of rock form**,
+which lives in `residual.rs`'s aspect draw (the pillars are thin because
+`MIN_ASPECT`/`MAX_ASPECT` make them so) and in `boulders`, whose output is
+driven by `erosion::Deposits` and so leaves quiet regions bare. See
+`region::FORMATION_BARREN`'s comment for the full verdict.
+
 Streaming itself — chunks loading and unloading past the bounds — has not
 started; `ChunkCoord`'s reserved slice-identifier (issue #11) is the one
-piece of it already spoken for, and it must land before the save format.
+piece of it already spoken for, and it must land before the save format. The
+pass margins are the contract it will plan against, and they are now
+*expressions* over the constants that produce them (`passes::TALUS_MARGIN`
+and friends) rather than numbers restated by hand — every one of the four
+had been silently wrong at least once.
 
 ## Weather status
 

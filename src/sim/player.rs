@@ -24,8 +24,9 @@
 use super::material::MaterialKind;
 use super::world::World;
 
-/// Character extent in cells. 7x14 on a 512x320 world puts him at about a
-/// twenty-third of the world's height — gnome-scale beside trees that are
+/// Character extent in cells. 7x14 against the 512x320 viewport (`app::WIDTH`
+/// / `HEIGHT`, unchanged since the world outgrew it) puts him at about a
+/// twenty-third of what's on screen at a time — gnome-scale beside trees that are
 /// tens of cells, and large enough to carry a silhouette with a face,
 /// arms and legs rather than three coloured bands. He fits upright
 /// through the 15-cell bore a radius-7 `rigid::mine` carves;
@@ -97,8 +98,10 @@ pub struct Tuning {
     pub gravity: f32,
     /// Horizontal acceleration per tick while a run key is held.
     pub run_accel: f32,
-    /// Horizontal speed cap, cells per tick. 1.3 crosses the 512-cell
-    /// world in ~6.5 seconds.
+    /// Horizontal speed cap, cells per tick. The default (`Tuning::default`,
+    /// 1.5, not the 1.3 an earlier version of this comment named) is 90
+    /// cells/s at the sandbox's fixed 60 Hz, which crosses the current
+    /// 8192-cell-wide world in 8192 / 90 ≈ 91 seconds end to end.
     pub run_max: f32,
     /// Subtractive slowdown per tick when grounded with no run key held —
     /// stops from full speed in ~5 ticks. Airborne motion keeps its speed,
@@ -750,6 +753,30 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
     }
     if cell.organism_id() != 0 && material.climbable {
         return Footing::Climb;
+    }
+    // Light enough to run through -- leaf litter. Tested before the kind
+    // match so it beats `Powder => Soft`, which is the whole point: this
+    // material is a powder in every other respect and must stay one.
+    //
+    // `Free`, not merely drag-free, and deliberately: `wade_rows` has a
+    // cliff in it (four rows of him in powder is where wading stops and
+    // *stuck* begins), so exempting the drag alone would leave the failure
+    // that actually reads as a bug. He should pass through a drift of
+    // leaves the way he passes through a branch. See
+    // `Material::insubstantial`, including where the "item that lets you
+    // move freely" switch goes when it exists.
+    //
+    // **Two readers this opts litter out of, neither of them tested.**
+    // `Free` is documented as "nothing here: empty, gas, or liquid", and
+    // `Climb`/`Scenery` exist precisely because some readers need
+    // passable-but-not-air: the aim ray stops on a `Scenery` cell, and
+    // `displace_disc` counts one as somewhere spoil can rest. Litter now
+    // reads as air to both. That is probably right -- you should be able to
+    // dig through a drift of leaves, and an aim ray should not stop on one
+    // -- but it is untested, and if a fourth variant is ever wanted this is
+    // the line that spawns it.
+    if material.insubstantial {
+        return Footing::Free;
     }
     match material.kind {
         MaterialKind::Solid | MaterialKind::Plant => Footing::Hard,
@@ -3061,6 +3088,35 @@ mod tests {
             "expected him out of the water and standing on the bank, got feet at {feet} (waterline 60), grounded {}",
             p.grounded
         );
+    }
+
+    /// **Litter is a powder that does not impede him, and both halves of
+    /// that have to hold.** A guard rather than a comment because the whole
+    /// mechanism is one `#[serde(default)]` field in a `.ron` -- deletable
+    /// by accident, and silent when deleted, since litter would simply go
+    /// back to being ordinary powder and the failure is a gameplay feel
+    /// rather than a panic.
+    ///
+    /// Asserted against `sand` in the same breath, so this cannot pass by
+    /// `footing` having stopped distinguishing powders at all -- which is
+    /// exactly how a guard for a flag like this goes vacuous.
+    #[test]
+    fn litter_is_a_powder_the_gnome_runs_straight_through() {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let litter = w.materials.id_of("litter").expect("litter is compiled in");
+        assert!(
+            w.materials.get(litter).insubstantial,
+            "litter.ron must keep `insubstantial: true` -- see Material::insubstantial"
+        );
+        assert_eq!(
+            w.materials.kind(litter),
+            MaterialKind::Powder,
+            "it has to stay a powder: it still falls, piles and rots"
+        );
+        w.set(10, 10, Cell::new(litter, 0));
+        w.set(12, 10, Cell::new(material::SAND, 0));
+        assert_eq!(footing(&w, &Bodies::none(), 10, 10), Footing::Free, "a drift of leaves is not something to wade through");
+        assert_eq!(footing(&w, &Bodies::none(), 12, 10), Footing::Soft, "sand still is -- otherwise this guard proves nothing");
     }
 
     #[test]

@@ -52,7 +52,10 @@
             strata_tilt: 0.06,
             strata_fold: 6.0,
             pocket_density: 0.6,
+            lens_roughness: 1.0,
             talus_max_height: 12.0,
+            residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.8,
             table_damping: 0.35,
             table_offset: 12.0,
@@ -100,7 +103,10 @@
             strata_tilt: 0.05,
             strata_fold: 7.0,
             pocket_density: 0.6,
+            lens_roughness: 1.0,
             talus_max_height: 14.0,
+            residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.9,
             table_damping: 0.35,
             table_offset: 26.0,
@@ -146,7 +152,10 @@
             strata_tilt: 0.09,
             strata_fold: 8.0,
             pocket_density: 0.8,
+            lens_roughness: 1.0,
             talus_max_height: 18.0,
+            residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.9,
             table_damping: 0.3,
             table_offset: 70.0,
@@ -193,7 +202,10 @@
             strata_tilt: 0.03,
             strata_fold: 5.0,
             pocket_density: 0.5,
+            lens_roughness: 1.0,
             talus_max_height: 8.0,
+            residual_density: 1.4,
+            spring_flow: 5.0,
             brow_chance: 0.5,
             table_damping: 0.35,
             table_offset: 8.0,
@@ -220,6 +232,17 @@
         // pivot lever made concrete — if the water table turns out not to be
         // fun, this preset is what the world looks like without it, one press
         // of F7 away.
+        //
+        // `table_offset` here is a **sentinel, not a depth**: it has to land
+        // past `app::WORLD_HEIGHT` or the lever is not a lever. At 400 it
+        // stopped being one when the world grew — `moisture_init` writes a
+        // moisture floor for every row at or below `table_y`, so a 2560-row
+        // world put a damp table at row ~570 and left two million cells of
+        // wet rock in the world that is supposed to have none. 4000 clears a
+        // world four times taller again; `the_dry_presets_keep_their_table_
+        // below_the_world_floor` asserts it against `WORLD_HEIGHT` rather
+        // than against a literal, so the next size change fails a test
+        // instead of quietly wetting the desert.
         "arid": (
             sky_rows: 95.0,
             relief_amplitude: 18.0,
@@ -242,10 +265,13 @@
             strata_tilt: 0.07,
             strata_fold: 6.0,
             pocket_density: 0.9,
+            lens_roughness: 1.0,
             talus_max_height: 16.0,
+            residual_density: 1.4,
+            spring_flow: 0.0,
             brow_chance: 0.85,
             table_damping: 0.35,
-            table_offset: 400.0,
+            table_offset: 4000.0,
             capillary_fringe: 24.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
@@ -289,7 +315,10 @@
         //                  it is loose grain -- and mixing the two is how a
         //                  test bed stops telling you which one you measured.
         //   table_offset   Past the world floor, as `arid` does, so no pond
-        //                  fills the room while you are watching it.
+        //                  fills the room while you are watching it -- and
+        //                  so no moisture floor is written into the rock
+        //                  either, which is the half that broke when the
+        //                  world grew. See `arid` above for the sentinel.
         "flat": (
             sky_rows: 200.0,
             relief_amplitude: 0.0,
@@ -312,10 +341,11 @@
             strata_tilt: 0.0,
             strata_fold: 0.0,
             pocket_density: 0.0,
+            lens_roughness: 1.0,
             talus_max_height: 0.0,
             brow_chance: 0.0,
             table_damping: 0.35,
-            table_offset: 400.0,
+            table_offset: 4000.0,
             capillary_fringe: 24.0,
             pond_min_depth: 2.0,
             pond_min_width: 4.0,
@@ -337,6 +367,7 @@
             // `formation` is `1.0`, not `0.0` -- so this has to be spelled
             // out explicitly or the "dead-level bare rock" bed grows tors.
             residual_density: 0.0,
+            spring_flow: 0.0,
             // Dead-level bare rock stays dead-level: erosion is a plan-space
             // history the structural test bed must not have, or its control
             // renders drift out from under the destruction workstream. Every

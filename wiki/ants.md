@@ -1,8 +1,11 @@
 # Ants
 
-*Fresh as of the first ant milestone. The colony forages, digs, builds and
-carries food home; it is not good at finding food far away — see "What is
-not finished" at the bottom.*
+*Current as of: 2026-08-23, when the leaf-litter work (S4) merged. The colony
+forages, digs, builds and carries food home; food is worth what it is rather
+than a flat rate to whatever eats it, and a wood now drops food onto its own
+floor — where it rots back into the ground instead of piling up forever. The
+colony is still not good at finding food far away, and now has less reason to
+try: see "What is not finished" at the bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -33,16 +36,34 @@ of where ants have been.
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is
 the difference between an animal feeding itself and a colony feeding
-itself. Ants eat dead things — corpses and seeds — and they eat leaves off
+itself. An ant that goes hungry while it is still holding something eats
+that instead of dying with it — which sounds obvious, and was not: for a
+while a laden ant simply had no way back to feeding, and would starve to
+death with a mouthful of food. Ants eat dead things — corpses and seeds — and they eat leaves off
 living trees, which is what makes a stand of trees a food supply rather
 than a pile that runs out. A tree finds out it has lost a leaf the same way
 it would if the wind took it.
 
-Whether they can *reach* the leaves is a different question, and mostly
-they cannot: leaves grow in the canopy and ants walk on the ground. What
-they can reach is **moss**, which grows on damp stone at exactly ant
-height and spreads on its own, so a wet map feeds a colony and a dry one
-does not. On dry ground moss sits where it is and never spreads, and a
+Whether they can *reach* the leaves is a different question, and it used to
+be the thing a colony lived or died on: leaves grow in the canopy and ants
+walk on the ground. What they could reach was **moss**, which grows on damp
+stone at exactly ant height and spreads on its own, so a wet map fed a
+colony and a dry one did not.
+
+**Now the canopy drops its own food.** A leaf a tree gives up on — because
+it has been shaded out by the branches above it, which is the ordinary fate
+of a leaf in a growing wood — no longer vanishes. It falls, and it piles up
+on the forest floor as **leaf litter**, which is food and which ants carry
+home like anything else. A mature stand builds a litter mat under itself,
+drifted against trunks and deeper in hollows, and that is where a colony
+under trees now does most of its foraging. Measured against the same colony
+with the same trees and no litter, ants get about a third more food home.
+
+One thing to know, because it is visible over a long game: litter does not
+yet rot away. Real leaf litter breaks down into the soil beneath it, and the
+machinery for that exists — burnt ash already turns back into soil the same
+way — but it does not reach litter properly yet, so a very old forest will
+sit under a deeper mat than it should. On dry ground moss sits where it is and never spreads, and a
 colony there lives much closer to the edge.
 
 **They dig.** Ants chew through soil and stop at anything harder. This is
@@ -63,6 +84,25 @@ stuff as everything else: set one alight and it burns, and what is left is a
 corpse. A corpse is food. Ants that die in a fire become the next colony's
 dinner, and none of that needed to be written down anywhere — it falls out
 of ants being ordinary matter.
+
+**Food is worth different amounts, and a body is worth what it was made
+of.** This is new, and it is the thing most likely to change how a colony
+behaves over a long run. A corpse is no longer worth a flat amount to
+whatever eats it: it carries the value of the animal it came from, so an ant
+killed with energy still in the bank is better eating than one that starved,
+and a bigger animal is worth more than a smaller one. A body burnt to a
+cinder is worth the least of all, because nothing was left to record what it
+had been.
+
+You can see a little of this — corpses are shaded by what they are worth,
+dark for a starved one and pale for a fresh kill, and a body burnt to a
+cinder is drawn at the poor end because that is what it is. But a corpse is
+one or two pixels, so the difference is slight however the colours are
+chosen; the honest way to read it is the **food-value overlay**, which
+draws every edible cell on a dark-to-bright ramp by what it is actually
+worth. That is also the quickest way to see the thing the numbers say is
+true and the picture does not: most of a forest's food is up in the canopy
+where no ant can reach it.
 
 ## Placing a colony, and watching what they smell
 

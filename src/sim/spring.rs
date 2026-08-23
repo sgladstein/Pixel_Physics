@@ -14,9 +14,10 @@
 //! water cells from the sky at a capped rate and evaporation deletes them
 //! unbanked (`weather.rs`, `evaporation.rs`). A spring is rain that comes
 //! out of a wall. The measured standing bill for one spring feeding a fall
-//! and pool at the shipped 2048x640 size is **+0.97 ms/frame**
-//! (`ascii`'s river-cost scene, 2026-08 — the number that opened this
-//! track; re-measure there before changing budgets).
+//! and pool, at the 2048x640 size the world shipped at when this was
+//! measured, is **+0.97 ms/frame** (`ascii`'s river-cost scene, 2026-08 —
+//! the number that opened this track; re-measure there before changing
+//! budgets). Not re-measured since the world grew to 8192x2560.
 //!
 //! # Where springs live
 //!

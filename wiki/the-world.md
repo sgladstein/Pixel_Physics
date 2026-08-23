@@ -1,6 +1,6 @@
 # The World
 
-*Current as of: 2026-08-21.*
+*Current as of: 2026-08-22.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -97,11 +97,18 @@ every spire. Their shape is inherited from the rock that made them: a
 resistant band gives blocky, square-shouldered stone, a softer one gives
 rounded whalebacks.
 
-**And which kind of rock country you are in changes as you walk.** One
-stretch is strewn with boulders, the next carries two or three monuments
-over otherwise bare ground, another is smoothed down to nothing much at
-all. This is a property of the region, not a single world-wide setting, so
-a long walk crosses several kinds of country rather than more of one.
+**But standing rock is a place you travel to, not a texture on the whole
+world.** Most country has none of it at all — mesas, benches and boulders,
+and nothing rising off the skyline. Then the ground changes and you are in
+**rock country**: several screens of it, thick with tors and pinnacles, and
+after a while it thins out and stops again. A world usually holds one or two
+such stretches, and it is possible to walk a long way without meeting one.
+
+Within a stretch the density still varies — one part strewn, another
+carrying two or three monuments over bare ground — and the coarser the
+country, the taller the tallest thing in it. What you will not find is a
+world with a spire every few screens everywhere: that reads as scenery
+rather than as a landmark, and a landmark is what these are for.
 
 **Soil** lies over the rock wherever the ground is gentle enough to hold it,
 thinning as the ground steepens and giving out entirely on steep faces, which
@@ -196,6 +203,21 @@ How much water a world gets is a property of its preset. **Arid** has none at
 all: its table sits below the floor of the world, so there are no pools and no
 damp ground anywhere. **Wetland** is the other extreme.
 
+**And somewhere in most worlds, water is running.** A pool sits on the shelf
+above a cliff, brim-full, and pours over the edge — a real fall, several
+columns wide, landing in a second pool at the foot and draining away below
+that, so it keeps running instead of filling the valley up. It comes from
+somewhere and it goes somewhere. It is also the one thing in the landscape
+that never settles: everything else a new world contains is at rest before
+you arrive.
+
+Expect roughly one per world, and not in every world. It wants a genuine
+cliff, so the broken country has them and flat country does not; **wetland**
+has almost none, being too level to offer a face and too waterlogged besides,
+and **arid** and **flat** have none at all for the same reason they have no
+pools. Wall the outlet in and the fall chokes; break the dam and it runs
+again.
+
 ## Life arrives with the world
 
 A new world already has moss and tree seeds in it, so it grows in on its own
@@ -255,7 +277,7 @@ but bounded — rather than continuing indefinitely as you travel.
 
 ## How big a world is
 
-A world is several screens across and about twice a screen deep, so most of
+A world is sixteen screens across and eight screens deep, so most of
 it is somewhere you have to go rather than somewhere you can see. What is
 on screen is a **view** of it, not the whole of it: walk to the edge of
 the picture and the view travels with you — and with nobody in the world,

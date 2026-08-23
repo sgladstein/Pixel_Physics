@@ -160,7 +160,12 @@ fn build_decay_lut(rho: f32) -> [u8; 256] {
 
 /// One channel's world-sized u8 plane, double-buffered for the pass.
 ///
-/// 512x320 x 1 byte x 2 buffers is ~320 KB per channel, ~640 KB for both.
+/// 512x320 x 1 byte x 2 buffers was ~320 KB per channel, ~640 KB for both,
+/// at the 512x320 world this was sized against. At the shipped 8192x2560
+/// world it is 8192 x 2560 x 1 byte x 2 buffers ≈ 40 MB per channel, ~84 MB
+/// for both — allocated eagerly by `Pheromones::new` regardless of whether
+/// any creature exists, so this is a real standing cost, not a
+/// worst-case bound.
 pub struct PheromonePlane {
     w: usize,
     h: usize,

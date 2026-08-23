@@ -1716,3 +1716,34 @@ places at some horizon, guaranteed. When the two strategies being compared
 have different *shapes* over time, a single run length is a hidden
 parameter, and it was set to the value most flattering to the answer that
 was then believed for three sessions.
+
+### 13p. Where this file stops, and what carries on
+
+Stages 0-3 of this document are built and §13a-13o is the measured record of
+them. **The plan from here is `Reports/creature-evolution-plan.md`**: eight
+stages (S1-S8) from cut couplings through to heritable anatomy, written from a
+five-agent design review whose four headline proposals were all rejected, with
+the reasons in its §6 dead-end register.
+
+Three things in *this* file are superseded by it, and are left standing
+because a revert keeps the knowledge:
+
+* **§13l's pump is closed.** `eat_energy` -- a constant of the *eater* -- no
+  longer exists. Food carries its own worth (`Material::food_energy`, and
+  `Cell::aux` for the one case that genuinely varies, a corpse). The
+  reproduction §13l left behind,
+  `a_sealed_world_with_no_food_source_runs_down`, is un-`#[ignore]`d and
+  passes. Its horizon has since had to be *raised* from 40,000 frames to
+  80,000 -- not because anything creates energy, but because a colony that
+  stopped starving with food in its mandibles recovers more of its own dead.
+  See the plan's S3b note; that episode is the sharpest example this project
+  has of an outcome count going red for an improvement.
+* **§13i's "a colony sustains itself on its own dead without foraging at
+  all"** was diagnosed there as an ecology problem. It was an accounting one.
+* **§7b (ants and beetles are the evolving stock)** is overturned by the
+  plan's E5, which proposes a new solitary-grazer ancestor and keeps the two
+  authored animals as showcase species. That call is still awaiting the owner.
+
+The measurement habits in §13j, §13k and §13n all held up and are worth
+re-reading before touching the economy sweep: the synapse tax as a *fraction*,
+the reach-versus-price distinction, and the three ways a sweep can lie.

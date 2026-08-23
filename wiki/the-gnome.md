@@ -117,7 +117,7 @@ zoomed.
 It also **starts gently and speeds up**. A tap nudges the view a little, which
 is what you want when you are lining something up; keep the key down and it
 picks up over about a second, so holding it carries you from one end of the
-world to the other in roughly six seconds. Let go, or change your mind and
+world to the other in roughly 30 seconds. Let go, or change your mind and
 press the opposite key, and it starts gently again — so correcting an
 overshoot is a nudge rather than a lurch back the other way.
 

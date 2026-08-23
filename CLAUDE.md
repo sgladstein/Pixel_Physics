@@ -113,6 +113,7 @@ python3 scripts/review.py serve --lan       # ...also reachable from a phone on 
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
+bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
@@ -205,8 +206,81 @@ for you to post. Full protocol, including the JSON card spec, in
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
-once.** Git handles the merges; what it cannot handle is the two failures
-below, both of which have cost real hours.
+once.** Git handles the merges; what it cannot handle is the three failures
+below, each of which has cost real hours.
+
+**`main` is the trunk. Never integrate against `master`.** `main` began as a
+15-byte stub while the project lived on `master`, and the fix was to copy
+`master` onto `main` — but the copy left `master` standing, so for a while
+both names looked equally plausible and the docs named both. `3d53351`
+records the result: a branch merged `master` while `main` was 10 commits
+ahead, and silently missed the CLAUDE.md restructure, the map-scroll feature
+and the play-button fix. Nothing failed; the session noticed because a diff
+made no sense. `main` is the GitHub default, is the only branch CI gates, and
+is what the reset procedure below names. `master` is a mirror with nothing of
+its own and is on its way out. `scripts/branchcheck.sh --gate` fails if any
+commit is ever reachable from `master` but not `main`, and CI runs it.
+
+**Know how far behind you are, before you trust anything you measured on
+it.** The worktree rule below keeps two sessions from breaking each other's
+build; nothing was ever written down about staying current, so nothing pulled
+a branch forward and the drift compounded silently. Measured 2026-08-22
+across 27 remote branches: one was current, **ten sat at exactly 160 commits
+behind `main`** — cut at the same moment and never once updated — and twelve
+more were already fully merged and still standing as clutter. A branch does
+not notice it is 160 behind. The merge does, and by then the conflict surface
+is the whole session rather than a file or two.
+
+So: run `bash scripts/branchcheck.sh` when you pick up a branch, and pull
+`main` in *while* you work rather than saving it for the end. This is not
+tidiness — a baseline measured on a 160-behind branch is a measurement of a
+tree nobody else has, and the numbers in a report written from it do not
+transfer. The one exception the script prints for you: a branch sharing *no*
+history with `main` is a deliberate orphan carrying data, not source
+(`review-queue`, the review queue's transport — see `review_lib.py`'s
+`SYNC_BRANCH`). Never merge `main` into one of those.
+
+**Open a pull request for your work. This paragraph is the owner's standing
+authorisation, given 2026-08-23 — you do not need to ask again.** The agent
+harness declines to open a PR "unless the user explicitly asks"; this is that
+ask, and it stands for every session in this repo. Nothing in the repo ever
+said otherwise, which is why sessions kept reporting they had been told not
+to: they were reading their own harness, not this file.
+
+What it cost to leave unsaid, measured 2026-08-23: **133 CI runs, every one on
+`main` or `master`. Zero on any feature branch, zero from a `pull_request`
+event.** No PR ever existed, so the workflow's `pull_request` trigger never
+fired and pushes to `claude/**` matched nothing — the first time CI saw a
+branch's code was *after* it landed, when a red suite can no longer tell you
+whether the branch broke it or the merge resolution did. And a branch nobody
+can see is a branch nobody merges: 27 accumulated, ten of them cut in one
+fan-out and never once pulled forward.
+
+**When to land**, from this repo's own 49 two-parent merges, each replayed
+with `git merge-tree` to count the conflicts it actually produced:
+
+| | |
+|---|---|
+| `behind x files > 300` | past the point where merges get expensive — act |
+| feature complete | open the PR |
+
+Every painful merge in that history (3+ conflicts) scored **above 340**; no
+clean merge exceeded 1440 and the clean ones reach p90 at **280**. So 300 sits
+in the gap rather than on a measured value. `bash scripts/branchcheck.sh`
+prints your two numbers.
+
+**The two terms want different remedies, and this is the part that gets
+confused.** If `behind` is driving the product, merge `main` in — that fixes
+it in place, costs nothing you were not going to pay at landing time, and
+landing does *not* reduce drift: a 337-behind branch that opens a PR still
+owes the same 337-commit reconciliation. If `files` is driving it, the branch
+has quietly become more than one feature; land it and start another.
+
+Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
+on `main` costs every concurrent session, because they all build on it and
+every measurement taken against it is void. And the fastest way to satisfy a
+"commit and push now" impulse is `git add -A`, which is banned here for a
+reason recorded below. Stage explicit paths, green the gates, then land.
 
 **Work in your own worktree, not the shared checkout.** Two sessions in one
 checkout share a `target/`, so one session's half-finished edit makes the
@@ -721,6 +795,22 @@ consider it at all.
   bit-identical "runs" — three of them, once, before anyone noticed the
   knob was not connected. Identical output across settings is the tell;
   rebuild between sweep points.
+- **`cargo build --release` does not rebuild the examples**, and every
+  measurement in this repo comes out of an example. It builds the lib and the
+  bin; `--examples` builds them all, `--example NAME` builds one — and a
+  stale `target/release/examples/foo` runs happily, prints plausible numbers,
+  and has a *newer mtime than the source you just edited*, so the obvious
+  sanity check says it is fresh. This bit one session three times in an
+  afternoon: a `viewshot` render that showed round-7 formations after the
+  4x-formation change had landed; a lens-shape before/after that came back
+  **byte-identical** because only the "before" had been rebuilt; and a
+  `scale_probe` cell count identical to the pre-change one for the same
+  reason. The tell is the same one the `include_str!` gotcha above has:
+  **identical output across a change that must have moved something.** When
+  you see it, suspect the binary before the code — and prefer
+  `cargo build --release --examples` over naming one, because the pass you
+  are about to measure with is rarely the only example you will run.
+
 - **The harness is as stale-able as the assets it reads, and an unknown
   argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
   8 world seeds x 16 plants x 45,000 frames) produced eight *byte-identical*

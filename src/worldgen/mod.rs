@@ -117,52 +117,67 @@ const PASSES: &[Pass] = &[
     // though it is large. Shrinking them is a job for the coarse map, not
     // for optimism here.
     //
+    // Both are now *expressions* over the constants that produce them
+    // (`passes::BROWS_MARGIN`, `passes::TALUS_MARGIN`) rather than the
+    // numbers those expressions happened to equal. Every margin in this
+    // table has been silently wrong at least once, and each time the number
+    // was right on the day and had no way to stay right;
+    // `every_local_pass_declares_the_margin_it_reaches` in
+    // `tests/worldgen.rs` is the check, and the expressions are what leave
+    // it nothing to catch.
+    //
     //   brows: RUN_FAR (20) of detection + MAX_BROW_REACH (20) of writing
     //   talus: RUN_FAR (20) + MAX_FALL (120) walking to the foot
-    //          + 2 * MAX_TALUS_PEAK (60) of apron
-    Pass { name: "brows", margin: 40, weight: 1, run: passes::brows },
-    Pass { name: "talus", margin: 200, weight: 1, run: passes::talus },
+    //          + 2 * MAX_TALUS_PEAK of apron, which is 2x because the heap
+    //          runs out at a slope of about a half
+    Pass { name: "brows", margin: passes::BROWS_MARGIN, weight: 1, run: passes::brows },
+    Pass { name: "talus", margin: passes::TALUS_MARGIN, weight: 1, run: passes::talus },
     Pass { name: "pockets", margin: 0, weight: 6, run: passes::pockets },
     // Residual landforms -- tors, stacks, pinnacles authored directly
     // (`residual.rs`; B1 measured plan-space erosion never offers one to
     // protect, `Reports/worldgen-implementation-tasks-round6-formations.md`
-    // B1/B2). A site's footprint reaches at most its own half-width, and the
-    // size draw is capped at 120 cells tall with aspect >= 0.8 (width >=
-    // height/3), so the widest possible footprint is 120/0.8/2 = 75 columns
-    // either side of centre; 80 rounds that up for headroom. Runs after
-    // `pockets` (so a residual can stand on a settled surface, including
-    // any buried lens the collect-verify-write contract must still respect)
-    // and before `boulders` (so a boulder's own collect-verify-write sees a
-    // residual that already claimed a site as solid stone and correctly
-    // declines to overlap it, rather than the two colliding).
-    Pass { name: "residuals", margin: 80, weight: 1, run: residual::residuals },
+    // B1/B2). A site's footprint reaches at most its own half-width; the
+    // derivation lives with the constants it reads
+    // (`residual::RESIDUALS_MARGIN`), because the version restated here had
+    // gone stale -- it cited an aspect floor of 0.8 that was measured
+    // prominence-inert and withdrawn in favour of 1.1, leaving a margin that
+    // was safe by accident. Runs after `pockets` (so a residual can stand on
+    // a settled surface, including any buried lens the collect-verify-write
+    // contract must still respect) and before `boulders` (so a boulder's own
+    // collect-verify-write sees a residual that already claimed a site as
+    // solid stone and correctly declines to overlap it, rather than the two
+    // colliding).
+    Pass { name: "residuals", margin: residual::RESIDUALS_MARGIN, weight: 1, run: residual::residuals },
     // Boulder sockets from erosion's shed markers. Zero margin: a marker at
     // `x` seats a cluster whose footprint is at most a handful of columns
     // either side of `x`, well inside a single column's worth of slack, and
     // the marker itself is plan-space data already computed for the whole
     // world rather than something this pass has to look sideways for.
     Pass { name: "boulders", margin: 0, weight: 1, run: passes::boulders },
-    // Finite, and derived rather than guessed: a cave system is placed at a
-    // column and reaches at most `MAX_CAVE_HALF_W` either side of it, plus
-    // `VAULT_RIND` of stone that must be checked; the geode vug's
-    // `MAX_VAULT_EXTENT` (30) + rind sits well inside that. An understated
-    // margin is a promise to produce different cells at a chunk edge.
+    // Finite, and **now derived in the source rather than restated here**: a
+    // cave system is placed at a column and reaches at most
+    // `MAX_CAVE_HALF_W` either side of it, plus `VAULT_RIND` of stone that
+    // must be checked. An understated margin is a promise to produce
+    // different cells at a chunk edge.
     //
     // **Was 96, derived from a fixed 90-cell half-width.** Round 6's A2
     // made the envelope a per-system draw reaching `MAX_CAVE_HALF_W` = 200,
     // so the true reach became 202 and this number was silently wrong --
     // silently because nothing checks it at runtime: `pass_summary()`'s only
-    // consumer looks at the GLOBAL list, not at the numbers.
+    // consumer looks at the GLOBAL list, not at the numbers. It was then
+    // written as the literal 224, which is the same trap set again: the
+    // number was right on the day and had no way to stay right. Writing the
+    // *expression* is what removes the class, and
     // `a_cave_cannot_reach_past_its_declared_margin` in `tests/worldgen.rs`
-    // is what catches it now, and it asserts against the constants rather
-    // than against a literal so raising the cap fails the test instead of
-    // the world.
-    Pass { name: "vaults", margin: 224, weight: 1, run: passes::vaults },
+    // still asserts it against the constants so a future reach that the
+    // expression fails to capture fails the test instead of the world.
+    Pass { name: "vaults", margin: passes::VAULTS_MARGIN, weight: 1, run: passes::vaults },
     // The two water passes read the whole world: where water stands depends
     // on the lowest rim enclosing a hollow, which can be any distance away.
     // They are the first honest `GLOBAL` entries in this table and the debt
     // the coarse map is for.
     Pass { name: "ponds", margin: GLOBAL, weight: 1, run: passes::ponds },
+    Pass { name: "springs", margin: passes::SPRINGS_MARGIN, weight: 1, run: passes::springs },
     Pass { name: "soil_moisture", margin: GLOBAL, weight: 118, run: passes::soil_moisture },
     Pass { name: "moisture_init", margin: GLOBAL, weight: 2, run: passes::moisture_init },
     // Last, so it can see the finished ground -- including whether a column

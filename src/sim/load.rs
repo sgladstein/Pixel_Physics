@@ -204,12 +204,28 @@ pub const MAX_LOAD_CELLS_PER_FRAME: u32 = 20_000;
 /// bounds the walk by the cell's own distance), and the walk is capped
 /// here. Over the cap resolves to "supported", because the failure mode of
 /// the other choice is a mountain deciding it is falling.
+///
+/// 512 cells is now 1/16 of `app::WORLD_WIDTH` (8192), not a value
+/// comparable to the world's own extent the way it was when the world was
+/// narrower. That does not make the cap wrong — a walk follows parent
+/// links toward an anchor, not a straight line across the map — but it
+/// does mean the headroom this cap has always relied on (a genuine chain
+/// needing more than 512 hops would once have had to span most of the
+/// world to do it) is thinner than it used to be: a single structure can
+/// now span a much smaller *fraction* of the world while still reaching
+/// 512 cells of chain. Not raised here without a measurement showing a
+/// real structure hits it and resolves to "supported" only because the
+/// walk gave up.
 const MAX_SUPPORT_WALK: usize = 512;
 
 /// Longest section a cell gets credit for, in cells. Past this the capacity
-/// is already far beyond anything a 512-wide world contains and each extra
-/// cell is another read for nothing. Squared below, so this is a ceiling of
-/// 1600 on the section term.
+/// is already far beyond anything a real structure needs credit for, and
+/// each extra cell is another read for nothing. The "512" this used to be
+/// judged against was the 512-cell viewport (`app::WIDTH`), not the world
+/// — that has not changed, but the world itself has: it is now 8192 cells
+/// wide, sixteen times the viewport, so the margin between this 40-cell cap
+/// and anything a section could plausibly span is wider than ever. Squared
+/// below, so this is a ceiling of 1600 on the section term.
 const MAX_SECTION: i64 = 40;
 
 /// Edges a cell has, and so the denominator for how much of its section a

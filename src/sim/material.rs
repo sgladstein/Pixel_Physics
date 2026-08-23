@@ -87,7 +87,9 @@ pub const LIQUID_MAX_COMPRESS: u16 = 10;
 ///
 /// **24, raised from 8**, because this turned out to be what governs the
 /// complaint that a wide body "has a tilt across the whole screen". Measured
-/// on a 512-wide pour, waterline tilt end to end and the frame everything
+/// on a 512-wide pour — the screen's width (`app::WIDTH`), not the world's,
+/// which was already larger than that when this was measured and has grown
+/// further since — waterline tilt end to end and the frame everything
 /// finally sleeps:
 ///
 /// | reach | tilt at frame 2000 | asleep at | tilt at rest |
@@ -411,6 +413,81 @@ pub struct MaterialDef {
     /// Meaningless on any kind but `Gas`; nothing dispatches it elsewhere.
     #[serde(default)]
     pub dissipation: f32,
+    /// **What a cell of this is worth to eat.** 0 (the default) means "not
+    /// food", so every existing material is inert until its file says
+    /// otherwise.
+    ///
+    /// This is the keystone of `Reports/creature-evolution-plan.md`:
+    /// nutrition used to be `CreatureDef::eat_energy`, a constant of the
+    /// **eater**, so a corpse was worth whatever bit it and food had no
+    /// nutritional identity at all — which is why herbivore-versus-carnivore
+    /// could not evolve, and why a colony could run forever on its own dead
+    /// (§13l: an ant granted 900 starves at exactly 0 and leaves two corpse
+    /// cells worth 120 each).
+    ///
+    /// **Static per material, and deliberately not derived from the
+    /// producer's carbon.** Three of four independent design proposals
+    /// wanted `OrganismCell::carbon`; `assets/species/moss.ron` is
+    /// `Divide(cost: 0.0)` with no `Photosynthesize`, so moss carbon is
+    /// permanently zero and that rule silently rates the only ground-level
+    /// renewable food in the world at nothing. A carried leaf is also no
+    /// longer any organism's cell, so a producer-side lookup cannot price
+    /// the thing sitting in a nest pile — which is the object a colony is
+    /// built around.
+    ///
+    /// The one case that genuinely varies — a corpse, worth what the animal
+    /// was made of — carries its own value in `Cell::aux` instead.
+    #[serde(default)]
+    pub food_energy: f32,
+    /// Where this sits on the diet axis: -1 is plant matter, +1 is flesh.
+    ///
+    /// Read against a creature's heritable `gut_bias` (S5) through a
+    /// matched filter, so a gut tuned for cellulose is *bad* at meat and
+    /// specialising costs something. Meaningless while `food_energy` is 0.
+    #[serde(default)]
+    pub food_class: f32,
+    /// This material's worth is written per cell in `Cell::aux`, and
+    /// `food_energy` is only the fallback.
+    ///
+    /// **A bit on the material rather than a name check in the eat path.**
+    /// The rule "a corpse is worth what the animal was made of, everything
+    /// else is worth what its file says" has to tell two cases apart that
+    /// look identical to the code touching them, and `CLAUDE.md`'s answer to
+    /// that is to state the difference as data. It also keeps the test at
+    /// the dispatch site a `Vec` index rather than a string hash.
+    #[serde(default)]
+    pub worth_in_aux: bool,
+    /// Chance that a cell formed by this material's decay reseeds a plant in
+    /// the empty cell above it, rolled once at the moment of decay.
+    ///
+    /// **Per material, because the right value differs by two orders of
+    /// magnitude.** Ash is rare -- something has to burn first -- so 0.15
+    /// reads as succession after a fire. Litter is produced by every shading
+    /// leaf in a growing forest, in the thousands, and the same 0.15 is a
+    /// feedback loop that turns one stand into a mat of them.
+    #[serde(default)]
+    pub reseed_chance: f32,
+    /// Per-decay-check chance this weathers away, damp and dry. Unset takes
+    /// `decay.rs`'s defaults, which is what ash has always used.
+    ///
+    /// **A named serde default rather than a `0.0` sentinel**, matching
+    /// `blast_resistance` and `max_cantilever_reach`. A sentinel would make
+    /// the most interesting setting the one you cannot write: a material with
+    /// `decays_into` set and `decay_chance_dry: 0.0` means "rots when damp,
+    /// never when dry" -- desert litter, bone -- and under a sentinel that
+    /// reads as "use the shared rate" instead. `CLAUDE.md`: a knob nobody can
+    /// tune in either direction is not a knob.
+    ///
+    /// **Per material because the materials are not alike.** Ash is mineral
+    /// and weathers on a geological-feeling schedule; leaf litter *rots*.
+    /// Sharing one rate gave litter a ~100,000-frame lifetime inside a
+    /// 6,000-frame run, so it never reached equilibrium -- it only integrated
+    /// the canopy's shedding, which is both the abundance and most of the
+    /// frame cost.
+    #[serde(default = "default_decay_chance_damp")]
+    pub decay_chance_damp: f32,
+    #[serde(default = "default_decay_chance_dry")]
+    pub decay_chance_dry: f32,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -446,6 +523,45 @@ pub struct MaterialDef {
     /// up.
     #[serde(default)]
     pub climbable: bool,
+    /// Whether this powder is too light to impede the character at all --
+    /// he moves through it as if it were not there.
+    ///
+    /// **Leaf litter, and the owner's call on it (2026-08-23):** *"I think
+    /// we just make it so the gnome can run through leaf litter as if it was
+    /// nothing."* `player.rs` grades a powder's drag by how many of his
+    /// fourteen rows are in it and treats four rows as the point where
+    /// wading becomes *stuck*, which is right for sand and a drift of soil
+    /// and wrong for fallen leaves.
+    ///
+    /// **What it is worth on the `wood` acceptance case: nothing, measured.**
+    /// That case is bug Y (`Reports/open-bugs-handoff.md`), and the flag was
+    /// ported here on the owner's instruction rather than on evidence, which
+    /// is worth stating plainly: with litter landing on the floor and rotting
+    /// at its own rate, the gnome covers **98 cells against a bar of 200**,
+    /// and he covered 98 before this flag existed too. Earlier notes citing
+    /// 34 predate main's own plant work and no longer reproduce. The
+    /// remaining shortfall is tree architecture, not litter depth.
+    ///
+    /// A flag rather than a rule inferred from `density`, because the
+    /// difference the character cares about is not one geometry can be
+    /// trusted to state -- the same argument `climbable` and `scenery` are
+    /// already here for.
+    ///
+    /// **A *player* property, like `climbable`.** Nothing in the CA sweep
+    /// reads it: litter still falls, still piles at its friction angle,
+    /// still rots, and `creature::move_cost` is untouched, so an ant is as
+    /// impeded by a drift as it ever was.
+    ///
+    /// **Where the future item goes.** The owner also asked for this to be
+    /// grantable -- *"in the future game you can get an item that lets you
+    /// move freely"*. That switch belongs on `Tuning`, not here: this field
+    /// says *which materials are light enough to be waded freely*, and the
+    /// item says *whether this character can*. It is deliberately not built
+    /// yet, because it means threading `Tuning` through `footing` and its
+    /// seven readers for a capability nothing can grant. When it lands, the
+    /// one line to change is `footing`'s test of this flag.
+    #[serde(default)]
+    pub insubstantial: bool,
     /// Whether the character walks *through* this material without climbing
     /// it — cave formations, and anything else that is scenery rather than
     /// architecture.
@@ -630,16 +746,6 @@ pub struct MaterialDef {
     /// weathering, not an event. Unset means it does not happen.
     #[serde(default)]
     pub decays_into: String,
-    /// Whether a cell formed by *this* material's decay gets one roll at
-    /// reseeding plant growth in the empty cell above it.
-    ///
-    /// Ash sets it: "a forest burns and regrows" is M16's own verify
-    /// criterion and the reseed is half of it. Litter deliberately does not
-    /// -- leaf fall under a standing canopy is not a succession event, and
-    /// having every shed leaf roll for a new tree would carpet the world.
-    /// Default `false`, so a new decaying material has to ask.
-    #[serde(default)]
-    pub decay_reseeds: bool,
     /// Pairwise reactions with a specific other material — water quenching
     /// lava into stone and steam, that kind of thing. Order matters: `self`
     /// becomes `produces.0`, `with` becomes `produces.1`.
@@ -1023,6 +1129,19 @@ fn default_heat_conductivity() -> f32 {
 /// Effectively unreachable, the `u16` analogue of `default_never` — a
 /// material's structure never breaks under M17 unless a content author sets
 /// a real span.
+/// Ash's weathering rates, and the default for any material that states
+/// none. Deliberately *not* duplicated here -- `decay.rs` owns the numbers,
+/// because they are weathering rates rather than facts about any one
+/// material, and a copy here would go stale the first time they are retuned.
+fn default_decay_chance_damp() -> f32 {
+    super::decay::DECAY_CHANCE_DAMP
+}
+
+/// Counterpart to `default_decay_chance_damp`; see it.
+fn default_decay_chance_dry() -> f32 {
+    super::decay::DECAY_CHANCE_DRY
+}
+
 fn default_never_u16() -> u16 {
     u16::MAX
 }
@@ -1091,10 +1210,18 @@ pub struct Material {
     pub evaporates: bool,
     /// See `MaterialDef::dissipation`.
     pub dissipation: f32,
+    /// See `MaterialDef::food_energy`. 0 means "not food".
+    pub food_energy: f32,
+    /// See `MaterialDef::food_class`. -1 plant .. +1 flesh.
+    pub food_class: f32,
+    /// See `MaterialDef::worth_in_aux`.
+    pub worth_in_aux: bool,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
     pub climbable: bool,
+    /// See `MaterialDef::insubstantial`.
+    pub insubstantial: bool,
     /// See `MaterialDef::scenery`.
     pub scenery: bool,
     /// See `MaterialDef::fall_drag`.
@@ -1178,8 +1305,13 @@ pub struct Material {
     /// what keeps the settle scan proportional to decayable matter rather
     /// than to world size.
     pub decays_into: Option<MaterialId>,
-    /// See `MaterialDef::decay_reseeds`.
-    pub decay_reseeds: bool,
+    /// See `MaterialDef::reseed_chance`.
+    pub reseed_chance: f32,
+    /// See `MaterialDef::decay_chance_damp`. Always a real rate -- unset in
+    /// the `.ron` means `decay.rs`'s default, resolved at parse time, so
+    /// `decay::tick` never needs a fallback branch.
+    pub decay_chance_damp: f32,
+    pub decay_chance_dry: f32,
     pub reactions: Vec<Reaction>,
 }
 
@@ -1401,8 +1533,12 @@ impl From<MaterialDef> for Material {
             // and anything above 1 is a gas that vanishes on the frame it
             // is created, which reads as the material not existing at all.
             dissipation: def.dissipation.clamp(0.0, 1.0),
+            food_energy: def.food_energy,
+            food_class: def.food_class,
+            worth_in_aux: def.worth_in_aux,
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
+            insubstantial: def.insubstantial,
             scenery: def.scenery,
             fall_drag: def.fall_drag,
             palette: def
@@ -1479,8 +1615,10 @@ impl From<MaterialDef> for Material {
             cools_into_name: def.cools_into,
             burns_into_name: def.burns_into,
             decays_into_name: def.decays_into,
-            decay_reseeds: def.decay_reseeds,
             breaks_into_name: def.breaks_into,
+            reseed_chance: def.reseed_chance,
+            decay_chance_damp: def.decay_chance_damp,
+            decay_chance_dry: def.decay_chance_dry,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
@@ -1666,8 +1804,12 @@ impl MaterialRegistry {
             glow: 0.0,
             evaporates: false,
             dissipation: 0.0,
+            food_energy: 0.0,
+            food_class: 0.0,
+            worth_in_aux: false,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[0, 0, 0]],
@@ -1687,7 +1829,13 @@ impl MaterialRegistry {
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
             decays_into: String::new(),
-            decay_reseeds: false,
+            reseed_chance: 0.0,
+            // Never read -- `decays_into` is `None` here, which is the gate.
+            // Set to the shared defaults rather than 0.0 so this cannot be
+            // misread as the "use the shared rate" sentinel that used to live
+            // in this field.
+            decay_chance_damp: default_decay_chance_damp(),
+            decay_chance_dry: default_decay_chance_dry(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             floats: false,
@@ -1719,8 +1867,12 @@ impl MaterialRegistry {
             glow: 0.0,
             evaporates: false,
             dissipation: 0.0,
+            food_energy: 0.0,
+            food_class: 0.0,
+            worth_in_aux: false,
             reinforces_powder: false,
             climbable: false,
+            insubstantial: false,
             scenery: false,
             fall_drag: 0.0,
             colors: vec![[20, 20, 24]],
@@ -1740,7 +1892,13 @@ impl MaterialRegistry {
             freeze_min_fill: default_freeze_min_fill(),
             burns_into: String::new(),
             decays_into: String::new(),
-            decay_reseeds: false,
+            reseed_chance: 0.0,
+            // Never read -- `decays_into` is `None` here, which is the gate.
+            // Set to the shared defaults rather than 0.0 so this cannot be
+            // misread as the "use the shared rate" sentinel that used to live
+            // in this field.
+            decay_chance_damp: default_decay_chance_damp(),
+            decay_chance_dry: default_decay_chance_dry(),
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any

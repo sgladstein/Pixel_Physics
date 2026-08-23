@@ -49,10 +49,21 @@ fn step(world: &mut World) {
 }
 
 /// Every non-empty cell as `(x, y, material)`.
+/// Every occupied cell, **over the world's own bounds** rather than over
+/// [`BOUNDS`].
+///
+/// It read `0..=BOUNDS` until the cave tests moved to [`CAVE_BOUNDS`], at
+/// which point every at-rest and determinism claim in this file was quietly
+/// scoped to the top-left 512x320 corner of a 2048x640 world -- with the
+/// caves, which sit hundreds of rows down and anywhere across the width,
+/// almost entirely outside it. The same shape of miss `App`'s own
+/// `world_cells` records: a scan written against a constant is the whole
+/// world only while the world happens to be that size.
 fn snapshot(world: &World) -> Vec<(i32, i32, u16)> {
     let mut out = Vec::new();
-    for y in 0..=BOUNDS.1 {
-        for x in 0..=BOUNDS.0 {
+    let b = world.bounds().expect("a generated world is bounded");
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
             let c = world.get(x, y);
             if c.material != material::EMPTY {
                 out.push((x, y, phase_agnostic(world, c.material)));
@@ -93,10 +104,14 @@ fn phase_agnostic(world: &World, id: material::MaterialId) -> u16 {
     }
 }
 
+/// A checksum over the world's own bounds, for the same reason as
+/// [`snapshot`] above: hashing a fixed rectangle of a larger world is a
+/// determinism claim about a corner.
 fn world_hash(world: &World) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for y in 0..=BOUNDS.1 {
-        for x in 0..=BOUNDS.0 {
+    let b = world.bounds().expect("a generated world is bounded");
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
             let c = world.get(x, y);
             for byte in [c.material.0 as u64, c.shade as u64, c.aux() as u64] {
                 h ^= byte;
@@ -122,6 +137,13 @@ fn generated_terrain_is_already_at_rest() {
     // "at rest" and never should be. Flora presence has its own test
     // (`the_world_arrives_with_both_moss_and_trees_in_it`); this one is
     // about whether the generated terrain itself holds still.
+    //
+    // `spring_flow` is off for exactly the same reason, and it is the same
+    // kind of thing: a spring is a live process, not a placement defect. A
+    // world with a running waterfall is never at rest and never should be,
+    // and the spring has its own test
+    // (`a_generated_world_grows_a_spring_that_actually_runs`) asserting the
+    // stronger property -- that water both arrives and leaves.
     let presets = presets();
     let mut worst = 0usize;
     let mut report = String::new();
@@ -129,6 +151,7 @@ fn generated_terrain_is_already_at_rest() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.spring_flow = 0.0;
         let params = &params;
         for seed in SEEDS {
             let mut world = build(params, seed);
@@ -458,6 +481,26 @@ fn every_pass_writes_something() {
             assert_eq!(*cells, 0, "boulders placed a cluster at world_age 0.0, which erosion must no-op at");
             continue;
         }
+        // `springs` writes no cells *by construction*, unlike the two above,
+        // which write none only here: it registers emitters on `World` and
+        // never touches terrain. Asserted zero rather than skipped, for the
+        // same reason as those two -- an exclusion that stops being true
+        // should fail loudly. That it *fired* is a different question, and a
+        // cell count could never have answered it; the ledger does, in
+        // `a_generated_world_grows_a_spring_that_actually_runs`.
+        // `springs` writes none *here* for the same reason `vaults` does -- the
+        // world is too small for what it needs. Its source basin wants a
+        // cliff with `SPRING_BASIN_MIN_W` columns of near-level rock behind
+        // the lip, and at 512x320 there is nowhere to put one. Asserted zero
+        // rather than skipped, and fired separately at the shipped size
+        // below, so that an exclusion which stops being true fails loudly --
+        // it already has once, in both directions: springs began writing here
+        // when they learned to cut a basin, and stopped again when the basin
+        // was required to sit in level ground.
+        if *name == "springs" {
+            assert_eq!(*cells, 0, "springs cut a basin at 512x320, where no cliff-and-shelf fits");
+            continue;
+        }
         assert!(*cells > 0, "pass {name} never wrote a cell across {} seeds", SEEDS.len());
     }
     // The other half: at the size the game actually ships, vaults fire.
@@ -471,6 +514,21 @@ fn every_pass_writes_something() {
         }
     }
     assert!(vault_cells > 0, "vaults never wrote a cell across {} seeds at the shipped 2048x640", SEEDS.len());
+
+    // And `springs`, at the size that actually ships: its source basin needs
+    // a cliff with level rock behind it, which is a property of a big world's
+    // terrain rather than of the pass.
+    let big = (pixel_physics::app::WORLD_WIDTH as i32 - 1, pixel_physics::app::WORLD_HEIGHT as i32 - 1);
+    let mut spring_cells = 0;
+    for seed in [1u64, 7] {
+        let mut world = World::new(Rect::new(0, 0, big.0, big.1));
+        for (name, cells) in worldgen::generate_reported(&mut world, Spec::Generated { params, seed }) {
+            if name == "springs" {
+                spring_cells += cells;
+            }
+        }
+    }
+    assert!(spring_cells > 0, "springs never cut a source basin at the shipped size across 2 seeds");
 
     // `boulders`'s own "the pass fires somewhere" half lives in
     // `a_forced_boulder_world_seats_stone_and_arrives_at_rest` rather than
@@ -1609,12 +1667,46 @@ fn probe_r2t3_do_vaults_place_at_all() {
 /// no chamber can be placed at all. The shipped size is 2048x640, where it
 /// fits comfortably. See the round-2 finding -- this is also why the sweep's
 /// `vaults` row reads zero.
+/// The world the cave and vault tests build in, and why it is not [`BOUNDS`].
+///
+/// **A 4x cave needs a 4x world, and this is that fact stated once.** Phase 2
+/// took `MIN_CAVE_HALF_W`/`_H` to 220/88, and `vaults` rejects a placement
+/// outright when even the *minimum* envelope will not fit inside the depth
+/// band with its rind -- the same rule that has always declined to put a cave
+/// in a world too shallow to hold one. At 512x320 that is now every
+/// placement, so all five forced-cave tests went to *"only 0 forced-vault
+/// worlds actually placed a chamber"* in one commit. That message is the
+/// counter beside the claim doing exactly its job: without it they would have
+/// passed by never running.
+///
+/// 2048x640 is the smallest round number that clears it with real headroom --
+/// a cave needs roughly 450 columns and 400 rows before the minimum envelope
+/// fits at all -- and it is the size round 7 shipped, so nothing about these
+/// tests' subject changes. It is deliberately *not* `app::WORLD_WIDTH`: these
+/// build 13 worlds and the shipped size is 9 s and 359 MiB each.
+///
+/// The rest of the suite stays at [`BOUNDS`]; only this section pays for the
+/// larger build.
+const CAVE_BOUNDS: (i32, i32) = (2047, 639);
+
+fn build_cave_world(params: &WorldgenParams, seed: u64) -> World {
+    let mut world = World::new(Rect::new(0, 0, CAVE_BOUNDS.0, CAVE_BOUNDS.1));
+    worldgen::generate(&mut world, Spec::Generated { params, seed });
+    world
+}
+
 fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
     WorldgenParams {
         vault_density: 4.0,
         vault_min_depth: 40,
         tree_density: 0.0,
         moss_density: 0.0,
+        // Off for the same reason as the two above: these worlds are settled
+        // and then compared against a control, so anything that is still a
+        // *process* after generation shows up as a difference and is read as
+        // a vault cell. A running spring writes water down a face for as long
+        // as the test steps.
+        spring_flow: 0.0,
         ..base.clone()
     }
 }
@@ -1640,13 +1732,13 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
         let with = vault_test_params(base);
         let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
         for seed in SEEDS {
-            let world = build(&with, seed);
-            let control = build(&without, seed);
+            let world = build_cave_world(&with, seed);
+            let control = build_cave_world(&without, seed);
             let stone = world.materials.id_of("stone").expect("stone");
 
             let mut vault_cells = Vec::new();
-            for y in 0..=BOUNDS.1 {
-                for x in 0..=BOUNDS.0 {
+            for y in 0..=CAVE_BOUNDS.1 {
+                for x in 0..=CAVE_BOUNDS.0 {
                     if world.get(x, y).material != control.get(x, y).material
                         || world.get(x, y).shade != control.get(x, y).shade
                     {
@@ -1712,6 +1804,261 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
     assert!(checked >= 8, "only {checked} forced-vault worlds actually placed a chamber");
 }
 
+/// Attribution probe for the 25 moving cells `a_cave_system_survives_a_pocket_
+/// lens_inside_its_envelope` started reporting at [`CAVE_BOUNDS`]: is it the
+/// cave, or is it `pocket_density: 20` on a world eight times the area?
+///
+/// Builds the test's own *control* -- lenses cranked to 20, vaults switched
+/// off entirely, so no cave is carved anywhere -- and counts what moves. If
+/// this reports cells, the cave is not the cause.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_does_the_lens_stress_move_cells_without_a_cave() {
+    let presets = presets();
+    let base = presets.get("rolling").expect("preset");
+    let with = WorldgenParams { pocket_density: 20.0, ..vault_test_params(base) };
+    let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
+    for seed in SEEDS {
+        for (name, p) in [("with vaults", &with), ("no vaults", &without)] {
+            for (size, bounds) in [("512x320", BOUNDS), ("2048x640", CAVE_BOUNDS)] {
+                let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
+                worldgen::generate(&mut world, Spec::Generated { params: p, seed });
+                let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                for _ in 0..120 {
+                    step(&mut world);
+                }
+                let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                let gone: Vec<_> = before.difference(&after).copied().collect();
+                let sample: Vec<String> = gone
+                    .iter()
+                    .take(3)
+                    .map(|(x, y, m)| {
+                        let n = world.materials.get(pixel_physics::sim::material::MaterialId(*m)).name.clone();
+                        format!("({x},{y}) {n}")
+                    })
+                    .collect();
+                println!("seed {seed} {size} {name}: {} moved; {}", gone.len(), sample.join(", "));
+            }
+        }
+    }
+}
+
+/// How much of a world is standing water, at each size, per preset.
+///
+/// The "look again after the fix, for what you did not measure" check
+/// (`CLAUDE.md`'s method, step 4). A screenshot of the real app at
+/// 8192x2560 showed a wider sheet of water than any 2048x640 render had, and
+/// a pond is not something Phase 2 touched -- so either the world is
+/// genuinely wetter at the new size or a wider world simply has wider
+/// hollows and the same *fraction* of water in them. Only a census
+/// distinguishes those, and nothing measured it.
+///
+/// Reports water as a fraction of the world and as a fraction of the
+/// non-empty world, because the second is the one that holds fixed if the
+/// answer is "same world, more of it".
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_much_of_the_world_is_water() {
+    let presets = presets();
+    let water_names = ["water"];
+    for (name, params) in &presets.presets {
+        for (size, bounds) in [("512x320", BOUNDS), ("2048x640", CAVE_BOUNDS), ("8192x2560", (8191, 2559))] {
+            let mut world = World::new(Rect::new(0, 0, bounds.0, bounds.1));
+            worldgen::generate_only(&mut world, Spec::Generated { params, seed: 1 });
+            let ids: Vec<_> = water_names.iter().filter_map(|n| world.materials.id_of(n)).collect();
+            let (mut water, mut filled) = (0usize, 0usize);
+            for y in 0..=bounds.1 {
+                for x in 0..=bounds.0 {
+                    let m = world.get(x, y).material;
+                    if m == material::EMPTY {
+                        continue;
+                    }
+                    filled += 1;
+                    if ids.contains(&m) {
+                        water += 1;
+                    }
+                }
+            }
+            let cells = (bounds.0 + 1) as f64 * (bounds.1 + 1) as f64;
+            println!(
+                "{name:9} {size:>10}: water {water:>9} = {:.3}% of the world, {:.3}% of what is in it",
+                100.0 * water as f64 / cells,
+                100.0 * water as f64 / filled.max(1) as f64
+            );
+        }
+    }
+}
+
+/// How sheer the finished ground actually is, column to column, at the
+/// shipped size.
+///
+/// The owner's Phase 2 review said of a render: *"there are sharp vertical
+/// faces (could sometimes be ok if done naturally. look horrible here)"*.
+/// Nothing in the engine could say whether the *ground* has any, so the
+/// complaint could not be attributed without one -- and the picture it was
+/// filed against turned out to be three non-contiguous camera positions
+/// stitched together, whose seams are a 61-row step in one column that no
+/// worldgen mechanism produced.
+///
+/// This measures the real thing: `|surface_y(x) - surface_y(x+1)|` over every
+/// adjacent pair, for every preset, at `app::WORLD_WIDTH`. Reported as an
+/// order statistic per `CLAUDE.md`, and as a count of columns past several
+/// bars, because "how many" is the question and a max alone hides whether it
+/// is one freak column or a thousand.
+///
+/// Note what it does and does not see. `ColumnPlan::surface_y` is the
+/// *eroded plan surface*, so this is the silhouette the land itself makes.
+/// It is blind to anything written standing on top of it -- residual tors,
+/// `brows` lips, boulders -- which is deliberate: those are features, and
+/// separating "the ground is a cliff" from "there is a tower on the ground"
+/// is the whole point of measuring here rather than off a render.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_sheer_is_the_ground() {
+    use pixel_physics::worldgen::column::Terrain;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    // The real angles from the material files, not a literal: a generator
+    // that assumed a value the material no longer has is the failure
+    // `Terrain::new` takes them as arguments to avoid.
+    let world = World::new(Rect::new(0, 0, 8, 8));
+    let soil_tan = world.materials.get(world.materials.id_of("soil").expect("soil")).friction_angle.to_radians().tan();
+    let sand_tan = world.materials.get(world.materials.id_of("sand").expect("sand")).friction_angle.to_radians().tan();
+    println!("adjacent |d surface_y| over {w} columns, per preset, seed 3");
+    for (name, params) in &presets.presets {
+        let terrain = Terrain::new(3, params, w, h, soil_tan, sand_tan);
+        let plans = terrain.plan_all();
+        let mut d: Vec<i32> = (0..plans.len() - 1)
+            .map(|i| (plans[i + 1].surface_y - plans[i].surface_y).abs())
+            .collect();
+        d.sort_unstable();
+        let q = |f: f32| d[((d.len() as f32 - 1.0) * f) as usize];
+        let past = |bar: i32| d.iter().filter(|&&v| v >= bar).count();
+        println!(
+            "  {name:9}: med {:>2} p90 {:>2} p99 {:>2} max {:>3}   columns >=6: {:>4}  >=10: {:>4}  >=20: {:>4}",
+            q(0.5),
+            q(0.9),
+            q(0.99),
+            d[d.len() - 1],
+            past(6),
+            past(10),
+            past(20)
+        );
+    }
+}
+
+/// How many standing rock features a player crosses per screen, and how tall
+/// they are.
+///
+/// The owner, on a Phase 2 render: *"Either spire would be ok as an
+/// occational geological feature, but they shouldn't be common. They are a
+/// very unusual rock formation and shouldn't be dominate."* That is a claim
+/// about a **rate**, and nothing measured one -- `viewshot` reports
+/// prominence as an order statistic over columns, which says how tall the
+/// tallest thing is and never how many there are.
+///
+/// A standing feature is a maximal run of columns whose actual top sits at
+/// least `PROUD` rows above the eroded plan surface. Counted per
+/// 512-column screen, because "common" is a per-screen judgement -- the
+/// player sees one screen at a time, and a world-total is the number that
+/// hides exactly the clustering the complaint is about.
+///
+/// **Paired against `residual_density: 0.0`**, so the difference is the
+/// residual pass and not `boulders`, `brows` or a talus apron also standing
+/// proud. A bare count would attribute all of them to the thing being tuned.
+#[test]
+#[ignore = "probe: prints, never asserts (Phase 2 attribution)"]
+fn probe_p2_how_common_are_standing_features() {
+    const PROUD: i32 = 8;
+    const SCREEN: i32 = 512;
+    /// What counts as a spire rather than a bump: tall enough to break the
+    /// skyline and narrow enough to read as a tower. Measured off the image
+    /// the owner judged, where the six he was looking at were 2-9 columns
+    /// wide and stood 12-57 rows above their flanks.
+    const SPIRE_TALL: i32 = 12;
+    const SPIRE_WIDE: i32 = 16;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let density: f32 = std::env::var("RESIDUAL_DENSITY").ok().and_then(|v| v.parse().ok()).unwrap_or(-1.0);
+
+    let census = |params: &WorldgenParams, seed: u64| -> (Vec<usize>, Vec<i32>) {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let terrain = {
+            let soil = world.materials.id_of("soil").expect("soil");
+            let sand = world.materials.id_of("sand").expect("sand");
+            let st = world.materials.get(soil).friction_angle.to_radians().tan();
+            let sn = world.materials.get(sand).friction_angle.to_radians().tan();
+            pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, st, sn)
+        };
+        let plans = terrain.plan_all();
+        let top = |x: i32| (0..h).find(|&y| world.get(x, y).material != material::EMPTY).unwrap_or(h);
+        let proud: Vec<i32> = (0..w).map(|x| plans[x as usize].surface_y - top(x)).collect();
+        let mut per_screen = vec![0usize; (w / SCREEN) as usize];
+        let mut heights = Vec::new();
+        let mut x = 0;
+        while x < w {
+            if proud[x as usize] < PROUD {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            let mut tallest = 0;
+            while x < w && proud[x as usize] >= PROUD {
+                tallest = tallest.max(proud[x as usize]);
+                x += 1;
+            }
+            // **Only the ones the complaint is about.** A "spire" is tall
+            // *and* narrow; the 8-row bar alone counts every boulder, brow
+            // lip and proud talus toe, and the paired control below showed
+            // those are half of them on `canyon` and nearly all of them on
+            // `rolling`. Tuning `residual_density` against the unfiltered
+            // number would have been tuning against `boulders`.
+            let width = x - start;
+            if tallest >= SPIRE_TALL && width <= SPIRE_WIDE {
+                let slot = ((start / SCREEN) as usize).min(per_screen.len() - 1);
+                per_screen[slot] += 1;
+                heights.push(tallest);
+            }
+        }
+        (per_screen, heights)
+    };
+
+    for name in ["canyon", "rolling"] {
+        let base = presets.get(name).expect("preset");
+        let with = WorldgenParams {
+            residual_density: if density >= 0.0 { density } else { base.residual_density },
+            ..base.clone()
+        };
+        let without = WorldgenParams { residual_density: 0.0, ..with.clone() };
+        let (mut all, mut hts) = (Vec::new(), Vec::new());
+        let mut control = Vec::new();
+        for seed in [1u64, 3, 7] {
+            let (a, hh) = census(&with, seed);
+            let (b, _) = census(&without, seed);
+            all.extend(a);
+            hts.extend(hh);
+            control.extend(b);
+        }
+        all.sort_unstable();
+        control.sort_unstable();
+        hts.sort_unstable();
+        let q = |v: &Vec<usize>, f: f32| v[((v.len() as f32 - 1.0) * f) as usize];
+        let qh = |v: &Vec<i32>, f: f32| if v.is_empty() { 0 } else { v[((v.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:8} residual_density {:>4}: SPIRES (>={SPIRE_TALL} tall, <={SPIRE_WIDE} wide) per 512-col screen over {} screens -- \
+             med {} p90 {} max {}   (control, residuals off: med {} p90 {} max {})   heights med {} p90 {} max {}",
+            with.residual_density,
+            all.len(),
+            q(&all, 0.5), q(&all, 0.9), all[all.len() - 1],
+            q(&control, 0.5), q(&control, 0.9), control[control.len() - 1],
+            qh(&hts, 0.5), qh(&hts, 0.9), hts.last().copied().unwrap_or(0)
+        );
+    }
+}
+
 #[test]
 fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     // Round-5 task 1's own reproduction. Before this fix, a `pockets` lens
@@ -1731,11 +2078,11 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
     let mut placed = 0;
     let mut overlapped = 0;
     for seed in SEEDS {
-        let mut world = build(&with, seed);
-        let control = build(&without, seed);
+        let mut world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved: Vec<(i32, i32)> = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -1766,8 +2113,8 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
             control.materials.id_of("gravel").expect("gravel"),
         );
         let mut lens_cells = 0;
-        for y in y0.max(0)..=y1.min(BOUNDS.1) {
-            for x in x0.max(0)..=x1.min(BOUNDS.0) {
+        for y in y0.max(0)..=y1.min(CAVE_BOUNDS.1) {
+            for x in x0.max(0)..=x1.min(CAVE_BOUNDS.0) {
                 let m = control.get(x, y).material;
                 if m == sand || m == gravel {
                     lens_cells += 1;
@@ -1783,15 +2130,41 @@ fn a_cave_system_survives_a_pocket_lens_inside_its_envelope() {
         // And it still arrives at rest, exactly like the plain seal test --
         // this is the same claim, just under a reproduction that used to
         // delete the system outright rather than merely stress it.
-        let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        //
+        // **Scoped to the carved system's own neighbourhood, and that is a
+        // narrowing to the subject rather than a relaxation.** Whole-world
+        // at-rest at *shipped* densities is
+        // `generated_terrain_is_already_at_rest`'s claim and it asserts zero.
+        // This world is not at shipped densities: `pocket_density` is 20
+        // against a shipped 0.6, thirty-three times over, specifically to
+        // guarantee a lens lands inside a cave envelope. When this moved to
+        // `CAVE_BOUNDS` it began reporting 25 cells in motion on seed 5 --
+        // and `probe_p2_does_the_lens_stress_move_cells_without_a_cave`
+        // reproduces exactly those 25 with `vault_density: 0.0`, no cave
+        // carved anywhere in the world. Gravel and water, near the surface,
+        // three hundred columns and a hundred rows away from the system.
+        // Asserting on them here would be this test failing for something
+        // that is not its subject and that it cannot see; the finding has its
+        // own entry in `Reports/open-bugs-handoff.md` and its own
+        // reproduction, which is what `CLAUDE.md` asks for instead.
+        let watched = |x: i32, y: i32| {
+            x >= x0 - 16 && x <= x1 + 16 && y >= y0 - 16 && y <= y1 + 16
+        };
+        let before: std::collections::HashSet<_> =
+            snapshot(&world).into_iter().filter(|&(x, y, _)| watched(x, y)).collect();
         for _ in 0..120 {
             step(&mut world);
         }
-        let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+        let after: std::collections::HashSet<_> =
+            snapshot(&world).into_iter().filter(|&(x, y, _)| watched(x, y)).collect();
         let gone: Vec<_> = before.difference(&after).copied().collect();
         assert!(
+            !before.is_empty(),
+            "seed {seed}: the watched window around the carved system is empty -- vacuous"
+        );
+        assert!(
             gone.is_empty(),
-            "seed {seed}: {} cells left their position in a lens-stressed cave world; first {:?}",
+            "seed {seed}: {} cells left their position within 16 of the carved system; first {:?}",
             gone.len(),
             gone.iter().take(6).collect::<Vec<_>>()
         );
@@ -1815,11 +2188,11 @@ fn vault_water_cannot_wet_the_massif_around_it() {
     let with = vault_test_params(base);
     let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let soil = world.materials.id_of("soil").expect("soil");
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 let c = world.get(x, y);
                 if c.material == soil {
                     assert_eq!(
@@ -1875,7 +2248,7 @@ fn probe_r2t3_dump_a_chamber() {
             if shown {
                 break;
             }
-            let world = build(&with, seed);
+            let world = build_cave_world(&with, seed);
             let id = |n: &str| world.materials.id_of(n).expect(n);
             let (stone, gravel, water, crystal) = (id("stone"), id("gravel"), id("water"), id("crystal"));
             let glyph = |x: i32, y: i32| {
@@ -1897,11 +2270,11 @@ fn probe_r2t3_dump_a_chamber() {
             // A chamber is found as a run of air deep in the rock -- the one
             // thing `pockets` can never produce, since a lens is solid. Its
             // shape is then read off whether any crystal is within reach.
-            for y in 220..=(BOUNDS.1 - 40) {
+            for y in 220..=(CAVE_BOUNDS.1 - 40) {
                 if shown {
                     break;
                 }
-                for x in 40..=(BOUNDS.0 - 40) {
+                for x in 40..=(CAVE_BOUNDS.0 - 40) {
                     if world.get(x, y).material != material::EMPTY {
                         continue;
                     }
@@ -1912,9 +2285,9 @@ fn probe_r2t3_dump_a_chamber() {
                         continue;
                     }
                     println!("\n=== {label}: seed {seed}, air at ({x}, {y}) ===");
-                    for row in (y - 8).max(0)..=(y + 34).min(BOUNDS.1) {
+                    for row in (y - 8).max(0)..=(y + 34).min(CAVE_BOUNDS.1) {
                         let line: String =
-                            ((x - 40).max(0)..=(x + 40).min(BOUNDS.0)).map(|c| glyph(c, row)).collect();
+                            ((x - 40).max(0)..=(x + 40).min(CAVE_BOUNDS.0)).map(|c| glyph(c, row)).collect();
                         println!("  {row:>4} {line}");
                     }
                     shown = true;
@@ -1957,8 +2330,8 @@ fn probe_r2t3_what_moves_in_a_vault() {
     };
     let cells = |w: &World| {
         let mut v = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 let c = w.get(x, y);
                 v.push((c.material, c.aux()));
             }
@@ -1972,7 +2345,7 @@ fn probe_r2t3_what_moves_in_a_vault() {
         let mut changes = Vec::new();
         for (i, (a, b)) in prev.iter().zip(now.iter()).enumerate() {
             if a != b {
-                let (x, y) = ((i as i32) % (BOUNDS.0 + 1), (i as i32) / (BOUNDS.0 + 1));
+                let (x, y) = ((i as i32) % (CAVE_BOUNDS.0 + 1), (i as i32) / (CAVE_BOUNDS.0 + 1));
                 changes.push((x, y, a.0, a.1, b.0, b.1));
             }
         }
@@ -2013,11 +2386,11 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
     let mut systems = 0usize;
     let mut runs_walked = 0usize;
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved = std::collections::HashSet::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -2033,10 +2406,10 @@ fn a_forced_cave_world_keeps_every_roof_span_bounded() {
             carved.contains(&(x, y))
                 && world.materials.kind(world.get(x, y).material) != material::MaterialKind::Solid
         };
-        for y in 0..=BOUNDS.1 {
+        for y in 0..=CAVE_BOUNDS.1 {
             let mut run = 0;
-            for x in 0..=BOUNDS.0 + 1 {
-                let ceiling = x <= BOUNDS.0 && open(x, y) && !open(x, y - 1);
+            for x in 0..=CAVE_BOUNDS.0 + 1 {
+                let ceiling = x <= CAVE_BOUNDS.0 && open(x, y) && !open(x, y - 1);
                 if ceiling {
                     run += 1;
                 } else {
@@ -2073,14 +2446,14 @@ fn a_forced_cave_world_is_deterministic() {
     let with = vault_test_params(base);
     let mut placed = 0;
     for seed in [1u64, 4] {
-        let mut a = World::new(Rect::new(0, 0, BOUNDS.0, BOUNDS.1));
+        let mut a = World::new(Rect::new(0, 0, CAVE_BOUNDS.0, CAVE_BOUNDS.1));
         let counts = worldgen::generate_reported(&mut a, Spec::Generated { params: &with, seed });
         placed += counts.iter().find(|(n, _)| *n == "vaults").map(|(_, c)| *c).unwrap_or(0);
         // `generate_reported` skips the structural pass `build` runs, and the
         // hash covers aux, so run it here or the comparison measures that
         // difference instead of generation.
         structural::compute_world_distances(&mut a);
-        let b = build(&with, seed);
+        let b = build_cave_world(&with, seed);
         assert_eq!(world_hash(&a), world_hash(&b), "seed {seed}: two builds of a forced-cave world differ");
     }
     assert!(placed > 0, "vacuous: neither forced world placed a system");
@@ -2102,6 +2475,15 @@ fn a_forced_cave_world_is_deterministic() {
 /// teeth are never written, so they never enter the diff -- and vugs are
 /// excluded by component size, because a vug's crystal ring legitimately
 /// fills its rim columns.
+/// The open-span floor this test tracks, which is the pass's own.
+///
+/// `carve_cave_void` skips any run shorter than this outright, so a shorter
+/// run cannot be "a passage a formation closed" -- it is a formation touching
+/// a wall. Phase 2 moved the pass's gate from 5 to 20 with the envelope, and
+/// this moves with it for the reason it was written: it is a restatement of
+/// the pass's eligibility rule, not an independent bar.
+const SPELEO_MIN_SPAN: usize = 20;
+
 #[test]
 fn speleothems_never_bridge_a_passage() {
     // **Diff-free, unlike every other round-2/3 vault guard**, and that
@@ -2134,9 +2516,9 @@ fn speleothems_never_bridge_a_passage() {
     let mut systems_checked = 0usize;
     let mut fused_columns_total = 0usize;
     for seed in SEEDS {
-        let world = build(&with, seed);
+        let world = build_cave_world(&with, seed);
         let is_void = |x: i32, y: i32| {
-            if x < 0 || x > BOUNDS.0 || y < 0 || y > BOUNDS.1 {
+            if x < 0 || x > CAVE_BOUNDS.0 || y < 0 || y > CAVE_BOUNDS.1 {
                 return false;
             }
             let c = world.get(x, y);
@@ -2144,8 +2526,8 @@ fn speleothems_never_bridge_a_passage() {
                 || world.materials.kind(c.material) == material::MaterialKind::Liquid
         };
         let mut seen: std::collections::HashSet<(i32, i32)> = Default::default();
-        for y0 in 0..=BOUNDS.1 {
-            for x0 in 0..=BOUNDS.0 {
+        for y0 in 0..=CAVE_BOUNDS.1 {
+            for x0 in 0..=CAVE_BOUNDS.0 {
                 if seen.contains(&(x0, y0)) || !is_void(x0, y0) {
                     continue;
                 }
@@ -2253,7 +2635,7 @@ fn speleothems_never_bridge_a_passage() {
                         // open space without another void cell anywhere
                         // else in that column, is not a closed passage --
                         // it is a formation touching a wall.
-                        if run.len() >= 5 && run.iter().all(|&(_, s)| s) {
+                        if run.len() >= SPELEO_MIN_SPAN && run.iter().all(|&(_, s)| s) {
                             bridged_x.push(x);
                             fused_here += 1;
                             println!(
@@ -2295,11 +2677,37 @@ fn speleothems_never_bridge_a_passage() {
                 // 1, 3, 4, 5, 7, 8. Fourteen is comfortably clear of the
                 // measured maximum and still far below "a wall of pillars"
                 // in a system that can now be 300 cells across.
+                // **The bar is a density, because the object it evaluates
+                // changed size.** It was `bridged_formations <= 14` per
+                // system, set from measurement on systems up to ~300 cells
+                // across; Phase 2's envelope takes a system to 1137 across in
+                // this very suite, and an absolute per-system cap on a
+                // 4x-wider object is a 4x tighter rule wearing the same
+                // number. It duly fired at 17 -- which is `CLAUDE.md`'s
+                // "which object does this rule evaluate" in its cheapest
+                // form: a cell, a run, a formation, or a *system*, and the
+                // answer changed underneath it.
+                //
+                // Measured over this suite's 5 seeds, 33 systems, with the
+                // run floor tracking the pass's own eligibility gate:
+                // **median 0.00, p90 0.94, max 1.79** bridged formations per
+                // 100 columns of system span.
+                //
+                // 2.4 is 34% clear of that, and -- the half that matters --
+                // it is still *below the ceiling the metric can reach*, so
+                // it can actually fire. `SPELEO_SPACING_MIN` is 36, so even
+                // a solid picket fence of bridged formations is only
+                // 100/36 = 2.78 per 100 columns; any bar at 3 or above
+                // would be a bar nothing can ever cross, which is the
+                // vacuous-guard failure this file has hit before.
+                let width = x1b - x0b + 1;
+                let per_100 = 100.0 * bridged_formations as f32 / width as f32;
                 assert!(
-                    bridged_formations <= 14,
-                    "seed {seed}: {bridged_formations} formations bridged floor-to-ceiling in one cave \
-                     system ({fused_here} columns) -- that is the picket-fence failure A3 exists to \
-                     avoid, not the occasional true column it allows"
+                    per_100 <= 2.4,
+                    "seed {seed}: {bridged_formations} formations bridged floor-to-ceiling in a \
+                     {width}-column system ({fused_here} fused columns) -- {per_100:.2} per 100 \
+                     columns against a picket-fence ceiling of 2.78. That is the failure A3 exists \
+                     to avoid, not the occasional true column it allows"
                 );
                 fused_columns_total += bridged_formations;
             }
@@ -2331,11 +2739,11 @@ fn probe_r3_dump_a_cave_system() {
     let with = vault_test_params(base);
     let without = WorldgenParams { vault_density: 0.0, ..with.clone() };
     for seed in SEEDS {
-        let world = build(&with, seed);
-        let control = build(&without, seed);
+        let world = build_cave_world(&with, seed);
+        let control = build_cave_world(&without, seed);
         let mut carved: Vec<(i32, i32)> = Vec::new();
-        for y in 0..=BOUNDS.1 {
-            for x in 0..=BOUNDS.0 {
+        for y in 0..=CAVE_BOUNDS.1 {
+            for x in 0..=CAVE_BOUNDS.0 {
                 if world.get(x, y).material != control.get(x, y).material
                     || world.get(x, y).shade != control.get(x, y).shade
                 {
@@ -2393,8 +2801,8 @@ fn probe_r3_dump_a_cave_system() {
             x1 - x0 + 1,
             y1 - y0 + 1
         );
-        for y in (y0 - 2).max(0)..=(y1 + 2).min(BOUNDS.1) {
-            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(BOUNDS.0))
+        for y in (y0 - 2).max(0)..=(y1 + 2).min(CAVE_BOUNDS.1) {
+            let line: String = ((x0 - 2).max(0)..=(x1 + 2).min(CAVE_BOUNDS.0))
                 .map(|x| {
                     let c = world.get(x, y);
                     if c.material == material::EMPTY {
@@ -2484,7 +2892,17 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
     // pool finds real successes without changing what the pass is rating.
     let presets = presets();
     let base = presets.get("canyon").expect("canyon preset");
-    let params = WorldgenParams { world_age: 1.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+    // `spring_flow` off beside the life densities, and for the same reason:
+    // this is a claim about whether *seated stone* holds still, and a spring
+    // is a live process. It became load-bearing when springs learned to cut
+    // their own source basin, which is what let them place at this size.
+    let params = WorldgenParams {
+        world_age: 1.0,
+        tree_density: 0.0,
+        moss_density: 0.0,
+        spring_flow: 0.0,
+        ..base.clone()
+    };
 
     let mut seated_cells = 0usize;
     let mut checked = 0usize;
@@ -2685,6 +3103,144 @@ fn probe_r4t4_valley_floor_retarget_diff() {
 /// Asserted against the constants rather than a literal, so raising the cap
 /// fails here -- loudly, at `cargo test` -- instead of failing in a world
 /// nobody can regenerate.
+/// The dry presets' water table really is below the world floor.
+///
+/// **Asserted against `app::WORLD_HEIGHT`, never against a literal.** The bar
+/// used to be `assert!(arid.table_offset > 320.0)` inside `worldgen::params`,
+/// and the preset shipped `400.0`: comfortable-looking headroom that had
+/// already stopped meaning anything by the time the world was 640 rows, and
+/// meant the opposite of what it said at 2560. A "below the world floor"
+/// table sat at row ~570 with two thousand rows of world under it.
+///
+/// Nothing caught it because the visible half still behaved: `ponds` found no
+/// basin, so no water appeared. But `moisture_init` writes a moisture floor
+/// for every row at or below `table_y`, so the preset whose entire job is
+/// *no water anywhere* was damp from a third of the way down -- and `flat`,
+/// the structural test bed, was answering a wet-rock question while claiming
+/// to answer a dry-rock one.
+///
+/// Lives here rather than beside the other preset tests because `worldgen`
+/// sits *below* `app` in this crate's layering and must not read it; an
+/// integration test can see both.
+#[test]
+fn the_dry_presets_keep_their_table_below_the_world_floor() {
+    let (presets, err) = WorldgenPresets::load();
+    assert!(err.is_none(), "worldgen.ron: {err:?}");
+    let floor = pixel_physics::app::WORLD_HEIGHT as f32;
+    for name in ["arid", "flat"] {
+        let p = presets.get(name).expect("preset exists");
+        // `table_offset` is measured down from `datum()` -- `sky_rows +
+        // relief_amplitude` -- so the table can only ever sit *lower* than
+        // the offset alone suggests. Asserting on the offset by itself is
+        // therefore the strict form, and the datum is printed so a failure
+        // says how much room there actually was.
+        let datum = p.sky_rows + p.relief_amplitude;
+        assert!(
+            p.table_offset > floor,
+            "{name}: table_offset {} must clear a {floor}-row world (datum {datum}); \
+             a table inside the world writes a moisture floor even where no pond forms",
+            p.table_offset
+        );
+    }
+}
+
+/// The shipped world gets the regions its per-window density asks for.
+///
+/// `region.rs` promises *regions per window*, not per world -- the property
+/// that lets the world grow without getting duller. `MAX_TOTAL_REGIONS` is a
+/// backstop against an absurd width, and at 64 it had quietly become
+/// something else: 8192 / 512 = 16 windows asking for up to 5 each is 80, so
+/// the top of the draw was clipped and those worlds shipped with regions
+/// wider than a window. A cap that bounds work must never decide whether the
+/// guarantee holds.
+///
+/// Asserted through `RegionMap::len` at the shipped width rather than against
+/// the constant, so it fails for the reason that matters: the world in front
+/// of the player, not the number in the file.
+#[test]
+fn the_shipped_world_does_not_hit_the_region_ceiling() {
+    let (presets, _) = WorldgenPresets::load();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    // One window at the same 512 `region.rs` expresses its counts against.
+    let window = 512.0_f32;
+    let mut worst = 0.0_f32;
+    for name in presets.cycle_order() {
+        let Some(p) = presets.get(&name) else { continue };
+        if p.region_variation <= 0.0 {
+            continue;
+        }
+        for seed in 0..48u64 {
+            let map = worldgen::region::RegionMap::new(seed, p, w);
+            let per_window = map.len() as f32 / (w as f32 / window);
+            worst = worst.max(per_window);
+            assert!(
+                (2.0..=5.0).contains(&per_window),
+                "{name} seed {seed} at {w} wide: {per_window:.2} regions per window, \
+                 outside 2..5 -- the ceiling is clipping the draw"
+            );
+        }
+    }
+    println!("worst regions-per-window at {w} wide: {worst:.2}");
+}
+
+/// Every local pass declares a margin that covers the reach its own
+/// constants imply.
+///
+/// **The generalisation of `a_cave_cannot_reach_past_its_declared_margin`,
+/// which was the only one of these that existed.** A margin is the contract
+/// a per-chunk generator will plan against: an understated one is a promise
+/// to produce different cells at a chunk edge, and nothing checks it at
+/// runtime, because `pass_summary()`'s only consumer reads the GLOBAL list
+/// rather than the numbers. Three of the four have been silently wrong at
+/// least once -- `talus` declared 3 while walking up to `MAX_FALL` = 120,
+/// `vaults` declared 96 after round 6 took the envelope to 202, and
+/// `residuals`' declared 80 was justified in the pass table by an aspect
+/// floor that had since been withdrawn.
+///
+/// Asserted against the constants, never against literals, so a change that
+/// lengthens a reach fails a test instead of the world. The pass table now
+/// holds the *expressions* rather than the numbers, which means this test
+/// should have nothing to catch -- and it stays because the next reach to be
+/// added is the one nobody remembers to fold into an expression.
+#[test]
+fn every_local_pass_declares_the_margin_it_reaches() {
+    use pixel_physics::worldgen::{passes, residual};
+    let summary = worldgen::pass_summary();
+    let declared = |name: &str| {
+        summary
+            .iter()
+            .find(|(n, _)| *n == name)
+            .unwrap_or_else(|| panic!("{name} is in the pass table"))
+            .1
+    };
+    // `(pass, reach, what the reach is)`. Each reach is spelled out here
+    // from the constants rather than read from the same expression the table
+    // uses, so the test is an independent statement of the arithmetic and
+    // not a tautology over it.
+    let cases: [(&str, i32, &str); 5] = [
+        ("brows", passes::BROWS_MARGIN, "RUN_FAR of detection + MAX_BROW_REACH of writing"),
+        ("talus", passes::TALUS_MARGIN, "RUN_FAR + MAX_FALL to the foot + 2 * MAX_TALUS_PEAK of apron"),
+        ("residuals", residual::RESIDUALS_MARGIN, "MAX_HEIGHT / MIN_ASPECT / 2, the widest half-footprint"),
+        ("vaults", passes::MAX_CAVE_HALF_W + passes::VAULT_RIND, "MAX_CAVE_HALF_W + VAULT_RIND"),
+        // Spelled out from the private constants deliberately, per the note
+        // above: RUN_FAR (20) of the same cliff detection `brows` and `talus`
+        // do, MAX_FALL (120) down to the foot, SPRING_DRAIN_REACH (150) along
+        // the falling side for the plunge pool, and MAX_SPAN for the emission
+        // columns hanging off the rim. They compose rather than overlap, so
+        // the sum is the honest bound.
+        (
+            "springs",
+            20 + 120 + 150 + pixel_physics::sim::spring::MAX_SPAN,
+            "RUN_FAR + MAX_FALL to the foot + SPRING_DRAIN_REACH to the basin + MAX_SPAN of sheet",
+        ),
+    ];
+    for (name, reach, why) in cases {
+        let margin = declared(name);
+        assert!(margin >= 0, "{name} declares GLOBAL; it is a local pass and must state a number");
+        assert!(margin >= reach, "{name} declares a margin of {margin} and reaches {reach} ({why})");
+    }
+}
+
 #[test]
 fn a_cave_cannot_reach_past_its_declared_margin() {
     let reach = worldgen::passes::MAX_CAVE_HALF_W + worldgen::passes::VAULT_RIND;
@@ -2699,4 +3255,635 @@ fn a_cave_cannot_reach_past_its_declared_margin() {
         "vaults declares a margin of {margin} and reaches {reach} \
          (MAX_CAVE_HALF_W + VAULT_RIND)"
     );
+}
+
+/// What the residual pass actually *sees* when it asks a region whether it is
+/// rock country -- sampled at the exact positions `residual::residuals` samples.
+///
+/// Written because the gate on `Character::formation` moved the spire census
+/// not at all while visibly changing the monument heights, which is the
+/// signature of a change that fired somewhere other than where it was read.
+/// A downstream statistic could not tell "the gate is not working" from "the
+/// gate works and the screen metric cannot resolve it"; this asks the gate
+/// directly.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 0 formation gate)"]
+fn probe_p0_what_formation_does_the_residual_pass_see() {
+    const RESIDUAL_REGION: i32 = 256; // `residual::REGION`, which is private.
+    // Sixteen seeds, because the question is an order statistic over worlds:
+    // "how often does a world come out with no rock country at all" cannot be
+    // asked of three.
+    const SEED_LIST: [u64; 16] = [1, 3, 7, 11, 19, 23, 42, 97, 128, 256, 511, 1024, 2048, 4096, 24301, 65535];
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["canyon", "rolling"] {
+        let params = presets.get(name).expect("preset");
+        let (mut zero_blocks, mut all_blocks) = (0usize, 0usize);
+        let mut vals: Vec<f32> = Vec::new();
+        let mut expected_sites = 0.0f32;
+        // How far a stretch of rock country runs, in columns. This is the
+        // statistic the per-screen spire census could not see: a country
+        // shorter than the 512-column view reads as a cluster, and measures
+        // the same as a world with fewer spires spread evenly.
+        let mut runs: Vec<i32> = Vec::new();
+        let mut empty_worlds = 0usize;
+        for seed in SEED_LIST.iter().copied() {
+            let terrain = {
+                let soil = params_material_tan(name, "soil");
+                let sand = params_material_tan(name, "sand");
+                pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+            };
+            for rx in 0..w.div_euclid(RESIDUAL_REGION) + 1 {
+                let mx = (rx * RESIDUAL_REGION + RESIDUAL_REGION / 2).clamp(0, w - 1);
+                let f = terrain.character(mx).formation;
+                all_blocks += 1;
+                if f <= 1e-6 {
+                    zero_blocks += 1;
+                }
+                vals.push(f);
+                expected_sites += params.residual_density * f;
+            }
+            // Run lengths at column resolution, not block resolution: the
+            // question is how far the country reaches, and quantising it to
+            // 256-column blocks would round every answer to the scale the
+            // measurement is trying to compare against.
+            let mut run = 0;
+            for x in 0..w {
+                if terrain.character(x).formation > 1e-6 {
+                    run += 1;
+                } else {
+                    if run > 0 {
+                        runs.push(run);
+                    }
+                    run = 0;
+                }
+            }
+            if run > 0 {
+                runs.push(run);
+            }
+            if !(0..w).any(|x| terrain.character(x).formation > 1e-6) {
+                empty_worlds += 1;
+            }
+            // Where, not just how long -- so a render can be aimed at a rock
+            // country and at a barren stretch of the *same* world, which is
+            // the only comparison that holds everything else constant.
+            if std::env::var("DUMP_RUNS").is_ok() {
+                let mut start = None;
+                let mut spans: Vec<(i32, i32)> = Vec::new();
+                for x in 0..=w {
+                    let rock = x < w && terrain.character(x).formation > 1e-6;
+                    match (rock, start) {
+                        (true, None) => start = Some(x),
+                        (false, Some(s0)) => {
+                            spans.push((s0, x - 1));
+                            start = None;
+                        }
+                        _ => {}
+                    }
+                }
+                println!("  {name} seed {seed}: rock country at {spans:?}");
+            }
+        }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let rock: Vec<f32> = vals.iter().copied().filter(|&f| f > 1e-6).collect();
+        let q = |v: &Vec<f32>, f: f32| {
+            if v.is_empty() {
+                0.0
+            } else {
+                v[((v.len() as f32 - 1.0) * f) as usize]
+            }
+        };
+        runs.sort_unstable();
+        let rq = |f: f32| if runs.is_empty() { 0 } else { runs[((runs.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:8} formation as the residual pass samples it, {all_blocks} blocks x {} seeds -- \
+             BARREN {:.0}% of blocks  |  among ROCK blocks: p50 {:.2} p90 {:.2} max {:.2}  |  \
+             WORLDS WITH NO ROCK COUNTRY {}/{}  |  run length (columns): n {} med {} p90 {} max {}  |  \
+             expected sites/world {:.1}",
+            SEED_LIST.len(),
+            100.0 * zero_blocks as f32 / all_blocks as f32,
+            q(&rock, 0.50), q(&rock, 0.90), q(&rock, 1.0),
+            empty_worlds, SEED_LIST.len(),
+            runs.len(), rq(0.5), rq(0.9), rq(1.0),
+            expected_sites / SEED_LIST.len() as f32
+        );
+    }
+}
+
+/// Friction tangent for a named material, the way the worldgen harnesses build
+/// a `Terrain` outside the generator.
+fn params_material_tan(_preset: &str, material_name: &str) -> f32 {
+    let world = World::new(Rect::new(0, 0, 15, 15));
+    let id = world.materials.id_of(material_name).expect("material");
+    world.materials.get(id).friction_angle.to_radians().tan()
+}
+
+/// Residual landforms belong to rock country, and to nowhere else.
+///
+/// **A rate cannot pass this test, and that is exactly why it exists.** The
+/// complaint it guards was not "too many spires" -- it was *"Spires should not
+/// just be thinned out ... I didn't mean a uniform decrease in spires."* So the
+/// property is a **contrast between two parts of one world**, which no count of
+/// spires-per-screen can express, however it is sliced. Measured while building
+/// this: a per-region gate at 87% barren and the rejected uniform
+/// `residual_density: 0.45` produced the *same* per-screen census on both
+/// presets (canyon 0/2/4, rolling 0/1/2) from completely different worlds. The
+/// statistic that was supposed to tell them apart was blind to the only thing
+/// that differed.
+///
+/// So both halves are asserted separately, and a regression says which broke:
+/// residuals must be **absent** outside rock country, and **present** inside.
+///
+/// Paired against `residual_density: 0.0` throughout, because `boulders`,
+/// `brows` and a proud talus toe stand above the plan surface too -- half the
+/// standing features on `canyon` and nearly all of them on `rolling`. An
+/// unpaired count would be measuring `boulders` and calling it this.
+///
+/// Swept over seeds and gated on the aggregate rather than asserted per seed:
+/// 1 world in 16 draws no rock country at all, so a fixed-seed version of this
+/// is one reseed away from either flaking or passing vacuously.
+#[test]
+fn residual_landforms_are_confined_to_rock_country() {
+    // Set from the measurement with headroom, not from an aspiration.
+    // Measured over these six seeds: inside 3.104/1000 (66 spires against 14
+    // with residuals off), outside 0.031/1000 (44 against 43), a 100x
+    // contrast. The bars sit far enough below that a seed reshuffle cannot
+    // rubber-stamp them, and the whole set was checked against the artifact it
+    // replaces rather than only against the one it blesses: restoring the old
+    // ungated `raw * raw * 2.2` skew at the rejected `residual_density: 0.45`
+    // fails here, on the barren-share assertion first, because that draw never reaches
+    // zero and so classifies the entire world as rock country (49152 columns
+    // inside, 0 outside).
+    const BAR_IN: f64 = 1.5;
+    const BAR_OUT: f64 = 0.30;
+    const CONTRAST: f64 = 8.0;
+    const PROUD: i32 = 8;
+    const SPIRE_TALL: i32 = 12;
+    const SPIRE_WIDE: i32 = 16;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let params = presets.get("canyon").expect("canyon preset");
+    let bare = WorldgenParams { residual_density: 0.0, ..params.clone() };
+
+    // Spire runs, keyed by whether their start column sits in rock country.
+    let census = |p: &WorldgenParams, seed: u64, rock: &[bool]| -> (u32, u32) {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params: p, seed });
+        let terrain = {
+            let soil = params_material_tan("canyon", "soil");
+            let sand = params_material_tan("canyon", "sand");
+            pixel_physics::worldgen::column::Terrain::new(seed, p, w, h, soil, sand)
+        };
+        let plans = terrain.plan_all();
+        let top = |x: i32| (0..h).find(|&y| world.get(x, y).material != material::EMPTY).unwrap_or(h);
+        let proud: Vec<i32> = (0..w).map(|x| plans[x as usize].surface_y - top(x)).collect();
+        let (mut inside, mut outside) = (0u32, 0u32);
+        let mut x = 0;
+        while x < w {
+            if proud[x as usize] < PROUD {
+                x += 1;
+                continue;
+            }
+            let start = x;
+            let mut tallest = 0;
+            while x < w && proud[x as usize] >= PROUD {
+                tallest = tallest.max(proud[x as usize]);
+                x += 1;
+            }
+            if tallest >= SPIRE_TALL && x - start <= SPIRE_WIDE {
+                if rock[start as usize] {
+                    inside += 1;
+                } else {
+                    outside += 1;
+                }
+            }
+        }
+        (inside, outside)
+    };
+
+    let (mut in_cols, mut out_cols) = (0u64, 0u64);
+    let (mut in_with, mut in_without) = (0u32, 0u32);
+    let (mut out_with, mut out_without) = (0u32, 0u32);
+    let mut worlds_with_country = 0;
+    for seed in [1u64, 7, 19, 42, 256, 24301] {
+        let terrain = {
+            let soil = params_material_tan("canyon", "soil");
+            let sand = params_material_tan("canyon", "sand");
+            pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+        };
+        let rock: Vec<bool> = (0..w).map(|x| terrain.character(x).formation > 1e-6).collect();
+        let n_rock = rock.iter().filter(|&&r| r).count() as u64;
+        if n_rock > 0 {
+            worlds_with_country += 1;
+        }
+        in_cols += n_rock;
+        out_cols += w as u64 - n_rock;
+        let (a, b) = census(params, seed, &rock);
+        let (c, d) = census(&bare, seed, &rock);
+        in_with += a;
+        out_with += b;
+        in_without += c;
+        out_without += d;
+    }
+
+    // Per 1000 columns of the zone, so the two zones are comparable even though
+    // rock country is roughly a third of the world.
+    let rate = |n: u32, cols: u64| n as f64 * 1000.0 / cols.max(1) as f64;
+    let gain_in = rate(in_with, in_cols) - rate(in_without, in_cols);
+    let gain_out = rate(out_with, out_cols) - rate(out_without, out_cols);
+    println!(
+        "residuals vs rock country over 6 canyon seeds: \
+         INSIDE {in_cols} cols, {in_with} spires vs {in_without} bare -> gain {gain_in:.3}/1000 | \
+         OUTSIDE {out_cols} cols, {out_with} vs {out_without} bare -> gain {gain_out:.3}/1000 | \
+         worlds with rock country {worlds_with_country}/6"
+    );
+
+    // Most of the world has none. First, because it is the half of the verdict
+    // the other assertions cannot see: a draw that never reaches zero puts
+    // every column "inside" and leaves the outside zone empty, at which point
+    // an absence bar over zero columns is vacuously true.
+    assert!(
+        out_cols > in_cols,
+        "rock country covers {in_cols} of {} columns -- it is supposed to be the exception, and an \
+         empty barren zone makes the absence bar below vacuous",
+        in_cols + out_cols
+    );
+    assert!(
+        worlds_with_country >= 4,
+        "only {worlds_with_country}/6 canyon seeds drew any rock country -- the gate has swung shut, \
+         and the two assertions below would then be comparing an empty set against the whole world"
+    );
+    // The "some biomes should have them" half.
+    assert!(
+        gain_in >= BAR_IN,
+        "residuals add {gain_in:.3} spires/1000 columns inside rock country, under the {BAR_IN} bar -- \
+         rock country has stopped being rock country"
+    );
+    // The "not at all in most biomes" half. Not exactly zero: a site is placed
+    // at a column and drawn with width, so one seated against the last block of
+    // a country can lean a few columns past where `formation` reaches zero.
+    assert!(
+        gain_out <= BAR_OUT,
+        "residuals add {gain_out:.3} spires/1000 columns OUTSIDE rock country, over the {BAR_OUT} bar -- \
+         they are leaking into barren country, which is the uniform sprinkle this replaced"
+    );
+    // The contrast itself, which is the thing neither half can state alone.
+    assert!(
+        gain_in >= CONTRAST * gain_out.max(0.001),
+        "inside:outside contrast is {:.1}x, under the {CONTRAST}x bar -- a world this flat is a \
+         thinned world wearing a gate's clothes",
+        gain_in / gain_out.max(0.001)
+    );
+}
+
+/// Does the springs pass find anywhere to put a spring, and how many places
+/// did it have to choose from?
+///
+/// `SPRING_CHANCE` is set from this. A world offers hundreds of cliff faces
+/// and wants one waterfall, so the acceptance draw has to be calibrated
+/// against the real candidate density rather than guessed -- and "how many
+/// candidates" is not a number any existing harness reports.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 1 spring placement)"]
+fn probe_p1_where_can_a_spring_go() {
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["rolling", "terraced", "canyon", "wetland", "arid", "flat"] {
+        let params = presets.get(name).expect("preset");
+        let (mut placed, mut spans, mut drains) = (0usize, 0i32, 0usize);
+        for seed in [1u64, 3, 7, 19, 42, 24301] {
+            let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+            worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+            for sp in &world.springs {
+                println!("    {name} seed {seed}: spring span {} at ({}, {})", sp.span, sp.x, sp.y);
+            }
+            placed += world.springs.len();
+            spans += world.springs.iter().map(|s| s.span).sum::<i32>();
+            drains += world.drains.len();
+        }
+        println!(
+            "{name:9} spring_flow {:>4}: {placed} springs over 6 seeds ({:.1}/world), {spans} emission columns, {drains} drains",
+            params.spring_flow,
+            placed as f32 / 6.0
+        );
+    }
+}
+
+/// A generated world's spring runs, and the water it makes leaves again.
+///
+/// **Asserts the ledger, not the list.** That a `Spring` is in `world.springs`
+/// proves only that the pass pushed a struct: `World::add_spring` validates
+/// nothing about position, so an outlet seated in rock registers happily and
+/// then emits nothing for the life of the world. Three successive placement
+/// models got that far and were dead on arrival here -- one seated at
+/// `table_y` (drowned by `ponds`, which fills that exact cell), one at a fixed
+/// depth under the plan surface (buried in talus on 331 of 339 faces).
+///
+/// `drained > 0` is the second half and the one that makes it a river rather
+/// than a rising bath: `PLAN.md` asks for "a real source ... and a real sink",
+/// and a spring with no reachable sink fills its basin until the pool drowns
+/// the outlet and the fall stops. `ascii`'s river-cost scene shows the failure
+/// -- its hand-placed drain sits 2030 columns from the outlet and reports
+/// `drained 0` after 1400 frames.
+#[test]
+fn a_generated_world_grows_a_spring_that_actually_runs() {
+    /// Rows of standing water the plunge pool must reach. `SPRING_POOL_DEPTH`
+    /// is 10; the bar is set below it with headroom, since the drain sits at
+    /// that height and the surface ripples around it.
+    const POOL_ROWS: usize = 6;
+    /// How far either side of the outlet to look for the source pool, and how
+    /// many of those columns must hold standing water. The cut basin is
+    /// `SPRING_BASIN_W` = 40 columns wide and the outlet sits at its middle,
+    /// so half of it reaches ~20 either way. Measured: the cut basin gives
+    /// **38** columns and the face-outlet build it replaced gives **8**, so
+    /// the bar sits three times below the pass and half again above the fail
+    /// -- headroom in both directions rather than on top of either.
+    const SOURCE_SPAN: i32 = 24;
+    const SOURCE_COLUMNS: usize = 12;
+    let presets = presets();
+    // `canyon` is the preset with the faces: measured 1.0 springs per world
+    // over six seeds, against 0.8 rolling, 0.5 terraced and 0.0 wetland (which
+    // has 8 cliff candidates in a whole world and is waterlogged besides).
+    let params = presets.get("canyon").expect("canyon preset");
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    let mut ran = 0;
+    let mut report = String::new();
+    for seed in [1u64, 7, 42] {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let water_id = world.materials.id_of("water").expect("water");
+        if world.springs.is_empty() {
+            report.push_str(&format!("seed {seed}: no spring placed\n"));
+            continue;
+        }
+        for _ in 0..900 {
+            parallel::step(&mut world);
+        }
+        let l = world.spring_ledger;
+        report.push_str(&format!(
+            "seed {seed}: {} springs, emitted {} drained {} throttled {}\n",
+            world.springs.len(),
+            l.emitted,
+            l.drained,
+            l.throttled
+        ));
+        assert!(l.emitted > 0, "seed {seed}: a spring is registered but emitted nothing -- a walled outlet\n{report}");
+        assert!(l.drained > 0, "seed {seed}: the spring runs but nothing reaches the drain -- no sink\n{report}");
+        // The outlet is air with a fall under it, stated as the quantity that
+        // would actually move if it were not. A walled outlet throttles on
+        // *every* firing, so the ratio is the discriminator and an absolute
+        // count is not: some throttling is correct and wanted -- it is the
+        // fall's own backwash reaching the outlet, and the same graded lever
+        // the player gets by damming it. Measured 4.4% worst over these
+        // seeds; the bar is set well clear of that and nowhere near the 100%
+        // a seated-in-rock outlet gives.
+        //
+        // Folded in here rather than given its own test because it is a claim
+        // about the same three worlds, and building an 8192x2560 world costs
+        // ~5.5 s -- a separate test would pay that again to assert one more
+        // field of the same ledger.
+        // **A pool stands at the foot**, which is the half of the verdict a
+        // ledger cannot see. `drained > 0` was true of the version the owner
+        // rejected as ending "nowhere" -- water reaching a drain says the
+        // plumbing works, not that anything is standing there to look at. So
+        // census the deepest column of standing water anywhere near a drain
+        // and require a real depth.
+        //
+        // Depth, not a cell count: `render.rs` dims a liquid toward black by
+        // fill, so a wide film of half-empty cells is both a large count and
+        // invisible, which is exactly the artifact this is guarding against.
+        let deepest = world
+            .drains
+            .iter()
+            .map(|&(dx, dy)| standing_depth(&world, dx, dy - 24, 48, h, water_id))
+            .max()
+            .unwrap_or(0);
+        assert!(
+            deepest >= POOL_ROWS,
+            "seed {seed}: deepest standing water at a drain is {deepest} rows, under the {POOL_ROWS} bar -- \
+             the fall ends in a damp patch rather than a pool\n{report}"
+        );
+        // **And a pool at the top**, which is the other half of the same
+        // verdict -- "it looks like it comes from nowhere". The source basin
+        // is cut around the outlet, so census straight down the outlet's own
+        // columns. Depth again rather than a count, for the same reason as
+        // the plunge pool: `render.rs` dims a liquid by fill, so a wide film
+        // of half-empty cells is a big number and invisible.
+        // **The pool the fall comes out of, measured by its width.**
+        //
+        // Depth cannot tell it from the version that had no source pool at
+        // all, and three tries proved that rather than fixing it: a sheet
+        // pouring down a column is a column full of water; restricting to
+        // water that *stands* on something still found the plunge pool eighty
+        // rows below; band-limiting to the outlet's own level still found the
+        // puddles that collect in the irregularities of any cliff lip. All
+        // three passed against the face-outlet build, which is the artifact
+        // they were supposed to reject.
+        //
+        // Width is what actually differs. A cut tarn is tens of columns of
+        // standing water at one level; a puddle on a lip is one or two. So
+        // count the columns, not the rows.
+        const SOURCE_BAND: i32 = 24;
+        let sp = world.springs[0];
+        let wide = (sp.x - SOURCE_SPAN..=sp.x + SOURCE_SPAN)
+            .filter(|&sx| standing_depth(&world, sx.clamp(0, w - 1), sp.y, SOURCE_BAND, h, water_id) >= 3)
+            .count();
+        assert!(
+            wide >= SOURCE_COLUMNS,
+            "seed {seed}: only {wide} columns of standing water near the outlet, under the {SOURCE_COLUMNS} \
+             bar -- the fall comes off a bare face or a puddle, not out of a pool\n{report}"
+        );
+        let firings = 900 * world.springs.iter().map(|s| s.span).sum::<i32>() as u64;
+        let ratio = l.throttled as f64 / firings as f64;
+        assert!(
+            ratio < 0.25,
+            "seed {seed}: {} of {firings} firings throttled ({:.0}%) -- an outlet seated in rock \
+             throttles on every one of them\n{report}",
+            l.throttled,
+            ratio * 100.0
+        );
+        ran += 1;
+    }
+    println!("{report}");
+    assert!(ran >= 2, "only {ran}/3 canyon seeds grew a running spring:\n{report}");
+}
+
+/// Where the spring's water actually ends up, in columns — so a render can be
+/// aimed at it. An image cannot answer "is the water there"; this can.
+#[test]
+#[ignore = "probe: prints, never asserts (Part 1 spring render aiming)"]
+fn probe_p1_where_does_the_water_go() {
+    let presets = presets();
+    let params = presets.get("canyon").expect("canyon");
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for seed in [7u64, 42] {
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        worldgen::generate_only(&mut world, Spec::Generated { params, seed });
+        let springs: Vec<_> = world.springs.clone();
+        let drains: Vec<_> = world.drains.clone();
+        let water = world.materials.id_of("water").expect("water");
+        let census = |world: &World| -> Vec<(i32, usize)> {
+            let mut per = std::collections::BTreeMap::new();
+            for x in 0..w {
+                let n = (0..h).filter(|&y| world.get(x, y).material == water).count();
+                if n > 0 {
+                    *per.entry(x / 128 * 128).or_insert(0usize) += n;
+                }
+            }
+            let mut v: Vec<_> = per.into_iter().collect();
+            v.sort_by_key(|&(_, n)| std::cmp::Reverse(n));
+            v.truncate(6);
+            v
+        };
+        let before = census(&world);
+        for _ in 0..500 {
+            parallel::step(&mut world);
+        }
+        println!("seed {seed}: springs {springs:?} drains {drains:?}");
+        println!("  water by 128-col bucket, before: {before:?}");
+        println!("  after 500 frames:                {:?}", census(&world));
+    }
+}
+
+/// Is there a pool behind the cliff for a spring to come out of?
+///
+/// The owner wants a fall that *"originate[s] in depressions so they fill up
+/// and spill out into a waterfall"*, rather than out of a bare face. Whether
+/// that can be built on top of what `ponds` already places, or has to make its
+/// own source pool in a dry hollow, is a question about how common perched
+/// basins are next to cliffs -- and nothing in the engine reports that.
+///
+/// Measured before the placement rule is rewritten, because the last round
+/// built three placement models and threw two away.
+#[test]
+#[ignore = "probe: prints, never asserts (source-pool census)"]
+fn probe_p1_is_there_a_pool_behind_the_cliff() {
+    /// How far back from the lip the source hollow may start. A spring meant
+    /// to spill over *this* cliff has to be in the catchment of *this* lip.
+    const BEHIND: i32 = 120;
+    let presets = presets();
+    let w = pixel_physics::app::WORLD_WIDTH as i32;
+    let h = pixel_physics::app::WORLD_HEIGHT as i32;
+    for name in ["canyon", "rolling", "terraced"] {
+        let params = presets.get(name).expect("preset");
+        let (mut rims, mut with_hollow) = (0usize, 0usize);
+        let (mut depth, mut width) = (Vec::new(), Vec::new());
+        let mut shelves: Vec<i32> = Vec::new();
+        for seed in [1u64, 3, 7, 19, 42, 24301] {
+            let terrain = {
+                let soil = params_material_tan(name, "soil");
+                let sand = params_material_tan(name, "sand");
+                pixel_physics::worldgen::column::Terrain::new(seed, params, w, h, soil, sand)
+            };
+            let plans = terrain.plan_all();
+            let g = |x: i32| plans[x.clamp(0, w - 1) as usize].surface_y;
+            let mut last = i32::MIN / 2;
+            for x in 0..w {
+                for dir in [1, -1] {
+                    // A cliff: the ground falls >= 20 rows within 20 columns
+                    // on the falling side. `CLIFF_DROP_FAR` over `RUN_FAR`,
+                    // the same bar `cliff_edges` uses at its far scale.
+                    if (1..=20).map(|d| g(x + dir * d)).max().unwrap_or(g(x)) < g(x) + 20 {
+                        continue;
+                    }
+                    if x - last < 300 {
+                        continue;
+                    }
+                    last = x;
+                    rims += 1;
+                    // **The shelf**: how far back the ground stays at or
+                    // above the lip. That run is where a basin can be *cut*,
+                    // and its back wall is guaranteed higher than the spill
+                    // lip, so the pool it holds spills forward over the cliff
+                    // instead of running away inland. Counted directly rather
+                    // than inferred from the search's zero.
+                    let mut shelf = 0;
+                    while shelf < BEHIND && g(x + -dir * (shelf + 1)) <= g(x) {
+                        shelf += 1;
+                    }
+                    shelves.push(shelf);
+                    // Walk *back* from the lip, away from the fall. The
+                    // source hollow is the first run of ground below the
+                    // lip's own level -- a puddle the lip would spill out
+                    // of. Not the deepest hollow in the catchment: that is
+                    // usually the canyon floor a hundred rows down, which a
+                    // spring would spend the whole run filling.
+                    let back = -dir;
+                    let mut d = 1;
+                    while d <= BEHIND && g(x + back * d) <= g(x) {
+                        d += 1;
+                    }
+                    if d > BEHIND {
+                        continue;
+                    }
+                    let start = d;
+                    let mut deepest = 0;
+                    while d <= BEHIND && g(x + back * d) > g(x) {
+                        deepest = deepest.max(g(x + back * d) - g(x));
+                        d += 1;
+                    }
+                    with_hollow += 1;
+                    depth.push(deepest);
+                    width.push(d - start);
+                }
+            }
+        }
+        depth.sort_unstable();
+        width.sort_unstable();
+        shelves.sort_unstable();
+        let q = |v: &Vec<i32>, f: f32| if v.is_empty() { -1 } else { v[((v.len() as f32 - 1.0) * f) as usize] };
+        println!(
+            "{name:9} over 6 seeds: {rims} cliff rims | {with_hollow} have a hollow starting within {BEHIND} cols behind the lip | \
+             its depth below the lip (rows): p10 {} p50 {} p90 {} max {} | its width (cols): p50 {} p90 {} \
+             || SHELF at-or-above the lip (cols): p10 {} p50 {} p90 {} | rims with >= 16 cols of shelf: {}",
+            q(&depth, 0.1), q(&depth, 0.5), q(&depth, 0.9), q(&depth, 1.0),
+            q(&width, 0.5), q(&width, 0.9),
+            q(&shelves, 0.1), q(&shelves, 0.5), q(&shelves, 0.9),
+            shelves.iter().filter(|&&v| v >= 16).count()
+        );
+    }
+}
+
+/// Depth of *standing* water in a column: the longest run of water cells
+/// sitting directly on top of something solid.
+///
+/// **Not "water cells in the column", which is what a falling ribbon is too.**
+/// That metric was written first and it could not tell a pool from a
+/// waterfall: run against the version whose outlet was on a bare cliff face,
+/// the naive count passed, because a sheet pouring down a column is a column
+/// full of water. The repo has paid for this shape of mistake before -- the
+/// whisker hunt defined a "film" as water with air above and below, which is
+/// what *every falling droplet* looks like.
+///
+/// `band` bounds how far below `from_y` the pool's *surface* may be. Without
+/// it the census at a spring's outlet finds the plunge pool eighty rows down
+/// the cliff and calls it the source: run against the face-outlet version,
+/// which has no source pool at all, an unbounded search passed.
+fn standing_depth(world: &World, x: i32, from_y: i32, band: i32, h: i32, water: material::MaterialId) -> usize {
+    let mut best = 0;
+    let mut y = h - 1;
+    while y > 0 {
+        let solid = world.get(x, y).material != material::EMPTY && world.get(x, y).material != water;
+        if solid && world.get(x, y - 1).material == water {
+            let mut run = 0;
+            let mut ty = y - 1;
+            while ty >= 0 && world.get(x, ty).material == water {
+                run += 1;
+                ty -= 1;
+            }
+            // `ty + 1` is the surface of this pool.
+            if ty + 1 >= from_y && ty + 1 - from_y <= band {
+                best = best.max(run);
+            }
+            y = ty;
+        } else {
+            y -= 1;
+        }
+    }
+    best
 }

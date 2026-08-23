@@ -557,6 +557,47 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let cell = surface.get(x, y);
     if cell.flowing() {
         surface.set(x, y, cell.with_flowing(false));
+
+        // **A material that rots also schedules its decay check here, on the
+        // one frame it stops moving -- but this is now the *residual* path,
+        // not the primary one.**
+        //
+        // `World::end_step` scans a chunk on its awake->settled transition and
+        // schedules a site for every decayable cell in it, riding the scan
+        // `recompute_reach` is already doing. That is the general mechanism:
+        // it reaches ash painted straight from the brush, and litter that was
+        // already lying there before the chunk woke, neither of which ever
+        // passes through this branch.
+        //
+        // What it cannot reach is a cell in a chunk that **never settles** --
+        // and the obvious permanently-awake chunk is the forest floor under a
+        // working ant colony, which is precisely where litter matters. This
+        // covers that. Both funnel through `schedule_active_site`'s dedup, so
+        // the pair cannot stack sites or turn the rot rate into a function of
+        // how often the ground was disturbed.
+        //
+        // **Inside the `flowing` branch, not beside it.** `flowing` is set by
+        // the shared move helper for any powder that moved, so this branch is
+        // the settle *transition*: it fires once per landing and is already
+        // skipped for a cell merely sitting there. An earlier version sat one
+        // line lower, on every resting frame, costing a dedup hash probe per
+        // settled litter cell per frame for as long as its chunk stayed awake:
+        // `ascii` mean 1.794 -> 2.285 ms, and the litter itself was not what
+        // cost it.
+        //
+        // Rotting *inline* here, where the material is already in hand, was
+        // built and reverted: a settled chunk sleeps, so the powder update
+        // stops running on exactly the cells that need it. Only a *scheduled*
+        // site reaches a cell in a sleeping chunk, which is what the scheduler
+        // is for.
+        if surface.materials().get(cell.material).decays_into.is_some() {
+            surface.schedule_active_site(crate::sim::scheduler::ActiveSite {
+                x,
+                y,
+                kind: crate::sim::scheduler::ActiveKind::Decay,
+                next_frame: surface.frame() + crate::sim::decay::DECAY_TICK_INTERVAL,
+            });
+        }
     }
     // A cell that only moved *water* has not moved, but it has written, so
     // its chunk must stay awake long enough for the wetting front to keep
