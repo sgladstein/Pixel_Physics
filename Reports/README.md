@@ -283,11 +283,6 @@ flags the mismatch).
 
 - `load-concentration-review.md`, `load-concentration-review-reply.md` —
   branch `load-share`.
-- `foraging-range-measurement.md` — branch
-  `claude/creatures-m18-merge-ijdlnp`. The measured record behind the
-  foraging-range instrument that landed on `main` via `da252dc` (the
-  19-cell bubble, the crowd-jam numbers, the `FORAGE_TRIP_MIN` derivation);
-  its §0 predates the S1–S4 merge and needs correcting when it lands.
 - `performance-audit.md` — worktree `perf-audit` (untracked).
 - `measurement-under-contention.md` — worktree `perf-lock` (untracked,
   with a CLAUDE.md edit adding `scripts/perf.sh`).
