@@ -210,10 +210,17 @@ The *litter* does not pile up forever: it **rots back into soil**, faster
 where the ground is damp, so the visible drift under a standing wood stays
 roughly constant depth. The soil it rots into is a slower story — nothing
 carries soil away yet, so a very old stand does slowly raise the ground it
-lives on. Leaves are shed sparingly (a leaf has to be deep in shade or
+lives on. A mature tree sheds sparingly (a leaf has to be deep in shade or
 drying out before it goes), which keeps that rise to a creep rather than
 the burial it once was; a wood should read as standing *on* its floor, not
 sinking into it.
+
+That is currently true of **the tree and not yet of its neighbours**. Worlds
+arrive with four woody species in them, and only the tree has had its leaf
+fall slowed so far, so a conifer belt, a scrub margin or a run of creeper
+still drops leaves at the older, faster rate and still builds floor under
+itself the way the whole world used to. Expect the burial look to survive in
+those stands until the same change reaches them.
 
 Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the
