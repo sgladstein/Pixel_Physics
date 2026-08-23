@@ -1,0 +1,98 @@
+{
+  "id": "20260823T155425084Z-9a7951",
+  "created": "2026-08-23T15:54:25Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/physical-trees-design",
+    "commit": "95f0a0d",
+    "agent": null,
+    "session_id": "309f4fce-35b0-5e7f-aa59-f668450c8fd0",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A tree coming down: dust, or pieces?",
+  "question": "Which of these reads as a tree being felled, rather than a tree being deleted? Scrub to the last frame — that is where they differ most.",
+  "context_md": "Answering your note on the felling card: *\"it reads as a tree disintegrating into dust ... we need a more real physical and partially rigid modeling.\"*\n\nFull write-up in `Reports/physical-trees-design-2026-08-23.md`. **This card is asking about one thing only: the first stage.**\n\n**Why it turns to dust, measured.** The cut works — it severs **2,648 cells**. What comes down is then converted **one cell at a time** into `deadwood`, which is a powder with a 38-degree friction angle. So it does exactly what powder must: it piles at its angle of repose. The last frame of A is not a metaphor, it is literally the same cone `ascii`'s angle-of-repose scene draws on purpose.\n\n**Both panes are the identical tree, seed, and cut — 2,648 cells severed either way.** The only difference is what happens to the severed piece: one of them breaks it on the *rock* fragment ladder (2 to 32 cells), the other on a wood-scale one (32 to 512) with an 8-connected flood, leaves scattering separately as litter.\n\n**The prototype was thrown away.** It was written to answer this question and deleted; nothing has landed. It cost no measurable frame time (both runs' worst frame is before the cut).\n\n**What I already know is still wrong in the better one**, so please don't spend the answer on it: it still ends as a *heap*, because about half the mass is still grit and because a landed piece re-rasterizes as ordinary wood rather than as a log lying on the ground. Both are on the plan.\n\n**The staged plan, for a steer on the order if you have one:**\n\n1. **T1 — it comes down as pieces.** This card. A wood fragment ladder, leaves scattering as litter, and a `log` material so a fallen trunk lies where it fell instead of piling like sand.\n2. **T2 — it falls over.** The severed trunk becomes 3-6 stacked pieces, each thrown sideways in proportion to how high up it was, so the crown swings out while the butt stays at the stump. No new rotation maths — free rotation on a pixel grid is on the do-not-retry list twice.\n3. **T3 — a rock breaks a branch off.** The impact energy is already computed when a falling rock lands and is currently thrown away; routing it into the branch's load is the missing half.\n4. **T4 — sway.** Deliberately fourth, and it is the one where I have bad news: I measured it, and a canopy that never stops moving costs **+8.0 ms a frame** on a 16.6 ms budget, because a grown stand covers 60% of the screen and moving pixels have to be repainted. What does fit is trees leaning **when a gust passes** and springing back — which is also the only wind this engine has, since a steady one was measured at 3.5 ms and reverted.\n5. **T5 — real rotation.** Only if T2 reads as sliding rather than turning.\n",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - today",
+      "files": [
+        "20260823T155425084Z-9a7951/000-a_00.png",
+        "20260823T155425084Z-9a7951/001-a_01.png",
+        "20260823T155425084Z-9a7951/002-a_02.png",
+        "20260823T155425084Z-9a7951/003-a_03.png",
+        "20260823T155425084Z-9a7951/004-a_04.png",
+        "20260823T155425084Z-9a7951/005-a_05.png",
+        "20260823T155425084Z-9a7951/006-a_06.png",
+        "20260823T155425084Z-9a7951/007-a_07.png",
+        "20260823T155425084Z-9a7951/008-a_08.png",
+        "20260823T155425084Z-9a7951/009-a_09.png",
+        "20260823T155425084Z-9a7951/010-a_10.png",
+        "20260823T155425084Z-9a7951/011-a_11.png",
+        "20260823T155425084Z-9a7951/012-a_12.png",
+        "20260823T155425084Z-9a7951/013-a_13.png",
+        "20260823T155425084Z-9a7951/014-a_14.png",
+        "20260823T155425084Z-9a7951/015-a_15.png",
+        "20260823T155425084Z-9a7951/016-a_16.png",
+        "20260823T155425084Z-9a7951/017-a_17.png",
+        "20260823T155425084Z-9a7951/018-a_18.png",
+        "20260823T155425084Z-9a7951/019-a_19.png"
+      ],
+      "caption": "the severed crown converted one cell at a time to deadwood powder",
+      "meta": {
+        "cells severed": 2648,
+        "promoted as pieces": "45 cells in 4 bodies (1.7%)",
+        "largest piece": "16-31 cells",
+        "became powder": 2733,
+        "peak pieces in flight": 4,
+        "worst frame ms": 56.66
+      },
+      "focus": null
+    },
+    {
+      "label": "B - wood ladder (throwaway prototype)",
+      "files": [
+        "20260823T155425084Z-9a7951/020-b_00.png",
+        "20260823T155425084Z-9a7951/021-b_01.png",
+        "20260823T155425084Z-9a7951/022-b_02.png",
+        "20260823T155425084Z-9a7951/023-b_03.png",
+        "20260823T155425084Z-9a7951/024-b_04.png",
+        "20260823T155425084Z-9a7951/025-b_05.png",
+        "20260823T155425084Z-9a7951/026-b_06.png",
+        "20260823T155425084Z-9a7951/027-b_07.png",
+        "20260823T155425084Z-9a7951/028-b_08.png",
+        "20260823T155425084Z-9a7951/029-b_09.png",
+        "20260823T155425084Z-9a7951/030-b_10.png",
+        "20260823T155425084Z-9a7951/031-b_11.png",
+        "20260823T155425084Z-9a7951/032-b_12.png",
+        "20260823T155425084Z-9a7951/033-b_13.png",
+        "20260823T155425084Z-9a7951/034-b_14.png",
+        "20260823T155425084Z-9a7951/035-b_15.png",
+        "20260823T155425084Z-9a7951/036-b_16.png",
+        "20260823T155425084Z-9a7951/037-b_17.png",
+        "20260823T155425084Z-9a7951/038-b_18.png",
+        "20260823T155425084Z-9a7951/039-b_19.png"
+      ],
+      "caption": "same cut, broken on a wood-scale ladder; leaves scatter separately",
+      "meta": {
+        "cells severed": 2648,
+        "promoted as pieces": "1547 cells in 39 bodies (58%)",
+        "largest piece": "2 pieces over 256 cells",
+        "became powder": 1912,
+        "peak pieces in flight": 22,
+        "worst frame ms": 53.3
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
