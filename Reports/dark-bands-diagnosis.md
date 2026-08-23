@@ -399,3 +399,47 @@ seam is loudest just under the surface — which is exactly where a player
 stands — and fades to nothing at depth.
 
 *Brow seam freshness: 2026-08-23.*
+
+## Postscript: the grade is off by default now, and what that does to all this
+
+A blind A/B of the two whole-world strips came back for **grade off** (card
+`20260823T050006307Z-da107a`), and the owner then played it: *"no question
+grade off is better"*. `TerrainLight::Off` is the default; `F10` switches the
+depth grade back on.
+
+That overturns the 2026-08 world review's single most consistent graphics
+finding, and it is the fourth time here that a playtest has beaten something
+which looked right in review. Cost was not the reason and should not be
+recorded as one: the grade is ~0.44 ms of a 15.3 ms full redraw, measured
+interleaved over three rounds of ten.
+
+**So the brow-seam fix above is correct, guarded, and inactive in the default
+build.** It only renders anything when someone turns the grade on. That is
+worth stating plainly rather than leaving the section reading like a shipped
+win. Its guard now sets `TerrainLight::Depth` explicitly, because with the
+new default it would otherwise pass green while exercising nothing.
+
+### Two framing errors in how that fix was demonstrated
+
+Both were mine, both cost a round trip, and both are the same mistake in
+different clothes: **the picture did not contain what the words said it did.**
+
+1. **The before/after was posted as a four-tile contact sheet**, focused on
+   tile 0 — whose right-hand edge is the join to tile 1, a hard vertical
+   edge. On a card asking *"is the vertical seam gone"*. The reply was "there
+   is still a clear seam", which was a correct reading of what was on screen.
+   `viewshot` grew `aim=` for this: a single tile centred on a world x, with
+   no joins in it anywhere.
+2. **The follow-up crop missed the artifact entirely.** Aiming at world x 335
+   clamps the camera to 0, so a crop at viewport 180..300 covers world
+   180..300 — and the patch is at 332..337. The two renders looked identical
+   because the changed region was outside both.
+
+Settled by measurement in the end, not by looking. `pixel_stat` grew `diff=1`
+for it: over the correct crop the fix moves **18.5% of pixels, mean 1.4 luma,
+max 35.7**, concentrated at world x 313..357. Over the wrong crop it moved
+2.3% of pixels in a ten-column band somewhere else. Two images that differ
+over a narrow band look identical and are not, which is exactly the case an
+eye cannot arbitrate and a number can.
+
+*Postscript freshness: 2026-08-23.*

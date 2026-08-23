@@ -63,15 +63,16 @@ goes, and a shaft is a bad path where a pit is a wide open one.
 So the old trade is gone: a mine no longer fills with daylight as you widen
 it, and a quarry no longer reads as a black rectangle cut into a sunlit hill.
 
-**The rock itself carries depth.** In any cross-section — a cliff face, the
-wall of your shaft, the cutaway the screen always is — the ground is
-brightest in a band at the surface, with the very top row catching the
-light, and dims gradually over roughly a viewport's descent to a settled
-deep-rock gloom. It never goes black: the layering stays readable at any
-depth, dimmer is not dark. This also keeps the world honest at night — the
-land now sits darker than the night sky instead of glowing in front of it.
-`F10` switches the whole effect off and back on, for comparing against the
-old evenly-lit look.
+**Rock is lit evenly at every depth.** A cliff face, the wall of your shaft,
+the cutaway the screen always is — the stone reads the same near the surface
+as it does deep down, and the strata layering stays fully legible all the way
+to the bottom of the world.
+
+It was not always. The ground used to be brightest in a band at the surface
+and dim gradually with depth, on the reasoning that a cross-section wants a
+vertical light axis or it reads as flat wallpaper. Played, the even version
+won and it was not close, so that is the one you get. `F10` switches the
+depth shading back on if you want to compare.
 
 **Being underground comes on gradually.** Go in under the surface and the
 light does not switch off at the doorway: it dims sharply in the first row

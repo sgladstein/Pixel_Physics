@@ -43,6 +43,8 @@ struct Args {
     settle: usize,
     rain: String,
     mine: bool,
+    /// `aim=N` — centre the shots on this world x instead of spreading them.
+    aim: Option<i32>,
     /// `quarry=W` — width of an open-cast pit cut into the skyline.
     quarry: i32,
     vault: bool,
@@ -81,6 +83,7 @@ fn main() {
         settle: 60,
         rain: String::new(),
         mine: false,
+        aim: None,
         quarry: 0,
         vault: false,
         boulder: false,
@@ -117,6 +120,13 @@ fn main() {
             // pick down a hole". Shafts of three different widths, because
             // the failure was reported for a *narrow* one and a fix that only
             // worked for narrow ones would be worth knowing about.
+            // `aim=N` centres every shot on one world x. Added after a
+            // contact sheet was posted to a card asking "is there a vertical
+            // seam here": the sheet's own tile joins are hard vertical edges,
+            // and one of them landed at the edge of the focused region. The
+            // reply was "there is still a clear seam". A single tile aimed at
+            // the thing has no joins in it at all.
+            "aim" => a.aim = Some(v.parse().expect("aim=WORLD_X")),
             "mine" => a.mine = v != "0",
             // `quarry=W` is `mine=`'s other half, and it is the half that
             // separates two readings of the same darkness. A shaft is a
@@ -755,6 +765,7 @@ fn main() {
         // of a flash with the interesting part outside it.
         let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
         let x = match (a.vault || a.boulder, a.mine, aimed) {
+            _ if a.aim.is_some() => a.aim.expect("checked"),
             (true, _, _) => vault_at
                 .or(boulder_at)
                 .map(|(vx, _)| vx)

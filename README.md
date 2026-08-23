@@ -1667,7 +1667,16 @@ falloff (`Reports/underground-definition.md`), recorded **per cell** rather
 than per column so a cliff brow or a rock standing over air no longer hangs a
 dark rectangle in the sky beneath it
 (`Reports/dark-bands-diagnosis.md`); per-cell liquid grain behind
-the `G` selector and the continuous zoom (§9). The remaining tiers stay in
+the `G` selector and the continuous zoom (§9).
+
+**The terrain depth grade shipped and has since been switched off by
+default**, on a playtest — *"no question grade off is better"* — after a
+blind A/B went the same way. The reasoning that put it there is still sound
+(the 2026-08 world review called the missing vertical light axis its single
+most consistent graphics finding) and lost in the hand anyway, which is the
+fourth time a playtest has overturned something that looked right in review.
+It costs ~0.44 ms of a 15.3 ms full redraw, and that is not why it is off.
+`F10` switches it back on. The remaining tiers stay in
 `PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
 
 That darkness is now **propagated rather than assumed**: sky light is seeded

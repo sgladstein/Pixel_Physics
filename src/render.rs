@@ -334,11 +334,34 @@ pub enum TerrainLight {
     /// Solid cells dim from full surface brightness at the skyline to
     /// `DEPTH_LIGHT_FLOOR` over `DEPTH_LIGHT_RAMP_ROWS`, with a one-row
     /// highlight on the skyline itself. A pure function of
-    /// `(x, y, horizon[x])` — keeps the dirty-rect skip.
-    #[default]
+    /// `(x, y, light_datum[x])` — keeps the dirty-rect skip.
     Depth,
-    /// The pre-review look: depth changes nothing about a solid cell's
-    /// light.
+    /// Depth changes nothing about a solid cell's light. **The default,
+    /// from a playtest.**
+    ///
+    /// This was the shipped default and is not any more, and the reversal is
+    /// worth stating because it overturns a review finding. The grade was
+    /// added because the 2026-08 world review called the missing vertical
+    /// light axis its single most consistent graphics finding: deep rock
+    /// drew at identical brightness to surface rock and the lower half of
+    /// every strip read as flat wallpaper. That reasoning is still in
+    /// `DEPTH_LIGHT_RAMP_ROWS` and still coherent.
+    ///
+    /// It was overturned in the hand. A blind A/B of the two whole-world
+    /// strips came back for `Off`
+    /// (card `20260823T050006307Z-da107a`), and the owner then played it and
+    /// reported *"no question grade off is better"*. `CLAUDE.md`'s standing
+    /// rule is that a playtest beats anything that looked correct in a
+    /// review or a test, and this is the fourth time that has happened here.
+    ///
+    /// What it costs, measured interleaved over three rounds of ten full
+    /// redraws: the grade was ~0.44 ms of a 15.3 ms redraw, so turning it
+    /// off is worth about 3% — which is *not* why it is off. It is off
+    /// because it looked better off.
+    ///
+    /// `F10` still switches it back on, and the strata banding the review
+    /// liked is more legible without it.
+    #[default]
     Off,
 }
 
@@ -352,8 +375,8 @@ impl TerrainLight {
 
     pub fn label(self) -> &'static str {
         match self {
-            TerrainLight::Depth => "DEPTH (current)",
-            TerrainLight::Off => "FLAT",
+            TerrainLight::Depth => "DEPTH (the pre-playtest look)",
+            TerrainLight::Off => "FLAT (current)",
         }
     }
 }
@@ -4617,6 +4640,14 @@ mod tests {
         world.begin_step();
 
         let mut r = Renderer::new();
+        // **Set explicitly, because the default is now `Off`.** With the
+        // grade off this whole guard is vacuous — no depth means no depth
+        // error means the two bands agree whatever the datum says, and it
+        // would pass green forever while testing nothing (`CLAUDE.md`: a
+        // superseded mechanism's tests keep passing while exercising
+        // nothing). The datum this guards still matters the moment anyone
+        // presses `F10`.
+        r.terrain_light = TerrainLight::Depth;
         r.rebuild_horizon(&world);
         r.sky = crate::sky::Sky::at(600, 0, 199, 0, 199);
 
