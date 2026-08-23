@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Localhost HTTP server for the visual review queue.
 
-Stdlib only, bound to 127.0.0.1. Started once from any worktree; because the
-queue root is shared per clone (see review_lib.review_root), that one server
-sees every worktree's cards.
+Stdlib only, bound to 127.0.0.1 unless `serve --lan` says otherwise. Started
+once from any worktree; because the queue root is shared per clone (see
+review_lib.review_root), that one server sees every worktree's cards.
 
 The server holds no queue state in memory -- every request re-reads the
 directory. Several agents are writing into it concurrently, and a listdir is
@@ -15,12 +15,16 @@ server owns responses/ and nothing else. Agents own cards/ and seen/.
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import json
 import mimetypes
 import posixpath
 import sys
 import threading
+import time
 import webbrowser
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -36,6 +40,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
     server_version = "PixelPhysicsReview/1.0"
     root: Path = None          # set on the server instance
     page_path: Path = None
+    lan_token: str = ""        # non-empty only under `serve --lan`
 
     # -- plumbing ---------------------------------------------------------
 
@@ -50,6 +55,9 @@ class ReviewHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         # The page is regenerated from disk constantly; caching it hides edits.
         self.send_header("Cache-Control", "no-store")
+        cookie = getattr(self, "_cookie", None)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
         for key, val in (extra or {}).items():
             self.send_header(key, val)
         self.end_headers()
@@ -70,12 +78,88 @@ class ReviewHandler(BaseHTTPRequestHandler):
             raise ValueError("request body too large")
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
+    # -- access control ---------------------------------------------------
+
+    def _client_is_loopback(self) -> bool:
+        addr = self.client_address[0]
+        return addr in ("::1", "::ffff:127.0.0.1") or addr.startswith("127.")
+
+    def _host_ok(self) -> bool:
+        """Refuse a Host this server could not have been reached by.
+
+        Without this a page on any website can point a name it controls at this
+        machine's LAN address -- DNS rebinding -- and drive the queue from the
+        browser of whoever visits it. SameSite=Lax still sends the cookie on a
+        top-level navigation, so the key would ride along; only refusing the
+        name stops it.
+        """
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+        if not host:
+            return False
+        if host == "localhost" or host.endswith(".local"):
+            return True
+        try:
+            ipaddress.ip_address(host)
+            return True
+        except ValueError:
+            return False
+
+    def _presented_key(self, url) -> str:
+        wanted = parse_qs(url.query).get("k")
+        if wanted and wanted[0]:
+            return wanted[0]
+        try:
+            morsel = SimpleCookie(self.headers.get("Cookie") or "").get(rl.LAN_COOKIE)
+        except Exception:
+            return ""
+        return morsel.value if morsel else ""
+
+    def _gate(self, url) -> bool:
+        """True if the request may proceed; otherwise it has been refused.
+
+        Loopback stays exempt even with the LAN listener up. Loopback is the
+        trust boundary this server already had, and exempting it keeps the
+        desktop flow -- and any bookmark to http://127.0.0.1:PORT/ -- working
+        exactly as before the flag existed.
+        """
+        if not self.lan_token or self._client_is_loopback():
+            return True
+        if not self._host_ok():
+            return self._refuse("Reach this page by the address "
+                                "<code>review.py serve --lan</code> printed, not by name.")
+        presented = self._presented_key(url)
+        if not presented or not hmac.compare_digest(presented, self.lan_token):
+            # The only rate limit there is, and it is load-bearing: the key is
+            # 40 bits, and a fifth of a second per attempt puts a guessing run
+            # far past any sitting at this queue. Not a pointless sleep.
+            time.sleep(0.2)
+            return self._refuse("Open the link <code>review.py serve --lan</code> "
+                                "printed &mdash; it carries the key.")
+        if parse_qs(url.query).get("k"):
+            # Set once, on the visit that carried the key. After that every
+            # request has it, including <img src="/media/...">, which cannot
+            # send a header -- which is why this is a cookie and not one.
+            self._cookie = ("%s=%s; Path=/; Max-Age=2592000; SameSite=Lax"
+                            % (rl.LAN_COOKIE, self.lan_token))
+        return True
+
+    def _refuse(self, why: str) -> bool:
+        body = ("<!doctype html><meta charset=utf-8><title>Review queue</title>"
+                "<body style=\"background:#14161a;color:#dde3ec;"
+                "font:16px/1.6 ui-sans-serif,system-ui;padding:44px 24px\">"
+                "<h1 style=\"font-size:19px\">Review queue &mdash; locked</h1>"
+                "<p style=\"color:#8b95a5\">%s</p>" % why).encode("utf-8")
+        self._send(401, body, "text/html; charset=utf-8")
+        return False
+
     # -- routing ----------------------------------------------------------
 
     def do_GET(self):
         url = urlparse(self.path)
         path = url.path
         try:
+            if not self._gate(url):
+                return
             if path in ("/", "/index.html"):
                 return self._send(200, self.page_path.read_bytes(), "text/html; charset=utf-8")
             if path == "/api/rev":
@@ -96,8 +180,11 @@ class ReviewHandler(BaseHTTPRequestHandler):
     do_HEAD = do_GET
 
     def do_POST(self):
-        path = urlparse(self.path).path
+        url = urlparse(self.path)
+        path = url.path
         try:
+            if not self._gate(url):
+                return
             if path == "/api/notify":
                 # Release every pending verdict to the session that asked for
                 # it. The server deliberately does not write to any socket: a
@@ -214,7 +301,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
         # thing worth letting the browser cache -- a frame scrubber requests
         # hundreds of images.
         return self._send(200, target.read_bytes(), ctype,
-                          {"Cache-Control": "public, max-age=31536000, immutable"})
+                          {"Cache-Control": "private, max-age=31536000, immutable"})
 
 
 def _safe_id(card_id: str) -> bool:
@@ -239,21 +326,27 @@ def _sync_loop(root: Path, interval: float, stop: threading.Event) -> None:
 
 
 def serve(root: Path, port: int, open_browser: bool = False,
-          sync_interval: float = 60.0) -> int:
+          sync_interval: float = 60.0, lan: bool = False) -> int:
     page = Path(__file__).resolve().parent / "review_page.html"
     if not page.is_file():
         page = root / "bin" / "review_page.html"
     if not page.is_file():
         raise SystemExit("review_page.html not found next to review_server.py")
 
-    handler = type("BoundReviewHandler", (ReviewHandler,), {"root": root, "page_path": page})
+    # No flag, no token file: a token is created the first time somebody asks
+    # to be reachable, never as a side effect of the ordinary desktop serve.
+    token = rl.lan_token(root) if lan else ""
+    bind = "0.0.0.0" if lan else "127.0.0.1"
+
+    handler = type("BoundReviewHandler", (ReviewHandler,),
+                   {"root": root, "page_path": page, "lan_token": token})
     try:
-        httpd = ThreadingHTTPServer(("127.0.0.1", port), handler)
+        httpd = ThreadingHTTPServer((bind, port), handler)
     except OSError as exc:
         raise SystemExit(
-            "cannot bind 127.0.0.1:%d (%s). Another review server is probably "
+            "cannot bind %s:%d (%s). Another review server is probably "
             "already running -- open http://127.0.0.1:%d/ , or pass --port."
-            % (port, exc, port)
+            % (bind, port, exc, port)
         )
     httpd.daemon_threads = True
 
@@ -274,7 +367,10 @@ def serve(root: Path, port: int, open_browser: bool = False,
               "session will not appear. Start this from inside the repo checkout.")
     else:
         print("syncing with origin/%s every %ds" % (rl.SYNC_BRANCH, int(sync_interval)))
-    print("open %s" % url, flush=True)
+    print("open %s" % url)
+    if lan:
+        _print_lan_banner(port, token)
+    sys.stdout.flush()
     if open_browser:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:
@@ -285,6 +381,29 @@ def serve(root: Path, port: int, open_browser: bool = False,
         stop.set()
         httpd.server_close()
     return 0
+
+
+def _print_lan_banner(port: int, token: str) -> None:
+    """Say what was just exposed, and hand over a link that is tappable.
+
+    No QR encoder: a stdlib one is Reed-Solomon and mask selection for a URL
+    that gets pasted once a month. The token is short enough to retype, and
+    the clipboard copy means usually nobody has to.
+    """
+    addr = rl.lan_address()
+    if not addr:
+        print("\n  --lan: this machine has no address on a local network "
+              "(loopback or link-local only).\n         The listener is up, but "
+              "no phone can reach it from here.")
+        return
+    url = "http://%s:%d/?k=%s" % (addr, port, token)
+    print("\n  phone:  %s" % url)
+    print("          anything on this Wi-Fi can reach the queue with that key.")
+    print("          key lives in the queue root as %s; delete it to rotate."
+          % rl.LAN_TOKEN_FILE)
+    if rl.copy_to_clipboard(url):
+        print("          (copied to the clipboard -- paste it to yourself and tap it)")
+
 
 
 if __name__ == "__main__":

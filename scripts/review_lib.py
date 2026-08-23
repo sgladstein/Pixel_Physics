@@ -858,3 +858,87 @@ def live_sessions() -> list:
         return json.loads(proc.stdout) if proc.returncode == 0 else []
     except (OSError, ValueError, subprocess.SubprocessError):
         return []
+
+
+# --------------------------------------------------------------------------
+# Reaching the queue from a phone
+#
+# The server binds loopback by default and always will. `serve --lan` is the
+# opt-in that puts it on the Wi-Fi, and the token below is the whole of what
+# stands between the queue and everything else on that network.
+# --------------------------------------------------------------------------
+
+LAN_TOKEN_FILE = "lan-token"
+LAN_COOKIE = "review_key"
+
+# Crockford base32 minus I/L/O/U: no character pair anyone can confuse while
+# typing it off a terminal into a phone, and no accidental words.
+_TOKEN_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+TOKEN_LEN = 8
+
+
+def lan_token(root: Path, create: bool = True) -> str:
+    """The shared key for non-loopback access, created once per queue.
+
+    Eight characters is 40 bits. The threat model is somebody already on your
+    Wi-Fi guessing it against a server that sleeps on every failure -- not an
+    internet-facing brute force -- and a 64-hex token you cannot retype off a
+    terminal is worse here, not better: it would be pasted somewhere insecure
+    or the feature would go unused.
+    """
+    import secrets
+    path = root / LAN_TOKEN_FILE
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+        if existing:
+            return existing
+    except OSError:
+        pass
+    if not create:
+        return ""
+    token = "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(TOKEN_LEN))
+    # Write restricted from the start: creating it 0644 and chmod-ing after
+    # leaves a window in which any local user can read it.
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, (token + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+    return token
+
+
+def lan_address() -> str:
+    """This machine's address on the local network, or "" if it has none.
+
+    Connecting a UDP socket sends no packet -- it only asks the routing table
+    which interface would be used to reach that address -- so this works with
+    no network traffic and no name resolution. A loopback or link-local answer
+    means there is no usable LAN address, and saying so beats printing a URL
+    the phone cannot open.
+    """
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            addr = s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return ""
+    if addr.startswith("127.") or addr.startswith("169.254.") or addr == "0.0.0.0":
+        return ""
+    return addr
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Best effort, so the URL can be pasted into Messages and tapped."""
+    for cmd in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"]):
+        try:
+            proc = subprocess.run(cmd, input=text, text=True,
+                                  capture_output=True, timeout=5)
+            if proc.returncode == 0:
+                return True
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return False

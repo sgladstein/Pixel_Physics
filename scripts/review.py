@@ -2,6 +2,7 @@
 """Agent-facing CLI for the visual review queue.
 
     review.py serve                     start the page the owner judges from
+    review.py serve --lan               ...and let a phone on the Wi-Fi reach it
     review.py post --json -             post a card (the general form)
     review.py post --title ... --image  post a one-image card
     review.py ab --a A.png --b B.png    post an A/B comparison
@@ -594,7 +595,7 @@ def cmd_serve(args) -> int:
     refresh_bin(root)
     import review_server
     return review_server.serve(root, args.port, open_browser=args.open,
-                               sync_interval=args.sync_interval)
+                               sync_interval=args.sync_interval, lan=args.lan)
 
 
 def cmd_gc(args) -> int:
@@ -681,6 +682,9 @@ def main(argv=None) -> int:
 
     sp = sub.add_parser("serve", help="serve the review page")
     sp.add_argument("--open", action="store_true", help="open a browser at the page")
+    sp.add_argument("--lan", action="store_true",
+                    help="also listen on the local network, key-gated, so the "
+                         "queue can be reviewed from a phone on the same Wi-Fi")
     sp.add_argument("--sync-interval", type=float, default=60.0,
                     help="seconds between remote syncs; 0 disables (default 60)")
     add_port(sp)

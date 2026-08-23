@@ -2,7 +2,7 @@
 <meta charset="utf-8">
 <link rel="icon" href="data:,">
 <title>Pixel Physics — review queue</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
   /* Deliberately dark: the artifacts are dark pixel scenes, and a white page
      around them shifts how the owner reads contrast in the image itself. */
@@ -26,10 +26,18 @@
   textarea:focus, input:focus { outline: none; border-color: var(--accent); }
 
   #shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+  /* dvh, not vh: on a phone the URL bar is inside 100vh, so a vh-sized
+     sticky column runs off the bottom of the screen by its height. */
   #rail { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 12px;
-          position: sticky; top: 0; height: 100vh; overflow-y: auto; }
+          position: sticky; top: 0; height: 100dvh; overflow-y: auto; z-index: 20; }
   #rail h1 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase;
              color: var(--dim); margin: 0 0 12px; }
+  /* After `#rail h1`, not before: that rule sets the `margin` shorthand at the
+     same specificity, so a `margin-bottom` written above it loses and the
+     header silently keeps a 12px gap it is not asking for. */
+  #rail-top { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  #rail-top h1 { flex: 1; margin-bottom: 0; }
+  #rail-toggle { display: none; }
   .rail-group { margin-bottom: 20px; }
   .rail-item { display: flex; justify-content: space-between; gap: 8px; width: 100%;
                text-align: left; margin-bottom: 4px; background: none; border: 1px solid transparent; }
@@ -116,12 +124,22 @@
      at 1:1 -- one real card is 3076x80, which `fit` renders about 33px tall --
      so the card is for triage and this is for actually looking. */
   #lightbox { position: fixed; inset: 0; background: #05070a; z-index: 50;
-              display: none; cursor: grab; overflow: hidden; }
+              display: none; cursor: grab; overflow: hidden;
+              /* the browser must not claim the gestures: without this a
+                 pinch zooms the whole page and a drag scrolls it. */
+              touch-action: none; }
   #lightbox.on { display: block; }
   #lightbox.dragging { cursor: grabbing; }
   #lightbox img { position: absolute; transform-origin: 0 0;
                   image-rendering: pixelated; image-rendering: crisp-edges;
-                  user-select: none; -webkit-user-drag: none; }
+                  user-select: none; -webkit-user-drag: none;
+                  -webkit-touch-callout: none; }
+  /* Touch replacements for the keys the bar names. Hidden until the
+     media query below turns them on, so the desktop bar is untouched. */
+  #lb-touch { display: none; position: absolute; left: 50%; transform: translateX(-50%);
+              bottom: max(14px, env(safe-area-inset-bottom)); gap: 8px; z-index: 2; }
+  #lb-touch button { min-width: 52px; min-height: 44px; background: #161a21e6;
+                     border-color: var(--line); }
   /* right padding keeps the hints clear of the Close button, which sits on top
      of this bar and was cutting the last of them off. */
   #lb-bar { position: absolute; left: 0; right: 0; top: 0; padding: 10px 100px 10px 14px;
@@ -136,14 +154,89 @@
            background: var(--panel-2); border: 1px solid var(--accent); border-radius: 8px;
            padding: 8px 16px; opacity: 0; transition: opacity .2s; pointer-events: none; }
   #toast.show { opacity: 1; }
+
+  /* ------------------------------------------------------------------ phone
+     Reached over the Wi-Fi with `review.py serve --lan`. Everything the owner
+     judges by eye has to work here too, so this is a re-layout rather than a
+     cut-down: the same cards, the same controls, one column.
+
+     720px rather than a device width, because the failure this fixes is the
+     280px pane floor forcing a sideways scroll -- which is about how much room
+     the panes have, not about what kind of machine is asking. */
+  @media (max-width: 720px) {
+    #shell { grid-template-columns: 1fr; }
+    /* A grid track is min-width:auto, so one 1200px-wide artifact stretches
+       the whole column and the page scrolls sideways -- 1272px of content in a
+       390px screen, with the rail and every card dragged along behind it. The
+       image is inside an overflow:auto .imgwrap and was always meant to scroll
+       within its pane; nothing was telling the pane it could be narrower than
+       its contents. (The same is true of the desktop column at 1440px for a
+       3076px strip; deliberately not touched here, because it would change a
+       layout nobody asked to change.) */
+    #shell > * { min-width: 0; }
+    .imgwrap { max-width: 100%; }
+    /* Not sticky here. The header is 155px of a 844px screen -- a fifth of
+       every scroll spent on filters, on the one page whose whole job is
+       showing an artifact large enough to judge. It scrolls away instead;
+       the filters are a flick up when they are wanted. */
+    #rail { position: static; height: auto; max-height: none;
+            border-right: none; border-bottom: 1px solid var(--line);
+            padding: 10px 12px; }
+    #rail h1 { margin-bottom: 8px; }
+    #rail-toggle { display: block; min-width: 44px; min-height: 40px; }
+    .boards-h { display: none; }
+    /* Both filter sets become one scrollable chip row apiece: two taps to any
+       view, and no vertical space spent on a sidebar that is now a header. */
+    .rail-group { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 8px;
+                  padding-bottom: 2px; scrollbar-width: none; }
+    .rail-group::-webkit-scrollbar { display: none; }
+    .rail-item { width: auto; flex: 0 0 auto; white-space: nowrap;
+                 border-color: var(--line); border-radius: 999px;
+                 padding: 7px 12px; margin-bottom: 0; }
+    /* Sync state, the queue path and Send verdicts sit one tap deep. Send
+       verdicts pings every agent that is waiting, so it should not be a
+       thing a thumb brushes while scrolling the filters. */
+    #rail-more { display: none; padding-top: 6px; border-top: 1px solid var(--line);
+                 margin-top: 4px; }
+    #rail.open #rail-more { display: block; }
+    #rail-more h1 { display: none; }
+    #rail-more > .hint:first-of-type { display: none; }   /* the key legend */
+
+    #feed { padding: 12px 12px 88px; }
+    .card { padding: 12px 12px; border-radius: 8px; margin-bottom: 12px; }
+    .card-head h2 { flex: 1 1 100%; font-size: 15px; }
+    /* The 280px floor is what forces a sideways scroll at 390px wide. */
+    .pane { flex: 1 1 100%; min-width: 0; }
+    .imgwrap { max-height: 60vh; }
+    .ask .row .lbl { min-width: 0; flex: 1 1 100%; }
+
+    /* 44px is the smallest thing a thumb hits reliably; the desktop 5px
+       padding is a third of that. */
+    button { min-height: 40px; padding: 8px 12px; }
+    .rail-item { min-height: 0; }
+    /* Below 16px, iOS Safari zooms the page in on focus and does not zoom
+       back out -- so a 14px comment box leaves the page permanently askew. */
+    textarea, input[type=text] { font-size: 16px; }
+    textarea { min-height: 88px; }
+
+    #lightbox { height: 100dvh; }
+    #lb-bar { padding: 10px 84px 10px 12px; font-size: 12px; }
+    #lb-bar .keys { display: none; }          /* there is no keyboard */
+    #lb-touch { display: flex; }
+    #lb-close { min-height: 44px; }
+  }
 </style>
 
 <div id="shell">
   <div id="rail">
-    <h1>Queue</h1>
+    <div id="rail-top">
+      <h1>Queue</h1>
+      <button id="rail-toggle" aria-expanded="false" aria-label="more">☰</button>
+    </div>
     <div class="rail-group" id="statuses"></div>
-    <h1>Boards</h1>
+    <h1 class="boards-h">Boards</h1>
     <div class="rail-group" id="boards"></div>
+    <div id="rail-more">
     <h1>Keys</h1>
     <div class="hint">
       <kbd>j</kbd>/<kbd>k</kbd> move<br>
@@ -159,6 +252,7 @@
     <button id="notify" disabled>Send verdicts</button>
     <div id="notify-note"></div>
     <div class="syncbox" id="syncbox"></div>
+    </div>
   </div>
   <div id="feed"></div>
 </div>
@@ -173,6 +267,12 @@
       <kbd>Esc</kbd> close</span>
   </div>
   <button id="lb-close">Close</button>
+  <div id="lb-touch">
+    <button id="lb-out" aria-label="zoom out">−</button>
+    <button id="lb-fit">fit</button>
+    <button id="lb-one">1:1</button>
+    <button id="lb-in" aria-label="zoom in">+</button>
+  </div>
 </div>
 
 <script>
@@ -654,7 +754,7 @@ function renderAsk(card, d, order) {
   <div class="ask">
     ${choiceRow}${ratingRow}${pins}
     ${ask.comment ? `<textarea rows="3" data-act="comment" data-card="${card.id}"
-        placeholder="What you actually saw. Click an image to open it full screen, then click there to pin the pixel you mean."
+        placeholder="What you actually saw. Open an image full screen, then tap the pixel you mean to pin it."
         >${esc(d.comment)}</textarea>` : ""}
     <div class="row">
       <button data-act="submit" data-card="${card.id}">Submit</button>
@@ -886,44 +986,118 @@ lbEl().addEventListener("wheel", ev => {
   lbStep(ev.deltaY < 0 ? 1 : -1, ev.clientX, ev.clientY);
 }, { passive: false });
 
-lbEl().addEventListener("mousedown", ev => {
-  if (ev.target.id === "lb-close") return;
-  lb.drag = { x: ev.clientX, y: ev.clientY, ox: lb.x, oy: lb.y };
+// Pointer events, not mouse events. One code path drives a mouse and a finger,
+// so the phone gets pan, pinch and tap-to-pin without a second implementation
+// that would drift from this one. The mouse behaviour below is unchanged.
+const lbPts = new Map();      // live pointerId -> {x, y}
+let lbPinch = null;           // {dist, factor, cx, cy} while two are down
+let lbTapTimer = null;
+
+const LB_TAP_SLOP = 8;        // a finger is never as still as a click
+
+lbEl().addEventListener("pointerdown", ev => {
+  if (ev.target.closest("#lb-close, #lb-touch")) return;
+  try { lbEl().setPointerCapture(ev.pointerId); } catch (e) { /* mouse re-entry */ }
+  lbPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (lbPts.size === 2) {
+    const [a, b] = [...lbPts.values()];
+    lbPinch = { dist: Math.hypot(a.x - b.x, a.y - b.y), factor: lbFactor(),
+                cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+    lb.drag = null;      // the second finger cancels the pan...
+    lb.moved = 1e9;      // ...and the pin it would otherwise have dropped
+    return;
+  }
+  lb.drag = { x: ev.clientX, y: ev.clientY, ox: lb.x, oy: lb.y, id: ev.pointerId };
   lb.moved = 0;
   lbEl().classList.add("dragging");
 });
 
-window.addEventListener("mousemove", ev => {
-  if (!lb.drag) return;
+lbEl().addEventListener("pointermove", ev => {
+  if (!lbPts.has(ev.pointerId)) return;
+  lbPts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (lbPinch && lbPts.size >= 2) {
+    const [a, b] = [...lbPts.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (!(lbPinch.dist > 0)) return;
+    const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+    // Move with the midpoint first, so a pinch that also slides pans -- then
+    // zoom about where the fingers now are. Continuous, deliberately not
+    // snapped to LB_RUNGS: lbFactor/lbApply take any number and only the
+    // buttons quantise, so a pinch lands where the fingers put it.
+    lb.x += mx - lbPinch.cx; lb.y += my - lbPinch.cy;
+    lbPinch.cx = mx; lbPinch.cy = my;
+    lbZoomTo(Math.max(0.02, Math.min(64, lbPinch.factor * dist / lbPinch.dist)), mx, my);
+    return;
+  }
+  if (!lb.drag || ev.pointerId !== lb.drag.id) return;
   const dx = ev.clientX - lb.drag.x, dy = ev.clientY - lb.drag.y;
   lb.moved = Math.max(lb.moved, Math.abs(dx) + Math.abs(dy));
   lb.x = lb.drag.ox + dx; lb.y = lb.drag.oy + dy;
   lbApply();
 });
 
-window.addEventListener("mouseup", ev => {
-  if (!lb.drag) return;
-  const wasDrag = lb.moved > 4;
-  lb.drag = null;
-  lbEl().classList.remove("dragging");
-  if (wasDrag || !lb.card) return;
-  // A click that did not drag: on the image it drops a pin -- at whatever zoom
-  // you are at, which is the point of pinning here rather than on the card.
-  // Anywhere else it closes, the usual lightbox convention.
-  if (ev.target.id !== "lb-img") { closeLightbox(); return; }
+// A tap that did not drag: on the image it drops a pin -- at whatever zoom you
+// are at, which is the point of pinning here rather than on the card. Anywhere
+// else it closes, the usual lightbox convention.
+function lbTap(cx, cy) {
+  if (!lb.card) return;
+  // Under pointer capture every event retargets to #lightbox, so ev.target is
+  // useless for "was this on the image" -- ask what is actually under the
+  // point instead. Reading ev.target here silently closed on every tap.
+  const hit = document.elementFromPoint(cx, cy);
+  if (!hit || hit.id !== "lb-img") { closeLightbox(); return; }
   if (lb.card.status !== "open") return;
   const img = lbImg(), f = lbFactor();
-  const x = (ev.clientX - lb.x) / (img.naturalWidth * f);
-  const y = (ev.clientY - lb.y) / (img.naturalHeight * f);
+  const x = (cx - lb.x) / (img.naturalWidth * f);
+  const y = (cy - lb.y) / (img.naturalHeight * f);
   if (x < 0 || x > 1 || y < 0 || y > 1) return;
   const note = prompt("Note for this spot:");
   if (note === null || !note.trim()) return;
   draft(lb.card.id).annotations.push({ item: lb.item, x, y, note: note.trim() });
   lbDrawPins();
   renderFeed();
-});
+}
+
+function lbToggleZoom(cx, cy) {
+  lbZoomTo(lbFactor() >= 1 - 1e-6 && lb.factor !== "fit" ? "fit" : 1, cx, cy);
+  if (lb.factor === "fit") lbCentre();
+  lbApply();
+}
+
+function lbEndPointer(ev) {
+  if (!lbPts.has(ev.pointerId)) return;
+  lbPts.delete(ev.pointerId);
+  if (lbPts.size < 2) lbPinch = null;
+  const mine = lb.drag && ev.pointerId === lb.drag.id;
+  if (lbPts.size === 0) lbEl().classList.remove("dragging");
+  if (!mine) return;
+  const wasDrag = lb.moved > LB_TAP_SLOP;
+  lb.drag = null;
+  if (wasDrag || ev.type === "pointercancel") return;
+  const cx = ev.clientX, cy = ev.clientY;
+  if (ev.pointerType === "mouse") return lbTap(cx, cy);
+  // Touch has to wait out a possible second tap before acting, or the first
+  // one opens a modal prompt() that the second can never reach.
+  if (lbTapTimer) {
+    clearTimeout(lbTapTimer); lbTapTimer = null;
+    return lbToggleZoom(cx, cy);
+  }
+  lbTapTimer = setTimeout(() => { lbTapTimer = null; lbTap(cx, cy); }, 280);
+}
+
+lbEl().addEventListener("pointerup", lbEndPointer);
+lbEl().addEventListener("pointercancel", lbEndPointer);
 
 document.getElementById("lb-close").addEventListener("click", closeLightbox);
+
+// The touch bar does by thumb what the keys the bar names do by keyboard.
+const lbMid = () => [window.innerWidth / 2, window.innerHeight / 2];
+document.getElementById("lb-in").addEventListener("click", () => lbStep(1, ...lbMid()));
+document.getElementById("lb-out").addEventListener("click", () => lbStep(-1, ...lbMid()));
+document.getElementById("lb-fit").addEventListener("click", () => {
+  lb.factor = "fit"; lbCentre(); lbApply();
+});
+document.getElementById("lb-one").addEventListener("click", () => lbZoomTo(1, ...lbMid()));
 
 window.addEventListener("resize", () => { if (lb.card) lbApply(); });
 
@@ -956,6 +1130,12 @@ async function setStatus(card, status) {
       body: JSON.stringify({ status }) });
   await load();
 }
+
+document.getElementById("rail-toggle").addEventListener("click", () => {
+  const rail = document.getElementById("rail");
+  const open = rail.classList.toggle("open");
+  document.getElementById("rail-toggle").setAttribute("aria-expanded", String(open));
+});
 
 document.addEventListener("click", async ev => {
   const rail = ev.target.closest(".rail-item");

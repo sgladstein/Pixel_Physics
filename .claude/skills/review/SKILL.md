@@ -312,10 +312,28 @@ python3 scripts/review.py serve --open
 One server covers every worktree. Do not start one on the owner's behalf unless
 they ask; posting works whether or not it is running.
 
+### From a phone
+
+```
+python3 scripts/review.py serve --lan
+```
+
+Prints a `http://<lan-ip>:<port>/?k=<key>` link (and copies it to the clipboard)
+that any device on the same Wi-Fi can open; the page is laid out for a small
+screen, and the full-screen viewer pans, pinches and pins by touch. Without the
+flag the server stays on loopback exactly as before and no key is created —
+`--lan` is the whole of the opt-in, and anything on that network holding the key
+can answer cards, so it is the owner's call to make, not yours.
+
+This changes nothing about how you post. It only means a card you queue may be
+judged from the couch, which is one more reason the card has to stand on its own:
+a title, a question, and the discrete event count in `meta`.
+
 ## Checking the tooling itself
 
 ```
 python3 scripts/review_selftest.py
+python3 scripts/review_mobile.py      # phone layout and touch, in a real browser
 ```
 
 Covers what can actually break: concurrent posts from several worktrees, a post
@@ -323,6 +341,14 @@ killed mid-write, media outliving its worktree, a blind verdict resolving to the
 real label, a `--wait` timeout leaving the card intact, and the cross-machine
 transport — two real clones sharing only a remote, a verdict travelling back, a
 concurrent push from both, and an offline post reporting itself as undelivered.
+It also covers the LAN key: loopback exempt, every route including `/media/`
+gated, a rebound hostname refused, and no key file written without `--lan`.
+
+`review_mobile.py` is the half a static check cannot make. It drives Chromium at
+390x844 with touch input and reviews a card using only taps, drags and pinches,
+then renders the desktop layout from the current page and from git HEAD and
+asserts every element they share is in the same place — a media query leaking
+into the page the owner actually uses is the likeliest regression in that file.
 
 Two clones, not two worktrees: worktrees share a queue directory, so a
 worktree-only check passes while the case that actually broke still fails.
