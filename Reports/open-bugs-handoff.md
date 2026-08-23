@@ -3141,7 +3141,7 @@ it does". Both runs above deliver food (main: 1,340 pickups, 143 deliveries),
 so the colony is not starving; it is finding food without going 8 cells to get
 it.
 
-### H3. `a_forced_vault_world_is_sealed_and_arrives_at_rest` is red on `main`, and it is water — **OPEN, inherited, 2026-08-23**
+### H3. Both worldgen at-rest tests are red on `main`, and both are water — **OPEN, inherited, 2026-08-23**
 
 Not a new bug — `plant-implementation-split-2026-08-23.md` already warns that
 main is red here. Recorded because the *content* of the failure was not, and
@@ -3182,6 +3182,29 @@ says the opposite of the suspicion.
 `tests/`.** P1's local gate was `cargo test --release --lib` — 851 passed, 0
 failed — which never compiled the integration tests. CI runs `cargo test
 --release`, which does. Run the bare form locally before believing a green.
+
+**A second at-rest test joins it, and it is water too —
+`generated_terrain_is_already_at_rest`, `tests/worldgen.rs:182`.** It arrived
+on `main` at `9b54be3` and P1 inherited it by merging main in to clear a
+conflict. Measured the same way, `origin/main`'s `src/` against the merged
+branch, same machine and session:
+
+```
+terraced seed 3: 57 cells left their position;
+first: (82,147) water, (83,147) water, (84,147) water, (84,148) water, ...
+```
+
+**Byte-identical on both sides** — same seed, same count, same leading
+coordinates. Unlike the forced-vault case above, where the two branches differ,
+this one the water fixes do not touch at all. Purely main's.
+
+**Two at-rest tests, both failing on water, is the shape worth acting on.**
+They are not two bugs about worldgen; they are one question — *does generated
+terrain's standing water actually settle?* — asked by two tests that stop at
+the first seed that says no. Neither says how many seeds fail, because both
+panic rather than collect. Whoever picks this up should make the loops gather
+failures first; the count per preset is the measurement, and right now nobody
+has it.
 
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
