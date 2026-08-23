@@ -224,6 +224,9 @@ fn gust_census(preset: &str, seed: u64, frames: u64) {
 
     let (mut fired, mut sum_delivered, mut sum_unsheltered) = (0u64, 0.0f64, 0.0f64);
     let (mut weakest, mut strongest) = (f32::MAX, f32::MIN);
+    // The frames those two landed on, so a contact sheet can be rendered at
+    // the exact moment rather than at a frame chosen by hand and hoped over.
+    let (mut weakest_at, mut strongest_at) = ((0u64, 0i32, 0.0f32), (0u64, 0i32, 0.0f32));
     let mut sheltered_half = 0u64;
     for frame in 0..frames {
         world.frame = frame;
@@ -232,8 +235,15 @@ fn gust_census(preset: &str, seed: u64, frames: u64) {
         fired += 1;
         sum_delivered += g.delivered as f64;
         sum_unsheltered += g.unsheltered as f64;
-        weakest = weakest.min(g.delivered / g.unsheltered);
-        strongest = strongest.max(g.delivered / g.unsheltered);
+        let share = g.delivered / g.unsheltered;
+        if share < weakest {
+            weakest = share;
+            weakest_at = (frame, g.x, g.exposure);
+        }
+        if share > strongest {
+            strongest = share;
+            strongest_at = (frame, g.x, g.exposure);
+        }
         if g.exposure < weather::NEUTRAL_EXPOSURE {
             sheltered_half += 1;
         }
@@ -253,4 +263,12 @@ fn gust_census(preset: &str, seed: u64, frames: u64) {
         100.0 * sum_delivered / sum_unsheltered
     );
     println!("  per-gust share of full strength: weakest {weakest:.3}  strongest {strongest:.3}");
+    println!(
+        "  weakest gust:   frame {} at x={} over exposure {:.3}",
+        weakest_at.0, weakest_at.1, weakest_at.2
+    );
+    println!(
+        "  strongest gust: frame {} at x={} over exposure {:.3}",
+        strongest_at.0, strongest_at.1, strongest_at.2
+    );
 }
