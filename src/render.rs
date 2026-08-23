@@ -118,6 +118,97 @@ const DEPTH_LIGHT_HIGHLIGHT: f32 = 1.12;
 /// notch 7 columns) with margin, and stays well under real valley widths.
 const DEPTH_LIGHT_SHOULDER_REACH: usize = 9;
 
+/// Per-cell transmission of sky light through **air**, and through
+/// **material**. Terraria's own `negLight` / `negLight2`, from the
+/// decompiled `Lighting.cs` — taken rather than invented because they are
+/// the only two numbers in this area with a shipped game behind them, and
+/// because the air figure lands somewhere this engine independently chose:
+/// 0.91 reaches a tenth of full brightness in **24 cells**, and
+/// `CAVE_FADE_DEPTH` is 24, set by eye here years apart and separately.
+///
+/// See `Reports/sky-light-design.md` for the measurements these came out of.
+const SKY_LIGHT_AIR: f32 = 0.91;
+const SKY_LIGHT_SOLID: f32 = 0.56;
+
+/// How far outside the viewport the propagation is computed.
+///
+/// **Not a tuning knob — it is where the falloff stops being representable.**
+/// `0.91^59` is under `1/255`, so light entering from further away than this
+/// cannot change a single byte of the image. Anything less would make the
+/// screen edge a function of where the camera happens to be, which is the
+/// worst kind of artifact: invisible in a still and a crawling shimmer the
+/// moment anyone pans.
+const SKY_LIGHT_MARGIN: i32 = 64;
+
+/// Where the darkness behind a void comes from — cycled with `F12`.
+///
+/// `F12` alone and no digit alias, unlike `; F10` and `0 F11`: every digit
+/// is already a material selector, and `9` shadowed one silently until
+/// clippy's unreachable-pattern lint caught it.
+///
+/// A runtime selector rather than a decision, on `CLAUDE.md`'s rule: five
+/// grain modes behind one key settled in minutes what no amount of argument
+/// or still images had, and this is the same kind of question. `Depth` is
+/// what shipped and stays the default, so nothing changes until someone asks
+/// for it.
+///
+/// The three propagated modes differ **only in block size**, which is the
+/// finding `Reports/sky-light-design.md` is built on: the four-sweep
+/// approximation costs essentially nothing in accuracy (at block size 1 it
+/// matches an exact Dijkstra to three decimals), and everything that is lost
+/// is lost to resolution. Measured on one 512x320 viewport: block 8 costs
+/// 0.03 ms and loses a one-cell shaft entirely, block 4 costs 0.13 ms and
+/// keeps it, block 1 costs 4.4 ms and is exact.
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum SkyLight {
+    /// The shipped cave fade: darkness is a function of depth below the
+    /// frozen skyline. A dug pit is uniformly black however wide it is.
+    #[default]
+    Depth,
+    /// Sky light propagated on a 4-cell block grid — the recommended one.
+    /// 10,240 blocks for a 512x320 viewport, which is within a whisker of
+    /// the ~8,400-tile light map a Terraria *screen* carries.
+    Coarse4,
+    /// The same on 2-cell blocks: four times the work, and closer to exact
+    /// on one-cell features.
+    Coarse2,
+    /// Per cell. Correct, and far too slow for a frame — kept as the bar the
+    /// other two are judged against, not as a shipping option.
+    Exact,
+}
+
+impl SkyLight {
+    pub fn next(self) -> Self {
+        match self {
+            SkyLight::Depth => SkyLight::Coarse4,
+            SkyLight::Coarse4 => SkyLight::Coarse2,
+            SkyLight::Coarse2 => SkyLight::Exact,
+            SkyLight::Exact => SkyLight::Depth,
+        }
+    }
+
+    /// The block size this mode propagates on, or `None` for `Depth`.
+    fn block(self) -> Option<i32> {
+        match self {
+            SkyLight::Depth => None,
+            SkyLight::Coarse4 => Some(4),
+            SkyLight::Coarse2 => Some(2),
+            SkyLight::Exact => Some(1),
+        }
+    }
+
+    /// Named on screen with its measured cost, because a selector nobody can
+    /// price is a selector nobody can choose from.
+    pub fn label(self) -> &'static str {
+        match self {
+            SkyLight::Depth => "DEPTH (current)",
+            SkyLight::Coarse4 => "PROPAGATED /4 (~0.13 ms)",
+            SkyLight::Coarse2 => "PROPAGATED /2 (~0.55 ms)",
+            SkyLight::Exact => "PROPAGATED /1 (~4.4 ms, reference)",
+        }
+    }
+}
+
 const CHUNK_BORDER_ACTIVE: [u8; 4] = [80, 200, 120, 255];
 const CHUNK_BORDER_SETTLED: [u8; 4] = [60, 60, 70, 255];
 
@@ -1466,6 +1557,22 @@ pub struct Renderer {
     /// no map — a world nothing has ever stepped, where `under_sky` falls
     /// back to `horizon`.
     underground_rect: Option<Rect>,
+    /// `F12` — where the darkness behind a void comes from.
+    pub sky_light: SkyLight,
+    /// Propagated sky visibility over the visible region plus
+    /// `SKY_LIGHT_MARGIN`, one byte per block, row-major. Empty in `Depth`
+    /// mode, which is the default and costs nothing.
+    sky_light_grid: Vec<u8>,
+    /// The world rect `sky_light_grid` covers. **Snapped outward to whole
+    /// blocks in *world* coordinates, never camera-relative**: a grid
+    /// aligned to the camera shifts under the world every time the view
+    /// scrolls by one cell, so every block boundary moves and the whole
+    /// screen crawls. World alignment makes panning show the same field
+    /// sliding past, which is what it is.
+    sky_light_rect: Rect,
+    /// Block size the grid was built at, and its dimensions in blocks.
+    sky_light_block: i32,
+    sky_light_dims: (i32, i32),
 }
 
 impl Renderer {
@@ -1543,6 +1650,11 @@ impl Renderer {
             horizon_origin: 0,
             underground: Vec::new(),
             underground_rect: None,
+            sky_light: SkyLight::default(),
+            sky_light_grid: Vec::new(),
+            sky_light_rect: Rect::new(0, 0, 0, 0),
+            sky_light_block: 1,
+            sky_light_dims: (0, 0),
         }
     }
 
@@ -1558,6 +1670,18 @@ impl Renderer {
 
     pub fn cycle_terrain_light(&mut self) {
         self.terrain_light = self.terrain_light.next();
+    }
+
+    /// `F12` — cycle where the dark behind a void comes from. Same
+    /// convention as `cycle_grain` and `cycle_terrain_light`: the mode is
+    /// named on screen while it is not the default, so a screenshot can say
+    /// which one it is.
+    pub fn cycle_sky_light(&mut self) {
+        self.sky_light = self.sky_light.next();
+        // Every void pixel on screen changes, and none of them belong to a
+        // chunk the CA touched, so nothing else would repaint them.
+        self.last_look = None;
+        self.sky_light_grid.clear();
     }
 
     /// `G` — step through the liquid grain modes. This exists so the
@@ -1990,6 +2114,30 @@ impl Renderer {
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
+        // Sky light, if it is on. Rebuilt only when it can have changed --
+        // the same gate `near_glow` uses below, and for the same reason: a
+        // settled screen with nothing moving is precisely the state the
+        // dirty-rect skip exists for, and recomputing this every frame would
+        // hand back its winnings (`CLAUDE.md`'s animated-grain lesson: a cost
+        // has to be measured against the state the optimisation exists for).
+        //
+        // The empty check is what keeps a fresh `Renderer` agreeing with one
+        // that has history: it has no grid, so it builds one, from the same
+        // world, and gets the same answer. That is the property
+        // `dirty_rect_skip_is_pixel_identical_to_a_full_redraw` tests, and
+        // the reason this state may live here at all while the stateful
+        // skyline (`dead-ends.md` §985) could not -- it is derived per frame
+        // from the world, not remembered across frames.
+        let sky_light_changed = if self.sky_light == SkyLight::Depth {
+            let had = !self.sky_light_grid.is_empty();
+            self.sky_light_grid.clear();
+            had
+        } else if self.sky_light_grid.is_empty() || camera_moved || scale_changed || !touched.is_empty() {
+            self.rebuild_sky_light(world, (width, height))
+        } else {
+            false
+        };
+
         // Which field tiles hold a glowing material this frame, plus their
         // neighbours — the diffused halo crosses tile seams, and gating on
         // the glow tile alone clipped the halo square at every chunk
@@ -2048,6 +2196,11 @@ impl Renderer {
 
         let full = force_full
             || look_changed
+            // A dig changes the light over a region far wider than the
+            // chunks the CA marked touched -- that is what propagation
+            // *means* -- so the dirty rects would repaint the hole and leave
+            // the gradient around it stale.
+            || sky_light_changed
             || glow_unsettled
             || scale_changed
             || camera_moved
@@ -2652,6 +2805,252 @@ impl Renderer {
         self.rebuild_light_datum();
     }
 
+    /// Propagate sky light over the visible region, and say whether the
+    /// answer changed.
+    ///
+    /// **The model is Terraria's, and the one thing worth understanding is
+    /// that the difference from `field.rs`'s light channel is entirely in
+    /// the *seeding*.** That channel casts sun straight down a column and
+    /// attenuates only through occluders, which is correct for a leaf and
+    /// hands a dug shaft free daylight — measured, a block-aligned 8-wide
+    /// shaft reads full brightness 100 cells down, which is the "sunny sky
+    /// all the way down" bug reported from play. Here the sun is seeded
+    /// **only where the cell was outdoors when the world was made**
+    /// (`World::is_outdoors`, the per-cell genesis map), so a shaft is not a
+    /// source and its light has to walk down from the mouth.
+    ///
+    /// Four directional sweeps rather than a Dijkstra: measured, the
+    /// approximation matches an exact solve to three decimals at block size
+    /// 1, with a worst disagreement of 0.29 at a single cell on a shaft
+    /// wall. All the accuracy that is lost is lost to *block size*, which is
+    /// why that is the knob the selector exposes and this is not.
+    ///
+    /// Returns `true` when the grid differs from the one it replaced, which
+    /// `draw` needs: a dig changes the light over a region far wider than
+    /// the chunks the CA marked as touched, so the dirty-rect skip would
+    /// otherwise leave most of the change unpainted.
+    fn rebuild_sky_light(&mut self, world: &World, viewport: (u32, u32)) -> bool {
+        let Some(block) = self.sky_light.block() else {
+            let had = !self.sky_light_grid.is_empty();
+            self.sky_light_grid.clear();
+            return had;
+        };
+        let Some(bounds) = world.bounds() else {
+            let had = !self.sky_light_grid.is_empty();
+            self.sky_light_grid.clear();
+            return had;
+        };
+        let (span_x, span_y) = self.visible_span(viewport);
+        // Snapped **down** to a block multiple in world coordinates -- see
+        // `sky_light_rect`. `div_euclid` rather than `/`, so a negative
+        // world origin snaps the same way a positive one does instead of
+        // rounding toward zero and shifting the grid by a block.
+        let x0 = ((self.camera_x - SKY_LIGHT_MARGIN).div_euclid(block)) * block;
+        let y0 = ((self.camera_y - SKY_LIGHT_MARGIN).div_euclid(block)) * block;
+        let x1 = self.camera_x + span_x + SKY_LIGHT_MARGIN;
+        let y1 = self.camera_y + span_y + SKY_LIGHT_MARGIN;
+        let (bw, bh) = (((x1 - x0).div_euclid(block) + 1).max(1), ((y1 - y0).div_euclid(block) + 1).max(1));
+
+        // Split timing behind an env var, because this function has now had
+        // two confident wrong guesses about where its time goes -- first the
+        // sweep (it was the `World::get` per cell), then `is_outdoors` (it
+        // was not). `PIXEL_PHYSICS_SKY_LIGHT_TIMING=1` prints the split.
+        let timing = std::env::var_os("PIXEL_PHYSICS_SKY_LIGHT_TIMING").is_some();
+        let t_build = std::time::Instant::now();
+        let n = (bw * bh) as usize;
+        let mut light = vec![0.0f32; n];
+        let mut decay = vec![0.0f32; n];
+        let area = (block * block) as f32;
+        // **One chunk lookup per block, not one per cell**, and this is the
+        // whole cost of the feature. `World::get` is a `HashMap` lookup, and
+        // the first version of this called it for every cell of a
+        // viewport-plus-margin region -- 286,720 of them -- which measured
+        // **+7.5 ms on a 13.2 ms redraw**, fifty times the 0.13 ms the design
+        // round predicted for the sweep. The design report had even written
+        // down that the block scan must not be charged to this approach, and
+        // the implementation went ahead and paid it anyway.
+        //
+        // `CHUNK_SIZE` is 64 and blocks are 1, 2 or 4 aligned to world
+        // multiples of their own size, so **a block can never straddle a
+        // chunk** and one lookup covers all of it. Same lesson `ChunkView`
+        // already applied to the sweep, and the one the fake-AO note names
+        // as the thing to do before that experiment could be revived.
+        let mut cached: Option<(ChunkCoord, &crate::sim::chunk::Chunk)> = None;
+        for by in 0..bh {
+            for bx in 0..bw {
+                let (mut solid, mut outdoors) = (0i32, 0i32);
+                let (ox, oy) = (x0 + bx * block, y0 + by * block);
+                let coord = ChunkCoord::containing(ox, oy);
+                if cached.map(|(c, _)| c) != Some(coord) {
+                    cached = world.chunk(coord).map(|c| (coord, c));
+                    if cached.is_none() {
+                        // Not resident: empty space that has not been
+                        // materialised, which is exactly what `World::get`
+                        // reports there too. Remembered as a miss for this
+                        // coord so the next block does not re-look-it-up.
+                        cached = None;
+                    }
+                }
+                let chunk = match cached {
+                    Some((c, ch)) if c == coord => Some(ch),
+                    _ => None,
+                };
+                for dy in 0..block {
+                    for dx in 0..block {
+                        let (x, y) = (ox + dx, oy + dy);
+                        if x < bounds.min_x || x > bounds.max_x || y > bounds.max_y {
+                            continue;
+                        }
+                        // Above the world is open sky, and has to seed as
+                        // such or a camera at the top of the world would
+                        // find its own ceiling dark.
+                        if y < bounds.min_y {
+                            outdoors += 1;
+                            continue;
+                        }
+                        let cell = match chunk {
+                            Some(ch) => ch.get_world(x, y),
+                            None => Cell::EMPTY,
+                        };
+                        if !matches!(
+                            world.materials.kind(cell.material),
+                            material::MaterialKind::Empty | material::MaterialKind::Gas
+                        ) {
+                            solid += 1;
+                        }
+                        // `under_sky`, not `World::is_outdoors`: identical
+                        // answer on any world that has been stepped -- both
+                        // read the same genesis map -- and it reads the copy
+                        // this `Renderer` already holds instead of paying
+                        // the world's bounds checks and empty-map branch per
+                        // cell. Worth ~1.5 ms of a 286,720-cell region.
+                        if self.under_sky(x, y) {
+                            outdoors += 1;
+                        }
+                    }
+                }
+                let i = (by * bw + bx) as usize;
+                // **Majority, not "any".** One outdoors cell at a cave mouth
+                // would otherwise seed its whole block at full brightness
+                // and hand the tunnel behind it a free block of daylight --
+                // the same class of error as the column rule this replaces.
+                if outdoors as f32 / area > 0.5 {
+                    light[i] = 1.0;
+                }
+                // Beer-Lambert over the block's occupancy, the same shape
+                // `FieldTile::transmission` uses: a block that is a fraction
+                // `f` solid costs `solid^(block*f) * air^(block*(1-f))`. So a
+                // one-cell shaft inside a four-cell block is charged
+                // mostly-solid and dims faster than a four-wide shaft that
+                // fills its block. The two differ in *rate*, which is the
+                // acceptable form of the quantisation -- unlike the existing
+                // channel, where a block-aligned shaft simply never dims.
+                let f = solid as f32 / area;
+                decay[i] = SKY_LIGHT_SOLID.powf(block as f32 * f) * SKY_LIGHT_AIR.powf(block as f32 * (1.0 - f));
+            }
+        }
+
+        let build_ms = t_build.elapsed().as_secs_f64() * 1000.0;
+        let t_sweep = std::time::Instant::now();
+
+        // Four directional sweeps, each carrying `max(light, neighbour *
+        // decay)`. The two horizontal passes are sequential in memory; the
+        // vertical ones stride, and at these sizes that is still far cheaper
+        // than any queue.
+        //
+        // **Twice, and the second round is not belt and braces.** One round
+        // is separable, so light can travel horizontally *then* vertically
+        // but never vertically then horizontally -- and a pit is exactly
+        // that shape, light entering at the rim and needing to spread
+        // sideways once it is down. Rendered at block size 1 the single
+        // round put a comb of vertical stripes down the inside of every
+        // pit, which the design report's sample-point comparison had missed
+        // entirely: the numbers agreed at the points it sampled and the
+        // picture disagreed between them (`CLAUDE.md` -- an image says what
+        // and where, a metric says how much, and reaching for one to answer
+        // the other's question is the recurring mistake).
+        for _round in 0..2 {
+        for by in 0..bh {
+            let row = (by * bw) as usize;
+            for bx in 1..bw as usize {
+                let v = light[row + bx - 1] * decay[row + bx];
+                if v > light[row + bx] {
+                    light[row + bx] = v;
+                }
+            }
+            for bx in (0..bw as usize - 1).rev() {
+                let v = light[row + bx + 1] * decay[row + bx];
+                if v > light[row + bx] {
+                    light[row + bx] = v;
+                }
+            }
+        }
+        for bx in 0..bw as usize {
+            for by in 1..bh as usize {
+                let (i, prev) = (by * bw as usize + bx, (by - 1) * bw as usize + bx);
+                let v = light[prev] * decay[i];
+                if v > light[i] {
+                    light[i] = v;
+                }
+            }
+            for by in (0..bh as usize - 1).rev() {
+                let (i, prev) = (by * bw as usize + bx, (by + 1) * bw as usize + bx);
+                let v = light[prev] * decay[i];
+                if v > light[i] {
+                    light[i] = v;
+                }
+            }
+        }
+        }
+
+        if timing {
+            eprintln!(
+                "sky_light block={block} region={}x{} cells={} blocks={} build={build_ms:.2} ms sweep={:.2} ms",
+                x1 - x0,
+                y1 - y0,
+                (x1 - x0) * (y1 - y0),
+                bw * bh,
+                t_sweep.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+        let grid: Vec<u8> = light.iter().map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8).collect();
+        let changed = grid != self.sky_light_grid
+            || self.sky_light_rect != Rect::new(x0, y0, x1, y1)
+            || self.sky_light_block != block;
+        self.sky_light_grid = grid;
+        self.sky_light_rect = Rect::new(x0, y0, x1, y1);
+        self.sky_light_block = block;
+        self.sky_light_dims = (bw, bh);
+        changed
+    }
+
+    /// Sky visibility at a world cell, `0.0..=1.0`, read bilinearly off the
+    /// block grid.
+    ///
+    /// Bilinear rather than nearest **is the whole reason a coarse grid is
+    /// allowed here**: Noita ran into exactly this with its 32x32 fog and
+    /// fixed it by blending overlapping tiles rather than by refining the
+    /// grid, and this engine's own §0c is the record of what the unblended
+    /// version looks like — rectangles of rock lit in hard squares.
+    fn sky_light_at(&self, x: i32, y: i32) -> f32 {
+        let (bw, bh) = self.sky_light_dims;
+        if self.sky_light_grid.is_empty() || bw == 0 || bh == 0 {
+            return 1.0;
+        }
+        let b = self.sky_light_block as f32;
+        let fx = (x - self.sky_light_rect.min_x) as f32 / b - 0.5;
+        let fy = (y - self.sky_light_rect.min_y) as f32 / b - 0.5;
+        let (gx, gy) = (fx.floor() as i32, fy.floor() as i32);
+        let (tx, ty) = (fx - gx as f32, fy - gy as f32);
+        let g = |cx: i32, cy: i32| {
+            let i = (cy.clamp(0, bh - 1) * bw + cx.clamp(0, bw - 1)) as usize;
+            self.sky_light_grid[i] as f32 / 255.0
+        };
+        let a = g(gx, gy) * (1.0 - tx) + g(gx + 1, gy) * tx;
+        let c = g(gx, gy + 1) * (1.0 - tx) + g(gx + 1, gy + 1) * tx;
+        a * (1.0 - ty) + c * ty
+    }
+
     /// `light_datum` from `horizon`: a grayscale morphological opening —
     /// min-filter then max-filter, both over the shoulder window — which
     /// clips any dip narrower than the window to its shoulders' level and
@@ -2803,7 +3202,21 @@ impl Renderer {
         // boundary. Light reaches in through an opening and falls off;
         // cutting instead put a black rectangle behind every roof and made
         // a cave mouth a cutout rather than an opening.
-        let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
+        // **How dark, from one of two sources.** `Depth` is the shipped
+        // answer: a function of how far below the frozen skyline this cell
+        // sits, which cannot tell a 64-wide pit open to the sky from a
+        // sealed chamber, because neither has anything to do with depth. The
+        // propagated modes ask how much sky actually reaches here, which is
+        // the question all along -- see `SkyLight`.
+        //
+        // No ramp lookup on that path and none is wanted: the falloff is
+        // already exponential in distance, so `1 - light` *is* the curve.
+        // `cave_ramp`'s square root exists to put most of the drop in the
+        // first rows under a roof, which propagation does for itself.
+        let t = match self.sky_light {
+            SkyLight::Depth => self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16,
+            _ => (((1.0 - self.sky_light_at(x, y)) * 255.0).round() as u16).min(255),
+        };
         let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
         let mut air = [
             mix(daylight[0], UNDERGROUND[0]),
@@ -4049,6 +4462,65 @@ mod tests {
         // And it must actually be doing something, or the assertion above
         // passes on a map that is not wired up at all.
         assert!(rescued > 0, "the map rescued nothing on a world built around a lip and a slab — is it reaching under_sky?");
+    }
+
+    /// The property that separates this model from the light channel the
+    /// engine already had, asserted on the two geometries that disagree.
+    ///
+    /// Both models propagate. Only this one **seeds on being outdoors**, and
+    /// that single difference is what keeps a dug shaft dark: the air above
+    /// it is clear, so a column cast lights it to the bottom (measured on
+    /// `field.rs`'s channel: a block-aligned 8-wide shaft reads full
+    /// brightness 100 cells down, which is the "sunny sky all the way down"
+    /// bug reported from play), while a seeded propagation has to walk light
+    /// down from the mouth.
+    ///
+    /// So the guard is a *pair*: a narrow shaft must go dark with depth
+    /// **and** a wide pit must stay lit at its rim, from the same run. Either
+    /// alone is passable by a broken model — "everything dark" passes the
+    /// first, "everything lit" passes the second — which is why neither is
+    /// asserted on its own.
+    #[test]
+    fn a_dug_shaft_goes_dark_while_a_wide_pit_keeps_its_rim_lit() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 100..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A sealed chamber, cut *before* the freeze: a worldgen cave, which
+        // must stay dark whatever the model does. The control that stops
+        // "light everything" passing.
+        for x in 150..180 {
+            for y in 150..170 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.begin_step();
+        // Everything below is dug, i.e. after the freeze.
+        for y in 100..190 {
+            world.set(30, y, Cell::EMPTY);
+        }
+        for x in 80..120 {
+            for y in 100..130 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+
+        let mut r = Renderer::new();
+        r.sky_light = SkyLight::Coarse4;
+        r.rebuild_horizon(&world);
+        r.rebuild_sky_light(&world, (200, 200));
+
+        let shaft_deep = r.sky_light_at(30, 175);
+        let pit_rim = r.sky_light_at(100, 101);
+        let pit_floor = r.sky_light_at(100, 128);
+        let chamber = r.sky_light_at(165, 160);
+
+        assert!(shaft_deep < 0.05, "a 1-wide shaft 75 cells down must be dark, not sunlit: {shaft_deep}");
+        assert!(pit_rim > 0.3, "the rim of a 40-wide open pit must be lit: {pit_rim}");
+        assert!(pit_floor < pit_rim, "the pit must be a gradient, not a flat fill: rim {pit_rim}, floor {pit_floor}");
+        assert!(chamber < 0.05, "a sealed chamber must stay dark: {chamber}");
     }
 
     /// `App::reset` builds a new `World` and keeps the `Renderer`, so the

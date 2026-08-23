@@ -1598,7 +1598,7 @@ impl App {
     /// thing it drew off-screen was the line telling you which key closes
     /// it. `the_help_page_fits_inside_its_own_panel` now fails if that
     /// recurs.
-    fn help_columns() -> ([HelpRow; 30], [HelpRow; 26]) {
+    fn help_columns() -> ([HelpRow; 30], [HelpRow; 27]) {
         use HelpRow::{Blank, Head, Key, Note};
         (
             [
@@ -1659,6 +1659,7 @@ impl App {
                 Key(",", "TREES IN FRONT / BEHIND"),
                 Key("; F10", "DEPTH LIGHT"),
                 Key("0 F11", "REVEAL CAVES"),
+                Key("F12", "SKY LIGHT"),
                 Key("' QUOTE", "GLOW SHAPE"),
             ],
         )
@@ -2033,7 +2034,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2081,6 +2082,16 @@ impl App {
                 String::new()
             } else {
                 format!(" — glow {}", self.renderer.glow_shape.label())
+            },
+            // Sky light (`F12`), same flipped rule as the depth light:
+            // the depth-based cave fade is the default, so the label appears
+            // only once someone has switched to a propagated mode — and it
+            // carries the measured cost, because a selector nobody can price
+            // is a selector nobody can choose from.
+            if self.renderer.sky_light == render::SkyLight::default() {
+                String::new()
+            } else {
+                format!(" — sky light {}", self.renderer.sky_light.label())
             },
             // The void reveal (`F11`) is a debug X-ray, so a screenshot with
             // it on must say so — magenta caves in a shared image with no

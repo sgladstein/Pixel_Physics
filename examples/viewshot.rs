@@ -49,6 +49,8 @@ struct Args {
     boulder: bool,
     reveal: bool,
     light: pixel_physics::render::TerrainLight,
+    /// `skylight=` — which sky-light mode to render through (`9`/`F12`).
+    sky_light: pixel_physics::render::SkyLight,
     glow: pixel_physics::render::GlowShape,
     spring: i32,
     age: Option<f32>,
@@ -84,6 +86,7 @@ fn main() {
         boulder: false,
         reveal: false,
         light: pixel_physics::render::TerrainLight::default(),
+        sky_light: pixel_physics::render::SkyLight::default(),
         glow: pixel_physics::render::GlowShape::default(),
         spring: 0,
         age: None,
@@ -154,6 +157,19 @@ fn main() {
                     "near" => pixel_physics::render::GlowShape::Near,
                     "field" | "blocks" => pixel_physics::render::GlowShape::Field,
                     other => panic!("unknown glow {other:?} (near|field)"),
+                }
+            }
+            // `skylight=4|2|1` renders through the propagated sky-light
+            // modes instead of the depth-based cave fade, so the selector the
+            // app carries on `F12` can be A/B'd headlessly. Named by
+            // block size, which is the only thing that differs between them.
+            "skylight" => {
+                a.sky_light = match v {
+                    "off" | "depth" => pixel_physics::render::SkyLight::Depth,
+                    "4" => pixel_physics::render::SkyLight::Coarse4,
+                    "2" => pixel_physics::render::SkyLight::Coarse2,
+                    "1" | "exact" => pixel_physics::render::SkyLight::Exact,
+                    other => panic!("unknown skylight {other:?} (off|4|2|1)"),
                 }
             }
             // `light=flat` renders the pre-review look, for A/B strips of
@@ -404,6 +420,7 @@ fn main() {
     let mut renderer = Renderer::new();
     renderer.glow_shape = a.glow;
     renderer.terrain_light = a.light;
+    renderer.sky_light = a.sky_light;
     renderer.reveal_voids = a.reveal;
     renderer.zoom = a.scale;
     renderer.zoom_out_stride = a.stride;

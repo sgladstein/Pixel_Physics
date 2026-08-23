@@ -42,7 +42,7 @@
 
 use std::collections::HashSet;
 
-use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer, TreeDepth};
+use pixel_physics::render::{BubbleMode, FieldOverlay, GasMode, GrainMode, OrganismOverlay, Renderer, SkyLight, TreeDepth};
 mod common;
 
 use pixel_physics::sim::cell::Cell;
@@ -1951,6 +1951,9 @@ struct Args {
     /// and how it evolves across the tiles, which is the question.
     organism_overlay: OrganismOverlay,
     field_overlay: FieldOverlay,
+    /// `skylight=off|4|2|1` -- which sky-light mode to draw through, so the
+    /// `9`/`F12` selector can be A/B'd on the structural scenes headlessly.
+    sky_light: SkyLight,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2249,6 +2252,7 @@ fn parse() -> Args {
         tree_depth: TreeDepth::default(),
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
+        sky_light: SkyLight::default(),
         gif: false,
         explosions: Vec::new(),
         cuts: Vec::new(),
@@ -2316,6 +2320,18 @@ fn parse() -> Args {
                 a.out = v.into();
             }
             "gif" => a.gif = v != "false",
+            // `skylight=off|4|2|1` -- the `F12` selector, by block
+            // size, which is the only thing that differs between the
+            // propagated modes.
+            "skylight" => {
+                a.sky_light = match v {
+                    "off" | "depth" => SkyLight::Depth,
+                    "4" => SkyLight::Coarse4,
+                    "2" => SkyLight::Coarse2,
+                    "1" | "exact" => SkyLight::Exact,
+                    other => panic!("unknown skylight {other:?} (off|4|2|1)"),
+                }
+            }
             "grain" => {
                 a.grain = match v {
                     "position" => GrainMode::Position,
@@ -3501,6 +3517,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     renderer.tree_depth = args.tree_depth;
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
+    renderer.sky_light = args.sky_light;
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
     let mut pending_cuts = args.cuts.clone();

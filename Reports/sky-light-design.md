@@ -1,6 +1,11 @@
 # Sky light: the design round for the open-cast-dig case
 
-*Design, nothing built. Commissioned after
+**Status: prototyped and in the app on `F12`** (DEPTH → /4 → /2 → /1), with
+`skylight=off|4|2|1` on `viewshot` and `filmstrip`. Two of this report's own
+claims were wrong and are corrected in *What building it changed* at the
+bottom — read that before trusting the cost or accuracy figures above it.
+
+*Design. Commissioned after
 [`dark-bands-diagnosis.md`](dark-bands-diagnosis.md) shipped the per-cell
 genesis map and left one case open: a pit you dig in daylight still draws as
 cave, because those cells really were rock.
@@ -187,3 +192,70 @@ a sky-light field replaces depth as the input to both ramps:
   is this engine's own record of what it looks like when it is missing.
 
 *Freshness: 2026-08-23.*
+
+## What building it changed
+
+Two claims above did not survive implementation. Both are left standing in
+place rather than quietly edited, because the *way* they failed is the
+transferable part.
+
+**1. "The four-sweep approximation is free of charge" was measured at sample
+points and is false between them.** The probe compared the sweeps against an
+exact Dijkstra at the cells the table names and found three-decimal agreement,
+with a worst disagreement of 0.29 "at one cell on a shaft wall". Rendered, that
+0.29 is not one cell: it is a **comb of vertical stripes down the inside of
+every pit**. The sweeps are separable, so light can travel sideways then down
+but never down then sideways — and a pit, where light enters at the rim and
+must spread once it is inside, is exactly the shape that needs the second
+order. Fixed by running the four sweeps **twice**, which costs 2x and clears
+it.
+
+This is `CLAUDE.md`'s own rule arriving from an unusual direction: an image
+says *what and where*, a metric says *how much*, and the mistake here was
+using a metric to answer a question about *shape*. A handful of sampled cells
+cannot see a comb.
+
+**2. "The block-grid scan must not be charged to this approach" was written
+here and then ignored in the implementation.** The report says the engine
+already maintains occupancy, so the 2.4–3.3 ms scan is not a real cost. The
+first working version then built the grid with a `World::get` — a `HashMap`
+lookup — per cell, over a viewport-plus-margin region of 286,720 cells, and
+measured **+7.5 ms on a 13.2 ms redraw**: fifty times what this report
+predicted.
+
+`CHUNK_SIZE` is 64 and blocks are 1, 2 or 4 aligned to world multiples of
+their own size, so a block can never straddle a chunk and **one lookup covers
+a whole block**. That took it to +2.3 ms. It is the same lesson the fake-AO
+note already records as the prerequisite for reviving that experiment, and
+the same one `ChunkView` applied to the sweep — which is to say the engine had
+written it down twice and the implementation still paid it.
+
+### The cost, as built
+
+Split, measured (`PIXEL_PHYSICS_SKY_LIGHT_TIMING=1`), at block size 4 over a
+640x448 region of 18,193 blocks:
+
+| | |
+|---|---|
+| block grid build | 1.7 ms |
+| two rounds of four sweeps | 0.5 ms |
+| **on a frame where the world or camera changed** | **+2.3 ms of a 13.2 ms redraw** |
+| **on a settled, still frame** | **0** — one rebuild in eight frames, then none |
+
+The settled figure is the one that mattered and it is answered: the rebuild is
+gated on `camera_moved || scale_changed || !touched.is_empty()`, so the
+dirty-rect skip keeps its winnings on exactly the state it exists for. The
++2.3 ms is paid only on frames that were already repainting everything.
+
+### The unexpected result: finer is worse
+
+The design above assumed block size traded cost against accuracy in one
+direction, and recommended 4 as the cheapest acceptable point. Rendered, **4
+is also the cleanest**. At /2 and /1 the separable-sweep striping is still
+faintly visible even after the second round, because there is less bilinear
+blur to hide it; at /4 it is gone. Noita's own answer to its 32x32 fog was to
+blur rather than refine, and this is the same result reached from the other
+end — which is a stronger reason to keep /4 than the cost argument this report
+originally made for it.
+
+*Prototype freshness: 2026-08-23.*
