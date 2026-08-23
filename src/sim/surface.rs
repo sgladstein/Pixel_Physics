@@ -206,10 +206,18 @@ pub trait CellSurface {
     /// trunk and the tree hangs there" the moment `TIGHT` became the
     /// default.
     ///
+    /// `extent` is the outer limit of the damage the verb does *itself*,
+    /// as everywhere else — see `structural::Disturbance::extent`. Both
+    /// callers reached from here are **per cell** (a burnout removes one,
+    /// a phase change transforms one), so both pass `0` and let
+    /// `World::record_disturbance`'s coalescing collect a burning region
+    /// into a handful of records. A verb here that damages a *volume* must
+    /// pass its real reach instead.
+    ///
     /// Only `World` owns the ring, so `ChunkView` queues this and replays
     /// it in `parallel::run_pass` — the same shape as
     /// `schedule_active_site`.
-    fn record_disturbance(&mut self, x: i32, y: i32);
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32);
 
     /// Absorb `fill` units into the promoted liquid body that owns
     /// `(x, y)` — `Reports/liquid-heightfield-design.md` §6b/§8b.

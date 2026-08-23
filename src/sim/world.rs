@@ -108,10 +108,52 @@ pub struct CreatureStats {
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
     pub deliveries: u64,
-    /// Arrivals at the nest after having been away. Splits "never got
-    /// home" from "never picked anything up", which the delivery count
-    /// alone cannot.
+    /// **Not a trip counter, and not a sessility guard — read
+    /// `forage_trips` for either.** It increments on any move made while
+    /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
+    /// `since_nest` is bumped unconditionally every tick, so that guard is
+    /// false exactly once in a creature's life and this counts *loitering*.
+    /// One ant, a nest and no food scores `moves 648, nest_visits 389`.
+    ///
+    /// Kept because the ratio against `moves` is still a real readout — an
+    /// immobile colony drives it toward 1 and a ranging one toward 0 — and
+    /// because deleting it would silently change every scene that prints
+    /// it. What it is not is "arrivals at the nest after having been away",
+    /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
+    /// from home and came back.** The thing `nest_visits` was believed to
+    /// be counting and never was.
+    ///
+    /// Booked at the moment of nest contact, off
+    /// `OrganismState::forage_max` — a spatial depth that re-anchors on
+    /// every contact, so neither loitering nor `tick_interval` can inflate
+    /// it. See that field for why the obvious `since_nest` fix is unsound.
+    pub forage_trips: u64,
+    /// Summed depth of the trips in `forage_trips`, in cells. `/
+    /// forage_trips` is the mean foraging range — **the quantity that was
+    /// missing, and the reason no foraging change could be judged.**
+    pub forage_depth_sum: u64,
+    /// Deepest single excursion any creature has made, in cells. Bounds the
+    /// mean: a colony with a good mean and a small max is commuting a fixed
+    /// route, which is a different animal from one that ranges.
+    pub forage_depth_max: u64,
+    /// **The excursion-depth profile, and the reason this metric does not
+    /// live or die on one threshold.** Bucket `i` counts excursions that
+    /// reached at least `FORAGE_REACH_BUCKETS[i]` cells from home — a
+    /// cumulative distribution, so it is monotonically non-increasing and
+    /// bucket 0 is every excursion there was.
+    ///
+    /// A single count needs a bar, and a bar set from an aspiration is how
+    /// this project gets numbers that cannot fail for the right reason. The
+    /// profile needs none: an immobile colony is a spike in bucket 0 that
+    /// vanishes by bucket 2, and a ranging one carries weight out to the
+    /// distance of whatever it is ranging *to*. That shape is the readout,
+    /// and it is what `forage_trips`'s bar was then set from.
+    ///
+    /// It also separates two colonies a mean cannot: a hundred short hops
+    /// and ten real trips average the same as a hundred medium ones.
+    pub forage_reach: [u64; 8],
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -119,55 +161,114 @@ pub struct CreatureStats {
 
 /// Where every joule went. See `World::energy_ledger`.
 ///
-/// The invariant, asserted in the ascii scenes:
-/// `sum(live creature energy) == granted + eaten - metabolized - moved
-/// - synapse_tax - died_holding`.
+/// Two stocks, not one. **Live** is the energy inside creatures; **meat**
+/// is the energy standing in the world as corpse cells (and in whatever a
+/// carrier is holding). Every account below is a monotone counter, and each
+/// one is labelled as a *source* (value created out of nothing), a *sink*
+/// (value destroyed) or a *transfer* (value moved between the two stocks).
+///
+/// ```text
+/// live = granted + harvested_plant + harvested_corpse + overdrawn
+///        - metabolized - moved - synapse_tax - stored_in_meat - dissipated
+///
+/// meat = stamped + stored_in_meat - harvested_corpse - meat_lost
+/// ```
 ///
 /// # What this can and cannot catch, because the difference has been
 /// # misread once
 ///
 /// It catches **charges that do not land**: a cost debited from the ledger
 /// but never taken off a creature, or vice versa. That is a real class of
-/// bug and the identity finds it immediately.
+/// bug and the first identity finds it immediately.
 ///
-/// It **cannot catch energy creation**, and reading a balanced census as
-/// "energy is conserved" is a mistake. `granted`, `eaten` and
-/// `died_holding` are all *free terms defined as whatever happened*, so
-/// they move the two sides of the identity together by construction. When
-/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
-/// a constant with no relationship to what the victim had -- and
-/// `died_holding` deletes the victim's remainder; both are booked, the
-/// identity holds, and 300 joules were conjured. If the bite only takes a
-/// trailing segment there is no sink at all and the identity still holds.
+/// It **cannot be a conservation law**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `stamped` and
+/// `harvested_plant` are genuinely free — the sun is the largest source in
+/// the world by far and lives entirely outside these numbers, and nothing
+/// books photosynthesis yet.
 ///
-/// So this is an *accounting* ledger, not a conservation law. The property
-/// evolution actually needs (P-20) is weaker and different: **no lineage
-/// may extract unbounded energy from a cycle it controls.** That is what
-/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
-/// and it does not pass today -- see its doc for the pump it reproduces.
-/// A closed ledger is only reachable once plants book photosynthesis into
-/// the same accounts, since the sun is the largest free source in the
-/// world by far and lives entirely outside these numbers.
+/// **What changed at S3, and why it matters more than the tidiness.** The
+/// old ledger had one `eaten` account and it was a free term *defined as
+/// whatever happened*: `eat_energy` was a constant of the **eater**, so
+/// when a beetle bit an ant, `eaten` grew by the beetle's number, the
+/// victim's remainder was written off, both were booked, the identity held,
+/// and 300 joules were conjured (§13l). `harvested_corpse` is not free: it
+/// is matched, joule for joule, by meat that was booked into `stamped` when
+/// the animal was built or into `stored_in_meat` when it died. That is what
+/// makes the second identity above worth asserting, and it is the property
+/// evolution actually needs (P-20): **no lineage may extract unbounded
+/// energy from a cycle it controls.**
+///
+/// `meat_lost` is not an account here, because nothing hooks the seam a
+/// corpse is destroyed through (decay, fire, an explosion, the brush).
+/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
+/// asserts it as one. In a sealed box where nothing eats corpses but the
+/// ants, it is tight.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
-    /// Energy created out of nothing, at spawn. The only source besides
-    /// eating, and the one that has to be counted or nothing balances.
+    /// **Source.** Metabolic energy created at spawn — a creature's
+    /// `start_energy`, the pool it can actually spend.
     pub granted: f64,
-    /// **Also created out of nothing** -- `eat_energy` is a property of the
-    /// eater, not of the food, and no food cell has an energy account for
-    /// it to come out of. Counted so the identity closes, not because
-    /// anything was transferred. See the type doc.
-    pub eaten: f64,
+    /// **Source.** Structural energy created at spawn: `body_energy` for
+    /// every cell of the body. The animal can never spend this; it exists
+    /// so that a *starved* creature, dead at exactly 0, still leaves food
+    /// behind. Booked separately from `granted` because it is never part of
+    /// the live stock — it goes straight into meat when the animal dies.
+    pub stamped: f64,
+    /// **Source.** Eating something whose worth comes from its material:
+    /// leaf, moss, seed, a live animal's flesh. Free until plants book
+    /// photosynthesis into the same accounts.
+    pub harvested_plant: f64,
+    /// **Transfer**, out of the meat stock and into the live one. Eating a
+    /// cell that carries its own worth in `Cell::aux`.
+    pub harvested_corpse: f64,
     pub metabolized: f64,
     pub moved: f64,
     pub synapse_tax: f64,
-    pub died_holding: f64,
+    /// **Transfer**, out of the live stock and into meat: what a creature
+    /// still had in the bank when it died, written into its corpse cells
+    /// alongside the stamp. Was `died_holding`, and the rename is the
+    /// point — it is not destroyed, it is what makes a fresh kill better
+    /// eating than carrion.
+    pub stored_in_meat: f64,
+    /// **Sink.** Leftover energy with nowhere to go: a creature died in a
+    /// world with no `corpse` material compiled in, so there was nothing to
+    /// write the worth into. Should read 0 in every real scene; it is here
+    /// so that the case does not silently unbalance the live identity.
+    pub dissipated: f64,
+    /// **A correction, and the only term that adds back.** Charges that
+    /// landed on a creature which could not pay them: an animal dies *at*
+    /// zero in the accounting but arrives there having been debited past
+    /// it, so its last tick of metabolism came out of an empty bank.
+    ///
+    /// Found by `the_standing_meat_never_exceeds_what_was_put_into_it` the
+    /// first time the live identity was ever asserted rather than printed
+    /// — 2.16 joules across twelve ants over 40,000 frames, which is small,
+    /// real, and exactly the kind of free term that becomes an attractor
+    /// the moment something can select on it. Booked rather than clamped
+    /// away at the charge sites, because a creature that overshoots zero
+    /// by a tick is honest behaviour and pretending it did not is how a
+    /// counterweight constant gets born.
+    pub overdrawn: f64,
 }
 
 impl EnergyLedger {
     /// What the live population's total energy should equal.
     pub fn expected_live_total(&self) -> f64 {
-        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+        self.granted + self.harvested_plant + self.harvested_corpse
+            - self.metabolized
+            - self.moved
+            - self.synapse_tax
+            - self.stored_in_meat
+            - self.dissipated
+            + self.overdrawn
+    }
+
+    /// The most meat that can be standing in the world. An **upper bound**,
+    /// not an equality — see the type doc on `meat_lost`.
+    pub fn max_standing_meat(&self) -> f64 {
+        self.stamped + self.stored_in_meat - self.harvested_corpse
     }
 }
 
@@ -255,6 +356,20 @@ pub struct World {
     /// `pop_due_active_site` before the tick runs, so a site that
     /// reschedules itself is a fresh request rather than a dropped one.
     pending_evaporation: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup index again, for `ActiveKind::Dissipate`, and
+    /// load-bearing for the same reason as `pending_evaporation` directly
+    /// above rather than merely for cost: the CA sweep asks for a
+    /// dissipation site on **every frame** a gas cell fails to move, so
+    /// without this the number of rolls a trapped cell gets each second
+    /// would be proportional to how long its chunk happened to stay awake
+    /// after it settled — smoke in a busy crater would fade faster than the
+    /// same smoke in a quiet one, which is a size/activity dependence
+    /// nothing about the mechanic wants.
+    ///
+    /// A third set rather than one keyed on kind, matching the choice made
+    /// for `pending_evaporation`: the existing paths' behaviour stays
+    /// untouched.
+    pending_dissipation: std::collections::HashSet<(i32, i32)>,
     /// The topmost row of *ground* in each column, indexed from
     /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
     /// column that held no ground at all; empty until `freeze_sky_surface`
@@ -613,9 +728,10 @@ pub struct World {
     pub arch_relief: bool,
     /// How far from something that was actually disturbed a structural
     /// failure is allowed to happen, in cells, and for how long. See
-    /// `ChainMode`. **16 is the default**, `CHAIN_MODES[0]` (`TIGHT`),
-    /// chosen by playtest; `i32::MAX` removes the leash entirely and is
-    /// what shipped before that.
+    /// `ChainMode`. `i32::MAX` is the default -- `CHAIN_MODES[0]`
+    /// (`SPREAD`), no limit. `TIGHT` was built as the default on the
+    /// owner's request and measured back out; `ChainMode`'s own doc
+    /// carries the table and the reason.
     ///
     /// # Why this is a policy and not a deletion
     ///
@@ -639,10 +755,17 @@ pub struct World {
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
     pub chain_window: u64,
-    /// Where the world was last disturbed, and when. A small ring: only
-    /// the most recent handful matter, since older ones fall outside
-    /// `chain_window` anyway.
-    pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
+    /// Where the world was last disturbed, when, and **how big the wound
+    /// was**. A small ring: only the most recent handful matter, since
+    /// older ones fall outside `chain_window` anyway. See
+    /// `structural::Disturbance` for why the extent is not optional.
+    pub disturbances: std::collections::VecDeque<crate::sim::structural::Disturbance>,
+    /// Failures already judged and part-way through coming down, one slice
+    /// per `structural::STRUCTURAL_TICK_INTERVAL` frames. See
+    /// `structural::StagedFracture` and `advance_staged_fractures`; empty
+    /// in every frame where nothing is mid-collapse, which is nearly all of
+    /// them.
+    pub staged_fractures: std::collections::VecDeque<crate::sim::structural::StagedFracture>,
 
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
@@ -686,6 +809,16 @@ pub struct FailureCounts {
     /// Furthest a failure has ever been found from the cell whose check
     /// found it, in cells.
     ///
+    /// **This is not a containment measure and never was**, whatever it has
+    /// been labelled: it is Manhattan `|failure.at - (x, y)|`, the distance
+    /// from the *checked cell* to the *failing ancestor*, bounded by
+    /// construction to `load::ROOTWARD_CHECK_STEPS` hops. It cannot see how
+    /// far the consequence landed from what the player hit, and measured on
+    /// a rolling-world blast it reads **1 cell** while real failures are
+    /// landing everywhere. `max_damage_reach` below is the number that
+    /// answers that question; this one answers the empirical question its
+    /// own paragraph below poses and nothing else.
+    ///
     /// Instrumentation for a decision, not a metric anyone needs at
     /// runtime. `Reports/prior-art-destruction.md` flags
     /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
@@ -697,6 +830,29 @@ pub struct FailureCounts {
     /// standing at a stress ratio of 1.87. So the question is empirical:
     /// how far do failures *actually* land from their trigger here?
     pub max_chain_reach: u32,
+    /// **The containment measure**: the greatest Chebyshev distance from
+    /// the nearest *live* disturbance to any cell a consequence actually
+    /// destroyed, over the whole run.
+    ///
+    /// Reported in the units `World::chain_reach` is written in (see
+    /// `World::distance_to_live_disturbance`, its measurement twin), so it
+    /// can be read straight against the `F9` setting: at LOCAL this
+    /// standing at 200 says damage travelled four times past the licence,
+    /// and no other counter here can say that at all.
+    ///
+    /// **Damage only.** Recorded where something stops being what it was --
+    /// the region handed to the fracturer, each paced slice,
+    /// `break_free` on the organism path, and the cells a crush actually
+    /// fissures. Deliberately *not* recorded for `rigid::settle`'s landing
+    /// scheduling or for a check that was scheduled and refused: those are
+    /// **work**, not damage, and folding them in would make the number
+    /// unreadable -- a scheduled check that changed nothing is exactly what
+    /// a contained world is full of.
+    ///
+    /// Nothing is recorded when there is no live disturbance at all, rather
+    /// than `0`: see `World::distance_to_live_disturbance` for why zero is
+    /// the wrong answer to "nothing was disturbed".
+    pub max_damage_reach: u32,
     /// The largest single failing region, in cells.
     ///
     /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
@@ -739,22 +895,34 @@ pub struct FailureCounts {
     /// from cracks too fine to see at that zoom. An image cannot say
     /// whether the thing you built is what produced it.
     pub crushed_cells: u32,
-    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    /// Slices `structural::advance_staged_fractures` took off a failure
+    /// that was too big to fracture in one tick, and the cells they took.
     ///
-    /// **The mean and the max together still hide the shape, and the shape
-    /// is the whole question.** `largest_failure` says a 12-cell region
-    /// happened once; the mean says 1.7; neither says whether the
-    /// distribution has a body between them or is 570 single cells with one
-    /// outlier. The answer decides whether the fragment ladder can help at
-    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
-    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
-    /// lives entirely under 8 cannot produce a chunk however the rungs are
-    /// tuned. The owner's report is the other end of the same fact:
-    /// *"better with chunks instead of pile of dust"*.
+    /// The "did it fire at all" counter for R3a, and it is exactly the
+    /// question a contact sheet cannot answer: a collapse that arrives in
+    /// one frame and one that arrives in five bites look identical in a
+    /// grid of stills, and the difference between them is the whole
+    /// change. `overloaded`/`unsupported` above cannot say it either --
+    /// they count the *failure*, which is recorded once, whole, before any
+    /// of this.
+    pub staged_slices: u32,
+    pub staged_cells: u32,
+    /// Cells lifted out of the grid into a tumbling `ChunkBody`, and how
+    /// many bodies they became.
     ///
-    /// Bucket edges are the two floors and powers of two around them, so
-    /// the boundary that matters is a boundary in the readout too.
-    pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// **The only counter here that measures a displacement rather than a
+    /// judgement.** Every field above it is recorded at `structural.rs`'s
+    /// `record` call, which runs before the free-face test, the boundary
+    /// erosion, the slicing and the fracture -- so all of them can be large
+    /// on a run where nothing whatsoever moved. That is not hypothetical:
+    /// it is the exact shape of the owner's *"no pieces move, ever"*
+    /// against a harness reporting hundreds of unsupported failures.
+    ///
+    /// Recorded inside `rigid::promote`, at the line that actually pushes
+    /// the body, rather than at any call site -- `fracture_with_impulse`,
+    /// `calve_collar` and `fracture_shell` all reach it through the same
+    /// door, and so does anything added later.
+    ///
     /// Cells that left a fracture as part of a promoted `ChunkBody`, and
     /// cells that left it as rubble.
     ///
@@ -771,8 +939,67 @@ pub struct FailureCounts {
     /// A region of 83 cells that fractures into eleven 4-cell fragments is
     /// a large region, several bodies' worth of events, and entirely dust
     /// on screen. Only the ratio of these two tells them apart.
+    pub promoted_bodies: u32,
     pub promoted_cells: u32,
+    /// Cells converted in place to `breaks_into` rubble -- the other half
+    /// of a fracture's output, and the one the ethos calls grit.
+    ///
+    /// Paired with `promoted_cells` deliberately: the ratio between them is
+    /// the block-size distribution the owner's *"a few blocks, more
+    /// cobbles, a lot of grit"* is about, and either number alone cannot
+    /// show it.
+    ///
+    /// Two code paths write the identical conversion and both are counted:
+    /// `rigid::shatter_to_rubble`, which takes the fragments that came out
+    /// below `MIN_BODY_CELLS`, and `structural::break_free`, which is the
+    /// fallback when a region was too small to fracture at all. Neither
+    /// counts a cell whose material has no `breaks_into` -- both decline
+    /// and leave it standing, and counting a decline would make grit look
+    /// like it happened.
+    ///
+    /// **`break_free`'s organism path is deliberately *not* counted.** The
+    /// third caller is `structural.rs`'s plant-support check turning a
+    /// limb that lost its anchor into deadwood: the same conversion, an
+    /// entirely different event, and one that fires on its own schedule
+    /// all through any world with vegetation in it. Folding it in here
+    /// would put tree death into the number that is supposed to say how
+    /// rock came apart, and swamp it on exactly the generated worlds this
+    /// counter exists to judge.
     pub shattered_cells: u32,
+    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    ///
+    /// **The mean and the max together still hide the shape, and the shape
+    /// is the whole question.** `largest_failure` says a 12-cell region
+    /// happened once; the mean says 1.7; neither says whether the
+    /// distribution has a body between them or is 570 single cells with one
+    /// outlier. The answer decides whether the fragment ladder can help at
+    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
+    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
+    /// lives entirely under 8 cannot produce a chunk however the rungs are
+    /// tuned. The owner's report is the other end of the same fact:
+    /// *"better with chunks instead of pile of dust"*.
+    ///
+    /// Bucket edges are the two floors and powers of two around them, so
+    /// the boundary that matters is a boundary in the readout too.
+    pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// The size of every body promoted, bucketed by doubling: `<8`
+    /// (impossible -- `MIN_BODY_CELLS` is 8, so it stays 0 and is the
+    /// sanity check on the bucketing), `8-15`, `16-31`, `32-63`, `64-127`,
+    /// `128-255`, `256+`.
+    ///
+    /// **`promoted_bodies` and `promoted_cells` cannot answer the question
+    /// this does.** Their ratio is a *mean*, and a run of forty 30-cell
+    /// blocks and a run of one 200-cell slab plus thirty-nine 25-cell ones
+    /// have nearly the same mean and are the two outcomes the ethos is
+    /// about: *"a few blocks, more cobbles, a lot of grit"* is a
+    /// **distribution**, and its absence -- everything one size, or the
+    /// all-or-nothing split -- reads as fake on sight. Reported from play
+    /// as *"could the pattern of cracks be more heterogeneous, so the
+    /// chunks that break off are different sizes"*.
+    ///
+    /// Seven `u32`s on a struct that is copied per tile, which is the
+    /// cheapest thing that can answer a distribution question at all.
+    pub promoted_sizes: [u32; 7],
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -786,20 +1013,46 @@ impl FailureCounts {
         self.max_chain_reach = self.max_chain_reach.max(reach);
     }
 
-    /// One fragment's worth of mass, split by where it went. See
-    /// `promoted_cells`.
-    pub fn record_fragment(&mut self, cells: usize, promoted: bool) {
-        if promoted {
-            self.promoted_cells += cells as u32;
-        } else {
-            self.shattered_cells += cells as u32;
-        }
+    /// See `max_damage_reach`. Callers pass a distance already resolved
+    /// against a *live* disturbance (`World::distance_to_live_disturbance`
+    /// returned `Some`), so there is no sentinel to filter here.
+    pub fn record_damage_reach(&mut self, reach: i32) {
+        self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
         self.confined += 1;
         self.confined_cells += cells as u32;
         self.deepest_confined = self.deepest_confined.max(depth);
+    }
+
+    pub fn record_staged(&mut self, cells: usize) {
+        self.staged_slices += 1;
+        self.staged_cells += cells as u32;
+    }
+
+    /// One body, `cells` cells, actually lifted off the grid. See
+    /// `promoted_bodies`.
+    ///
+    /// `saturating_add` rather than the `+=` its neighbours use, and that
+    /// is not a style slip: the fields above it count discrete failure
+    /// events and this one counts *cells*, over runs that go to 5,000
+    /// frames and nine charges. A wrap here would read as a collapse in
+    /// the one counter the night's work is judged by.
+    pub fn record_promoted(&mut self, cells: usize) {
+        self.promoted_bodies = self.promoted_bodies.saturating_add(1);
+        self.promoted_cells = self.promoted_cells.saturating_add(cells as u32);
+        // Bucket by doubling from 8, the smallest a body can be. `ilog2`
+        // rather than a loop, and clamped at the top so a 400-cell body
+        // (`MAX_BODY_CELLS`) lands in the last bucket rather than past it.
+        let bucket = if cells < 8 { 0 } else { (cells.ilog2() as usize - 2).min(6) };
+        self.promoted_sizes[bucket] = self.promoted_sizes[bucket].saturating_add(1);
+    }
+
+    /// `cells` cells converted where they stood. See `shattered_cells` for
+    /// which paths count and which one deliberately does not.
+    pub fn record_shattered(&mut self, cells: usize) {
+        self.shattered_cells = self.shattered_cells.saturating_add(cells as u32);
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
@@ -868,6 +1121,7 @@ impl World {
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
+            pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
             underground: Vec::new(),
             ground_datum: Vec::new(),
@@ -891,11 +1145,13 @@ impl World {
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
-            // Mirrors CHAIN_MODES[0] (TIGHT), chosen by playtest. Kept in
-            // sync by `the_default_chain_reach_is_the_first_chain_mode`.
+            // Mirrors CHAIN_MODES[0], whichever that is. Kept in sync by
+            // `the_default_chain_reach_is_the_first_chain_mode`, so moving
+            // the default is one edit in one place.
             chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
+            staged_fractures: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             phase_changes: crate::sim::fire::PhaseCounts::default(),
@@ -1135,6 +1391,13 @@ impl World {
         {
             return;
         }
+        // See `pending_dissipation`'s own doc — load-bearing for the rate,
+        // exactly as the evaporation one above is.
+        if matches!(site.kind, scheduler::ActiveKind::Dissipate) && !self.pending_dissipation.insert((site.x, site.y)) {
+            return;
+        }
+        // The same guard again for decay, which `origin/main` added
+        // independently against its own site kind. Two kinds, two sets.
         if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
@@ -1234,6 +1497,9 @@ impl World {
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
         }
+        if let scheduler::ActiveKind::Dissipate = site.kind {
+            self.pending_dissipation.remove(&(site.x, site.y));
+        }
         if let scheduler::ActiveKind::Decay = site.kind {
             self.pending_decay_sites.remove(&(site.x, site.y));
         }
@@ -1291,6 +1557,8 @@ impl World {
             energy: 0.0,
             carrying: None,
             since_nest: 0,
+            forage_anchor: (0, 0),
+            forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
             shoot_top_y: None,
@@ -2649,7 +2917,10 @@ impl World {
                 // no limit; the moment `TIGHT` became the default, a brush
                 // that scheduled checks but recorded nothing meant erasing
                 // a support did precisely nothing.
-                self.record_disturbance(x, y);
+                // Extent 0: this loop writes one cell, so the wound
+                // *is* this cell. A capsule stroke coalesces into a few
+                // records rather than one per cell.
+                self.record_disturbance(x, y, 0);
                 // Cutting rock costs its neighbours their backing, which is
                 // what lets mining produce anything at all -- see
                 // `structural::detach_exposed_neighbours`. Erasing only:
@@ -3136,8 +3407,8 @@ impl CellSurface for World {
     }
 
     #[inline]
-    fn record_disturbance(&mut self, x: i32, y: i32) {
-        World::record_disturbance(self, x, y)
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        World::record_disturbance(self, x, y, extent)
     }
 
     #[inline]

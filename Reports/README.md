@@ -46,6 +46,13 @@ tried?"*.
   where this engine's approach sits.
 - [destruction-plan.md](destruction-plan.md) — **plan.** "Destruction
   eager, building forgiving" — the synthesis of the two documents above.
+- [explosion-stone-review.md](explosion-stone-review.md) — **shipped, and
+  the live design record for blasting.** Why a blast in stone looked wrong
+  and what each of five rounds did about it; §15-16 are the joint fabric
+  (rock has a grain and a blast wakes it), §17 the containment retraction.
+  Carries the measured dead ends for this area — read it before touching
+  `explosion.rs`, `fracture_field.rs` or the confined branch of
+  `structural.rs`.
 - [building-rethink.md](building-rethink.md) — **proposal, not built.**
   Building should not be a physics puzzle; from a direct playtest steer.
 - [load-concentration-review-response.md](load-concentration-review-response.md)
@@ -168,6 +175,12 @@ field rework — see `open-bugs-handoff.md`.
 - [creature-direction.md](creature-direction.md) — **direction agreed
   (2026-08-17).** Cell-chain ants, the caged brain, the heritable genome;
   decision record plus implementation plan.
+- [creature-evolution-plan.md](creature-evolution-plan.md) — **plan,
+  S1–S4 implemented (merged 2026-08-23).** The staged route from a scripted
+  ant to an evolving one: the 584-slot genome, food worth living on the
+  material rather than on the eater, corpse worth in `Cell::aux`, and the
+  edible forest floor. Its "As built" notes carry the measurements; every
+  S4 number in them predates the litter merge and is superseded by it.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.
@@ -265,7 +278,6 @@ field rework — see `open-bugs-handoff.md`.
 When one of these merges, move its line into the sections above (docscheck
 flags the mismatch).
 
-- `creature-evolution-plan.md` — branch `creatures-m18`.
 - `load-concentration-review.md`, `load-concentration-review-reply.md` —
   branch `load-share`.
 - `performance-audit.md` — worktree `perf-audit` (untracked).

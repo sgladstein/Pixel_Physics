@@ -106,6 +106,7 @@ cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
 python3 scripts/review.py serve --open      # the owner's review queue; see below
+python3 scripts/review.py serve --lan       # ...also reachable from a phone on the same Wi-Fi
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
@@ -185,6 +186,11 @@ Two house rules, both from failures already paid for here:
 - **Prefer a paired comparison** over one run against a remembered impression.
   Outcomes here have enormous spread, so a single run is a sample from a wide
   distribution.
+
+The owner may be reading the queue on a phone (`serve --lan`), where a card is
+one column and an image is judged in the full-screen viewer. Nothing about
+posting changes; it is one more reason the card must stand on its own — a title,
+a question, and the count in `meta`.
 
 The queue is shared by every worktree of the clone, so a card posted from
 `.claude/worktrees/foo` and one from the main checkout land in the same place,

@@ -902,6 +902,16 @@ pub enum OrganismOverlay {
     /// the root work has to be able to look at. Without it, a wetting
     /// front descending through soil is completely invisible.
     SoilMoisture,
+    /// What is edible, and how much it is worth.
+    ///
+    /// **Built before anything reads the value for a decision**, per
+    /// `CLAUDE.md`: a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. Full replace on a
+    /// fixed ramp, never a blend into the cell's own colour -- a
+    /// magnitude-scaled blend was tried once on canopy density and produced
+    /// a sheet that read as blank because the ramp was red and the material
+    /// brown.
+    FoodValue,
 }
 
 impl OrganismOverlay {
@@ -912,7 +922,8 @@ impl OrganismOverlay {
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
-            OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
+            OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
+            OrganismOverlay::FoodValue => OrganismOverlay::Off,
         }
     }
 
@@ -924,6 +935,7 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
+            OrganismOverlay::FoodValue => "FOOD VALUE",
         }
     }
 }
@@ -973,6 +985,10 @@ const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 /// it carries are different quantities on different timescales, and two
 /// green ramps would invite reading one sheet as the other.
 const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
+/// Distinct from every other ramp on purpose: food value is read against
+/// moss and leaf, which are already green, and against corpse, which is
+/// already dull red.
+const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -1096,6 +1112,32 @@ const FLASH_LIFT: f32 = 0.34;
 
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
+/// What a cracked cell draws as when the zoom gives the crack pixels of its
+/// own: a darkened strip along the severed edge instead of the whole cell.
+///
+/// A crack is *edge* state — `FLAG_CRACK_RIGHT` says this cell has parted
+/// from the one to its right — and darkening the whole cell was always a
+/// stand-in for having nowhere else to put it. At 1:1 that is still true and
+/// nothing here changes it. Past that, the cell is a block of pixels and the
+/// edge has real ones: `CRACK_STRIP_DIVISOR` of the block (at least one
+/// pixel) along the bottom for `crack_down`, along the right for
+/// `crack_right`. The result reads as a hairline fracture threading the rock
+/// rather than a fat one-cell smear, and it follows the actual geometry of
+/// the break — a horizontal run of `crack_down` cells draws one continuous
+/// line, where the whole-cell version drew a thick dashed band with no
+/// direction at all.
+///
+/// The strip darkens harder than the whole cell did (0.35x against 0.43x)
+/// because it is a fraction of the area: the same visual weight has to come
+/// out of fewer pixels or a fissure that was faint at play zoom becomes
+/// invisible.
+///
+/// Cost: unchanged. Same per-cell draw path, one extra comparison on cells
+/// that are cracked, and the output is still a pure function of the cell's
+/// own data plus the pixel's offset inside its block — so the dirty-rect
+/// skip is untouched.
+const CRACK_EDGE_DARKEN: u16 = 90;
+const CRACK_STRIP_DIVISOR: i32 = 3;
 
 /// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
 /// `PLAYER_WIDTH`, top to bottom: a pointed hat over a bearded face, a
@@ -2286,7 +2328,7 @@ impl Renderer {
                 let sx = (i % width as usize) as i32;
                 let sy = (i / width as usize) as i32;
                 let (wx, wy) = self.screen_to_world(sx, sy);
-                let colour = self.cell_colour(world, wx, wy);
+                let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                 pixel.copy_from_slice(&colour);
             }
             self.last_player_pose = player_pose;
@@ -2368,7 +2410,7 @@ impl Renderer {
                 for sy in rect.min_y..=rect.max_y {
                     for sx in rect.min_x..=rect.max_x {
                         let (wx, wy) = self.screen_to_world(sx, sy);
-                        let colour = self.cell_colour(world, wx, wy);
+                        let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                         put(frame, width, height, sx, sy, colour);
                         n += 1;
                     }
@@ -2599,13 +2641,23 @@ impl Renderer {
     /// pixel grid beyond that; the CA cell it becomes on landing carries
     /// all the same visual weight bulk material has, so a free particle
     /// mid-flight not doing that too is not a loss worth more complexity.
+    ///
+    /// **The lighting is the exception to that, and it was missing.** The
+    /// grain is a texture and a cell can go without it for a few frames of
+    /// flight; the light level is not — `sky::apply_light` is a 0.42x term
+    /// at the dark end of the cycle, so raw palette colour meant a grain
+    /// *flashed brighter* the instant it left the grid and flashed back
+    /// when it landed. See `draw_chunk_bodies` for the whole reasoning.
     fn draw_particles(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
+        let ambient = self.sky.ambient();
         for particle in particles.iter() {
             let Some((sx, sy)) = self.world_to_screen(particle.x.round() as i32, particle.y.round() as i32) else {
                 continue;
             };
             let palette = &world.materials.get(particle.material).palette;
-            let colour = palette[particle.shade as usize % palette.len()];
+            let raw = palette[particle.shade as usize % palette.len()];
+            let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+            let colour = [lit[0], lit[1], lit[2], raw[3]];
             let block = self.zoom.max(1);
             for dy in 0..block {
                 for dx in 0..block {
@@ -2621,8 +2673,43 @@ impl Renderer {
     /// cannot duplicate them), so the per-cell pass above cannot see it. A
     /// falling chunk would otherwise simply vanish for the whole of its
     /// flight and reappear on landing.
+    ///
+    /// # Lit here as well as in the grid, and why only that term
+    ///
+    /// This pass and `draw_particles` painted **raw palette colour**, so the
+    /// same rock was drawn by two different pipelines depending on whether
+    /// it was in the grid or in flight. `sky::apply_light` alone is up to a
+    /// 0.42x difference (`sky::UNLIT_FLOOR`), so every promotion flashed its
+    /// cells brighter and every landing flashed them back — and a cascade
+    /// promotes and lands bodies continuously. That is the "random flashes
+    /// during cascades" the owner reported: measured on `scene=ligament`,
+    /// 34-99 bodies and up to 2,514 cells in flight in a single tile, drawn
+    /// pale grey against rock the sky had darkened to brown.
+    ///
+    /// Three terms are still not shared with `cell_colour`, each for its
+    /// own reason:
+    ///
+    /// - **Grain, deliberately.** `draw_particles`' doc already argues that
+    ///   a free cell not carrying the same visual weight mid-flight is not
+    ///   worth more complexity, and position-keyed noise on a *moving* body
+    ///   would shimmer as it moves rather than reading as texture. The term
+    ///   that mattered was the lighting one.
+    /// - **Crack darkening, because there is nothing to draw.**
+    ///   `rigid::promote` builds a `BodyCell` from material and shade only
+    ///   — the flags, and with them `FLAG_CRACK_DOWN`/`_RIGHT`, are dropped
+    ///   at promotion and `Cell::new` re-creates an uncracked cell on
+    ///   landing. A slab really does lose its fissures the moment it starts
+    ///   falling, and keeping them is a change to what a body *carries*,
+    ///   not to how it is painted.
+    /// - **The cave fade**, which is a property of the column a cell sits
+    ///   in and is already applied to the sky behind it.
+    ///
+    /// Sharing `cell_colour` outright would be the tidy answer and is not
+    /// what this is: that function takes a `World` and a grid position and
+    /// reads neighbours, and unpicking it is a bigger change than the bug.
     fn draw_chunk_bodies(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
         let block = self.zoom.max(1);
+        let ambient = self.sky.ambient();
         for body in &world.chunk_bodies {
             for cell in &body.cells {
                 let (wx, wy) = body.cell_position(cell);
@@ -2630,7 +2717,9 @@ impl Renderer {
                     continue;
                 };
                 let palette = &world.materials.get(cell.material).palette;
-                let colour = palette[cell.shade as usize % palette.len()];
+                let raw = palette[cell.shade as usize % palette.len()];
+                let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+                let colour = [lit[0], lit[1], lit[2], raw[3]];
                 for dy in 0..block {
                     for dx in 0..block {
                         put(frame, width, height, sx + dx, sy + dy, colour);
@@ -3428,7 +3517,17 @@ impl Renderer {
         }
     }
 
-    fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
+    /// The colour of one *pixel*, which is nearly always the colour of the
+    /// cell it lands in.
+    ///
+    /// `sub` is that pixel's offset inside its zoom block — `(0, 0)` at zoom
+    /// 1, where a cell is one pixel and there is nothing to be inside of.
+    /// Exactly one thing reads it (the crack strip, see `CRACK_EDGE_DARKEN`),
+    /// and everything else here is per *cell*, which is why this stays one
+    /// function rather than splitting into a cell pass and a pixel pass: the
+    /// heat glow, the grain and the sky light all cost more than the strip
+    /// test that needs the offset.
+    fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
         }
@@ -3444,13 +3543,28 @@ impl Renderer {
         // the rock at any zoom. Without this the entire mechanic is
         // invisible: rock would weaken, sag and eventually drop with nothing
         // on screen ever having looked damaged.
+        //
+        // Zoomed in, the edge does have pixels of its own and gets them: a
+        // strip along the bottom of the block for `crack_down`, along the
+        // right for `crack_right`. See `CRACK_EDGE_DARKEN`. At `block == 1`
+        // every test below collapses to `cell.cracked()` and the darken
+        // reverts to `CRACK_DARKEN`, so the 1:1 picture is bit-identical to
+        // what it always was -- including the minified view, which draws at
+        // `zoom == 1` and samples one cell per pixel.
         if cell.cracked() {
-            base = [
-                (base[0] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[1] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[2] as u16 * CRACK_DARKEN / 256) as u8,
-                base[3],
-            ];
+            let block = self.zoom.max(1);
+            let strip = (block / CRACK_STRIP_DIVISOR).max(1);
+            let on_edge =
+                (cell.crack_down() && sub.1 >= block - strip) || (cell.crack_right() && sub.0 >= block - strip);
+            if on_edge {
+                let darken = if block == 1 { CRACK_DARKEN } else { CRACK_EDGE_DARKEN };
+                base = [
+                    (base[0] as u16 * darken / 256) as u8,
+                    (base[1] as u16 * darken / 256) as u8,
+                    (base[2] as u16 * darken / 256) as u8,
+                    base[3],
+                ];
+            }
         }
         // Wet ground is dark ground. Saturation already existed on every
         // powder that can hold water -- infiltration writes it, roots read
@@ -3478,7 +3592,65 @@ impl Renderer {
                 base[3],
             ];
         }
-        let saturation = crate::sim::update::soil_moisture(cell);
+        // **Main's ungated `let saturation = soil_moisture(cell);` was
+        // dropped here on purpose, not lost to a merge.** It is the bug
+        // below: `aux` is a tagged union and only a `Powder` holds
+        // saturation in it. The tree-haze block above is kept whole.
+        //
+        // **Gated on `Powder`, and that gate is a bug fix rather than a
+        // tidy-up.** `Cell::aux` is a tagged union (see its own doc): only
+        // on a `Powder` does it hold saturation. On a `Solid` or a `Plant`
+        // it is the **distance to the nearest structural anchor**, on a
+        // `Creature` the owning creature id, and on a `Liquid` the fill
+        // amount. Without the gate every stone cell in the world was drawn
+        // darker in proportion to how far it stood from an anchor -- a
+        // live, invisible, per-frame structural quantity rendered as
+        // dampness at up to 41% -- and `structural::tick`'s relaxation
+        // wavefront then re-lit it over the following frames wherever
+        // anything was disturbed. That is what reached the owner as "a pale
+        // light effect spreads through rock, lightening it over time", on a
+        // plain strike with no explosion anywhere near it. `CLAUDE.md`'s
+        // "two conventions for `Cell::aux` point opposite ways", one kind
+        // further along.
+        //
+        // The same test `apply_organism_overlay`'s `SoilMoisture` channel
+        // has always made, which is what proved this was an oversight: the
+        // debug overlay of this very quantity gated correctly while the
+        // main path did not.
+        //
+        // **Standing water was the other casualty, and it was worse than
+        // it looks.** `LIQUID_FULL` and `SOIL_SATURATED` are both 1000, so
+        // a liquid's fill went straight through this at full scale -- and
+        // since `aux == 0` means *full* on a `Liquid`, the darkening got
+        // *stronger* the fuller the cell was and then snapped to nothing at
+        // exactly full, on top of the deliberate `fill_dimming` below.
+        // Measured on `scene=worldgen preset=rolling seed=1`: the sea's
+        // 8,051 pixels went from a mean [114, 150, 190] to [121, 163, 214]
+        // when the gate landed -- +12% on the blue channel, murk to water.
+        //
+        // **Gated on `water_capacity`, not on `Powder`** -- and the merge
+        // that brought corpses in is what forced it. `aux` is a tagged union;
+        // this branch reads it as soil water, so any powder using the field
+        // for something else draws as if it were soaking wet. A `corpse` now
+        // carries **what it is worth to eat** there, on an energy scale where
+        // one ant body cell is 120 and a full kill is 1020, against
+        // `SOIL_SATURATED`'s 1000. The darkening is monotone *decreasing* in
+        // worth while `corpse.ron`'s palette is monotone *increasing*, so the
+        // two partially cancel: the ramp's red span collapsed from 100 to 40,
+        // and its top three steps from 56 to 14 -- back below the width that
+        // was already judged "pretty minor" and widened once for it. A burnt
+        // body (`aux` 0, no darkening) drew *brighter* than an equally-poor
+        // starved one.
+        //
+        // `apply_organism_overlay`'s `SoilMoisture` channel already tests it
+        // this way, and the note above says the two should agree. It is also
+        // strictly stronger for this path's own purpose: sand and gravel are
+        // `Powder` with `water_capacity: 0`, and only `soil.ron` opts in.
+        let saturation = if world.materials.get(cell.material).water_capacity > 0 {
+            crate::sim::update::soil_moisture(cell)
+        } else {
+            0
+        };
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
             let scale = (256 - t) as u16;
@@ -3803,11 +3975,38 @@ impl Renderer {
         }
         let cell = world.get(x, y);
         if self.organism_overlay == OrganismOverlay::SoilMoisture {
-            if world.materials.kind(cell.material) != material::MaterialKind::Powder {
+            // **Gated on `water_capacity`, not merely on `Powder`.** `aux`
+            // is a tagged union and this branch reads it as soil water, so
+            // any powder that uses the field for something else draws as if
+            // it were soaking wet. A corpse now carries what it is worth as
+            // meat there, and would have shown up on the moisture overlay as
+            // the wettest thing on screen -- a debug readout confidently
+            // lying about a channel, which is how a fix gets sent at working
+            // code. `update_soil_water` and the field sampler both gate on
+            // this already; this branch was the one that did not.
+            if world.materials.get(cell.material).water_capacity == 0 {
                 return base;
             }
             let t = crate::sim::update::soil_moisture(cell) as f32 / material::SOIL_SATURATED as f32;
             let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_MOISTURE);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
+        if self.organism_overlay == OrganismOverlay::FoodValue {
+            let worth = crate::sim::creature::food_value(world, cell);
+            if worth <= 0.0 {
+                return base;
+            }
+            // Normalised against a reference mouthful rather than against the
+            // frame's maximum: a ramp whose scale moves with the scene makes
+            // two contact sheets incomparable, and the question this answers
+            // is "how much is this worth" and not "which cell here is worth
+            // most".
+            let ramp = scalar_ramp((worth / crate::sim::creature::REFERENCE_MOUTHFUL).clamp(0.0, 1.0), SCALAR_RAMP_FOOD);
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
@@ -3819,10 +4018,13 @@ impl Renderer {
         }
         let cell_type = organism::cell_type(cell.aux());
         let (ramp, blend) = match self.organism_overlay {
-            // Both handled above, before the organism-tissue guard: `Off`
-            // returns immediately, and `SoilMoisture` asks about inert
-            // `Powder` rather than organism cells.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture => return base,
+            // All handled above, before the organism-tissue guard: `Off`
+            // returns immediately, `SoilMoisture` asks about inert `Powder`
+            // rather than organism cells, and `FoodValue` deliberately asks
+            // about every cell in the world -- a fallen leaf and a corpse
+            // are food and belong to no organism, which is exactly the case
+            // the tissue guard below would drop.
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
@@ -4148,6 +4350,22 @@ impl Renderer {
     /// negative infinity the same way `ChunkCoord::containing` already
     /// establishes is required — truncating division would fold screen
     /// column -1 onto the same world cell as column 0.
+    /// Where a screen pixel sits *inside* the cell `screen_to_world` maps it
+    /// to, in pixels from the block's top-left.
+    ///
+    /// `(0, 0)` at zoom 1 and at every minified scale, where one pixel is
+    /// one cell (or several) and there is no inside. `rem_euclid` to match
+    /// `screen_to_world`'s `div_euclid`: left of the camera the two have to
+    /// agree, or a block one cell to the left of the origin would be drawn
+    /// with its strip on the wrong side.
+    fn sub_cell(&self, sx: i32, sy: i32) -> (i32, i32) {
+        if self.zoom > 1 {
+            (sx.rem_euclid(self.zoom), sy.rem_euclid(self.zoom))
+        } else {
+            (0, 0)
+        }
+    }
+
     pub fn screen_to_world(&self, sx: i32, sy: i32) -> (i32, i32) {
         if self.zoom > 1 {
             (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
@@ -4667,7 +4885,11 @@ mod tests {
             let mut total = 0i64;
             for x in x0..x0 + 6 {
                 for y in 105..115 {
-                    let c = r.cell_colour(&world, x, y);
+                    // `(0, 0)`: the sub-cell offset only reaches the crack
+                    // strip, and this band is about the depth grade. Any
+                    // fixed offset would do; the cell's own origin is the
+                    // one that needs no explaining.
+                    let c = r.cell_colour(&world, x, y, (0, 0));
                     total += c[0] as i64 + c[1] as i64 + c[2] as i64;
                 }
             }
@@ -4854,16 +5076,16 @@ mod tests {
         r.rebuild_horizon(&world);
 
         r.terrain_light = TerrainLight::Depth;
-        let surface = brightness(r.cell_colour(&world, 10, 64));
-        let shallow = brightness(r.cell_colour(&world, 10, 65));
-        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
-        let water_depth = r.cell_colour(&world, 64, 60);
+        let surface = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
+        let shallow = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
+        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let water_depth = r.cell_colour(&world, 64, 60, (0, 0));
 
         r.terrain_light = TerrainLight::Off;
-        let shallow_flat = brightness(r.cell_colour(&world, 10, 65));
-        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
-        let surface_flat = brightness(r.cell_colour(&world, 10, 64));
-        let water_flat = r.cell_colour(&world, 64, 60);
+        let shallow_flat = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
+        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let surface_flat = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
+        let water_flat = r.cell_colour(&world, 64, 60, (0, 0));
 
         assert!(
             deep < shallow,
@@ -4894,8 +5116,8 @@ mod tests {
         // depth 1, stays bright. Grain differs by position, so the
         // comparison needs the ramp's spread (~2.4x at these depths), not
         // equality.
-        let notch_rock = brightness(r.cell_colour(&world, 112, 97));
-        let valley_rock = brightness(r.cell_colour(&world, 160, 97));
+        let notch_rock = brightness(r.cell_colour(&world, 112, 97, (0, 0)));
+        let valley_rock = brightness(r.cell_colour(&world, 160, 97, (0, 0)));
         assert!(
             notch_rock < valley_rock * 3 / 4,
             "rock beside a narrow notch floor must not light up as if at the surface ({notch_rock} vs valley {valley_rock})"
@@ -4964,9 +5186,9 @@ mod tests {
         r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
 
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
-        let sky = brightness(r.cell_colour(&world, 64, 19));
-        let just_under = brightness(r.cell_colour(&world, 64, 21));
-        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH));
+        let sky = brightness(r.cell_colour(&world, 64, 19, (0, 0)));
+        let just_under = brightness(r.cell_colour(&world, 64, 21, (0, 0)));
+        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH, (0, 0)));
         let dark = brightness(UNDERGROUND);
 
         assert!(
@@ -4977,6 +5199,160 @@ mod tests {
             deep <= dark + 2,
             "past the fade depth it must reach full dark, or every cave in the world turns grey: {deep} against {dark}"
         );
+    }
+
+    /// Reported from play: "a pale light effect spreads through rock,
+    /// lightening it over time" — from the core of whatever was hit, deep
+    /// as well as shallow, every time.
+    ///
+    /// It was the damp darkening reading a `Solid` cell's `aux`, which on a
+    /// `Solid` is its **distance to the nearest anchor**, not saturation.
+    /// So every stone cell was drawn darker in proportion to how far it
+    /// stood from an anchor, and `structural::tick`'s relaxation wavefront
+    /// re-lit it over the following frames wherever anything was disturbed.
+    /// Measured on `scene=worldcrack preset=rolling seed=1 strike=12`
+    /// against the same world unstruck: 2,683 grey-stone pixels brightening
+    /// at frame 400, in a halo running x 200-339 around a 12-cell strike at
+    /// x=256 — a thousand of them more than 40 cells from anything the blow
+    /// touched.
+    ///
+    /// Two reads of one cell at one position, so the grain, the palette
+    /// shade and the lighting are identical between them by construction
+    /// and `aux` is the only thing that moved.
+    #[test]
+    fn a_solids_anchor_distance_does_not_change_how_it_is_drawn() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        // Deep enough that the cave fade is at its floor for both reads.
+        let (x, y) = (32, 50);
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(0));
+        let anchored = r.cell_colour(&world, x, y, (0, 0));
+        // 900 is a plausible standing distance in generated terrain, and
+        // above `SOIL_SATURATED`'s own scale it would be a 41% darkening.
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(900));
+        let far_from_an_anchor = r.cell_colour(&world, x, y, (0, 0));
+
+        assert_eq!(
+            anchored, far_from_an_anchor,
+            "a Solid cell's structural anchor distance is not dampness and must not be drawn: \
+             aux=0 drew {anchored:?}, aux=900 drew {far_from_an_anchor:?}"
+        );
+    }
+
+    /// The other side of the same gate, and the reason it is a gate rather
+    /// than a deletion: saturation is real on a `Powder` and drawing it is
+    /// the whole point of the block. A fix that simply removed the
+    /// darkening would pass the test above and lose the feature.
+    #[test]
+    fn a_powders_saturation_still_darkens_it() {
+        let soil = {
+            let world = World::new(Rect::new(0, 0, 63, 63));
+            world.materials.id_of("soil").expect("soil is a compiled-in material")
+        };
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        let (x, y) = (32, 50);
+        let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        world.set(x, y, Cell::new(soil, 3).with_aux(0));
+        let dry = brightness(r.cell_colour(&world, x, y, (0, 0)));
+        world.set(x, y, Cell::new(soil, 3).with_aux(900));
+        let wet = brightness(r.cell_colour(&world, x, y, (0, 0)));
+
+        assert!(
+            wet < dry - dry / 8,
+            "wet ground has to read as visibly darker than dry ground: dry {dry}, wet {wet}"
+        );
+    }
+
+    /// Reported from play as "random flashes" during cascades.
+    ///
+    /// Bodies and free particles are drawn by a second pass that painted
+    /// **raw palette colour** — no `sky::apply_light` — so the same rock was
+    /// drawn one way in the grid and another in flight. At the dark end of
+    /// the cycle the lighting term alone is `sky::UNLIT_FLOOR` = 0.42, so
+    /// every promotion flashed its cells brighter and every landing flashed
+    /// them back, continuously, for as long as a cascade lasted.
+    ///
+    /// The grain is *deliberately* still missing in flight (see
+    /// `draw_particles`' own doc), so the bar is "equal up to the grain
+    /// term" rather than equality: position-keyed noise on a moving body
+    /// would shimmer as it moves, and the term that mattered was the
+    /// lighting one.
+    #[test]
+    fn a_body_in_flight_is_lit_the_same_way_the_grid_is() {
+        const X: i32 = 30;
+        const Y: i32 = 20;
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 40..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Freeze the skyline on the floor alone, so placing and removing
+        // the test cell cannot move it between the two reads.
+        world.begin_step();
+
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let mut r = Renderer::new();
+        // A dark phase, pinned rather than stepped to: this is where the
+        // two pipelines are furthest apart, and a pin is a fixed *phase*
+        // instead of a frame number that would drift with the day length.
+        //
+        // `pinned_light` takes a frame, so the phase goes through
+        // `sky::frame_for_daylight` rather than being written as a literal.
+        // That is the merge of two independently-built pins -- this branch's
+        // fraction-valued `daylight_pin` and `origin/main`'s frame-valued
+        // `pinned_light` -- onto the one field, keeping the phase spelling
+        // at the call sites that wanted it.
+        r.pinned_light = Some(sky::frame_for_daylight(0.0));
+        let pixel = |frame: &[u8]| {
+            let i = (Y as usize * w as usize + X as usize) * 4;
+            [frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]
+        };
+
+        world.set(X, Y, Cell::new(material::STONE, 3));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_grid = pixel(&frame);
+
+        world.set(X, Y, Cell::EMPTY);
+        world.chunk_bodies.push(crate::sim::rigid::ChunkBody::at(
+            vec![crate::sim::rigid::BodyCell { dx: 0, dy: 0, material: material::STONE, shade: 3 }],
+            X as f32,
+            Y as f32,
+        ));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_flight = pixel(&frame);
+
+        // The grid pixel carries the grain and the body pixel does not, so
+        // they may differ by that factor and no more.
+        let slack = JITTER_STRENGTH / (1.0 - JITTER_STRENGTH);
+        for c in 0..3 {
+            let allowed = (in_grid[c] as f32 * slack).round() as i32 + 1;
+            let delta = in_flight[c] as i32 - in_grid[c] as i32;
+            assert!(
+                delta.abs() <= allowed,
+                "a promoted body must be lit like the rock it broke off: in the grid {in_grid:?}, \
+                 in flight {in_flight:?}, channel {c} differs by {delta} against {allowed} allowed for grain"
+            );
+        }
     }
 
 
@@ -5201,7 +5577,112 @@ mod tests {
             (base[2] as i32 + (base[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
             255,
         ];
-        assert_eq!(renderer.cell_colour(&world, 10, 10), expected);
+        assert_eq!(renderer.cell_colour(&world, 10, 10, (0, 0)), expected);
+    }
+
+    /// **K4's degradation pin: at zoom 1 a crack draws exactly what it
+    /// always drew.**
+    ///
+    /// The strip is a magnification feature — a cell has no interior at 1:1,
+    /// so the whole cell darkens by `CRACK_DARKEN` regardless of which edge
+    /// carries the bit, which is what the last several years of sheets show
+    /// and what every filmstrip still renders (that harness draws at renderer
+    /// zoom 1 and upscales the pixels afterwards). If this ever stops being
+    /// true, every archived contact sheet stops being comparable.
+    ///
+    /// Asserted as "all three crack states draw the same colour, darker than
+    /// no crack": direction-agnostic is precisely the old behaviour, and it
+    /// is what a naive strip implementation breaks first (a `crack_right`
+    /// cell would stop darkening at all, because at block size 1 there is no
+    /// right-hand column to put it in).
+    #[test]
+    fn at_zoom_one_a_cracked_cell_still_darkens_whole() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        let r = Renderer::new();
+        assert_eq!(r.zoom, 1, "test setup: this is the 1:1 pin");
+        // **One position, four states.** The grain is keyed on position
+        // (`rng::jitter(x, y)`), so two cells side by side do not render the
+        // same colour even with identical contents -- comparing neighbours
+        // would be measuring the grain, not the crack.
+        let mut colour_of = |cell: Cell| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, (0, 0))
+        };
+
+        let plain = colour_of(stone);
+        let down = colour_of(stone.with_crack_down(true));
+        let right = colour_of(stone.with_crack_right(true));
+        let both = colour_of(stone.with_crack_down(true).with_crack_right(true));
+
+        assert!(down[0] < plain[0], "a cracked cell must draw darker than an uncracked one at 1:1");
+        assert_eq!(down, right, "at 1:1 a crack must darken the whole cell whichever edge carries it");
+        assert_eq!(down, both, "at 1:1 two crack bits must draw the same as one");
+
+        // And the exact pixel, not merely "darker": the 1:1 look is
+        // `CRACK_DARKEN` over the whole cell and then the ordinary grain, and
+        // an archived contact sheet is only comparable while that is true to
+        // the byte. Computed the pre-K4 way by hand, the same technique
+        // `field_overlay_off_matches_the_pre_overlay_render_exactly` uses --
+        // asserting against a second `cell_colour` call would pass whatever
+        // either of them did.
+        let base = world.materials.get(material::STONE).palette[0];
+        let jitter_permille = ((rng::jitter(10, 10) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        let expected: Vec<u8> = (0..3)
+            .map(|c| {
+                let darkened = (base[c] as u16 * CRACK_DARKEN / 256) as u8 as i32;
+                (darkened + (darkened * jitter_permille) / 1000).clamp(0, 255) as u8
+            })
+            .collect();
+        assert_eq!(&down[..3], &expected[..], "the 1:1 crack pixel is not what it has always been");
+    }
+
+    /// And zoomed in, it is a line along the severed edge rather than a
+    /// smear over the cell — the other half of K4, and the half that is
+    /// visible in the app.
+    ///
+    /// The geometry is the assertion: for `crack_down`, the bottom rows of
+    /// the block darken and the top rows are left exactly as the uncracked
+    /// cell beside them; for `crack_right`, the right-hand columns. A
+    /// whole-cell darken passes neither.
+    #[test]
+    fn zoomed_in_a_crack_draws_only_along_its_own_edge() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        world.set(10, 10, stone);
+        let mut r = Renderer::new();
+        r.zoom = 6; // strip = 6 / CRACK_STRIP_DIVISOR = 2 px
+
+        // Same cell, same grain, three states -- see the 1:1 pin above.
+        let mut cracked = |cell: Cell, sub: (i32, i32)| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, sub)
+        };
+        let plain = cracked(stone, (0, 0));
+        let down = stone.with_crack_down(true);
+        let right = stone.with_crack_right(true);
+
+        // `crack_down`: top rows untouched, bottom rows darkened, all the way
+        // across.
+        for sx in 0..6 {
+            let (top, middle, bottom) = (cracked(down, (sx, 0)), cracked(down, (sx, 3)), cracked(down, (sx, 5)));
+            assert_eq!(top, plain, "the top of a crack_down cell must not darken");
+            assert_eq!(middle, plain, "the middle of a crack_down cell must not darken");
+            assert!(bottom[0] < plain[0], "the bottom row of a crack_down cell is the crack and must darken");
+        }
+        // `crack_right`: the same, rotated a quarter turn.
+        for sy in 0..6 {
+            let (left, edge) = (cracked(right, (0, sy)), cracked(right, (5, sy)));
+            assert_eq!(left, plain, "the left of a crack_right cell must not darken");
+            assert!(edge[0] < plain[0], "the right column of a crack_right cell is the crack and must darken");
+        }
+        // And the strip darkens *harder* than the 1:1 whole-cell version it
+        // replaces, because the same visual weight comes out of fewer pixels.
+        let strip = cracked(down, (0, 5));
+        let mut flat = Renderer::new();
+        flat.zoom = 1;
+        let whole = flat.cell_colour(&world, 10, 10, (0, 0));
+        assert!(strip[0] < whole[0], "the strip should darken harder than the whole-cell version it replaces");
     }
 
     #[test]
@@ -5218,7 +5699,7 @@ mod tests {
         world.set(50, 50, Cell::new(material::STONE, 0));
         world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
         let mut renderer = Renderer::new();
-        let off = renderer.cell_colour(&world, 50, 50);
+        let off = renderer.cell_colour(&world, 50, 50, (0, 0));
         // **Blend channels only, deliberately.** `PheromoneA`/`PheromoneB`
         // are excluded because they are full-replace by design: a cell with
         // a zero reading draws at `SCALAR_RAMP_FLOOR` of its ramp colour,
@@ -5236,7 +5717,7 @@ mod tests {
         // _from_cool` below is the guard that replaced this one for it.
         for overlay in [FieldOverlay::Pressure, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
-            assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
+            assert_eq!(renderer.cell_colour(&world, 50, 50, (0, 0)), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
         }
     }
 
@@ -5256,9 +5737,9 @@ mod tests {
         world.add_heat(50, 10, 2, -6.0); // and a cold night
         let mut renderer = Renderer::new();
         renderer.field_overlay = FieldOverlay::Temperature;
-        let ambient = renderer.cell_colour(&world, 10, 10);
-        let warm = renderer.cell_colour(&world, 30, 10);
-        let cool = renderer.cell_colour(&world, 50, 10);
+        let ambient = renderer.cell_colour(&world, 10, 10, (0, 0));
+        let warm = renderer.cell_colour(&world, 30, 10, (0, 0));
+        let cool = renderer.cell_colour(&world, 50, 10, (0, 0));
         assert_ne!(warm, ambient, "a 6-degree warm reading rendered identically to ambient");
         assert_ne!(cool, ambient, "a 6-degree cool reading rendered identically to ambient");
         assert!(warm[0] > cool[0] && cool[2] > warm[2], "warm and cool must not be the same hue: warm {warm:?}, cool {cool:?}");
@@ -5341,8 +5822,8 @@ mod tests {
         let mut r = Renderer::new();
         r.field_overlay = FieldOverlay::PheromoneA;
         assert_eq!(
-            r.cell_colour(&world, 10, 10),
-            r.cell_colour(&world, 20, 20),
+            r.cell_colour(&world, 10, 10, (0, 0)),
+            r.cell_colour(&world, 20, 20, (0, 0)),
             "equal pheromone over different materials must draw identically -- a blend would leak the material colour through"
         );
 
@@ -5351,10 +5832,10 @@ mod tests {
         let off_pixel = {
             let mut plain = Renderer::new();
             plain.field_overlay = FieldOverlay::Off;
-            plain.cell_colour(&world, 40, 40)
+            plain.cell_colour(&world, 40, 40, (0, 0))
         };
-        assert_ne!(r.cell_colour(&world, 40, 40), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
-        assert_ne!(r.cell_colour(&world, 40, 40), r.cell_colour(&world, 10, 10), "and a zero reading must still be distinguishable from a strong one");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), r.cell_colour(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
     }
 
     #[test]

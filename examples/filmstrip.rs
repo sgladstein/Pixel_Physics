@@ -54,6 +54,19 @@ use pixel_physics::sim::rng;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::{explosion, material, parallel, update};
 
+/// Name the live `chain_reach` (`F9`) for the sheet.
+///
+/// `SPREAD` is `i32::MAX`, and printing that as a number tells a reader
+/// nothing at all -- while a sheet that does not name the mode it was run
+/// at cannot be compared with the one beside it, which is the whole point
+/// of sweeping the setting.
+fn chain_reach_name(reach: i32) -> String {
+    pixel_physics::sim::structural::CHAIN_MODES
+        .iter()
+        .find(|m| m.reach == reach)
+        .map_or_else(|| reach.to_string(), |m| m.name.to_string())
+}
+
 const WIDTH: i32 = 512;
 const HEIGHT: i32 = 320;
 const FLOOR_THICKNESS: i32 = 8;
@@ -405,6 +418,19 @@ fn build(args: &Args) -> World {
     w.arch_relief = args.arch;
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
+    }
+    // Before the scene is built, like the three above: `scene=worldgen`
+    // cuts caves during construction, and a material property has to be in
+    // force for that as much as for the run.
+    if let Some(spacing) = args.joint_spacing {
+        if let Some(stone) = w.materials.id_of("stone") {
+            w.materials.get_mut(stone).joint_spacing = spacing.max(0.0);
+        }
+    }
+    if let Some(contrast) = args.joint_bands {
+        if let Some(stone) = w.materials.id_of("stone") {
+            w.materials.get_mut(stone).joint_band_contrast = contrast.clamp(0.0, 0.9);
+        }
     }
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
@@ -988,18 +1014,18 @@ fn build(args: &Args) -> World {
             // comment already warned about, arriving through a second
             // door.
             w.schedule_structural_check_around(256, top + 5);
-            // Across the slab's width, not at one point in the middle of
-            // it. A single record licenses a box of `chain_reach` either
-            // side -- 32 cells at the default -- and this slab is 60 wide,
-            // so a centre-only record left its outer fourteen columns
-            // unlicensed and 231 cells of it hanging in the air after the
-            // rest had gone. `World::record_disturbance` coalesces
-            // spatially, so asking per column costs a handful of ring
-            // slots rather than sixty, and says the thing the scene
-            // actually means: the whole slab is loose.
-            for x in 226..286 {
-                w.record_disturbance(x, top + 5);
-            }
+            // Extent 30, which is the slab's own half-width, not 0.
+            //
+            // This is exactly what `Disturbance::extent` is for and it was
+            // learned the hard way here first: a centre-only record with no
+            // extent licenses `chain_reach` either side -- 32 cells at the
+            // default -- and this slab is 60 wide, so its outer fourteen
+            // columns went unlicensed and **231 cells of it hung in the air
+            // after the rest had gone**. The first fix recorded per column
+            // and let the coalescing collapse that back down, which worked
+            // and was the wrong shape: the wound is one 60-wide slab, so
+            // the honest statement is one record that says how wide it is.
+            w.record_disturbance(256, top + 5, 30);
             println!("rockdrop: a {rock}-cell slab of unattached stone {} rows over an open pool 271 wide", args.fall);
         }
         // A dense blob dropped into a walled pool: the displacement striping.
@@ -1293,6 +1319,49 @@ fn build(args: &Args) -> World {
         // the tiles differ by behaviour rather than by time of day:
         //
         //   cargo run --release --example filmstrip -- scene=colony         //     genome=r029 start=1200 every=3600 count=6 cols=3 zoom=2
+        // **Meat, at the size a corpse is actually seen.** A row of bodies
+        // laid out from starved to killed-in-its-prime, plus the one a fire
+        // left, so the question "can you tell rich meat from poor meat"
+        // gets asked at play scale instead of from a palette listing.
+        //
+        // Worths are stamped directly rather than by starving real ants:
+        // what is being judged is the *appearance ramp*, and driving it
+        // through a colony would make the sheet a picture of which ants
+        // happened to die well. `creature_dies` derives the same shade from
+        // the same numbers -- see `a_corpse_is_worth_what_the_animal_was_
+        // made_of` for the tie between them.
+        "carrion" => {
+            let corpse = w.materials.id_of("corpse").expect("corpse is compiled in");
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let floor = 150;
+            for x in 0..w.bounds().expect("bounded").max_x {
+                for y in floor..(floor + 8) {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // `ant.ron`: body_energy 120, start_energy 900, so a corpse runs
+            // from 120 (starved, dead at exactly zero) to 1020 (killed with
+            // a full bank). The shade ramp in `creature_dies` divides by
+            // that same 1020.
+            let full = 1020.0f32;
+            let shades = w.materials.get(corpse).palette.len().max(1) as u32;
+            for (i, worth) in [120u16, 320, 520, 760, 1020].into_iter().enumerate() {
+                let shade = ((worth as f32 / full).clamp(0.0, 1.0) * (shades - 1) as f32).round() as u8;
+                let x = 24 + i as i32 * 24;
+                for dx in 0..2 {
+                    w.set(x + dx, floor - 1, Cell::new(corpse, shade).with_aux(worth));
+                }
+            }
+            // And the burnt one, which arrives with no stamp at all. Shade 0
+            // and `aux` 0 is exactly what `fire.rs`'s burnout now writes for
+            // a material whose shade is derived -- it used to draw at random,
+            // which put a burnt ant at the bright end one time in five once
+            // this ramp was wide enough to read. Priced by the material
+            // fallback, so it belongs at the dark end beside the starved one.
+            for dx in 0..2 {
+                w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
+            }
+        }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -1689,8 +1758,8 @@ fn build(args: &Args) -> World {
             // already claims it is -- what the stone brush lays down --
             // since `World::paint_capsule` records a disturbance per
             // structural cell it writes.
-            w.record_disturbance(200, 108);
-            w.record_disturbance(312, 108);
+            w.record_disturbance(200, 108, 0);
+            w.record_disturbance(312, 108, 0);
         }
         "mine" => {
             pixel_physics::app::build_terrain(&mut w);
@@ -1751,7 +1820,9 @@ fn build(args: &Args) -> World {
             // because someone cut it thin, and cutting records; this scene
             // builds it thin instead, so it has to say so itself.
             w.schedule_structural_check_around(105, 152);
-            w.record_disturbance(105, 152);
+            // Extent 0: nothing was removed and nothing struck, so the
+            // "wound" is the single cell the check is asked about.
+            w.record_disturbance(105, 152, 0);
         }
         // What a player actually builds, painted through the ordinary
         // brush at the radius they use (R2, so 5 cells thick).
@@ -1880,8 +1951,37 @@ fn build(args: &Args) -> World {
                 w.paint_capsule((80, y), (80, y), 0, material::EMPTY, 1.0);
             }
         }
+        // A natural cave: a void inside *attached* rock, the situation every
+        // mining blast actually happens in. `boom_stone` answers "what does a
+        // blast do to a solid mass"; this answers the two questions that mass
+        // cannot ask -- what happens at a cave *wall* (one free face beside
+        // the charge) and under a cave *roof* (free face below, gravity
+        // pointing into it). Place the charge with the ordinary `explode=`
+        // arg: (186,240) is inside the left wall, (256,200) is inside the
+        // roof. The printed "roofed void (cave volume)" line is the number to
+        // read -- a blast that widens the cave grows it, one that caves the
+        // roof in shrinks it.
+        "cavern" => {
+            stone_floor(&mut w);
+            for x in 106..406 {
+                for y in 130..floor_y {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            // The cave: an ellipse, 120 wide by 56 tall, roof 82 cells thick.
+            let (cx, cy, a, b) = (256i32, 240i32, 60f32, 28f32);
+            for x in (cx - 60)..=(cx + 60) {
+                for y in (cy - 28)..=(cy + 28) {
+                    let (dx, dy) = ((x - cx) as f32 / a, (y - cy) as f32 / b);
+                    if dx * dx + dy * dy <= 1.0 {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            }
+            pixel_physics::sim::structural::compute_world_distances(&mut w);
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, wood, climb, shake"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake"
         ),
     }
     w
@@ -2005,6 +2105,23 @@ struct Args {
     /// `skylight=off|4|2|1` -- which sky-light mode to draw through, so the
     /// `9`/`F12` selector can be A/B'd on the structural scenes headlessly.
     sky_light: SkyLight,
+    /// `daylight=<0.0..1.0>` -- draw every tile at one fixed hour instead
+    /// of at whatever time of day the run happened to reach. `1.0` is noon,
+    /// `0.0` the darkest the lighting term goes. Unset is the ordinary
+    /// day/night cycle, so every sheet recorded before this existed still
+    /// reproduces exactly.
+    ///
+    /// **Render-only, and not a cheat.** It reaches `Renderer::
+    /// daylight_pin` and nothing else: the simulation's clock, the light
+    /// field, plants and weather all still run on `world.frame`, so this
+    /// changes what the sheet looks like and nothing about what happened
+    /// in it. The nine-blast harness fires charges 400 frames apart into a
+    /// 3,600-frame day, so its nine panels are nine different exposures --
+    /// columns 3-6 come out at night and are genuinely hard to read -- and
+    /// the tiles are being compared *to each other*. A variable that is not
+    /// the one under test has to be held constant (`CLAUDE.md`: a channel
+    /// that oscillates by design must be divided out of decisions).
+    daylight: Option<f32>,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2012,6 +2129,41 @@ struct Args {
     /// `explode=x,y,radius,strength,frame` -- fire one `explosion::trigger`
     /// at the given frame. Repeatable, for several blasts in one run.
     explosions: Vec<(i32, i32, i32, f32, usize)>,
+    /// `blast=x,depth,radius,strength,frame` -- the same charge, placed
+    /// `depth` cells below the **local solid surface** at column `x`.
+    /// Repeatable. Held as `(x, depth, radius, strength, frame)`; the `y`
+    /// is not known until it fires.
+    ///
+    /// **Why this exists next to `explode=` rather than replacing it.** A
+    /// fixed `y` is a different situation on every seed -- open sky on one,
+    /// bedrock on the next -- so a seed sweep over absolute coordinates
+    /// measures the terrain and not the change. `CLAUDE.md`: a guard over a
+    /// procedural system has to sweep the procedure. One `blast=` list is
+    /// valid on every seed; one `explode=` list is valid on exactly one.
+    ///
+    /// Resolved inside `fire_due_explosions`, at the frame it fires, not at
+    /// parse time -- so a later charge fired into the crater an earlier one
+    /// left sees the crater rather than the surface that used to be there.
+    ///
+    /// `depth` is signed: negative is an airburst above the surface,
+    /// `0` is the surface cell itself, positive is into the ground.
+    blasts: Vec<(i32, i32, i32, f32, usize)>,
+    /// `panels=W,H,age1[,age2,...]` -- write a **second** contact sheet:
+    /// one column per charge fired, one row per age, each cell a `W`x`H`
+    /// crop centred on that charge's own resolved site and captured
+    /// `age` frames after **that charge's own detonation**.
+    ///
+    /// Per-charge age rather than absolute frame, and that is the whole
+    /// point of the sheet: nine charges fired at nine different frames and
+    /// sampled at one absolute frame are nine blasts at nine different
+    /// points in their life, which is exactly the confound that makes "are
+    /// these nine outcomes different?" unanswerable. Anchoring each column
+    /// on its own bang makes a row a controlled comparison.
+    ///
+    /// Nothing is labelled on the image on purpose. The counters are on
+    /// stdout; a label baked into a PNG is a second source of truth that
+    /// goes stale.
+    panels: Option<(i32, i32, Vec<usize>)>,
     /// `cut=x,y,w,h,frame` -- erase a rectangle at the given frame.
     ///
     /// **A surgical alternative to `explode`, and it exists because the
@@ -2025,6 +2177,19 @@ struct Args {
     /// which is what isolates the *physiological* response from the
     /// mechanical one.
     cuts: Vec<(i32, i32, i32, i32, usize)>,
+    /// `depowder=frame` -- erase every `Powder`-kind cell in the world at
+    /// the given frame, and say how many.
+    ///
+    /// **The paired control for the powder surcharge**, and it exists
+    /// because neither `cut` nor `explode` can express it. The question R4
+    /// has to answer is "did the roof come down because the muck on top of
+    /// it now weighs something, or because the blast quietly took the
+    /// shell's capacity away" -- and the only way to separate those is to
+    /// run the identical blast and then take the muck away, leaving the
+    /// cracked, detached shell exactly as the blast left it. `cut` erases a
+    /// rectangle including the rock, which changes the thing under test;
+    /// this erases only what is loose.
+    depowder: Option<usize>,
     /// `poke=x,y,frame` -- schedule a structural check on that cell and its
     /// four neighbours at the given frame, changing nothing else.
     /// Repeatable.
@@ -2283,6 +2448,51 @@ struct Args {
     /// `scripts/acceptance.sh` passes `chain_reach=spread` on exactly
     /// those cases and says so at each one.
     chain_reach: Option<i32>,
+    /// `joints=<spacing>` -- override stone's `Material::joint_spacing`, the
+    /// pitch of the joint fabric (`sim::fracture_field`), in cells.
+    ///
+    /// It exists because the alternative is a rebuild per sweep point: the
+    /// `.ron` files are `include_str!`d into the binary, so editing
+    /// `stone.ron` and re-running a prebuilt harness produces bit-identical
+    /// "runs" -- which `CLAUDE.md` records as having produced three of them
+    /// before anyone noticed the knob was not connected. With this, the
+    /// density A/B is one binary and one flag, and *differing* output across
+    /// settings is itself the proof the knob reaches the mechanism.
+    ///
+    /// `0` turns jointing off entirely, which is the control.
+    joint_spacing: Option<f32>,
+    /// `bands=<contrast>` -- override stone's
+    /// `Material::joint_band_contrast`: how far the grain varies from place
+    /// to place. `0` (the shipped default) is a uniform grain everywhere.
+    ///
+    /// The A/B for the owner's *"could the pattern of cracks be more
+    /// heterogeneous"*, and it is a knob rather than a decision because the
+    /// trade is a judgement: `0.4` gives a visibly varied web, narrows the
+    /// promoted-cell spread (best case down a quarter, worst case up 7%),
+    /// and costs 10-14 ms on the worst frame. See
+    /// `sim::fracture_field::pitch_at` for the four-seed table.
+    joint_bands: Option<f32>,
+    /// `jreach=`, `jopen=`, `jdensity=` -- the three `explosion::Tuning`
+    /// knobs of the same mechanism, for the same no-rebuild reason.
+    joint_reach: Option<f32>,
+    joint_open: Option<f32>,
+    joint_density: Option<f32>,
+    /// `crack_rays=` -- the hybrid knob. `0` (the default) is pure fabric;
+    /// 4-6 puts the old radial walker back on top of it for an A/B.
+    crack_rays: Option<u32>,
+    /// `smoke=<fraction>` -- override `explosion::Tuning::smoke_fraction`,
+    /// how much of a cleared crater is backfilled with `SMOKE`.
+    ///
+    /// **`smoke=0` is the control for "do chunks fall into the hole".**
+    /// `rigid::clear_or_displaceable` shoves `Powder` and `Liquid` aside and
+    /// treats everything else as a real obstruction, `Gas` included -- so at
+    /// the shipped `0.18` a promoted chunk falling into a fresh crater can be
+    /// stopped dead by the blast's own smoke, stall for
+    /// `STALL_FRAMES_BEFORE_SETTLING` frames and re-embed roughly where it
+    /// started. Running the same charge at `0` and at the default is the
+    /// paired comparison that says whether that is actually happening, and
+    /// it costs one flag rather than a rebuild.
+    smoke: Option<f32>,
 
 }
 
@@ -2314,9 +2524,13 @@ fn parse() -> Args {
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         sky_light: SkyLight::default(),
+        daylight: None,
         gif: false,
         explosions: Vec::new(),
+        blasts: Vec::new(),
+        panels: None,
         cuts: Vec::new(),
+        depowder: None,
         pokes: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
@@ -2339,6 +2553,13 @@ fn parse() -> Args {
         confine: true,
         arch: true,
         chain_reach: None,
+        joint_spacing: None,
+        joint_bands: None,
+        joint_reach: None,
+        joint_open: None,
+        joint_density: None,
+        crack_rays: None,
+        smoke: None,
         wall: 3,
         dig: 3,
         strike: 0,
@@ -2441,6 +2662,11 @@ fn parse() -> Args {
                 "canopy" => a.organism_overlay = OrganismOverlay::CanopyDensity,
                 "vein" => a.organism_overlay = OrganismOverlay::VeinConductance,
                 "soil" => a.organism_overlay = OrganismOverlay::SoilMoisture,
+                // S3 built `OrganismOverlay::FoodValue` and specified this
+                // switch alongside it; only the render half landed, so the
+                // one readout that can answer "where is the food" was
+                // unreachable from the harness that judges by eye.
+                "foodvalue" => a.organism_overlay = OrganismOverlay::FoodValue,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -2448,9 +2674,14 @@ fn parse() -> Args {
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
                 ),
             },
+            "daylight" => {
+                let f: f32 = v.parse().expect("daylight=<0.0..1.0>");
+                assert!((0.0..=1.0).contains(&f), "daylight=<0.0..1.0>, got {f}");
+                a.daylight = Some(f);
+            }
             "repeat" => a.repeat = v.parse::<usize>().expect("repeat").max(1),
             "wall" => a.wall = v.parse().expect("wall"),
             "dig" => a.dig = v.parse().expect("dig"),
@@ -2495,6 +2726,13 @@ fn parse() -> Args {
                     _ => v.parse().expect("chain_reach"),
                 })
             }
+            "joints" => a.joint_spacing = Some(v.parse().expect("joints=<spacing in cells>")),
+            "bands" => a.joint_bands = Some(v.parse().expect("bands=<grain contrast 0..0.9>")),
+            "jreach" => a.joint_reach = Some(v.parse().expect("jreach")),
+            "jopen" => a.joint_open = Some(v.parse().expect("jopen")),
+            "jdensity" => a.joint_density = Some(v.parse().expect("jdensity")),
+            "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
+            "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "ice" => {
@@ -2513,11 +2751,25 @@ fn parse() -> Args {
                 assert_eq!(n.len(), 5, "explode=x,y,radius,strength,frame");
                 a.explosions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
             }
+            // Parsed through `f32` like `explode=` above, which also gets
+            // the sign of a negative `depth` (an airburst) for free.
+            "blast" => {
+                let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("blast")).collect();
+                assert_eq!(n.len(), 5, "blast=x,depth,radius,strength,frame");
+                a.blasts.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
+            }
+            "panels" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("panels")).collect();
+                assert!(n.len() >= 3, "panels=W,H,age1[,age2,...]");
+                assert!(n[0] > 0 && n[1] > 0, "panels=W,H,... needs a positive crop");
+                a.panels = Some((n[0] as i32, n[1] as i32, n[2..].iter().map(|&f| f as usize).collect()));
+            }
             "cut" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("cut")).collect();
                 assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
                 a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
+            "depowder" => a.depowder = Some(v.parse().expect("depowder")),
             "poke" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("poke")).collect();
                 assert_eq!(n.len(), 3, "poke=x,y,frame");
@@ -2549,21 +2801,6 @@ fn parse() -> Args {
     a
 }
 
-/// Fire every scheduled explosion whose frame has arrived, removing it from
-/// the pending list so it cannot fire twice. Draining rather than
-/// index-matching makes this safe to call both inside the stepping loop and
-/// immediately before a capture, which is what lets `frame=0` work at all
-/// (with `start=0` the loop body never runs before the first tile).
-/// Erase every scheduled cut whose frame has arrived, draining it so it
-/// cannot fire twice -- same shape as `fire_due_explosions`, and called
-/// from the same three places for the same reason.
-///
-/// Reports what it actually removed rather than what it was asked to
-/// remove. "Did the cut land on the tree" is a counter question, not a
-/// picture question: a rectangle a few cells off the trunk looks identical
-/// on a contact sheet to one that severed it, and this branch has already
-/// spent a session reading a collapse as a feature that had never once
-/// executed.
 /// Schedule structural checks at whatever positions `poke=` named, once
 /// their frame arrives. See `Args::pokes` for what the experiment is.
 ///
@@ -2577,7 +2814,12 @@ fn fire_due_pokes(world: &mut World, pending: &mut Vec<(i32, i32, usize)>, now: 
     while i < pending.len() {
         if pending[i].2 <= now {
             let (x, y, _) = pending.remove(i);
-            world.record_disturbance(x, y);
+            // Extent 0, and that is the honest value rather than a
+            // placeholder: a poke is a single cell, and `record_disturbance`
+            // takes the extent precisely so a *volume* verb cannot quietly
+            // record itself as a point. A point verb saying 0 is the arg
+            // working as intended.
+            world.record_disturbance(x, y, 0);
             world.schedule_structural_check_around(x, y);
             let cell = world.get(x, y);
             println!(
@@ -2592,6 +2834,16 @@ fn fire_due_pokes(world: &mut World, pending: &mut Vec<(i32, i32, usize)>, now: 
     }
 }
 
+/// Erase every scheduled cut whose frame has arrived, draining it so it
+/// cannot fire twice -- same shape as `fire_due_explosions`, and called
+/// from the same three places for the same reason.
+///
+/// Reports what it actually removed rather than what it was asked to
+/// remove. "Did the cut land on the tree" is a counter question, not a
+/// picture question: a rectangle a few cells off the trunk looks identical
+/// on a contact sheet to one that severed it, and this branch has already
+/// spent a session reading a collapse as a feature that had never once
+/// executed.
 fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -2617,6 +2869,101 @@ fn fire_due_cuts(world: &mut World, pending: &mut Vec<(i32, i32, i32, i32, usize
             i += 1;
         }
     }
+}
+
+/// Keep the world free of loose material from `frame` onward -- erase every
+/// `Powder`-kind cell, every frame, and say how many the first pass took.
+///
+/// **Continuous, not one-shot, and that was measured rather than assumed.**
+/// A single sweep at the blast frame removed *zero* cells (the muck is still
+/// in the particle system, not in the grid), one at frame 75 removed 74 and
+/// one at frame 100 removed 123 -- the plug is still arriving, so any single
+/// instant is an arbitrary fraction of it. What the control has to hold
+/// still is "nothing ever stands on the shell", which is a standing state,
+/// not an event (`CLAUDE.md`: measure the standing state, not the event
+/// rate).
+///
+/// Reports the first pass's count, because "the control removed the plug" is
+/// a counter question: a sheet of a cave with no rubble in it and a sheet of
+/// a cave whose rubble had already poured away look identical.
+///
+/// The cave-volume and cells-lost lines are **not comparable across this
+/// flag** -- vacuuming rubble empties cells the census would otherwise still
+/// count. Compare a vacuumed run only against another vacuumed run.
+fn fire_due_depowder(world: &mut World, pending: &mut Option<usize>, first: &mut bool, now: usize) {
+    match *pending {
+        Some(frame) if frame <= now => {}
+        _ => return,
+    }
+    let mut removed = 0;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.kind(world.get(x, y).material) == MaterialKind::Powder {
+                world.set(x, y, Cell::EMPTY);
+                // Taking a load off is a disturbance exactly as putting one
+                // on is, so the rock underneath has to be asked the question
+                // again -- the same fan-out `World::paint_capsule` already
+                // does for an ordinary erase. Around the erased cell only:
+                // a world-wide reschedule every frame would swamp the site
+                // budget and measure the scheduler instead of the model.
+                world.schedule_structural_check_around(x, y);
+                removed += 1;
+            }
+        }
+    }
+    if *first {
+        println!("  depowder: from frame {now} on, the world is kept clear of loose material -- first pass took {removed} cells");
+        *first = false;
+    }
+}
+
+/// One charge that has actually gone off, in fire order: where it landed,
+/// how big it was and which frame it detonated on.
+///
+/// Recorded rather than read back off `Args`, because `blast=`'s site is
+/// not known until it fires and because the per-charge counters and the
+/// `panels=` sheet both have to anchor on the frame it *did* fire, not the
+/// frame it was asked to. A charge scheduled past the end of a run never
+/// appears here at all, which is the honest answer.
+#[derive(Clone, Copy, Debug)]
+struct FiredCharge {
+    x: i32,
+    y: i32,
+    radius: i32,
+    frame: usize,
+}
+
+/// The topmost **solid** cell in column `x`: the smallest `y` whose cell is
+/// neither materially empty, nor `Gas`, nor `Liquid`.
+///
+/// `Liquid` is excluded deliberately rather than by oversight. A charge
+/// under the sea should be measured from the **seabed**, so `blast=120,8`
+/// reads as "8 cells into the seabed with water overhead" -- which is the
+/// near-water case this harness exists to fire. Measuring from the water
+/// surface instead would put the same argument at a different depth on
+/// every seed, which is the exact failure `blast=` exists to remove.
+///
+/// The emptiness test is the raw material comparison, not
+/// `Cell::is_empty()`: that one is managed-aware and a promoted liquid
+/// body's container cells read as *not* empty while holding no material at
+/// all (`CLAUDE.md` gotchas; `explosion.rs`'s `clear_annulus` carries the
+/// same note).
+///
+/// Panics on a column with no solid cell in it. A charge that quietly
+/// relocated itself to somewhere it could be placed would make the sheet
+/// lie about what it fired, and a sheet that lies is worse than no sheet.
+fn solid_surface_y(world: &World, x: i32) -> i32 {
+    for y in 0..HEIGHT {
+        let m = world.get(x, y).material;
+        if m == material::EMPTY {
+            continue;
+        }
+        match world.materials.kind(m) {
+            MaterialKind::Gas | MaterialKind::Liquid => continue,
+            _ => return y,
+        }
+    }
+    panic!("blast= at column {x}: no solid surface in that column, so the charge would have fired into open sky");
 }
 
 /// Light a fire at a scheduled frame -- `ignite=x,y,radius,frame`.
@@ -2650,19 +2997,53 @@ fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize
     }
 }
 
+/// Fire every scheduled explosion whose frame has arrived, removing it from
+/// the pending list so it cannot fire twice. Draining rather than
+/// index-matching makes this safe to call both inside the stepping loop and
+/// immediately before a capture, which is what lets `frame=0` work at all
+/// (with `start=0` the loop body never runs before the first tile).
 fn fire_due_explosions(
     world: &mut World,
     particles: &mut ParticleSystem,
     blasts: &mut explosion::Blasts,
     pending: &mut Vec<(i32, i32, i32, f32, usize)>,
+    pending_blasts: &mut Vec<(i32, i32, i32, f32, usize)>,
+    fired: &mut Vec<FiredCharge>,
     now: usize,
 ) {
+    // **Order within one frame: every `explode=` due now, then every
+    // `blast=` due now.** Arbitrary, and written down *because* it is
+    // arbitrary -- determinism is required here (`PLAN.md`), and an order
+    // nobody wrote down is an order somebody will reverse while tidying.
     let mut i = 0;
     while i < pending.len() {
         if pending[i].4 <= now {
             let (x, y, r, strength, _) = pending.remove(i);
             println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now}");
             blasts.trigger_with(world, particles, x, y, r, strength);
+            fired.push(FiredCharge { x, y, radius: r, frame: now });
+        } else {
+            i += 1;
+        }
+    }
+    let mut i = 0;
+    while i < pending_blasts.len() {
+        if pending_blasts[i].4 <= now {
+            let (x, depth, r, strength, _) = pending_blasts.remove(i);
+            // Resolved *here*, one line before the charge goes off, which
+            // is the whole reason `blast=` is a separate list rather than
+            // being folded into `explosions` at parse time: the surface it
+            // measures has to be the surface as it is now, craters and all.
+            let surface = solid_surface_y(world, x);
+            let y = surface + depth;
+            // The `-- blast=` suffix says what the argument resolved to, so
+            // the sheet can be read without re-deriving the terrain. It
+            // appears only for `blast=`; `explode=`'s line above is
+            // unchanged byte for byte, because recorded measurements in
+            // `Reports/explosion-stone-review.md` parse out of it.
+            println!("  boom: ({x}, {y}) r={r} strength={strength} at frame {now} -- blast={x},{depth} (surface y={surface})");
+            blasts.trigger_with(world, particles, x, y, r, strength);
+            fired.push(FiredCharge { x, y, radius: r, frame: now });
         } else {
             i += 1;
         }
@@ -2686,6 +3067,7 @@ fn advance(
     parallel_driver: bool,
     step_no: usize,
     gnome: &mut Gnome,
+    per_charge_reports: bool,
 ) {
     if parallel_driver {
         parallel::step(world);
@@ -2706,7 +3088,38 @@ fn advance(
         gnome.act(world, step_no);
     }
     world.step_active_sites();
+    // R5's report line: printed the frame a blast's last stage finishes,
+    // not at the trigger frame (`fire_due_explosions`'s own `boom:` line is
+    // that one) -- `cells_cleared`/`cells_held_by_containment` accumulate
+    // across every stage, so the report is only complete once `blasts` goes
+    // back to empty. Checked by transition (was active, now is not) rather
+    // than printed unconditionally every frame `blasts` is non-empty, or
+    // this would spam one line per stage instead of one per blast.
+    let was_active = !blasts.is_empty();
     blasts.step(world, particles);
+    if was_active && blasts.is_empty() {
+        println!("  blast report: {}", blasts.last_blast_report());
+    }
+    // One line per blast that finished this frame, each naming its own
+    // site. The line above cannot do this job for a run that fires more
+    // than one charge: `last_blast_report` is a single slot, so two
+    // overlapping blasts collapse into one line and eight of nine reports
+    // are silently overwritten -- `CLAUDE.md`'s "did it fire at all", one
+    // level up. The queue is drained every frame regardless of whether
+    // anything is printed, so `Blasts::finished` never accumulates.
+    //
+    // **Gated, and the gate is not cosmetic.** With a single charge this
+    // line says exactly what the line above it says, only with an `(x, y)`
+    // in front -- and every measurement recorded in
+    // `Reports/explosion-stone-review.md` §8-§13 was taken from a
+    // single-charge run, so an unconditional second line would change the
+    // stdout of every one of them for no information. See
+    // `per_charge_reports` at its definition in `run_once`.
+    for (bx, by, report) in blasts.drain_finished_reports() {
+        if per_charge_reports {
+            println!("  blast report ({bx}, {by}): {report}");
+        }
+    }
     // `App::update`'s slot exactly: splashes are debited from the pool and
     // thrown here, between the blast stage and the particle step. Without
     // this line the sweep reports splash sites every frame and nothing ever
@@ -3516,6 +3929,12 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             ok = false;
         }
     }
+    // Printed unconditionally, not only when `min_bodies` is set: "did any
+    // piece actually come away" is the counter half of every destruction
+    // sheet (`CLAUDE.md`, "did it fire at all" needs a counter), and a body
+    // whose whole life falls between two tiles is invisible in the per-tile
+    // lines above.
+    println!("  peak chunk bodies in flight at once: {peak_bodies}");
     if let Some(max) = args.max_unconfined {
         // `confined` counts failures of *either* mode whose region had no
         // free face (`structural.rs` records the confined-unsupported
@@ -3572,6 +3991,146 @@ fn main() {
     }
 }
 
+/// Gutter between tiles, in pixels, and the mid-grey it is filled with --
+/// so a tile that is legitimately all-black stays distinguishable from the
+/// space between tiles. Shared by the main sheet and the `panels=` one,
+/// because two sheets read side by side with different gutters read as two
+/// different instruments.
+const TILE_GAP: i32 = 2;
+const GUTTER_GREY: u8 = 90;
+
+/// Blit one `crop`-sized window of a rendered world frame into `dst` at
+/// `(ox, oy)`, magnified `zoom`x with nearest-neighbour replication.
+///
+/// One copy, used by the contact sheet, the GIF branch and the `panels=`
+/// sheet. It was three copies of the same nested loop; the third was the
+/// one that would have drifted.
+fn blit_tile(dst: &mut [u8], dst_w: i32, (ox, oy): (i32, i32), frame: &[u8], crop: Rect, zoom: i32) {
+    for y in 0..crop.height() {
+        for x in 0..crop.width() {
+            let (sx, sy) = (crop.min_x + x, crop.min_y + y);
+            if sx < 0 || sy < 0 || sx >= WIDTH || sy >= HEIGHT {
+                continue;
+            }
+            let src = (((sy * WIDTH) + sx) * 4) as usize;
+            for zy in 0..zoom {
+                for zx in 0..zoom {
+                    let (dx, dy) = (ox + x * zoom + zx, oy + y * zoom + zy);
+                    let d = (((dy * dst_w) + dx) * 4) as usize;
+                    dst[d..d + 4].copy_from_slice(&frame[src..src + 4]);
+                }
+            }
+        }
+    }
+}
+
+/// The `W`x`H` window centred on a charge, **shifted** inside the world
+/// rather than shrunk when it would run off an edge: every tile of a grid
+/// has to be the same size or the grid does not compose, so a charge near
+/// the world edge gets an off-centre view and never a small one.
+fn panel_crop(x: i32, y: i32, w: i32, h: i32) -> Rect {
+    let min_x = (x - w / 2).clamp(0, (WIDTH - w).max(0));
+    let min_y = (y - h / 2).clamp(0, (HEIGHT - h).max(0));
+    Rect::new(min_x, min_y, min_x + w - 1, min_y + h - 1)
+}
+
+/// `out`'s path with `-panels` inserted before the extension.
+fn panels_path(out: &str) -> String {
+    match out.rfind('.') {
+        Some(i) if !out[i..].contains('/') && !out[i..].contains('\\') => {
+            format!("{}-panels{}", &out[..i], &out[i..])
+        }
+        _ => format!("{out}-panels"),
+    }
+}
+
+/// The `panels=` sheet in progress: one column per charge fired, one row
+/// per age, each cell a crop centred on that charge's own site and captured
+/// that many frames after **that charge's own detonation**.
+struct PanelSheet {
+    /// Crop size in world cells.
+    w: i32,
+    h: i32,
+    ages: Vec<usize>,
+    cols: usize,
+    zoom: i32,
+    sheet: Vec<u8>,
+    sheet_w: i32,
+    sheet_h: i32,
+    /// Which grid cells have already been filled. Needed because the outer
+    /// capture loop revisits a tile boundary frame -- `fire_due_*` is called
+    /// once at `step_no == target` and again at the top of the next inner
+    /// loop -- so without this a cell on such a frame would be rendered and
+    /// blitted twice.
+    filled: Vec<bool>,
+    /// Its own `Renderer` and frame buffer, deliberately **not** the main
+    /// sheet's. `Renderer::draw` advances an internal frame counter that the
+    /// animated grain modes read, so sharing one would make the main sheet a
+    /// function of how many panel captures happened to fall between its
+    /// tiles. The main sheet has to stay byte-identical to a run without
+    /// `panels=`, and this is how that is guaranteed rather than argued.
+    renderer: Renderer,
+    frame: Vec<u8>,
+}
+
+impl PanelSheet {
+    fn new(args: &Args, w: i32, h: i32, ages: Vec<usize>, cols: usize) -> Self {
+        let (tile_w, tile_h) = (w * args.zoom, h * args.zoom);
+        let rows = ages.len() as i32;
+        let sheet_w = cols as i32 * tile_w + (cols as i32 - 1) * TILE_GAP;
+        let sheet_h = rows * tile_h + (rows - 1) * TILE_GAP;
+        let mut sheet = vec![GUTTER_GREY; (sheet_w * sheet_h * 4) as usize];
+        for p in sheet.chunks_exact_mut(4) {
+            p[3] = 255;
+        }
+        let mut renderer = Renderer::new();
+        renderer.grain = args.grain;
+        renderer.organism_overlay = args.organism_overlay;
+        renderer.field_overlay = args.field_overlay;
+        renderer.pinned_light = args.daylight.map(pixel_physics::sky::frame_for_daylight);
+        Self {
+            w,
+            h,
+            filled: vec![false; ages.len() * cols],
+            ages,
+            cols,
+            zoom: args.zoom,
+            sheet,
+            sheet_w,
+            sheet_h,
+            renderer,
+            frame: vec![0u8; (WIDTH * HEIGHT * 4) as usize],
+        }
+    }
+
+    /// Fill every grid cell whose moment is this frame. Renders the world at
+    /// most once per frame and only when something actually wants it.
+    fn capture(&mut self, world: &World, particles: &ParticleSystem, fired: &[FiredCharge], step_no: usize) {
+        let mut drawn = false;
+        for (col, c) in fired.iter().enumerate().take(self.cols) {
+            for row in 0..self.ages.len() {
+                let idx = row * self.cols + col;
+                if self.filled[idx] || c.frame + self.ages[row] != step_no {
+                    continue;
+                }
+                if !drawn {
+                    // `force_full`, for the same reason the main sheet uses
+                    // it: this must draw the whole world regardless of what
+                    // moved, or a tile inherits pixels from whichever frame
+                    // last touched them. The empty `touched` set is not a
+                    // shortcut -- `force_full` makes it unread.
+                    self.renderer.draw(world, particles, &HashSet::new(), &mut self.frame, (WIDTH as u32, HEIGHT as u32), true);
+                    drawn = true;
+                }
+                let (tile_w, tile_h) = (self.w * self.zoom, self.h * self.zoom);
+                let origin = (col as i32 * (tile_w + TILE_GAP), row as i32 * (tile_h + TILE_GAP));
+                blit_tile(&mut self.sheet, self.sheet_w, origin, &self.frame, panel_crop(c.x, c.y, self.w, self.h), self.zoom);
+                self.filled[idx] = true;
+            }
+        }
+    }
+}
+
 /// One full run. Returns its worst frame in ms, the finished world, the
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
@@ -3584,6 +4143,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // cut on construction: the dig is part of what the run costs.
     let cells_before = census(&world);
     let cave_before = roofed_void(&world);
+    // The whole material grid, not a total. `census` answers *how much* was
+    // lost; this answers *where*, which is the containment question and the
+    // one nothing in the engine could answer honestly -- see
+    // `damage_radius`. One `Vec<MaterialId>` over a 512x320 world is 320 kB
+    // and is taken once per run.
+    let materials_before: Vec<material::MaterialId> = (0..HEIGHT).flat_map(|y| (0..WIDTH).map(move |x| (x, y))).map(|(x, y)| world.get(x, y).material).collect();
     let mut renderer = Renderer::new();
     renderer.grain = args.grain;
     renderer.bubbles = args.bubbles;
@@ -3592,24 +4157,60 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     renderer.organism_overlay = args.organism_overlay;
     renderer.field_overlay = args.field_overlay;
     renderer.sky_light = args.sky_light;
+    renderer.pinned_light = args.daylight.map(pixel_physics::sky::frame_for_daylight);
     let mut particles = ParticleSystem::new();
     let mut pending = args.explosions.clone();
+    let mut pending_blasts = args.blasts.clone();
+    // Where each charge actually went off, in fire order. `blast=`'s site
+    // is not known until it fires, so this cannot be read off `Args`.
+    let mut fired: Vec<FiredCharge> = Vec::new();
+    // Whether this run prints the **per-charge** report and census lines.
+    //
+    // Gated rather than unconditional, and not to flatter a diff: with a
+    // single `explode=` charge every one of those lines is a restatement of
+    // a line already printed (`blast report:` and the boxed
+    // `cracked cells within 3x radius of ...` are both about that one
+    // charge), and every measurement recorded in
+    // `Reports/explosion-stone-review.md` §8-§13 was taken from exactly
+    // such a run. Adding a duplicate line to all of them buys nothing and
+    // changes every recorded baseline. The lines earn their place the
+    // moment a run fires more than one charge, which is what they were
+    // built for -- and `blast=` is never a single-charge idiom in practice,
+    // so it opts in on its own.
+    let per_charge_reports = !args.blasts.is_empty() || args.explosions.len() > 1;
     let mut pending_cuts = args.cuts.clone();
+    let mut pending_depowder = args.depowder;
+    let mut depowder_first = true;
     let mut pending_pokes = args.pokes.clone();
     let mut pending_ignitions = args.ignitions.clone();
     let mut blasts = explosion::Blasts::new();
+    if let Some(v) = args.joint_reach {
+        blasts.tuning.joint_reach = v;
+    }
+    if let Some(v) = args.joint_open {
+        blasts.tuning.joint_open_fraction = v;
+    }
+    if let Some(v) = args.joint_density {
+        blasts.tuning.joint_density = v;
+    }
+    if let Some(v) = args.crack_rays {
+        blasts.tuning.crack_rays = v;
+    }
+    if let Some(v) = args.smoke {
+        blasts.tuning.smoke_fraction = v;
+    }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield);
     let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
 
     let (cw, ch) = (args.crop.width(), args.crop.height());
     let (tile_w, tile_h) = (cw * args.zoom, ch * args.zoom);
-    let gap = 2i32;
+    let gap = TILE_GAP;
     let rows = args.count.div_ceil(args.cols) as i32;
     let sheet_w = args.cols as i32 * tile_w + (args.cols as i32 - 1) * gap;
     let sheet_h = rows * tile_h + (rows - 1) * gap;
     // Mid-grey gutters, so a tile that is legitimately all-black stays
     // distinguishable from the space between tiles.
-    let mut sheet = vec![90u8; (sheet_w * sheet_h * 4) as usize];
+    let mut sheet = vec![GUTTER_GREY; (sheet_w * sheet_h * 4) as usize];
     for p in sheet.chunks_exact_mut(4) {
         p[3] = 255;
     }
@@ -3640,37 +4241,24 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         for i in 0..args.count {
             let target = args.start + i * args.every;
             while step_no < target {
-                fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+                fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+                fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
                 fire_due_pokes(&mut world, &mut pending_pokes, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
-                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
+                advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
                 step_no += 1;
             }
-            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
-            for y in 0..ch {
-                for x in 0..cw {
-                    let (sx, sy) = (args.crop.min_x + x, args.crop.min_y + y);
-                    if sx < 0 || sy < 0 || sx >= WIDTH || sy >= HEIGHT {
-                        continue;
-                    }
-                    let src = (((sy * WIDTH) + sx) * 4) as usize;
-                    for zy in 0..args.zoom {
-                        for zx in 0..args.zoom {
-                            let (dx, dy) = (x * args.zoom + zx, y * args.zoom + zy);
-                            let dst = (((dy * tile_w) + dx) * 4) as usize;
-                            tile[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
-                        }
-                    }
-                }
-            }
+            blit_tile(&mut tile, tile_w, (0, 0), &frame, args.crop, args.zoom);
             frames.push(tile);
         }
 
@@ -3695,12 +4283,42 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         return (0.0, world, gnome, 0, cells_before, cave_before);
     }
 
+    // `panels=`: a second sheet, one column per charge and one row per age.
+    // Built after the GIF branch has had its chance to return, because that
+    // branch writes an animation rather than a grid and has no second sheet
+    // to write.
+    let charges = args.explosions.len() + args.blasts.len();
+    let mut panels = match (&args.panels, render) {
+        (Some((pw, ph, ages)), true) => {
+            assert!(charges > 0, "panels= needs at least one explode= or blast= charge -- a column per charge is the whole grid");
+            Some(PanelSheet::new(args, *pw, *ph, ages.clone(), charges))
+        }
+        _ => None,
+    };
+    // The last frame any panel wants a picture of. A charge fired at 3400
+    // and sampled 900 frames later needs 4300, which the main sheet's own
+    // `start`/`every`/`count` knows nothing about -- so the run has to be
+    // extended to reach it. Computed for the timing-only repeats as well as
+    // the rendered run, so `repeat=` compares runs of the same length.
+    let panel_last_frame = args.panels.as_ref().map(|(_, _, ages)| {
+        let last_age = ages.iter().copied().max().unwrap_or(0);
+        let last_charge = args.explosions.iter().map(|c| c.4).chain(args.blasts.iter().map(|c| c.4)).max().unwrap_or(0);
+        last_charge + last_age
+    });
     // Contact sheets draw every tile under the same light -- see
     // `pin_sheet_light`. The GIF branch above deliberately does not: it plays
     // at real speed, so its day/night swing is the world's own.
-    if pin_sheet_light(args) {
+    if pin_sheet_light(args) && renderer.pinned_light.is_none() {
         // Phase 0 of the cycle is noon -- `field::sun_rising` runs noon,
         // sunset, midnight, sunrise.
+        //
+        // **Only when nothing asked for a specific hour.** The merge put two
+        // independently-built pins on one field -- this automatic one and
+        // `daylight=`, which is set above -- and without the guard the
+        // automatic one lands last and silently overrides the explicit
+        // request, while the run still announces the daylight it was asked
+        // for. A sheet that says it was drawn at dusk and was drawn at noon
+        // is worse than an unpinned one.
         renderer.pinned_light = Some(0);
     }
 
@@ -3742,12 +4360,19 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     while captured < args.count {
         let target = args.start + captured * args.every;
         while step_no < target {
-            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+            // Outside the timed region below on purpose: a panel capture is
+            // harness cost, and folding it into the worst-frame number would
+            // make the sheet's own instrument report the sheet.
+            if let Some(p) = panels.as_mut() {
+                p.capture(&world, &particles, &fired, step_no);
+            }
             let began = std::time::Instant::now();
-            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome);
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
             let ms = began.elapsed().as_secs_f64() * 1000.0;
             // Frame 0 is excluded, and not to flatter the number: every
             // scene spikes there, including `terrain`, which runs no
@@ -3787,10 +4412,14 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             }
             step_no += 1;
         }
-        fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, step_no);
+        fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
         fire_due_pokes(&mut world, &mut pending_pokes, step_no);
         fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+        if let Some(p) = panels.as_mut() {
+            p.capture(&world, &particles, &fired, step_no);
+        }
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
@@ -3806,23 +4435,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
-        let (ox, oy) = (gx * (tile_w + gap), gy * (tile_h + gap));
-        for y in 0..ch {
-            for x in 0..cw {
-                let (sx, sy) = (args.crop.min_x + x, args.crop.min_y + y);
-                if sx < 0 || sy < 0 || sx >= WIDTH || sy >= HEIGHT {
-                    continue;
-                }
-                let src = (((sy * WIDTH) + sx) * 4) as usize;
-                for zy in 0..args.zoom {
-                    for zx in 0..args.zoom {
-                        let (dx, dy) = (ox + x * args.zoom + zx, oy + y * args.zoom + zy);
-                        let dst = (((dy * sheet_w) + dx) * 4) as usize;
-                        sheet[dst..dst + 4].copy_from_slice(&frame[src..src + 4]);
-                    }
-                }
-            }
-        }
+        blit_tile(&mut sheet, sheet_w, (gx * (tile_w + gap), gy * (tile_h + gap)), &frame, args.crop, args.zoom);
         // `bodies` reports M8 chunk bodies in flight. Worth printing rather
         // than inferring from the image: a coherent falling slab and a
         // tightly-packed scatter of loose grains look nearly identical at
@@ -3893,6 +4506,75 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         println!(
             "    failures: overloaded {} ({} cells), unsupported {} ({} cells)",
             f.overloaded, f.overloaded_cells, f.unsupported, f.unsupported_cells
+        );
+        // **Relabelled to what it actually holds.** It was printed as
+        // "furthest a failure landed from its trigger", which is not what
+        // `max_chain_reach` is: it is Manhattan `|failure.at - (x, y)|`,
+        // the distance from the checked cell to the failing ancestor,
+        // bounded by construction to `ROOTWARD_CHECK_STEPS` hops. Read as a
+        // containment number it is worse than useless -- on a rolling-world
+        // blast it reads 1 cell while damage is landing everywhere.
+        println!("    furthest a failure's root was from the cell that was checked: {} cells", f.max_chain_reach);
+        // ...and the number that *is* the containment measure, in the units
+        // the `F9` setting is written in so the two can be read against each
+        // other. The reach is named rather than printed raw: `i32::MAX` as a
+        // number is unreadable, and a sheet that does not say which mode
+        // produced it cannot be compared to the one beside it.
+        // ...and the number that *was* meant to be the containment measure.
+        // **It cannot report a containment failure, and it is kept only so
+        // the two can be read side by side.** It is recorded exclusively at
+        // sites downstream of `clip_region_to_licence`, and for any cell
+        // that clip retains `within_disturbance` guarantees a live
+        // disturbance within `chain_reach + extent` while
+        // `distance_to_live_disturbance` takes the *min* over disturbances
+        // of `distance - extent` -- so it is `<= chain_reach` by arithmetic.
+        // A run reading exactly 48 at LOCAL and exactly 16 at TIGHT is a
+        // saturated ceiling. See `damage_radius`, printed beneath it, which
+        // reads none of that machinery.
+        println!(
+            "    furthest damage landed from a live disturbance: {} cells (chain_reach = {}) -- CEILING, see below",
+            f.max_damage_reach,
+            chain_reach_name(world.chain_reach)
+        );
+        let (blast_reach, blast_past) = damage_radius(&world, &materials_before, &fired);
+        println!("    furthest cell this run actually changed, from the charge that made it: {blast_reach} cells ({blast_past} past that charge's own radius)");
+        // R3a's "did it fire at all" counter. A failure too big for one
+        // tick comes down over several, and the `bodies` line above shows
+        // that as a *series* of bursts -- but a series of bursts is also
+        // what several independent failures look like, and a contact sheet
+        // cannot tell them apart at all. The count says which it was.
+        println!("    of those, paced across ticks: {} slice(s), {} cells", f.staged_slices, f.staged_cells);
+        // The only line in this block that counts a *displacement*. Every
+        // number above it -- `failures`, the reach, the paced slices -- is
+        // recorded at `structural.rs`'s `record` call, which runs before
+        // the free-face test, the boundary erosion, the slicing and the
+        // fracture. So "unsupported 400 (12,000 cells)" is entirely
+        // consistent with not one cell having moved, and that is not a
+        // hypothetical: it is the exact shape of the owner's "no pieces
+        // move, ever, not even chunks well over 8 cells, and nothing turns
+        // to dust either" against a harness reporting hundreds of
+        // failures. The census line below closes the gap one step further
+        // along for *material*; this closes it for *motion*, and the two
+        // are different questions -- rubble standing where it fell is a
+        // loss to neither.
+        //
+        // Both halves are printed, never one: their ratio is the block-
+        // size distribution the ethos is about, and a run that promotes
+        // nothing and a run that shatters nothing are two different bugs
+        // that either number alone reads as the same.
+        println!(
+            "    of those, actually moved: {} bodies ({} cells promoted), {} cells shattered to rubble",
+            f.promoted_bodies, f.promoted_cells, f.shattered_cells
+        );
+        // ...and the *shape* of that number, which the pair above cannot
+        // give. See `FailureCounts::promoted_sizes`: a mean cannot tell a
+        // run where everything came off the same size from one with a few
+        // blocks, more cobbles and a lot of grit, and the second is what
+        // the ethos asks for.
+        let sz = f.promoted_sizes;
+        println!(
+            "    body sizes: <8:{} 8-15:{} 16-31:{} 32-63:{} 64-127:{} 128-255:{} 256+:{}",
+            sz[0], sz[1], sz[2], sz[3], sz[4], sz[5], sz[6]
         );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
@@ -4341,7 +5023,6 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             }
             last_bank = Some(world.atmospheric_bank);
         }
-        println!("    furthest a failure landed from its trigger: {} cells", f.max_chain_reach);
         // **Which rate the world is rotting at, and how much of it qualifies.**
         //
         // The worldgen soil baseline moved ground that used to sit at `aux ==
@@ -4397,6 +5078,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         // eighty cells inside a massif are the same grey rubble at the
         // zoom a contact sheet is read at.
         println!("    of those, confined (no free face anywhere): {} ({} cells), deepest {} cells from air, {} cells fissured", f.confined, f.confined_cells, f.deepest_confined, f.crushed_cells);
+        // The complaint itself, counted rather than looked at -- see
+        // `severed_islands`. Printed beside `confined` because the two are
+        // the same story from opposite ends: `confined` counts failures the
+        // model *judged* and refused to move, this counts rock that is cut
+        // free and standing there whether or not anything ever judged it.
+        let (pieces, islands, island_cells, largest_piece) = severed_islands(&world);
+        println!("    rock the fissures actually cut loose: {pieces} piece(s), largest {largest_piece} cells -- of those, wedged with no free face: {islands} ({island_cells} cells)");
         // How much the world has actually *lost* since the cut was made,
         // which the failure counts above cannot say: a failed cell that
         // became rubble is still standing there. Printed per tile rather
@@ -4404,6 +5092,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         // has stopped eating and one that is still going look identical in
         // a single total. See `Args::max_lost`.
         println!("    roofed void (cave volume): {} cells, was {} at the cut", roofed_void(&world), cave_before);
+        println!("    gas cells standing in the world: {}", smoke_census(&world));
         let (solid, powder) = census(&world);
         println!(
             "    cells lost since the cut: {} (rock {:+}, rubble {:+})",
@@ -4411,6 +5100,48 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             solid - cells_before.0,
             powder - cells_before.1
         );
+        // R1's halo, censused rather than inferred from the image: a
+        // fissure line a cell wide reads as noise at the zoom a contact
+        // sheet is usually read at (baseline measured 47 nearly-invisible
+        // cells on `boom_stone`, per `Reports/explosion-stone-review.md`
+        // §1a), so "did the crack halo actually fire" needs the same
+        // counter-next-to-the-image treatment as `bodies` above. Boxed
+        // around the *last* `explode=` site specifically -- a scene may
+        // schedule more than one, and the box only means anything relative
+        // to a single blast's own radius.
+        if let Some(&(ex, ey, er, ..)) = args.explosions.last() {
+            println!("    cracked cells within 3x radius of ({ex}, {ey}): {}", cracked_census(&world, ex, ey, er));
+            // The anti-"permanent sticker" counter. Scorched stone has no
+            // conductivity, so nothing in `fire.rs` ever cools it (its
+            // thermally-inert fast path returns before any decay) -- a hot
+            // ring written by a blast used to be *permanent*, and an image
+            // cannot tell a glow that is fading from one that is frozen:
+            // both are orange in a still. Max and count together, because
+            // they answer different halves: the max says how bright the
+            // brightest cell still is, the count says how much of the ring
+            // is still lit at all.
+            let (hottest, lit) = heat_census(&world, ex, ey, er);
+            println!("    hottest cell within 3x radius: {hottest} C, cells above ambient: {lit}");
+        }
+        // The census above is boxed around the **last** `explode=` site,
+        // which is one charge of however many the run fired -- with nine
+        // charges it measures one of them and says nothing about the other
+        // eight. It stays exactly as it is because recorded baselines quote
+        // it; these are the ones that answer the question the sheet is
+        // actually about. See `per_charge_reports` for why they are gated.
+        if per_charge_reports {
+            for c in &fired {
+                println!("    cracked cells within 3x radius of ({}, {}): {}", c.x, c.y, cracked_census(&world, c.x, c.y, c.radius));
+            }
+            // A whole-world scan, and worth saying what it costs because
+            // `CLAUDE.md` is emphatic that harness cost is still cost: it is
+            // 512x320 cell reads **per tile**, not per frame -- a handful of
+            // scans across a run of thousands of frames, next to which it
+            // does not register. It is here because the boxes above cannot
+            // answer it: cracks spread, and a halo that has walked out of
+            // every box reads as the crack mechanism switching off.
+            println!("    cracked cells in the world: {}", cracked_world_census(&world));
+        }
         // Pieces or grit. A region below `MIN_FRACTURE_CELLS` is not
         // fractured at all -- it falls through to per-cell conversion,
         // which *is* powder -- so a run whose failures average 1 or 2
@@ -4465,16 +5196,65 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         captured += 1;
     }
 
+    // Keep stepping to the last frame `panels=` wants a picture of. Only
+    // entered when `panels=` is set, so a run without it ends exactly where
+    // it used to -- which matters, because `check_expectations` and the
+    // final census both read the world this leaves behind.
+    if let Some(limit) = panel_last_frame {
+        while step_no < limit {
+            fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
+            fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+            if let Some(p) = panels.as_mut() {
+                p.capture(&world, &particles, &fired, step_no);
+            }
+            let began = std::time::Instant::now();
+            advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
+            let ms = began.elapsed().as_secs_f64() * 1000.0;
+            peak_bodies = peak_bodies.max(world.chunk_bodies.len());
+            if ms > worst_ms && step_no > 0 {
+                worst_ms = ms;
+                worst_frame = step_no;
+            }
+            step_no += 1;
+        }
+        fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
+        fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
+        if let Some(p) = panels.as_mut() {
+            p.capture(&world, &particles, &fired, step_no);
+        }
+        // The run went past its last tile, so the per-tile worst-frame line
+        // above stopped before the end. Say what the whole run cost, or the
+        // frames the extension paid for would be the only ones nobody timed.
+        if render {
+            println!("  panels: ran on to frame {step_no}; worst frame over the whole run {worst_ms:.2} ms (frame {worst_frame})");
+        }
+    }
+
     if render {
-        // **The one number a contact sheet cannot give you.** A collapse
-        // rendered as coherent falling slabs was once read as "chunks are
-        // working" while the body count was zero for the whole run -- what
-        // was on screen was loose rubble that happened to hold its shape,
-        // and the two are indistinguishable at the zoom a sheet is read at
-        // (`CLAUDE.md`: "did it fire at all" needs a counter). Sampled every
-        // frame rather than per tile, because a body's whole life can fall
-        // between two captures.
-        println!("peak chunk bodies in flight at once: {peak_bodies}");
+        image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
+            .expect("writing the contact sheet");
+        println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+        // Said out loud, because a pinned exposure is invisible in the
+        // image and a sheet nobody can reproduce is not evidence.
+        if let Some(f) = args.daylight {
+            println!("  drawn at a pinned daylight of {f} (render only -- the run itself was unaffected)");
+        }
+        if let Some(p) = panels {
+            let path = panels_path(&args.out);
+            image::save_buffer(&path, &p.sheet, p.sheet_w as u32, p.sheet_h as u32, image::ColorType::Rgba8)
+                .expect("writing the panels sheet");
+            println!("panels sheet ({}x{}, {} rows x {} cols): {}", p.sheet_w, p.sheet_h, p.ages.len(), p.cols, path);
+            // A grid cell that never got a picture is a charge that never
+            // fired, and a grey square is not a reading -- say so rather
+            // than letting the gutter colour be mistaken for "nothing
+            // happened there".
+            let missing = p.filled.iter().filter(|f| !**f).count();
+            if missing > 0 {
+                println!("  panels: {missing} of {} cells never captured -- a charge scheduled past the end of the run", p.filled.len());
+            }
+        }
     }
     if peak_speed > 0.0 {
         println!(
@@ -4492,9 +5272,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
     }
     println!("worst full-screen draw: {worst_draw_ms:.2} ms");
-    image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
-        .expect("writing the contact sheet");
-    println!("contact sheet ({sheet_w}x{sheet_h}, {} tiles): {}", args.count, args.out);
+    // The sheet is written in the `if render` block above and nowhere else.
+    // An unguarded second write stood here after the merge, so a rendered run
+    // encoded and announced the same PNG twice, and a timing-only `repeat=`
+    // pass -- which renders nothing worth keeping -- wrote and announced one
+    // as well.
     (worst_ms, world, gnome, peak_bodies, cells_before, cave_before)
 }
 
@@ -4614,4 +5396,279 @@ fn water_census(world: &World) -> (f64, i64, i64) {
 fn occupied(world: &World) -> i64 {
     let (solid, powder) = census(world);
     solid + powder
+}
+
+/// Cells with either crack bit set (`Cell::cracked`, the OR of
+/// `crack_right`/`crack_down`) within a `3 * radius` box centred on a blast
+/// site -- the census R1's report line needs `explosion.rs`'s own R5 doc:
+/// "did the crack halo actually fire" is a counter question, the same way
+/// "did the chunk-body mechanism fire" turned out to be earlier in this
+/// project's history (`CLAUDE.md`, "did it fire at all" needs a counter).
+/// `3x radius` rather than the crack halo's own `length` so the box stays
+/// meaningful across a sweep of `crack_reach` without having to be
+/// recomputed by hand each time.
+/// The hottest cell in the same box, and how many cells in it are still
+/// above ambient at all -- `(hottest, lit)`.
+///
+/// Companion to `cracked_census`, and it exists for the same "a counter,
+/// not a picture" reason: whether a blast's glow is *going away* is a
+/// trajectory, and one still frame of an orange ring looks identical
+/// whether it is cooling or frozen forever.
+fn heat_census(world: &World, cx: i32, cy: i32, radius: i32) -> (i16, u32) {
+    let box_r = radius * 3;
+    let (mut hottest, mut lit) = (pixel_physics::sim::cell::AMBIENT_TEMPERATURE, 0u32);
+    for y in (cy - box_r)..=(cy + box_r) {
+        for x in (cx - box_r)..=(cx + box_r) {
+            let t = world.get(x, y).temperature();
+            hottest = hottest.max(t);
+            if t > pixel_physics::sim::cell::AMBIENT_TEMPERATURE {
+                lit += 1;
+            }
+        }
+    }
+    (hottest, lit)
+}
+
+/// Every `Gas` cell standing in the world right now.
+///
+/// A *standing* count, not a count of dissipation events, and that is the
+/// point: what the owner sees is a grey cap that is still there, and
+/// `CLAUDE.md`'s own rule is that a complaint about something visible and
+/// persistent is answered by the standing state rather than the event rate
+/// (the film hunt learned that the expensive way). It is also the "did it
+/// fire at all" counter for `Material::dissipation` — smoke thinning and
+/// smoke drifting off the top of the crop look identical on a contact
+/// sheet, and only a number distinguishes them.
+///
+/// Whole world rather than boxed around the blast, because smoke *leaves*:
+/// a box would show the plume clearing when it had only walked out of the
+/// box, which is exactly the wrong reading.
+fn smoke_census(world: &World) -> u32 {
+    let mut n = 0u32;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.kind(world.get(x, y).material) == MaterialKind::Gas {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Every cracked cell in the world, whichever blast scored it.
+///
+/// The companion the boxed census needs for the same reason `smoke_census`
+/// is whole-world rather than boxed: a crack star that has grown past
+/// `3 * radius` leaves the box, and a box that loses its subject reports
+/// the mechanism switching off. With several charges it is also the only
+/// figure that is not double-counted where two halos overlap.
+fn cracked_world_census(world: &World) -> u32 {
+    let mut n = 0u32;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.get(x, y).cracked() {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// **Containment, measured without asking the thing that enforces it.**
+///
+/// How far from the charge that made it the furthest cell of **rock that
+/// stopped being rock** sits, over every charge fired in the run, in cells
+/// past that charge's own radius. A cell is attributed to its nearest
+/// charge, so two blasts do not blame each other.
+///
+/// # Why this exists, and what it replaces
+///
+/// `FailureCounts::max_damage_reach` cannot report a containment failure.
+/// It is recorded only at sites downstream of `clip_region_to_licence`, and
+/// for any cell that clip retains, `within_disturbance` guarantees some live
+/// disturbance within `chain_reach + extent` while
+/// `distance_to_live_disturbance` takes the **min** over disturbances of
+/// `distance - extent`. So the recorded value is `<= chain_reach` by
+/// arithmetic, at every site. A table reading "LOCAL 48, TIGHT 16, NONE 0"
+/// against leashes of 48, 16 and 0 is a saturated ceiling, not a
+/// measurement, and `CLAUDE.md` names the shape: *a debug readout must not
+/// be a function of the thing it debugs.*
+///
+/// This reads none of that machinery -- not `chain_reach`, not
+/// `World::disturbances`, not `within_disturbance`, not `licence_radius`,
+/// and not the `chain_window` age test. It compares two material grids and
+/// measures a distance. It can therefore return 200 at TIGHT, which is the
+/// entire point of having it.
+///
+/// # Two numbers, and the difference matters
+///
+/// `(furthest, past_radius)`. The first is measured from the epicentre and
+/// includes the crater the charge is *supposed* to make; the second nets
+/// that off, and is the one to compare against a leash, since `chain_reach`
+/// leashes the chain beyond the wound rather than the wound itself
+/// (`structural::Disturbance`). Reported as `-1` when nothing changed at
+/// all, never `0`: `CLAUDE.md` asks what a metric says when nothing is
+/// wrong, and "perfectly contained" and "nothing happened" must not share a
+/// reading.
+fn damage_radius(world: &World, before: &[material::MaterialId], fired: &[FiredCharge]) -> (i32, i32) {
+    if fired.is_empty() {
+        return (-1, -1);
+    }
+    let (mut furthest, mut past) = (-1i32, -1i32);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let idx = (y * WIDTH + x) as usize;
+            let was = before[idx];
+            // **Rock that stopped being rock**, and nothing else. The first
+            // draft of this counted any changed cell and read 296 on a
+            // single charge -- almost all of it smoke drifting to the far
+            // edge of the world and debris grains landing. Both are real
+            // changes and neither is damage, and `CLAUDE.md` has the rule
+            // this broke: the whisker hunt's metric counted every droplet
+            // in the world because its definition was what falling water
+            // looks like. So: the cell was `Solid` before, and is not the
+            // same material now. Deposition is excluded on purpose -- a
+            // grain landing on a hillside is the blast's litter, not its
+            // reach.
+            if world.materials.kind(was) != MaterialKind::Solid || world.get(x, y).material == was {
+                continue;
+            }
+            // Nearest charge, so a cell that two blasts could both claim is
+            // charged to the one it is actually near.
+            let mut best = i32::MAX;
+            let mut best_past = i32::MAX;
+            for c in fired {
+                let d = (x - c.x).abs().max((y - c.y).abs());
+                if d < best {
+                    best = d;
+                    best_past = d - c.radius;
+                }
+            }
+            furthest = furthest.max(best);
+            past = past.max(best_past);
+        }
+    }
+    (furthest, past)
+}
+
+/// **The owner's first complaint, as a number.**
+///
+/// > *"Chunks of rock that seem fully cracked all the way around stay put
+/// > too often and don't fall into the leftover hole/crater."*
+///
+/// An **island** here is a maximal 4-connected component of body material
+/// that the fissures have cut completely free -- every step out of it is
+/// either a cracked edge into more rock, or the edge of the world. If any
+/// step reaches air, gas or loose material, the piece has somewhere to go
+/// and is not what he is reporting; it is excluded.
+///
+/// Returned as `(pieces, islands, cells, largest)` -- `pieces` is every
+/// component the fissures genuinely cut loose from the massif, and `islands`
+/// is the subset of those with no free face anywhere. The pair is the whole
+/// point: if `pieces` is near zero the web on screen is not cutting anything
+/// at all, and no amount of work on what a *severed* piece is allowed to do
+/// will change what the player sees.
+///
+/// All are printed, never one:
+/// a run with many one-cell chips stuck in the massif and one with a single
+/// 200-cell slab hanging in a wall are different bugs that any single number
+/// reads as the same, and `MIN_BODY_CELLS` is 8 -- an island under that was
+/// never going to fly whatever the support model said.
+///
+/// **Why this is a counter and not a picture.** A contact sheet shows a web
+/// of dark polygon outlines whether those polygons are about to come apart
+/// or have been welded in place for two thousand frames, and at the zoom a
+/// sheet is read at the two are indistinguishable. `CLAUDE.md`: *"did it fire
+/// at all" needs a counter, not a picture.*
+///
+/// 4-connected, matching `load::is_supported` and `rigid::take_fragment` --
+/// the two consumers that decide whether this piece is held and how it comes
+/// apart. Asking in 8 would call a piece free that neither of them can
+/// actually separate.
+fn severed_islands(world: &World) -> (usize, usize, usize, usize) {
+    use std::collections::VecDeque;
+    let idx = |x: i32, y: i32| y as usize * WIDTH as usize + x as usize;
+    let mut seen = vec![false; (WIDTH * HEIGHT) as usize];
+    let solid = |x: i32, y: i32| {
+        world.in_bounds(x, y) && matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid)
+    };
+    // A component bigger than this is the massif, not a chunk. Bounding the
+    // *walk* rather than declining to answer: the walk is abandoned and the
+    // cells stay marked, so the hillside is paid for once instead of once
+    // per cell in it.
+    const MAX_ISLAND: usize = 512;
+    let (mut pieces, mut islands, mut cells, mut largest) = (0usize, 0usize, 0usize, 0usize);
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if seen[idx(x, y)] || !solid(x, y) {
+                continue;
+            }
+            let mut queue = VecDeque::from([(x, y)]);
+            seen[idx(x, y)] = true;
+            let mut member = Vec::new();
+            let mut enclosed = true;
+            let mut overflowed = false;
+            while let Some((cx, cy)) = queue.pop_front() {
+                member.push((cx, cy));
+                if member.len() > MAX_ISLAND {
+                    overflowed = true;
+                    break;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) {
+                        continue; // a joint: this is where the island ends
+                    }
+                    if !world.in_bounds(nx, ny) {
+                        continue; // the world's edge holds it like rock does
+                    }
+                    if !solid(nx, ny) {
+                        // Air, gas, powder or plant across an *uncracked*
+                        // edge: this piece has an open side, so whatever is
+                        // keeping it up, it is not being wedged.
+                        enclosed = false;
+                        continue;
+                    }
+                    if !seen[idx(nx, ny)] {
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+            }
+            if overflowed {
+                // Drain the rest so the massif is marked and not re-walked.
+                while let Some((cx, cy)) = queue.pop_front() {
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (cx + dx, cy + dy);
+                        if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) || !solid(nx, ny) || seen[idx(nx, ny)] {
+                            continue;
+                        }
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+                continue;
+            }
+            pieces += 1;
+            largest = largest.max(member.len());
+            if enclosed {
+                islands += 1;
+                cells += member.len();
+            }
+        }
+    }
+    (pieces, islands, cells, largest)
+}
+
+fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {
+    let box_r = radius * 3;
+    let mut n = 0u32;
+    for y in (cy - box_r)..=(cy + box_r) {
+        for x in (cx - box_r)..=(cx + box_r) {
+            if world.get(x, y).cracked() {
+                n += 1;
+            }
+        }
+    }
+    n
 }

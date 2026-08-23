@@ -2371,6 +2371,60 @@ this machine's documented noise, not a signal.)
   crust case — those two now pass only because the fire and phase-change
   fixes are real, which is the whole point of keeping them leashed.
 
+#### And then the merge measured it properly, and TIGHT came back out
+
+`origin/main` had moved 58 commits while this branch ran, and two of them
+matter here. One reshaped what a failing region is, so a room's ceiling now
+comes down as **one** paced 1,903-cell failure instead of thirty-seven
+separate ones. The other made `F9` reach work already in flight
+(`relicense_staged_fractures`), which is the fix for "switching to NONE
+does nothing". Together with TIGHT as the default, on the acceptance pair
+that encodes *"cutting a wall brings the room down"*:
+
+| `chain_reach` | failing cells | roofed void left |
+|---|---|---|
+| TIGHT (16) | 238 | **100%** |
+| LOCAL (48) | 1,975 | 19% |
+| SPREAD | 1,975 | 19% |
+
+**At TIGHT the room does not come down at all.** Not a bug:
+`licence_radius` is `chain_reach + extent`, a radius-3 chisel's extent is
+5, and a 200-wide room's ceiling fails as one region reaching ~100 cells
+from the cut, so the relicensing correctly drops nine tenths of it. Main's
+own `wiki/structural-collapse.md` already named that trade as the open
+question on the page — *"a long span can lose the part near the blast and
+leave the far part standing on nothing"* — and kept SPREAD as the default
+because of it.
+
+So the default went back to SPREAD and the choice went to the owner with
+the table. Everything else stayed: the three verbs, the coalescing, the
+larger ring, CLEAN, TRACE. It is one line in `CHAIN_MODES` when he calls
+it, and `LOCAL` is the answer that gives him the containment he asked for
+without the cost.
+
+The lesson is the merge, not the measurement: this branch measured TIGHT
+against a tree where a room's collapse was thirty-seven separate failures,
+each small enough to sit inside the licence. **A default measured against
+the wrong base is not measured.** The seed sweep and the acceptance run
+that said TIGHT was safe were both honest and both stale by 58 commits.
+
+#### Main had already written this bug down, and deferred it
+
+`Reports/open-bugs-handoff.md` D1, from the explosion branch: *"The brush
+and fire license nothing, so a burnt trunk leaves its crown in the air"*,
+with the fix shape *"give the brush and the fire burnout a
+`record_disturbance` with an extent"*. Diagnosed, correct, and deferred —
+and it could sit there indefinitely precisely because SPREAD's early return
+made it unreachable. Building TIGHT is what forced it. The third verb
+(structural phase change) is one neither the entry nor its fix shape named.
+
+Also from that merge: main had independently given `Disturbance` an
+`extent` field, so the licence scales with the tool's own wound. That is a
+better answer than this branch's per-column `record_disturbance` loop for
+`rockdrop` — a 60-wide slab is now one record with `extent: 30` rather than
+sixty records leaning on the coalescing. Theirs was taken and the loop
+deleted.
+
 #### TRACE, and a card posted with placeholders in it
 
 The owner's verdict on the spoil pair was *"most of the options produce

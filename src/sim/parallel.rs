@@ -314,8 +314,8 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
         // and `PLAN.md`'s determinism requirement is met by `run_pass`
         // merging outcomes in a fixed chunk order rather than as they
         // finish.
-        for (x, y) in outcome.disturbances {
-            world.record_disturbance(x, y);
+        for (x, y, extent) in outcome.disturbances {
+            world.record_disturbance(x, y, extent);
         }
         for (x, y, was, now) in outcome.organism_moves {
             world.reindex_organism_cell(x, y, was, now);
@@ -374,7 +374,7 @@ struct ChunkOutcome {
     field_touched: bool,
     pending_active_sites: Vec<ActiveSite>,
     /// See `ChunkView::disturbances`'s own doc.
-    disturbances: Vec<(i32, i32)>,
+    disturbances: Vec<(i32, i32, i32)>,
     /// Positions where a same-chunk write overwrote a `FLAG_MANAGED` cell
     /// (`Reports/liquid-heightfield-design.md` §5a) — see `ChunkView::set`'s
     /// own comment for why this is a genuinely separate queue from the
@@ -486,7 +486,7 @@ struct ChunkView<'w> {
     /// only its own chunk, so two adjacent burnouts either side of a chunk
     /// edge would each survive its local dedup and then be merged
     /// correctly by the one that can see both.
-    disturbances: Vec<(i32, i32)>,
+    disturbances: Vec<(i32, i32, i32)>,
     /// See `ChunkOutcome::demotions`'s own doc.
     demotions: Vec<(i32, i32)>,
     /// See `ChunkOutcome::absorptions`'s own doc.
@@ -756,8 +756,8 @@ impl CellSurface for ChunkView<'_> {
         self.pending_active_sites.push(site);
     }
 
-    fn record_disturbance(&mut self, x: i32, y: i32) {
-        self.disturbances.push((x, y));
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        self.disturbances.push((x, y, extent));
     }
 
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {

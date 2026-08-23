@@ -50,7 +50,7 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
 | `F6` / `F8` | New world from a fresh seed / back to the previous seed |
 | `F7` | Cycle the worldgen preset, keeping the seed — rolling → terraced → canyon → wetland → arid → legacy → flat (the structural test bed) |
-| `F9` | Cycle how far structural damage may travel from a blow: TIGHT (the default, set by playtest) → LOCAL → SPREAD → NONE; named in the title bar off the default. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
+| `F9` | Cycle how far structural damage may travel from a blow: SPREAD (default) → LOCAL → TIGHT → NONE; named in the title bar off the default. TIGHT was tried as the default and backed out — it stops a room's ceiling coming down; see the M17 section. See [`wiki/structural-collapse.md`](wiki/structural-collapse.md) |
 | `L` | Cycle the organism overlay — per-cell organism channels on a fixed dark→bright ramp |
 | `I` | Toggle the hover inspector — material, temperature, every field channel at the cursor |
 | `N` | Toggle the structural stress view — every load-bearing cell tinted green at rest through red at its limit |
@@ -199,6 +199,11 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                what, and where it breaks -- fissures, strike damage
   rigid.rs     M8: chunk bodies -- component labeling, contour tracing,
                and detached pieces falling as one coherent thing
+  fracture_field.rs
+               the joint fabric: which Worley domain a cell of rock belongs
+               to, so a blast reveals the grain the rock already has instead
+               of drawing a star across it. Position-keyed and stateless, so
+               a second charge retraces the first one's breaks
   liquid.rs    heightfield liquid bodies -- test-only today: promotion was
                implemented and reverted, so its bugs are latent until it
                lands (Reports/liquid-heightfield-design.md)
@@ -1132,18 +1137,20 @@ canalization doc-vs-code gap above:
 
 ## M17 status
 
-**The chaining leash is on by default (`TIGHT`), and switching it on wired
-up three verbs that had never reported themselves.** `World::chain_reach`
+**Three verbs that could never license a failure now can, and the leash
+default is unchanged.** `World::chain_reach`
 refuses a structural failure that is not within its radius of something
-recently disturbed, and it shipped defaulting to `i32::MAX` -- for which
-`within_disturbance` has a literal `return true` at the top, so in every
-run the engine had ever done the disturbance ring was never read. A
-playtest picked `TIGHT`, and making it the default turned that early
-return off for the first time: only `rigid::strike`, `rigid::mine` and
-`explosion` had ever called `record_disturbance`, so the brush erasing a
-support, fire burning through a trunk, and lava quenching into crust all
-scheduled a structural check that was then found and declined. Each now
-records, reachable from inside the parallel sweep through a new
+recently disturbed, and it defaults to `i32::MAX` -- for which
+`within_disturbance` has a literal `return true` at the top, so on the
+default path the disturbance ring is never read. Building `TIGHT` as the
+default (asked for by playtest, and backed out again -- see below) turned
+that early return off for the first time and showed that only
+`rigid::strike`, `rigid::mine` and `explosion` had ever called
+`record_disturbance`. So the brush erasing a support, fire burning through
+a trunk, and lava quenching into crust each scheduled a structural check
+that was then found and *declined* at any setting but SPREAD --
+`Reports/open-bugs-handoff.md` D1 had this open, for rock and for trees.
+Each now records, reachable from inside the parallel sweep through a new
 `CellSurface::record_disturbance` that `ChunkView` queues and `run_pass`
 replays, the same shape as `schedule_active_site`.
 
@@ -1157,8 +1164,21 @@ coalescing, a burning wood would have evicted the player's own dig within
 a frame, and that dig is exactly what `chain_window`'s ten seconds exist
 to keep alive.
 
-**Measured, TIGHT is close to a no-op on every harness scene, and that is
-worth knowing before anyone tunes it.** The reason is arithmetic: the
+**`TIGHT` was built as the default, measured, and backed out.** It breaks
+the acceptance pair that encodes *"cutting a wall brings the room down"*:
+on `scene=room wall=5 dig=3` the ceiling's failure drops from 1,975 cells
+to **238** and the roofed void stays at **100%** -- the room does not come
+down at all. That is not a bug. `licence_radius` is `chain_reach + extent`,
+a radius-3 chisel's extent is 5, and a 200-wide room's ceiling fails as one
+region reaching ~100 cells from the cut, so `relicense_staged_fractures`
+correctly drops nine tenths of it. `wiki/structural-collapse.md` already
+named this trade as its open question; making TIGHT the default makes it
+the default experience, which wants a playtest verdict. `LOCAL` (48) gives
+the containment without the cost -- 1,975 cells and 19% roof left, the same
+as SPREAD. Moving the default is one line in `CHAIN_MODES`.
+
+**Elsewhere, TIGHT is close to a no-op, which is worth knowing before
+anyone tunes it.** The reason is arithmetic: the
 harness reports `furthest a failure landed from its trigger` at **7-8
 cells** on these scenes, and TIGHT's radius is 16, so the leash is simply
 not binding most of the time. Over the 24-run seed sweep
@@ -1178,8 +1198,8 @@ minority of cases where a failure would have landed past 16 cells", not
 from the owner as *"there is nothing happening in either of these
 images"*, correctly.
 
-That also means the default is low-risk, and that the substantive part of
-switching it on was the three verbs above, not the leash itself. Frame
+So the substantive part of this work is the three verbs above, not the
+leash setting. Frame
 cost is unchanged (`ascii` mean over 12,000 frames: 3.770 ms against a
 3.746 ms baseline re-measured the same session).
 
@@ -1318,6 +1338,22 @@ mid-burn, rather than either reading their timers or treating "temporarily
 unusable" the same as "no support at all." Regression test:
 `a_burning_solid_neighbours_burn_timer_is_never_read_as_its_distance`.
 
+**Rock has a grain, and a blast wakes it** (`fracture_field.rs`). Where the
+planes stone is disposed to part along run is a fixed, position-keyed
+property of the place rather than a shape drawn at the moment of the event,
+so a second charge on the same ground retraces the first one's breaks rather
+than drawing new ones. A blast severs the boundaries of the Worley domains
+around it — closed, straight-sided polygons meeting at three-way junctions —
+and a *confined* failure reveals the same fabric where it stands. The
+severing rule is exact and needs no threshold: an edge is a joint iff its two
+cells sit in different domains, which is the domain's own boundary on the
+4-connected grid, so a domain whose boundary is fully severed is enclosed by
+construction rather than by luck. `Reports/explosion-stone-review.md` §15-17
+is the design record, and `Material::joint_spacing` (`0.0` = not jointed) is
+what keeps this to brittle rock: sand, soil, gravel and snow are already the
+fragments.
+
+
 ## M18 status
 
 Built: M18 Phase 1, a cell-based creature — a burrowing worm (`creature.rs`).
@@ -1433,6 +1469,109 @@ generation-wrap counter), and a positive existence assertion added to
 `a_worm_burrows_through_sand_but_never_enters_stone`, which previously only
 checked the stone wall was undisturbed and could have passed vacuously the
 same way the three tests above did, for an unrelated reason, in the future.
+
+### M18 S1–S4: the creature economy, and an edible forest floor
+
+Merged from `creatures-m18` on 2026-08-23. `Reports/creature-evolution-plan.md`
+holds the staged plan and the "As built" measurements; **every S4 number in it
+predates this merge and is superseded by the numbers here.**
+
+**S1–S2 — the genome.** The heritable genome grew from 248 slots to 584 on a
+scheme that can extend on any axis without re-keying what is already there,
+with a manifest hash so a stale genome cannot be read as a fresh one.
+`BRAIN_OUTPUTS` is 10. `synapse_cost` became `synapse_fraction`, a fraction of
+`start_energy` rather than an absolute: as an absolute it was silently a
+different tax every time anything changed the energy budget, and one harness
+spent 80% of a creature's life on thinking without anyone noticing.
+
+**S3 — food is worth what it is.** Nutrition used to be `eat_energy`, a
+constant of the *eater*, so a corpse was worth whatever bit it. Worth now
+lives on the material (`food_energy`, `food_class`), except for the one case
+that genuinely varies — a corpse is worth what the animal was made of, and
+carries that per cell in `Cell::aux` (`worth_in_aux`). `body_energy` is
+granted at spawn and can never be spent, so a creature starved to exactly 0
+still leaves food behind. The `EnergyLedger` was reworked into two stocks,
+live and meat, which closes the pump §13l recorded: the old ledger balanced
+while conjuring 300 joules per bite.
+
+**S4 — the canopy feeds the floor.** All three abscission sites write `litter`
+instead of erasing the leaf, and litter is on the ants' menu. A shed leaf is
+carried down through its own crown to where it would have landed, rather than
+written where it hung: writing in place looked equivalent and was not, because
+a crown catches its own leaf fall — 3,825 of 4,330 standing litter cells were
+resting on plant tissue. Litter rots back to soil on `decay.rs`'s channel at
+its own per-material rate, so the floor reaches equilibrium instead of
+integrating the canopy's shedding forever.
+
+**What it costs, measured paired in one session on one machine.** The colony
+scene at 12,000 frames went **mean 3.121 ms → 2.979 ms** — litter that reaches
+the floor and rots is *cheaper* than the bare canopy it replaced. That is the headline
+result and it is not a rounding artifact: the same mechanism measured **+45%**
+(1.875 → 2.714 ms) on `creatures-m18`, where litter never rotted and simply
+accumulated. Worst-frame moved 46.1 → 66.4 ms and is *not* quoted as a
+regression — worst-frame spread on identical binaries has been measured at
+3.5x here, so only the mean is usable.
+
+**Known limitations.**
+
+- **The floor feeds the colony, and the colony stops ranging.** Same run:
+  deliveries 222 → 260 (+17%), but moves 13,980 → 9,595 (−31%), nest-visits
+  6,014 → 3,852 (−36%), digs 79 → 43 (−46%). This is the owner's stated
+  constraint arriving as a measurement — a complex system whose visible
+  result is ants sitting still eating fallen leaves is not wanted. Litter's
+  rot rate is therefore a **design** knob, not a performance one, and the
+  values here (damp 0.5 / dry 0.1) are a starting point pending a verdict.
+- Most litter is **dry**, whatever the weather: the moisture field is sampled
+  at the litter's own block, which is air, so only 2–7% of standing litter
+  reads above the damp gate. The dry rate is the one that governs.
+- `decay_chance_*` is resolved from a serde default at parse time rather than
+  a `0.0`-means-shared sentinel, so `decay_chance_dry: 0.0` means what it says.
+- **"Against plant" is not "stuck in a tree", and the probe used to imply it
+  was.** 39% of standing litter has a live organism cell underneath it, and
+  almost all of that is a drift piled against a trunk *at floor level* — 88%
+  of all litter sits within four rows of the ground and none of it is more
+  than 32 rows up. A litter cell is a grid cell and cannot go behind a tree
+  the way the gnome can: he is an entity with his own collision rules, it is
+  a material, and two materials cannot share a cell. So resting on a trunk
+  base is `litter.ron`'s 42-degree friction angle working, not failing.
+  `litter_probe` now names the column `against-plant` and refuses to be read
+  without the height bands.
+
+**Two follow-ups the owner judged by eye, after the merge landed.** Litter's
+palette is warmer and lighter than the browns it shipped with: the original
+set was deliberately close to soil so a layer would read as ground *texture*,
+and at play zoom that lost — the floor was there and could not be seen. Chosen
+from a blind A/B. And `LITTER_FALL_REACH` went 64 → 512, because a grown crown
+tops out ~125 rows above the ground and the walk was running out *inside the
+canopy*: the tallest trees, whose leaves have furthest to fall, were the ones
+whose litter never reached the floor. Litter against plant 44.4% → 39.3%,
+within three rows of the ground 29.5% → 35.4%.
+
+**Foraging range, and why `nest_visits` was never the guard it read as.**
+`CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is
+incremented unconditionally every tick — so the guard is false exactly once
+per lifetime and the counter scores every move made while nest-adjacent. It
+counts loitering. `assert!(nest_visits > 0)` therefore passes trivially for a
+colony that never leaves the nest mouth, which is the failure it looked like
+it was guarding.
+
+The replacement is a spatial excursion depth re-anchored at every nest contact
+(`OrganismState::forage_anchor`), booked as `forage_trips` /
+`forage_depth_sum` / `forage_depth_max` and a threshold-free cumulative
+profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
+the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
+`[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
+(a seventh of the count, under half the depth) because outcome spread here is
+large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+one ant, a nest, no food — and neither arm is worth anything alone.
+
+**`Material::insubstantial` bought zero cells on `wood`, and the zero is
+recorded.** The gnome runs through leaf litter with no wade drag, on the
+owner's direct instruction. It does not move `scripts/acceptance.sh`'s `wood`
+case, which reads **98 travelled against a bar of 200 on all three of**
+`origin/main`, the merge, and the merge plus the flag. Earlier notes citing 34
+predate main's own plant work and no longer reproduce; the residual is tree
+architecture, not litter depth (`Reports/open-bugs-handoff.md` bug Y).
 
 ## UI improvements — overnight run, section 9
 

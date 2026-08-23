@@ -32,6 +32,10 @@ than being something you'd paint on purpose:
   from a living tree's own moisture, it catches fire more readily than
   living wood does.
 
+Any of them piled on top of rock is *weight* on that rock — see
+[Structural Collapse](structural-collapse.md). A dusting is nothing; a deep
+pile on a thin span is enough to bring the span down.
+
 Two members of the family live on other pages: **snow**, which falls from
 weather, banks steeper than sand and melts when the cold passes (see
 [Weather](weather.md)), and a plant's **seed**, which falls and lodges like

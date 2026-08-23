@@ -37,12 +37,12 @@ pub(crate) const DECAY_TICK_INTERVAL: u64 = 200;
 /// Per-check decay chance once the ash reads as damp (`DECAY_MOISTURE_
 /// THRESHOLD`). Untuned against anything real, same as every other
 /// probability on this channel.
-const DECAY_CHANCE_DAMP: f32 = 0.05;
+pub(crate) const DECAY_CHANCE_DAMP: f32 = 0.05;
 /// Per-check decay chance when dry — small but nonzero, the same
 /// "poikilohydric plants survive brief dry spells" reasoning `plant.rs`'s
 /// `MOSS_DRY_CHANCE` uses: real weathering does not stop completely just
 /// because it hasn't rained recently, it only slows down a great deal.
-const DECAY_CHANCE_DRY: f32 = 0.002;
+pub(crate) const DECAY_CHANCE_DRY: f32 = 0.002;
 /// Matches `plant.rs`'s own `DAMP_MOISTURE_THRESHOLD` — the same "how wet
 /// counts as wet" reading, kept as its own constant rather than shared
 /// since the two channels' thresholds are free to diverge later and
@@ -53,12 +53,14 @@ const DECAY_CHANCE_DRY: f32 = 0.002;
 /// stale the first time this is retuned, which is exactly the retune this
 /// constant is currently under review for.
 pub const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
-/// Chance a newly-formed soil cell reseeds plant growth in the empty cell
-/// directly above it, checked once at the moment of decay rather than
-/// scheduled to keep trying — succession happens, but not on every patch of
-/// soil forever. A documented simplification: a soil cell that misses this
-/// one roll stays bare soil for good, it doesn't get a second chance later.
-const RESEED_CHANCE: f32 = 0.15;
+// The reseed chance moved onto the material (`ash.ron`'s `reseed_chance`,
+// which keeps this constant's old 0.15). It is checked once at the moment of
+// decay rather than scheduled to keep trying — succession happens, but not on
+// every patch of soil forever, and a soil cell that misses its one roll stays
+// bare soil for good. It had to stop being global when litter arrived: ash
+// cells exist only where something burned, litter cells are produced by every
+// shading leaf in a growing forest, and one shared 0.15 would have turned a
+// stand into a mat of seedlings.
 
 /// Dispatch a due `ActiveKind::Decay` site. `scheduler::step` never routes
 /// any other `ActiveKind` here.
@@ -75,13 +77,38 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // something else, been erased, or been buried and dug back out as
     // something else entirely since the site was scheduled. Nothing to do,
     // and nothing to reschedule.
-    let cell = world.get(x, y);
-    let Some(into) = world.materials.get(cell.material).decays_into else {
+    // **What is here now, and what its own file says it turns into.** This
+    // used to read `id_of("ash")` and write `id_of("soil")`. That was honest
+    // while ash was the only material that weathered, and it became a wall
+    // the moment litter (S4) needed the same channel: the scheduling side was
+    // already generic over `ActiveKind::Decay`, only the transformation was
+    // nailed to two names. `CLAUDE.md` -- when a rule must tell two things
+    // apart, state the difference as data.
+    //
+    // The cell may have burned into something else, been erased, or been
+    // buried and dug back out as something else entirely by the time this
+    // check comes due. Reading the material *here* rather than remembering
+    // what scheduled the site is what makes all of those a quiet no-op.
+    let here = world.materials.get(world.get(x, y).material);
+    let (rate_damp, rate_dry) = (here.decay_chance_damp, here.decay_chance_dry);
+    let (Some(into), reseed_chance) = (here.decays_into, here.reseed_chance) else {
         return Vec::new();
     };
 
+    // **The material's own rate, always -- there is no fallback branch here
+    // and that is deliberate.** An unset rate resolves to `DECAY_CHANCE_DAMP`
+    // / `DECAY_CHANCE_DRY` at parse time (`MaterialDef`'s serde defaults), so
+    // ash keeps exactly the numbers it always had while litter states its
+    // own. An earlier version used `0.0` as a "use the shared rate" sentinel
+    // and was rejected: it made `decay_chance_dry: 0.0` -- "rots when damp,
+    // never when dry" -- inexpressible, which is the one setting a desert
+    // litter or a bone would want.
+    //
+    // Litter needs its own because sharing ash's gave it a lifetime sixteen
+    // times longer than the runs it is measured in, so it never reached
+    // equilibrium -- it only integrated the canopy's shedding.
     let damp = world.field_at(x, y).moisture > DECAY_MOISTURE_THRESHOLD;
-    let chance = if damp { DECAY_CHANCE_DAMP } else { DECAY_CHANCE_DRY };
+    let chance = if damp { rate_damp } else { rate_dry };
     if !world.rng.chance(chance) {
         return vec![ActiveSite { x, y, kind: ActiveKind::Decay, next_frame: world.frame + DECAY_TICK_INTERVAL }];
     }
@@ -137,12 +164,11 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // little before germinating, which is the model rather than a defect.
     world.set(x, y, Cell::new(into, shade));
 
-    // Reseed roll: only if there's actually room to grow into, only ever
-    // this one chance (see RESEED_CHANCE's own doc), and only for a material
-    // that asked for it. Ash does; litter deliberately does not, because
-    // leaf fall under a standing canopy is not a succession event -- see
-    // `Material::decay_reseeds`.
-    if world.materials.get(cell.material).decay_reseeds && world.is_empty(x, y - 1) && world.rng.chance(RESEED_CHANCE) {
+    // Reseed roll: only if there's actually room to grow into, and only ever
+    // this one chance -- see `MaterialDef::reseed_chance`, which is now per
+    // material rather than one global constant, because ash and litter differ
+    // by two orders of magnitude in how many cells reach this line.
+    if reseed_chance > 0.0 && world.is_empty(x, y - 1) && world.rng.chance(reseed_chance) {
         if world.rng.flip() {
             world.plant_moss_seed(x, y - 1);
         } else {
@@ -231,6 +257,62 @@ mod tests {
 
         assert_eq!(w.get(14, 100).material, soil, "damp ash never decayed into soil");
         assert_eq!(w.get(64, 100).material, ash, "dry ash decayed as readily as damp ash");
+    }
+
+    /// **The generalisation, tested on the material it was made for.**
+    ///
+    /// `tick` used to read `id_of("ash")` and write `id_of("soil")`. Making
+    /// it read the cell's own `decays_into` left every ash test passing --
+    /// which proves ash still works and says nothing about whether a *second*
+    /// material can use the channel at all. `CLAUDE.md`: when you replace a
+    /// mechanism, the old tests can keep passing while testing nothing.
+    #[test]
+    fn litter_weathers_into_soil_on_the_same_channel_ash_uses() {
+        let mut w = test_world();
+        let litter = w.materials.id_of("litter").expect("litter is a compiled-in material");
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        assert_eq!(
+            w.materials.get(litter).decays_into,
+            Some(soil),
+            "test setup: this test is about litter weathering to soil, and that is not what the data says"
+        );
+
+        // Same walled trough the ash test uses, and for the same reason: an
+        // open puddle drains away before the moisture field registers it.
+        for x in 10..20 {
+            w.set(x, 100, Cell::new(litter, 0));
+        }
+        w.set(9, 99, Cell::new(material::STONE, 0));
+        w.set(20, 99, Cell::new(material::STONE, 0));
+        for x in 12..18 {
+            w.set(x, 99, Cell::new(material::WATER, 0));
+        }
+        w.schedule_active_site(ActiveSite { x: 14, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+
+        run(&mut w, 20_000);
+
+        assert_eq!(w.get(14, 100).material, soil, "damp litter never weathered into soil, so the decay channel is still ash-only");
+    }
+
+    /// **Litter must not reseed, and ash must still do so.**
+    ///
+    /// The reseed roll was one global `RESEED_CHANCE = 0.15`, which was fine
+    /// while ash was its only caller: ash exists only where something burned.
+    /// Litter is produced by every shading leaf in a growing forest -- 11,478
+    /// cells in one measured run -- and a 15% chance per cell to plant a tree
+    /// is a feedback loop that turns a stand into a solid mat of seedlings.
+    /// The value is per material now, and this is the guard on the pair of
+    /// them, because "0" is exactly the kind of value that reads as an
+    /// oversight and gets "fixed" later.
+    #[test]
+    fn litter_does_not_reseed_the_forest_that_dropped_it() {
+        let w = test_world();
+        let litter = w.materials.id_of("litter").expect("litter");
+        assert_eq!(w.materials.get(litter).reseed_chance, 0.0, "litter must not reseed: see the type doc for the feedback loop it would close");
+        assert!(
+            w.materials.get(material::ASH).reseed_chance > 0.0,
+            "ash still has to reseed -- that is M16's own 'a forest burns and regrows' criterion, and moving the constant onto             the material must not have quietly dropped it"
+        );
     }
 
     #[test]

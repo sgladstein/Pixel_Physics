@@ -71,6 +71,155 @@ by default** now, on a playtest (*"no question grade off is better"*). So the
 correct and still guarded, with the guard forcing the mode explicitly so it
 cannot pass vacuously.
 
+**The `D` entries are the destruction/blasting group**, from the explosion-in-
+stone branch. Numbered apart because `0`, `0b`, `0c` and `0d` below are
+worldgen's and were here first.
+
+### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air — **FIXED**
+
+`World::record_disturbance` has exactly three production callers —
+`rigid::mine_swept`, `rigid::strike` and `explosion.rs`. The paint brush
+(`World::paint_*`) and fire burnout record nothing. Since `39d0978` the
+organism support path is gated on `within_disturbance`, so at LOCAL, TIGHT
+and NONE, erasing or burning out a trunk leaves the crown standing as living
+wood. **Rock has had the identical hole for longer** — erasing a pillar with
+the brush at LOCAL leaves the roof floating — so this is a pre-existing gap
+that `39d0978` newly exposed for a second material class, not a regression.
+
+Also worth knowing: `rigid::strike` and `rigid::mine_swept` both `continue`
+on `organism_id() != 0`, so the pick and the chisel cannot damage a tree at
+all. **The explosion is the only tree-damaging verb that records a
+disturbance**, which means LOCAL and TIGHT degenerate to NONE for vegetation
+under every other verb.
+
+*Fix shape:* give the brush and the fire burnout a `record_disturbance` with
+an extent. That repairs rock's brush inertness at the same time. Deliberately
+not done on the explosion branch — it is a change to two unrelated verbs.
+
+**Done, on the branch that made `TIGHT` the default `chain_reach`** — which
+is what forced it: with SPREAD default, `within_disturbance` returns `true`
+on its first line and none of this was reachable, so the gap could sit here
+indefinitely. Three verbs now record, not two:
+
+- `World::paint_capsule`, per structural cell it writes, extent 0.
+- `fire.rs`'s burnout, at the `was_structural` fan-out, extent 0.
+- `fire.rs`'s `transform`, wherever a phase change crosses the structural
+  boundary — the case neither this entry nor its fix shape named. Lava
+  quenching to crust over open water mints a solid nothing has touched, and
+  under a leash it minted and then never came apart.
+
+The last two run inside the sweep with no `&mut World`, so this needed a
+`CellSurface::record_disturbance` that `ChunkView` queues and `run_pass`
+replays, the same shape as `schedule_active_site`.
+
+Two sizing consequences, both from this entry's own premise that the world
+is not a player: a burning wood writes a disturbance per burnt-out cell, so
+`record_disturbance` now **coalesces spatially** at `chain_reach / 2`
+(widening the kept record's extent to the larger of the two), and
+`MAX_DISTURBANCES` is 16 -> 64. Without that, a fire evicts the player's own
+dig within a frame and the licence tracks whatever burned most recently —
+destroying exactly the delayed cave-in `chain_window`'s ten seconds exist
+for.
+
+**Still open from this entry, and untouched:** `rigid::strike` and
+`rigid::mine_swept` still `continue` on `organism_id() != 0`, so the pick
+and the chisel cannot damage a tree at all, and the explosion remains the
+only tree-damaging verb. That half is a change to the dig verbs, not to
+what records a disturbance.
+
+### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
+
+`c089aa2` reshaped what a failing region is (boundary erosion, fragments
+separating along fissures). On `scene=room wall=5 dig=3` the ceiling's
+collapse merged from **thirty-seven separate failures into one** paced
+failure of 1,903 cells. Measured against `origin/main`, roofed void as a
+percentage of what was there at the cut:
+
+```text
+  frame        2     200     400     800
+  main      100%     20%     22%     22%
+  branch    100%     24%     18%     18%
+```
+
+The roof comes down on both, and slightly further on the branch by frame 400
+— so the outcome is equivalent or better and `acceptance.sh`'s `roomcut` bar
+was moved from an event count to `max_cave=40` accordingly. **What is not
+settled is the timing.** The owner has separately complained about breakage
+arriving late, and this is a collapse taking a bit over twice as long to
+arrive. It needs a playtest verdict, not another metric: if it reads as
+sluggish in the hand, the lever is `FRACTURE_CELLS_PER_TICK` and the staging
+interval, not the region shaping.
+
+### D3. Near-surface blasts do not throw chunks into the air
+
+Reported from play: *"explosions in particles and explosions deep in the rock
+are close to satisfying, but explosions near the surface of rock should blast
+chunks into the air and it doesn't."* Diagnosed and deliberately not built.
+
+The plumbing exists: `ChunkBody` has signed `vx/vy`, `rigid::advance`
+integrates gravity as a plain `+=` with no falling-only assumption, and
+`rigid::promote` computes a real radial velocity. Four reasons it cannot do
+this today, none of them a tuning value:
+
+1. **Magnitude.** At the crater rim `|v| = (180 * 0.06) / ~21 ~= 0.51`
+   cells/frame; against `GRAVITY = 0.15` that is **0.87 cells of rise**. The
+   same blast's particles launch at 8-9 cells/frame, ~16x faster — which is
+   why the ejecta plume that reads well is entirely grit.
+2. **Direction is radial from the epicentre only** — no free-surface normal.
+3. **The one late chunk-producing step is aimed the wrong way on purpose**:
+   `explosion::calve` uses `-(strength * CALVE_FORCE)`, throwing the rim
+   *into* the hole.
+4. **Depth is not an input to any impulse.** `probe_confinement` computes
+   `RayResult.cost` — the resistance-weighted distance to air — and
+   **discards it**. There is no burden measurement anywhere.
+
+*Fix shape, worked but unbuilt:* keep `RayResult.cost` per sector as the
+burden; grade the outcome three ways on it (deep -> camouflet unchanged,
+shallow -> flood the cone between the charge and its nearest free surface and
+hand it to `fracture_with_impulse` with a **positive** force along the
+free-surface normal, zero -> surface burst that mostly vents); and make the
+magnitude an order of magnitude larger than the rim's — 2-4 cells/frame buys
+13-53 cells of rise against `MAX_SPEED_PER_AXIS` of 6.0. `Reports/
+explosion-stone-review.md` §4 already defers "explicit spall" by name.
+
+
+### D4. At a bounded reach a collapse can stop part way and leave a slab in open air
+
+`39d0978` clips a failing region to the licence, so at LOCAL and TIGHT a
+failure eats only the part of itself the leash covers. On `scene=ligament` at
+TIGHT that means **383 of the overhang's 4,400 cells come down** — the part
+inside the 33x33 box around the neck — and **4,017 stay standing, as a slab
+with air under it**, because the clip removed the middle of the connection
+and refused the rest.
+
+**This is a decision, not a bug**, and both halves of it are already written
+down. `wiki/structural-collapse.md` states the consequence in the player's
+language ("at the tighter settings a collapse can now stop part way and leave
+rock standing that is holding nothing up"). The older promise it replaced —
+*"nothing stops half way and leaves rock hanging in the air, and no setting
+anywhere makes the rest of it safe"* — is what
+`a_paced_remainder_falls_even_when_the_disturbance_cannot_reach_it` asserts,
+and the two cannot both be true at a bounded reach. That test is `#[ignore]`d
+with the full account in its own doc comment rather than edited, per
+`CLAUDE.md`'s "a revert keeps the knowledge": the reproduction is exact, and
+whichever way this is settled it is the scene that shows it.
+
+**Nothing is unguarded, only undecided.** The property that test was *named*
+for — the staged queue is work, never re-judged — is pinned by
+`a_paced_remainder_falls_even_after_its_licence_has_gone`, in a form the clip
+does not make vacuous.
+
+**The open question, in the words of the commit that created it:** *is a
+4,000-cell slab left hanging in open air at TIGHT better or worse than the
+unleashed cascade it replaces? It is not obviously better, and it is the one
+outcome the load model has spent four support models avoiding.*
+
+It needs a playtest verdict at LOCAL/TIGHT, not another metric. Note that
+SPREAD — the shipped default, and what acceptance and CI run — is untouched:
+`clip_region_to_licence` returns the region unchanged at `i32::MAX`. Full
+record: `Reports/explosion-stone-review.md` §17, and the test's doc comment
+at `src/sim/structural.rs`.
+
 ### 0. Roofed water: `ponds` fills both sides of an overhang (worldgen)
 
 `ponds` fills any hollow that reaches the open surface, and an overhang
@@ -687,7 +836,66 @@ suspicion: the stand does not read as separate trees. The bole findings in
 58, foliage share 27% and falling with age) are the measured shape behind
 it.
 
-### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, BLOCKING, 2026-08-22**
+### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **OPEN, not yet reproduced, 2026-08-23**
+
+Found by inspection during the `creatures-m18` merge review, **not created by
+it**. `Particle` carries `material` and `shade` but not `aux`, and landing
+writes `Cell::new(particle.material, particle.shade)`. Since S3, a `corpse`
+cell carries what it is worth to eat in `aux` (`Material::worth_in_aux`), so a
+corpse thrown by an explosion lands unstamped and falls through to
+`corpse.ron`'s `food_energy` fallback: **a corpse worth 1,020 becomes worth
+120, an 8.5x silent loss** on the one material whose value is per-cell.
+
+**No existing guard can see it.** `EnergyLedger::max_standing_meat` is a `<=`
+bound, so meat quietly going missing passes it, and `creature_biomass` is
+asserted monotone non-increasing, which a loss also satisfies.
+
+**Why it is listed now rather than fixed now.** The gap predates the merge —
+`explosion.rs` was already throwing material at the merge base — but main is
+the branch that made blasts actually throw debris, so the merge is what makes
+it reachable in play. It has **not** been reproduced: nobody has measured how
+often a corpse is inside a blast radius, and that is the first step.
+
+The fix, when it is wanted: carry `aux: u16` on `Particle` and write it back
+only when the landing material has `worth_in_aux`, or a wet soil grain will
+land claiming to be food. `rigid.rs`'s `BodyCell` has the same shape and is
+**not** a bug: it only ever holds `Solid`/`Plant`, and its `aux = 0` is
+deliberate so a landing body does not silently re-attach.
+
+### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, 2026-08-23**
+
+> **UPDATE 2026-08-23, measured on the `creatures-m18` merge: the 34 below
+> no longer reproduces, and the litter attribution under it is now wrong.**
+>
+> Measured on `origin/main` (5515071) before touching anything, and again
+> after the merge and after the port that adds `Material::insubstantial`:
+>
+> | | travelled | bar |
+> |---|---|---|
+> | `origin/main`, baseline this session | **98** | 200 |
+> | + creatures-m18 merge (litter walks down, rots faster) | **98** | 200 |
+> | + `insubstantial` (the gnome runs through litter) | **98** | 200 |
+>
+> Three separate builds, one number. So:
+>
+> - **The 34 is stale.** Main's own plant work moved it to 98 at some point
+>   between this entry being written and 5515071, without anyone re-running
+>   the case. Anything downstream that quotes 34 — including this entry's
+>   own table, and the doc on `Material::insubstantial` as ijdlnp wrote it —
+>   is quoting a world that no longer exists.
+> - **`insubstantial` bought exactly 0 cells**, and that zero is recorded
+>   rather than hidden. It was ported on the owner's direct instruction
+>   ("make it so the gnome can run through leaf litter as if it was
+>   nothing"), which is a gameplay-feel call and stands on its own; it is
+>   simply not what this case measures.
+> - **The residual 102 cells are not litter.** Litter is now 8x less hung
+>   up (3,825 → 466 cells resting on plant tissue) and 81% of everything
+>   shed rots away, and the number did not move at all. The remaining
+>   attribution is tree architecture, as the section below already
+>   suspected.
+>
+> Still open, still red against its bar of 200. No longer blocking on the
+> ecology line.
 
 `scripts/acceptance.sh`'s `wood` case fails on the merged branch:
 
@@ -922,6 +1130,28 @@ but it does make the intended fix roughly ten times more expensive: crossing
 the wilting point from bone-dry goes from ~2 strikes to ~18.
 
 ### A. The slot-1 root spread has collapsed — **OPEN. Three explanations tried; the third was wrong too, and the lever now measures as dead.**
+
+> **2026-08-23, from the `creatures-m18` merge: this test flips with litter
+> volume, and has still never been seed-swept.** Three measurements in one
+> session, same machine, same build settings:
+>
+> | tree | draw -1 | draw +1 | spread | vs 10% bar |
+> |---|---|---|---|---|
+> | `origin/main` 5515071 (baseline) | 294 | 318 | 8.2% | **red** |
+> | + creatures-m18 merge | — | — | — | *green* |
+> | + `LITTER_FALL_REACH` 64 -> 512 | 354 | 378 | 6.8% | **red** |
+>
+> The sign never changes and neither does the failure mode; only the margin
+> moves, and it moves by a couple of points either side of the bar as the
+> volume of litter on the floor changes. **The green in the middle row is not
+> a fix and must not be read as one** — it is one sample from a distribution
+> straddling the bar, which is the exact shape `CLAUDE.md` warns about when a
+> bar is set near a measured value.
+>
+> What this adds to the section below: the lever is not merely weak, it is
+> weak enough that an unrelated change to ground cover moves it across the
+> acceptance threshold. Any future attempt on this bug should **sweep seeds
+> and report an order statistic** before believing either a red or a green.
 
 **Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
 move the bar.** My third explanation was that the test is single-seed
@@ -2461,6 +2691,155 @@ already argues quiescence is the wrong gate — is now moot until the above
 is settled.
 
 ---
+
+### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **OPEN, inherited from `main`, 2026-08-23**
+
+`examples/ascii.rs:1850` fails its own setup assertion:
+
+```
+=== ants: deposition follows the moisture gradient, with no build rule anywhere ===
+  pickups 1764 drops 1731 digs 0 deaths 0
+  mean |grad moisture|: steep half 0.000, flat half 0.000
+  material left standing: steep half 3, flat half 0
+panicked: the scene must actually contain the gradient it is testing: 0.000 vs 0.000
+```
+
+**Inherited, and measured rather than assumed.** Built `origin/main` at
+`da1faf0` in a clean worktree and ran `ascii` there: it fails with
+**byte-identical numbers** — same 1764/1731, same 3-versus-0, same panic
+line. So this is `main`'s, not the explosion merge's, and the merge
+reproduces it exactly.
+
+**Why no one has seen it.** `.github/workflows/ci.yml` runs all five gates
+as *sequential steps of one job*. `cargo test` is step 4 and is currently
+red on `main` (bug A, the slot-1 lever). When it fails, steps 5-9 —
+including `cargo run --example ascii` and `scripts/acceptance.sh` — are
+marked **`skipped`**, not run. Verified on run `32604849243`: one job, one
+failure, five skipped steps. **So "main is green" cannot be concluded from
+CI for any gate after `cargo test`, and has not been true for at least
+these two.** A local run of all five is currently the only way to know.
+
+The assertion is a *setup* check — `wet_grad > dry_grad`, i.e. "the scene
+contains the gradient this test is about" — so it is `CLAUDE.md`'s "a scene
+that contradicts the code will look like a bug in the code", and the thing
+to check first is whether the scene still builds the moisture gradient it
+was written around, not whether the ants' deposition rule is wrong. Both
+halves reading 0.000 to three decimals is the tell: it is not that
+deposition stopped following the gradient, it is that there is no gradient
+to follow. Note the printed 0.000 is rounded — the pre-merge explosion
+branch printed the same 0.000/0.000 and *passed*, so the true values are
+small and non-zero and the ordering flipped somewhere below the third
+decimal.
+
+### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
+
+`sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
+was green on the explosion branch at `5f72fe2` and fails on the merge:
+
+```
+the extent bought nothing: 1022 cells failed with the wound licensed
+against 1586 with a point licence -- TIGHT is leashing the blast's own seams
+```
+
+**Cause isolated by ablation, not inferred.** Reverting *only*
+`load::rests_on_ground` to its pre-merge one-liner (`the cell below is a
+Powder`) and changing nothing else makes the test pass. `origin/main`'s
+`grain_is_footing` predicate — the §17e fix that stops a slab being anchored
+by two grains of its own debris, and which `explosion-stone-review.md` §17h
+directs this merge to take wholesale — is the sole trigger. **It is not a
+defect in that fix.**
+
+**The mechanism still works; the *measure* is what broke.** Sweeping the
+test's own frame budget, everything else held:
+
+| frames | verdict |
+|---|---|
+| 100 | passes |
+| 200 | passes |
+| 400 | fails, 1022 vs 1586 |
+| 600 | fails, 1022 vs 1586 (identical — it has settled by ~400) |
+
+So licensing the wound *does* buy more failure early, which is the claim the
+test is named for. What happens later is that the point-licence arm, being
+throttled, keeps failing cells for hundreds of frames while the licensed arm
+has already collapsed and settled — and a **cumulative** cell count then
+reads the throttled arm as the more damaged one. Once rubble stopped
+anchoring, there is simply much more to cascade through.
+
+**Fourth time a count has caught a mode shift rather than a behaviour
+change** — see §17g's `roomcut` and case 6's `strike`.
+
+**Fixed by owner decision: the guard now compares `promoted_cells`** — rock
+lifted out of the grid as a moving body — instead of summing the failure
+counters. Three candidates were measured before choosing, which is the only
+reason the obvious one was not taken:
+
+| quantity | wound | point | ordering |
+|---|---|---|---|
+| region sum (was) | 1022 | 1586 | inverted |
+| **promoted cells (now)** | **840** | **649** | wound +29% |
+| stone destroyed | 657 | 648 | wound +1.4% |
+
+Stone destroyed is the intuitive census and orders *correctly* — and is
+rejected anyway, on headroom: a bar is set from measurement with room, not
+sitting on it. Shortening the run was rejected on principle rather than on
+numbers: it passes at 100 and 200 frames, but `CHAIN_WINDOW_FRAMES` is 600,
+so the licence is live for the entire run and stopping early would be tuning
+to green rather than measuring anything.
+
+**Red-checked**, because a guard that cannot fail for the replacement is
+worth nothing (`CLAUDE.md`: a superseded mechanism's tests keep passing
+while testing nothing). Flattening *both* arms to a point licence makes the
+extent buy nothing by construction, and the guard fails there as it must —
+649 against 649. Restored, it passes.
+
+`grain_is_footing` itself is untouched and was never at fault; the ablation
+that named it only established which landed change exposed the bad measure.
+
+### J. A blocked substep still vents the smoke it was only *probing* — **OPEN, pre-existing, 2026-08-23**
+
+Found by review of the water merge, in `rigid::clear_or_displaceable`.
+
+`try_step` scans every cell of a body to find out whether the substep is
+blocked, and the scan is meant to be side-effect free until the verdict is
+in. Its own comment says so: *"A body that turns out to be blocked now
+leaves the water where it was, instead of having shoved half of it on the
+way to finding out."* That is what `Step::swaps` is for — the `Liquid` arm
+records the exchange and defers it.
+
+The `Gas` arm does not. It calls `world.set(x, y, Cell::EMPTY)` inline, so a
+body that is then judged blocked has already erased the smoke it was only
+asking about. On a fresh crater, which is 18% `SMOKE` by
+`Tuning::smoke_fraction`, that is the one place it happens most.
+
+**Pre-existing, not the merge's.** Byte-identical at `5f72fe2`, before
+`origin/main` was merged. What the merge changed is that the deferral
+discipline now sits three lines away, which is how the review saw it. The
+`Powder` path via `displace` mutates in the same speculative way, so the
+honest framing is that `swaps` fixed liquids and left the other two kinds
+alone, not that gas is uniquely wrong.
+
+**Not fixed here, deliberately.** Routing the vent through `swaps` changes
+what a blast leaves behind, and the Gas arm's justification is a *measured*
+paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
+`smoke=0` control: 1 body / 10 cells in flight at frame 80 against the
+control's 6 / 100). Any change here has to re-run that pairing and be judged
+by eye, which is a piece of work rather than a merge repair.
+
+### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
+
+Also from the merge review. In `rigid.rs` around the rotation fit, the probe
+calls `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
+position is its own current position. The `if (tx, ty) == (cx, cy) { continue }`
+guard at the top of the scan then skips **every** cell, `horizontal` and
+`vertical` are never set, and `axis` is always `None` — the probe reports
+"nothing blocks this rotation" unconditionally, so a wedged body rotates
+through a wall.
+
+**In both parents.** Not introduced by the merge and not this branch's to
+fix; recorded because it is live, it is invisible (a probe that always says
+yes looks exactly like a probe that is working), and nothing else in the
+handoff names it.
 
 ## Closed this session
 
