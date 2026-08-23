@@ -4030,6 +4030,25 @@ a rising floor, and soil that does not match.
 
 ### M. Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest — **OPEN, found 2026-08-23**
 
+> **Still red five merges later, and it is now blocking every pull request
+> (confirmed 2026-08-23 from CI, not from this file).** `main`'s own CI has
+> gone red on **every** run today — `d5e7af8`, `95f0a0d`, `7409d88`,
+> `135c9a9`, `9f165ec` and `eda560d3` — and at `eda560d3` the failed jobs are
+> exactly `cargo test (release)`, `cargo test (debug)` and the
+> `continue-on-error` H2 quarantine. PR #24 reproduces it identically after
+> merging `eda560d3` in, on a diff that touches only `rigid.rs`, two `u32`
+> counters and a `println!`. Locally, `cargo test --release --locked --test
+> worldgen` gives **37 passed / 2 failed**, the same two names.
+>
+> **A methodological note that cost this session a wrong claim.** `cargo test
+> --lib` reports **879 passed / 0 failed** on the same tree, because it does
+> not build or run the integration binaries *at all* — `tests/worldgen.rs`
+> never appears in its output, not even as skipped. `CLAUDE.md`'s red-suite
+> gotcha covers the case where a red lib test *hides* the integration
+> binaries; this is the quieter sibling, where a **green** `--lib` is read as
+> a green gate and is not evidence of one. Run it the way CI does
+> (`cargo test --release --locked`) before claiming the test gate is green.
+
 **Two** tests, not one, and neither is in any handoff's list — which records
 `main` as one red (bug A). Neither is quarantined, so this is a **gating**
 job failing. `cargo test --release --no-fail-fast` on `main` at `9b54be3`:
