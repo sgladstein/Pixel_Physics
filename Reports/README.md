@@ -148,6 +148,12 @@ tried?"*.
   implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+- [root-blob-and-uptake-surface-2026-08-23.md](root-blob-and-uptake-surface-2026-08-23.md)
+  — **measurement, no mechanism.** Sizes the owner's "a root cell not
+  touching soil cannot benefit the plant and has a cost" proposal before it
+  is built: a third of every root system is walled in, but the share does
+  not rise with mass, so the cost is a flat tax rather than a brake. The
+  argument that survives is the unpriced 51-79% per-plant contact spread.
 - [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
   **implemented.** Worldgen sows four woody species instead of the
   hardcoded `"tree"`, by weights over terrain facts that already existed;
