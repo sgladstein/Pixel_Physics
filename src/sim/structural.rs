@@ -1003,7 +1003,14 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // `shattered_cells` is paired with `promoted_cells` to describe the
     // latter. See `break_free`'s own doc.
     record_damage_reach_over(world, &[(x, y)]);
-    let _ = break_free(world, x, y);
+    // Counted, where the rock path's grit deliberately is not (see
+    // `FailureCounts::shattered_cells`). This is felling's only "did it
+    // fire" number: an image cannot tell a crown that came down from a
+    // crown that was never asked, and the first `scene=fell` run had a
+    // severed trunk, a growing canopy and zero in every other counter.
+    if break_free(world, x, y) {
+        world.structural_failures.record_severed_organism(1);
+    }
     schedule_organism_neighbours(world, x, y, organism_id)
 }
 
@@ -3549,7 +3556,11 @@ pub fn detach_around_crack(world: &mut World, x: i32, y: i32) {
 /// one-cell sheet — reported from play as debris that "look like thin
 /// individual pixel lines" rather than chunks. Pieces can only be as thick
 /// as the loosened rock they are cut from.
-const DETACH_DEPTH: i32 = 3;
+///
+/// `pub(crate)` so `World::paint_capsule_as` can size the disturbance it
+/// records off the band its own erase actually loosened, rather than
+/// restating the number and drifting from it.
+pub(crate) const DETACH_DEPTH: i32 = 3;
 
 /// Whether `(x, y)` is simply sitting on top of something that can hold it.
 ///
