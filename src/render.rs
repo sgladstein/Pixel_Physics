@@ -6858,7 +6858,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
-            .map(|_| world.push_organism(species))
+            .map(|_| world.push_organism(species).expect("an organism slot is free"))
             .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {
