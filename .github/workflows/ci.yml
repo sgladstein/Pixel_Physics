@@ -4,11 +4,35 @@ name: CI
 # review-queue merge, which meant nothing pushed to `main` was gated -- and
 # that a tidy-up deleting the stale `master` mirror would have silently
 # disabled CI entirely rather than failing loudly.
+# Feature branches are gated too, and that is the point. Measured 2026-08-23:
+# 133 CI runs to date, every one of them on `main` or `master`, zero on any
+# feature branch and zero from a `pull_request` event. `push: [main]` does not
+# match a push to `claude/foo` and `pull_request: [main]` only fires once a PR
+# exists -- and no PR ever did, because the agent harness declines to open one
+# unless asked. So the first time CI ever saw a branch's code was *after* it
+# landed on main, which is the worst moment: a red suite then cannot say
+# whether the branch was broken or the conflict resolution was.
+#
+# `claude/**` is the harness's own branch prefix, so it covers agent work
+# without sweeping in `review-queue` -- an orphan branch holding only
+# cards/media/responses, with no Cargo.toml. Running this workflow there would
+# fail on every push and mean nothing. Legacy branches (`load-share`,
+# `plant-substrate-v2`) predate the prefix and stay ungated deliberately;
+# they are being retired, not developed.
 on:
   push:
-    branches: [main]
+    branches: [main, master, 'claude/**']
   pull_request:
     branches: [main]
+
+# A branch push supersedes its own in-flight run; `main` never cancels. Agents
+# push repeatedly within a session, and without this each push queues a full
+# matrix behind the last -- the cost that makes per-branch CI unaffordable.
+# The guard on `main` is deliberate: cancelling a trunk run would leave a
+# commit that nobody ever gated, which is the exact hole this change closes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # Cheap, no toolchain, runs beside `test` rather than ahead of it. Asks one
