@@ -1,0 +1,70 @@
+{
+  "id": "20260823T191540041Z-cca566",
+  "created": "2026-08-23T19:15:40Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/wp11-economy-retune",
+    "commit": "2aefd86",
+    "agent": null,
+    "session_id": "7e737eab-37cf-564e-a14e-51ef925d9ada",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "Leaf fall: the retune reaches one of the four species the world now sows",
+  "question": "Which floor do you want — B (what is landed now) or C (the same cut applied to conifer, shrub and creeper too)? If C is too bare, say so and I will take the other three part-way instead.",
+  "context_md": "Your lever was *\"leaves are just falling too fast\"*, and the cut you picked (**\"C is best\"**, card `20260823T161006584Z-6ecbab`) went into `tree`.\n\nSince then `main` gained the flora-sowing work, and worlds now sow **four** woody species — creeper, shrub, conifer, tree — each into its own country. All four establish in 8 of 8 seeds. The cut is still only on `tree`, so **three of the four still shed at the old rate**.\n\nThat is why the win shrank: on the pre-merge world the retune measured **-72%** soil-writing decay. On today's world, the same edit measures **-42%** (A→B below). Roughly half the floor manufacture that is left after your retune comes from the three species it never touched (B→C is a further -48%).\n\nOne binary per arm (assets are compiled in), same scene, same seed, same 12,000 frames — four samples at 3,000 / 6,000 / 9,000 / 12,000.\n\n**What I am unsure about, and why I am asking rather than just doing it:** living tissue *rises* as leaf fall slows (28.8k → 30.2k → 33.4k cells), because leaves that are not shed stay on the plant. C is the least floor and the most foliage. I cannot tell by eye whether C's crowns still read as separate stands or start to look like one mass — that is your call, not a number I have.\n\nIgnore the frame timings on these runs; a sweep was running on the same box and they are not clean.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — no retune (all four at 0.003)",
+      "files": [
+        "20260823T191540041Z-cca566/000-card-baseline.png"
+      ],
+      "caption": "the world before your lever",
+      "meta": {
+        "soil-writing decay events": 5061,
+        "leaves shed": 6314,
+        "standing litter": 1248,
+        "living tissue (cells)": 28776
+      },
+      "focus": null
+    },
+    {
+      "label": "B — landed today (tree only)",
+      "files": [
+        "20260823T191540041Z-cca566/001-card-retuned.png"
+      ],
+      "caption": "your 0.00075, on tree alone",
+      "meta": {
+        "soil-writing decay events": 2954,
+        "leaves shed": 3738,
+        "standing litter": 783,
+        "living tissue (cells)": 30207
+      },
+      "focus": null
+    },
+    {
+      "label": "C — all four species at 0.00075",
+      "files": [
+        "20260823T191540041Z-cca566/002-card-allfour.png"
+      ],
+      "caption": "the same cut, applied to conifer/shrub/creeper too",
+      "meta": {
+        "soil-writing decay events": 1532,
+        "leaves shed": 1913,
+        "standing litter": 381,
+        "living tissue (cells)": 33425
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
