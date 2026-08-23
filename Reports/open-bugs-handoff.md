@@ -909,14 +909,26 @@ P1 made before asking, that fusion "splits cleanly and in one place", is
 **false**: the split it draws puts a stand read as four distinct trees on
 the fused side.
 
-**Why no column census can be made to work here, which is the reusable
-part.** A gap is a fully empty column. The eye separates crowns that
-*overlap*, on trunk position and crown outline — cues carried by the shape
-of the occupancy, not by whether any column is empty. At 102 cells apart
-these four crowns touch and are still four obvious trees. That is a
-structural limit of the measurement, not a threshold to retune. Anyone
-proposing a third column-based candidate should explain how it sees a
-boundary with no empty column in it.
+**Why the column census misses it was guessed at, and the guess was wrong
+— this is the retraction.** This entry first argued that no column census
+can ever work: a gap is a fully empty column, the crowns at 102 cells apart
+touch, so the eye must be reading trunk position and crown outline, cues
+carried by the shape of the occupancy rather than by any empty column. Card
+`20260823T150917441Z-d236fd` put the question to the owner directly, and he
+answered: **"The gaps of sky. The two on the left are starting to merge but
+still read separate. The two on the right are clearly separated with no
+touching. I think the piles of soil are making it hard to read."**
+
+So the cue **is** sky, the structural-limit argument above is **withdrawn**,
+and a column census is not doomed — it is **looking at the wrong rows**. Two
+of his three separations are clean, no-touching sky, and the census still
+reported a single 4-cell gap across the whole stand. Something is occupying
+those columns in rows the eye does not read as canopy, and he names the
+suspect himself: the piles of soil. A census that kills a gap on any
+occupied cell anywhere in the column is answering *"is this column clear
+from the ground to the sky"*, where the eye is asking *"is there sky between
+these two crowns"*. Those are different questions and only one of them was
+carded.
 
 **Two thresholds, both invented to explain away a reading I doubted, both
 strictly harmful.** First a quarter of the founder spacing, which scored two
@@ -938,15 +950,23 @@ So: **§Z is judged by eye and by card.** The numbers stay in `plant_probe`
 as description, labelled as having failed calibration, so nobody spends the
 round trip discovering this again.
 
-**The open question for whoever tries again**, put to the owner as card
-`20260823T150917441Z-d236fd`: *what is the eye using* on the 4-founder
-stand? The crowns touch, so it is not sky. If the answer is "the trunks",
-that is countable and a third candidate exists — count distinct
-trunk columns crossing a band above the litter line, which is a
-*shape* question the column census cannot ask but a per-organism one can.
-If the answer is crown outline, it is much harder, and worth knowing that
-before anyone spends a week on it. Do not start a third metric before that
-card is answered.
+**The next experiment, now that the card is answered, and it is the cheap
+one.** Restrict the sky-gap census to a **canopy band** — the rows the
+foliage mass actually occupies — instead of the full column, and re-score
+the same three stands against the same three answers (2, 4, 3). That is a
+*row* restriction, not another gap-width threshold; both thresholds tried
+here were strictly harmful and a third would be the same mistake in a new
+costume. The falsifiable prediction: the 4-founder stand gains at least the
+two separations the owner calls clean and no-touching. If a band-restricted
+census still reads one gap there, the mounds are not the occluder and the
+trunk/outline reading comes back into play — but measured this time, not
+argued.
+
+**Not started, deliberately.** P1 closed with §Z cards-only and the card
+arrived after it had landed; this entry records the answer so the next
+session starts from the owner's own words rather than from the argument
+withdrawn above. Until the band census is run and scored against those three
+numbers, §Z stays judged by eye and by card.
 
 ### Z. A free particle drops `Cell::aux`, so a blast under-prices a corpse — **REPRODUCED AND FIXED, 2026-08-23**
 
