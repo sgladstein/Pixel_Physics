@@ -2687,6 +2687,13 @@ is settled.
 
 ### H. `ascii`'s ants moisture-gradient scene asserts a gradient the scene no longer has — **OPEN, inherited from `main`, 2026-08-23**
 
+> **Read §L first (2026-08-23).** As of `main` at `a0fa433`, `ascii` panics
+> at `:1678` on a *foraging* assert and **never reaches the `:1850`
+> assertion below**. The reproduction in this section is real and was real
+> when it was written, but you cannot currently observe it by running
+> `ascii`: §L has to be got past first. The two are unrelated failures
+> sharing one quarantined gate.
+
 `examples/ascii.rs:1850` fails its own setup assertion:
 
 ```
@@ -2723,6 +2730,104 @@ to follow. Note the printed 0.000 is rounded — the pre-merge explosion
 branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
+
+### L. `ascii` dies on a *foraging* assert long before it reaches bug H, and the bug-H quarantine is hiding it — **OPEN, 2026-08-23, bisected to the world-scale merge**
+
+**Read this before doing anything about bug H above.** `ascii` is red on
+`main`, and it is not red at §H's line. It panics at
+`examples/ascii.rs:1678` — 170 lines earlier — so **the moisture-gradient
+assert §H is about never executes**. Anyone who fixes bug H and re-runs
+`ascii` expecting green will find this instead.
+
+```
+the colony has gone sessile: 2 round trips of 8+ cells (measured 98 here),
+deepest excursion 15 cells, reach profile [689, 22, 8, 2, 0, 0, 0, 0]
+```
+
+The bar is `st.forage_trips >= 14`, set in `da252dc` from a measured 98
+with a deliberate seven-fold headroom ("outcome spread here is large and a
+bar near the measurement flakes"). It now measures **2**. The bar is not
+knife-edge and this is not spread: it is a 49x miss on a 7x margin.
+
+**Bisected, not guessed.** `main`'s tip `a0fa433` is a merge of the
+world-scale phase-2 line (`083a9ec`, which takes the world to 8192x2560)
+into the creature line (`c6ffba2`). Built and ran `ascii` at each point in
+one session on one machine:
+
+| at 12,000 frames | `da252dc` (bar set here) | `5a9e594` | `c6ffba2` (creature parent) | `a0fa433` (**the merge = main**) |
+|---|---|---|---|---|
+| forage trips | 98 | 92 | 92 | **2** |
+| reach profile | `[3858, 475, 185, 98, 1, ...]` | `[3604, 413, 160, 92, 1, ...]` | `[3604, 413, 160, 92, 1, ...]` | **`[689, 22, 8, 2, 0, ...]`** |
+| result | passes | passes | passes | **panics** |
+
+So the creature line was healthy right up to the merge, and **the merge is
+the regression**. It is a cross-line seam of exactly the kind §F is about —
+two lines that each pass their own tests, meeting.
+
+**The collapse is in *nest contacts*, not in ranging, and that distinction
+is the whole diagnosis.** The full paired stat lines, `c6ffba2` -> `a0fa433`:
+
+| | before | after | |
+|---|---|---|---|
+| moves | 9,312 | 5,040 | halved |
+| **nest-visits** | **3,598** | **684** | **5.3x down** |
+| falls | 901 | 64 | 14x down |
+| digs | 41 | 11 | 3.7x down |
+| pickups | 1,412 | 1,340 | ~unchanged |
+| drops | 1,389 | 1,310 | ~unchanged |
+| deliveries | 192 | 143 | mildly down |
+| live organisms | 69 | 76 | up |
+| mean excursion depth | 10.3 | **12.0** | **up** |
+| deepest excursion | 18 | 15 | ~flat |
+
+Three readings, in the order they matter:
+
+1. **The ants have not stopped ranging — they have stopped touching the
+   nest.** `forage_reach` books an excursion *at each nest contact*
+   (`foraging-range-measurement.md` §2), so the profile is a function of
+   nest contacts and cannot exceed them. Bucket 0 tracks `nest_visits`
+   almost exactly on both sides — 3,604 against 3,598 before, 689 against
+   684 after. The instrument is reporting the collapse faithfully; what
+   collapsed is upstream of it.
+2. **Mean depth went *up*, 10.3 -> 12.0.** The few excursions that are
+   booked are as deep as they ever were. Nothing about this looks like
+   creatures that cannot walk.
+3. **Pickups and drops barely moved while falls fell 14x and digs 3.7x.**
+   The colony is still working; it is working somewhere flatter and
+   somewhere it does not meet nest material.
+
+Taken together that is a **scene** finding, not a movement-rule one —
+`CLAUDE.md`'s "a scene that contradicts the code will look like a bug in
+the code", the same shape as §H. The thing to check first is what the
+merge did to the ground under this colony and to where its nest material
+sits, **not** the brain, the crowding term or the footing predicate. The
+other parent takes the world to 8192x2560; a scene whose terrain is
+generated will not be the same scene at that width.
+
+**Why nobody saw it.** `.github/workflows/ci.yml` marks the `ascii` job
+`continue-on-error: true` over bug H. That quarantine was opened for a
+knife-edge assert whose two halves both print 0.000, and it is now
+absorbing an unrelated 49x regression on the same gate. **This is the
+standing cost of a quarantine, in the flesh: it does not distinguish the
+failure it was opened for from the next one to arrive.** §H's own entry
+already records the sibling failure — that a red `cargo test` marked the
+later steps `skipped` so "main is green" could not be concluded from CI.
+Same lesson, one layer along.
+
+**What closes it:** the scene visibly contains a colony that meets its own
+nest again, `forage_trips` back within seed spread of the 92-98 the
+creature line measured, and — separately — a note on whether the bar
+should be re-derived at the new world scale rather than carried over. Do
+not simply lower the bar to 2: the bar reproduced at 98 twice on this tree
+and is the only counter that catches a sessile colony (every other one
+above it stays healthy for a colony milling at the nest mouth, which is
+the case it was written for).
+
+**Not diagnosed further here.** `examples/*` is Lane A's file set in the
+`creature-implementation-handoff-2026-08.md` lane split, and re-baselining
+the guards is WP-4. This entry is the measurement handed over, per that
+document's rule that a lane needing a number Lane A has not produced
+measures it locally and says so.
 
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 

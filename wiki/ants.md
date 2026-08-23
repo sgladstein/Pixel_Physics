@@ -48,7 +48,8 @@ Whether they can *reach* the leaves is a different question, and it used to
 be the thing a colony lived or died on: leaves grow in the canopy and ants
 walk on the ground. What they could reach was **moss**, which grows on damp
 stone at exactly ant height and spreads on its own, so a wet map fed a
-colony and a dry one did not.
+colony and a dry one did not. On dry ground moss sits where it is and never
+spreads, and a colony there lives much closer to the edge.
 
 **Now the canopy drops its own food.** A leaf a tree gives up on — because
 it has been shaded out by the branches above it, which is the ordinary fate
@@ -59,12 +60,14 @@ drifted against trunks and deeper in hollows, and that is where a colony
 under trees now does most of its foraging. Measured against the same colony
 with the same trees and no litter, ants get about a third more food home.
 
-One thing to know, because it is visible over a long game: litter does not
-yet rot away. Real leaf litter breaks down into the soil beneath it, and the
-machinery for that exists — burnt ash already turns back into soil the same
-way — but it does not reach litter properly yet, so a very old forest will
-sit under a deeper mat than it should. On dry ground moss sits where it is and never spreads, and a
-colony there lives much closer to the edge.
+One thing to know, because it is what makes the floor a food *supply* rather
+than a growing pile: litter **rots back into the soil beneath it**, the same
+way burnt ash does, and faster where the ground is damp than where it is dry.
+So a standing wood settles at a floor of roughly constant depth instead of
+burying itself, and an old forest does not sit under a mat any deeper than a
+young one. For a colony this cuts both ways — the floor is refilled from
+above, so it does not run out; but a drift left alone long enough goes back
+into the ground, so a colony that ignores a patch loses it.
 
 **They dig.** Ants chew through soil and stop at anything harder. This is
 not a list of what ants may dig; it is a contest between how hard the ant
