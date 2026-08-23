@@ -259,3 +259,87 @@ end — which is a stronger reason to keep /4 than the cost argument this report
 originally made for it.
 
 *Prototype freshness: 2026-08-23.*
+
+## Option 3 measured, because it had only ever been costed
+
+The prototype shipped as Option 2 and Option 3 stayed a paragraph — "~45 ms
+once at genesis, per-frame cost only where cells changed" — with its risk
+named and never tested. Asked directly whether it had been tested, the answer
+was no: what had been measured was per-pixel **recomputed from scratch** (4.4
+ms four-sweep, 4.9 ms exact), which is a different thing from stored and
+maintained. `examples/sky_light_probe.rs` now tests the real one.
+
+**It works, and the hard direction works too.** Four edits — two removals
+(light only rises, which a relax handles) and two additions (light falls,
+which a max-propagation cannot undo locally), the last of them plugging the
+mouth of a lit shaft so that a hundred rows below were lit *through* the cell
+being filled. Each checked against a **full recompute**, not against a
+cheaper version of itself:
+
+| edit | cells re-solved | ms | worst error vs a full solve |
+|---|---|---|---|
+| dig a 12-wide room off the pit floor | 4,856 | 0.63 | 0.0005 |
+| dig into the cliff behind the tunnel | 4,687 | 0.75 | 0.0005 |
+| fill a block mid-pit (light drops) | 5,054 | 0.88 | 0.0005 |
+| **plug the 1-wide shaft at its mouth** | 2,544 | 0.80 | 0.0029 |
+
+The mechanism that makes this tractable is a **bounded local re-solve** rather
+than the classic light-removal BFS: zero everything within `INFLUENCE` of the
+edit, treat the ring outside as fixed sources, re-solve the interior. Its
+correctness argument is one sentence — a cell's light is at most `0.91^d` of
+any source `d` cells away *along the path*, and a path is never shorter than
+the straight line, so a Euclidean box of that radius contains every cell whose
+value could move by a representable amount.
+
+**Swept rather than asserted**, because a theory predicting "just under the
+threshold" and a measurement landing just under it are the same number twice:
+
+| influence radius | worst error | against 1/255 = 0.0039 |
+|---|---|---|
+| 30 | 0.0381 | **visible, ten times over** |
+| 59 (the theoretical minimum) | 0.0029 | just under |
+| 90 | 0.0007 | comfortable |
+
+The radius controls the error, so this is a real bound and not a lucky run —
+and 59 clears by only 25%, so a shipping version wants ~90, which costs 2.3x
+the box area.
+
+### The result that reverses the intuition
+
+Incremental is supposed to be the cheap one. Measured, it is not, and the
+reason is that its cost scales with **how many separate places changed**,
+while Option 2's does not:
+
+| | cost on a changed frame |
+|---|---|
+| Option 2 (coarse /4, whole viewport) | **2.3 ms, flat** — independent of how much changed |
+| Option 3 (per-pixel, incremental, r=59) | **0.7 ms per edit site** |
+| Option 3 at the safer r=90 | **~1.6 ms per edit site** |
+
+So Option 3 is cheaper only while fewer than about **three** separate places
+changed in a frame, and about **one and a half** at the radius it should
+actually use. A falling-sand world does not oblige: sand slides, water sloshes
+and debris settles in many places at once, and a busy scene here runs 16 of 40
+chunks awake on a collapse and 40 of 40 while terrain settles. Boxes would
+have to be merged into a few bounding rects to compete, and a merged box is a
+bigger box.
+
+Option 2 pays a fixed 2.3 ms however violent the frame. Option 3's bill is
+unbounded in exactly the situations the engine is most interesting.
+
+### Where Option 3 still wins, and what it would cost to be safe
+
+- **Panning over a still world.** Option 2 recomputes on every camera move;
+  Option 3 does not, because its field is world-space and complete.
+- **Anything off-screen that needs a correct answer** — creature sight,
+  plant siting, a minimap. Option 2 only ever knows about the viewport.
+
+Against that: 1.3 MB at 2048x640, a ~45 ms genesis solve, and one correctness
+obligation that Option 2 does not have at all — **every** cell change must be
+caught, including ones the CA makes on its own. Miss a falling grain and the
+stale bright patch it leaves is permanent, because nothing ever recomputes it.
+That is the same class of bug as the stateful skyline in `dead-ends.md` §985,
+and it is the reason to keep Option 2 as the default even now that Option 3 is
+known to work.
+
+*Option 3 freshness: 2026-08-23.*

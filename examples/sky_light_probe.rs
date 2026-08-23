@@ -157,6 +157,8 @@ fn main() {
     );
     let upsampled: Vec<f32> = (0..H).flat_map(|y| (0..W).map(move |x| (x, y))).map(|(x, y)| coarse_at(&coarse, bw, bh, 8, x, y)).collect();
 
+    incremental_trial(&mut world, air_decay, solid_decay);
+
     report(&world, &light, &upsampled);
     write_png(&light, &out);
     write_png(&upsampled, &out.replace(".png", "-coarse8.png"));
@@ -510,6 +512,216 @@ fn coarse_at(grid: &[f32], bw: i32, bh: i32, scale: i32, x: i32, y: i32) -> f32 
     let a = g(x0, y0) * (1.0 - tx) + g(x0 + 1, y0) * tx;
     let b = g(x0, y0 + 1) * (1.0 - tx) + g(x0 + 1, y0 + 1) * tx;
     a * (1.0 - ty) + b * ty
+}
+
+/// Does maintaining the per-pixel field incrementally actually agree with
+/// recomputing it, and what does it cost?
+///
+/// Four edits, chosen so the hard direction is represented rather than
+/// implied: two removals (which only ever *raise* light, the easy case a
+/// relax handles) and two additions (which *lower* it, the case that needs a
+/// re-solve). The last one is the nasty one on purpose — **plugging the top
+/// of a lit shaft**, where every cell for a hundred rows below was lit
+/// through the cell being filled, and a naive local relax leaves the whole
+/// shaft glowing under a stone cap.
+///
+/// Checked against a full recompute, not against itself: agreement with a
+/// cheaper version of the same code would prove only that the code is
+/// consistent.
+fn incremental_trial(world: &mut World, air_decay: f32, solid_decay: f32) {
+    let idx = |x: i32, y: i32| (y as usize) * W as usize + x as usize;
+
+    // **Sweep the influence radius rather than assert it.** The theory says
+    // `0.91^59 < 1/255`, so a box of 59 holds every cell whose value could
+    // move by a representable amount -- but a theory that predicts "just
+    // under the threshold" and a measurement that lands just under it are
+    // the same number twice, not a confirmation. Sweeping shows the error is
+    // *controlled by* the radius, which is the safety argument; a flat error
+    // across radii would mean the box was never the binding constraint and
+    // something else is wrong.
+    for influence in [30, 59, 90] {
+        let (mut light, _) = propagate(world, air_decay, solid_decay);
+        run_edits(world, &mut light, influence, air_decay, solid_decay, &idx, influence == 59);
+        // Undo, so each radius starts from the same world.
+        rebuild_edits(world, true);
+    }
+    rebuild_edits(world, false);
+}
+
+/// The four edits, as data, so the radius sweep and the detailed run use the
+/// same list rather than two lists that can drift.
+fn edits_list() -> [(&'static str, (i32, i32), bool, i32); 4] {
+    [
+        ("dig a 12-wide room off the pit floor", (232, 138), false, 6),
+        ("dig into the cliff behind the tunnel", (350, 74), false, 5),
+        ("fill a block in mid-pit (light drops)", (232, 110), true, 4),
+        ("PLUG the 1-wide shaft at its mouth", (60, GROUND + 1), true, 2),
+    ]
+}
+
+/// Put the world back the way the edits found it, so each radius in the
+/// sweep starts from the same state instead of compounding the last one's.
+fn rebuild_edits(world: &mut World, undo: bool) {
+    if !undo {
+        return;
+    }
+    for (_, (ex, ey), fill, rad) in edits_list() {
+        for dy in -rad..=rad {
+            for dx in -rad..=rad {
+                let (x, y) = (ex + dx, ey + dy);
+                if !(0..W).contains(&x) || !(0..H).contains(&y) {
+                    continue;
+                }
+                // The inverse of what the edit did. Crude, and enough: these
+                // sites are either solid rock or open air to begin with.
+                world.set(x, y, if fill { Cell::EMPTY } else { Cell::new(material::STONE, 0) });
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_edits(
+    world: &mut World,
+    light: &mut [f32],
+    influence: i32,
+    air_decay: f32,
+    solid_decay: f32,
+    idx: &impl Fn(i32, i32) -> usize,
+    verbose: bool,
+) {
+    if verbose {
+        println!("\n-- option 3: per-pixel field, maintained incrementally --");
+        println!("{:<40} {:>9} {:>10} {:>9}", "edit", "cells", "resolve ms", "worst err");
+    }
+
+    let mut total_ms = 0.0;
+    let mut total_cells = 0usize;
+    let mut worst_overall = 0.0f32;
+    for (label, (ex, ey), fill, rad) in edits_list() {
+        for dy in -rad..=rad {
+            for dx in -rad..=rad {
+                let (x, y) = (ex + dx, ey + dy);
+                if !(0..W).contains(&x) || !(0..H).contains(&y) {
+                    continue;
+                }
+                world.set(x, y, if fill { Cell::new(material::STONE, 0) } else { Cell::EMPTY });
+            }
+        }
+        let t = std::time::Instant::now();
+        let touched = resolve_box(world, light, ex, ey, influence, air_decay, solid_decay);
+        let ms = t.elapsed().as_secs_f64() * 1000.0;
+        total_ms += ms;
+        total_cells += touched;
+
+        // The check. A full recompute after every edit, compared cell by
+        // cell -- expensive, and the only thing that can catch a stale
+        // bright patch, which is precisely the failure mode this design
+        // risks and the one nothing else would ever surface.
+        let (truth, _) = propagate(world, air_decay, solid_decay);
+        let mut worst = 0.0f32;
+        let mut worst_at = (0, 0);
+        for y in 0..H {
+            for x in 0..W {
+                let d = (light[idx(x, y)] - truth[idx(x, y)]).abs();
+                if d > worst {
+                    worst = d;
+                    worst_at = (x, y);
+                }
+            }
+        }
+        worst_overall = worst_overall.max(worst);
+        if verbose {
+            let flag = if worst > 1.0 / 255.0 { "  <-- VISIBLE, stale" } else { "" };
+            println!("{label:<40} {touched:>9} {ms:>10.2} {worst:>9.4}{flag} {worst_at:?}");
+        }
+    }
+    if verbose {
+        println!(
+            "  total {total_cells} cells re-solved in {total_ms:.2} ms over 4 edits; a full per-pixel recompute is ~4.9 ms each"
+        );
+    }
+    println!(
+        "  influence radius {influence:>3}: worst error {worst_overall:.4} against the 1/255 = 0.0039 visibility floor{}",
+        if worst_overall > 1.0 / 255.0 { "  <-- VISIBLE" } else { "" }
+    );
+}
+
+/// **Option 3, the one that was never tested: keep the per-pixel field and
+/// maintain it incrementally instead of recomputing it.**
+///
+/// The design report costed this at ~45 ms once at genesis and "per-frame
+/// cost only where cells changed", and named the risk without measuring it:
+/// light *decreases* when a cell is filled, and a max-propagation is not
+/// locally reversible, so a relax cannot undo it. A cell that was lit
+/// *through* the cell you just plugged has to be found and re-derived.
+///
+/// The approach measured here is the **bounded local re-solve**, chosen over
+/// the classic light-removal BFS because its correctness argument is one
+/// sentence instead of a page: zero every cell within `INFLUENCE` of the
+/// edit, treat the ring just outside as fixed sources, and re-solve the
+/// interior.
+///
+/// That is exact to within one 8-bit step, and the reason is the decay
+/// itself. A cell's light is at most `AIR^d` of any source `d` cells away
+/// **along the light's path**, and a path is never shorter than the straight
+/// line, so a Euclidean box of radius `INFLUENCE` contains every cell whose
+/// value could move by as much as `1/255`. Nothing outside it can have been
+/// lit through the edit by an amount anyone can see.
+///
+/// Returns the number of cells it touched, which is the cost that matters —
+/// wall-clock on one edit says nothing about a frame with a hundred of them.
+fn resolve_box(world: &World, light: &mut [f32], cx: i32, cy: i32, r: i32, air_decay: f32, solid_decay: f32) -> usize {
+    let idx = |x: i32, y: i32| (y as usize) * W as usize + x as usize;
+    let (x0, y0) = ((cx - r).max(0), (cy - r).max(0));
+    let (x1, y1) = ((cx + r).min(W - 1), (cy + r).min(H - 1));
+
+    let mut queue: VecDeque<(i32, i32)> = VecDeque::new();
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            light[idx(x, y)] = 0.0;
+        }
+    }
+    // Re-seed: outdoors cells inside the box are sources in their own right,
+    // and the ring immediately outside it still holds valid light, so it
+    // acts as a boundary condition. Both go in the queue.
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            if world.is_outdoors(x, y) {
+                light[idx(x, y)] = 1.0;
+                queue.push_back((x, y));
+            }
+        }
+    }
+    for y in (y0 - 1).max(0)..=(y1 + 1).min(H - 1) {
+        for x in (x0 - 1).max(0)..=(x1 + 1).min(W - 1) {
+            let on_ring = x == x0 - 1 || x == x1 + 1 || y == y0 - 1 || y == y1 + 1;
+            if on_ring && light[idx(x, y)] > 0.0 {
+                queue.push_back((x, y));
+            }
+        }
+    }
+
+    let mut touched = 0usize;
+    while let Some((x, y)) = queue.pop_front() {
+        let here = light[idx(x, y)];
+        for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+            // Confined to the box: the ring outside is a fixed boundary and
+            // must not be rewritten, or the "valid outside" premise the
+            // correctness argument rests on stops holding.
+            if nx < x0 || nx > x1 || ny < y0 || ny > y1 {
+                continue;
+            }
+            let solid = !matches!(world.materials.kind(world.get(nx, ny).material), MaterialKind::Empty | MaterialKind::Gas);
+            let v = here * if solid { solid_decay } else { air_decay };
+            if v > light[idx(nx, ny)] + 0.0005 {
+                light[idx(nx, ny)] = v;
+                touched += 1;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    touched
 }
 
 /// A fixed dark→bright ramp, full replace. Never a blend into the world's
