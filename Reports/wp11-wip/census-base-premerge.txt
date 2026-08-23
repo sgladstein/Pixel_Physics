@@ -1,0 +1,15 @@
+creature_space: mode=census genomes=48 seeds=8 frames=18000 bins=2 | preset=wetland ants=52 beetles=9 trees=2 moss=true | start_energy=90 move_cost=0.25 food_energy=120 base_seed=0xc0de
+scene census (seed 0xc0de, 3 seed(s)), no ants -- what food exists at ant height, and does it grow?
+preset     frame              moss   moss surface   moss in colony       leaf   leaf surface   surface food      colony food
+(litter columns are the did-it-fire counter for S4; at shade_death 0.0 they must read exactly 0)
+wetland    warmup end           44             41               15       3031            173         115680            35040 | litter     45 surface     27
+wetland    +6000              1502            161              110      13766            106         137760            70080 | litter    911 surface     20
+wetland    warmup end           83             76                6       3208            253         165120            67680 | litter     23 surface     15
+wetland    +6000               751            207               49      13639            138         217440            96960 | litter    975 surface    107
+wetland    warmup end          145            115               13       2582            219         180000            20160 | litter     53 surface     41
+wetland    +6000               339            184               13      10348            108         166080             7680 | litter    699 surface     54
+
+colony-band food energy at +6000, across 3 seeds -- the number S4 has to move
+preset            min     median        max     spread
+wetland          7680      70080      96960      89280
+
