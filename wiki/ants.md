@@ -1,8 +1,8 @@
 # Ants
 
-*Fresh as of the first ant milestone. The colony forages, digs, builds and
-carries food home; it is not good at finding food far away — see "What is
-not finished" at the bottom.*
+*Fresh as of 2026-08-23. The colony forages, digs, builds and carries food
+home; it is not good at finding food far away — see "What is not finished"
+at the bottom, which now has a measured number in it.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -92,6 +92,12 @@ What a colony is still bad at is **finding food in the first place**. Ants
 do not range far from home, so a food pile well away from the nest may
 simply never be discovered. Put food within reach of the colony and the
 whole loop runs; put it across the map and they will not find it.
+
+How far is "not far"? Measured, and smaller than it looks: in a world five
+hundred cells wide, the furthest any ant got from its nest over a long run
+was **eighteen cells** — about a body length either side of the nest patch.
+A colony looks busy the whole time, because there is constant traffic around
+the nest mouth; almost none of it is going anywhere.
 
 One thing worth knowing: ants cannot walk through each other, and cannot
 stand on each other either. A colony packed shoulder to shoulder jams

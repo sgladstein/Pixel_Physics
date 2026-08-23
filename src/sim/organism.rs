@@ -1355,6 +1355,38 @@ pub struct OrganismState {
     /// nest — and a laden ant walking *up* that gradient is walking home.
     /// No creature ever queries the nest's position; the field knows.
     pub since_nest: u16,
+    /// **Measurement only — no creature ever reads this, and the moment one
+    /// does, the homing model has changed and this doc is a lie.**
+    ///
+    /// Where this creature last touched nest material, and the furthest it
+    /// has been from that point since. Together they are a *foraging range*:
+    /// the depth of the excursion currently in progress.
+    ///
+    /// `since_nest` above cannot answer that question, and the counter built
+    /// on it does not. `CreatureStats::nest_visits` guards on `since_nest >
+    /// 0`, but `since_nest` is incremented unconditionally every tick, so
+    /// the guard is true on every tick after the first and the counter
+    /// increments on *any* move made while nest-adjacent. An ant that never
+    /// leaves home scores one per tick: measured on one ant, a nest and no
+    /// food at all, `moves 648, nest_visits 389` — a ratio of 0.600 where a
+    /// trip counter reads zero. It counts loitering.
+    ///
+    /// Two properties make this immune to both halves of that:
+    ///
+    /// - **Spatial, not temporal.** `since_nest` counts ticks, and
+    ///   `tick_interval` is 6, so its scale is a species constant rather
+    ///   than a distance. This is in cells.
+    /// - **Re-anchored on every contact.** An ant walking along a 32-cell
+    ///   nest patch touches nest at every step, so the anchor follows it and
+    ///   the depth stays at 1. Loitering *on* the nest cannot manufacture an
+    ///   excursion, which is the failure `since_nest` has — 136 of 142 of
+    ///   its resets were loitering.
+    ///
+    /// Anchored at the spawn position, because an ant hatches at home.
+    pub forage_anchor: (i32, i32),
+    /// See `forage_anchor`. Chebyshev cells, saturating; reset to 0 at every
+    /// nest contact.
+    pub forage_max: u16,
     /// Persisted hidden-layer activations, so recurrence has something to
     /// read. Zero for anything without a brain.
     pub brain_state: [f32; super::brain::BRAIN_HIDDEN],

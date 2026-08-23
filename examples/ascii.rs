@@ -1472,6 +1472,18 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **Range, printed next to the verb counters, because none of them
+        // can say it.** `nest-visits` above counts loitering, not trips --
+        // see `CreatureStats::nest_visits`. A colony that never leaves the
+        // nest mouth scores high on it and zero here.
+        println!(
+            "{label}: forage trips {} (bar {}) mean depth {:.1} deepest {} | reach {:?}",
+            st.forage_trips,
+            pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+            if st.forage_trips > 0 { st.forage_depth_sum as f64 / st.forage_trips as f64 } else { 0.0 },
+            st.forage_depth_max,
+            st.forage_reach
+        );
         let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
@@ -1594,7 +1606,38 @@ fn forage_loop_scene() {
     let st = world.creature_stats;
     assert!(st.moves > 0, "no ant ever moved");
     assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
-    assert!(st.nest_visits > 0, "no ant ever reached the nest");
+    // **Kept, but demoted to what it actually proves, and given the guard
+    // it was mistaken for.** `nest_visits` counts loitering, not arrivals:
+    // it increments on any move made while nest-adjacent, and its
+    // `since_nest > 0` guard is false exactly once per lifetime because
+    // `since_nest` is bumped every tick (`CreatureStats::nest_visits`). So
+    // `> 0` here is not the sessility guard it reads as -- **a colony that
+    // never left the nest mouth passes it trivially**, and one did: one ant
+    // with a nest and no food at all scores `moves 678, nest_visits 340`.
+    assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
+    // The real one. Bars set from measurement with headroom, not from an
+    // aspiration: this scene measures **107 trips, deepest 18 cells** over
+    // 12,000 frames (`examples/forage_probe.rs` has the paired control).
+    // A fifth of the trip count and under half the depth, because outcome
+    // spread here is large and a bar near the measurement flakes.
+    //
+    // What this catches that nothing else did: the colony going sessile.
+    // Every counter above stays healthy for a colony milling around the
+    // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
+    // and this is the only one that goes to zero.
+    assert!(
+        st.forage_trips >= 20,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 107 here), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+    assert!(
+        st.forage_depth_max >= 8,
+        "no ant got further than {} cells from home (measured 18 here)",
+        st.forage_depth_max
+    );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
     assert!(phero_b > 0, "carriers laid no food trail at all");
     assert!(
@@ -1713,6 +1756,7 @@ fn double_bridge_scene() {
         "  moves {} blocked {} | pickups {} drops {} deliveries {} nest-visits {} deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.nest_visits, st.deaths
     );
+    println!("  forage trips {} deepest {} | reach {:?}", st.forage_trips, st.forage_depth_max, st.forage_reach);
     println!("  summed channel B over 32 samples -- short route (tunnel) {short:.2} vs long route (over the top) {long:.2}");
     // **Recorded, not asserted, and the earlier version of this assertion
     // was measuring the wrong thing.** An intermediate build did report
@@ -1728,7 +1772,19 @@ fn double_bridge_scene() {
     // weaker claims that *do* hold are what get asserted.
     println!("  NOTE: route selection is not yet demonstrated -- see Reports/creature-direction.md §13.");
     assert!(st.moves > 0 && st.pickups > 0, "ants should at least have crossed and foraged");
-    assert!(st.nest_visits > 0, "ants should have reached the nest side");
+    // See the foraging scene's note: `nest_visits` counts loitering. The
+    // trip counter is what says the colony left. Measured here: 13,179
+    // "visits" against **21 actual round trips**, deepest 15 cells -- a
+    // 628:1 gap, and the clearest illustration in the suite of what the old
+    // counter was reporting.
+    assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
+    assert!(
+        st.forage_trips >= 5,
+        "the colony never left the nest: {} round trips (measured 21 here), deepest {} cells, reach {:?}",
+        st.forage_trips,
+        st.forage_depth_max,
+        st.forage_reach
+    );
 }
 
 /// 50+ ants and a block of diggable soil. Excavation is a *consequence* of

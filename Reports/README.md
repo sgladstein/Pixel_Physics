@@ -173,6 +173,11 @@ field rework — see `open-bugs-handoff.md`.
   through.
 - [plant-work-split.md](plant-work-split.md) — **work split.** How the
   plant queue was divided between concurrent sessions.
+- [foraging-range-measurement.md](foraging-range-measurement.md) —
+  **measured, instrument landed (2026-08-23).** `nest_visits` was counting
+  loitering, not trips; the colony works an 18-cell bubble; shed litter
+  lands in the canopy rather than on the floor. §0 records that the
+  `creatures-m18` branch is unreachable.
 
 ## Worldgen and world
 

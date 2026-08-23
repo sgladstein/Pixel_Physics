@@ -1675,6 +1675,32 @@ corpse. No queens, eggs or new ants yet — the ants you place are the ants
 you get. A beetle species landed alongside as data
 (`assets/species/beetle.ron`). Play-facing: [`wiki/ants.md`](wiki/ants.md).
 
+**Foraging range is measured now, and it was not before.**
+`CreatureStats::nest_visits` looked like the trip counter and is not one: it
+increments on any move made while nest-adjacent, guarded on
+`OrganismState::since_nest > 0`, but `since_nest` is bumped unconditionally
+every tick, so that guard is false exactly once per lifetime and the counter
+reports **loitering**. One ant with a nest and no food at all scores `moves
+678, nest_visits 340`. `examples/ascii.rs`'s `assert!(st.nest_visits > 0)`
+was therefore not the sessility guard it read as — a colony that never left
+the nest mouth passed it trivially.
+
+`CreatureStats::forage_trips` / `forage_depth_sum` / `forage_depth_max` /
+`forage_reach` replace it with a **spatial** excursion depth that re-anchors
+at every nest contact, so neither loitering nor `tick_interval` can inflate
+it (`OrganismState::forage_anchor` has the argument for why repairing
+`since_nest` cannot work). `forage_reach` is a cumulative depth profile and
+carries no threshold at all; `FORAGE_TRIP_MIN` is a headline bar set from
+the sessile control. `examples/forage_probe.rs` runs that control against a
+real foraging arm — neither is worth anything alone.
+
+What it says about the colony as built: the foraging scene measures **107
+round trips against 4,758 "nest visits"**, deepest excursion **18 cells** in
+a 512-wide world, and the double-bridge scene **21 trips against 13,179**.
+The colony works a small bubble around the nest, which
+[`wiki/ants.md`](wiki/ants.md) already described qualitatively and nothing
+had ever put a number on. Known limitation, not a regression.
+
 ## M19 status — started
 
 The visual-polish milestone (`PLAN.md`'s M19 section;

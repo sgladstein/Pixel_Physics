@@ -179,6 +179,44 @@ const WORM_HEAT_THRESHOLD_ABOVE_AMBIENT: f32 = 25.0;
 /// wedged, small enough that fleeing a fire still looks purposeful.
 pub const CHOICE_EXPLORATION_K: f32 = 0.1;
 
+/// Lower edge of each bucket in `CreatureStats::forage_reach`, in Chebyshev
+/// cells. Doubling, because the interesting range spans a nest patch (tens
+/// of cells) and a world (hundreds) and a linear ruler would spend six of
+/// its eight buckets inside the nest.
+pub const FORAGE_REACH_BUCKETS: [u16; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
+
+/// How far from home an excursion has to reach before returning counts as a
+/// **foraging trip** (`CreatureStats::forage_trips`), in Chebyshev cells.
+///
+/// **Set from the control, with headroom, not from an aspiration.** The arm
+/// it has to survive is one ant, a nest and no food at all -- a colony that
+/// by construction cannot forage. Measured on that arm over 6,000 frames
+/// (`examples/forage_probe.rs`), as excursions reaching at least N cells:
+///
+/// ```text
+/// >=1: 340   >=2: 4   >=4: 3   >=8: 3   >=16: 1   >=32: 1   >=64: 0
+/// ```
+///
+/// The loitering spike is at depth **exactly 1** and nowhere else: 340
+/// collapses to 4 at the first doubling. So 1 is useless -- it reproduces
+/// `nest_visits` exactly (340 against 340, measured on that same run),
+/// which is the counter this one exists to replace.
+///
+/// **8**, then: three doublings above the noise floor, and equal to the
+/// diameter of `CROWDING_RADIUS`'s neighbourhood, so a jammed knot of ants
+/// shuffling around the nest mouth provably cannot manufacture one. Higher
+/// was tried and rejected for a reason worth recording: at 16 the 55-ant
+/// foraging scene reads **0 trips** against a real deepest excursion of 10
+/// cells, so a colony that improved from 10-cell ranging to 14-cell ranging
+/// would show 0 -> 0 and the headline would hide the progress it exists to
+/// report.
+///
+/// **The bar is not what makes this metric trustworthy.**
+/// `CreatureStats::forage_reach` is, and it has no bar; this is the one
+/// number for scenes that want one. Read the profile before believing a
+/// trip count, in either direction.
+pub const FORAGE_TRIP_MIN: u16 = 8;
+
 /// Plant a worm at `(x, y)` if the position is available and both the
 /// `worm` material and the `worm` species are loaded. Returns the site to
 /// schedule, or nothing if any precondition failed.
@@ -703,6 +741,10 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         // Starts *at* the nest as far as scent goes: an ant that has just
         // hatched has, by construction, just been at home.
         state.since_nest = 0;
+        // And is *at* home as far as range goes, for the same reason. See
+        // `OrganismState::forage_anchor` — measurement only.
+        state.forage_anchor = (x, y);
+        state.forage_max = 0;
     }
     world.creature_stats.spawned += 1;
     world.energy_ledger.granted += def.start_energy as f64;
@@ -1282,6 +1324,18 @@ fn step_chain(
     }
     world.creature_stats.moves += 1;
 
+    // How deep this excursion has got, in cells from the last nest contact.
+    // **Measurement only** — nothing downstream reads it, and an ant still
+    // has no idea where home is. See `OrganismState::forage_anchor`.
+    if let Some(state) = world.organism_mut(organism) {
+        let (ax, ay) = state.forage_anchor;
+        // Chebyshev, because movement is an 8-neighbour step: it is the
+        // number of moves a straight walk home would take, which is what
+        // "range" means to a creature that can go diagonally for free.
+        let depth = (tx - ax).abs().max((ty - ay).abs());
+        state.forage_max = state.forage_max.max(depth.clamp(0, u16::MAX as i32) as u16);
+    }
+
     // Touching the nest resets the scent clock, which is what makes channel
     // A a gradient rather than a uniform smear.
     if adjacent_nest(world, tx, ty, def) {
@@ -1289,11 +1343,44 @@ fn step_chain(
             // Only count it as a visit if the creature had actually been
             // away: an ant loitering on the nest would otherwise register
             // one every tick and the counter would say nothing.
+            //
+            // **It does not work, and the counter does say nothing.**
+            // `since_nest` is incremented unconditionally every tick a few
+            // hundred lines up, so this guard is false exactly once per
+            // lifetime and every nest-adjacent move scores. Left standing
+            // because scenes print it and the ratio against `moves` is a
+            // real readout; the trip counter below is the fix, and it is a
+            // *distance* rather than a repair of this clock — see
+            // `OrganismState::forage_anchor` for why repairing the clock
+            // cannot work.
             if state.since_nest > 0 {
                 world.creature_stats.nest_visits += 1;
             }
             let state = world.organism_mut(organism).expect("live");
-            state.since_nest = 0;
+            let depth = state.forage_max;
+            // Re-anchor on *every* contact, including the ones that book
+            // nothing. That is what stops an ant strolling the length of a
+            // 32-cell nest patch from accumulating a 30-cell "excursion".
+            state.forage_anchor = (tx, ty);
+            state.forage_max = 0;
+            // The profile is booked for *every* excursion, including the
+            // one-cell ones — it is the distribution that makes the bar
+            // below defensible, so it must not be filtered by that bar.
+            for (i, &edge) in FORAGE_REACH_BUCKETS.iter().enumerate() {
+                if depth >= edge {
+                    world.creature_stats.forage_reach[i] += 1;
+                }
+            }
+            if depth >= FORAGE_TRIP_MIN {
+                world.creature_stats.forage_trips += 1;
+                world.creature_stats.forage_depth_sum += depth as u64;
+            }
+            // Outside the bar: the deepest excursion is a fact about the
+            // colony whatever the bar is set to, and a run whose max sits
+            // under `FORAGE_TRIP_MIN` needs it *most* — that is exactly the
+            // run where `forage_trips` is 0 and cannot say whether the
+            // colony moved 15 cells or 1.
+            world.creature_stats.forage_depth_max = world.creature_stats.forage_depth_max.max(depth as u64);
         }
     }
     let _ = material_id;
