@@ -1175,17 +1175,23 @@ largest perf win) → **#5 → #6 → #4** (field grid) → **#9 → #8 → #7**
 correctness before the forest gets bigger) → #1 and #10 as housekeeping
 whenever. Folded into the priority-order list above where they overlap.
 
+**The M16 correctness group (#7, #8, #9) is done**, re-confirmed against the
+source 2026-08-23 rather than from this table, which had gone stale on all
+three — see each row. What is left of the original eleven is the perf group
+(#2, #4, #5, #6) plus housekeeping (#1, #11); #2's row records why it is
+harder than it reads.
+
 | # | Title | Kind |
 |---|---|---|
 | 1 | Commit `Cargo.lock` — gitignored on a binary crate, so builds aren't reproducible | chore |
-| 2 | `touch_neighbours`'s fast-path guard is unreachable (`MAX_REACH..CHUNK_SIZE-MAX_REACH` is an empty range at today's constants) — every `World::set` pays the full neighbour-wake loop | perf |
+| 2 | `touch_neighbours`'s fast-path guard is unreachable (`MAX_REACH..CHUNK_SIZE-MAX_REACH` is an empty range at today's constants) — every `World::set` pays the full neighbour-wake loop | perf |  <!-- still open, re-confirmed 2026-08-23: `world.rs`'s guard carries its own comment saying it is a no-op at today's constants and is kept as documentation of that fact. Narrowing it needs `parallel.rs`'s cross-chunk write-safety proof re-derived from an equality to an inequality. -->
 | 3 | `SURFACE_SEARCH == MAX_REACH` (32) sets the sweep-region widening for *every* material via one read-only liquid lookahead, though real movement reach tops out at 5 — decouple them, track actual reach per chunk | perf |
 | 4 | `field::step` runs 5 whole-world passes every frame with no sleeping, contradicting `README.md`'s own "a quiet field costs almost nothing" claim | perf, blocks M10 |
 | 5 | `rebuild_blocked` does ~164k hashed `World::get` calls per frame (open air is the worst case and the common case) — index the chunk directly instead | perf |
 | 6 | Seven un-hoisted loop-invariant `next.get(&coord)`/`get_mut` calls inside `field.rs`'s inner loops | perf, good first issue |
-| 7 | `scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak | perf, correctness, M16 |
-| 8 | `World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime | bug, M16 |
-| 9 | Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever | bug, M16 |
+| 7 | ~~`scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak~~ **(resolved 2026-08-23, both halves. `scheduler.rs` stores a `BinaryHeap<Reverse<ActiveSite>>` and `ActiveSite: Ord` orders `next_frame` first, then `(x, y, kind)` purely as a stable tiebreak, so `step` stops at the first not-yet-due site instead of rebuilding the whole map and same-frame sites resolve identically run to run.)** **This closes the §8b violation and does *not* close `open-bugs-handoff.md` §L** — `scene=worldcrack` still varies 53% across identical runs, from a per-process source nobody has attributed yet, so §8b can no longer be quoted as its explanation. | perf, correctness, M16 |
+| 8 | ~~`World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime~~ **(resolved. `TreeState` no longer exists — the tree rewrite replaced it — and organisms live in a generational slot vec, `World::organisms`, whose `free_organism` clears the slot and pushes it to `free_organism_slots` while `push_organism` bumps the generation on reuse. `plant::step_organisms` is the production caller, releasing organisms whose cell list has gone empty.)** | bug, M16 |
+| 9 | ~~Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever~~ **(resolved. `organism_tick`'s *first* check is `cell.organism_id() != organism_id`, which fires the instant the cell stops holding this organism's material, so burning or erasing the trunk stops its tips by construction rather than by a flag anyone has to remember to clear. Guarded by `an_orphaned_growing_tip_stops_growing_instead_of_extending_wood_from_open_air`.)** | bug, M16 |
 | 10 | Housekeeping: ~~default branch is `main` (a 15-byte stub — the project lives on `master`)~~ **(resolved 2026-08-21, the other way round: `master` was copied onto `main` rather than the default being switched, so `main` is now the trunk, CI gates it, and `master` is a lagging mirror kept only until someone deletes it — see the branch-topology note below)**, no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
 | 11 | Reserve a slice-identifier field on `ChunkCoord` before it reaches the save format (see the worldgen redesign above) | chore, architecture, blocks M10 |
 

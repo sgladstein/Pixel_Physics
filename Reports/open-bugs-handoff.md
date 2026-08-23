@@ -2384,6 +2384,19 @@ before assuming it is negligible in general.
 
 Found while fixing §1h, measured, not fixed.
 
+**Partly stale as written — re-read against the source 2026-08-23 before
+acting on it.** Two of the three walks named below are charged now:
+`subtree_sum` (`load.rs:1090`) and `supported_subtree` (`load.rs:1149`)
+both take `budget: &mut u32` and decrement per cell, as does
+`detached_piece`, and `failing_along_support_chain` itself checks
+`*budget == 0` at two points. What is **still** uncharged is
+`chain_reaches_anchor` (`load.rs:643`), whose signature takes no budget at
+all. So the defect is narrower than the paragraph below claims, and the
+118 ms measurement predates the change — it wants re-taking before anyone
+concludes anything from it.
+
+The original text follows.
+
 The budget is decremented once per cell of `is_supported`'s BFS and nowhere
 else, so `chain_reaches_anchor`'s walks, `subtree_sum`, and the repeated
 `evaluate_within` along `failing_along_support_chain` are all free of it.
@@ -2399,26 +2412,17 @@ actually caps. Do not raise it as a fix for anything until that is settled —
 raising it from 12,000 to 20,000 earlier this session bought nothing on this
 scene, by the measurement above.
 
-### 1i. The rigid-body rotation probe is vacuous, and a body can turn through a wall
+### 1i. ~~The rigid-body rotation probe is vacuous, and a body can turn through a wall~~ — **DUPLICATE of §K, and FIXED there 2026-08-23**
 
-Found while fixing §1h, not fixed with it — the fix changes how every
-tumbling piece in the engine behaves and wants its own measurement.
+Kept as a pointer rather than deleted, because the duplication is the
+finding. This entry (written while fixing §1h, naming the function
+`blocked_axis`) and **§K** below (written during the water-merge review,
+naming it `try_step` after the rename) are the *same defect*, logged twice
+in two sessions, neither cross-referencing the other — so the handoff
+carried it as two open bugs and any count of what was outstanding was one
+too high.
 
-`advance` guards a quarter-turn with *"only turn if the turned shape
-actually fits. Otherwise a body wedged in a gap would rotate straight
-through the wall beside it, which is the one way this transform can
-cheat."* The guard never fires. It builds a rotated `probe` at the body's
-own position and calls `blocked_axis(world, &probe, probe.x, probe.y, …)`,
-which skips every cell whose target equals its current position — and with
-`ox == probe.x.round()`, `tx == ox + cell.dx` *is* `cell_position(cell)`
-for every cell. The loop body never runs and the probe always returns
-`None`.
-
-To fix it, `blocked_axis` needs the **pre-turn** footprint to compare
-against rather than deriving one from a single integer offset;
-`rotate_reserved` already computes exactly that pair of sets and is the
-natural place to hang it. Expect it to change tumbling on every dry scene,
-so measure `worked`, `ligament` and `strike` before and after.
+The fix, the measurement and the standing guard are all recorded at §K.
 
 ### (was) 1h. Falling rock grinds itself to powder in deep water — three coupled defects
 
@@ -2866,14 +2870,31 @@ panicked: the scene must actually contain the gradient it is testing: 0.000 vs 0
 line. So this is `main`'s, not the explosion merge's, and the merge
 reproduces it exactly.
 
-**Why no one has seen it.** `.github/workflows/ci.yml` runs all five gates
-as *sequential steps of one job*. `cargo test` is step 4 and is currently
-red on `main` (bug A, the slot-1 lever). When it fails, steps 5-9 —
-including `cargo run --example ascii` and `scripts/acceptance.sh` — are
-marked **`skipped`**, not run. Verified on run `32604849243`: one job, one
-failure, five skipped steps. **So "main is green" cannot be concluded from
-CI for any gate after `cargo test`, and has not been true for at least
-these two.** A local run of all five is currently the only way to know.
+**Why no one had seen it — and this half is now fixed, 2026-08-23.**
+`.github/workflows/ci.yml` used to run all five gates as *sequential steps
+of one job*. `cargo test` was step 4 and was red on `main` (bug A, the
+slot-1 lever); when it failed, steps 5-9 — including `cargo run --example
+ascii` and `scripts/acceptance.sh` — were marked **`skipped`**, not run.
+Verified on run `32604849243`: one job, one failure, five skipped steps. So
+"main is green" could not be concluded from CI for any gate after `cargo
+test`.
+
+**That topology is gone.** The workflow is now a nine-job matrix — `test`,
+`test-debug`, `clippy`, `ascii`, `acceptance`, `fmt`, `branches` and the
+two known-red quarantine jobs — each an independent job, so one red gate no
+longer hides the rest. Bug A is excluded from `test`/`test-debug` **by
+name** (`--skip root_and_shoot_branching_read_different_slots`) and re-run
+in a `continue-on-error` job of its own, so it stays visible and executing
+without blocking; this bug does the same, as the `ascii` job's
+`continue-on-error: true`.
+
+**The bug itself is still open**, and the workflow's own comment is the
+thing to read before touching it: it is *knife-edge*, not simply broken.
+Run 137 failed it and run 139 passed it while both printed the same `steep
+half 0.000, flat half 0.000`, because the assertion is `wet_grad >
+dry_grad` over two quantities equal to three decimals. **A green `ascii`
+run is therefore not evidence the bug closed** and must not be used to
+re-gate the job.
 
 The assertion is a *setup* check — `wet_grad > dry_grad`, i.e. "the scene
 contains the gradient this test is about" — so it is `CLAUDE.md`'s "a scene
@@ -3009,6 +3030,33 @@ signature is stable on most seeds and unstable on a few — which is the worst
 possible shape, because the unstable ones are the ones carrying the signal, and
 a single-sample grid cannot tell an unstable seed from a real regression.
 
+**It is not confined to `worldcrack`, measured 2026-08-23.** `scene=ligament`
+at `start=2 every=900 count=5` (frame 3,602), one release binary, three
+identical invocations:
+
+| run | bodies promoted | cells promoted | quarter turns asked |
+|---|---|---|---|
+| 1 | 166 | 5,939 | 48 |
+| 2 | 398 | 10,327 | 166 |
+| 3 | 407 | 10,689 | 166 |
+
+A **1.8x spread in promoted mass** between runs of the same binary, and run 1
+diverges so early that it asks a third as many rotations as the other two. The
+paired control that makes this attributable rather than suggestive:
+`scene=worked`, same treatment, came back **bit-identical three times over**
+(40 bodies / 1,701 cells / 48 turns asked / 5 refused), so the harness, the
+timing and the machine are not the variable — the scene is.
+
+**What this costs:** `ligament` is one of `acceptance.sh`'s eight structural
+cases, and it is the scene §1c's withdrawn fix was measured on
+(18.1 ms -> 86.6 ms). Its acceptance bar is `min_overloaded=1` over a
+~350-frame window, which is loose enough that the spread above cannot flip it
+— so the gate is not currently flaky. But **no before/after comparison taken
+on `ligament` at a long budget means anything**, including the ones already in
+this file, and anything measured there in future needs a repeat count and an
+order statistic rather than a single run. Prefer `worked` as the deterministic
+control when a rigid-body change needs a paired reading.
+
 **Leads, not verified.** Two candidates for a per-process perturbation that
 chaos then amplifies: `structural.rs`'s single per-frame `world.load_budget` is
 drained across all sites, so any ordering change moves which checks come back
@@ -3017,6 +3065,33 @@ drained across all sites, so any ordering change moves which checks come back
 re-seeds **per process**, with `find_body_at` returning the first match in that
 list. Either would give exactly this stable-on-most-seeds picture. Neither has
 been confirmed.
+
+**Four candidate sources checked and eliminated, 2026-08-23** — recorded so
+the next session does not re-walk them:
+
+| candidate | verdict |
+|---|---|
+| `scheduler::step`'s `HashMap` drain (`PLAN.md` issue #7 / §8b) | **fixed, not the cause.** Now a `BinaryHeap<Reverse<ActiveSite>>` with `Ord` on `next_frame` then `(x, y, kind)` — a total order, stable across runs. §8b can no longer be quoted as the explanation for this bug. |
+| `field::step`'s tile solve | **sorted.** `solve.sort_unstable_by_key(\|c\| (c.y, c.x, c.slice))`, with a comment naming this exact requirement. |
+| `rigid.rs`'s fracture seeding | **sorted.** `remaining.sort_unstable()` before the seed loop, and the `left` set is only ever `contains`/`remove`d, never iterated; `take_fragment` is a `VecDeque` BFS over `NEIGHBOURS_4` in fixed order. |
+| the `body_index` lead above | **weak.** `body_index` is a `HashMap<_, Vec<BodyId>>` whose per-chunk `Vec` is in *insertion* order, not hash order, so the `HashSet` iteration it is built from does not reorder it — and liquid-body promotion is test-only today, so `find_body_at` is not on this scene's path at all. |
+
+**What the search should look at instead: `World::rng` is one shared
+mutable stream** (`world.rs:286`), drawn at event time — `world.rng.below(
+rungs)` is called *per fragment seed* inside `fracture_failing_region`, and
+many other systems draw from the same sequence. So any upstream perturbation
+that changes **how many draws happen before a given fracture** reshuffles
+every random outcome after it. That is the amplifier, whatever the source
+turns out to be, and it is what makes the first lead above (the
+`load_budget` drain moving which checks come back `Deferred`) sufficient on
+its own: it does not need to change *what* fails, only *when*, for every
+fragment size downstream to change with it.
+
+That also says what the remedy looks like, and the project has already
+applied it once: per-organism RNG (`f9ab577`). A per-site stream derived
+from `(x, y, frame, seed)` rather than drawn from a shared sequence makes
+fracture immune to upstream draw-count drift, which is a narrower change
+than finding the perturbation.
 
 **Why it matters beyond one change.** `seedsweep.sh` is the instrument
 `CLAUDE.md` prescribes for every change to a model over procedural content, and
@@ -3027,20 +3102,76 @@ the root cause, and is much cheaper than finding it.
 
 ---
 
-### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
+### K. ~~`try_step`'s rotation-fit probe compares every cell against itself~~ — **FIXED 2026-08-23.** (Was also filed separately as §1i; same defect, two write-ups.)
 
 Also from the merge review. In `rigid.rs` around the rotation fit, the probe
-calls `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
-position is its own current position. The `if (tx, ty) == (cx, cy) { continue }`
-guard at the top of the scan then skips **every** cell, `horizontal` and
-`vertical` are never set, and `axis` is always `None` — the probe reports
-"nothing blocks this rotation" unconditionally, so a wedged body rotates
-through a wall.
+called `try_step(world, &probe, probe.x, probe.y, …)`, so each cell's target
+position was its own current position. The `if (tx, ty) == (cx, cy) { continue }`
+guard at the top of the scan then skipped **every** cell, `horizontal` and
+`vertical` were never set, and `axis` was always `None` — the probe reported
+"nothing blocks this rotation" unconditionally, so a wedged body rotated
+through a wall. Live for the entire life of the mechanism, in both parents of
+the water merge.
 
-**In both parents.** Not introduced by the merge and not this branch's to
-fix; recorded because it is live, it is invisible (a probe that always says
-yes looks exactly like a probe that is working), and nothing else in the
-handoff names it.
+**The fix is `rigid::rotation_fits`, a read-only predicate**, and it is not
+the obvious one. Correcting the offset and calling back into `try_step` was
+rejected: `clear_or_displaceable` **mutates** as it answers — `displace`
+shoves powder and the `Gas` arm calls `world.set(…, Cell::EMPTY)` inline — so
+a probe built on it would rearrange the world to decide a turn it may then
+refuse, which is §J's speculative-write defect on a path that discards the
+answer. `rotation_fits` asks the same *classification* question and does
+nothing but return it. `BodyCell::rotated` is now the single definition of
+the quarter turn, so the predicted turn and the performed one cannot drift
+apart.
+
+**Powder is deliberately treated as yielding** without asking whether
+`displace` could actually find it somewhere to go, which is more permissive
+than the real move. A read-only ring search per cell per turn is the exact
+cost, and refusing on a failed search would stop a piece tumbling the moment
+it touched its own debris — the medium a collapse happens *in*. The cheat
+this guard exists to stop is turning through a **wall**.
+
+**Measured, `scene=worked`** (`start=2 every=900 count=5`), which returns
+**bit-identical numbers across three runs of the same binary**, so this is
+the change and not run-to-run spread:
+
+| | before | after |
+|---|---|---|
+| quarter turns asked / refused | 48 / **0** (probe vacuous) | 48 / **5** (10%) |
+| bodies promoted | 76 | 40 |
+| cells promoted | 2,847 | 1,701 |
+| cells to dust | 683 | 577 |
+| chunk by mass | 80% | 74% |
+| all at rest by frame | 741 | 388 |
+
+**The control that isolates it:** `scene=strike` asks **zero** quarter turns
+(its pieces never reach `spin >= 1.0` at 1.05 cells/frame) and its output is
+byte-identical across the change — same 20 bodies, 670 cells, 270 shattered.
+A scene that never consults the probe is unmoved by repairing it, which is
+what says the delta above is the probe and not collateral.
+
+Two things that are **not** evidence, recorded so they are not read as such.
+`scene=ligament` moved too, and its numbers are void — it is nondeterministic
+(see §L). And every scene's worst-frame timing improved, including
+`strike`'s, which moved 196 ms -> 60 ms *while producing byte-identical
+output* — so the timings in this environment are noise-dominated and **no
+performance claim is made here** in either direction.
+
+**Judged by eye, not settled here.** The baseline's debris pile is full of
+mushroom-capped one-cell stems — bodies that turned into places they could
+not have reached — and those are gone. But 40% less rock comes away, because
+a piece that cannot turn jams and re-embeds instead of cascading. Whether
+that reads as less destruction in the hand is the owner's call; posted blind
+as review card `20260823T155727949Z-b17b87` on the `fracture` board.
+
+**Guarded by `a_wedged_body_will_not_rotate_through_the_wall`**, which was
+`#[ignore]`d against this bug and is live again, now asserting **both**
+directions — the wedged bar is refused, and the same bar fits once the slot
+above and below it is opened. A probe that always refuses is exactly as
+useless as one that always allows, and the one-sided version could not tell
+them apart. `FailureCounts::rotations_asked` / `rotations_refused` are the
+running readout (`filmstrip` prints `quarter turns:`); **refused == 0 on a
+scene with walls in it is the tell that it has gone vacuous again.**
 
 ## Closed this session
 

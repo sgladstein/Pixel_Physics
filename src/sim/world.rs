@@ -1035,6 +1035,24 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Quarter turns a falling body asked for, and how many the fit probe
+    /// refused.
+    ///
+    /// **These exist because the probe they measure was dead for the life
+    /// of the mechanism and nothing could tell.** `rigid::rotation_fits`
+    /// used to compare every cell against its own position, so it answered
+    /// "clear" unconditionally and every body rotated through whatever was
+    /// beside it (`Reports/open-bugs-handoff.md` bug K). A probe that always
+    /// says yes and a probe that works produce the same tumbling on a
+    /// contact sheet at the zoom one is read at; only the refusal count
+    /// separates them, which is `CLAUDE.md`'s "did it fire at all needs a
+    /// counter, not a picture" in its purest form.
+    ///
+    /// `refused` at exactly zero over a scene with walls in it is the tell
+    /// that the probe has gone vacuous again — a *ratio* is a tuning
+    /// question, but a zero is a wiring one.
+    pub rotations_asked: u32,
+    pub rotations_refused: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -1064,6 +1082,15 @@ impl FailureCounts {
     pub fn record_staged(&mut self, cells: usize) {
         self.staged_slices += 1;
         self.staged_cells += cells as u32;
+    }
+
+    /// One quarter turn offered to the fit probe, and whether it fitted.
+    /// See `rotations_asked`.
+    pub fn record_rotation(&mut self, fits: bool) {
+        self.rotations_asked = self.rotations_asked.saturating_add(1);
+        if !fits {
+            self.rotations_refused = self.rotations_refused.saturating_add(1);
+        }
     }
 
     /// One body, `cells` cells, actually lifted off the grid. See
