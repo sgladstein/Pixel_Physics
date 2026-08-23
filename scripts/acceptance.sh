@@ -364,6 +364,33 @@ run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 
 #    timing claim here to stabilise, and the run is 26 s.
 run wood     scene=wood     start=6600 every=1 count=1 crop=0,140,512,180 zoom=2 min_travelled=200 repeat=1
 
+# 8b. ...and gets through a *differently grown* one.
+#
+#     Case 8 is one point of a procedural system, which `CLAUDE.md` says is
+#     blind by construction: all eight original cases stayed green through a
+#     change that cost one seed 26x more world. `PlantScene` takes no seed,
+#     so `frame0=` is the axis that redraws the stand -- `weather::at` is a
+#     pure function of `(seed, frame)`, so a different window grows it under
+#     different rain and leaves the litter and spilled soil lying
+#     differently. 3600 is the measured *worst* of six windows.
+#
+#     **The bar is 40 against a measured 50, and the gap to case 8's 200 is
+#     deliberate and open.** Recorded rather than relabelled away, per the
+#     house rule: across those six windows the gnome covers 50 to 358 cells,
+#     so 200 is not a number this scene can hit at every window yet. What
+#     this case gates is the failure that was actually live -- the same
+#     sweep measured **1 cell** before `shoulder_grains`, with the gnome
+#     fenced in by scattered grains. Raise the bar when the forest-floor
+#     banks below are crossable, not before.
+#
+#     Still open, and why this is 40 and not 200: at the worst window he
+#     stops against a soil bank in the forest floor five cells abreast at
+#     chest height with nothing hard in it. That is the wade model meeting
+#     terrain it has no way over -- he sinks to the knee and stops, and
+#     `step_up` cannot mount a powder face -- not the scattered-grain bug
+#     this bar was moved for. See `Tuning::shoulder_grains`.
+run woodalt  scene=wood     frame0=3600 start=6600 every=1 count=1 crop=0,140,512,180 zoom=2 min_travelled=40 repeat=1
+
 echo
 if [ "$fails" -gt 0 ]; then
   echo "acceptance: $fails case(s) FAILED -- images in $OUT"

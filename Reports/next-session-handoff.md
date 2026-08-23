@@ -809,7 +809,23 @@ Reproduce with `scene=worldcrack preset=flat dig=4 tunnel=N`.
 
 ## 2. What is still wrong
 
-### 2a. `wall=3 span=200` collapses untouched while 2 and 5 stand
+### 2a. `wall=3 span=200` - mostly gone, re-baseline before working it
+
+**Re-measured on `main` at 2026-08-23: 9 cells lost, not 1,064.** Something
+between the two measurements took almost all of it, and it was **not** the
+load concentration: `share=0` and `share=1` are identical to the cell at
+wall 2, 3, 5 and 8, so the suspicion recorded below was wrong. The
+worst-stressed cell in every one of those runs is a *roof* cell, which takes
+its support horizontally and is untouched by 2d.
+
+The figure has now moved twice under this heading -- 1,064 originally, 48 on
+branch `load-share` against `origin/master` `0c7ad58`, and 9 on `main` today
+(`wall=2/5/8` all zero, `wall=3` loses 9, rock -15). It is still
+non-monotonic, so the defect is real and only its magnitude collapsed; three
+different numbers in three builds is itself the reason to re-baseline before
+working it rather than trusting any of them. The paragraph below is kept for
+its reasoning, not its numbers.
+
 
 ```
 ./target/release/examples/filmstrip.exe scene=room span=200 wall=3 dig=0 \
@@ -853,17 +869,188 @@ thicker room wall, or a doorway that is dug from the ground up over several
 clicks (which is the *satisfying* answer — it makes cutting a doorway a
 verb rather than a click). Ask.
 
-### 2d. Load still concentrates on one path
+### 2d. DONE: load no longer concentrates on one path
 
-The one-pixel stress line the owner reported three times is **not fixed**,
-only made less lethal. Measured on an intact wall: the inner face carries
-mass 1707 and the outer face 307, because the whole roof's shortest path to
-the ground runs down the single innermost column. Capacity happens to
-compensate (it is computed from the full 17-cell section), which is why the
-room stands — but it means damage *on that path* is catastrophic while
-damage anywhere else in the same wall is free. The clamp removed the worst
-consequence; the concentration is still there and is still the largest
-open defect in `load.rs`. Its comment at `evaluate_within` already says so.
+**`Reports/load-concentration-review.md` is the current write-up**, revised
+after an independent review (`load-concentration-review-response.md`). Read
+that rather than this. In short, the review found one real bug — the member
+test was coupled to `MAX_SECTION`, so a 60-cell *built* column
+(`scene=capped`) could never share — and overturned nothing else; a counter
+added for its "did it fire at all" objection also **overturned the dust
+concern** it raised about `caveshallow`, which turned out to be a mean
+counting confined crack-in-place events.
+
+**Timing is not certified.** Mechanism assertions were 16/16 in every run,
+but the frame-time bars flaked across eight different scenes on this
+machine, including cases this change cannot affect, and the `share=0`
+control fails them too. Re-certify on a quiet machine or in CI.
+
+**Fixed.** A wall is now judged as a member: on a vertical load path, every
+cell of the horizontal cut through it is charged the worst load crossing
+that cut. `load.rs`'s `evaluate_within` holds the reasoning; `share=0` on
+`filmstrip` (and `World::section_share`) is the control that puts the old
+behaviour back in the same binary.
+
+Measured on `scene=room wall=8 dig=0`, straight across one 17-cell wall:
+
+| | before | after |
+|---|---|---|
+| outer face (132,200) | mass **157** | mass 2956 |
+| wall interior (136-144) | *never evaluated* | *never evaluated* |
+| inner face (148,200) | mass **2956** | mass 2956 |
+
+19:1 to 1:1. The interior is still skipped — `is_structurally_interesting`
+declines anything buried and attached, which is what keeps the sweep
+proportional to surface area — but the two cells that *are* evaluated now
+agree, and the capacity they are judged against was always the whole
+section's.
+
+**The behavioural payoff, which is the point rather than the numbers.**
+Notch the outer face of a wall (`cut=132,250,4,6,20`) and probe the row
+through the notch:
+
+```
+share=0   (136,252) mass  109  torque     0   stress 0.00
+share=1   (136,252) mass 2940  torque 17640   stress 0.07
+both      (148,252) mass 2940  torque 17640   stress 0.07
+```
+
+Before, the face you just damaged carried *nothing at all* and the building
+did not notice. That was the stated consequence of the defect — "damage on
+that path is catastrophic, damage anywhere else in the same wall is free" —
+and it is gone.
+
+**What it did not change, deliberately.** The stress *view* of an intact
+room looks the same, and that is correct rather than disappointing: the
+column-moment clamp (`0b5b175`) had already taken the wall's stress down to
+0.05, so the wall rendered green before and renders green now. The red line
+still visible on a wide room is the *roof's* underside, which takes its
+support horizontally, is untouched by this, and is legitimately the most
+stressed part of a 260-cell span. Anyone re-reading the stress view for
+this defect should read the mass, not the colour.
+
+**Re-measured on `main` after the port (2026-08-23), then largely retracted by
+an independent audit and by the owner's eye. Read this whole block before
+quoting any number from the documents above.**
+
+The *probe* reproduces exactly on `main`: 157 / 2,956 becomes 2,956 / 2,956,
+with 15,376 cell-evaluations actually moved, so the rule fires and is not a
+vacuous pass. That part stands.
+
+**The seed sweep does not measure this change, and the reason is a defect in
+the engine rather than in the sweep.** `scene=worldcrack` is **not
+deterministic**. Five identical invocations of one binary on
+`preset=canyon seed=3 strike=12` gave rock destroyed **837, 1077, 1083, 1083,
+1283** -- a 53% spread. `CLAUDE.md` lists same-build determinism as *required*.
+It is **pre-existing on `main`**, not caused by this port: the clean
+`origin/main` binary, with none of this code in it, gives 37, 37, 81 on the
+same three-run test. Logged as its own bug in `Reports/open-bugs-handoff.md`.
+
+So the aggregate figures below are single samples from a wide distribution and
+**the +25.8% first reported here is not reproducible** -- an independent
+re-run of the same grid got +43.9%. The honest statement is that the aggregate
+cost is real and is somewhere around +20% to +50%, and is not known better
+than that until determinism is fixed or every cell is repeated.
+
+Three further corrections to what this section first claimed, all upheld:
+
+- **"Fifteen of twenty-four seeds unchanged" was an artifact of the clipped
+  column.** `stats` sums only positive values, so any run where rock is *net
+  gained* scores 0 in both arms and reads as "unchanged". Only **6 of 24 rows
+  are literally identical**. Overload *events* across the grid went 1,985 to
+  2,839 (+43%).
+- **Singling out `canyon 3` was post-hoc.** Leave-one-seed-out over the grid
+  spans -19.5% (dropping `canyon 3`) to +147.8% (dropping `terraced 1`). It was
+  the one deletion of eight that flips the sign.
+- **`p90` should not have been quoted.** Nearest-rank at n=24 puts it at the
+  3rd worst, which `scripts/seedsweep.sh`'s own comment says is not comparable
+  across changes.
+
+**`cells lost` is unusable on these presets** and the rows reporting it should
+be ignored: the shipped arm's "best" values (max 640, p90 636) are
+`wetland` runs with **zero failures and rock +-0**, i.e. the shared background
+oscillation, not an improvement. See `CLAUDE.md`'s settling section for the
+`strike=0` control. `rock` is cleaner but not clean either -- `wetland 3` with
+**no verb** still removes 6,189 cells to 151 overload failures, and its ice
+count nets the rock column to a scored 0.
+
+**The owner's verdict, which is the one that governs.** The paired collapse was
+posted as review card `20260823T064443585Z-e94b1e`:
+
+> *"There are very similar and i would describe both of them as roof cave in,
+> not building coming apart"*
+
+So the change delivers **no visible improvement** on the scene it was framed
+on, and the scene itself is answering a different question than the one asked --
+`scene=room`'s failure mode is the roof dropping, which is not what a *wall*
+fix should be demonstrated on. An audit had independently reached the same
+place from the numbers: the "all-or-nothing becomes a distribution" claim was
+measured on *failure regions*, not pieces, and the `body sizes` line shows the
+control **already** spread across six size bands (28 bodies). The real change
+is more pieces shifted smaller (28 to 43, and the 256+ band *falls* 3 to 2),
+with `cells shattered to rubble` up 77 to 179 (+132%).
+
+**Where that leaves the change.** It is a *correctness* fix, not a satisfying-
+destruction fix: it removes a real modelling error -- demand per cell judged
+against capacity per section, so damage on one line was catastrophic and
+damage anywhere else in the same wall was free -- and it buys nothing the owner
+can see. On `scene=room` notch tests (4x6, 8x20, 12x30, both faces) the two
+arms are identical to the cell, because the surviving section sits at stress
+0.09, an 11x margin: **that scene cannot fail for either arm, so it cannot
+demonstrate the fix at all.** Anyone taking this further should build a scene
+where a *wall* is the thing that gives way, and should not re-litigate the
+aggregate cost until the determinism bug is fixed.
+
+#### OPEN, found by review of the port: the cut picks its worst by mass
+
+`evaluate_within`'s cut loop selects the sharing candidate with
+`if cm > worst.0` -- **maximum mass** -- and the criterion it feeds is
+**torque**, `|moment - x*mass|`. Those are different orderings. A heavier
+neighbour whose centroid sits nearly overhead has a shorter lever arm than a
+lighter one reaching out sideways, so when it wins the selection the cell is
+charged *less* than its own subtree would have charged it. That is the
+opposite of the rule's stated intent, which is that no lamina is judged as
+though the rest of the wall were not there.
+
+**Confirmed as a code property; magnitude not measured.** No test can see it:
+every section-share test is pure stone, and every powder-surcharge test is
+built on `beam()`, a horizontal load path where this block is gated off. So
+nothing in the suite exercises powder against `section_share` at all.
+
+`cc048c4` makes it more reachable rather than less: `powder_surcharge` adds
+its mass at the node's own x, i.e. at roughly zero eccentricity, which is
+exactly the input that wins on mass while lowering torque. Sand piled on one
+column of a wall is the shape to reproduce it with.
+
+**Why it was not fixed in the port.** The obvious repair is to floor the
+shared torque at the cell's own so sharing can never subtract. That is a
+change to a model governing procedural content, and `CLAUDE.md` requires the
+seed sweep *before* one of those. Selecting on torque directly is not a
+drop-in: torque depends on `x`, while the memo is keyed on the cut
+`(lo, hi, y)` and deliberately shared by every cell in it, which is what
+keeps the rule affordable. Either repair wants its own session with the
+sweep in hand, and a powder-on-a-wall test written first.
+
+Note the 4 of 24 seeds that destroy *less* rock with sharing on are consistent
+with this and do not demonstrate it -- preventing an early failure changes the
+whole trajectory, so less damage has innocent explanations too.
+
+#### The one thing this deliberately did not fix
+
+A column's allowable load in this model is **quadratic** in its width, and
+it should be linear — capacity is `base x D^2` while the demand charged to
+it is one cell's. Making the cut's *sum* the demand (rather than its worst)
+gives the honest `2 x base x D`, and it was built and withdrawn: `worked`
+went from 7 overload failures to **918** and lost 1,351 rock against 21,
+and `caveshallow` went 214 to 2,260, because every constant in `load.rs` is
+calibrated against the quadratic. Restoring the balance means lifting
+`base`, which is on the do-not-retry list because it takes `scene=undercut`
+to zero spalling.
+
+So the quadratic is a real, separate defect. The shipped fix is a **pure
+redistribution** — the aggregate strength of every structure is exactly what
+it was, and only *where* the model is willing to fail has changed. Do not
+smuggle the recalibration in behind a distribution change.
 
 ---
 
@@ -886,6 +1073,56 @@ Newly added this session, both recorded in `capacity`'s comment:
   unchanged (2,595 → 2,540 cells lost), because one loosened cell in a load
   path carrying the roof's whole moment is already fatal. The footprint was
   never the driver. Both constants are back at 3 and 2.
+
+- **Summing the cut instead of taking its worst.** The flow across a
+  horizontal cut really is the sum of what crosses it, and `subtree_sum`
+  divides every hand-off by `support_count` so the shares add up without
+  double-counting. It is still wrong here, and not by a little: demand
+  `N x D/2` against capacity `base x D^2` makes a column's allowable load
+  linear in its width, and every constant in `load.rs` is calibrated against
+  the quadratic it has always been. `scene=worked` went 7 overload failures
+  to **918** (rock -21 to -1,351), `caveshallow` 214 to 2,260. The
+  arrangement was not the problem; the recalibration is a separate job.
+- **Deciding whether a member exists with `MAX_SECTION`.** The member test
+  originally read the ends of `section_cells`, which stops at 40, so nothing
+  wider than 40 could ever be a member. It reads as a safe conservative gate
+  and it silently excluded `scene=capped`'s 60-cell *built* column — the
+  exact shape the owner reported the defect against. `MAX_SECTION` bounds
+  work; `MAX_MEMBER_WIDTH` decides what the object is. Keep them separate,
+  and keep `ShareCounts::too_wide` so the second one cannot quietly become
+  the first.
+- **Tuning `MAX_MEMBER_WIDTH`.** Not a knob. At 64 rather than 96 the
+  settled strike sweep is *worse* on p90 (rock destroyed 3,645 against
+  2,351) and no better on max. Set it from what a member is, not from a
+  sweep.
+- **Filtering the cut to cells that flow downward** (`flows_down` inside the
+  loop). Essential on the summing version, worthless under a max: taking a
+  maximum cannot double-count, no unit-testable geometry distinguishes it,
+  and on the settled sweep it is *worse* — rock destroyed max 7,065 against
+  4,704 — for ~45% of the frame on `worldcrack strike=12`. Withdrawn. It
+  survived one earlier sweep taken before `MAX_MEMBER_WIDTH` existed, i.e.
+  over a different population of members, which is why that result did not
+  hold.
+- **Reading `failing region size: mean` as the size of the pieces.** It
+  divides cells by failure *events*, and confined crack-in-place failures
+  are events. A change that made `caveshallow` fail more often read as mean
+  10.0 -> 4.1 — below `MIN_FRACTURE_CELLS`, so apparently dust — while
+  destroying the identical 64 cells of rock and sending *fewer* cells down
+  the powder path (30 -> 16). Use `FailureCounts::crumbled`.
+- **Coupling a cut that has no ends.** The same rule without the
+  `is_member` test, so every 40-cell window of a slab shares. That is 1c's
+  lateral unzip handed a shortcut: `seedsweep.sh strike=12` run to rest went
+  from p90 2,227 rock destroyed to **4,465**, with single runs reporting
+  49,265 overload failures.
+- **Reading a single cascade scene to compare two load models.** Two runs
+  that diverge on one frame are different worlds by the next. On
+  `scene=worldcrack strike=12` the `flows_down` filter measured *ten times
+  worse* at frame 1,202 while the order statistics over 24 seeded runs said
+  it halved the worst case. Use the sweep, and run it to rest.
+- **Censusing a collapse before it has settled.** `roomcut` read
+  251 -> 1,501 cells lost across the 2d change at frame 202 and
+  235 -> 273 once both runs were given 1,500 frames. The first number is
+  the difference between mid-fall and landed, not between two models.
 
 Carried over, still true:
 
@@ -933,6 +1170,30 @@ Counting every non-empty cell instead was tried and lies — it reported
 `canyon` *gaining* 167 cells on a run where nothing failed, because a
 `Liquid` cell spreading into two half-full ones is +1 occupancy at
 unchanged volume.
+
+**Two instruments added this session, both cheap and both worth reaching
+for before arguing.**
+
+`channel=stress` renders the sheet as the load model's own verdict on the
+app's `N` ramp -- green at rest to red at the limit -- at full opacity
+rather than the app's 0.55 blend, which is unreadable at contact-sheet
+zoom. It paints a **third** colour, dark blue, for material the model
+declines to evaluate, and that is not decoration: it is how you see that a
+17-cell wall is a one-cell green skin over thirteen cells the model has no
+opinion about. Green and "never asked" must not look the same.
+
+`share=0` puts the pre-2d load concentration back in the same binary, the
+same control `confine=` and `arch=` already provide. Reach for it rather
+than for a build from an hour ago.
+
+**Run the sweep to rest, not to frame 1,202.** The default
+`start=2 every=400 count=4` censuses `strike=12` while several presets are
+still mid-collapse, and it will read a delay as damage. Across the 2d
+change the short sweep said p90 rock destroyed rose 1,152 -> 1,366 and
+`FRAMES="start=2 every=900 count=5"` said it *fell* 2,227 -> 1,782. Same
+binary, same seeds, opposite conclusions. `roomcut` did the same thing at
+the scene level: 251 -> 1,501 cells lost at frame 202, 235 -> 273 once both
+runs had landed.
 
 **Frame timings on this machine are currently very noisy.** One unchanged
 scene measured 20.53-50.90 ms across three runs in one command, and the
@@ -985,8 +1246,11 @@ In order, and **re-judge each rather than inheriting its justification**:
    pieces". Regions are now large and 45–62 bodies form per collapse, so
    there is finally something to tumble; check whether it already reads
    right before touching `SPIN_PER_SPEED`.
-4. **§2d**, load concentration. The largest open defect, and the one the
-   owner has reported most often.
+4. ~~**§2d**, load concentration.~~ **Done** — see §2d. What it exposed and
+   left open is the *quadratic* column: a member's allowable load grows as
+   the square of its width where it should grow linearly. That is a
+   recalibration of `base`, it collides with `undercut`'s spalling, and it
+   wants its own session.
 5. **F3** (replay a playtest report from a world dump) — still the biggest
    gap in the loop. Every report has had to be reconstructed into a scene by
    hand, and at least two reconstructions have been wrong.

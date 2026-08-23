@@ -43,9 +43,9 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `T` | Plant a tree seed under the brush (M16 debug tool) |
 | `M` | Plant a moss seed under the brush (M16 debug tool) |
 | `J` | Plant a worm under the brush (M18 debug tool; was `W` before the gnome claimed WASD) |
-| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height) — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and breaking the surface leaves a window to jump out), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking a plant **shakes** it rather than cutting it (the ring turns green): loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
+| `U` | Summon the gnome at the cursor, or dismiss him (M9). Arrives in `Tool::Dig`, where left-click cuts the near rock face along the aim (the yellow ring shows where the bite lands and how big it is) and right-click still erases; `Z` cycles back to the brush. `A`/`D` run, `W` jump (tap for a hop, hold for full height), and a lip a little above a jump's apex is caught and mantled — the same four keys scroll the map while nobody is summoned, see the row below. He wades knee-deep in powder — slowed in proportion to how deep — swims in liquid (`W` strokes up, `S` down, and holding `W` through the surface hops him onto the bank), and rides a falling chunk body rather than being left behind by it. **A living plant is scenery he walks through, not a wall**: hold `Shift` to take hold of one, then `W`/`S` climb it and no vertical input hangs him there; releasing `Shift` lets go. Climbing has its own key because riding on `W` meant jump-walking through a wood grabbed every trunk it touched and let you hover — and falling through a crown is broken by the foliage. Left-clicking **a plant you are pointing at** shakes it rather than cutting it, and the pick sees straight through living tissue to the rock behind, so a tree merely in the way never swallows a cut: loose material comes off the branches, the shaded leaves that were already dying come down as litter, and a grown tree yields seed |
 | `A` `D` `W` `S` (with no gnome) | **Scroll the map.** With nobody summoned the view is yours: the same keys that run him pan the camera instead, and the moment one is summoned it goes back to being his. No mode to toggle — the two readings can never both be live, because `App::draw` re-centres on a gnome every frame, so a camera the player set would simply be pulled back on the next one. The rate is *screens per second*, not cells, so the picture slides at one speed however far in or out you are zoomed; the step is quantised to the zoom-out sample stride, without which a zoomed-out view re-samples rather than translating. It **opens at about the gnome's own running pace and accelerates over ~0.8 s** to 0.5 screens/s, crossing the world's pannable width (7680 cells) in about 30 seconds — a tap nudges, a hold travels, and reversing restarts the ramp so correcting an overshoot does not fling the view back. It shipped as a flat 1.5 screens/s and was rejected by playtest as "way too fast"; see `render::PAN_SCREENS_PER_SECOND`. The world is sixteen screens wide and eight deep, so there is a good deal to see — the bottom-left readout shows where the view is |
-| `F10` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode |
+| `,` | Cycle **tree depth** — whether the gnome draws over a stand of trees, weaves through it (the default: half of them draw over him, chosen per tree and stable for its life), or passes behind all of it. Purely graphical; a living plant is walk-through in every mode. On a comma rather than the `F10` this row named until now: two branches independently claimed `F10`, the terrain-depth light kept it, and this row was left behind pointing at a key that does something else |
 | `F3` `F4` `F2` | Cycle the gnome's **movement feel**, **water feel** and **spoil mode**, in that order — named runtime selectors for the three things only play can settle. (An earlier version of this row had the keys scrambled; the binding is F3 = movement, F4 = water, F2 = spoil.) The active one is shown in the title bar once it differs from the default. Every underlying number is also sweepable under `O` -> PLAYER |
 | `Y` | Found an **ant colony** at the cursor — the whole colony feature hangs off this key; see [`wiki/ants.md`](wiki/ants.md) |
 | `F6` / `F8` | New world from a fresh seed / back to the previous seed |
@@ -1176,8 +1176,8 @@ to keep alive.
 
 **`TIGHT` was built as the default, measured, and backed out.** It breaks
 the acceptance pair that encodes *"cutting a wall brings the room down"*:
-on `scene=room wall=5 dig=3` the ceiling's failure drops from 1,975 cells
-to **238** and the roofed void stays at **100%** -- the room does not come
+on `scene=room wall=5 dig=3` the ceiling's failure drops from 1,959 cells
+to **244** and the roofed void stays at **100%** -- the room does not come
 down at all. That is not a bug. `licence_radius` is `chain_reach + extent`,
 a radius-3 chisel's extent is 5, and a 200-wide room's ceiling fails as one
 region reaching ~100 cells from the cut, so `clip_region_to_licence`
@@ -1186,8 +1186,14 @@ correctly keeps only the part within reach. (Not
 and so never runs in a harness scene built at a fixed reach.) `wiki/structural-collapse.md` already
 named this trade as its open question; making TIGHT the default makes it
 the default experience, which wants a playtest verdict. `LOCAL` (48) gives
-the containment without the cost -- 1,975 cells and 19% roof left, the same
+the containment without the cost -- 1,959 cells and 23% roof left, the same
 as SPREAD. Moving the default is one line in `CHAIN_MODES`.
+
+Those figures were **re-measured after `section_share` landed on `main`**,
+because a concurrent branch warned it would move the SPREAD baseline to
+2,733. On this scene it did not (1,959 with sharing on against 1,975
+without), and the verdict is unchanged either way -- but the warning was
+right in principle and checking it cost one command.
 
 **Elsewhere, TIGHT is close to a no-op, which is worth knowing before
 anyone tunes it.** The reason is arithmetic: the
@@ -1799,7 +1805,9 @@ sand as though it were stone.
 Built: a summonable character (`U`), in `src/sim/player.rs` — a kinematic
 body over the cell grid, not a rigid-body import. He runs (`A`/`D`), jumps
 with tap-for-hop, hold-for-height (`W`), wades powder slowed in proportion
-to how deep he is in it, swims with a surface-exit window, is buried and
+to how deep he is in it — shouldering past the few loose grains that a
+canopy or a dig leaves at chest height, while a bank several cells abreast
+still stops him — swims with a surface-exit window, is buried and
 digs out, rides a falling chunk body rather than being left behind by it,
 and digs an aimed bite along the cursor (`Tool::Dig`, the yellow ring).
 
@@ -1841,6 +1849,17 @@ water, `F2` spoil) — the "ship a runtime selector rather than choosing"
 convention applied to a character. What he is like to play is
 [`wiki/the-gnome.md`](wiki/the-gnome.md); the build plan he followed is
 `Reports/m9-gnome-character-plan.md`.
+
+**Known limitation:** he cannot get over a bank of loose powder. `wade_rows`
+lets it reach his knee and no higher, and `step_up` mounts a *ledge* — a
+tall powder face fails the same test at every lift — so a forest floor that
+piles above knee height across his width is terminal, and he has to dig
+through or go round. Measured and left visible rather than tuned away:
+acceptance case 8 clears a wood at 357 cells against a bar of 200, while
+case 8b at the worst-grown stand gates 40 against a measured 50. The gap
+between those two bars is this limitation. Bug C1 in
+[`Reports/open-bugs-handoff.md`](Reports/open-bugs-handoff.md) holds the
+numbers and three candidate directions, none attempted.
 
 ## M10 status — the worldgen half
 

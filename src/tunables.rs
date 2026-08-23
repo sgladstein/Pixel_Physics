@@ -308,6 +308,10 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::integer(g, c, "dig_radius", t.dig_radius as f32, 1.0, 12.0, 1.0),
         Tunable::integer(g, c, "dig_cooldown", t.dig_cooldown as f32, 1.0, 30.0, 1.0),
         Tunable::integer(g, c, "wade_rows", t.wade_rows as f32, 0.0, 5.0, 1.0),
+        // Capped below `PLAYER_WIDTH` (7): at a full course across him a
+        // drift would be walked through, which is the thing the wade line
+        // exists to prevent. 0 is the old veto, kept reachable for A/B.
+        Tunable::integer(g, c, "shoulder_grains", t.shoulder_grains as f32, 0.0, 6.0, 1.0),
         Tunable::float(g, c, "wade_slowdown", t.wade_slowdown, 0.1, 1.0, 0.05),
         // Negative is the useful half of this range: he floats. Positive
         // values are left reachable on purpose so the panel can answer
@@ -347,6 +351,7 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         // can read and a frame cost 8x what was measured.
         "dig_cooldown" => t.dig_cooldown = value.max(1.0).round() as u8,
         "wade_rows" => t.wade_rows = value.max(0.0).round() as u8,
+        "shoulder_grains" => t.shoulder_grains = value.clamp(0.0, 6.0).round() as u8,
         "wade_slowdown" => t.wade_slowdown = value,
         "buoyancy" => t.buoyancy = value,
         "swim_damp" => t.swim_damp = value,
