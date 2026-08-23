@@ -788,3 +788,13 @@ the same session before reporting a regression against it — the worst-frame
 figure for `ascii`'s organism scene has been observed at 49.7, 55.5 and 63.3
 ms across three sessions on unchanged code, while its mean held at
 3.17–3.58.
+
+**Re-measured after merging `main`**, which moved 35 commits during this
+session and touched `src/render.rs` — so the §3.2 figures were taken on a
+tree nobody else had, and a baseline taken 35 behind is not a baseline. On
+the merged tree, same stand to the cell (28,421 plant cells, 14,939 wood /
+10,136 leaf, 24 of 40 chunks): full redraw **11.838 ms** mean, settled
+**0.012 ms**, canopy dirty every frame **8.220 ms** mean / 9.218 worst, one
+gust band **3.07–3.90 ms**. Every headline holds; the table in §3.2 keeps the
+pre-merge run's numbers because that is the run the argument was built on,
+and the two agree inside the spread.
