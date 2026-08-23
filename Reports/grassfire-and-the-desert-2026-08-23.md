@@ -271,14 +271,144 @@ recorded here and in `Reports/dead-ends.md`:
   ratio the tint is `FIRE_TINT_LOW`-ward and is blended over the fuel's own
   green. Reverted.
 
-**The finding, which is render's to take and not this lane's:**
-`FIRE_TINT_HIGH` is (255, 210, 110) — a pale yellow-white — and every
-burning thing sits at the top of the ramp, so a burning meadow draws as
-*straw*. Prototyped in-place (LOW (150,30,12) / HIGH (255,138,36)) the same
-front comes out a strong orange and reads as fire at a glance. It is two
-constants. It is not shipped because it moves lava, quench crust and warm
-water — three looks the owner has already judged — and that trade is not
-W2's to make. The A/B is on the owner's queue.
+**And the third thing tried is shipped, because the owner picked it.**
+`FIRE_TINT_HIGH` was (255, 210, 110) — a pale yellow-white — and *every*
+burning thing sits at the top of the ramp, so a burning meadow drew as
+**straw**. That is most of what "cycling colors" was describing. The pair is
+now LOW (150,30,12) / HIGH (255,138,36).
+
+**It was put to the owner rather than decided here**, because those two
+constants are not fire's alone — they colour lava, fresh quench crust and
+warm water, three looks already judged — and that trade was not W2's to
+make. Blind A/B, panes reversed; the owner chose the orange. The collateral
+then went back as a second card, and this is what it shows:
+
+| | old pair | the owner's pick |
+|---|---|---|
+| a grassfire | straw | orange, reads as fire at a glance |
+| lava (`scene=lavadrop`, falling blob) | pale sandy cream | saturated orange — **better**, more molten rock and less sand |
+| fresh quench crust at the waterline | muted tan | reads more clearly as hot |
+| warm water (`scene=simmer`) | **unverified** | **unverified** |
+
+**The warm-water row is recorded as unverified rather than as checked**,
+which is the honest state: by the time the pan is worth photographing it has
+cooled to ambient, and at the frames where it is hot the tint barely
+registers against the blue. I could not construct a frame where the
+difference was visible, so I did not claim one. It wants an eye on a scene
+where a pan is actually hot in shot.
+
+If any of the collateral turns out worse, the escape is cheap and named on
+the card: give fire its own tint pair instead of sharing one, at the cost of
+a second pair of constants.
+
+### 6a. The in-between: it was already there, and the card showed the wrong thing
+
+The owner's verdict on both burn cards was *"clear and good but an inbetween
+everything burns and nothing burns would be good"*. Worth recording because
+the mistake was in the **demo**, not the model: both cards paired 0.00
+against 1.00 — the two extremes — to demonstrate the gate, which is exactly
+the wrong pair for the question *is there a middle*.
+
+**The setting is 0.35, and the whole transition was unsampled until
+somebody looked.** The landing sweep took 0.00 / 0.18 / 0.62 and nothing
+between, so the entire interesting band fell in a gap. Re-run on the same
+12 swards at 0.25 / 0.35 / 0.45:
+
+| ground wetness | min | median | max | burnt out (≥99%) | **partial (5–99%)** |
+|---|---|---|---|---|---|
+| 0.00 (landing sweep) | 11% | ~40% | 100% | **5 of 12** | 7 of 12 |
+| 0.18 (landing sweep) | 11% | ~37% | 100% | 4 of 12 | 8 of 12 |
+| **0.25** | 1.3% | 35.6% | 100% | 3 of 12 | 8 of 12 |
+| **0.35** | 1.3% | **20.8%** | 71.5% | **0 of 12** | **11 of 12** |
+| **0.45** | 0.8% | 26.5% | 99.9% | 1 of 12 | 10 of 12 |
+| 0.62 (landing sweep) | 0.2% | ~3% | 7.9% | 0 of 12 | 0 of 12 |
+
+**At 0.35, eleven of twelve swards burn partially and not one burns out.**
+That is the in-between, it is one number, and it is available today. The
+middle is a **slope**, not a cliff — the cliff was an artifact of sampling
+0.18 and then 0.62.
+
+**What decides the outcome is mostly *which meadow*, not *how wet*.**
+Between swards at one wetness the consumed fraction spans **70–99 points**;
+within one sward across the entire band it spans a median of **13.9**. But
+that is a median over a bimodal set and should not be over-read: six swards
+move less than 5 points across the whole band (wetness barely matters at
+all), and six move 22–76 points, chaotically — `plants=128 frame0=0` goes
+99.9% → 27.6% → 99.9% across 0.25/0.35/0.45, which is a sward sitting on
+the percolation threshold and flipping. So wetness is not inert; its effect
+is simply swamped by sward geometry except where the sward is marginal.
+
+**The natural bed does not burn at all, and that is the finding under the
+finding.** The obvious hope — that the world's own moisture field varies
+enough across a sward to give a mosaic for free — is measured **false**, and
+not because the variation is missing. A sward grown without any uniform
+reset carries real spatial spread (min 0.374, median 0.576, p90 0.728 at
+`moisture=250`), which straddles the band nicely. The problem is the
+*level*: the bulk sits at 0.576–0.699, above the band, so the fire simply
+refuses — 11 cells consumed, out by frame 300, at both `moisture=250` and
+`moisture=300`.
+
+The cause is §F8, arriving somewhere nobody predicted it: unplanted soil
+has three moisture sources and one sink, so any bed ratchets toward field
+capacity while the sward grows on it. **A meadow in a generated world would
+therefore never carry fire**, whatever it was sown at — which is a fact
+about P3's world, not about this branch, and is the thing to check the day
+grass is actually sown.
+
+**And the in-between is a *patchwork*, which a consumed fraction cannot
+say.** This is why `fire_probe` gained a mosaic census: 22% of a sward gone
+as one solid block from the ignition outward is a front that ran out of
+road, and 22% gone as eighteen scorched patches with green between them is
+the thing the owner asked for. Counting 4-connected components of ash
+against 4-connected components of surviving grass — the same neighbourhood
+the ignition rule uses — on three swards at 0.35:
+
+| sward | consumed | **burnt patches** | largest | **surviving stands** | largest |
+|---|---|---|---|---|---|
+| `frame0=0` | 22% | **18** | 95 cells | **54** | 321 cells |
+| `frame0=3600` | 11% | **18** | 56 cells | **92** | 173 cells |
+| `frame0=7200` | 14% | **13** | 87 cells | **88** | 262 cells |
+
+Against the two ends, where the same census reads as you would expect: bone
+dry is **1 burnt patch and 0 survivors**, and the natural bed is **2 burnt
+patches of 10 cells against 71 survivors** — a fire that never left the
+ignition, which a consumed fraction alone would have reported as "0.5%" and
+flattered as a small burn.
+
+**So the mosaic is not spatial variation in the *wetness*; it is the
+sward's own connectivity showing through at the right level.** The
+integrator's hypothesis was that the middle would have to come from a
+patchy bed. It does not: a *uniform* 0.35 bed produces the patchwork,
+because the fire runs where the grass is 4-connected and dies where it is
+not — which is the same 71-islands geometry that caused the original
+"doesn't spread at all", now doing something useful instead.
+
+Swept finely on one sward, cells consumed of 1,993:
+
+| ground wetness | consumed | front |
+|---|---|---|
+| 0.00 | **1,993 (100%)** | x=488 |
+| 0.20 | 442 (22%) | x=110 |
+| 0.30 | 1,599 (80%) | x=386 |
+| 0.40 | 440 (22%) | x=110 |
+| 0.45 | 1,960 (98%) | x=484 |
+| 0.50 | 229 (11%) | x=100 |
+| 0.55 | 436 (22%) | x=110 |
+| 0.60 | 137 (7%) | x=63 |
+| 1.00 | 10 (0.5%) | x=53 |
+
+**Partial burns are the common case; total ones are the extreme.** Across
+the 12-sward sweep at bone dry, 5 burned out entirely and the other 7
+landed between 11% and 42%.
+
+**But it is not a dial, and that is inherent rather than untuned.** Spread
+is a percolation, so at a given wetness the outcome turns on whether the
+front happens to cross one particular gap — which is why 0.30 burns 80% and
+0.40 burns 22% on the *same sward*. What the model can offer is "partial
+burns are likely in the middle of the range"; what it cannot offer is "burn
+exactly half". Anyone asked to make the in-between *reliable* rather than
+*common* should know that going in: it means changing the shape of the
+threshold, not the value of a constant.
 
 ### 7. Two answers lane S asked for, measured rather than read off the source
 
