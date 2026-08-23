@@ -1,0 +1,63 @@
+{
+  "id": "20260823T223536915Z-8a88de",
+  "created": "2026-08-23T22:35:36Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/t1-fell-as-pieces",
+    "commit": "bb7e7c3",
+    "agent": null,
+    "session_id": "1dd924db-c71d-54e9-b304-88330b2df69d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The fall in action — and the measurement for why it doesn't read as fallen logs",
+  "question": "Watch the GIF first. Two separate things and I want them judged separately: (1) does what comes down read as PIECES coming apart, rather than the tree dissolving? (2) in the still, the big pieces are there but they land standing on end — is that the whole of why it doesn't look like fallen logs to you, or is there something else wrong with them?",
+  "context_md": "**Scope first, because the last card invited a judgement this stage cannot earn, and that was my mistake.** This package makes the severed crown come apart into *pieces* instead of powder. It does **not** make the tree topple — no lean, no shear, the crown drops straight down and lands where it stood. That is the next package. So \"nothing reads close to a tree falling over\" is a fair description of what is here and is not something this change was ever going to fix; please judge the pieces on their own terms.\n\n**You said you would need to see it in action.** That is item 1 — the whole collapse at 3-frame sampling, real speed, from the cut to rest.\n\n**And your other note gave me the measurement to make.** \"It doesn't obviously look like fallen logs\" has two possible causes and no counter in the repo could tell them apart: the pieces are not being made, or they are being made and are standing upright. So I built the instrument and pointed it at the settled pile.\n\n**The pieces are there. They are standing on end.** Of the 13 settled log pieces of 8+ cells: **2 lying down, 11 upright.** The largest is 244 cells and its bounding box is **26 wide by 41 tall**. That is the same thing you have flagged elsewhere in these words — *\"the long skinny vertical pieces should fall over, instead of all standing upright\"* — and it happens here for a specific reason: a piece cut out of a standing tree is a vertical piece, and nothing in the engine rotates it on the way down.\n\nSo I do not think the ladder is the problem. I think the piece tier is working and every piece is landing in the pose it had in the tree. Telling me whether you agree decides whether the next work is rotation or something else entirely.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "In action — the whole collapse, cut to rest",
+      "files": [
+        "20260823T223536915Z-8a88de/000-fall-t1.gif"
+      ],
+      "caption": "frames 7146-7233, every 3rd, real speed",
+      "meta": {
+        "cells severed": 2648,
+        "promoted as pieces": "1160 (44%)",
+        "peak bodies in flight": 20,
+        "peak plant cells in bodies": 1211,
+        "largest piece": "256+ cells",
+        "crumbled to grit": "173 regions, 279 cells"
+      },
+      "focus": null,
+      "gif_frames": 30
+    },
+    {
+      "label": "Settled, 5x — the pieces, and their pose",
+      "files": [
+        "20260823T223536915Z-8a88de/001-settled_t1b.png"
+      ],
+      "caption": "frame 8750, settled. log = pale grey-brown, deadwood = dark brown grit, litter = gold foliage",
+      "meta": {
+        "settled log pieces (8+ cells)": 13,
+        "lying down": 2,
+        "upright": 11,
+        "largest piece": "244 cells, 26 wide x 41 tall",
+        "cells held in pieces": 543,
+        "log cells standing": 656,
+        "deadwood grit": 382,
+        "leaf litter": 1583
+      },
+      "focus": "center"
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
