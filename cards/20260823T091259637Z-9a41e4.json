@@ -1,0 +1,79 @@
+{
+  "id": "20260823T091259637Z-9a41e4",
+  "created": "2026-08-23T09:12:59Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-a",
+    "branch": "claude/pixel-physics-lane-a-uitlfe",
+    "commit": "4ddd38f",
+    "agent": null,
+    "session_id": "10b138ba-8965-56cd-8f24-b5f44ff4dac3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-a"
+  },
+  "title": "How scarce should the forest floor be?",
+  "question": "Rotting the litter 4.7x faster moved the colony from 2 round trips to 3 — because 88% of the food is leaf on standing trees, not litter. Is this abundance intended, or should the canopy be thinner?",
+  "context_md": "**Your constraint arriving as numbers: \"I don't want ants sitting in one spot eating fallen leaves.\" They are. But the fallen leaves are not what is feeding them, and that changes which knob is the answer.**\n\n### What the colony is doing now\n\n`ascii`'s foraging scene, 55 ants on generated terrain, 12,000 frames:\n\n| | measured when the bar was set | now |\n|---|---|---|\n| round trips of 8+ cells | **98** | **2** |\n| reach profile | [3858, 475, 185, 98, 1, 0, 0, 0] | **[689, 22, 8, 2, 0, 0, 0, 0]** |\n| deepest excursion | 18 | 15 |\n\nEvery bucket is down about 5x and the long tail is gone. (This is also an unrecorded red gate — it is deterministic, not noise, and **not yet attributed to a commit**; I am chasing that separately. It does not change the design question below.)\n\n### Why — and this is the part that redirects the question\n\nThe scene's food census, attributed by material for the first time:\n\n- **leaf on standing trees — 88%** of all food energy\n- litter on the floor — 11%\n- everything else (ant, moss, seed) — under 1%\n\nAnd the stock **triples over the run**: 441,360 energy at spawn to 1,459,080 at 12,000 frames, while the colony eats **0** and delivers 143 loads. The world grows food faster than 55 ants can consume it, and it grows it *overhead*, within a body length of wherever an ant is standing.\n\n### So the litter knob barely moves it — measured, not assumed\n\nPaired, same seed, rebuilt between arms (assets are `include_str!`d):\n\n| | rot 0.5 / 0.1 (current) | rot 0.9 / 0.4 |\n|---|---|---|\n| standing litter energy | 164,520 (11%) | **34,800 (3%)** |\n| total food stock | 1,459,080 | 1,349,520 (−7.5%) |\n| forage trips | 2 | **3** |\n| deepest excursion | 15 | **15** |\n| moves | 5,040 | 4,863 |\n| deliveries | 143 | 123 |\n\nThe knob is connected — litter really did fall 4.7x. The ants did not notice, because 96% of their food was still hanging above them.\n\n### The question\n\nRotting the floor away cannot make leaving home matter while the canopy is this generous. **Is this abundance intended — a lush world where ants simply do not need to travel — or should the canopy be thinner** (fewer trees, smaller crowns, or leaves that are worth less per cell)?\n\nWorth knowing before you answer: **S7's whole premise is a larder behind a barrier**, and that only pays if the surface does not already feed everyone. On these numbers it does.\n\n*A note on the pictures: the counters above come from `ascii`'s foraging scene (55 ants, `rolling` preset, seed 1). The images are `filmstrip scene=colony` (17 ants, `wetland`, seed 0) at the same 12,000 frames — the same ecology and the same litter asset per arm, but a different run. They are there to show the shape of the world, not to carry the numbers.*",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the world at 12,000 frames",
+      "files": [
+        "20260823T091259637Z-9a41e4/000-card2_wide.png"
+      ],
+      "caption": "scene=colony, wetland, seed 0, noon. Canopy fills over half the frame; the ground is the narrow band under it.",
+      "meta": {
+        "food stock (energy)": 1459080,
+        "food cells": 12159,
+        "leaf share": "88%",
+        "litter share": "11%",
+        "forage trips": 2,
+        "deliveries": 143,
+        "ants ever eating": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "A - floor, litter rot 0.5 / 0.1 (current)",
+      "files": [
+        "20260823T091259637Z-9a41e4/001-card2_A.png"
+      ],
+      "caption": "Same seed, same frame. Standing litter 164,520 energy.",
+      "meta": {
+        "standing litter (energy)": 164520,
+        "litter share": "11%",
+        "forage trips": 2,
+        "deepest excursion": 15,
+        "moves": 5040,
+        "digs": 11,
+        "deliveries": 143
+      },
+      "focus": null
+    },
+    {
+      "label": "B - floor, litter rot 0.9 / 0.4 (4.7x faster)",
+      "files": [
+        "20260823T091259637Z-9a41e4/002-card2_B.png"
+      ],
+      "caption": "Same seed, same frame, rebuilt for the asset change. Standing litter 34,800 energy.",
+      "meta": {
+        "standing litter (energy)": 34800,
+        "litter share": "3%",
+        "forage trips": 3,
+        "deepest excursion": 15,
+        "moves": 4863,
+        "digs": 2,
+        "deliveries": 123
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
