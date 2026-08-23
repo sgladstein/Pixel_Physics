@@ -319,7 +319,10 @@ field rework — see `open-bugs-handoff.md`.
   Carries the measurement that prices render-side sway at +8.0 ms/frame over
   a grown stand, and the deleted prototype that takes a fell from 1.7% to
   58% of the severed mass coming down as pieces. Supersedes
-  `felling-blockers.md` §2.
+  `felling-blockers.md` §2. **§11 is a later addendum** — wind-throw, with
+  roots as anchorage and slenderness as an independent failure mode, staged
+  as T6; it carries two questions still with the owner and nothing in it has
+  been measured or rendered.
 
 ## Open working files
 
