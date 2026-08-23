@@ -4472,6 +4472,56 @@ impl PanelSheet {
     }
 }
 
+/// **What the animals actually did, printed beside the picture.**
+///
+/// `CLAUDE.md`'s house rule for the review queue is that the discrete event
+/// count goes in the card's `meta`, because two very different mechanisms
+/// look identical at the zoom a contact sheet is read at -- a collapse once
+/// read as "chunks are working" came from a run whose body count was zero
+/// throughout. This example rendered creature scenes for months while
+/// printing no creature counter at all, so a colony card's `meta` had to be
+/// copied from some *other* harness's run of a *different* world, which is
+/// the same defect one level up.
+///
+/// **Called from the GIF branch too**, which is the one that matters: the
+/// GIF branch is what produces the animation a review card is built from,
+/// and it returns before the contact-sheet path. Its comment says it
+/// "reports neither" timing nor body samples, and that stays true -- this
+/// is not a measurement of the run, it is the label on the picture.
+///
+/// **Silent unless the scene actually has animals**, and `live_organism_count`
+/// is not that test: it counts plants too, so gating on it printed
+/// `colony: 10 live | moves 0` under a *tree* sheet -- a counter that reports
+/// on something the scene does not contain is the same defect as a metric that
+/// counts droplets and calls them films. Creature activity is the tell; a
+/// colony scene that placed ants always moves, and one that placed none is
+/// caught by the scene's own assertion rather than by this line.
+fn report_colony(world: &World, render: bool) {
+    if !render || world.creature_stats.moves == 0 {
+        return;
+    }
+    let st = world.creature_stats;
+    let blocked_frac = if st.moves > 0 { st.moves_blocked as f64 / st.moves as f64 } else { 0.0 };
+    println!(
+        "  creatures: {} live organism(s) | moves {} blocked {} ({blocked_frac:.3}) falls {} | pickups {} drops {} deliveries {} deaths {}",
+        world.live_organism_count(),
+        st.moves,
+        st.moves_blocked,
+        st.falls,
+        st.pickups,
+        st.drops,
+        st.deliveries,
+        st.deaths
+    );
+    println!(
+        "  creatures: forage trips {} (bar {}) deepest {} | reach {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+}
+
 /// One full run. Returns its worst frame in ms, the finished world, the
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
@@ -4671,6 +4721,11 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             if failed_cells == 0 { 0.0 } else { 100.0 * f.crumbled_cells as f64 / failed_cells as f64 }
         );
         println!("    what came off: {} cells as chunks, {} as dust", f.promoted_cells, f.shattered_cells);
+        // The colony report is main's own half of the same argument -- a
+        // gif run that cannot say what its ants did is the identical
+        // footgun -- and both sides of this merge fixed the branch's
+        // silence for a different counter. Both kept.
+        report_colony(&world, render);
         return (0.0, world, gnome, (peak_bodies, peak_tissue), cells_before, cave_before);
     }
 
@@ -5689,6 +5744,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             println!("  panels: ran on to frame {step_no}; worst frame over the whole run {worst_ms:.2} ms (frame {worst_frame})");
         }
     }
+
+    report_colony(&world, render);
 
     if render {
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)

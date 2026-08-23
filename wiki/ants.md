@@ -1,11 +1,13 @@
 # Ants
 
-*Current as of: 2026-08-23, when the leaf-litter work (S4) merged. The colony
-forages, digs, builds and carries food home; food is worth what it is rather
-than a flat rate to whatever eats it, and a wood now drops food onto its own
-floor — where it rots back into the ground instead of piling up forever. The
-colony is still not good at finding food far away, and now has less reason to
-try: see "What is not finished" at the bottom.*
+*Current as of: 2026-08-23, when ants learned to climb over each other. The
+colony forages, digs, builds and carries food home; food is worth what it is
+rather than a flat rate to whatever eats it, and a wood now drops food onto its
+own floor — where it rots back into the ground instead of piling up forever.
+Ants now range a good deal further than they used to, because a nestmate is
+something to walk over rather than a wall to wait behind. They are still not
+especially good at finding food far away, and a well-fed floor gives them less
+reason to try: see "What is not finished" at the bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -138,14 +140,23 @@ and stops and turns on the spot when it is not. Watch one long enough and
 you will see it wander, catch the scent, and then travel in a fairly
 straight line back.
 
-What a colony is still bad at is **finding food in the first place**. Ants
-do not range far from home, so a food pile well away from the nest may
-simply never be discovered. Put food within reach of the colony and the
-whole loop runs; put it across the map and they will not find it.
+What a colony is still not especially good at is **finding food in the first
+place**. A pile a long way off may take a while to be discovered, and one
+right across the map may never be. Put food within reach of the colony and
+the whole loop runs.
 
-One thing worth knowing: ants cannot walk through each other, and cannot
-stand on each other either. A colony packed shoulder to shoulder jams
-solid — which is why **Y** spaces them out.
+They are better at it than they were, though, and the reason is worth
+knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —
+two ants still cannot swap places — but a nestmate is something to stand on,
+the same as a rock. Before that, a crowd was its own wall: a colony packed
+shoulder to shoulder jammed solid, which is why **Y** still spaces them out,
+and spacing them out is still most of what keeps a colony moving. Climbing is
+what lets the ones at the back get past the ones at the front instead of
+queueing.
+
+The visible cost is that ants fall more. An ant standing on a nestmate that
+walks away has further to drop. They pick themselves up and carry on, and
+nothing dies of it.
 
 Digging, building, eating, burning and trail-laying all work as described.
 Colonies do not yet have queens, eggs or new ants — the ants you place are
