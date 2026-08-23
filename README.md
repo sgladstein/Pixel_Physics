@@ -1170,8 +1170,10 @@ on `scene=room wall=5 dig=3` the ceiling's failure drops from 1,975 cells
 to **238** and the roofed void stays at **100%** -- the room does not come
 down at all. That is not a bug. `licence_radius` is `chain_reach + extent`,
 a radius-3 chisel's extent is 5, and a 200-wide room's ceiling fails as one
-region reaching ~100 cells from the cut, so `relicense_staged_fractures`
-correctly drops nine tenths of it. `wiki/structural-collapse.md` already
+region reaching ~100 cells from the cut, so `clip_region_to_licence`
+correctly keeps only the part within reach. (Not
+`relicense_staged_fractures`, which fires only from `App::cycle_chain_mode`
+and so never runs in a harness scene built at a fixed reach.) `wiki/structural-collapse.md` already
 named this trade as its open question; making TIGHT the default makes it
 the default experience, which wants a playtest verdict. `LOCAL` (48) gives
 the containment without the cost -- 1,975 cells and 19% roof left, the same

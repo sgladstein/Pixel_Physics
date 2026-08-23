@@ -3930,7 +3930,11 @@ pub const CHAIN_WINDOW_FRAMES: u64 = 600;
 /// and is not a bug: `licence_radius` is `chain_reach + extent`, a
 /// radius-3 chisel's extent is 5, and the ceiling of a 200-wide room fails
 /// as one region reaching ~100 cells from the cut -- so
-/// `relicense_staged_fractures` correctly drops nine tenths of it. This
+/// `clip_region_to_licence` correctly keeps only the part within reach.
+/// (`relicense_staged_fractures` is *not* the mechanism here and an
+/// earlier version of this note said it was: that one fires only from
+/// `App::cycle_chain_mode`, so a world constructed at a reach never runs
+/// it. The clip is what a harness scene measures.) This
 /// page's own wiki entry already named that trade as the open question
 /// (*"a long span can lose the part near the blast and leave the far part
 /// standing on nothing"*); making TIGHT the default makes it the default

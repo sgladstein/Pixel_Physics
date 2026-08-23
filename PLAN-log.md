@@ -2390,7 +2390,18 @@ that encodes *"cutting a wall brings the room down"*:
 **At TIGHT the room does not come down at all.** Not a bug:
 `licence_radius` is `chain_reach + extent`, a radius-3 chisel's extent is
 5, and a 200-wide room's ceiling fails as one region reaching ~100 cells
-from the cut, so the relicensing correctly drops nine tenths of it. Main's
+from the cut, so `clip_region_to_licence` correctly keeps only the part
+within reach.
+
+**And the mechanism above is a correction.** This entry, the commit message
+and the PR body all first named `relicense_staged_fractures` as what shrank
+the collapse. It is not: that runs only from `App::cycle_chain_mode`, so a
+harness scene built at a fixed reach never calls it. The clip is what a
+scene measures, and the two were conflated because both filter a region by
+`within_disturbance` and both are new in the same merge. **Naming a
+mechanism is a claim, and it needed the same "did it fire at all" check as
+any other** -- one grep for the call site would have settled it before three
+documents carried it. Main's
 own `wiki/structural-collapse.md` already named that trade as the open
 question on the page — *"a long span can lose the part near the blast and
 leave the far part standing on nothing"* — and kept SPREAD as the default
