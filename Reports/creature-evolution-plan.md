@@ -1284,7 +1284,17 @@ live red.
 
 **Re-run paired for the abscission retune (2026-08-23, evening, one cloud
 container, one session, both halves on the same merged tree — WP-11 part
-2).** The tree is this branch's merge of `main` at `7cd1357`, which carries
+2).**
+
+> **The ant these numbers describe is the pre-WP-9 ant.** This branch has
+> `ant.ron`'s `climbs_over_kin: false`; `main` took it to `true` at
+> `00d1551`, after these runs. An ant that can cross a nestmate ranges
+> further, and this guard is a measurement of ranging, so **do not pair
+> any figure below against one taken on a post-`00d1551` tree** — re-take
+> both halves instead. The same caveat applies to WP-11 part 3's diet
+> sweep, taken on the same tree in the same session.
+
+The tree is this branch's merge of `main` at `7cd1357`, which carries
 the §L rock-country fix and PR #20's flora sowing; both change generated
 worlds, so the pre-merge figures above are *not* the right baseline for the
 retune and a fresh baseline half was measured beside the retuned one rather
