@@ -1,0 +1,11 @@
+creature_space: mode=economy genomes=48 seeds=4 frames=18000 bins=2 | preset=wetland ants=52 beetles=9 trees=2 moss=true | start_energy=90 move_cost=0.25 food_energy=120 base_seed=0xc0de
+energy economy sweep: does foraging pay, and is food still scarce? (18000 frames = 3000 ticks, idle life is 900)
+
+beetles  moss   eat       move_cost    forager  immobile   advantage    ants fed
+(survival is against the ants actually placed; "placed" reports that count)
+9        no     120            0.08      0.768     0.298       0.470        0.73   placed 52
+9        no     700            0.08      0.779     0.298       0.481        0.73   placed 52
+9        yes    120            0.08      0.784     0.298       0.486        0.79   placed 52
+9        yes    700            0.08      0.823     0.298       0.525        0.79   placed 52
+
+best band with food still scarce: moss true, eat 700, move 0.08 (forager 0.823) -- advantage +0.525

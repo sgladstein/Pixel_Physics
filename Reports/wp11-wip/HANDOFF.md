@@ -50,10 +50,19 @@ tree.ron, rebuild — the copied binary keeps its assets.
 
 1. `creature_space mode=diet seeds=8 frames=18000` — S5 baseline sweep
    (~1–3 h wall; seeds run in scoped threads). Then the same on the
-   retuned tree for the pair.
-2. `creature_space mode=economy seeds=4 frames=18000` — the standing-
-   guard methodology recorded in evolution-plan §4 (44 min on the
-   owner's box, longer here). Then the same retuned.
+   retuned tree for the pair. Still running at teardown; no output.
+2. ~~`creature_space mode=economy seeds=4 frames=18000`~~ — **this one
+   finished before teardown**; the log is
+   `economy-baseline-postmerge.txt` in this directory. Baseline half of
+   part 2 is DONE: advantage +0.470 / +0.481 (no-moss arms) and +0.486 /
+   +0.525 (moss arms), ants fed 0.73 / 0.79, zero genome 0.298, placed
+   52/52 in every arm — against §4's recorded +0.460/+0.479 and
+   0.73/0.78, so the water book barely moved this guard. The successor
+   runs only the RETUNED half (same command, retuned tree) — but note
+   the §4 pairing rule: quote the pair only if both halves are from the
+   same machine; this baseline was run on this cloud container, so
+   either re-run the baseline in your own session (it is 40–90 min) or
+   quote these numbers as same-tree-different-machine with a dated note.
 
 ## Remaining work (WP-11 parts 2 and 3; the handoff's spec is
 `Reports/creature-implementation-handoff-2026-08.md` §WP-11)
