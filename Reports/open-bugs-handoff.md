@@ -2985,3 +2985,45 @@ neighbour's. Latent today because `water_capacity` is opt-in and only
 goes live the moment a second water-holding powder exists with a different
 capacity — which is exactly what widening `water_capacity` to sand would
 do.
+
+---
+
+## Landing notes — lane W, package W1 (flora sowing + species identity), 2026-08-23
+
+Appended by the W1 session; the full account is
+`Reports/world-flora-sowing-2026-08-23.md`. Nothing here is a new bug — these
+are the two things a later session will otherwise re-derive or trip over.
+
+### W1a. `creeper.ron`'s root tips still run the superseded in-tick branch path — deliberately
+
+`creeper.ron`'s `RootTip` `Grow` carries `branch_chance: [0.05]` and **no**
+`branch_priming`, which is the path `tree`/`conifer`/`shrub` all abandoned
+with the comment "it cleared that twice in twelve thousand frames and fired
+zero times". Creeper's roots are therefore a single unbranched strand per
+tip.
+
+**Measured, not assumed, before deciding to ship it:** creeper establishes 45
+of 46 sown across an eight-world sweep and 28 of 28 in the shipped
+8,192-column world — the *highest* establishment rate of the four species. A
+plant eight rows tall is not root-limited, so the dead knob is not blocking
+the sowing work.
+
+Left alone because `branch_priming` sits in the root block, which the lane
+split assigns to lane P, and P4 is the package that rewrites root allocation.
+
+**For whoever lands P4:** set `branch_chance: [0.0]` and `branch_priming: [3]`
+in `creeper.ron` in the same change, and measure creeper's root cell count
+paired against this branch rather than against a remembered number.
+
+### W1b. A material-counting guard cannot see a species
+
+`the_world_arrives_with_both_moss_and_trees_in_it` counts `wood`/`seed`
+cells, and every woody plant in this engine is made of `wood` — so it passed
+unchanged through the entire period in which the world contained exactly one
+woody species. It is not a bad test; it is a test of a different claim.
+
+Anything asking "which species are in this world" has to resolve
+`Cell::organism_id()` through `World::organism` to a `SpeciesId` and count
+*organisms*. `flora_census` in `tests/worldgen.rs` and
+`examples/flora_census` both do it that way, and the same trap applies to any
+future guard over creature species.

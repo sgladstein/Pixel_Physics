@@ -1749,7 +1749,25 @@ with a real vertical profile that thins with slope; a water table with
 standing pools where the land dips below it; buried pockets, scree,
 overhangs; seeded plant cover, clustered rather than scattered. Worlds
 arrive settled and structurally real — nothing moves until something moves
-it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+it.
+
+**As of 2026-08-23 that plant cover is four woody species rather than one.**
+`life_scatter` sowed the hardcoded string `"tree"` and moss for the whole
+life of the project, so conifer, shrub and creeper had never appeared in a
+generated world at all — they existed only in probe scenes. Each species is
+now a *weight* over terrain the generator already describes (regional
+aridity, regional elevation, blanket depth), with its own offset into the
+same squared cluster noise, and `tree_density` is split between them rather
+than paid four times over. Measured on the shipped world at seed 1, paired
+against `origin/main` at the same seed and frame count: 87 standing plants
+become 135 — conifer 30, creeper 28, shrub 28 and tree 49, where before it
+was 87 trees and nothing else — at 50% more plant cells. Grass is deliberately still not sown — it has no
+mortality path, and a world that seeded it would leak organism slots.
+`tests/worldgen.rs`'s `every_woody_species_is_sown_across_a_seed_sweep` and
+`a_sown_woody_species_also_comes_up` guard it over a sixteen-seed sweep
+(worlds are procedural, so the guard sweeps the procedure and gates an order
+statistic); `examples/flora_census` is the instrument, and
+`Reports/world-flora-sowing-2026-08-23.md` holds the derivation. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
