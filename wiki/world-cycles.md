@@ -71,12 +71,47 @@ night sky. It is a whole-world effect rather than a local one: the underground
 is not separately dark, and a torch does not light its surroundings. Making
 depth and light sources matter is a different feature, and a much bigger one.
 
+Loose material is lit the same way. A slab that breaks off and the grit
+thrown up with it stay the colour of the rock they came from for the whole of
+their fall, so a collapse at dusk is a dusk-coloured collapse — rather than
+each piece flashing pale as it comes loose and darkening again as it lands.
+
 ## Day, night, and decay
 
 The world moves through a full day and night, with light rising and
 falling smoothly rather than switching between two fixed states — a
 gradual dawn, a bright midday peak, a gradual dusk, and then a dim night
 that never goes fully black before the cycle begins again.
+
+**The air warms and cools with it.** Days are warmer than nights, rising to
+their warmest around midday and falling to their coldest in the middle of
+the night, with the change spread smoothly across the hours in between
+rather than arriving as a switch at dusk. It is weather, not an event: a
+mild difference you would notice on a thermometer, not one that freezes a
+pond or sets anything alight.
+
+It is a surface effect, and it fades as you go down. Open air feels the
+whole swing; the ground takes a weaker version of it at its surface; and a
+little way underground there is no day and night at all — deep rock sits at
+the same temperature at midnight as at noon, which is what makes a cave feel
+like a different place from the hillside above it.
+
+**One thing acts on it, and exactly one: standing water dries faster when
+it is warm.** A puddle out in the open loses roughly four times as much
+across a warm afternoon as across the night either side of it, so pools
+visibly shrink through the day and hold nearly still overnight — and the
+sky's reserve of water fills on the same rhythm. See
+[Weather](weather.md). Over a whole day it comes to the same total as
+before; what the warmth changes is *when* the water goes.
+
+Everything else still deliberately ignores the time of day. What melts,
+what catches fire, when a worm flees the heat, how fast damp ground itself
+darkens and dries — all of them read the same value at every hour, so
+nothing else behaves differently at night than at noon. That is a choice
+rather than an omission: a threshold that quietly meant something
+different every hour would be impossible to reason about, and drying was
+picked to go first because following the sun is the whole of what it is
+supposed to do.
 
 Destruction isn't always permanent, either. Ash left behind by something
 that actually burned doesn't stay ash forever — over time it slowly

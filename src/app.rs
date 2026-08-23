@@ -25,6 +25,15 @@ use crate::worldgen::{self, WorldgenPresets};
 /// These two were one pair of constants doing both jobs, which was fine only
 /// while the world happened to be exactly one screen. The camera
 /// (`Renderer::follow`) is what separates them.
+/// One row of the help overlay: a section heading, a key and what it does,
+/// or a full-width note. See `App::help_columns`.
+enum HelpRow {
+    Head(&'static str),
+    Key(&'static str, &'static str),
+    Note(&'static str),
+    Blank,
+}
+
 pub const WIDTH: u32 = 512;
 pub const HEIGHT: u32 = 320;
 
@@ -591,7 +600,20 @@ impl App {
     pub fn cycle_chain_mode(&mut self) {
         self.chain_mode = (self.chain_mode + 1) % crate::sim::structural::CHAIN_MODES.len();
         let mode = &crate::sim::structural::CHAIN_MODES[self.chain_mode];
+        let previous = self.world.chain_reach;
         self.world.chain_reach = mode.reach;
+        // **Tightening the setting also drops staged work it no longer
+        // licenses.** The staged queue is ungated once a failure has been
+        // judged and that is deliberate (`structural::advance_staged_
+        // fractures`), so without this line the aftermath the player is
+        // trying to stop keeps arriving at `FRACTURE_CELLS_PER_TICK` a tick
+        // from a queue the new setting never sees -- and `F9` reads as
+        // having done nothing, which is exactly the reported complaint.
+        // Only on a tighten, so relaxing the setting can never resurrect
+        // work that was already dropped.
+        if mode.reach < previous {
+            self.world.relicense_staged_fractures();
+        }
         let line = format!("CHAINING: {} - {}", mode.name, mode.note.to_uppercase());
         self.show_toast(&line);
     }
@@ -896,6 +918,7 @@ impl App {
             "min_transfer" => m.min_transfer = new_value.max(0.0).round() as u16,
             "flow_rate" => m.flow_rate = new_value.max(0.0).round() as u16,
             "fill_dimming" => m.fill_dimming = new_value,
+            "dissipation" => m.dissipation = new_value,
             "heat_conductivity" => m.heat_conductivity = new_value,
             "ignition_temperature" => m.ignition_temperature = new_value,
             "burn_temperature" => m.burn_temperature = new_value,
@@ -1055,6 +1078,13 @@ impl App {
         // frame for it -- which is the whole reason staging helps debris
         // escape at all (`sim::explosion::Tuning::duration`).
         self.blasts.step(&mut self.world, &mut self.particles);
+        // Splashes between the two, for the same reason blasts come before
+        // particles: the sweep reported these sites against this frame's
+        // state, so they should be taken and thrown before the step that
+        // moves everything, not left a frame stale. See
+        // `particle::throw_splashes` -- this is the only place a splash
+        // droplet's water is actually debited from the pool.
+        crate::sim::particle::throw_splashes(&mut self.world, &mut self.particles);
         self.particles.step(&mut self.world);
         self.world.step_fields();
         // Beside the field step, and for the same reason: a coarse
@@ -1609,48 +1639,103 @@ impl App {
     /// silently — the line describing the gnome's dig outlived the
     /// mechanism it described by two commits, still telling players to
     /// click *near him* long after proximity meant anything.
-    fn help_lines() -> [&'static str; 32] {
-        [
-            "LEFT CLICK PAINT    RIGHT CLICK ERASE",
-            "Q E CYCLE MATERIAL    1-9 SELECT    [ ] BRUSH",
-            "SPACE PAUSE    . STEP    R RESET    = - ZOOM",
-            "F6 NEW WORLD    F7 NEXT PRESET    F8 PREVIOUS SEED",
-            "",
-            "U SUMMON/DISMISS GNOME    A D RUN    W JUMP",
-            "  WITH NO GNOME: A D W S SCROLL THE MAP INSTEAD",
-            "  SUMMONING ARMS HIS DIG: LMB CUTS AT THE YELLOW RING, RMB ERASES",
-            "  IN WATER: W STROKE UP    S SWIM DOWN",
-            "  IN A TREE: HOLD SHIFT TO HOLD ON, THEN W UP / S DOWN",
-            "  LMB ON A TREE (GREEN RING) SHAKES IT INSTEAD OF CUTTING",
-            "  F3 JUMP FEEL  F4 WATER FEEL  F2 SPOIL (CYCLE, SAY WHICH IS BEST)",
-            ", TREES IN FRONT OF HIM / BEHIND HIM (CYCLE)",
-            "C STRIKE ROCK    H DIG (PRECISE CUT)",
-            "F IGNITE    P BURST    X EXPLODE",
-            "T PLANT TREE    M PLANT MOSS    J PLANT WORM",
-            "",
-            "TAB PALETTE    I INSPECTOR    V FIELD OVERLAY",
-            "N STRESS VIEW (GREEN AT REST, RED AT ITS LIMIT)",
-            "Z TOOL: BRUSH / RECT / ROOM / LINE / GNOME DIG",
-            "B STAMP A 200x160 REFERENCE ROOM (BRUSH = WALL THICKNESS)",
-            "F1 CHUNK OVERLAY    G WATER GRAIN",
-            "L ORGANISM OVERLAY  (CELL TYPE/RESOURCE/CANOPY)",
-            "; DEPTH LIGHT ON/OFF    0 REVEAL CAVES  (ALSO F10/F11)",
-            "' GLOW SHAPE: NEAR/FIELD",
-            "",
-            "O TUNABLES  (PGUP PGDN MENU, ARROWS SELECT/ADJUST,",
-            "             ENTER PIN AND CLOSE, S SAVE)",
-            "  PINNED: LEFT/RIGHT ADJUST LIVE, ESC RELEASE",
-            "K A/B EXPERIMENT    F5 RELOAD ASSETS",
-            "",
-            "? THIS HELP    ESC CLOSE",
-        ]
+    /// Geometry of the help overlay. Named because the guard test reads the
+    /// same numbers `draw_help` lays out with -- a test that re-derives them
+    /// is testing a copy, and the copy is what goes stale.
+    const HELP_MARGIN: i32 = 20;
+    const HELP_PAD: i32 = 8;
+    /// 9 rather than 10: the glyphs are 7 tall, and the extra row per line
+    /// was what pushed the old flat list three lines past its own panel.
+    const HELP_LINE: i32 = 9;
+    const HELP_COL: i32 = 232;
+    /// Pixels from a column's left edge to its description text.
+    const HELP_KEY: i32 = 56;
+
+    /// One row of the help overlay.
+    ///
+    /// Data rather than pre-formatted strings, so the key column can be
+    /// aligned in pixels and the headings drawn in the accent colour. What
+    /// this replaced was a flat `[&str; 32]` with each key jammed against
+    /// its own label at whatever column the previous word ended in -- and
+    /// it ran **three lines past the bottom of its panel**, so the last
+    /// thing it drew off-screen was the line telling you which key closes
+    /// it. `the_help_page_fits_inside_its_own_panel` now fails if that
+    /// recurs.
+    fn help_columns() -> ([HelpRow; 30], [HelpRow; 26]) {
+        use HelpRow::{Blank, Head, Key, Note};
+        (
+            [
+                Head("PAINT AND BUILD"),
+                Key("LMB/RMB", "PAINT / ERASE"),
+                Key("Q E", "CYCLE MATERIAL"),
+                Key("1-9", "SELECT MATERIAL"),
+                Key("[ ]", "BRUSH SIZE"),
+                Key("Z", "TOOL: BRUSH/RECT/ROOM/LINE"),
+                Key("B", "STAMP REFERENCE ROOM"),
+                Key("TAB", "PALETTE"),
+                Blank,
+                Head("ACT ON IT"),
+                Key("C", "STRIKE ROCK"),
+                Key("H", "DIG (PRECISE CUT)"),
+                Key("F", "IGNITE"),
+                Key("P", "BURST"),
+                Key("X", "EXPLODE"),
+                Key("T M J", "PLANT TREE/MOSS/WORM"),
+                Key("Y", "FOUND COLONY"),
+                Blank,
+                Head("THE WORLD"),
+                Key("SPACE", "PAUSE"),
+                Key(".", "STEP ONE FRAME"),
+                Key("R", "RESET"),
+                Key("= -", "ZOOM"),
+                Key("F6 F7 F8", "NEW WORLD / PRESET / SEED"),
+                Key("F5", "RELOAD ASSETS"),
+                Blank,
+                Head("TUNING"),
+                Key("O", "TUNABLES PANEL"),
+                Key("K", "A/B EXPERIMENT"),
+                Key("/ ESC", "THIS HELP / CLOSE"),
+            ],
+            [
+                Head("THE GNOME"),
+                Key("U", "SUMMON / DISMISS"),
+                Key("A D W", "RUN / JUMP"),
+                Key("SHIFT", "HOLD ON IN A TREE"),
+                Key("W S", "SWIM UP / DOWN"),
+                Key("LMB", "GNOME DIG AT YELLOW RING"),
+                Key("LMB", "SHAKE AT THE GREEN RING"),
+                Key("F3", "JUMP FEEL"),
+                Key("F4", "WATER FEEL"),
+                Key("F2", "SPOIL MODE"),
+                Key("F9", "CHAIN MODE"),
+                Note("NO GNOME: A D W S SCROLL THE MAP"),
+                Blank,
+                Head("LOOK AT IT"),
+                Key("I", "INSPECTOR"),
+                Key("V", "FIELD OVERLAY"),
+                Key("L", "ORGANISM OVERLAY"),
+                Key("N", "STRESS VIEW"),
+                Key("F1", "CHUNK OVERLAY"),
+                Key("G", "WATER GRAIN"),
+                Key("` TICK", "BUBBLES"),
+                Key("\\", "GAS LOOKS"),
+                Key(",", "TREES IN FRONT / BEHIND"),
+                Key("; F10", "DEPTH LIGHT"),
+                Key("0 F11", "REVEAL CAVES"),
+                Key("' QUOTE", "GLOW SHAPE"),
+            ],
+        )
     }
 
     fn draw_help(&self, frame: &mut [u8]) {
         const BG: [u8; 4] = [10, 10, 16, 255];
         const WHITE: [u8; 4] = [225, 228, 235, 255];
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
-        let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
+        /// Keys sit a step below their own description, so the eye runs down
+        /// the descriptions and only crosses to the key it needs.
+        const KEYCAP: [u8; 4] = [150, 158, 175, 255];
+        let m = Self::HELP_MARGIN;
+        let (left, top, right, bottom) = (m, m, WIDTH as i32 - m, HEIGHT as i32 - m);
         // Translucent, matching the tunables panel -- see its own doc.
         for y in top..bottom {
             for x in left..right {
@@ -1665,9 +1750,25 @@ impl App {
             render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
             render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
         }
-        let lines = Self::help_lines();
-        for (i, line) in lines.iter().enumerate() {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 8 + i as i32 * 10, line, WHITE);
+        let (col_a, col_b) = Self::help_columns();
+        for (c, rows) in [&col_a[..], &col_b[..]].iter().enumerate() {
+            let x = left + Self::HELP_PAD + c as i32 * Self::HELP_COL;
+            for (i, row) in rows.iter().enumerate() {
+                let y = top + Self::HELP_PAD + i as i32 * Self::HELP_LINE;
+                match row {
+                    HelpRow::Head(title) => {
+                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, title, ACCENT);
+                    }
+                    HelpRow::Key(key, what) => {
+                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, key, KEYCAP);
+                        hud::draw_text(frame, WIDTH, HEIGHT, x + Self::HELP_KEY, y, what, WHITE);
+                    }
+                    HelpRow::Note(text) => {
+                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, text, KEYCAP);
+                    }
+                    HelpRow::Blank => {}
+                }
+            }
         }
     }
 
@@ -1985,6 +2086,15 @@ impl App {
         std::mem::swap(&mut world.materials, &mut self.world.materials);
         build_world_with(&mut world, &self.worldgen, &self.worldgen_preset, self.worldgen_seed);
         self.world = world;
+        // A rebuilt world is a fresh `World`, and `World::new` starts at
+        // `i32::MAX` (SPREAD). The chain mode is a *player setting*, not a
+        // property of the terrain, so it has to be re-applied here or every
+        // `F6`/`F7`/`F8` and every worldgen hot-reload silently reverts it --
+        // while `App::chain_mode` and the status line keep naming the mode the
+        // player chose. Every A/B of chain modes that rerolled the seed between
+        // arms was therefore comparing SPREAD against SPREAD, which is how
+        // "LOCAL and TIGHT do not contain anything" came to be reported.
+        self.world.chain_reach = crate::sim::structural::CHAIN_MODES[self.chain_mode].reach;
     }
 
     pub fn toggle_overlay(&mut self) {
@@ -1995,7 +2105,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2013,6 +2123,19 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // Same rule again: silent at the default, named the moment it
+            // is not, because the value of a look selector is being able to
+            // say afterwards which one you liked.
+            if self.renderer.bubbles == render::BubbleMode::default() {
+                String::new()
+            } else {
+                format!(" — bubbles {}", self.renderer.bubbles.label())
+            },
+            if self.renderer.gas == render::GasMode::default() {
+                String::new()
+            } else {
+                format!(" — gas {}", self.renderer.gas.label())
             },
             // Same rule again for the terrain depth light (`F10`), with the
             // roles flipped: the depth grade is the default, so the label
@@ -2070,6 +2193,22 @@ impl App {
             } else {
                 format!(" — chain {}", crate::sim::structural::CHAIN_MODES[self.chain_mode].name)
             },
+            // The same rule again, and this one was **missing entirely**
+            // until the overlay it names was mistaken for a bug. `V` cycles
+            // Off -> Pressure -> Temperature -> Light -> Moisture ->
+            // Pheromone A -> Pheromone B -> Off, and `FieldOverlay::Light`
+            // is a pale cream blended at up to 75% over every pixel
+            // *including solid rock* -- so a player who pressed `V` four
+            // times got "a pale light effect spreading through rock" with
+            // nothing on screen to say why, or that it was a debug channel
+            // at all. Every other selector here already knew that the whole
+            // value of a selector is being able to report which one you
+            // liked.
+            if self.renderer.field_overlay == render::FieldOverlay::Off {
+                String::new()
+            } else {
+                format!(" — field {}", self.renderer.field_overlay.label())
+            },
             // Same "only once turned on" rule. Worth showing at all because
             // the tint is subtle on a sparse tree and "is this channel on,
             // or is it on and reading zero everywhere?" is exactly the
@@ -2119,6 +2258,86 @@ pub fn build_terrain_only(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+
+    /// The old flat help list ran three lines past the bottom of its own
+    /// panel, so the line naming the key that closes it was drawn
+    /// off-screen. Reads the same geometry constants `draw_help` lays out
+    /// with, so it cannot drift from what is actually rendered.
+    #[test]
+    fn the_help_page_fits_inside_its_own_panel() {
+        let (a, b) = App::help_columns();
+        let m = App::HELP_MARGIN;
+        let (left, top, right, bottom) = (m, m, WIDTH as i32 - m, HEIGHT as i32 - m);
+        for (c, rows) in [&a[..], &b[..]].iter().enumerate() {
+            let x = left + App::HELP_PAD + c as i32 * App::HELP_COL;
+            // A column may not spill into the next one, nor past the border.
+            let limit = if c == 0 { x + App::HELP_COL - 4 } else { right - App::HELP_PAD };
+            for (i, row) in rows.iter().enumerate() {
+                let y = top + App::HELP_PAD + i as i32 * App::HELP_LINE;
+                assert!(
+                    y + hud::GLYPH_HEIGHT <= bottom - 2,
+                    "column {c} row {i} is drawn at y={y}, past the panel bottom {bottom}"
+                );
+                let (start, text) = match row {
+                    HelpRow::Head(s) | HelpRow::Note(s) => (x, *s),
+                    HelpRow::Key(k, w) => {
+                        assert!(
+                            x + hud::text_width(k) <= x + App::HELP_KEY - 2,
+                            "key {k:?} overruns the key column into its own description"
+                        );
+                        (x + App::HELP_KEY, *w)
+                    }
+                    HelpRow::Blank => continue,
+                };
+                assert!(
+                    start + hud::text_width(text) <= limit,
+                    "column {c} row {i} ({text:?}) reaches {}, past its limit {limit}",
+                    start + hud::text_width(text)
+                );
+            }
+        }
+    }
+
+    /// The font renders anything it lacks as a blank gap rather than a
+    /// mystery box, so a key the page names in punctuation can silently
+    /// list itself as nothing at all -- which `;` and `'` did for as long
+    /// as they were bound. Catches the whole class rather than those two.
+    #[test]
+    fn the_help_page_only_uses_glyphs_the_font_has() {
+        let (a, b) = App::help_columns();
+        for rows in [&a[..], &b[..]] {
+            for row in rows {
+                let texts: [&str; 2] = match row {
+                    HelpRow::Head(s) | HelpRow::Note(s) => [s, ""],
+                    HelpRow::Key(k, w) => [k, w],
+                    HelpRow::Blank => continue,
+                };
+                for text in texts {
+                    for ch in text.chars() {
+                        assert!(
+                            hud::has_glyph(ch),
+                            "the help page prints {ch:?} (in {text:?}), which the font draws as a blank gap"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Not a guard -- a way to look at the page, since it is judged by eye.
+    /// Writes only when `HELP_PNG` names a path.
+    #[test]
+    fn dump_the_help_page_when_asked() {
+        let Ok(out) = std::env::var("HELP_PNG") else { return };
+        let app = App::new_pending();
+        let mut frame = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        for px in frame.chunks_exact_mut(4) {
+            px.copy_from_slice(&[40, 44, 52, 255]);
+        }
+        app.draw_help(&mut frame);
+        image::save_buffer(&out, &frame, WIDTH, HEIGHT, image::ColorType::Rgba8).unwrap();
+        eprintln!("wrote {out}");
+    }
     use super::*;
     // Only the tests build cells directly now that the terrain moved to
     // `worldgen`.
@@ -2438,8 +2657,17 @@ mod tests {
     /// as a rebind rather than afterwards.
     #[test]
     fn the_help_panel_names_the_keys_the_gnome_actually_uses() {
-        let help = App::help_lines().join("
-");
+        let (a, b) = App::help_columns();
+        let help = [&a[..], &b[..]]
+            .iter()
+            .flat_map(|rows| rows.iter())
+            .map(|row| match row {
+                HelpRow::Head(s) | HelpRow::Note(s) => (*s).to_string(),
+                HelpRow::Key(k, w) => format!("{k} {w}"),
+                HelpRow::Blank => String::new(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG", "SCROLL THE MAP"] {
             assert!(help.contains(key), "help panel no longer mentions {key:?}");
         }
@@ -2518,6 +2746,27 @@ mod tests {
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "a clean tree must not add noise to the title");
         app.assets_dirty = None;
         assert!(!app.status(60.0).contains("ASSETS EDITED"), "git being unavailable is silence, not a warning");
+    }
+
+    /// The field overlay was the one selector on the status line that never
+    /// said its own name, and `FieldOverlay::Light` is a pale cream blended
+    /// at up to 75% over *every* pixel including solid rock. A player who
+    /// pressed `V` four times had no way to find out why the world had
+    /// gone pale, and the report that came back — "a pale light effect
+    /// spreads through rock" — is a literal description of it.
+    #[test]
+    fn the_status_line_names_the_field_overlay_it_is_showing() {
+        let mut app = App::new();
+        assert!(
+            !app.status(60.0).contains("field"),
+            "the default line must stay quiet, the same as grain, spoil, chain and organism do"
+        );
+        app.renderer.field_overlay = render::FieldOverlay::Light;
+        assert!(
+            app.status(60.0).contains("field LIGHT"),
+            "a selected field overlay has to name itself: {}",
+            app.status(60.0)
+        );
     }
 
     #[test]
@@ -3038,6 +3287,64 @@ mod tests {
         );
         // Reset must not throw away materials loaded from disk.
         assert!(app.world.materials.id_of("gravel").is_some());
+    }
+
+    /// **The `F9` setting must survive a world rebuild, because the title
+    /// bar goes on claiming it does.**
+    ///
+    /// `reset` builds a brand-new `World` and `World::new` starts at
+    /// `i32::MAX` (SPREAD), while `App::chain_mode` -- which is what the
+    /// status line names -- is untouched. `reset` is reached from `F6`
+    /// (next seed), `F7` (cycle preset), `F8` (previous seed) and the
+    /// worldgen file watcher, which is every way a player gets a fresh world
+    /// to test a chain mode in. So every A/B that rerolled the world between
+    /// arms was comparing SPREAD with SPREAD while the title bar said
+    /// LOCAL -- which is how "LOCAL and TIGHT do not contain anything" came
+    /// to be reported.
+    #[test]
+    fn a_rebuilt_world_keeps_the_chain_mode_the_title_bar_is_claiming() {
+        let mut app = App::new();
+        app.cycle_chain_mode();
+        let chosen = &crate::sim::structural::CHAIN_MODES[app.chain_mode];
+        assert_ne!(chosen.reach, i32::MAX, "test setup: one cycle must leave the default, or this proves nothing");
+        assert_eq!(app.world.chain_reach, chosen.reach, "test setup: F9 never reached the world in the first place");
+
+        app.reset();
+
+        assert_eq!(
+            app.world.chain_reach,
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].reach,
+            "the world came back at reach {} while the status line still says {}",
+            app.world.chain_reach,
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].name
+        );
+    }
+
+    /// **Tightening the setting has to reach the work already in flight.**
+    ///
+    /// `World::staged_fractures` is ungated by design once a failure has
+    /// been judged, so a collapse mid-flight goes on arriving whatever `F9`
+    /// now says -- which is exactly the "switching to NONE does nothing"
+    /// half of the complaint. The queue here stands in for one mid-collapse;
+    /// nothing has been disturbed, so at any reach but SPREAD the licence
+    /// covers none of it.
+    #[test]
+    fn tightening_the_chain_mode_drops_staged_work_the_new_setting_cannot_license() {
+        let mut app = App::new();
+        app.world.staged_fractures.push_back(crate::sim::structural::StagedFracture {
+            region: vec![(100, 100), (101, 100)],
+            at: (100, 100),
+            next_frame: app.world.frame + 5,
+        });
+
+        app.cycle_chain_mode(); // SPREAD -> LOCAL: a tighten
+
+        assert!(
+            app.world.staged_fractures.is_empty(),
+            "F9 tightened to {} and {} staged fracture(s) survived it -- the aftermath the player is trying to stop keeps arriving from a queue the new setting never sees",
+            crate::sim::structural::CHAIN_MODES[app.chain_mode].name,
+            app.world.staged_fractures.len()
+        );
     }
 
     #[test]

@@ -259,6 +259,7 @@ fn main() {
     // asked for, not just a passing unit test.
     field_sleep_scene();
     field_scaling_scene();
+    field_day_scene();
 
     // Stage 2 of the creature milestone: the stigmergy substrate, rendered
     // and measured before anything reads it.
@@ -516,6 +517,67 @@ fn field_sleep_scene() {
         "worst frame while the impulse was active: {:.4} ms; worst frame once settled: {:.4} ms",
         worst_active.as_secs_f64() * 1000.0,
         worst_settled.as_secs_f64() * 1000.0,
+    );
+}
+
+/// **What one whole day/night cycle costs a settled world**, in awake field
+/// tiles and in frame time.
+///
+/// `field_sleep_scene` above measures a world nothing is driving. This one
+/// measures the world the sky *is* driving: 3600 frames is exactly
+/// `DAY_NIGHT_PERIOD_FRAMES`, so this is one sunrise, one noon, one sunset and
+/// one midnight over ground that has otherwise stopped moving.
+///
+/// The number to watch is `awake tile-frames`. A picture cannot answer this
+/// and neither can a timing at this scale — `CLAUDE.md`: "did it fire at all"
+/// needs a counter. The specific hazard it is aimed at is a sky channel that
+/// forces the temperature of the surface and then lets it diffuse downward:
+/// field temperature has no decay term (unlike light's `LIGHT_DECAY`), so an
+/// over-strong or under-attenuated forcing propagates a thermal wave into
+/// buried tiles that were asleep and keeps waking them, all night, forever.
+/// Buried tiles are what the ground below is here to provide — the
+/// reassurance that "sky-lit tiles never sleep anyway" does not cover them.
+fn field_day_scene() {
+    println!("\n=== field: one full day/night cycle over settled ground ===");
+    let mut world = World::new(Rect::new(0, 0, 511, 319));
+    // 160 rows of stone under 160 rows of sky: half the tiles are buried, and
+    // buried is the state the measurement is about.
+    for y in 160..320 {
+        for x in 0..512 {
+            world.set(x, y, Cell::new(material::STONE, 0));
+        }
+    }
+    world.end_step();
+    // Settle first: the count below must be the *standing* state, not the
+    // transient of a world that has just been painted.
+    for _ in 0..200 {
+        world.step_fields();
+    }
+
+    let day = 3600;
+    let mut awake_tile_frames: u64 = 0;
+    let mut worst = std::time::Duration::ZERO;
+    let before = world.field_stats;
+    let started = std::time::Instant::now();
+    for _ in 0..day {
+        world.begin_step(); // the sky is a function of `world.frame`, so a day only passes if the frame counter does
+        let t = std::time::Instant::now();
+        world.step_fields();
+        worst = worst.max(t.elapsed());
+        awake_tile_frames += world.awake_field_tiles() as u64;
+        world.end_step();
+    }
+    let total = started.elapsed();
+    // Both counters, because they answer different questions and the first
+    // one alone reads zero for two opposite reasons -- see `FieldStats`.
+    // `solved` is tiles the solver actually ran passes over; `awake` is tiles
+    // left unconverged afterwards, which is what the *next* frame inherits.
+    println!(
+        "over {day} frames: {} solves over {} passes, {awake_tile_frames} awake tile-frames left behind, worst frame {:.4} ms, total {:.1} ms",
+        world.field_stats.tiles_solved - before.tiles_solved,
+        world.field_stats.passes - before.passes,
+        worst.as_secs_f64() * 1000.0,
+        total.as_secs_f64() * 1000.0,
     );
 }
 
@@ -1266,19 +1328,39 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
 
-    for _ in 0..frames {
+    // **Timed, because a plant scene is where per-organism work shows up
+    // and nothing else here measures it.** Every other helper reports a
+    // worst frame; this one did not, so a change to the organism passes
+    // (upkeep walks, root branching, abscission) had no standing number to
+    // be paired against and CI carried none. The settled half is the one
+    // that matters for the same reason the animated-grain measurement did:
+    // a mature stand is exactly where the dirty-rect skip earns its keep.
+    let mut worst_growing = std::time::Duration::ZERO;
+    let mut worst_settled = std::time::Duration::ZERO;
+    for frame in 0..frames {
+        let started = std::time::Instant::now();
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
+        let elapsed = started.elapsed();
+        // The first half is a plant establishing and extending; the second
+        // is what the player actually looks at for most of a session.
+        if frame * 2 < frames {
+            worst_growing = worst_growing.max(elapsed);
+        } else {
+            worst_settled = worst_settled.max(elapsed);
+        }
     }
 
     let wood = world.materials.id_of("wood");
     let moss = world.materials.id_of("moss");
     let water_left = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| world.get(x, y).material == material::WATER).count();
     println!(
-        "after {frames} frames: {} active chunks, {} active sites, {water_left} water cells remaining",
+        "after {frames} frames: {} active chunks, {} active sites, {water_left} water cells remaining; worst frame growing {:.4} ms, settled {:.4} ms",
         world.active_chunk_count(),
         world.active_site_count(),
+        worst_growing.as_secs_f64() * 1000.0,
+        worst_settled.as_secs_f64() * 1000.0,
     );
 
     for y in 0..h {
@@ -1364,7 +1446,27 @@ fn forage_loop_scene() {
     }
     // Let the stand actually grow before the ants arrive; a seedling has no
     // leaves to eat.
+    //
+    // **Drives the CA too, and that is a repair rather than a tidy-up.**
+    // This loop used to call only `step_active_sites` + `step_fields`, which
+    // is every phase a growing plant needs *except* the one that runs the
+    // weather: `weather::step` is the first thing both CA drivers do
+    // (`update.rs`, `parallel.rs`). So the 2,400 frames this stand grows in
+    // were rainless by construction -- and so were infiltration and
+    // capillary flow, which are also CA-dispatched.
+    //
+    // That did not matter while a plant ran on one currency. It matters now
+    // that a root drinks soil moisture, because this scene builds its world
+    // from `worldgen`, which leaves soil away from water at `aux == 0` --
+    // and a warmup that cannot rain is a warmup that can never wet it. Six
+    // trees grew **zero** leaves here, which is this scene's own food
+    // supply, and the ants starved (`Reports/open-bugs-handoff.md`, the
+    // blocking entry).
+    //
+    // Matches `run` below, minus the timing instrumentation and pheromones
+    // -- there are no creatures yet at this point to leave a trail.
     for _ in 0..2400 {
+        parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
     }
@@ -1390,7 +1492,45 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
-        let food_left = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).filter(|&(x, y)| world.get(x, y).material == leaf).count();
+        // **Range, printed next to the verb counters, because none of them
+        // can say it.** `nest-visits` above counts loitering, not trips --
+        // see `CreatureStats::nest_visits`. A colony that never leaves the
+        // nest mouth scores high on it and zero here.
+        println!(
+            "{label}: forage trips {} (bar {}) mean depth {:.1} deepest {} | reach {:?}",
+            st.forage_trips,
+            pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+            if st.forage_trips > 0 { st.forage_depth_sum as f64 / st.forage_trips as f64 } else { 0.0 },
+            st.forage_depth_max,
+            st.forage_reach
+        );
+        // **The standing food stock, in energy rather than in cells.** A
+        // count of edible cells rises as a stand of trees grows whatever is
+        // happening to the animals, which is how §13m's tree-killing bug
+        // hid: the metric that would have shown it was a cell count, and it
+        // kept going up. Summed worth also makes the corpse stamp visible as
+        // a "did it fire" number -- corpse cells with zero worth mean
+        // `creature_dies` did not stamp them, which a picture of a corpse
+        // pile cannot show.
+        let (food_stock, corpse_stock) = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .map(|(x, y)| world.get(x, y))
+            .fold((0.0f64, 0.0f64), |(all, meat), cell| {
+                let v = pixel_physics::sim::creature::food_value(world, cell) as f64;
+                let is_meat = world.materials.get(cell.material).worth_in_aux;
+                (all + v, meat + if is_meat { v } else { 0.0 })
+            });
+        println!("  food stock {food_stock:.0} energy, of which corpse {corpse_stock:.0}");
+        // **Every material on the menu, not just `leaf`.** This counted leaf
+        // alone, which sat directly under the `food stock` line above --
+        // which prices everything -- so the two disagreed by construction the
+        // moment litter became edible. A named-material column is blind by
+        // construction to any food invented later; that is exactly how S4
+        // shipped inert and three rounds of measurement missed it.
+        let food_left = (0..w)
+            .flat_map(|x| (0..h).map(move |y| (x, y)))
+            .filter(|&(x, y)| pixel_physics::sim::creature::food_value(world, world.get(x, y)) > 0.0)
+            .count();
         let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
         let phero_a: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::A, x, y) as u64).sum();
         // **In thirds, not as one total.** A homing gradient that points
@@ -1512,7 +1652,42 @@ fn forage_loop_scene() {
     let st = world.creature_stats;
     assert!(st.moves > 0, "no ant ever moved");
     assert!(st.pickups > 0, "no ant ever picked food up -- the outbound half of the loop is broken");
-    assert!(st.nest_visits > 0, "no ant ever reached the nest");
+    // **Kept, but demoted to what it actually proves, and given the guard
+    // it was mistaken for.** `nest_visits` counts loitering, not arrivals:
+    // it increments on any move made while nest-adjacent, and its
+    // `since_nest > 0` guard is false exactly once per lifetime because
+    // `since_nest` is bumped every tick (`CreatureStats::nest_visits`). So
+    // `> 0` here is not the sessility guard it reads as -- **a colony that
+    // never left the nest mouth passes it trivially**.
+    assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
+    // The real one. **Bars set from measurement on this tree, with
+    // headroom** -- not from an aspiration, and not inherited: this scene
+    // measures **98 trips, deepest 18, mean depth 10.3** over 12,000 frames
+    // after the litter merge. A branch that predates the merge measured 143
+    // and 19 on the same scene, so a bar carried over from it would have sat
+    // above what the code now does. That gap is the litter effect, not a
+    // regression -- see the README's S1-S4 limitations.
+    //
+    // A seventh of the trip count and under half the depth, because outcome
+    // spread here is large and a bar near the measurement flakes.
+    //
+    // What this catches that nothing else did: the colony going sessile.
+    // Every counter above stays healthy for a colony milling around the
+    // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
+    // and this is the only one that goes to zero.
+    assert!(
+        st.forage_trips >= 14,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 98 here), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+    assert!(
+        st.forage_depth_max >= 8,
+        "no ant got further than {} cells from home (measured 18 here)",
+        st.forage_depth_max
+    );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
     assert!(phero_b > 0, "carriers laid no food trail at all");
     assert!(
@@ -1525,15 +1700,32 @@ fn forage_loop_scene() {
     // once stage 4 turns mutation on.
     let live = world.live_creature_energy();
     let expected = world.energy_ledger.expected_live_total();
+    let led = world.energy_ledger;
     println!(
-        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} eaten {:.0} metabolized {:.0} moved {:.0} synapses {:.2} died-holding {:.0}",
+        "energy census: live {live:.2} vs ledger {expected:.2} (delta {:.4}); granted {:.0} plant {:.0} corpse {:.0} metabolized {:.0} moved {:.0} synapses {:.2} stored-in-meat {:.0} dissipated {:.0}",
         live - expected,
-        world.energy_ledger.granted,
-        world.energy_ledger.eaten,
-        world.energy_ledger.metabolized,
-        world.energy_ledger.moved,
-        world.energy_ledger.synapse_tax,
-        world.energy_ledger.died_holding
+        led.granted,
+        led.harvested_plant,
+        led.harvested_corpse,
+        led.metabolized,
+        led.moved,
+        led.synapse_tax,
+        led.stored_in_meat,
+        led.dissipated
+    );
+    // **The other stock, and the bound it has to sit under.** The live
+    // identity above only says the charges landed; it cannot say whether
+    // value was created, because `granted` and `harvested_plant` are free
+    // by construction. `harvested_corpse` is not free -- every joule of it
+    // came out of meat that was booked when a body was built or when one
+    // died -- so this line is the one that would show §13l's pump running
+    // again. `<=` rather than `==` on purpose; see `standing_meat`.
+    let meat = pixel_physics::sim::creature::standing_meat(&world, Rect::new(0, 0, w - 1, h - 1)) + pixel_physics::sim::creature::carried_meat(&world);
+    println!(
+        "meat census: standing {meat:.0} vs ceiling {:.0} (headroom {:.0}); stamped {:.0}",
+        led.max_standing_meat(),
+        led.max_standing_meat() - meat,
+        led.stamped
     );
 }
 
@@ -1631,6 +1823,7 @@ fn double_bridge_scene() {
         "  moves {} blocked {} | pickups {} drops {} deliveries {} nest-visits {} deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.nest_visits, st.deaths
     );
+    println!("  forage trips {} deepest {} | reach {:?}", st.forage_trips, st.forage_depth_max, st.forage_reach);
     println!("  summed channel B over 32 samples -- short route (tunnel) {short:.2} vs long route (over the top) {long:.2}");
     // **Recorded, not asserted, and the earlier version of this assertion
     // was measuring the wrong thing.** An intermediate build did report

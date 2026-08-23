@@ -24,11 +24,50 @@
     fall_drag: 0.15,
     // Foliage is not wood. Well under `wood`'s 0.9.
     density: 0.25,
+    // **Six hue bands of four tonal steps** — see `organism::PALETTE_BAND`.
+    // A species declares which bands it draws from (`foliage_bands`) and an
+    // individual draws one band inside that range at germination, so a
+    // stand is a spread of related greens instead of sixteen draws of one.
+    //
+    // Band 2 is the original four-colour palette, unchanged, so anything
+    // that referenced a specific shade index by hand still lands on the
+    // colour it was written against — and a species with no declared range
+    // still draws uniformly over the whole thing, as before.
+    //
+    // The order is deliberate: hue runs blue-green → green → yellow-green →
+    // olive, so a species' range is a contiguous slice of one axis and
+    // widening a range never jumps a hue.
     colors: [
+        // 0: deep blue-green — fir, spruce
+        (42, 74, 52),
+        (52, 90, 62),
+        (34, 62, 44),
+        (60, 102, 72),
+        // 1: mid blue-green — pine
+        (46, 86, 58),
+        (56, 102, 70),
+        (38, 72, 48),
+        (66, 116, 80),
+        // 2: mid green — the original palette
         (58, 96, 40),
         (70, 116, 48),
         (48, 82, 34),
         (82, 132, 56),
+        // 3: yellow-green — birch, willow
+        (86, 118, 44),
+        (102, 138, 54),
+        (72, 100, 36),
+        (118, 158, 66),
+        // 4: olive — dry-site shrubs
+        (94, 104, 56),
+        (110, 122, 68),
+        (78, 88, 46),
+        (126, 140, 80),
+        // 5: dark olive
+        (66, 76, 38),
+        (80, 92, 46),
+        (54, 62, 30),
+        (94, 108, 56),
     ],
     // Much more flammable than heartwood, and it burns *out* far faster. A
     // real canopy fire runs through foliage, not through trunks, and this
@@ -48,6 +87,35 @@
     // up nothing but itself and drops the moment its own attachment goes,
     // which is the closest this model gets to "not structural" without a
     // separate exemption in the traversal.
+    // Inert-path capacity, unchanged. A stray leaf cell that has lost its
+    // organism holds up nothing.
     max_unsupported_span: 1,
+    // **No `max_cantilever_reach`, which means opted out of the organism
+    // cantilever rule entirely** -- the default is `u16::MAX`.
+    //
+    // This field's ancestor was the `max_unsupported_span: 1` above, and it
+    // read correctly against the old support search, where the number was
+    // hops from the cell to the nearest ground contact and no code path
+    // ever scheduled a structural check on a leaf.
+    //
+    // `plant::anchor_support` changed what the number is measured against:
+    // it is now the cell's reach along its own load path from the plant's
+    // anchors, which for any leaf in a crown is tens of cells. The first run
+    // with checks actually firing took median leaves per tree from 1,376 to
+    // **1**, and the stand from 31,731 cells to 7,171 once the income went
+    // with them.
+    //
+    // Opting out does not exempt a leaf from *attachment*:
+    // `structural::organism_structural_tick` tests that first and
+    // separately, so cutting the twig a spray hangs from still brings the
+    // spray down. That is the property the note above actually wanted -- a
+    // leaf is not a load path -- now enforced rather than approximated by a
+    // small number.
     breaks_into: "deadwood",
+
+    // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
+    // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
+    // by the move from eater-constant to food-property.
+    food_energy: 120.0,
+    food_class: -1.0,
 )

@@ -100,12 +100,18 @@ const STALL_FRAMES_BEFORE_SETTLING: u8 = 3;
 /// Smallest failing region worth flying as a coherent body. Below this, the
 /// per-cell `breaks_into` conversion looks the same and costs less — a
 /// single cell "tumbling" is just a grain.
-const MIN_BODY_CELLS: usize = 8;
+pub(crate) const MIN_BODY_CELLS: usize = 8;
 
 /// Smallest failing region worth fracturing at all. Below this the region is
 /// left to the caller's per-cell conversion, which looks the same and costs
 /// less.
-const MIN_FRACTURE_CELLS: usize = 6;
+///
+/// Shared with `structural::tick`, which uses it as the floor on a confined
+/// *severed piece* worth cracking at all: a chip this small has nothing left
+/// inside it to separate. Deliberately the same number as the one here, so
+/// "too small to come apart into pieces" means one thing in this engine
+/// rather than two.
+pub(crate) const MIN_FRACTURE_CELLS: usize = 6;
 
 /// Largest a single body may be. Past this one piece stops reading as a
 /// chunk broken off a wall and starts reading as the wall gliding intact,
@@ -173,12 +179,17 @@ const CRACK_RAYS: u32 = 5;
 /// Extra reach a ray gains from running into existing damage. Stress
 /// concentrates at a crack tip, so repeated blows in one place drive a
 /// fissure deeper instead of scribbling a new one each time.
-const CRACK_TIP_BONUS: i32 = 2;
+///
+/// Shared with `structural::walk_fissures`, which needs the identical rule
+/// for the identical reason and only on its blast path -- its wander is
+/// position-keyed, so a repeat charge retraces its own fissures exactly and
+/// would otherwise write nothing at all the second time.
+pub(crate) const CRACK_TIP_BONUS: i32 = 2;
 
 /// How many times a single ray may claim `CRACK_TIP_BONUS`. Bounds the walk
 /// so working one spot forever cannot drive a fissure across the whole
 /// world, while still leaving several blows' worth of room to grow.
-const CRACK_TIP_MAX_STEPS: i32 = 6;
+pub(crate) const CRACK_TIP_MAX_STEPS: i32 = 6;
 
 /// How much a blow of this radius shifts the fragment-size ladder. A tap
 /// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
@@ -404,6 +415,24 @@ pub struct ChunkBody {
     /// Reading `vy` there would report that everything lands gently, which
     /// is the opposite of what a forty-cell drop should feel like.
     peak_speed: f32,
+    /// Whether this body is holding its own footprint against the world —
+    /// see `reserved`.
+    ///
+    /// **Latched on first contact with fluid, never set at promotion**, and
+    /// that gate is not an optimisation. Holding the footprint from birth
+    /// costs a dry scene nothing to *maintain* and changes its outcome:
+    /// with the space it stands in closed, a body stops shedding cells to
+    /// collisions on landing, so more of it arrives intact, so the load
+    /// model is handed a bigger connected region to judge. Measured on
+    /// `scene=strike`, which is dry: the same two failures went from 503 to
+    /// 1,372 cells and the worst frame from **20 ms to 118 ms**, against a
+    /// 60 ms budget. Nothing about that scene was reported as wrong.
+    ///
+    /// In air the reservation buys nothing anyway -- there is no fluid to
+    /// keep out -- so latching it the first time the body actually meets
+    /// liquid confines the whole mechanism to the bug it was built for and
+    /// leaves every dry scene byte-identical.
+    reserved: bool,
 }
 
 impl ChunkBody {
@@ -414,7 +443,7 @@ impl ChunkBody {
     /// way to create debris that never broke off anything.
     #[cfg(test)]
     pub fn at(cells: Vec<BodyCell>, x: f32, y: f32) -> Self {
-        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0 }
+        Self { cells, x, y, vx: 0.0, vy: 0.0, spin: 0.0, stalled: 0, peak_speed: 0.0, reserved: false }
     }
 
     /// The same, already falling. Test-only for the same reason.
@@ -526,7 +555,34 @@ pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)], broke_a
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
 fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
-    fracture_with_impulse(world, region, None, 0, Some(broke_at))
+    // **A big collapse calves blocks; a small one chips.** This passed a
+    // flat `0` for as long as the ladder has existed, which meant a
+    // structural collapse drew fragment targets of 2..64 cells while a
+    // *blow* of the same material drew 8..256 -- so everything that came
+    // down after the event was systematically smaller than what the event
+    // itself threw, and two of the six rungs landed under `MIN_BODY_CELLS`
+    // and became grit before shape was even considered.
+    //
+    // Reported from play as the second of three complaints off the rolling
+    // world: *"could the pattern of cracks be more heterogeneous, so the
+    // chunks that break off are different sizes"*. The joint fabric is one
+    // half of that answer and this is the other, and this half is the one
+    // that was simply never wired: `size_bias` already existed, already
+    // took the right shape, and only `strike` and the blast shell were
+    // passing it anything.
+    //
+    // Sized off the region's own half-extent rather than a cell count, for
+    // the same reason `strike` sizes off the brush radius: what the ladder
+    // is asking is "how big is the thing that came apart", and a long thin
+    // shelf and a compact block of the same area do not come apart the
+    // same. Half-extent puts a collapse on exactly the scale a blow of that
+    // reach would be on, which keeps one ladder rather than inventing a
+    // second calibration.
+    let half = region
+        .iter()
+        .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
+    let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at))
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
@@ -597,8 +653,27 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // again.
         let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
         let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
-        let fragment = take_fragment(&mut left, seed, target);
-        if fragment.len() >= MIN_BODY_CELLS {
+        let fragment = take_fragment(world, &mut left, seed, target);
+        // The `world` argument is this branch's size-biased ladder: a wide
+        // blow calves slabs where a tap chips.
+        //
+        // **`origin/main`'s `record_fragment(len, promoted)` call stood here
+        // and was dropped, deliberately.** It split one fragment's mass into
+        // `promoted_cells`/`shattered_cells` -- which this branch already
+        // records, at the two choke points that cannot drift out of step
+        // with what happened: `record_promoted` inside `promote` (the line
+        // that actually pushes the body, so `fracture_with_impulse`,
+        // `calve_collar` and `fracture_shell` all reach it through one
+        // door) and `record_shattered` inside `shatter_to_rubble` and
+        // `break_free`. Keeping both counted every promoted fragment's
+        // cells twice and every shattered fragment's twice over. The richer
+        // pair wins because it also carries `promoted_bodies` and
+        // `promoted_sizes`, which `record_fragment` has no way to fill.
+        // `size_buckets`, main's other counter here, is untouched: it is
+        // fed from `record` and measures the failing *region*, not the
+        // fragment, so it is a different quantity and both are kept.
+        let promoted = fragment.len() >= MIN_BODY_CELLS;
+        if promoted {
             promote(world, &fragment, impulse);
         } else {
             for &(fx, fy) in &fragment {
@@ -609,7 +684,24 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
 }
 
 /// Flood up to `target` connected cells out of `left`, removing them.
-fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+///
+/// **A fissure is a fragmentation seam.** The flood refuses to cross a
+/// cracked edge, so a collapsing region comes apart along the cracks that
+/// are already in it rather than along BFS ring boundaries. Before this,
+/// cracks severed *support* (`load.rs` asks `edge_is_cracked` everywhere)
+/// and were then completely ignored when the thing they had undermined
+/// actually broke: the flood ran straight across them and the only random
+/// thing about a fragment was its size, never its shape. Whole collapses
+/// therefore came down as L1 rings -- "perfect columns or sharp
+/// triangles", the owner's second complaint off the prototype sheets.
+///
+/// Costs one bit test per admitted cell, at event time only.
+///
+/// A fragment cut small by dense cracking falls through to
+/// `shatter_to_rubble` at the call site, which is the graded outcome and
+/// not a fallback: heavily fissured rock *should* come away as grit while
+/// lightly fissured rock comes away as slabs.
+fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
     // Breadth-first, not depth-first. A DFS flood snakes: it follows one
     // arm to its end before coming back, so fragments came out as long
     // stringy runs — "thin individual pixel lines" rather than chunks. BFS
@@ -625,9 +717,23 @@ fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize
         }
         for (dx, dy) in NEIGHBOURS_4 {
             let next = (x + dx, y + dy);
-            if left.remove(&next) {
-                stack.push_back(next);
+            if !left.contains(&next) {
+                continue;
             }
+            // Tested *before* the claim, never after: `left.remove` is how
+            // a cell is claimed for this fragment, so removing it and then
+            // declining it would delete material from the region entirely
+            // -- neither in a fragment nor in the pool for the next seed,
+            // which is precisely what the conservation assertions exist to
+            // catch. `edge_is_cracked` owns each edge from one side (see
+            // its doc), so the step direction is handed to it as-is and it
+            // asks the neighbour about its own bit when stepping left or
+            // up.
+            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            left.remove(&next);
+            stack.push_back(next);
         }
     }
     // Anything still stacked was claimed out of `left` but never reached
@@ -686,12 +792,130 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         spin: ((ox + oy) % 3) as f32 * 0.3,
         stalled: 0,
         peak_speed: 0.0,
+        reserved: false,
     });
+    // Counted here, on the line after the push, and not at any call site:
+    // this is the only place in the engine where rock leaves the grid as a
+    // moving piece, so it is the only place the count cannot drift out of
+    // step with what happened. `fracture_with_impulse` (collapse),
+    // `calve_collar` and `fracture_shell` (blast) all arrive through this
+    // door, and so will whatever is added next.
+    //
+    // It is also the *only* field of `FailureCounts` that measures a
+    // displacement. Everything else is recorded at `structural.rs`'s
+    // `record`, which runs before the free-face test, the erosion, the
+    // slicing and the fracture -- so `unsupported: 400` is entirely
+    // consistent with nothing at all having moved, which is exactly the
+    // shape of the owner's "no pieces move, ever" against a harness
+    // reporting hundreds of failures.
+    world.structural_failures.record_promoted(cells.len());
+    // Taken *after* the push, so the walk below reads a world in which the
+    // piece has already been lifted out and cannot find its own cells.
+    let towards_liquid = falling_towards_liquid(world, cells);
+    if towards_liquid {
+        let footprint: HashSet<(i32, i32)> = cells.iter().copied().collect();
+        claim_footprint(world, &footprint);
+        if let Some(body) = world.chunk_bodies.last_mut() {
+            body.reserved = true;
+        }
+    }
+}
+
+/// One cell of a promoted body's footprint: materially empty, and **held**
+/// so that nothing else moves into the space the body is standing in.
+///
+/// # Why a body's own footprint has to be reserved
+///
+/// A promoted body is lifted out of the grid, and for most of this engine's
+/// life the cells it left behind were written plain `Cell::EMPTY`. That is
+/// the space the body is *in*, and writing it empty tells the CA sweep,
+/// `try_move`, `particle::land` and every other body that it is free. In
+/// air nothing notices. In water it is fatal: water pours into the body's
+/// own footprint, so the body finds fluid in front of it with nowhere to go,
+/// stalls, is re-rasterized, is judged unsupported and fractures again --
+/// and again. Measured on `scene=rockdrop`, a 600-cell slab produced
+/// **2,515 cells' worth of chunks** on its way down and left `rock -600,
+/// rubble +572`: the same rock broken four times over, which is what
+/// reached play as *"chunks of rock hit the water and then start
+/// disintegrating into grit."* Only 2,834 of 10,849 displacement attempts
+/// succeeded, and a printed walk showed water standing inside the body's
+/// own footprint.
+///
+/// `FLAG_MANAGED` is exactly the reservation this needs and already exists
+/// for the liquid heightfield bodies: `Cell::is_empty` is managed-aware, so
+/// one flag closes the footprint to all of the above at once, and
+/// `demote_body_at` is a no-op for it because `body_index` only holds
+/// liquid bodies.
+///
+/// **It only works paired with `exchange_with_fluid`.** Reserving the
+/// footprint on its own was built once and lost 1,821 cell-equivalents of
+/// water, because every search that hands displaced fluid somewhere to go
+/// (`make_way_behind`'s walk, `settle`'s `nearest_free`/`surface_above`)
+/// reads `is_empty` and so can no longer see the cells the body is
+/// vacating -- which are the one place that fluid belongs. See
+/// `Reports/open-bugs-handoff.md` §1h.
+fn reserved() -> Cell {
+    Cell::EMPTY.with_managed(true)
+}
+
+/// How far below a new piece to look for the liquid it is heading into.
+///
+/// Sets how early a body takes its footprint (`ChunkBody::reserved`) — and
+/// therefore how much of its fall is protected from other pieces. Reserving
+/// only on *contact* costs `scene=rockdrop` 133 cells of the slab (242 of
+/// 600 surviving as rock against 375), because bodies shed cells into each
+/// other's unreserved footprints on the way down. Reserving *always* costs
+/// a dry scene 5.5x its worst frame — see `ChunkBody::reserved` and
+/// `Reports/open-bugs-handoff.md` §1j. Forty-eight rows is a long drop at
+/// this world's scale and still terminates fast on a dry scene, where the
+/// walk hits the ground within a few cells.
+const LIQUID_LOOKAHEAD: i32 = 48;
+
+/// Whether any column of a new piece's underside finds liquid before it
+/// finds anything else, within `LIQUID_LOOKAHEAD` rows.
+///
+/// The walk stops at the **first non-empty cell** in each column, so it is
+/// asking "what is this piece going to land in", not "is there water
+/// somewhere below". Rock over a floor with a pond under the floor reads
+/// false, which is right: it will never touch the pond.
+fn falling_towards_liquid(world: &World, cells: &[(i32, i32)]) -> bool {
+    let own: HashSet<(i32, i32)> = cells.iter().copied().collect();
+    let mut lowest: HashMap<i32, i32> = HashMap::new();
+    for &(x, y) in cells {
+        let e = lowest.entry(x).or_insert(y);
+        *e = (*e).max(y);
+    }
+    for (&x, &y) in &lowest {
+        for dy in 1..=LIQUID_LOOKAHEAD {
+            let (nx, ny) = (x, y + dy);
+            if own.contains(&(nx, ny)) {
+                continue; // still inside the piece's own outline
+            }
+            if !world.in_bounds(nx, ny) {
+                break;
+            }
+            let material = world.get(nx, ny).material;
+            if material == super::material::EMPTY {
+                continue; // open air: keep looking down this column
+            }
+            if world.materials.kind(material) == MaterialKind::Liquid {
+                return true;
+            }
+            break; // something solid first: this column lands on that
+        }
+    }
+    false
 }
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
 /// whatever comes free is no longer backed by the mass it broke out of.
-fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
+///
+/// `pub(crate)` for `explosion::JointSeams`, which opens a joint into a seam
+/// of void *and grit* and wants the same conversion, the same attachment
+/// loss and — importantly — the same `record_shattered` bookkeeping. Grit
+/// counted anywhere else would not appear in the promoted-to-shattered ratio
+/// that says whether a break has a *distribution* of sizes behind it.
+pub(crate) fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let cell = world.get(x, y);
     let Some(into) = world.materials.get(cell.material).breaks_into else {
         return; // no configured debris: leave it rather than deleting content
@@ -700,6 +924,13 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let shade = world.rng.below(shades) as u8;
     let temp = cell.temperature();
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    // After the conversion, never before the `breaks_into` check above:
+    // the decline leaves the cell exactly as it was, and counting a
+    // decline would make grit look like it happened. Grit is half of the
+    // "a few blocks, more cobbles, a lot of grit" distribution and its
+    // pair, `promoted_cells`, is the other -- neither number says anything
+    // about the shape of a break on its own.
+    world.structural_failures.record_shattered(1);
     world.schedule_structural_check_around(x, y);
 }
 
@@ -744,7 +975,16 @@ fn distance2_to_segment(p: (i32, i32), a: (i32, i32), b: (i32, i32)) -> i32 {
 /// scribbling a fresh one each time, and the player can work a crack along
 /// deliberately. That is the difference between damage that accumulates and
 /// damage that merely repeats.
-fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) {
+///
+/// Returns how many distinct cells were scored with a fresh fissure —
+/// `explosion.rs`'s blast report needs a count for its "did it fire at all"
+/// line (`CLAUDE.md`: a discrete event needs a counter, not just a
+/// picture), and `scored_now`'s own dedup is exactly that count, already
+/// computed for the crack-tip-bonus logic below. `pub(crate)` rather than
+/// private: the blast's crack halo (R1,
+/// `Reports/explosion-stone-review.md` §4) calls this from `explosion.rs`,
+/// the one other caller in the crate besides `strike`/`mine_swept` here.
+pub(crate) fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) -> u32 {
     // Ray directions are keyed on the *site*, not drawn fresh per blow, and
     // that is what makes damage accumulate. Jittering per call sent every
     // hit off in new directions, so a second blow on the same spot scored
@@ -790,6 +1030,7 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
             r += 1;
         }
     }
+    scored_now.len() as u32
 }
 
 /// Hit the rock at `(cx, cy)` hard enough to break it.
@@ -918,7 +1159,9 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
         return 0;
     }
     // Short, so a chisel weakens what it is cutting through without
-    // fissuring the whole wall the way a swing does.
+    // fissuring the whole wall the way a swing does. Return value (cells
+    // scored) ignored here -- only the blast report in `explosion.rs` needs
+    // a count.
     score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
     // The rock around the cut stops being braced, which is what makes a
     // doorway's lintel notice the doorway.
@@ -928,8 +1171,11 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     }
     world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
     // A cut is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
+    // `World::chain_reach`. The extent is the chisel's own outer crack
+    // reach -- the same `radius + MINE_CRACK_REACH` handed to `score_cracks`
+    // above, so the licence covers exactly the rock this cut damaged and no
+    // more (`structural::Disturbance::extent`).
+    world.record_disturbance(cx, cy, radius + MINE_CRACK_REACH);
     // Last, so everything above sees the full bite as rubble. That
     // ordering is not incidental: it is exactly what `player::dig` did
     // when the thinning lived there, so moving it in here changes the
@@ -1008,9 +1254,6 @@ const MINE_CRACK_RAYS: u32 = 3;
 const MINE_PRESSURE: f32 = 0.4;
 
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
-    // A blow is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the
@@ -1028,6 +1271,17 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // want different sizes: you draw with a pencil and you swing a hammer.
     // So the brush still scales the blow, from a floor that always lands.
     let radius = radius.max(MIN_STRIKE_RADIUS);
+    // A blow is a disturbance: it licenses failures near it. See
+    // `World::chain_reach`. The extent is the swing's own crack reach --
+    // the same `radius * CRACK_REACH` handed to `score_cracks` below, so
+    // the licence covers exactly the rock this blow scored
+    // (`structural::Disturbance::extent`).
+    //
+    // **Recorded after the floor, not before it.** `radius` is rebound one
+    // line up, and a licence taken from the unfloored brush radius would be
+    // narrower than the swing that actually lands -- which is the same
+    // mistake as recording a point for a volume, one argument along.
+    world.record_disturbance(cx, cy, radius * CRACK_REACH);
     // Three zones, and the split is what makes a blow read as a blow rather
     // than as a hole appearing. The core is pulverized -- that is the bite.
     // A thin shell around it chips off immediately, so every hit produces
@@ -1055,7 +1309,9 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
         }
     }
     // Cracks reach well past the rock the blow actually removes -- that
-    // reach is the whole point of striking rather than erasing.
+    // reach is the whole point of striking rather than erasing. Return
+    // value (cells scored) ignored here -- only the blast report in
+    // `explosion.rs` needs a count.
     score_cracks(world, cx, cy, chip, radius * CRACK_REACH, CRACK_RAYS);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
@@ -1096,7 +1352,92 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 /// exposed. Only unattached solid cells are eligible, which means the rim
 /// has already been through `structural::detach_exposed_neighbours` and is
 /// genuinely no longer braced by the mass behind it.
-pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32) {
+///
+/// `confinement` is R2's probe result (`explosion::probe_confinement`, via
+/// `explosion::Confinement`) — **required, not optional** (`Reports/
+/// explosion-stone-review.md` §5). Without gating this loop too, a
+/// "contained" sector would still get its rim unattached and fractured by
+/// the call below even though `clear_annulus` never cleared a cell in it,
+/// which quietly reproduces the self-refilling bruise the containment gate
+/// exists to remove. Only `explosion.rs` calls this today, so the argument
+/// is always real confinement data, never a "no gating" sentinel.
+pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
+    if loosened.len() >= MIN_FRACTURE_CELLS {
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    }
+}
+
+/// Which half of a blast's ring a shell scan is interested in.
+///
+/// The blast's own stages only ever want `Open` — a contained sector's rim
+/// must stay exactly where it is, which is the whole of R2. The calving
+/// collar wants both, in two different places: the open rim it can throw
+/// into the void, and the *contained* pocket wall, which is the only rock a
+/// fully buried charge has anywhere to move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellSectors {
+    /// Sectors that vented — reach equals the blast radius.
+    Open,
+    /// Sectors that read as buried, cleared only to the crush pocket.
+    Contained,
+}
+
+/// Break a collar off the rim along the cracks, once the blast's fissure
+/// star has finished growing. Returns how many cells were handed to the
+/// fragmenter.
+///
+/// This is `fracture_shell`'s sibling and shares its scan
+/// (`loosen_shell`), and the difference between them is *when* and *which
+/// way*: the shell fracture runs on every stage, on the rock the blast is
+/// breaking, thrown outward. This runs once, seconds later, on standing
+/// rock the star has just cut wedges out of, thrown inward (the caller
+/// passes a negative force) so the wedges tumble into the hole.
+///
+/// The seams are the cracks: `take_fragment` will not flood across a cracked
+/// edge, so what comes away is bounded by the fissures the player watched
+/// race outward rather than by BFS rings. That is the entire reason the
+/// calving waits for the star to finish instead of happening on the bang
+/// frame — before the walks have run there is nothing to break *along*.
+#[allow(clippy::too_many_arguments)]
+pub fn calve_collar(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    force: f32,
+    size_bias: u32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> u32 {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, sectors);
+    if loosened.len() < MIN_FRACTURE_CELLS {
+        // Below the fragmenter's own floor, and deliberately nothing else:
+        // converting a handful of cells to rubble here would make a blast
+        // with almost no rim to give eat a little of it anyway, every time.
+        return 0;
+    }
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    loosened.len() as u32
+}
+
+/// The annulus scan both `fracture_shell` and `calve_collar` run: collect
+/// the body cells in `inner..outer` whose sector matches `sectors`,
+/// unattaching each as it goes.
+///
+/// One function rather than two copies of the loop for the reason this file
+/// keeps re-learning: the sector test, the raggedness and the loosening rule
+/// all have to agree with `Blast::clear_annulus` about where this blast's
+/// edge is, and a second copy would drift from that agreement the first time
+/// either changed.
+fn loosen_shell(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> Vec<(i32, i32)> {
     let mut loosened = Vec::new();
     // An annulus, not a disc. Scanning the whole disc also swept up the
     // crater's *interior* -- material the blast was still working through --
@@ -1107,6 +1448,18 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             let (x, y) = (origin.0 + dx, origin.1 + dy);
             let d2 = dx * dx + dy * dy;
             if d2 > outer * outer || d2 < inner * inner || !world.in_bounds(x, y) {
+                continue;
+            }
+            // A contained sector's shell stays put -- see this function's
+            // own doc. Asked through the same `ragged_sector_limit`
+            // `clear_annulus` used to decide what actually cleared, so the
+            // two never disagree about where this blast's edge is: the
+            // reach is the smoothed one, and the per-cell raggedness is the
+            // same draw, so the thrown shell's boundary is the crater's own
+            // boundary rather than a clean 22.5-degree pie cut laid over a
+            // ragged hole.
+            let is_open = super::explosion::ragged_sector_limit(&confinement.sector_reach, dx, dy, x, y) >= confinement.radius as f32;
+            if is_open != (sectors == ShellSectors::Open) {
                 continue;
             }
             let cell = world.get(x, y);
@@ -1138,10 +1491,8 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             loosened.push((x, y));
         }
     }
-    if loosened.len() >= MIN_FRACTURE_CELLS {
-        loosened.sort_unstable(); // deterministic seed order
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
-    }
+    loosened.sort_unstable(); // deterministic seed order
+    loosened
 }
 
 /// Advance every body one frame, settling any that have come to rest.
@@ -1190,11 +1541,33 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
             // Only turn if the turned shape actually fits. Otherwise a body
             // wedged in a gap would rotate straight through the wall beside
             // it, which is the one way this transform can cheat.
-            blocked_axis(world, &probe, probe.x, probe.y).is_none()
+            let shape = BodyShape { density: mean_density(world, &probe), floats: body_floats(world, &probe), reach: body_extent(&probe) + 1 };
+            try_step(world, &probe, probe.x, probe.y, shape).axis.is_none()
         };
         if turned {
-            body.rotate_quarter();
+            if body.reserved {
+                rotate_reserved(world, body);
+            } else {
+                body.rotate_quarter();
+            }
         }
+    }
+
+    // **Water pushes back.** Until this, nothing did: a body kept the
+    // `GRAVITY` it had accumulated in the air all the way to the bottom of
+    // a pond, and the only thing that ever took speed off it was hitting
+    // something. Reported from play, on the very drop the piece-integrity
+    // fix was meant to improve: *"it falls at slightly odd rates. There is
+    // a first group of chunks that drop too fast and then the rest that
+    // come together with the grit later."*
+    //
+    // Measured on `scene=rockdrop`: pieces reach **6.00 cells/frame** in
+    // the twenty rows of air -- the `MAX_SPEED_PER_AXIS` clamp -- and go
+    // into the water still carrying it, while the rubble they came from
+    // sinks under one. That is the two groups.
+    if let Some(fluid) = surrounding_liquid(world, body) {
+        let density = world.materials.density(fluid);
+        drag_through_liquid(body, shape_of(world, body), density);
     }
 
     body.vx = body.vx.clamp(-MAX_SPEED_PER_AXIS, MAX_SPEED_PER_AXIS);
@@ -1209,11 +1582,35 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
     // reason `particle::advance_and_check_landing` documents: a body moving
     // several cells in one unclamped jump could cross a thin floor entirely
     // without any sampled position ever landing inside it.
+    // Computed once per advance rather than inside `blocked_axis`, which
+    // runs per substep and again for the rotation probe. Both are O(cells)
+    // and neither can change while the body is in flight -- a quarter turn
+    // permutes the offsets and does not add or remove one.
+    let shape = shape_of(world, body);
+    // Taken before the substep loop, because a collision damps `vy` by
+    // `COLLISION_RETENTION` on the way through -- the same reason
+    // `peak_speed` is recorded rather than read at landing.
+    let entry_speed = body.vy;
     let mut moved = false;
     for _ in 0..steps {
         let (next_x, next_y) = (body.x + step_x, body.y + step_y);
-        match blocked_axis(world, body, next_x, next_y) {
+        let step = try_step(world, body, next_x, next_y, shape);
+        match step.axis {
             None => {
+                // **The reservation is latched here, on first contact with
+                // fluid**, and only then -- see `ChunkBody::reserved` for
+                // what holding it from birth cost a dry scene. Claimed
+                // before the exchange, so the cells the body is giving up
+                // are already materially empty when the exchange looks for
+                // somewhere to put the water.
+                if !body.reserved && !step.swaps.is_empty() {
+                    claim_footprint(world, &step.occupied);
+                    body.reserved = true;
+                }
+                if body.reserved {
+                    exchange_with_fluid(world, &step.occupied, step.motion, &step.swaps, shape.reach);
+                    restamp_footprint(world, &step.occupied, step.motion);
+                }
                 body.x = next_x;
                 body.y = next_y;
                 moved = true;
@@ -1235,8 +1632,252 @@ fn advance(world: &mut World, body: &mut ChunkBody) -> bool {
         }
     }
 
+    if moved {
+        report_entry_splash(world, body, entry_speed);
+    }
     body.stalled = if moved { 0 } else { body.stalled.saturating_add(1) };
     body.stalled < STALL_FRAMES_BEFORE_SETTLING
+}
+
+/// Turn the body a quarter, taking its footprint reservation with it.
+///
+/// **A rotation is the one body transform that is not a translation**, so
+/// `restamp_footprint` — which derives the vacated and entered sets from a
+/// single integer offset — cannot describe it, and calling
+/// `rotate_quarter` directly leaks the whole pre-turn footprint. Found by
+/// looking at the artifact: `scene=rockdrop` grew wedge-shaped air pockets
+/// standing permanently inside the pond, because a reserved cell is not
+/// `is_empty` and no water would close over it. The ledger was perfectly
+/// balanced throughout — nothing was lost, so no conservation guard could
+/// have caught it, and only the picture showed it.
+fn rotate_reserved(world: &mut World, body: &mut ChunkBody) {
+    let before: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    body.rotate_quarter();
+    let after: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    for &(x, y) in before.difference(&after) {
+        let cell = world.get(x, y);
+        if world.in_bounds(x, y) && cell.material == material::EMPTY && cell.managed() {
+            world.set_owned(x, y, Cell::EMPTY);
+        }
+    }
+    for &(x, y) in after.difference(&before) {
+        if world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY {
+            world.set_owned(x, y, reserved());
+        }
+    }
+}
+
+/// The body's density, buoyancy and reach, as one value — computed once per
+/// `advance` and lent to everything in it. All three are O(cells) and none
+/// can change while the body is in flight.
+fn shape_of(world: &World, body: &ChunkBody) -> BodyShape {
+    BodyShape { density: mean_density(world, body), floats: body_floats(world, body), reach: body_extent(body) + 1 }
+}
+
+/// The liquid a body is *inside*, if it is inside one.
+///
+/// Sampled one cell above the top of its own bounding box, at the middle
+/// column: that is outside the footprint (so it is never the body's own
+/// reservation), and it turns to liquid exactly when the body has gone a
+/// row under the surface — which is what "submerged" means for this. One
+/// `World::get` per body per frame.
+fn surrounding_liquid(world: &World, body: &ChunkBody) -> Option<MaterialId> {
+    let (mut x0, mut y0, mut x1) = (i32::MAX, i32::MAX, i32::MIN);
+    for cell in &body.cells {
+        let (x, y) = body.cell_position(cell);
+        x0 = x0.min(x);
+        x1 = x1.max(x);
+        y0 = y0.min(y);
+    }
+    if x1 < x0 {
+        return None;
+    }
+    let probe = ((x0 + x1) / 2, y0 - 1);
+    if !world.in_bounds(probe.0, probe.1) {
+        return None;
+    }
+    let material = world.get(probe.0, probe.1).material;
+    (world.materials.kind(material) == MaterialKind::Liquid).then_some(material)
+}
+
+/// Buoyancy and a terminal speed, for one frame of sinking.
+///
+/// Two terms, and they answer different halves of the report:
+///
+/// - **Buoyancy** takes back the share of `GRAVITY` the displaced water
+///   carries, so rock sinks slower than it falls and something barely
+///   denser than water barely sinks at all. It is the density ratio and
+///   nothing tuned.
+/// - **A terminal speed**, because buoyancy alone does not stop a body
+///   *accelerating* — it only halves the rate. `scene=rockdrop`'s pieces
+///   reached `MAX_SPEED_PER_AXIS` **inside the pond**, not in the air above
+///   it: 6.00 cells/frame at the bottom of a thirty-row descent.
+///
+/// **A clamp rather than a drag term, and that was measured before it was
+/// chosen.** Quadratic drag (`v * |v|`) is the physically nicer model and
+/// produces the same uniform descent — and it costs rock, because it slows
+/// the *whole* descent rather than only its fast end, so pieces arrive
+/// later, one at a time, onto a pile that is already there, and get
+/// re-judged and re-broken. Paired on `scene=rockdrop`: quadratic drag at
+/// the coefficient that gives the tightest descent leaves **341 of 600
+/// cells as stone**, the clamp leaves **420**, and the do-nothing control
+/// leaves 450 while showing the artifact. The clamp buys the look for
+/// almost nothing.
+fn drag_through_liquid(body: &mut ChunkBody, shape: BodyShape, fluid_density: f32) {
+    let ratio = shape.density / fluid_density.max(f32::EPSILON);
+    let carried = (1.0 / ratio.max(f32::EPSILON)).min(1.0);
+    body.vy -= GRAVITY * carried;
+    // `reach` is the extent plus one, because the ring search that shoves
+    // fluid out of the way wants the plus one. A terminal velocity wants the
+    // body itself.
+    let size = (shape.reach - 1).max(1) as f32;
+    let excess = (ratio - 1.0).max(0.0);
+    let terminal =
+        (2.0 * GRAVITY * size * excess / SINK_DRAG_COEFFICIENT).sqrt().max(NEUTRAL_SINK_SPEED);
+    body.vy = body.vy.min(terminal);
+    body.vx = body.vx.clamp(-terminal, terminal);
+}
+
+/// The drag coefficient a sinking body is given, which with `GRAVITY` and
+/// the body's own size and density is its whole terminal velocity.
+///
+/// # A real terminal velocity, because a flat one was the remaining complaint
+///
+/// This replaced a flat `SINK_SPEED` of 1.6, normalised on density alone, and
+/// the readout that condemned it is the paired extreme `examples/filmstrip.rs`
+/// now prints: on `scene=rockdrop`, *"smallest piece 4 cells across at 1.76,
+/// largest 17 across at 1.75"*. Grit and a block, same speed to two decimals.
+/// Play said *"still reads as too fast"*, and a size-blind clamp is why --
+/// the only speed it can pick is one that is wrong for most of the pieces.
+///
+/// Terminal velocity balances weight-minus-buoyancy against drag. In two
+/// dimensions mass goes as `d²` and frontal area as `d`, so
+///
+/// ```text
+///     v = sqrt( 2 g d (rho_body/rho_fluid - 1) / Cd )
+/// ```
+///
+/// -- the square root of the body's *size*, which is the term that was
+/// missing. Stone in water at this coefficient: a 3-cell chunk 0.71, an
+/// 8-cell 1.16, a 20-cell slab 1.84. A boulder plummets and grit drifts,
+/// which is the thing a single number cannot express.
+///
+/// **Cd = 2.0 is the blunt-body figure, and the regime was checked rather
+/// than assumed.** At roughly 1.8 cm to the cell a 4-cell fragment is ~7 cm
+/// across moving ~1 m/s, so Re is about 8 x 10^4: fully inertial, where
+/// Newton drag holds and an irregular tumbling solid sits at Cd 1-2. Flat
+/// plates are nearer 2 and spheres nearer 0.5; pixel rubble is neither, and
+/// the upper end of the blunt range is also the end that reads right.
+///
+/// # This deliberately re-opens a spread that an earlier complaint closed
+///
+/// The flat clamp was set to make everything from one break arrive together,
+/// against *"a first group of chunks that drop too fast and then the rest
+/// that come together with the grit later"*. Size dependence spreads arrival
+/// times again -- on purpose, and it is not a regression to that report. What
+/// that report was about was a **43x** spread (0.14 to 6.00) produced by
+/// nothing braking a body at all, so the ordering was by how long a piece had
+/// been falling and meant nothing. This is a **2.6x** spread ordered by size:
+/// the big pieces lead, the grit follows, and that is what a break in water
+/// looks like.
+///
+/// The measured cost of slowing the descent is recorded on
+/// `drag_through_liquid`: pieces that arrive later arrive one at a time onto
+/// a pile that is already there, and get re-judged and re-broken. Watch
+/// surviving stone on `rockdrop` and `lavadrop` when tuning this.
+const SINK_DRAG_COEFFICIENT: f32 = 2.0;
+
+/// The floor under `SINK_DRAG_COEFFICIENT`'s size-and-density scaling: a body
+/// only just denser than the liquid still goes down, slowly, rather than
+/// hanging in it.
+const NEUTRAL_SINK_SPEED: f32 = 0.1;
+
+/// How fast a body has to be falling before it throws a crown, in cells per
+/// frame.
+///
+/// A body settling the last cell into a pool should slide in; one that has
+/// fallen any distance should not. That sentence is the specification; the
+/// number below is set from it rather than from a scene, because the
+/// quantity it gates is the *feel* of an impact and a bar tuned to one pond
+/// depth would be a bar about that pond.
+///
+/// **The arithmetic that used to be written here was wrong, and the value it
+/// justified is nonetheless right.** It read *"`GRAVITY` is 0.05/frame, so
+/// this is roughly the speed reached after a ten-cell drop"*. `GRAVITY` is
+/// **0.15** (see the constant above), so `v = sqrt(2 g d)` puts 0.7 at a
+/// **1.6-cell** drop; a real ten-cell drop reaches 1.73.
+///
+/// Which of the two the constant should be is settled by the specification
+/// and not by the arithmetic: one cell of fall reaches 0.55, so 0.7 is the
+/// bar that separates a settle from a fall, and 1.73 would be a bar that
+/// ignores everything short of a storey. Left where it is, with the
+/// derivation corrected -- but noting it was never *measured* to be 0.7,
+/// only argued to be, and the argument had the wrong number in it.
+const SPLASH_MIN_ENTRY_SPEED: f32 = 0.7;
+
+/// Report splash sites beside a body that has just broken a free surface.
+///
+/// # A solid slab cannot splash where it lands, and that is not a bug in the splash
+///
+/// Reported from play: *"I don't see any splash or difference in any of
+/// these"*, with the suggestion that the test should use clumps rather than
+/// scattered grains. The premise is backwards and the instinct was right
+/// anyway, which is worth writing down.
+///
+/// Backwards, because `particle::throw_splashes` refuses any site whose
+/// cell above is not empty, and a falling clump *is* the thing standing in
+/// that space -- `scene=splash`'s own fixture says so: "loose grains rather
+/// than a block: a splash site needs air above the displaced water, which a
+/// solid slab never leaves". A denser clump would make the effect
+/// disappear, not appear.
+///
+/// Right anyway, because a falling **rigid body** reported no splash site
+/// at all, from anywhere: `clear_or_displaceable` shoves whole columns of
+/// water out of a body's way and never went near `report_splash`. Rock into
+/// water was silent, and no amount of tuning the CA rule could have found
+/// it.
+///
+/// The crown goes at the **rim**, one column outside the footprint on each
+/// side, which is both where the model can put it (air above) and where one
+/// physically forms -- under the body there is nowhere for the water to go
+/// but sideways, and sideways is here. `throw_splashes` fans out from each
+/// site on its own, so two reports are a crown and not two droplets.
+///
+/// Straddling the surface is the trigger, not "is wet": the scan starts one
+/// row above the body's own top and stops one below its leading edge, so a
+/// body already under water finds no free surface in range and reports
+/// nothing. That is what keeps this from firing every frame of a long sink.
+fn report_entry_splash(world: &mut World, body: &ChunkBody, entry_speed: f32) {
+    if entry_speed < SPLASH_MIN_ENTRY_SPEED {
+        return;
+    }
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for c in &body.cells {
+        let (px, py) = body.cell_position(c);
+        x0 = x0.min(px);
+        x1 = x1.max(px);
+        y0 = y0.min(py);
+        y1 = y1.max(py);
+    }
+    if x1 < x0 {
+        return;
+    }
+    for x in [x0 - 1, x1 + 1] {
+        for y in (y0 - 1)..=(y1 + 1) {
+            if !world.in_bounds(x, y) {
+                continue;
+            }
+            if world.materials.kind(world.get(x, y).material) != MaterialKind::Liquid {
+                continue;
+            }
+            // The free surface, and only it: `throw_splashes` checks the
+            // same thing a frame later and the two have to agree.
+            if world.in_bounds(x, y - 1) && world.get(x, y - 1).material == crate::sim::material::EMPTY {
+                crate::sim::surface::CellSurface::report_splash(world, x, y, 1.0);
+            }
+            break; // the topmost liquid in this column is the only candidate
+        }
+    }
 }
 
 enum Axis {
@@ -1253,7 +1894,24 @@ enum Axis {
 /// conservation tests will catch it only if they are extended to cover
 /// rigid bodies, which they currently are not"). They are now:
 /// `a_body_moving_through_powder_destroys_no_material`.
-fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -> Option<Axis> {
+/// The two whole-body quantities the collision test needs: how heavy it is
+/// on average, and how far the fluid in front of it may have to travel to
+/// get behind it. Both are O(cells) and constant for a body in flight, so
+/// they are computed once in `advance` rather than per substep.
+#[derive(Clone, Copy)]
+struct BodyShape {
+    density: f32,
+    /// Whether any cell of the body claims buoyancy
+    /// (`MaterialDef::floats`). Asked **before** density, matching
+    /// `structural::region_has_free_face` -- the two have to agree or a
+    /// piece gets promoted for a move the mover then refuses, which is
+    /// exactly the 41-repeat-failure state a raft sat in before this. Any
+    /// floating cell floats the whole piece: the conservative direction.
+    floats: bool,
+    reach: i32,
+}
+
+fn try_step(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32, shape: BodyShape) -> Step {
     let (ox, oy) = (next_x.round() as i32, next_y.round() as i32);
     let mut horizontal = false;
     let mut vertical = false;
@@ -1267,7 +1925,27 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
     // `HashSet` each time -- and the fracture work multiplied how many
     // bodies are in flight at once by roughly eight, so a collapse paid
     // that cost a hundred times a frame.
+    // The body's **current** footprint, unchanged: this set stops the ring
+    // shove below putting material into the body's own path, and every
+    // powder case in the engine was tuned against exactly this behaviour.
+    //
+    // `exchange_with_fluid` and `restamp_footprint` need the **next**
+    // footprint as well, and get it from this same set offset by the
+    // body's whole-cell motion. One set, two queries: every cell moves by
+    // the same integer offset this substep, so "will the body be here
+    // after the move" is "was the body there before it", shifted. A second
+    // `HashSet` per substep is the obvious alternative and is not worth it
+    // -- `blocked_axis` runs per substep per body and the hashing above is
+    // already its largest cost.
     let occupied: HashSet<(i32, i32)> = body.cells.iter().map(|c| body.cell_position(c)).collect();
+    let motion = (ox - body.x.round() as i32, oy - body.y.round() as i32);
+    // Fluid the body is about to move into, gathered rather than shoved.
+    // **Two passes, and that is the point**: where the fluid goes is a
+    // property of the whole move (see `exchange_with_fluid`), so it cannot
+    // be decided one cell at a time while the move is still in question.
+    // A body that turns out to be blocked now leaves the water where it
+    // was, instead of having shoved half of it on the way to finding out.
+    let mut swaps: Vec<(i32, i32)> = Vec::new();
 
     for cell in &body.cells {
         let (tx, ty) = (ox + cell.dx, oy + cell.dy);
@@ -1275,7 +1953,7 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
         if (tx, ty) == (cx, cy) {
             continue; // this cell is not actually changing position this substep
         }
-        if !world.in_bounds(tx, ty) || !clear_or_displaceable(world, &occupied, tx, ty) {
+        if !world.in_bounds(tx, ty) || !clear_or_displaceable(world, &occupied, tx, ty, shape, &mut swaps) {
             // Attribute the block to the axis this cell was moving along.
             if tx != cx {
                 horizontal = true;
@@ -1286,30 +1964,283 @@ fn blocked_axis(world: &mut World, body: &ChunkBody, next_x: f32, next_y: f32) -
         }
     }
 
-    match (horizontal, vertical) {
+    let axis = match (horizontal, vertical) {
         (false, false) => None,
         (true, false) => Some(Axis::Horizontal),
         (false, true) => Some(Axis::Vertical),
         (true, true) => Some(Axis::Both),
+    };
+    Step { axis, occupied, motion, swaps }
+}
+
+/// What one substep's test found: whether it is blocked, and everything the
+/// commit needs if it is not.
+///
+/// Returned rather than acted on, because **where the fluid goes is a
+/// property of the whole move** and cannot be settled cell by cell while
+/// the move is still in question — see `exchange_with_fluid`. A body that
+/// turns out to be blocked now leaves the water where it was instead of
+/// having shoved half of it on the way to finding out.
+struct Step {
+    axis: Option<Axis>,
+    /// The footprint before the move. `occupied` shifted by `motion` is the
+    /// footprint after it: every cell moves by the same integer offset, so
+    /// one set answers both questions.
+    occupied: HashSet<(i32, i32)>,
+    motion: (i32, i32),
+    /// Liquid cells the body is about to enter, to be exchanged for the
+    /// cells it is about to leave.
+    swaps: Vec<(i32, i32)>,
+}
+
+/// Take the footprint the body is standing in, so nothing else moves into
+/// it — see `reserved`. Called once, on a body's first contact with fluid.
+fn claim_footprint(world: &mut World, occupied: &HashSet<(i32, i32)>) {
+    for &(x, y) in occupied {
+        if world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY {
+            world.set_owned(x, y, reserved());
+        }
     }
 }
 
-/// Whether `(x, y)` is available for a body cell to occupy — either already
-/// empty, or holding loose material that could be shoved aside. Actually
-/// performs the shove when it can, which is why this takes `&mut World`.
-fn clear_or_displaceable(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -> bool {
-    // A cell the body itself currently occupies is not an obstacle: bodies
-    // are lifted out of the grid on promotion, so anything found here
-    // belongs to the world, not to this body -- but a *neighbouring* body
-    // cell's destination may legitimately be this one mid-move.
-    if world.is_empty(x, y) {
+/// Hand the fluid the body is about to displace the cells the body is
+/// about to leave, one for one.
+///
+/// # A rigid translation is an exchange, and searching for somewhere to
+/// put the water is what could not see that
+///
+/// A body moving by an integer offset vacates exactly as many cells as it
+/// enters, so the fluid in front can be **paired** with the space behind by
+/// construction rather than searched for. That is the whole fix: there is
+/// no failure mode left in which a submerged body has nowhere to put the
+/// water and therefore stops.
+///
+/// `make_way_behind` was the per-cell approximation of this and could not
+/// see the pairing -- it walked one cell straight back and gave up if that
+/// walk found nothing, which inside a pond it usually did, and it read
+/// `is_empty`, so reserving the footprint (`reserved`) blinded it
+/// completely. It is gone; this is what replaced it. Do not reintroduce a
+/// search here: the count matches exactly, and a search is how the water
+/// ends up somewhere the motion cannot account for.
+///
+/// The walk back along `-motion` is not just a way to find *a* free cell —
+/// it is what keeps the look `make_way_behind` was reaching for, *what is
+/// in front ends up behind*. A body sinking straight down lifts the water
+/// over its own top rather than teleporting it to the nearest gap.
+fn exchange_with_fluid(world: &mut World, occupied: &HashSet<(i32, i32)>, motion: (i32, i32), swaps: &[(i32, i32)], reach: i32) {
+    if swaps.is_empty() || motion == (0, 0) {
+        return;
+    }
+    // The cells the body is leaving: in the footprint now, and not in it
+    // after the move. One `HashSet` and no second allocation -- every cell
+    // moves by the same offset, so "will the body still be here" is "was
+    // the body one step back", which `occupied` already answers.
+    //
+    // **Materially empty only.** A vacating cell is normally this body's
+    // own reservation, but not always: `restamp_footprint` declines to
+    // stamp a cell that already holds something, so a cell the body walked
+    // over without clearing is still in the footprint and still holds
+    // water. Writing a swap into it deletes that water -- measured at
+    // **920 cell-equivalents** on `scene=rockdrop` before this filter, all
+    // of it inside the hundred frames of the plunge.
+    let mut vacating: HashSet<(i32, i32)> = occupied
+        .iter()
+        .copied()
+        .filter(|&(x, y)| !occupied.contains(&(x - motion.0, y - motion.1)))
+        .filter(|&(x, y)| world.in_bounds(x, y) && world.get(x, y).material == material::EMPTY)
+        .collect();
+    for &(sx, sy) in swaps {
+        let moving = world.get(sx, sy);
+        let mut target = None;
+        let (mut px, mut py) = (sx - motion.0, sy - motion.1);
+        // Straight back through the body, to the cell on its far side that
+        // is being given up. Bounded by the body's own extent, never by a
+        // constant, for the reason `BodyShape::reach` records.
+        for _ in 0..reach {
+            if vacating.remove(&(px, py)) {
+                target = Some((px, py));
+                break;
+            }
+            if !occupied.contains(&(px, py)) {
+                break; // walked out of the body without finding one
+            }
+            px -= motion.0;
+            py -= motion.1;
+        }
+        // A ragged edge on a diagonal move can leave a cell whose own
+        // column gives nothing up. There is still a spare -- the counts
+        // match -- so take the nearest of them rather than dropping the
+        // water, which is the one outcome this whole path exists to avoid.
+        let target = target.or_else(|| {
+            let pick = vacating.iter().copied().min_by_key(|&(x, y)| (x - sx).abs() + (y - sy).abs());
+            if let Some(p) = pick {
+                vacating.remove(&p);
+            }
+            pick
+        });
+        let Some((tx, ty)) = target else { continue };
+        world.set(tx, ty, moving);
+        world.set(sx, sy, reserved());
+    }
+}
+
+/// Move the footprint reservation with the body: give back what it is
+/// leaving, hold what it is entering.
+///
+/// Only the perimeter changes, so this is O(cells) with two hash lookups
+/// each and writes only where the answer actually differs — a body in
+/// flight does not re-dirty its whole interior every substep.
+///
+/// `set_owned` rather than `set`, here and in `rotate_reserved` and
+/// `settle`'s release: `World::set` demotes the owner of any `FLAG_MANAGED`
+/// cell it overwrites, which is a `body_index` lookup on **every** write
+/// this makes, and the cell being overwritten is this body's own
+/// reservation. `set_owned` is the sanctioned bypass for exactly that, and
+/// it still goes through `write_cell`, so chunks are woken as they must be
+/// — a cleared reservation has to be seen by the sweep or no water flows
+/// into the space the body just left.
+fn restamp_footprint(world: &mut World, occupied: &HashSet<(i32, i32)>, motion: (i32, i32)) {
+    if motion == (0, 0) {
+        return;
+    }
+    for &(x, y) in occupied {
+        if !occupied.contains(&(x - motion.0, y - motion.1)) {
+            // Vacated. Give it back only if it is still *our* reservation:
+            // `exchange_with_fluid` may already have put water here, and
+            // that water is the point.
+            let cell = world.get(x, y);
+            if world.in_bounds(x, y) && cell.material == material::EMPTY && cell.managed() {
+                world.set_owned(x, y, Cell::EMPTY);
+            }
+        }
+        let (nx, ny) = (x + motion.0, y + motion.1);
+        if !occupied.contains(&(nx, ny)) && world.in_bounds(nx, ny) && world.get(nx, ny).material == material::EMPTY {
+            world.set_owned(nx, ny, reserved());
+        }
+    }
+}
+
+/// The body's largest extent in cells, either axis — how far the fluid in
+/// front of it may have to travel to get behind it.
+fn body_extent(body: &ChunkBody) -> i32 {
+    let (mut x0, mut x1, mut y0, mut y1) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+    for c in &body.cells {
+        x0 = x0.min(c.dx);
+        x1 = x1.max(c.dx);
+        y0 = y0.min(c.dy);
+        y1 = y1.max(c.dy);
+    }
+    if x1 < x0 {
+        return 1;
+    }
+    (x1 - x0).max(y1 - y0) + 1
+}
+
+/// The body's mean material density — what decides whether it sinks in a
+/// liquid or rides on it.
+///
+/// A mean rather than a per-cell test, because buoyancy is a statement
+/// about the whole piece: a stone slab with one cell of ice in it still
+/// sinks, and asking the question per cell would let the same body sink at
+/// one end and float at the other.
+fn mean_density(world: &World, body: &ChunkBody) -> f32 {
+    if body.cells.is_empty() {
+        return 0.0;
+    }
+    let total: f32 = body.cells.iter().map(|c| world.materials.density(c.material)).sum();
+    total / body.cells.len() as f32
+}
+
+/// Whether any cell of the body claims buoyancy. See `BodyShape::floats`.
+fn body_floats(world: &World, body: &ChunkBody) -> bool {
+    body.cells.iter().any(|c| world.materials.get(c.material).floats)
+}
+/// Whether the body may move into `(x, y)` — clearing whatever is there if
+/// it is loose enough to shove, or recording it for the exchange if it is
+/// fluid.
+///
+/// Powder is shoved here and now, by `displace`'s ring search, exactly as
+/// it always was: every dry scene in the engine is tuned against that
+/// behaviour, and the reported bug is water. Liquid is only *recorded* —
+/// see `exchange_with_fluid` for why it cannot be decided one cell at a
+/// time.
+fn clear_or_displaceable(
+    world: &mut World,
+    occupied: &HashSet<(i32, i32)>,
+    x: i32,
+    y: i32,
+    shape: BodyShape,
+    swaps: &mut Vec<(i32, i32)>,
+) -> bool {
+    // **The raw material test, not `is_empty`.** Anything materially empty
+    // is somewhere this body may be: air, its own reserved footprint (a
+    // different cell of this same body is standing there right now and is
+    // about to move too), and another body's reserved footprint. The last
+    // of those is deliberate rather than overlooked -- bodies have always
+    // passed through each other, and making them collide is a separate
+    // change with its own consequences for a collapse with two dozen
+    // pieces in flight. `is_empty` here would report the body's own
+    // footprint as an obstruction and stop every move it makes.
+    if world.get(x, y).material == material::EMPTY {
         return true;
     }
     let kind = world.materials.kind(world.get(x, y).material);
-    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid) {
+    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid | MaterialKind::Gas) {
         return false; // solid, plant, creature -- a real obstruction
     }
-    displace(world, occupied, x, y)
+    // **Measured at the scene, not by a unit guard, and that is recorded
+    // rather than papered over.** Ablating this whole arm leaves
+    // `rigid.rs`'s own sinking guards green -- the raft there fails, breaks
+    // into rubble, and rubble is a `Powder` that sinks by the ordinary CA
+    // rule, so the body path is never the thing under test. What the arm
+    // does buy shows on a real scene: `filmstrip scene=lavapour` ends with
+    // **9 unattached solids reaching no anchor with it and 19 without**
+    // (against 154 before any of this work). Anyone tempted to delete it
+    // should re-run that, not the unit tests.
+    if kind == MaterialKind::Liquid {
+        if shape.floats || shape.density <= world.materials.density(world.get(x, y).material) {
+            return false; // it floats on this: the liquid holds it up
+        }
+        // **Never a failure.** The body vacates exactly as many cells as it
+        // enters, so there is somewhere for this by construction. The old
+        // per-cell walk gave up when it could not find a hole nearby, and
+        // inside a pond it could not: 2,834 of 10,849 attempts succeeded,
+        // and each failure stalled the body into being broken up again.
+        swaps.push((x, y));
+        return true;
+    }
+    if displace(world, occupied, x, y) {
+        return true;
+    }
+    // **Gas never blocks, even when there is nowhere to shove it.** Powder
+    // and liquid that cannot be moved are treated as solid, because deleting
+    // them would manufacture a hole in the world's material budget
+    // (`a_body_moving_through_powder_destroys_no_material`). A gas has no
+    // such claim: it is already the one kind the engine removes on its own
+    // (`Material::dissipation`, `update.rs`), and the alternative here is a
+    // boulder resting on smoke.
+    //
+    // Reported from play as *"chunks of rock that seem fully cracked all the
+    // way around stay put and don't fall into the leftover hole/crater"*, and
+    // this was one of the causes. `Tuning::smoke_fraction` backfills 18% of a
+    // cleared crater with `SMOKE`, so the hole a chunk is meant to fall into
+    // is the one place in the world densely full of gas -- and a fresh crater
+    // has no empty cell within `DISPLACE_SEARCH` to shove it to, so
+    // `displace` fails there almost every time. The chunk moved no substep,
+    // hit `STALL_FRAMES_BEFORE_SETTLING` and re-embedded roughly where it
+    // started.
+    //
+    // Measured, paired, `blast=300,45,20,180,60` on rolling seed 1, against
+    // the `smoke=0` control the same commit adds to `filmstrip`: at frame 80
+    // the shipped setting had **1 body / 10 cells** still in flight against
+    // the control's **6 bodies / 100 cells**, and peak concurrent bodies ran
+    // 8 against 16. The airborne mass collapsed between frames 74 and 80 --
+    // 174 -> 105 -> 97 -> 10 -- exactly where the smoke backfill lands.
+    if kind == MaterialKind::Gas {
+        world.set(x, y, Cell::EMPTY);
+        return true;
+    }
+    false
 }
 
 /// Shove the loose cell at `(x, y)` to the nearest empty cell that the body
@@ -1352,11 +2283,50 @@ fn displace(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -
 ///   reads as debris that can never come to rest.
 /// - **Structural checks are scheduled around the landing.** Otherwise a
 ///   landed chunk is invisible to the system that created it — it could not
-///   support anything, and nothing could be brought down by it.
+///   support anything, and nothing could be brought down by it. This is
+///   also the one re-check `load::powder_surcharge` relies on: a settled
+///   body is the bounded "something heavy just arrived on top of you"
+///   event, and the powder sweep itself schedules nothing. Every cell is
+///   scheduled, not just the footprint row, which is the superset the
+///   surcharge needs — do not narrow it to the bottom row as an
+///   optimisation without re-reading that function's re-check note.
 /// - **A cell with nowhere to go searches** rather than being dropped, so
 ///   landing on uneven ground does not quietly delete the overlapping part
 ///   of the body.
 fn settle(world: &mut World, body: &ChunkBody) {
+    // **Where each cell actually landed, not where it was aimed.**
+    // The checks below used to be scheduled around `cell_position`, which
+    // is only the same place when the cell went in unmoved. A cell that had
+    // to be relocated was then never checked at wherever it really ended
+    // up -- so a relocated cell could sit unsupported forever, which is the
+    // hanging-stone report in miniature and reached the screen as a scatter
+    // of stone standing in open sky over a pond.
+    // **Give the footprint back before writing into it.**
+    //
+    // Every cell of a promoted body is held as a managed-empty
+    // reservation (`reserved`), and `is_empty` is managed-aware -- so
+    // without this, every cell of a settling body fails the fast path
+    // below and goes down the displacement arms instead, hunting for
+    // somewhere to put an "occupant" that is nothing but the body's own
+    // reservation. That is not a hypothetical: it is precisely how the
+    // first attempt at reserving footprints lost **1,821 cell-equivalents
+    // of water** on `scene=rockdrop` (`Reports/open-bugs-handoff.md` §1h)
+    // -- `nearest_free` and `surface_above` handed the displaced water a
+    // footprint cell that this same loop then overwrote with stone.
+    //
+    // Only cells that are still *ours*: a body may be settling because
+    // something arrived in its way. And only when the body took a footprint
+    // at all -- one that never met fluid never held one.
+    for cell in body.cells.iter().filter(|_| body.reserved) {
+        let (x, y) = body.cell_position(cell);
+        if world.in_bounds(x, y) {
+            let held = world.get(x, y);
+            if held.material == material::EMPTY && held.managed() {
+                world.set_owned(x, y, Cell::EMPTY);
+            }
+        }
+    }
+    let mut landed: Vec<(i32, i32)> = Vec::with_capacity(body.cells.len());
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
         // `Cell::new` starts unattached and with `aux` at 0, and both are
@@ -1367,16 +2337,117 @@ fn settle(world: &mut World, body: &ChunkBody) {
         let fresh = Cell::new(cell.material, cell.shade);
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             world.set(x, y, fresh);
+            landed.push((x, y));
             continue;
+        }
+        // **A body that comes to rest underwater takes the water's place.**
+        //
+        // Without this the arm below is reached with every cell of the body
+        // sitting in water and no empty cell within four rings of any of
+        // them, so `nearest_free` fails for all of them and the whole body
+        // is dropped. Measured on a 40x2 stone raft settling mid-pond:
+        // **80 cells in, 9 cells out** -- 71 destroyed, silently, at the
+        // one moment a body stops being tracked. It was reachable before
+        // and rare, because a body that could not sink never got deep
+        // enough for the ring search to fail; making pieces sink is exactly
+        // what walks into it.
+        //
+        // The water goes **up**, not to the nearest hole: a submerged
+        // volume displaces its own volume to the surface, and the column
+        // above is where the surface is. Unbounded by design, for the
+        // reason the ring search is the wrong shape here at all -- the
+        // distance is set by how deep the body sank, which is a property
+        // of the pond and not a constant anyone can pick.
+        if world.in_bounds(x, y) {
+            let occupant = world.get(x, y);
+            let kind = world.materials.kind(occupant.material);
+            // **Liquid only, deliberately.** A powder arm was tried and
+            // withdrawn: it changes how a body settles into its own rubble
+            // on every dry scene in the engine, which is a separate
+            // question with its own tuned acceptance cases, and nothing has
+            // reported it. The reported bug is water.
+            if kind == MaterialKind::Liquid
+                && !world.materials.get(cell.material).floats
+                && world.materials.density(cell.material) > world.materials.density(occupant.material)
+            {
+                // Somewhere for what was here to go: the nearest opening
+                // first, because near a free surface that is where a shoved
+                // cell belongs, and only then straight up. Powder as well as
+                // liquid, because a piece settling into its own rubble hits
+                // the identical arm -- and without it the fallback below
+                // throws the *body's* cell to the surface instead, which put
+                // stone in the sky over the pond in exactly this test.
+                let home = nearest_free(world, x, y).or_else(|| surface_above(world, x, y));
+                if let Some((nx, ny)) = home {
+                    world.set(nx, ny, occupant);
+                    world.set(x, y, fresh);
+                    landed.push((x, y));
+                    continue;
+                }
+            }
         }
         if let Some((nx, ny)) = nearest_free(world, x, y) {
             world.set(nx, ny, fresh);
+            landed.push((nx, ny));
+            continue;
         }
-        // Genuinely nowhere within reach -- dropped, matching `particle::
-        // land`'s own last resort for a grain with no legal rest position.
+        // Nothing empty within reach, but a **directly adjacent** liquid
+        // this cell outweighs is still somewhere to go.
+        //
+        // Four neighbours and not a ring search, and that is a frame-cost
+        // decision made from measurement rather than taste. A ring search
+        // here, plus a straight-up walk for the body's own cell as a final
+        // fallback, took `scene=ligament` from **18.1 ms to 86.6 ms** --
+        // against a 60 ms bar -- with byte-identical failure counts either
+        // side, because the ligament's one failure settles ~4,400 cells in
+        // a single frame and every one of them paid an 81-cell scan and a
+        // walk up the whole world. The scene has no liquid in it at all, so
+        // it was pure toll. Anything reached from here has to be O(1) in
+        // the common case and cost nothing on a dry scene.
+        let swapped = [(0, 1), (-1, 0), (1, 0), (0, -1)].iter().find_map(|&(dx, dy)| {
+            let (nx, ny) = (x + dx, y + dy);
+            if !world.in_bounds(nx, ny) {
+                return None;
+            }
+            let occupant = world.get(nx, ny);
+            if world.materials.kind(occupant.material) != MaterialKind::Liquid
+                || world.materials.get(cell.material).floats
+                || world.materials.density(cell.material) <= world.materials.density(occupant.material)
+            {
+                return None;
+            }
+            surface_above(world, nx, ny).map(|home| (nx, ny, occupant, home))
+        });
+        if let Some((nx, ny, occupant, (sx, sy))) = swapped {
+            world.set(sx, sy, occupant);
+            world.set(nx, ny, fresh);
+            landed.push((nx, ny));
+            continue;
+        }
+        // A column full to the top of the world -- genuinely nowhere,
+        // matching `particle::land`'s own last resort for a grain with no
+        // legal rest position.
     }
+    // **Both where a cell was aimed and where it actually went**, and the
+    // union rather than either alone.
+    //
+    // Aimed-at only was the original, and it misses a relocated cell
+    // entirely -- so a cell shoved several rows away was never checked at
+    // wherever it ended up and could stand unsupported forever, which
+    // reached the screen as stone hanging in open sky over a pond.
+    //
+    // Landed-at only is the obvious correction and it is *also* wrong, in
+    // the opposite direction: a cell with nowhere to go is dropped and has
+    // no landing position, and its neighbours have still just lost a
+    // possible support. Dropping those checks cut the cascade measurably --
+    // `scene=roomcut` fell from 17 overload failures to 8 (and 638
+    // unsupported cells to 344) against an acceptance bar that exists
+    // precisely to show a cut wall coming apart.
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
+        world.schedule_structural_check_around(x, y);
+    }
+    for &(x, y) in &landed {
         world.schedule_structural_check_around(x, y);
     }
 
@@ -1411,6 +2482,33 @@ fn settle(world: &mut World, body: &ChunkBody) {
     world.add_pressure_impulse((x0 + x1) / 2, y1, radius, strength);
 }
 
+/// The first materially-empty cell straight up from `(x, y)`, or `None` if
+/// the column is full to the top of the world.
+///
+/// Where a displaced liquid goes when a body settles into it — see
+/// `settle`.
+///
+/// `is_empty()` rather than the raw material test, and the raw test was a
+/// real bug rather than a style choice: `is_empty()` is managed-aware, and
+/// a reserved cell — a promoted body's footprint (`reserved`), or a liquid
+/// heightfield body's container — is *not* somewhere a loose water cell may
+/// be written. Writing there puts the water inside a body that is about to
+/// overwrite it, which is one of the two halves of the 1,821-cell loss
+/// §1h records. (`structural::region_has_free_face` keeps the raw test on
+/// purpose and is not the same question: a reserved cell genuinely is air
+/// for the purpose of "is this region open to the sky".)
+fn surface_above(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
+    let min_y = world.bounds()?.min_y;
+    let mut ny = y - 1;
+    while ny >= min_y {
+        if world.is_empty(x, ny) {
+            return Some((x, ny));
+        }
+        ny -= 1;
+    }
+    None
+}
+
 fn nearest_free(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
     for ring in 1..=DISPLACE_SEARCH {
         for dy in -ring..=ring {
@@ -1437,6 +2535,633 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// A world with a pond deep enough that no empty cell is within
+    /// `DISPLACE_SEARCH` of a submerged body -- which is the whole point.
+    /// `pond_top` leaves open air above so the displaced water has a
+    /// surface to rise to.
+    fn pond_world(pond_top: i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 124..128 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        for x in 10..118 {
+            for y in pond_top..124 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    fn drive(w: &mut World, frames: usize) {
+        for _ in 0..frames {
+            crate::sim::parallel::step(w);
+            step_chunk_bodies(w);
+            crate::sim::scheduler::step(w);
+        }
+    }
+
+    fn count_of(w: &World, name: &str) -> usize {
+        let id = w.materials.id_of(name).expect("material");
+        (0..128).flat_map(|y| (0..128).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == id).count()
+    }
+
+    fn rows_of(w: &World, name: &str) -> Option<(i32, i32)> {
+        let id = w.materials.id_of(name).expect("material");
+        let ys: Vec<i32> =
+            (0..128).flat_map(|y| (0..128).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).material == id).map(|(_, y)| y).collect();
+        ys.iter().copied().min().zip(ys.iter().copied().max())
+    }
+
+    /// Every cell of rock in the world, whichever phase of broken it is in.
+    ///
+    /// **Stone *or* rubble, and asking for only one of them is how the
+    /// first version of these guards came to pass against the very code
+    /// they were written to catch.** A raft that fails, breaks into rubble
+    /// and floats there has no `stone` left, so a bar phrased as "no stone
+    /// remains near the surface" reads clean on exactly the artifact it is
+    /// about. `CLAUDE.md`'s vacuous-guard trap, hit while writing the
+    /// guard for it.
+    fn rock_rows(w: &World) -> Vec<i32> {
+        let rubble = w.materials.id_of("rubble").expect("rubble");
+        (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let m = w.get(x, y).material;
+                m == material::STONE || m == rubble
+            })
+            .map(|(_, y)| y)
+            .collect()
+    }
+
+    /// The owner's second playtest report, as a bar: "when lava turns to
+    /// stone it seems to freeze in place... it should sink."
+    ///
+    /// **Mid-pond and 45 columns from either shore**, well past stone's
+    /// `max_unsupported_span` of 16, so the raft is genuinely unsupported
+    /// and the structural model says so. What used to stop it was not the
+    /// model at all: `displace` looks for an *empty* cell within four rings
+    /// to shove the water into, a pond has none, so water read as a wall.
+    /// Measured before the fix: **72 stone cells still standing at rows
+    /// 84..90 after 600 frames**, with 41 repeat failures. The control that
+    /// named the cause is the shallow-pond case below.
+    #[test]
+    fn an_unsupported_raft_sinks_through_a_deep_pond() {
+        let mut w = pond_world(80);
+        for x in 44..84 {
+            for y in 80..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        let rows = rock_rows(&w);
+        assert!(!rows.is_empty(), "the rock cannot all have vanished");
+        let deep = rows.iter().filter(|&&y| y > 100).count();
+        assert!(
+            deep * 5 >= rows.len() * 4,
+            "the raft should have gone to the bottom of the pond: only {deep} of {} rock cells are below row 100 (rows {:?}..{:?})",
+            rows.len(),
+            rows.iter().min(),
+            rows.iter().max()
+        );
+    }
+
+    /// **A piece sinking through water holds one speed**, instead of
+    /// accelerating to the engine's own speed cap on the way down.
+    ///
+    /// Reported from play, on the drop the piece-integrity fix had just
+    /// improved: *"it falls at slightly odd rates. There is a first group
+    /// of chunks that drop too fast and then the rest that come together
+    /// with the grit later."* Measured on `scene=rockdrop` with nothing
+    /// holding a body back: **6.00 cells/frame** -- `MAX_SPEED_PER_AXIS`,
+    /// reached *inside* the pond rather than in the air above it -- and a
+    /// contact sheet with pieces on the floor while others were still at
+    /// the surface.
+    ///
+    /// Asserted as a **ceiling on the whole descent**, not as an average:
+    /// the complaint is about the fast end, and a mean over a group that
+    /// includes the slow ones would hide it. Buoyancy alone does not fix
+    /// it -- measured at **5.27 cells/frame** with buoyancy alone against 5.60
+    /// with nothing at all -- so the guard has to be a speed rather than a
+    /// rate, and both of those were red-checked against it.
+    /// A tank deep enough for a body to actually reach its terminal, walled
+    /// so the water cannot spread away from where the fixture says it is.
+    ///
+    /// `pond_world` is 44 rows deep, and at these speeds a body needs ~20
+    /// rows just to accelerate up to its cap -- so a 16-cell body in it is
+    /// measured mid-acceleration and reports a terminal it never reached.
+    fn deep_tank() -> World {
+        let mut w = World::new(Rect::new(0, 0, 95, 255));
+        for x in 0..96 {
+            for y in 250..256 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        for y in 0..250 {
+            w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(86, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for x in 10..86 {
+            for y in 40..250 {
+                w.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        w
+    }
+
+    /// The fastest a square stone body `side` cells across goes once it is
+    /// well down the tank -- its terminal, since a terminal is a cap and
+    /// gravity holds it there.
+    fn terminal_of(side: i32) -> f32 {
+        let mut w = deep_tank();
+        let cells: Vec<BodyCell> = (0..side)
+            .flat_map(|dx| (0..side).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+            .collect();
+        w.chunk_bodies.push(ChunkBody::falling(cells, 40.0, 45.0, 0.0));
+        let mut fastest = 0.0f32;
+        for _ in 0..900 {
+            crate::sim::parallel::step(&mut w);
+            step_chunk_bodies(&mut w);
+            for b in &w.chunk_bodies {
+                // The middle of the tank: past the acceleration run-up at
+                // the top, clear of the floor at the bottom.
+                if b.y > 140.0 && b.y < 210.0 {
+                    fastest = fastest.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+                }
+            }
+        }
+        fastest
+    }
+
+    /// A big piece sinks faster than a small one, by the square root of its
+    /// size.
+    ///
+    /// # The guard the flat clamp did not have, and could not have failed
+    ///
+    /// `SINK_SPEED` normalised terminal velocity on density alone, so every
+    /// stone body in the world sank at 1.8 whatever its size -- measured on
+    /// `scene=rockdrop` as *"smallest piece 4 cells across at 1.76, largest
+    /// 17 across at 1.75"*. Every test in this file passed, because none of
+    /// them ever compared two sizes; `a_piece_sinking_through_water_does_not
+    /// _run_away` bounds one body against an absolute number, which a flat
+    /// clamp satisfies perfectly.
+    ///
+    /// A paired comparison instead, per `CLAUDE.md`: three sizes in the same
+    /// tank cancels everything the rule under test is not about.
+    #[test]
+    fn a_big_piece_sinks_faster_than_a_small_one() {
+        let (small, middling, large) = (terminal_of(3), terminal_of(8), terminal_of(16));
+        println!("terminal: 3 across {small:.2}, 8 across {middling:.2}, 16 across {large:.2} cells/frame");
+        assert!(small > 0.0, "test setup: the 3-cell body never reached the measurement band");
+        assert!(
+            small < middling && middling < large,
+            "terminals do not rise with size: {small:.2}, {middling:.2}, {large:.2}"
+        );
+        // `v = sqrt(2 g d (rho - 1) / Cd)`, so the ratio between two sizes is
+        // the square root of the ratio of their sizes and nothing else --
+        // no constant in it to fit, which is why this asserts the ratio
+        // rather than the three speeds. Loose because a body is measured
+        // against a moving column of water it is itself pushing about.
+        let predicted = (16.0f32 / 3.0).sqrt();
+        let measured = large / small;
+        assert!(
+            (measured / predicted - 1.0).abs() < 0.35,
+            "16-across sinks {measured:.2}x the 3-across; the square-root law predicts {predicted:.2}x"
+        );
+    }
+
+    #[test]
+    fn a_piece_sinking_through_water_does_not_run_away() {
+        let mut w = pond_world(80);
+        // **Walled**, for the reason
+        // `a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not`
+        // records: the bare pond spreads to the world edges and drops seven
+        // rows, so "the surface" is not where the fixture says it is -- and
+        // a body four rows below row 80 is then still in open air. Measured
+        // without the walls: 4.85 cells/frame "underwater", all of it above
+        // the actual water.
+        for y in 0..124 {
+            w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+            w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let cells: Vec<BodyCell> =
+            (0..6).flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 })).collect();
+        // Dropped from high enough to be moving fast when it arrives, which
+        // is the case that showed the artifact.
+        w.chunk_bodies.push(ChunkBody::falling(cells, 60.0, 20.0, 2.0));
+        let mut fastest_wet = 0.0f32;
+        for _ in 0..600 {
+            crate::sim::parallel::step(&mut w);
+            step_chunk_bodies(&mut w);
+            for b in &w.chunk_bodies {
+                // Only while it is actually in the water: the fall through
+                // air above the pond is not what this is about, and gating
+                // on it is what keeps the test from passing merely because
+                // the body never got up to speed.
+                if b.y > 84.0 {
+                    fastest_wet = fastest_wet.max((b.vx * b.vx + b.vy * b.vy).sqrt());
+                }
+            }
+        }
+        assert!(fastest_wet > 0.0, "test setup: the body never reached the water, so this asserts nothing");
+        // A six-across body of stone caps at about 1.16 under
+        // `SINK_DRAG_COEFFICIENT`; the bar is triple that, comfortably under
+        // the 6.00 the artifact reached and well clear of the transient a
+        // body carries in with it.
+        assert!(
+            fastest_wet < 3.6,
+            "a piece reached {fastest_wet:.2} cells/frame underwater; it is accelerating through the pond rather than sinking"
+        );
+    }
+
+    /// **A piece with no water under it never takes a footprint**, and this
+    /// guard is about frame cost rather than about looks.
+    ///
+    /// Holding the footprint closes the space a body is standing in, which
+    /// on a dry scene changes the *outcome*: the body stops shedding cells
+    /// to collisions on landing, more of it arrives intact, and the load
+    /// model is handed a bigger connected region to judge — whose cost is
+    /// superlinear in region size. Measured on `scene=strike`, which has no
+    /// water in it at all: the same two failures went from 503 to 1,372
+    /// cells and the worst frame from **20 ms to 118 ms**, against a 60 ms
+    /// budget. See `LIQUID_LOOKAHEAD` and `Reports/open-bugs-handoff.md`
+    /// §1j.
+    #[test]
+    fn a_piece_with_no_water_under_it_never_takes_a_footprint() {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            for y in 124..128 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        // An unsupported slab in open air over bare bedrock.
+        for x in 50..70 {
+            for y in 60..64 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 20);
+        assert!(!w.chunk_bodies.is_empty(), "test setup: the slab should have promoted to at least one body");
+        assert!(
+            w.chunk_bodies.iter().all(|b| !b.reserved),
+            "{} of {} bodies took a footprint over dry ground",
+            w.chunk_bodies.iter().filter(|b| b.reserved).count(),
+            w.chunk_bodies.len()
+        );
+
+        // And the paired positive, so this cannot pass by the mechanism
+        // being dead: the identical slab over a pond takes one **while it
+        // is still in the air**. Sampled early on purpose -- once a body
+        // reaches the water it latches on contact anyway, so a late sample
+        // passes at `LIQUID_LOOKAHEAD` of zero and tests nothing.
+        let mut wet = pond_world(80);
+        for x in 50..70 {
+            for y in 60..64 {
+                wet.set(x, y, Cell::new(material::STONE, 0));
+                wet.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut wet, 4);
+        assert!(!wet.chunk_bodies.is_empty(), "test setup: the slab should have promoted over the pond too");
+        let (top, _) = rows_of(&wet, "water").expect("the pond is still there");
+        let lowest = wet.chunk_bodies.iter().flat_map(|b| b.cells.iter().map(|c| b.cell_position(c).1)).max().unwrap_or(0);
+        assert!(lowest < top, "test setup: the pieces should still be above the water at row {top} (lowest cell at {lowest})");
+        assert!(
+            wet.chunk_bodies.iter().any(|b| b.reserved),
+            "no body took a footprint while still {} rows above the pond; LIQUID_LOOKAHEAD is not reaching",
+            top - lowest
+        );
+    }
+
+    /// **A body's footprint is reserved while it flies, and given back
+    /// when it stops.** Nothing may be left holding space afterwards.
+    ///
+    /// The leak this exists for was found in a picture, not a number:
+    /// `rotate_quarter` moved the body and not its reservation, so
+    /// `scene=rockdrop` grew wedge-shaped **air pockets standing
+    /// permanently inside the pond** — a reserved cell is not `is_empty`,
+    /// so no water would ever close over it. The water ledger was
+    /// perfectly balanced the whole time, because nothing had been lost;
+    /// only the contact sheet showed it. Hence a guard on the *holes*
+    /// rather than on the volume.
+    #[test]
+    fn a_body_leaves_no_reservation_behind_when_it_settles() {
+        let mut w = pond_world(80);
+        // Tall and narrow, so it accumulates enough speed to roll: the
+        // leak was in the rotation path and a body that never turns does
+        // not reach it.
+        for x in 60..66 {
+            for y in 40..56 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        assert!(w.chunk_bodies.is_empty(), "test setup: everything should have come to rest inside the budget");
+        let held: Vec<(i32, i32)> = (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = w.get(x, y);
+                c.material == material::EMPTY && c.managed()
+            })
+            .collect();
+        assert!(
+            held.is_empty(),
+            "{} cells are still reserved with no body over them, e.g. {:?} -- each one is a hole water can never fill",
+            held.len(),
+            &held[..held.len().min(6)]
+        );
+    }
+
+    /// **A body sinking through a pond neither eats nor makes water.**
+    ///
+    /// The bar the first attempt at footprint reservation failed: it kept
+    /// bodies whole and lost **1,821 cell-equivalents** of water on
+    /// `scene=rockdrop`, because every search that hands displaced fluid
+    /// somewhere to go reads `is_empty` and so could not see the cells the
+    /// body was vacating. `exchange_with_fluid` pairs them by construction
+    /// instead. See `Reports/open-bugs-handoff.md` §1h.
+    ///
+    /// Asserted to the **cell**, not to a percentage: this path moves whole
+    /// cells and their fill together, so there is no rounding for a
+    /// tolerance to absorb, and a loose bar here is how a slow leak hides.
+    #[test]
+    fn a_body_sinking_through_a_pond_conserves_the_water_it_displaces() {
+        let mut w = pond_world(80);
+        for x in 44..84 {
+            for y in 78..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        // After one step, so the pond has taken its own shape and the
+        // number being compared is the settled one rather than the
+        // fixture's.
+        drive(&mut w, 1);
+        // **Plus the bank, or this measures evaporation.** `water_equivalents`
+        // counts what is standing in the grid; `evaporation::tick` moves a
+        // drying surface into `World::atmospheric_bank`, which is where the
+        // weather gives it back. Reading only the first half showed a
+        // 113.7-cell "leak" on a fixture with no body in it at all.
+        let ledger = |w: &World| crate::sim::weather::water_equivalents(w) + w.atmospheric_bank;
+        let before = ledger(&w);
+        drive(&mut w, 600);
+        let after = ledger(&w);
+        assert!(w.chunk_bodies.is_empty(), "test setup: everything should have come to rest inside the budget");
+        assert!(
+            (after - before).abs() < 1.0,
+            "a raft sinking through the pond moved the ledger from {before:.1} to {after:.1} cell-equivalents"
+        );
+    }
+
+    /// **What reaches the floor is rock, not dust.**
+    ///
+    /// Reported from play twice: *"they don't look like chunks when they
+    /// fall, they are still mostly dust when they sink"*, and then *"chunks
+    /// of rock hit the water and then start disintegrating into grit
+    /// instead of tumbling down as rock chunks."*
+    ///
+    /// **A material census, not an event count**, and that distinction is
+    /// the whole reason the first version of this work was reported as
+    /// fixed when it was not: `FailureCounts` and the peak-bodies counter
+    /// both said 85% of the mass left as chunks while `scene=rockdrop`
+    /// ended `rock -600, rubble +572` -- every cell of the slab ground to
+    /// powder, the same rock broken four times over. A player watches
+    /// neither counter; he watches what is lying on the bottom.
+    #[test]
+    fn a_slab_that_sinks_arrives_as_rock_rather_than_as_powder() {
+        let mut w = pond_world(80);
+        for x in 44..84 {
+            for y in 78..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        let stone = count_of(&w, "stone");
+        let rubble = count_of(&w, "rubble");
+        // 160 cells went in. Measured **151 stone against 4 rubble** with
+        // the exchange, and **0 stone against 160 rubble** without it --
+        // run on a worktree at the parent commit rather than by ablating a
+        // line here, so the comparison is against the code that shipped.
+        // The bar is half the slab: far below what it does and far above
+        // anything the bug ever allowed, which was nothing at all.
+        assert!(
+            stone * 2 >= 160,
+            "only {stone} of 160 cells reached the floor as stone ({rubble} as rubble); the slab is being re-broken on its way down"
+        );
+    }
+
+    /// **A boulder entering water at speed reports a crown; one sliding in
+    /// does not.**
+    ///
+    /// Reported from play as *"I don't see any splash"*, on a scene of
+    /// scattered sand — and the honest answer was that a falling rigid body
+    /// had never reported a splash site from anywhere.
+    /// `clear_or_displaceable` shoves whole columns of water out of a
+    /// body's way and never went near `report_splash`, so rock into water
+    /// was silent. See `report_entry_splash`.
+    ///
+    /// The paired negative is what makes this a test of *entry* rather than
+    /// of wetness: the identical body started at the surface at rest is
+    /// under water before gravity gets it past `SPLASH_MIN_ENTRY_SPEED`, so
+    /// the scan finds no free surface beside it and it reports nothing. A
+    /// version without that control would pass against a rule that splashed
+    /// every frame of a long sink.
+    ///
+    /// # Why this counts *sites*, and where the droplet count is asserted
+    ///
+    /// A site only becomes a droplet if the water it names is full —
+    /// `particle::SPLASH_MIN_FILL`, because taking a whole droplet out of a
+    /// part-empty cell is water from nowhere. A settled pond's top row is
+    /// the remainder of its volume and is usually not full: this fixture's
+    /// measures 570 to 800 within ten frames of settling, so every site is
+    /// reported and every one correctly declined. That is `throw_splashes`
+    /// working, and it made a first version of this test read as though the
+    /// reporting were dead.
+    ///
+    /// The end-to-end number is measured on the scene instead, where a pool
+    /// deep enough to stay full at the surface exists: `filmstrip
+    /// scene=rockdrop` drops a 600-cell slab and throws **61 droplets
+    /// against 2** with `report_entry_splash` ablated, at an unchanged 25
+    /// chunk bodies in flight.
+    #[test]
+    fn a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not() {
+        let sites_from = |start_y: f32, vy: f32| {
+            let mut w = pond_world(80);
+            // Walled, unlike `pond_world` on its own: that pond has no
+            // sides, spreads to the world edges and drops seven rows, so
+            // "the surface" is not where the fixture says it is.
+            for y in 0..124 {
+                w.set(9, y, Cell::new(material::STONE, 0).with_attached(true));
+                w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let cells: Vec<BodyCell> = (0..6)
+                .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+                .collect();
+            let mut body = ChunkBody::at(cells, 60.0, start_y);
+            body.vy = vy;
+            w.chunk_bodies.push(body);
+            let mut reported = 0;
+            for _ in 0..60 {
+                crate::sim::parallel::step(&mut w);
+                step_chunk_bodies(&mut w);
+                // Sampled here rather than at the end: `begin_step` clears
+                // the list every frame, which is what makes it a per-frame
+                // candidate set rather than a running total.
+                reported += w.splash_sites.len();
+            }
+            reported
+        };
+
+        // Dropped from six rows up: well past `SPLASH_MIN_ENTRY_SPEED`
+        // when it reaches the water at row 80.
+        let fast = sites_from(74.0, 1.4);
+        assert!(fast > 0, "a boulder hitting open water at speed reported no splash site at all");
+
+        // Started at the surface at rest. `GRAVITY` is 0.15/frame, so one row
+        // of fall reaches 0.55 and it is a couple of rows under before it is
+        // moving fast enough to qualify -- by which point it is no longer at
+        // a free surface to splash from. (This comment said 0.05 and
+        // "several rows"; both were wrong, and `SPLASH_MIN_ENTRY_SPEED`'s
+        // doc records where that number came from.)
+        let gentle = sites_from(79.0, 0.0);
+        assert!(
+            gentle < fast,
+            "a body sliding in gently reported {gentle} sites against {fast} for one arriving at speed -- \
+             the speed gate is not doing anything"
+        );
+    }
+
+    /// The control for the one above, and the measurement that named the
+    /// cause rather than guessing it: the identical raft on a pond shallow
+    /// enough that open air *is* inside the four-ring shove already sank
+    /// before the fix. If this ever fails, the problem is not buoyancy.
+    #[test]
+    fn the_same_raft_already_sank_when_the_pond_was_shallow() {
+        let mut w = pond_world(121);
+        for x in 44..84 {
+            for y in 121..123 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        drive(&mut w, 600);
+        let (_, bottom) = rows_of(&w, "stone").expect("the raft is still somewhere");
+        assert!(bottom >= 122, "a raft on a three-row pond should reach the floor (bottom row {bottom})");
+    }
+
+    /// **Buoyancy is a flag, not a density comparison** -- `ice.ron` says so
+    /// and `is_resting_on_ground` already reads it. Asking density instead
+    /// took `scene=coldsnap` from 1 overload failure to 23 plus 12
+    /// unsupported, because a mostly-ice region that has picked up one
+    /// stone cell averages over water's 1.0.
+    ///
+    /// The same geometry as the sinking raft, in the one material that
+    /// claims to float. It must not sink, and it must not be dismantled.
+    #[test]
+    fn a_raft_of_something_buoyant_does_not_sink() {
+        // **A manufactured buoyant material, not `ice`.** Ice is the one
+        // shipped material that sets `floats`, and it cannot be used here:
+        // its melting point is *below* ambient on purpose -- it survives
+        // only while a front's cold band is overhead -- so a fresh ice cell
+        // in a world with no weather in it melts on its first visit. Written
+        // with ice first and it failed with the floe simply gone, which is
+        // `CLAUDE.md`'s "a scene that contradicts the code will look like a
+        // bug in the code" in its cheapest form.
+        //
+        // Loaded through a synthetic reload, the same way the span test
+        // below widens stone, because that is the only public way content
+        // changes at runtime. Two properties are deliberate: it is
+        // **heavier than water** (1.2 against 1.0), so the only thing that
+        // can be holding it up is the flag rather than density; and its
+        // span matches ice's 48, so the structural model is not
+        // simultaneously trying to take the sheet apart and the test is
+        // about buoyancy alone.
+        let mut w = pond_world(80);
+        let dir = std::env::temp_dir().join("pixel-physics-buoyant-raft");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("cork.ron"),
+            "(name: \"cork\", kind: Solid, density: 1.2, floats: true, colors: [(200,170,120)], \
+              max_unsupported_span: 48, breaks_into: \"rubble\")",
+        )
+        .unwrap();
+        w.materials.reload(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let cork = w.materials.id_of("cork").expect("the manufactured material loaded");
+        for x in 44..84 {
+            for y in 80..82 {
+                w.set(x, y, Cell::new(cork, 0));
+                w.schedule_structural_check(x, y);
+            }
+        }
+        // **Short, because ice melts at ambient.** `ice.ron`'s melting
+        // point is *below* 20 C on purpose -- it survives only while a
+        // front's cold band is overhead -- so a 600-frame run in a world
+        // with no weather in it asserts nothing except that ice melts.
+        // Written that way first and it failed with the floe simply gone,
+        // which is `CLAUDE.md`'s "a scene that contradicts the code will
+        // look like a bug in the code" in its cheapest form. 150 frames is
+        // several times what the stone raft needs to visibly move.
+        drive(&mut w, 600);
+        let (top, bottom) = rows_of(&w, "cork").expect("the floe is still somewhere");
+        // The paired half of `an_unsupported_raft_sinks_through_a_deep_pond`
+        // above: identical geometry, identical run length, and that one
+        // ends past row 100 on the pond floor. Bounded well clear of it
+        // rather than pinned to the opening rows, because a sheet embedded
+        // in the surface does settle a little as the water it displaced
+        // levels out -- what must not happen is that it goes under.
+        assert!(
+            bottom < 95,
+            "a buoyant raft should stay near the surface, not sink to rows {top}..{bottom} -- and it is denser than the water, so only the flag can be holding it up"
+        );
+    }
+
+    /// **A body that settles underwater must not be destroyed.**
+    ///
+    /// It was: `settle` places a cell only into empty space, falls back to a
+    /// four-ring search for one, and drops it otherwise -- and a body at
+    /// rest in a pond has water in every one of its cells and no empty cell
+    /// within reach of any of them. Measured on the raft above: **80 cells
+    /// in, 9 cells out**, silently, at the one moment a body stops being
+    /// tracked.
+    ///
+    /// Counts rock rather than positions, because where it ends up is the
+    /// other tests' business and this one is only about the census.
+    #[test]
+    fn a_body_settling_underwater_loses_nothing() {
+        let mut w = pond_world(80);
+        let mut placed = 0;
+        for x in 44..84 {
+            for y in 80..82 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+                w.schedule_structural_check(x, y);
+                placed += 1;
+            }
+        }
+        drive(&mut w, 600);
+        let after = count_of(&w, "stone") + count_of(&w, "rubble");
+        // **A bar set from measurement with the gap left visible, not a
+        // claim of perfection.** 80 in, 64 out here, against 9 out before
+        // the swap arm existed. The residue is not about water: the same
+        // raft dropped in plain air onto bedrock comes back 72 of 80,
+        // because `settle` reaches four rings for an empty cell and a body
+        // that came to rest overlapping the floor -- which rotation and the
+        // fractional origin make ordinary -- loses whatever sits deeper
+        // than that. That general landing loss is logged separately in
+        // `Reports/open-bugs-handoff.md`; this bar is the underwater case
+        // it used to be eight times worse than.
+        let lost = placed - after;
+        assert!(
+            lost <= 20,
+            "{placed} cells of rock went into the pond and {after} came out ({lost} lost; the bar is 20, measured 16)"
+        );
     }
 
     #[test]
@@ -2090,6 +3815,56 @@ mod tests {
         assert_eq!(total_debris(&w), 18, "the body itself lost cells");
     }
 
+    /// A falling chunk goes *through* smoke, not onto it.
+    ///
+    /// The paired shape `CLAUDE.md` asks for: the same slab dropped down the
+    /// same shaft, once packed with smoke and once left open, must end at the
+    /// same height. Before this, `clear_or_displaceable` treated every kind
+    /// but `Powder` and `Liquid` as a real obstruction, so the smoke arm
+    /// stalled in mid-air and re-embedded three frames later -- and because
+    /// `Tuning::smoke_fraction` backfills a fresh crater, the one place in
+    /// the world thick with gas is exactly the hole the player is watching a
+    /// chunk fail to fall into.
+    ///
+    /// The shaft is packed solid with smoke deliberately: `displace` searches
+    /// `DISPLACE_SEARCH` rings for an *empty* cell, so a thin wisp would be
+    /// shoved aside and pass even under the old rule. What this pins is the
+    /// case with nowhere to shove it to, which is the case a crater is.
+    #[test]
+    fn a_falling_body_is_not_held_up_by_smoke() {
+        fn drop_through(fill: Option<MaterialId>) -> i32 {
+            let mut w = test_world();
+            for x in 0..64 {
+                w.set(x, 63, Cell::new(material::BEDROCK, 0));
+            }
+            // Walls, so the shaft cannot vent sideways -- otherwise `displace`
+            // finds room outside it and the two arms stop differing.
+            for y in 30..63 {
+                w.set(19, y, Cell::new(material::BEDROCK, 0));
+                w.set(30, y, Cell::new(material::BEDROCK, 0));
+            }
+            if let Some(m) = fill {
+                for y in 40..63 {
+                    for x in 20..30 {
+                        w.set(x, y, Cell::new(m, 0));
+                    }
+                }
+            }
+            let region = loose_slab(&mut w, 22, 31, 6, 3);
+            assert!(fracture_failing_region(&mut w, &region, region[0]), "the slab must promote");
+            for _ in 0..400 {
+                step_chunk_bodies(&mut w);
+            }
+            // Lowest stone cell anywhere: where the chunk came to rest.
+            (0..64).rev().find(|&y| (0..64).any(|x| w.get(x, y).material == material::STONE)).expect("the slab is somewhere")
+        }
+
+        let open = drop_through(None);
+        let smoky = drop_through(Some(material::SMOKE));
+        assert!(open > 55, "test setup: down an empty shaft the slab should reach the floor, it stopped at y={open}");
+        assert_eq!(smoky, open, "smoke held the chunk up at y={smoky} when an open shaft put it at y={open}");
+    }
+
     #[test]
     fn a_detached_shelf_promotes_through_the_real_cascade() {
         // Every promotion test above hands `try_promote_failing_region` a
@@ -2287,5 +4062,192 @@ mod tests {
         for ring in &rings {
             assert_eq!(signed_area(ring).abs(), 1);
         }
+    }
+
+    /// W3: a fissure is a fragmentation seam, not decoration.
+    ///
+    /// A cracked edge already severs *support* everywhere in `load.rs`, and
+    /// was then ignored by the thing that actually breaks the rock -- the
+    /// flood ran straight across it, so the only random property of a
+    /// fragment was its size and every collapse came apart along BFS rings.
+    #[test]
+    fn a_fragment_does_not_flood_across_a_fissure() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6); // 48 cells
+        // A clean vertical cut down the middle: every cell in column 23 has
+        // its right edge scored, so nothing may pass from x<=23 to x>=24
+        // (and, through `edge_is_cracked`'s mirror rule, nothing may come
+        // back the other way either).
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (20, 20), 48);
+
+        assert!(!fragment.is_empty(), "test setup: the flood should still take the seeded half");
+        assert!(
+            fragment.iter().all(|&(x, _)| x <= 23),
+            "the flood crossed a scored edge: {:?}",
+            fragment.iter().find(|&&(x, _)| x > 23)
+        );
+        assert_eq!(fragment.len() + left.len(), 48, "material was lost between the fragment and the remaining pool");
+    }
+
+    /// The same rule read from the other side, which is the half that is
+    /// easy to get wrong: `crack_right`/`crack_down` are *directional* edge
+    /// bits owned by one of the two cells, so stepping left or up has to
+    /// ask the neighbour about its own bit. A version that only tested the
+    /// `+x`/`+y` steps passes the test above and leaks in both the others.
+    #[test]
+    fn a_fissure_blocks_the_flood_from_either_side() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        // Seeded on the *far* side this time, so every crossing attempt is
+        // a `-x` step asking cell 23 about its own right edge.
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (27, 20), 48);
+        assert!(
+            fragment.iter().all(|&(x, _)| x >= 24),
+            "the flood crossed a scored edge travelling left: {:?}",
+            fragment.iter().find(|&&(x, _)| x < 24)
+        );
+
+        // And the horizontal edge, both ways, for the `crack_down` half.
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for x in 20..28 {
+            let cell = w.get(x, 22);
+            w.set(x, 22, cell.with_crack_down(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let down = take_fragment(&w, &mut left, (20, 20), 48);
+        assert!(down.iter().all(|&(_, y)| y <= 22), "the flood crossed a scored edge travelling down");
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let up = take_fragment(&w, &mut left, (20, 25), 48);
+        assert!(up.iter().all(|&(_, y)| y >= 23), "the flood crossed a scored edge travelling up");
+    }
+
+    /// W2 seen from `fracture_shell`: the per-cell test that decides
+    /// whether this cell's direction is contained went from a binary sector
+    /// skip to the same jittered limit `clear_annulus` uses, so the crater
+    /// and the shell thrown off its rim agree about where the rim is. What
+    /// must not move is the *decision* at either extreme -- a contained
+    /// blast still throws nothing, an open one still throws.
+    #[test]
+    fn a_ragged_rim_still_holds_a_fully_contained_shell_and_throws_an_open_one() {
+        let radius = 20;
+        let build = |w: &mut World| {
+            for y in 0..64 {
+                for x in 0..64 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+
+        let mut contained = test_world();
+        build(&mut contained);
+        fracture_shell(
+            &mut contained,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement { sector_reach: [7; super::super::explosion::CONFINEMENT_SECTORS], radius },
+        );
+        assert!(contained.chunk_bodies.is_empty(), "a fully contained blast must still throw nothing off its rim");
+        assert_eq!(count_material(&contained, material::STONE), 64 * 64, "a contained blast must not convert rim material");
+
+        let mut open = test_world();
+        build(&mut open);
+        fracture_shell(
+            &mut open,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement {
+                sector_reach: [radius as u8; super::super::explosion::CONFINEMENT_SECTORS],
+                radius,
+            },
+        );
+        assert!(!open.chunk_bodies.is_empty(), "an open blast must still throw its rim as pieces");
+    }
+
+    /// **Bug K's reproduction, and it fails today.** A body wedged in a slot
+    /// must refuse to rotate when the turned shape would land in rock.
+    ///
+    /// `advance` builds a probe, turns it, and asks `try_step` whether the
+    /// turned shape fits — but it passes the probe its **own** position as
+    /// the target. `try_step`'s first guard is
+    ///
+    /// ```text
+    ///     if (tx, ty) == (cx, cy) { continue }
+    /// ```
+    ///
+    /// and with `ox = probe.x.round()` against `cell_position`'s
+    /// `probe.x.round() + cell.dx`, the two are equal for *every* cell by
+    /// construction. So every cell is skipped, `horizontal` and `vertical`
+    /// are never set, `axis` is always `None`, and the caller reads that as
+    /// "the turn fits". A body wedged in a gap rotates straight through the
+    /// wall beside it — which is exactly the cheat the probe's own comment
+    /// says it exists to prevent.
+    ///
+    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
+    /// outlives the report.** Whoever fixes the probe gets a red test
+    /// instead of a paragraph, and `--ignored` is the only thing in the
+    /// engine that can currently tell a working probe from a vacuous one —
+    /// a probe that always answers "clear" looks identical to one that
+    /// works. Present in *both* parents of the water merge, so it is not
+    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    ///
+    /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
+    /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
+    /// bar is 1x3 and its two new cells land in the rock above and below.
+    #[test]
+    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
+    fn a_wedged_body_will_not_rotate_through_the_wall() {
+        let mut w = test_world();
+        for y in 0..64 {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The slot the bar lies in, and nothing else, is open.
+        for x in 14..=16 {
+            w.set(x, 32, Cell::EMPTY);
+        }
+        let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
+        let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
+
+        // The probe exactly as `advance` builds it, arguments included.
+        let mut probe = body.clone();
+        probe.rotate_quarter();
+        for cell in &probe.cells {
+            let (px, py) = probe.cell_position(cell);
+            if (px, py) != (15, 32) {
+                assert_eq!(
+                    w.get(px, py).material,
+                    material::STONE,
+                    "test setup: the turned bar must land in rock at ({px}, {py}), or this proves nothing"
+                );
+            }
+        }
+        let shape = BodyShape {
+            density: mean_density(&w, &probe),
+            floats: body_floats(&w, &probe),
+            reach: body_extent(&probe) + 1,
+        };
+        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
+        assert!(
+            axis.is_some(),
+            "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
+        );
     }
 }

@@ -353,9 +353,98 @@ exceeds the site percolation threshold `p_c ≈ 0.59275`. That is why a sparse
 scattering of wood will not carry a fire and a dense one will, and it turns
 `flammability` from a magic number into something predictable.
 
-**Verify:** oil ignites and burns out to ash; water quenches lava into stone and
-steam; a wooden structure burns from one corner and the fire spreads or dies
-depending on how densely it is built; temperature is stable over long runs.
+**Verify:** oil ignites and burns out to ash **(done)**; water quenches lava into
+stone and steam **(done)**; a wooden structure burns from one corner and the fire
+spreads or dies depending on how densely it is built **(done)**; temperature is
+stable over long runs **(done)**.
+
+**The water cycle, added after the fact and now done too:** water boils into steam
+above 100C and steam condenses back, carrying its source cell's fill across both
+transitions so the loop conserves per cell (`fire::transform`'s aux table); lava is
+born hot once and crusts to stone at 700C rather than being pinned molten forever;
+a cold snap freezes standing water into ice as a true structural `Solid`, and the
+front passing thaws it back. Judged on `filmstrip` scenes `boil`, `simmer`,
+`lavapour` and `coldsnap`, the last of which is an acceptance case
+(`scripts/acceptance.sh` §11).
+
+**The outer half of it — evaporation and rain — is closed too, as of the
+water bank.** Evaporation used to delete water and credit nothing while
+precipitation created it out of nothing, so a world's total was whatever the
+difference between two independently tuned rates happened to be. Both halves
+now go through one `f64` on `World` in cell-equivalents: evaporation credits
+exactly what it removes, a storm scales its whole column budget by what the
+bank can afford, and `render.rs` thins the *drawn* rain by the same factor so
+a bankrupt sky cannot draw a downpour it will not land. Measured flat to
+-0.0000% across 6,000 frames spanning a storm and a drought, on both drivers.
+Judged on `filmstrip scene=stormcycle`, whose census prints the bank next to
+the standing water. **Soil is on the books too, as of the overnight water
+pass.** Held water counts toward the ledger, the rain soak is charged for
+rather than free, and damp ground at an open surface evaporates and credits
+the bank — so infiltration is a *store* rather than a leak, and
+`water_equivalents + bank` is flat to the unit on a soil world where it
+previously was not a conservation law at all. Soil supply over 60,000 frames
+went 0.54 → **0.76**. It cost a tenfold cut to `SOIL_SOAK_PER_DROP`: soil
+storage is five times `STORM_RESERVE`, so charging for wetting it competes
+with rain directly, and the ground now takes about twice as long to reach the
+same wetness. **Still open:** `transpire` and root uptake spend soil moisture
+and credit nothing, and `STORM_RESERVE`'s own sizing wants re-deriving — see
+`Reports/weather-handoff.md`. **The sizing is a playtest question, not a
+chart question**, and the owner has asked for it to stay on the list: a
+graph of moisture against frame cannot say whether a storm feels like it
+wets the ground. `Reports/weather-handoff.md` §1f is the recipe — what to
+press, what to watch, and which of the four things going wrong means the
+soak is too greedy rather than too stingy.
+
+**And the loop now runs on the day.** `filmstrip scene=watercycle` is the
+closing demonstration: the same pond and shore in a window spanning two clear
+days, a storm, and a clear day after it, sampled every quarter-day. The bank
+climbs about 4.4 cell-equivalents across each warm quarter and about 1.18
+across each cool one, goes negative through the front, and `water_equivalents
++ bank` reads **3940.0 on all twenty tiles**.
+
+~~**Non-goal: there is no day/night temperature oscillation yet.**~~
+**Retired — it exists, and it is field-only.** The sky writes a ±6C
+oscillation into the field's temperature channel
+(`field::apply_sky_temperature_to`), attenuated with depth by the same
+per-column transmission that attenuates light, so open air feels the whole
+swing and deep rock feels none of it. The three reasons this was a non-goal
+were the work it actually is, and each was done rather than dodged:
+
+- **The renderer.** `render.rs`'s heat glow early-exits on `cell.temperature()
+  != AMBIENT_TEMPERATURE`, an exact equality that an oscillating *cell*
+  temperature would make false for every cell at once — measured to nearly
+  triple `cell_colour`. Answered by construction: the pass writes
+  `FieldCell::temperature` and **no `Cell::temperature`, anywhere**, so every
+  melting, boiling, cooling and ignition compare in `fire.rs` is untouched
+  without any arithmetic being careful.
+- **Dividing the oscillator out of decisions.** `noon_equivalent_temperature`
+  does it, *subtractively* — temperature is an interval scale with a signed,
+  sign-changing forcing, so light's divide-and-rescale does not transfer.
+  Every decision consumer goes through it: `field.rs`'s moisture decay,
+  `creature.rs`'s worm thresholds and thermotaxis.
+- **Field sleep.** Answered by quantising the offset to a staircase coarser
+  than the settle epsilon (`SKY_TEMPERATURE_QUANTUM`), so the offset is a
+  value that genuinely changes at a frame the gate can recognise and holds
+  still in between. Cost, measured over a full day on settled ground with 160
+  rows of stone: 925 field passes against 825 with the sky's temperature off,
+  +27 ms over 3,600 frames, and **37.2 tiles solved per pass against 39.97** —
+  the solver does not touch more of the world per pass with it on.
+
+**One thing reads it diurnally, deliberately, and exactly one**: standing
+water dries faster when the air over it is warm (`evaporation::warmth`, off
+the raw reading rather than the noon-equivalent, because here the oscillation
+*is* the effect). Measured 2.47:1 noon against midnight on a shaded basin and
+3.7:1 on an open shore, mean-neutral over whole days so `FILL_PER_CHECK` and
+`HUMID_STOP` both keep their meaning — checked, and neither moved. Judged on
+`filmstrip scene=watercycle`. Guarded from both sides:
+`days_evaporate_more_than_nights` says it is there, and
+`humidity_does_not_go_diurnal` says the day has not leaked into the humidity
+channel that `dryness` reads, which would multiply the cycle into the rate
+twice.
+
+Everything else still reads the noon-equivalent. Making a *second* consumer
+diurnal is a per-consumer decision with its constants re-derived against the
+new meaning, not a switch to flip.
 
 ---
 
@@ -809,6 +898,65 @@ permanently.
   a reachable multiplayer architecture).
 - The light field was never wired up (`add_light` has exactly one caller, a
   test) — **this is unbuilt work, not a regression.**
+- **Appearance should eventually be a readout of physical state, and
+  heritable — later goal, stated by the owner.** Colour today is authored
+  data: a species declares a palette band range and an individual draws one
+  band inside it (`Reports/plant-appearance-design.md` §3). The end state is
+  that what a plant *looks* like is derived from what is true of it —
+  foliage hue from nitrogen/chlorophyll status and light history, autumn
+  colour from the temperature channel, bark from age and thickness, pallor
+  from drought — so a sick plant looks sick without a rule that says so.
+  **Two concrete blockers, recorded now because they are cheap to fix early
+  and expensive later:**
+  1. ~~The individual's band is keyed on `(world seed, germination
+     coordinate)`, so colour as it stands cannot evolve.~~ **Closed by the
+     genome re-map** (below): both bands now derive from discrete alleles
+     and are inherited and mutable. It rode along with the root-trait
+     widening exactly as this entry asked. Only the *positional founding
+     draw* survives, and only for a first generation — which is what keeps
+     a fresh stand mixed rather than uniform.
+  2. A derived colour has to stay *legible* — the same trap
+     `CLAUDE.md`'s debug-overlay rule records. A hue that is a continuous
+     function of four physical channels converges on mud across a stand;
+     the band structure exists precisely so variation is visible, and a
+     physical derivation should pick a band and modulate *within* it rather
+     than replacing it with a free-floating colour.
+  Not scheduled. Wants the light/temperature economy and a real heritable
+  genome under it first.
+
+- **The heritable genome's slot map is settled, and slots are positional
+  forever.** Signed off 2026-08-18, four calls made:
+  `Reports/plant-genome-design.md` §5 (the map) and §9 (the calls) are the
+  contract; §8a records what has been measured against it. Nine continuous
+  slots and six discrete loci:
+
+  | slot | continuous trait | | locus | discrete gene |
+  |---|---|---|---|---|
+  | 0 | shoot branch chance | | 0 | leaf economy (2) |
+  | 1 | root branch chance | | 1 | branch angle (3) |
+  | 2 | shoot plastochron | | 2 | internode (3) |
+  | 3 | turgor per cell | | 3 | sympodial (2) |
+  | 4 | pipe ratio | | 4 | tropism (2) |
+  | 5 | root tropism gain | | 5 | wood density (3) |
+  | 6 | root:shoot allocation bias | | | |
+  | 7 | stomatal closure point | | | |
+  | 8 | root penetration force | | | |
+
+  **The slot index selects which stored draw a trait reads, so renumbering
+  one silently rewrites every genome ever measured.** Retire a dead trait
+  by setting its width to `0.0`, never by removing its slot. The one
+  exception, and it is spent: *a slot dead by measurement in every species
+  may be re-purposed once, with the measurement record re-baselined* —
+  slots 1 and 5 used it at this re-map (they were `upward_weight` and
+  `light_weight`, both measured flat across 1,024 genomes). Neither may be
+  re-purposed again.
+
+  Two consequences that are not obvious from the table: **colour is now a
+  readout of two of these genes** (foliage band = leaf economy, bark band =
+  wood density), which closes blocker 1 above; and **slot 1 is known not to
+  reach the world** — its consumer sits behind a carbon gate the root
+  economy clears twice in twelve thousand frames — so it is measured, not
+  assumed, and its disposition is open (`plant-genome-design.md` §8a).
 
 ### Priority order (`Reports/emergent-world-architecture.md` §11, folded with the issues backlog below)
 
@@ -1038,7 +1186,7 @@ whenever. Folded into the priority-order list above where they overlap.
 | 7 | `scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak | perf, correctness, M16 |
 | 8 | `World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime | bug, M16 |
 | 9 | Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever | bug, M16 |
-| 10 | Housekeeping: default branch is `main` (a 15-byte stub — the project lives on `master`), no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
+| 10 | Housekeeping: ~~default branch is `main` (a 15-byte stub — the project lives on `master`)~~ **(resolved 2026-08-21, the other way round: `master` was copied onto `main` rather than the default being switched, so `main` is now the trunk, CI gates it, and `master` is a lagging mirror kept only until someone deletes it — see the branch-topology note below)**, no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
 | 11 | Reserve a slice-identifier field on `ChunkCoord` before it reaches the save format (see the worldgen redesign above) | chore, architecture, blocks M10 |
 
 A note from the same document worth keeping as a standing rule: two of its
@@ -1051,6 +1199,26 @@ regression test behind them, while every claim backed by a *named* test
 held up. **A performance or cost claim in a doc needs either a test or a
 measurement command next to it, or it should be written as an intention,
 not a fact.**
+
+### Open after the plant-line merge (2026-08-22)
+
+Kept separate from the table above, which mirrors
+`Reports/pixel-physics-issues.md` item for item and should not drift from
+it. Full detail and reproductions for all four live in
+`Reports/open-bugs-handoff.md` under the letters given.
+
+| Ref | Title | Kind |
+|---|---|---|
+| §A | Genotype **slot 1's root-mass lever measures dead**: 1 of 8 seeds clears the guard's 10% ordering, mean per-seed ratio 0.92 ± 0.056 — 1.4 SE from 1.0, and 7 SE from the calibrated 1.33. `root_and_shoot_branching_read_different_slots` is the one red test on the branch, and it is reporting a real defect, so the bar must not be moved. Needs `tree.ron` re-derived against the post-repair quantity, with `print_root_branch_slot_seed_sweep` as the guard. | bug, model |
+| §Y | **The gnome cannot get through a wood.** `wood` acceptance case: 34 cells travelled against a bar of 200 (calibrated at 362). Split measured — 152 with litter disabled, so litter is 118 of the 166-cell shortfall and the residual 48 is the missing bole. Owner's call: the *response* lives in `player.rs` (`wade_rows`/`wade_slowdown`), not in the plant lines. | bug, player |
+| §U | **Drought raises absolute biomass, which inverts real plant behaviour.** A water-stressed tree measured *larger* on both totals (982 vs 734 cells) and on wood (428 vs 299) than a watered one. Real drought narrows rings — that is the basis of dendrochronology. Hypothesis on file: `break_root_tips` is gated on `water_status < 0.95`, so stress *triggers* root re-initiation without throttling the carbon that pays for it. | bug, model |
+| §X | **The desert niche needs a capacity lever, not a wilting point.** Arid country is dead because its blanket is **sand**, which declares no `water_capacity` at all — not because dry soil sits under the wilting point. So making the wilting point a species trait, which §X originally proposed, would do nothing for the desert. Three candidate levers instead: give sand a small capacity, let a root reach the water table, or store rain. | design, blocks desert species |
+
+**Stale in the table above, verified 2026-08-22:** #10 says the default
+branch is `main`, "a 15-byte stub — the project lives on `master`".
+`origin/main` and `origin/master` are now the *same commit*, so that half of
+#10 is done; the rest of the item (LICENSE, `rustfmt.toml`, `rust-version`)
+still stands.
 
 ---
 
@@ -1411,14 +1579,31 @@ debug-build step (#3) and `ascii.rs` regression gate (#4) together since
 they're the same "make the safety net real" theme; then the doc-drift
 fixes (#6, cheap); #1 (creature reclaim) and #2 (redundant touch_
 neighbours) whenever convenient, both low urgency.
-Also worth a decision, not just a fix: whether to make `master` the
-default branch (or merge into `main`) and close out the
+~~Also worth a decision, not just a fix: whether to make `master` the
+default branch (or merge into `main`)~~ — **decided 2026-08-21, in the
+opposite direction: `master` was copied onto `main`.** `main` is the GitHub
+default, CI gates `main` only (`9430346`), and the worktree procedure in
+CLAUDE.md names `origin/main`. `master` was left standing as a mirror and is
+now an exact copy of `main` carrying nothing of its own; it exists only until
+someone deletes it. Still open from this line: close out the
 `pixel-physics-issues.md` items that are actually resolved now.
+
+**Branch topology, and the one thing that must stay true.** Leaving a second
+name for the trunk is not free. `3d53351` records a branch that merged
+`master` while `main` was 10 commits ahead and silently missed the CLAUDE.md
+restructure, the map-scroll feature and the play-button fix; the session
+found out by reading a diff that made no sense. The invariant is not "the two
+are equal" — `master` lagging is harmless, it is only a name. The invariant
+is **no commit is reachable from `master` that is not reachable from
+`main`**, because that is the state that strands work on the branch CI does
+not gate. `scripts/branchcheck.sh --gate` asserts exactly that and runs in CI
+(`branches` job); it passes vacuously once `master` is gone, which is the
+intended end state rather than a hole.
 
 ---
 
 ## `Reports/plant-substrate-v2-design.md` — done, not started (session handoff)
-*(State 2026-08-21: overtaken — the `plant-substrate-v2` branch built it; unmerged. See the in-flight section of `Reports/README.md`.)*
+*(State 2026-08-22: overtaken — the `plant-substrate-v2` branch built it, and it is **merged** now. See `Reports/README.md`'s Plants section, and `Reports/open-bugs-handoff.md` §A for what the merge left unsettled.)*
 
 Written by a dedicated research agent, per the owner's explicit "plan all
 of this before implementing, especially since a diffusion-mechanism change
@@ -1560,7 +1745,7 @@ this phase either way (§8b).
 ---
 
 ## Plant substrate v2 — started, on branch `plant-substrate-v2` (session handoff)
-*(State 2026-08-21: the branch lives on unmerged, now spread across `plant-substrate-v2` / `plant-genome` / `plant-branch-angle` / `plant-ecology-design`; the plans of record are `Reports/tree-architecture-implementation-plan.md` and, in flight, `Reports/plant-implementation-plan.md`.)*
+*(State 2026-08-22: **merged.** `plant-substrate-v2` / `plant-genome` and `plant-ecology-design` both landed on an integration branch off `origin/main`; `plant-branch-angle` has not. The plans of record are `Reports/tree-architecture-implementation-plan.md` and `Reports/plant-implementation-plan.md`, both merged and indexed. The merge left one test red and three unmeasured cross-line inconsistencies — `Reports/open-bugs-handoff.md` §A–§D, which should be read before touching any plant constant.)*
 
 The design above was "fully planned, zero code written" for several sessions.
 Implementation started on a worktree branch off `master` at `a39da4e`, isolated

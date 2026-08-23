@@ -1,10 +1,37 @@
-// Lighter than air, so it rises through everything and pools at the ceiling.
+// Lighter than air, so it rises through everything and pools at the ceiling
+// -- and then thins out and goes, which it did not do until `dissipation`
+// below existed.
 (
     name: "smoke",
     display: "Smoke",
     kind: Gas,
     density: 0.1,
     dispersion: 3,
+    // Half-life ~173 frames -- ~2.9 s at 60fps. See `MaterialDef::
+    // dissipation` for the chance -> half-life arithmetic, which narrows the
+    // range and cannot pick inside it. This is the end of that range that
+    // was picked by *looking*, on `filmstrip scene=cavern
+    // explode=256,200,22,180,10` -- a charge in a cave roof, so the smoke
+    // vents into a real chamber and pools under a real ceiling. Gas cells
+    // standing in the world, sampled every 60 frames from frame 20:
+    //
+    //   0.0   (control)  90 90 90 90 90 90 90 90   <- the bug, flat forever
+    //   0.002            89 77 63 49 37 29 25 15
+    //   0.004            89 63 41 30 16 12  6  4
+    //   0.008            89 60 28 11  4  2  0  0
+    //
+    // 0.008 is over almost before the flash has faded -- there is a plume
+    // for about two seconds and then nothing, which reads as the smoke
+    // having been deleted rather than having drifted off. 0.002 still has a
+    // visible patch sitting in the crater mouth at seven seconds, which is
+    // the complaint in slow motion. 0.004 thins visibly across the first
+    // three seconds and the cap is gone by about five, which is the one that
+    // looks like smoke going away.
+    //
+    // Rebuild between sweep points -- this file is `include_str!`d into the
+    // binary, so editing it and re-running a prebuilt harness produces
+    // bit-identical "runs" (`CLAUDE.md`).
+    dissipation: 0.004,
     colors: [
         (84, 84, 88),
         (96, 96, 100),

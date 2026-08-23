@@ -128,6 +128,13 @@ const MAX_REGION_CELLS: usize = 20_000;
 /// collapse is what `Reports/fracture-mechanics-design.md` §3.4 asks for
 /// anyway — "a collapse that resolves over a second reads better than one
 /// that resolves instantly".
+///
+/// That promise went undelivered for a long time, and the gap was not
+/// here: truncating the *walk* still handed the whole region to
+/// `rigid::fracture` in one tick, so a 4,420-cell overhang promoted 142
+/// bodies in a single call. `structural::FRACTURE_CELLS_PER_TICK` is what
+/// actually stages it now; this doc's wording is the contract that one
+/// keeps.
 const MAX_SUBTREE_CELLS: usize = 8192;
 
 /// Cells every load walk in one frame may visit between them, across all
@@ -148,7 +155,44 @@ const MAX_SUBTREE_CELLS: usize = 8192;
 /// CA sweep its room. Raising it is the first thing to try if collapses
 /// feel sluggish, and indexing the chunk directly instead of going through
 /// `World::get` is what would make it affordable to.
-pub const MAX_LOAD_CELLS_PER_FRAME: u32 = 12_000;
+///
+/// # Raised 12,000 -> 20,000, and what that bought
+///
+/// The quench-crust work made failing regions much larger (mean 1.7 cells
+/// -> 6.0 on `scene=lavadrop`), and a bigger region costs proportionally
+/// more per walk, so the same budget buys fewer checks. On the worst case
+/// for that -- `scene=lavalake`, a 21,492-cell basin solidifying from the
+/// top -- the queue could not keep up, and a starved check is not a
+/// harmless delay: `is_supported` answers "supported" from an unfinished
+/// search by design, the chain walk reads that as `Holds`, and `Holds` is
+/// what retires a cell from the scheduler. The result was **slabs of rock
+/// hanging in open air over the lake**, visible in the contact sheet.
+///
+/// Swept, one run each at frame 6,000, against the paired cost on
+/// `scene=worked` (the budget-bound acceptance scene, minimum of three
+/// `repeat=3` runs interleaved in one session):
+///
+/// ```text
+/// budget   lake: hanging / clusters / largest plate    worked worst frame
+/// 12,000   422 / 119 / 75                              9.13 ms
+/// 16,000   359 / 114 / 26                             10.34 ms
+/// 20,000    13 /  10 /  2                             11.64 ms
+/// 24,000   215 / 113 / 12                             13.57 ms
+/// ```
+///
+/// **The totals are chaotic in the budget and the plate size is not**, so
+/// the choice is made on the plate: it is the visible quantity, and above
+/// 16,000 the big ones stop appearing. 20,000 is the knee. `scene=ligament`
+/// -- which is not budget-bound -- measures 31.08 against 30.44 ms across
+/// the same change, i.e. nothing, so this is not a cost every scene pays.
+///
+/// **Also tried and reverted: deferring a starved check to the *next*
+/// frame** instead of `STRUCTURAL_TICK_INTERVAL` (5). Sound in principle --
+/// running out of budget is not a wait, and the next frame's budget is
+/// untouched -- and it bought almost nothing: 422 -> 379 hanging, largest
+/// 75 -> 99, at 12.52 -> 14.55 ms on `scene=strike`. The queue is bound by
+/// how much work each frame can do, not by when it is allowed to retry.
+pub const MAX_LOAD_CELLS_PER_FRAME: u32 = 20_000;
 
 /// How far up a support chain a walk will follow before giving up and
 /// calling the cell supported.
@@ -361,8 +405,124 @@ fn is_anchor(world: &World, x: i32, y: i32) -> bool {
 /// 1-cell skin resting on nothing much, and a sprinkle of sand under a
 /// cantilever made it arbitrarily long. See `capacity`, which now charges
 /// a cell supported this way for what the pile can actually carry.
-fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
-    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Powder
+///
+/// **`Liquid` below counts only for material that claims to float**, and
+/// the claim is data on the material rather than anything this function
+/// could infer — see `MaterialDef::floats`. It grants ground, not
+/// immunity: a floating cell still owes the torque test, and is still
+/// judged against `capacity`, so a loaded sheet gives way. What it does
+/// *not* owe is the `bearing_moment` footing clamp — buoyancy is
+/// distributed rather than a patch to tip about, and the caller skips it
+/// via `floats_on_liquid` for exactly that reason.
+pub(crate) fn rests_on_ground(world: &World, x: i32, y: i32) -> bool {
+    match world.materials.kind(world.get(x, y + 1).material) {
+        MaterialKind::Powder => grain_is_footing(world, x, y + 1),
+        MaterialKind::Liquid => floats_on_liquid(world, x, y),
+        _ => false,
+    }
+}
+
+/// Whether the grain at `(x, y)` is loose material something can *stand
+/// on*, or just filler wedged inside a structure.
+///
+/// # Three predicates have now tried to answer this from the grain's shape
+///
+/// **First**, `Powder` below meant ground, unconditionally. That let a
+/// single swallowed grain float a 90-cell raft on `scene=lavadrop`'s pond
+/// for a whole run — one `o` walled inside the slab, rooting it at distance
+/// 0, with every other cell chaining to it:
+///
+/// ```text
+/// 254 ~~~~~~~~~~~~~~~~#######..####o##~~~~~~
+/// ```
+///
+/// **Second**, this asked whether the grain was enclosed by body material
+/// on all four faces. That catches a lone grain and **two adjacent grains
+/// defeat it**, because each has the other as a non-body neighbour. Traced
+/// on `scene=rockdrop`, where a 600-cell slab sat in open air 30 rows above
+/// the pond from frame 40 to 400 — the owner saw the tail of it and
+/// reported "the boulder just stops and gets stuck in the middle of the
+/// water":
+///
+/// ```text
+/// 170 ......###############################ooo#####..##.#####
+/// 171 ......######################oooooooooo###....##########
+/// ```
+///
+/// Both are the same mistake, and it is `CLAUDE.md`'s recurring one: *"which
+/// object does this rule evaluate — a cell, a section, or a whole piece?"*
+/// "Rests on loose ground" is a claim about a **piece**, and asked of a
+/// grain's own neighbourhood it cannot tell a grain the piece is standing on
+/// from a grain the piece has swallowed. No arrangement of neighbour tests
+/// can: the two look identical up close. Per the same file, *"more tuning
+/// will not find a setting that does not exist."*
+///
+/// # What it reads instead: what the grain is standing on
+///
+/// A grain bears load only if something bears the grain. So walk **down**
+/// the column of loose material and ask what is underneath all of it. That
+/// is a different quantity from the grain's own shape, and it is decidable
+/// locally:
+///
+/// - bedrock, or out of bounds — the world floor. A footing.
+/// - `attached` body material — terrain, braced by the massif behind it.
+///   A footing.
+/// - more powder than `GRAIN_FOOTING_PROBE` deep — a pile that deep is a
+///   pile. A footing.
+/// - **unattached body material — not a footing.** This is the case both
+///   earlier versions got wrong: the grain is resting on the very piece
+///   that is asking, so the load path is a circle. Let the rock under it be
+///   judged on its own account, which is what the relaxation is for.
+/// - empty, or liquid — the grain is itself falling or sinking, and holds
+///   up nothing.
+///
+/// **What this gives up, named:** a slab resting on rubble resting on a
+/// *player-built* (and therefore unattached) platform now reads as
+/// unsupported, because the chain out of the powder lands on unattached
+/// rock. Solid-on-solid is untouched — only a granular layer sandwiched
+/// inside player-built structure loses, which no scene here builds and
+/// nobody has reported. Reading the cell's stored `aux` instead would cover
+/// it, and is rejected for the reason `is_anchor` already gives: a stored
+/// distance lags the world by a tick, and here it would be circular, since
+/// the distance under a swallowed grain is 0 *because of this rule*.
+fn grain_is_footing(world: &World, x: i32, y: i32) -> bool {
+    let mut probe = (x, y);
+    for _ in 0..GRAIN_FOOTING_PROBE {
+        let below = (probe.0, probe.1 + 1);
+        if !world.in_bounds(below.0, below.1) {
+            return true; // the floor of the world holds everything up
+        }
+        let cell = world.get(below.0, below.1);
+        if cell.material == super::material::BEDROCK {
+            return true;
+        }
+        if is_body_material(world, cell.material) {
+            return cell.attached();
+        }
+        if world.materials.kind(cell.material) != MaterialKind::Powder {
+            return false; // air or liquid under the pile: it is on its way down
+        }
+        probe = below;
+    }
+    true // deeper than the probe: a pile, not a pocket
+}
+
+/// How far down a column of loose material `grain_is_footing` looks for
+/// something holding it up.
+///
+/// Bounds the walk without gating the answer (`CLAUDE.md`: "a size cap must
+/// bound work, never gate whether something happens") — running past it
+/// resolves to *footing*, which is the conservative direction and the
+/// physically right one, since anything under eight cells of scree is
+/// bearing through the scree whatever it is.
+const GRAIN_FOOTING_PROBE: usize = 8;
+
+/// The buoyant half of `rests_on_ground`, split out because the caller of
+/// `bearing_moment` has to tell the two cases apart: a pile is a footing
+/// and a liquid is not. See `MaterialDef::floats`.
+fn floats_on_liquid(world: &World, x: i32, y: i32) -> bool {
+    world.materials.kind(world.get(x, y + 1).material) == MaterialKind::Liquid
+        && world.materials.get(world.get(x, y).material).floats
 }
 
 /// Whether the support chain from `(x, y)` reaches an anchor.
@@ -584,6 +744,125 @@ fn dependants(world: &World, x: i32, y: i32, out: &mut Vec<(i32, i32)>) {
 /// a ceiling of 9e18.
 const LOAD_SCALE: i64 = 4096;
 
+/// What one cell of loose material standing on rock weighs, as a fraction of
+/// one cell of the rock itself.
+///
+/// # Why this term exists at all
+///
+/// The load walk accumulates over body material only (`dependants` filters
+/// on `is_body_material`), so until this landed a rubble plug sitting on a
+/// blasted cave roof contributed **exactly zero** torque to the shell under
+/// it. `Reports/explosion-stone-review.md` §5 did the arithmetic: a
+/// 40-cell breach's abutment row carries torque ~210 against a capacity of
+/// `32·t²` even fully cracked and detached, so any roof six cells thick or
+/// more holds on its own mass whatever you do to it, and the classic mining
+/// beat -- blast the roof, the broken muck pours through -- could not
+/// happen. The engine already charged *tree branches* for powder piled on
+/// them (`structural::supported_load`); inert rock never got the term.
+///
+/// One-for-one is the honest starting point rather than a tuned number:
+/// `mass` is 1 per body cell (see the module doc) and sand is not
+/// dramatically lighter than stone. It is a **model constant, not a
+/// designer dial** -- there is deliberately no `Tuning` field for it until
+/// playtest asks for one.
+///
+/// # It is also the escape hatch
+///
+/// This is a load-model change over procedural content, which is the class
+/// of change that has twice shipped green on every acceptance scene and
+/// eaten the world (`CLAUDE.md`; `scripts/seedsweep.sh` exists because of
+/// it). Halving this is the calibrated retreat if a sweep degrades --
+/// preferable to deleting the mechanism, because the term is real and only
+/// its weight is arguable. Measured at 1.0 against a same-session
+/// weight-0.0 control: `dig=6` bit-identical (max 116/p90 92 — its runs
+/// produce zero overload failures for a surcharge to change), `strike=12`
+/// cells-lost max 442 -> 583 / p90 254 -> 120, rock max 1,548 -> 1,349 /
+/// p90 1,111 -> 948. Three of four order statistics improved; nothing
+/// needed halving. Full table: `Reports/explosion-stone-review.md` §13.
+const POWDER_SURCHARGE_WEIGHT: f32 = 1.0;
+
+/// How far up a column of loose material one cell of rock is charged for.
+///
+/// A bound on *work*, not a gate on whether the surcharge happens at all --
+/// `CLAUDE.md`'s "a size cap must bound work, never gate whether something
+/// happens", which fracture already got wrong once by declining the biggest
+/// regions outright.
+///
+/// Twelve because the question this term answers is "is something standing
+/// on me", not "what is the total mass of the mountain above". Real granular
+/// fill arches: silo pressure saturates at a couple of times the outlet
+/// width rather than growing with depth (Janssen), so a deep column really
+/// does stop delivering its full weight downward, and a cap is closer to the
+/// physics than an uncapped sum would be. It also keeps the scan short on a
+/// path that runs per walked cell.
+const POWDER_SURCHARGE_CAP: i32 = 12;
+
+/// The extra mass `(x, y)` carries because loose material is standing on it,
+/// in `LOAD_SCALE` units.
+///
+/// Charged at the walked cell's **own x**, so a cell's surcharge adds
+/// nothing to its own torque (`|Sx - x·M|` cancels) and everything to the
+/// torque of whatever is carrying it -- identical treatment to the cell's
+/// own mass, which is the point: a beam is not bent by the grain sitting on
+/// its own root, it is bent by the grain sitting out at its tip.
+///
+/// # Cost
+///
+/// One `World::get` in the common case: the cell above is not `Powder` and
+/// this returns immediately. The column scan runs only for powder-topped
+/// body cells, only inside a load walk, and load walks only run on scheduled
+/// structural checks -- so a settled world pays nothing at all.
+///
+/// # Deliberately not `Liquid`
+///
+/// `structural::supported_load` counts both for a branch, and stone does
+/// not, for now. Water is mobile in a way a rubble plug is not: it drains,
+/// it flows sideways, and a pool standing on a cave roof would re-weight
+/// half a map's worth of rock every time the level shifted, with nothing on
+/// the powder path scheduling the re-checks (see below). Adding it is a
+/// separate measurement, not a freebie.
+///
+/// # The re-check hole, and the part of it that is deliberately left open
+///
+/// **Powder movement schedules no structural checks on the stone beneath
+/// it.** Nothing in `particle`/the powder sweep calls
+/// `schedule_structural_check_around`, so a surcharge that *grows* as a plug
+/// settles can change a cell's torque with nothing asking the question
+/// again. The bounded, load-bearing case is covered: `rigid::settle` already
+/// schedules a check around every cell of a body it writes back, so a slab
+/// arriving on a shelf -- the surcharge event the roof scenario needs -- is
+/// re-judged. The unbounded one is left open on purpose: scheduling from
+/// ordinary per-cell powder movement would flood the scheduler from every
+/// avalanche in the world, and the site budget is already the thing that
+/// starves under `MAX_LOAD_CELLS_PER_FRAME`.
+///
+/// So the residual, stated plainly rather than discovered later: **slow
+/// powder creep onto a marginal shelf may not re-trigger judgment until
+/// something else disturbs it.** A pile that grows a grain at a time can sit
+/// over its limit until the next blow, dig or landing nearby. The visible
+/// consequence is a delayed collapse rather than a missing one, which is the
+/// direction this project's owner has asked for anyway ("collapse must be
+/// obvious and delayed") -- but it is a hole, not a feature, and closing it
+/// properly means a coalesced "this pile changed" signal rather than a
+/// per-cell one.
+fn powder_surcharge(world: &World, x: i32, y: i32) -> i64 {
+    // The dispatch-site guard, per `CLAUDE.md`: one kind lookup -- a `Vec`
+    // index -- and out. Everything below is paid only where there is
+    // actually something piled up.
+    if world.materials.kind(world.get(x, y - 1).material) != MaterialKind::Powder {
+        return 0;
+    }
+    let mut depth = 1;
+    while depth < POWDER_SURCHARGE_CAP && world.materials.kind(world.get(x, y - 1 - depth).material) == MaterialKind::Powder {
+        depth += 1;
+    }
+    // `as i64` after the multiply, not before: the weight is the one f32 in
+    // this module and it is a compile-time constant, so the product is exact
+    // for every value anyone will set it to (4096, 2048, 1024 at 1.0, 0.5,
+    // 0.25) and the cast is deterministic either way.
+    (LOAD_SCALE as f32 * POWDER_SURCHARGE_WEIGHT) as i64 * depth as i64
+}
+
 /// Total mass and moment of everything `(x, y)` supports, including itself.
 ///
 /// # Why this is memoized, and why that is the difference between
@@ -638,6 +917,8 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                     // flagged truncated, which **under**states the load --
                     // the safe direction, since the failure mode of
                     // overstating it is terrain deciding it is falling.
+                    // Deliberately no powder surcharge here either: this is
+                    // the give-up branch, and it understates on purpose.
                     memo.insert(node, (LOAD_SCALE, LOAD_SCALE * node.0 as i64, true));
                     continue;
                 }
@@ -656,8 +937,15 @@ fn subtree_sum(world: &World, x: i32, y: i32, memo: &mut SubtreeMemo, budget: &m
                 }
             }
             Step::Exit(node, held, count) => {
-                let mut mass = LOAD_SCALE;
-                let mut moment = LOAD_SCALE * node.0 as i64;
+                // The cell's own mass, plus whatever loose material is
+                // standing on it. Both enter here, in the same accumulator,
+                // *before* the share division below -- a surcharge bolted on
+                // after the division would be counted once per route and
+                // stop being conserved, which is the exact trap
+                // `dependants`' own doc describes for whole subtrees.
+                let own = LOAD_SCALE.saturating_add(powder_surcharge(world, node.0, node.1));
+                let mut mass = own;
+                let mut moment = own.saturating_mul(node.0 as i64);
                 let mut truncated = false;
                 for &kid in &held[..count] {
                     let (m, mo, t) = memo.get(&kid).copied().unwrap_or((LOAD_SCALE, LOAD_SCALE * kid.0 as i64, true));
@@ -1285,8 +1573,36 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     }
     // A piece the ground alone holds up is judged on what the ground can do,
     // as well as on what the rock can do -- whichever gives first.
+    //
+    // **Except when the ground is a liquid it is floating on.**
+    // `bearing_moment` is a *footing* argument: a pile carries a load
+    // through the patch it touches, and a narrow patch tips. Buoyancy is
+    // not a footing -- the support is distributed over the whole underside
+    // in proportion to displacement, and there is no eccentricity for a
+    // uniform floating body to tip about. Applying the footing clamp to
+    // one anyway charged every small patch of new ice against a
+    // kern-limited moment its own two-to-five-cell width could not meet,
+    // so a sheet destroyed itself as it formed: measured on
+    // `scene=coldsnap`, 333 overload failures on ice in 600 frames, every
+    // one of them a patch of 2 to 5 cells, and the crushed cells then
+    // broke the support chain for the ice above them and took another 678
+    // with them as unsupported. What still limits a floating sheet is
+    // `capacity` itself -- `max_unsupported_span` squared, scaled by
+    // section -- so thin ice under a real load does still give way.
+    //
+    // **The powder surcharge reaches `bearing_moment` through `mass`, and
+    // that is deliberate.** The kern criterion is mass-independent by
+    // construction -- `N·B/6` against `N·e` reduces to "is the centroid
+    // inside a sixth of the footing", scale-free -- so loading a slab with
+    // sand raises both sides equally and does not move the verdict. That is
+    // the physically right answer (vertical load at the centroid changes no
+    // eccentricity) and it is also the *quiet* one, which is why it is
+    // stated rather than left to be rediscovered: the surcharge was built to
+    // change bending outcomes over a void, not bearing outcomes on rubble,
+    // and if it ever looks like it is tipping pieces that used to sit still,
+    // this line is where to look first.
     let mut capacity = capacity(world, x, y);
-    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) {
+    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
         capacity = capacity.min(bearing_moment(world, x, y, mass));
     }
     Some(Load { mass, moment, torque, capacity, supported, truncated })
@@ -1414,6 +1730,30 @@ pub fn failing_along_support_chain(world: &World, x: i32, y: i32, cache: &mut Ca
         if let Some(failure) = failing_region(world, at.0, at.1, cache, budget) {
             return ChainVerdict::Failing(failure);
         }
+        // **And again *after* the walk, because the walk is what spends
+        // it.** The guard above catches a budget already empty on entry;
+        // this catches one emptied by the `failing_region` on the line
+        // between them, whose `is_supported` answers "supported" from an
+        // unfinished search by design ("never conclude falling from an
+        // unfinished search"). Without this the loop either goes round --
+        // and is caught -- or reaches an anchor and breaks out to `Holds`,
+        // and `Holds` is what stops a cell rescheduling itself. So the last
+        // iteration of a busy frame quietly retired the check.
+        //
+        // Measured on `filmstrip scene=lavalake`, frame 6,000: **497 cells
+        // reaching no anchor and still standing, in 171 clusters, the
+        // largest a 96-cell plate hanging in open air.** Raising
+        // `MAX_LOAD_CELLS_PER_FRAME` from 12,000 to 2,000,000 -- the
+        // control, not the fix -- took the same run to 164 in 112 clusters,
+        // largest 8. The plates were not standing because the model thought
+        // they held; they were standing because it never finished asking.
+        //
+        // Exposed rather than caused by the quench-crust work: bigger
+        // failing regions cost proportionally more per walk, so the same
+        // budget buys fewer checks and the tail of dropped ones grows.
+        if *budget == 0 {
+            return ChainVerdict::Deferred;
+        }
         match support_parent(world, at.0, at.1) {
             Some(parent) => at = parent,
             None => break, // reached an anchor
@@ -1466,6 +1806,59 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// **A walk that spends the last of the frame budget defers; it does
+    /// not report that the rock holds.**
+    ///
+    /// `is_supported` answers "supported" from an unfinished search by
+    /// design -- a 4,000-cell region deciding it is falling is the outcome
+    /// worth being paranoid about -- so a budget emptied *inside*
+    /// `failing_region` produces a `None` that is indistinguishable from a
+    /// genuine pass. The guard at the top of the loop only catches a budget
+    /// that was already empty on entry, so the last iteration of a busy
+    /// frame reached the `Holds` at the bottom, and `Holds` is what retires
+    /// a cell from the scheduler for good.
+    ///
+    /// Seen as rock left standing in open air: `filmstrip scene=lavalake`
+    /// at frame 6,000 held 497 cells reaching no anchor, in 171 clusters,
+    /// the largest a 96-cell plate in the sky -- and the same run with the
+    /// budget effectively unlimited held 164 in 112 clusters, largest 8. It
+    /// was a starved queue, not a verdict.
+    ///
+    /// A budget of 1 is the smallest thing that reproduces it: non-zero, so
+    /// the entry guard passes, and gone before the support search finishes.
+    #[test]
+    fn a_walk_that_runs_out_of_budget_defers_rather_than_reporting_holds() {
+        let mut w = test_world();
+        // A blob in open air with nothing under it: genuinely unsupported,
+        // so the only way to reach `Holds` is by giving up early.
+        for x in 20..30 {
+            for y in 20..24 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        structural::compute_world_distances(&mut w);
+
+        let mut cache = Cache::default();
+        let mut generous = u32::MAX;
+        assert!(
+            matches!(failing_along_support_chain(&w, 25, 22, &mut cache, &mut generous), ChainVerdict::Failing(_)),
+            "the blob is unsupported and must fail outright when there is room to find out"
+        );
+
+        let mut cache = Cache::default();
+        let mut starved = 1u32;
+        let verdict = failing_along_support_chain(&w, 25, 22, &mut cache, &mut starved);
+        assert!(
+            matches!(verdict, ChainVerdict::Deferred),
+            "a walk with one cell of budget reported {} -- Holds retires the check and the rock stands forever",
+            match verdict {
+                ChainVerdict::Holds => "Holds",
+                ChainVerdict::Failing(_) => "Failing",
+                ChainVerdict::Deferred => "Deferred",
+            }
+        );
     }
 
     /// A roof over a **small** opening owes a shorter arm than the same
@@ -1911,5 +2304,122 @@ mod tests {
                 "the grain moved x={x}'s distance to an anchor — that is the false zero B2 was about"
             );
         }
+    }
+
+    /// R4's whole claim, as a **paired** comparison: the same shelf, twice,
+    /// differing only in whether anything is standing on it.
+    ///
+    /// Paired rather than absolute per `CLAUDE.md` — it cancels every
+    /// constant the rule under test is not about, so a later retune of
+    /// `max_unsupported_span` or the crack-face denominator cannot make this
+    /// pass or fail for the wrong reason. The bare half is not decoration:
+    /// it is the half that fails if the surcharge is ever made
+    /// unconditional, and it is the direct answer to "is this a capacity
+    /// regression wearing a surcharge's clothes".
+    ///
+    /// Sand is piled at the shelf's **tip** on purpose. Load is a moment,
+    /// not a weight (module doc), so the same twelve grains dropped at the
+    /// root would be nearly free — and if this test ever starts passing with
+    /// the pile at x=1, the term has stopped being charged at the cell's own
+    /// x and has become a plain weight.
+    #[test]
+    fn twelve_cells_of_sand_on_a_shelfs_tip_bring_the_shelf_down_and_a_bare_shelf_holds() {
+        let tip = 14;
+        let bare = beam(tip);
+        let held = evaluate(&bare, 1, 30).expect("the shelf root should be evaluable");
+        assert!(held.supported, "test setup: the shelf reaches the left edge, which is bedrock");
+        assert!(
+            held.torque <= held.capacity,
+            "test setup: a bare {tip}-cell shelf must hold, or the loaded half proves nothing -- torque {} against capacity {}",
+            held.torque,
+            held.capacity
+        );
+
+        let mut loaded = beam(tip);
+        for depth in 1..=POWDER_SURCHARGE_CAP {
+            loaded.set(tip, 30 - depth, Cell::new(material::SAND, 0));
+        }
+        structural::compute_world_distances(&mut loaded);
+        let under_load = evaluate(&loaded, 1, 30).expect("the same cell must still be evaluable");
+
+        assert_eq!(under_load.capacity, held.capacity, "the sand is above the rock -- it must not touch what the section can carry");
+        assert!(
+            under_load.mass > held.mass,
+            "the pile must enter the same accumulation the cell's own mass enters: mass {} against {}",
+            under_load.mass,
+            held.mass
+        );
+        assert!(
+            under_load.torque > under_load.capacity,
+            "twelve cells of sand on the tip of a shelf that was holding at {}/{} must overload it -- got {}/{}",
+            held.torque,
+            held.capacity,
+            under_load.torque,
+            under_load.capacity
+        );
+
+        // And it fails as the *overloaded* mode, not as "never held": those
+        // look identical falling and have different causes, so the counter
+        // has to say which one fired. `CLAUDE.md`'s "did it fire at all
+        // needs a counter, not a picture", in test form.
+        let mut cache = Cache::default();
+        let mut budget = unbounded();
+        let failure = failing_region(&loaded, 1, 30, &mut cache, &mut budget).expect("an overloaded shelf must give up a piece");
+        assert_eq!(failure.mode, FailureMode::Overloaded, "the shelf is still attached to the wall -- it is overloaded, not unsupported");
+        assert!(
+            failing_region(&bare, 1, 30, &mut Cache::default(), &mut unbounded()).is_none(),
+            "the bare shelf must still hold -- if it does not, this is a capacity regression and not a surcharge"
+        );
+    }
+
+    /// The cost gate, stated as behaviour rather than as a comment.
+    ///
+    /// Sand *beside* rock and sand *under* rock are both common and neither
+    /// is a burden; only sand standing on top is. Written because the cheap
+    /// wrong version of `powder_surcharge` -- scan the neighbourhood, count
+    /// grains -- passes the test above and makes a beam weaker for having
+    /// been laid next to a dune.
+    #[test]
+    fn sand_beside_and_beneath_a_shelf_weighs_nothing_on_it() {
+        let bare = beam(14);
+        let plain = evaluate(&bare, 1, 30).expect("the shelf root should be evaluable");
+
+        let mut flanked = beam(14);
+        for depth in 0..POWDER_SURCHARGE_CAP {
+            flanked.set(15, 30 - depth, Cell::new(material::SAND, 0)); // past the tip
+            flanked.set(14, 31 + depth, Cell::new(material::SAND, 0)); // under the tip
+        }
+        structural::compute_world_distances(&mut flanked);
+        let beside = evaluate(&flanked, 1, 30).expect("the same cell must still be evaluable");
+
+        assert_eq!(
+            (beside.mass, beside.torque, beside.capacity),
+            (plain.mass, plain.torque, plain.capacity),
+            "grain alongside and underneath is not a load -- only what stands on top is"
+        );
+    }
+
+    /// A cap must bound *work*, never gate whether the term applies at all
+    /// — `CLAUDE.md`, and fracture already got this wrong once by declining
+    /// its largest regions outright. A hundred cells of sand must weigh what
+    /// twelve do, not what nothing does.
+    #[test]
+    fn a_pile_deeper_than_the_cap_still_weighs_the_cap_and_not_zero() {
+        let column = |depth: i32| {
+            let mut w = beam(14);
+            for d in 1..=depth {
+                w.set(14, 30 - d, Cell::new(material::SAND, 0));
+            }
+            structural::compute_world_distances(&mut w);
+            evaluate(&w, 1, 30).expect("the shelf root should be evaluable")
+        };
+        let at_cap = column(POWDER_SURCHARGE_CAP);
+        let far_past = column(POWDER_SURCHARGE_CAP * 8);
+        assert_eq!(
+            (at_cap.mass, at_cap.torque),
+            (far_past.mass, far_past.torque),
+            "past the cap the scan stops, but it must stop at the cap's value rather than falling through to nothing"
+        );
+        assert!(far_past.mass > column(0).mass, "a pile eight times the cap must still be a load");
     }
 }

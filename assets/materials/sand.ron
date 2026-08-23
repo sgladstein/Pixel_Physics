@@ -10,6 +10,10 @@
     penetration_resistance: 1.4,
     density: 1.6,
     friction_angle: 34.0,
+    // A blast's confinement probe spends this per cell of cover on its way
+    // to a free face -- see Material::blast_resistance. Loose and easily
+    // pushed through, well under stone's 1.0.
+    blast_resistance: 0.35,
     // Three families of four tones, `family * 4 + tone`, keyed by the
     // region's aridity at genesis, with family 0 the palette this file
     // shipped with and the only one a *random* pick may use (`base_colors`;

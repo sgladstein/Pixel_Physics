@@ -1,15 +1,68 @@
 # Structural Collapse
 
-*Current as of: 2026-08-21. Where something breaks — at the neck, across
+*Current as of: 2026-08-22 (rock submerged in water sinks rather than
+hanging, and reaches the bottom as rock rather than as grit; how fast it
+sinks now depends on how big the piece is, so a slab leads and grit
+trails; so does rock left in steam or standing on debris that has since
+washed away; a quench crust comes apart in slabs; and a pile of rubble is
+now weight on whatever span it is sitting on, so a blasted roof comes down
+under its own muck a moment later). Where something
+breaks — at the neck, across
 a section, sharing load between supports — is settled behavior, and a cut
 into a building now takes the corner it was made in rather than the whole
-building. Digging into open ground no longer spreads: a hole is a hole,
+building, and a very large collapse now arrives in stages that spread out
+from the break rather than in one frame. Loose material piled on rock now
+weighs on it, which is new and is what makes a blasted cave roof drop its
+own muck through — expect to find that in play before anywhere else.
+Digging into open ground no longer spreads: a hole is a hole,
 and the rock around it stops where the damage stops. What is still in flux
 is **how big a room you can build**: a wide, thin-walled one can still
 fail to hold its own roof up the moment you finish it, and the exact width
 at which that starts is not yet where anyone wants it. Also unsettled, and
 the thing to watch when playing: whether collapse now happens **too
-rarely** on open terrain, having spent a long time happening far too much.*
+rarely** on open terrain, having spent a long time happening far too much.
+And the answer to what was the open question at the top of this page last
+build — *does the hillside settle around a wound, or quietly eat itself?* —
+came back as **eating itself**, and is now fixed. **Rock cut loose deep
+inside solid stone still cracks where it stands, but it cracks along the
+same grain a blast finds rather than along wandering lines of its own.**
+Two things follow that are worth watching in play. The breaks a collapse
+draws are now one cell wide, straight and closed, matching the web a blast
+leaves rather than sitting on top of it as a darker tangle. And the world
+**goes quiet**: what came away at the moment of the bang is unchanged, but
+the trickle of small, apparently random collapses that used to go on for
+ten or twenty seconds afterwards has stopped — a charge settles a few
+seconds after the flash and then holds still. The trade is real and is the
+thing to judge: rather less rock comes away *in total* than in the build
+before this one, because much of that total used to arrive long after
+anyone was still watching. A piece smaller than one block of the grain has
+no joint inside it and so cracks nothing at all, which is the same rule as
+before wearing different clothes. **The setting that decides how far
+damage travels (`F9`) now actually does something, which it largely did
+not before** — see the last section, which is rewritten. Three things
+changed there: the setting survives loading a new world (it used to
+quietly go back to the default while the title bar kept naming what you
+picked, so anyone comparing settings across a re-roll was comparing the
+default with itself); it now bounds *what a collapse eats* rather than
+only where the question gets asked; and trees obey it, which they never
+did at any setting. The thing to judge in play is the trade the second of
+those buys, which is real and is described below: at the tighter settings
+a collapse can now stop part way and leave rock standing that is holding
+nothing up.
+
+**New this build, and the two worth watching.** What comes away from a
+collapse is now sized the way a hammer blow's debris is sized, so a big
+failure calves blocks where it used to shed chips and grit — fewer, larger
+pieces, and rather less dust. And falling rock now shoves smoke aside
+instead of stopping dead on it, which mattered because the one place in the
+world thick with smoke is the fresh crater a chunk is trying to fall into.
+
+**Still true, and the honest limit of the setting:** how far damage travels
+is set far more by how big the blast itself was than by where `F9` is
+pointed. The setting reliably controls **how much** comes down — at the
+tightest settings almost nothing does — but a big charge marks rock a long
+way out at every setting, because the web it wakes is part of the blast
+rather than part of the aftermath.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -40,6 +93,11 @@ Wide flat spans are therefore the thing to watch when building: a long
 roof wants to be thick, or to be an arch, or to come down on a wall part
 way along.
 
+A crack that goes all the way *round* something now genuinely cuts it off,
+including deep inside solid rock where there is no open face anywhere near
+it — which is what the paragraph below has always claimed and, until
+recently, was not quite true of a crack drawn at an angle.
+
 Hitting rock scores fissures into it that run well past the material the
 blow actually removes, and they stay. Cracked rock carries less than
 intact rock, and striking the same spot again drives the existing fissures
@@ -51,9 +109,63 @@ something separates it.
 When something does give way, a whole section breaks free at once rather
 than peeling off one thin sliver at a time, and it reads as chunks rather
 than a spray of grit. Different kinds of rock also come apart into
-differently sized pieces. A large disconnected mass doesn't necessarily
-come down all in one frame either — a big enough collapse plays out in
-stages rather than vanishing instantly.
+differently sized pieces.
+
+A really big collapse does not arrive all at once. It starts where the
+rock actually gave way — the neck, the undercut, wherever you were
+working — and eats outward from there over the next half second, in
+several bites rather than one. A hundred-cell overhang therefore reads as
+something *coming down*, with the near end going first and the far end
+following it, instead of the whole span blinking out of existence in a
+single frame. Once it has started it always finishes: nothing stops
+half way and leaves rock hanging in the air — **except where you have
+asked it to.** At the default that "except" never fires. At the tighter
+`F9` settings below it can, and that is the price of them; see that
+section.
+
+**Rock underwater still comes down.** A piece that has come loose is judged
+on whether it has anywhere to go, and water counts: a slab that loses its
+support in a pond sinks to the bottom rather than hanging where it was, and
+so does the fresh rock a lava flow leaves when it quenches mid-water. Steam
+counts the same way — rock falls through a cloud of it exactly as it falls
+through air, so the stone a quench mints in the middle of its own steam
+does not stay up there once the steam clears. What does *not* count is rock
+wedged in a hole its own shape, deep inside a mountain — that has genuinely
+nowhere to move, so it cracks where it stands instead. Something buoyant is
+the other exception: an ice sheet is held up by the water under it and
+stays there.
+
+**And it arrives as rock.** A chunk that goes into water sinks as the chunk
+it was, shoving the water it meets up and over itself, and lands on the
+bottom as a piece you can still see the shape of. It used to grind itself
+to gravel on the way down — a slab would enter the pond, come apart, and
+what reached the floor was a smooth dune of powder — because a piece that
+could not push the water aside stopped, was treated as having landed, and
+was broken up again, over and over. Now the deeper the water, the longer
+the fall; it does not cost the piece anything. A pile of rock on a pond
+floor is jagged.
+
+**And it sinks at a pace rather than accelerating.** Water pushes back: a
+piece slows as it goes under and settles to a steady sink instead of
+speeding up all the way to the bed.
+
+**Big pieces lead and grit follows.** How fast a piece settles depends on
+how big it is as well as how heavy — a boulder plummets, a fragment drifts
+down, and a stone barely denser than water only just sinks at all. So the
+debris from one break arrives spread out, largest first, over a few
+seconds rather than all at once. That is a change from the previous build,
+which sank everything at one speed to stop pieces outrunning each other;
+what that was really fixing was pieces *accelerating* to ten times the
+speed of their own grit, and the fix over-corrected into a world where a
+pebble and a slab fell alike.
+
+**And ground that goes away is noticed.** A piece can be held up by nothing
+but the loose material beneath it, and loose material moves: the gravel
+washes out, the debris sinks, the sand pours away downhill. When that
+happens the piece comes down too, within about a second rather than
+instantly — a short pause while it works out that its footing has gone,
+then it falls. It does not stay hanging in the space its support used to
+fill.
 
 **What you build is sound until something happens to it.** Placed stone is
 braced the same way the world's own rock is — the way a real cliff face is
@@ -80,14 +192,46 @@ Broken stone leaves rubble behind in stone's own colour (see
 [Powders](powders.md)), so a collapsed span visibly reads as "this used to
 be part of the structure" rather than a material swap.
 
-Rubble is something rock can stand *on*, and that is all. Loose material
-holds a piece up the way a gravel bed holds up a paving slab — it takes
-weight, and it takes it wherever the piece actually touches down — but it
-cannot hold anything *steady*. A piece whose weight sits over its footing
-rests on rubble indefinitely, however heavy it is; one reaching out past
-the edge of what it's standing on tips off, however light. Nothing in
-between is special-cased, and the same rule covers a boulder settling into
+Rubble is something rock can stand *on*. Loose material holds a piece up
+the way a gravel bed holds up a paving slab — it takes weight, and it takes
+it wherever the piece actually touches down — but it cannot hold anything
+*steady*. And something has to hold the rubble up in
+turn: loose material only bears weight if it is itself standing on
+something — bedrock, on ground, or on more loose material. Debris caught
+*inside* a falling piece is filler, not footing, and a grain with nothing
+under it is on its way down like everything else.
+
+That sounds like a technicality and it is the difference between a boulder
+sinking to the bottom of a pond and a boulder parked in the sky above it,
+held there by two grains of its own debris. A piece whose weight sits over
+its footing rests on rubble indefinitely, however heavy it is; one reaching
+out past the edge of what it's standing on tips off, however light. Nothing
+in between is special-cased, and the same rule covers a boulder settling into
 a scree slope and a ledge that overhangs the pile beneath it.
+
+Rubble is also something rock can be *crushed by*. A pile standing on a
+span is weight on that span, exactly as more rock would be, and a deep one
+counts for a lot — so muck left sitting on a roof you have just blasted is
+a load that roof did not have before, and a thin one over a cave will give
+way under it and pour through. This is the mining beat: blow the roof,
+wait, and the broken stuff comes down of its own accord a moment later.
+Only what is directly *on top* counts — sand heaped against the side of a
+beam, or lying under it, is not a burden — and past about a dozen cells
+deep a pile stops getting heavier, the way real fill arches over itself
+instead of pressing its whole weight down.
+
+One rough edge worth knowing: a pile that grows very slowly, a grain at a
+time, may not be noticed by the rock underneath until something else
+happens nearby. Anything that *arrives* — a slab landing, a blast, a
+blow — is noticed immediately.
+
+Water holds one thing up and one only: **ice** (see
+[Weather](weather.md#cold-snaps-freeze-standing-water)). A frozen crust on
+a pond is supported by the whole of the water under it, not by the shore it
+reaches back to, so a sheet does not care how wide the pond is — but it is
+still judged on what it is carrying, so a wide sheet under a deep enough
+drift breaks up, and it breaks into slush. Nothing else floats: a slab of
+rock dropped into a lake is as unsupported there as it would be in mid-air.
 
 What that rules out is the thing rubble used to do: a slab lying on debris
 from its own collapse was treated as though the debris were what held it
@@ -131,14 +275,38 @@ cycled with `F9`, named in the title bar whenever it is not the default:
 
 - **SPREAD** (default) — damage travels as far as the structure says it
   should. Nothing is held back.
-- **LOCAL** — consequences stay within a wide room of the blow.
+- **LOCAL** — consequences stay within a wide room of the wound.
 - **TIGHT** — the wound and its surroundings only. Undermining still brings
   things down, but a hillside stops unravelling.
 - **NONE** — only what you struck is ever destroyed. Nothing collapses
   afterwards, at all.
 
+**The distance is measured from the edge of what you hit, not from the
+middle of it.** A big charge makes a big wound, and its own crater and the
+seams it opens are always inside its own allowance however tight the
+setting is — otherwise TIGHT would crack rock and never break it, which is
+the opposite of the complaint it exists for. So the leash is on *the chain
+beyond the wound*: what the tool does is the tool's business, and what
+happens next is what the setting governs. A heavier tool therefore gets a
+longer leash, which is the same thing as saying a bigger bang is allowed a
+bigger consequence.
+
+The setting now survives loading a new world, which it did not before — it
+used to go quietly back to SPREAD on every re-roll while the title bar
+went on naming what you had chosen. It also reaches a collapse that has
+already started: switching to a tighter setting mid-cave-in stops the rest
+of it arriving, rather than only affecting the next one. And it applies to
+trees, which previously ignored it entirely — a blast could take a limb off
+a tree fifty cells away at any setting, including NONE.
+
 The whole range is one number, so it is worth trying the ends rather than
-reasoning about them. Note what the tighter settings cost: a delayed
-cave-in is a mechanic, and **NONE** removes it entirely — you can undercut
-a mountain and it will sit there.
+reasoning about them. Note what the tighter settings cost, and there are
+two costs, not one. A delayed cave-in is a mechanic, and **NONE** removes
+it entirely — you can undercut a mountain and it will sit there. And at
+**LOCAL** or **TIGHT** a collapse that runs into the edge of its allowance
+simply stops there, so a long span can lose the part near the blast and
+leave the far part standing on nothing. That is the setting doing what it
+was asked, and it is also the thing most likely to look wrong: rock in the
+air is a strong signal, and whether it is a worse artifact than the
+unravelling hillside it replaces is the open question on this page.
 

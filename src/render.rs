@@ -7,7 +7,7 @@
 
 use std::collections::HashSet;
 
-use crate::sim::cell::AMBIENT_TEMPERATURE;
+use crate::sim::cell::{Cell, AMBIENT_TEMPERATURE};
 use crate::sim::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
 use crate::sim::material;
 use crate::sim::organism;
@@ -321,6 +321,370 @@ const FLAME_FLICKER_PERIOD: u64 = 4;
 /// to make a hot cell ever read as merely warm.
 const FLAME_FLICKER_STRENGTH: f32 = 0.3;
 
+/// How hot a `Liquid` cell has to be before `BubbleMode` draws vapour in it.
+///
+/// **Well below boiling, and that is the whole design, arrived at by
+/// getting it wrong first.** This was 80°C — near-boiling — on the obvious
+/// reading that a bubble is drawn where the water is boiling. Measured on
+/// `scene=simmer` (a pan over a hot hearth), a heated pool holds *72 to
+/// 210* cells over 80°C and every one of them is the single row lying on
+/// the hearth, under a bright fire tint. Diffed against the same sheet with
+/// the effect off: **every changed pixel was in world rows 307-308**, the
+/// bottom two of a fourteen-deep pan. There is no column of boiling water
+/// for anything to rise through, and there never will be — a cell that hot
+/// converts to steam within a few visits.
+///
+/// A rising bubble is not *in* boiling water; it is in **warm** water above
+/// a boiling floor. `CLAUDE.md`'s "which cell does this rule evaluate?", in
+/// its rendering costume. The same pan holds 995-1,117 cells over 40°C and
+/// 354-676 over 60, spread up the whole column, which is a plume.
+///
+/// 40 rather than lower because ambient is 20 and a puddle beside a
+/// campfire should not fizz. `examples/filmstrip.rs` prints the standing
+/// count of liquid cells over this next to the image, because "the pool is
+/// not bubbling" and "there is nothing warm enough in the pool to bubble"
+/// are the same picture.
+pub const BUBBLE_MIN_TEMPERATURE: f32 = 40.0;
+
+/// The temperature at which the effect is at full strength. Water's own
+/// boiling point — above it a cell is converting to steam anyway, so there
+/// is nothing to gain from drawing more vapour inside it.
+const BUBBLE_FULL_TEMPERATURE: f32 = 100.0;
+
+/// Frames a bubble pattern takes to climb one cell. Small: bubbles rise
+/// visibly faster than anything else in this engine moves, and the whole
+/// point of keying on the frame is that they read as *rising* rather than
+/// as a hot-water texture.
+const BUBBLE_RISE_PERIOD: u64 = 2;
+
+/// Fraction of candidate sites holding a bubble at full strength, before
+/// the per-cell temperature ramp scales it down. Sparse: a pool where
+/// every other pixel is a bubble is foam, not boiling water. Set so a
+/// uniformly near-boiling pool lights ~15% of its pixels, which
+/// `every_bubble_mode_actually_draws_bubbles_in_boiling_water` bounds.
+const BUBBLE_DENSITY: f32 = 0.16;
+
+/// How far a bubble's crown pixel blends toward `BUBBLE_TINT`, and how much
+/// less its lower half gets. The split is what makes a two-pixel bubble
+/// read as *domed* rather than as a square — a bright top over a dimmer
+/// bottom is the cheapest possible specular highlight.
+///
+/// # A near-replace, because a blend of steam's colour is not steam's colour
+///
+/// Reported from play: the bubbles *"are not the color of steam"*. Checked,
+/// and `BUBBLE_TINT` already **is** steam's colour — `[225, 238, 248]`
+/// against `steam.ron`'s own `(222, 228, 236)`. What was wrong was the
+/// blend: at the old 0.72 crown and 0.30 underside, most of a bubble pixel
+/// was still the blue water behind it, and a mark that is 70% pond reads as
+/// tinted water however well-chosen the other 30% is.
+///
+/// This is the same mistake the field overlays made and
+/// `FieldOverlay`'s notes already record — *a magnitude-scaled blend read as
+/// blank; make it a full replace on a fixed ramp*. Bubbles are the third
+/// place in this file to learn it.
+///
+/// Not a *full* replace: a hard 1.0 everywhere loses the dome, and the dome
+/// is what stops a 2x2 site being a white square. The crown replaces and
+/// the underside keeps enough water to shade against it.
+const BUBBLE_LIFT: f32 = 1.0;
+
+/// The side of an ordinary bubble's site, in cells.
+///
+/// **Two, and a three was tried and rejected in play.** The reasoning for
+/// the three was sound and the result was not: a 2x2 site cannot be
+/// anything but a square, so the site was widened to 3x3 with its four
+/// corners left dark — the smallest mark on a square grid that is *not* a
+/// square. It draws a five-pixel plus, and a plus at this size reads worse
+/// than the square did: *"You went from squares to crosses. That is
+/// worse."* Do not re-derive the 3; at three cells across there is no
+/// arrangement of lit pixels that reads as round.
+///
+/// The playtest that rejected it named the way out — *"unless you made much
+/// bigger bubbles"* — which is `BubbleMode::Large`, where a mask has enough
+/// pixels to curve.
+const BUBBLE_SITE: i32 = 2;
+
+/// The side of a `BubbleMode::Large` site, in cells.
+///
+/// Six, because that is where a disc mask starts to have somewhere to put
+/// the curve: at four, trimming the corners leaves an octagon one pixel
+/// deep and the shape is back to reading as a chamfered square.
+const BUBBLE_LARGE_SITE: i32 = 6;
+
+/// The two disc sizes a `BubbleMode::Large` site draws, as (squared radius
+/// from the site's centre, cells lit).
+///
+/// **Two sizes, because one is a pattern.** Asked for from play: *"Large
+/// should include a mix of this plus 1 pixel smaller bubbles."* A grid of
+/// identical marks reads as a texture however round each mark is; a mix
+/// reads as bubbles.
+///
+/// Eight is the big one's radius, rather than the nine a circle inscribed
+/// in the site would use: nine trims only the four corners (32 of 36 lit)
+/// and still reads square, eight also drops the eight cells flanking them
+/// and leaves an octagon. 3.5 is the small one -- one cell narrower each
+/// way with its own corners off, twelve lit. **4.5 was tried first and is
+/// wrong**: at that radius the mask keeps exactly the inner four-by-four
+/// block, so the small bubble draws a filled *square* -- the shape this
+/// whole mode exists because play rejected.
+///
+/// The lit counts are hardcoded rather than counted, because they divide
+/// the density on the hottest per-pixel path in this file -- and
+/// `the_large_bubble_mask_lights_what_the_density_correction_assumes`
+/// guards both against the mask, so neither can drift.
+const BUBBLE_LARGE_DISCS: [(f32, i32); 2] = [(8.0, 24), (3.5, 12)];
+
+/// Which of `BUBBLE_LARGE_DISCS` a site draws -- a second hash,
+/// independent of the one that decides whether the site lights at all, or
+/// size and presence would be correlated and the small ones would all
+/// arrive together.
+fn large_bubble_disc(sx: i32, sy: i32) -> (f32, i32) {
+    BUBBLE_LARGE_DISCS[usize::from(rng::jitter3(sx, sy, 0x5B) < 0.5)]
+}
+
+/// How much rarer a `BubbleMode::Large` bubble is than the density
+/// correction alone would make it.
+///
+/// *"Unless you made much bigger bubbles"* is a request for **fewer and
+/// bigger**, not for the same amount of boil in wider marks. Normalised
+/// per pixel and nothing else, six-cell discs at `BUBBLE_DENSITY` put a lit
+/// site next to a lit site and the pan reads as a fog bank rather than as
+/// bubbles — measured by eye on `scene=simmer`, which is only two site rows
+/// deep at this size, so neighbours merge into horizontal smears. Halving
+/// the population is what separates them again.
+const BUBBLE_LARGE_RARITY: f32 = 0.5;
+
+
+/// `BUBBLE_LIFT` for the shaded half of a bubble. See that constant for why
+/// both numbers moved up together: at 0.30 the underside was 70% pond water
+/// and the bubble read as a tinted patch of the liquid rather than as gas
+/// sitting in it.
+const BUBBLE_UNDERSIDE: f32 = 0.72;
+
+/// Whether `(ix, iy)` within a `BubbleMode::Large` site of squared radius
+/// `radius_sq` falls inside its disc. See `BUBBLE_LARGE_DISCS`.
+fn large_bubble_covers(ix: i32, iy: i32, radius_sq: f32) -> bool {
+    let centre = (BUBBLE_LARGE_SITE - 1) as f32 / 2.0;
+    let (dx, dy) = (ix as f32 - centre, iy as f32 - centre);
+    dx * dx + dy * dy <= radius_sq
+}
+
+/// The share of a bubble's brightness that does *not* scale with how hot
+/// its cell is. **Density carries the temperature signal; brightness only
+/// helps a little.** Scaling both was tried and it is the wrong shape: a
+/// bubble halfway up a warm column then draws at half strength and reads as
+/// grain, so exactly the population the threshold was lowered to reach
+/// arrives invisible. A bubble either is there or is not.
+///
+/// Raised with `BUBBLE_LIFT` for the same reason: at 0.5 a bubble in
+/// half-boiling water drew at 75% of an already-diluted blend, which is the
+/// invisibility this constant exists to prevent, arriving by the other door.
+const BUBBLE_FLOOR: f32 = 0.85;
+
+/// How far below a surface cell `BubbleMode::Surface` looks for the heat
+/// that made the bubble.
+///
+/// Deep enough to see the bottom of an ordinary pan, shallow enough that a
+/// lake's surface is not reporting on water twenty rows down that has
+/// nothing to do with it.
+const SURFACE_BUBBLE_DEPTH: i32 = 8;
+
+/// The hottest liquid of the same kind within `SURFACE_BUBBLE_DEPTH` below
+/// `(x, y)`, as a boil fraction.
+///
+/// # Why `Surface` needed this to mean anything at all
+///
+/// The mode gated on a cell being both **near the top of its body** and
+/// **over `BUBBLE_MIN_TEMPERATURE`**, and heat arrives from underneath —
+/// so on any bottom-heated pool those two sets are in different places and
+/// the mode diffed to **zero pixels** against `Off`. The owner saw exactly
+/// that and said so: *"All images look mostly identical. But also if we are
+/// testing bubbles in water the boiling needs to happen at the bottom of
+/// the pond/lake instead of the top."* Both halves of that were right, and
+/// the second explains the first.
+///
+/// A bubble is not made where it pops. Asking about the water *below* is
+/// what makes the mode's own description true — vapour drawn where the
+/// liquid has something to escape into, with the boil that produced it
+/// setting how much.
+///
+/// **This costs the surface row and nothing else.** The near-top test runs
+/// first and bails everything under it, so the scan is paid by O(width)
+/// cells rather than by the pool.
+fn boil_below(world: &World, x: i32, y: i32, cell: Cell, heat_to_boil: impl Fn(i16) -> f32) -> f32 {
+    let mut best = 0.0f32;
+    for dy in 1..=SURFACE_BUBBLE_DEPTH {
+        let below = world.get(x, y + dy);
+        if below.material != cell.material {
+            break; // out of this body: past the floor, or into something else
+        }
+        best = best.max(heat_to_boil(below.temperature()));
+    }
+    best
+}
+
+/// What a bubble blends toward: near-white with a cool cast, so vapour
+/// inside water reads as the same substance as the steam above it rather
+/// than as a bright blue liquid pixel.
+const BUBBLE_TINT: [f32; 3] = [225.0, 238.0, 248.0];
+
+/// How boiling liquid is drawn, cycled by `H`.
+///
+/// **A selector rather than a decision, on `GrainMode`'s precedent**: this
+/// is a "does it look right" question, five grain modes behind one key
+/// settled the last one of those in minutes, and no amount of argument or
+/// still images had. `Off` is the default so nothing changes for anyone who
+/// does not press the key, and the active mode is named on screen. **The
+/// selector has since been run**: `Rising` won and is the default; `Off`
+/// stays on the cycle, because a look decision with no way back to the
+/// thing it replaced cannot be re-argued.
+///
+/// **None of these costs the dirty-rect render skip**, which is the usual
+/// price of an animated effect (`GrainMode::Animated` pays ~10 ms/frame on
+/// a settled world for exactly that reason). They ride inside the heat-glow
+/// branch, which already admits only cells that are burning or off ambient
+/// — and a cell that is off ambient is one `fire::update` is still writing
+/// every frame to keep its own chunk dirty, so its chunk is in `touched`
+/// already. A settled world has no such cells and pays nothing.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum BubbleMode {
+    /// The behaviour up to this build: hot water is tinted by the heat glow
+    /// and nothing else, and boiling reads as the steam above the surface.
+    Off,
+    /// Sparse domed highlights scrolling upward, on a `BUBBLE_SITE` grid.
+    /// The bubble is the unit, not the pixel — a one-pixel speckle at this
+    /// density reads as grain, which is the failure mode this variant is
+    /// shaped against.
+    ///
+    /// **The default**, chosen from a card: *"Off (current) and rising look
+    /// best."* The same card asked for them to be less blocky, and the
+    /// attempt to round *this* mode was rejected on sight — see
+    /// `BUBBLE_SITE`. `Large` is where that ask lives now.
+    #[default]
+    Rising,
+    /// `Rising` at `BUBBLE_LARGE_SITE`, masked to a disc: fewer bubbles,
+    /// each big enough to have a shape.
+    ///
+    /// From the same card, after the rounded 3x3 was rejected: *"I guess
+    /// this is just a limit of our resolution unless you made much bigger
+    /// bubbles."* This is that, and it is a separate mode rather than a
+    /// retune of `Rising` because the two are different looks and only play
+    /// can say which pool wants which.
+    Large,
+    /// `Rising`, but the pattern is stretched vertically so a bubble is a
+    /// short column rather than a blob, and it climbs faster. The other
+    /// reading of "bubbles": a stream leaving a nucleation site, rather
+    /// than a scatter of separate pockets.
+    Columns,
+    /// Bubbles only where the liquid has something to escape *into* — the
+    /// pattern is the same as `Rising`, gated on the cell being within a
+    /// couple of rows of the top of its own body. Boiling that stays at the
+    /// surface, for the reading that a bubble deep in a pool should not be
+    /// visible through the water above it.
+    ///
+    /// The heat that decides how much comes from the water **below** the
+    /// cell, not from the cell itself — see `boil_below`, and note that
+    /// without it this mode drew nothing at all on any bottom-heated pool.
+    Surface,
+}
+
+impl BubbleMode {
+    fn next(self) -> Self {
+        match self {
+            BubbleMode::Off => BubbleMode::Rising,
+            BubbleMode::Rising => BubbleMode::Large,
+            BubbleMode::Large => BubbleMode::Columns,
+            BubbleMode::Columns => BubbleMode::Surface,
+            BubbleMode::Surface => BubbleMode::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            BubbleMode::Off => "OFF (the old look)",
+            BubbleMode::Rising => "RISING (current)",
+            BubbleMode::Large => "LARGE",
+            BubbleMode::Columns => "COLUMNS",
+            BubbleMode::Surface => "SURFACE",
+        }
+    }
+}
+
+/// How a `Gas` cell is drawn against what is behind it, cycled by `;`.
+///
+/// Gas has always drawn opaque, which is the one thing a cloud is not, and
+/// it costs more than it looks: `scene=boil`'s steam fills its chamber by
+/// frame 300 and from then on the sheet shows a speckled wall with the pool
+/// somewhere behind it. That is not only a look complaint -- it is why the
+/// bubble work above had to build `scene=simmer` to be judged at all.
+///
+/// A selector rather than a decision, on `GrainMode`'s precedent -- and
+/// **the selector has been run and `ByFill` won**, so it is the default
+/// now. The owner, judging a blind card of the three: *"A and C are almost
+/// indistinguishable (at least in static images), but look better than
+/// option B"* -- A and C being `Translucent` and `ByFill`, B `Opaque`. Of
+/// the two that tied by eye, `ByFill` is the one that is also a readout:
+/// its alpha follows the cell's own fill, so a thinning plume draws
+/// thinner and a full one does not.
+///
+/// `Opaque` is kept on the cycle rather than deleted. It is what every
+/// screenshot before this build shows, and a look decision with no way back
+/// to the thing it replaced cannot be re-argued.
+///
+/// **It does not cost the dirty-rect render skip.** The blend reads
+/// `background_at`, which is a `Vec` index and an array index and no
+/// `World::get` at all, and it runs only for `Gas` cells -- a population
+/// that is empty on a settled world and small even during a blast.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum GasMode {
+    /// The behaviour up to this build: a gas cell's own colour, lit, and
+    /// nothing else.
+    Opaque,
+    /// Blended toward what is behind it by `GAS_ALPHA`, so a cloud thins
+    /// what it covers rather than replacing it. Applied *after* the light,
+    /// deliberately: the background is already lit, and blending before
+    /// would light it twice.
+    Translucent,
+    /// `Translucent`, but the alpha follows the cell's own `aux` fill --
+    /// which for steam is the water it carries (`fire::transform`'s table),
+    /// so a plume that has thinned out draws thinner. The other reading of
+    /// "translucent", and the one that is a *readout* as well as a look.
+    ///
+    /// The default, chosen by the owner from a blind card -- see the enum's
+    /// own doc.
+    #[default]
+    ByFill,
+}
+
+impl GasMode {
+    fn next(self) -> Self {
+        match self {
+            GasMode::Opaque => GasMode::Translucent,
+            GasMode::Translucent => GasMode::ByFill,
+            GasMode::ByFill => GasMode::Opaque,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            GasMode::Opaque => "OPAQUE (the old look)",
+            GasMode::Translucent => "TRANSLUCENT",
+            GasMode::ByFill => "BY-FILL (current)",
+        }
+    }
+}
+
+/// How much of its own colour a `GasMode::Translucent` cell keeps. Well
+/// above half: a cloud you can see straight through is fog, not steam, and
+/// the point is to thin what is behind rather than to reveal it.
+const GAS_ALPHA: f32 = 0.62;
+
+/// The floor `GasMode::ByFill` will not thin past, so a nearly-drained
+/// steam cell is still visibly *there*. Without it the thin edge of every
+/// plume disappears entirely and the cloud reads as having a hard rim,
+/// which is the opposite of the point.
+const GAS_ALPHA_MIN: f32 = 0.25;
+
 /// Which M13 field channel `Renderer::field_overlay` tints the screen by,
 /// cycled by `V` — parallel to `F1`'s existing chunk overlay, for seeing
 /// the coarse field grid instead of chunk activity.
@@ -414,6 +778,16 @@ pub enum OrganismOverlay {
     /// the root work has to be able to look at. Without it, a wetting
     /// front descending through soil is completely invisible.
     SoilMoisture,
+    /// What is edible, and how much it is worth.
+    ///
+    /// **Built before anything reads the value for a decision**, per
+    /// `CLAUDE.md`: a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. Full replace on a
+    /// fixed ramp, never a blend into the cell's own colour -- a
+    /// magnitude-scaled blend was tried once on canopy density and produced
+    /// a sheet that read as blank because the ramp was red and the material
+    /// brown.
+    FoodValue,
 }
 
 impl OrganismOverlay {
@@ -424,7 +798,8 @@ impl OrganismOverlay {
             OrganismOverlay::Resource => OrganismOverlay::CanopyDensity,
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
-            OrganismOverlay::SoilMoisture => OrganismOverlay::Off,
+            OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
+            OrganismOverlay::FoodValue => OrganismOverlay::Off,
         }
     }
 
@@ -436,6 +811,7 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => "CANOPY DENSITY",
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
+            OrganismOverlay::FoodValue => "FOOD VALUE",
         }
     }
 }
@@ -485,6 +861,10 @@ const SCALAR_RAMP_MOISTURE: [f32; 3] = [80.0, 170.0, 255.0];
 /// it carries are different quantities on different timescales, and two
 /// green ramps would invite reading one sheet as the other.
 const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
+/// Distinct from every other ramp on purpose: food value is read against
+/// moss and leaf, which are already green, and against corpse, which is
+/// already dull red.
+const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -496,6 +876,12 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// one-cell-wide line.
 const SCALAR_RAMP_PHERO_A: [f32; 3] = [255.0, 80.0, 220.0];
 const SCALAR_RAMP_PHERO_B: [f32; 3] = [80.0, 240.0, 255.0];
+/// The two halves of the signed temperature ramp — warmer than ambient and
+/// cooler than ambient. Two hues rather than one ramp through black, so the
+/// *sign* is readable at a glance on a contact sheet: a world that has gone
+/// blue overnight and one that has gone dark are different pictures.
+const SCALAR_RAMP_WARM: [f32; 3] = [255.0, 140.0, 40.0];
+const SCALAR_RAMP_COOL: [f32; 3] = [90.0, 150.0, 255.0];
 
 const SCALAR_RAMP_FLOOR: f32 = 0.18;
 
@@ -621,6 +1007,32 @@ const FLASH_LIFT: f32 = 0.34;
 
 const DAMP_DARKEN: u32 = 150;
 const CRACK_DARKEN: u16 = 110;
+/// What a cracked cell draws as when the zoom gives the crack pixels of its
+/// own: a darkened strip along the severed edge instead of the whole cell.
+///
+/// A crack is *edge* state — `FLAG_CRACK_RIGHT` says this cell has parted
+/// from the one to its right — and darkening the whole cell was always a
+/// stand-in for having nowhere else to put it. At 1:1 that is still true and
+/// nothing here changes it. Past that, the cell is a block of pixels and the
+/// edge has real ones: `CRACK_STRIP_DIVISOR` of the block (at least one
+/// pixel) along the bottom for `crack_down`, along the right for
+/// `crack_right`. The result reads as a hairline fracture threading the rock
+/// rather than a fat one-cell smear, and it follows the actual geometry of
+/// the break — a horizontal run of `crack_down` cells draws one continuous
+/// line, where the whole-cell version drew a thick dashed band with no
+/// direction at all.
+///
+/// The strip darkens harder than the whole cell did (0.35x against 0.43x)
+/// because it is a fraction of the area: the same visual weight has to come
+/// out of fewer pixels or a fissure that was faint at play zoom becomes
+/// invisible.
+///
+/// Cost: unchanged. Same per-cell draw path, one extra comparison on cells
+/// that are cracked, and the output is still a pure function of the cell's
+/// own data plus the pixel's offset inside its block — so the dirty-rect
+/// skip is untouched.
+const CRACK_EDGE_DARKEN: u16 = 90;
+const CRACK_STRIP_DIVISOR: i32 = 3;
 
 /// The gnome's colored-cell sprite, `PLAYER_HEIGHT` rows of
 /// `PLAYER_WIDTH`, top to bottom: a pointed hat over a bearded face, a
@@ -847,6 +1259,13 @@ pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
     pub grain: GrainMode,
+    /// How boiling liquid is drawn — see `BubbleMode`. `Off` by default,
+    /// cycled by `H`, and free on a settled world for the reason that enum
+    /// documents.
+    pub bubbles: BubbleMode,
+    /// How a `Gas` cell is drawn against what is behind it -- see
+    /// `GasMode`. `ByFill` by default, cycled by `;`.
+    pub gas: GasMode,
     /// Whether the gnome weaves through a stand or draws over it — see
     /// `TreeDepth`. Cycled with `F10`.
     pub tree_depth: TreeDepth,
@@ -1018,6 +1437,26 @@ pub struct Renderer {
     /// rock, which is the "caves are dark, bring a torch" feature and not
     /// this one.
     daylight: u8,
+    /// `Some(frame)` draws every frame's *lighting* as if it were that frame,
+    /// leaving the simulation alone.
+    ///
+    /// **For contact sheets of slow processes.** Every cell is tinted and
+    /// dimmed by the day/night cycle (`sky::apply_light` below), and
+    /// `DAY_NIGHT_PERIOD_FRAMES` is 3600, so a sheet sampling a multi-day
+    /// process walks its tiles around the light cycle and adjacent tiles
+    /// differ in brightness for reasons that have nothing to do with what the
+    /// sheet was cut to show. Reported from play against a six-minute ice
+    /// arc: *"you can see a different ice morphology between the first and
+    /// second half"* -- and tile six was simply at dusk.
+    ///
+    /// A render-side pin rather than moving the sample frames, which was
+    /// tried first and is worse: quantising the interval to whole days is the
+    /// only way to make sampled frames share a phase, and that doubled the
+    /// span (and the runtime) of the one acceptance case it touched while
+    /// changing which frames were being judged. This changes no frame and no
+    /// timing. `field::noon_equivalent_light` divides the same oscillator out
+    /// of *decisions*; this is its render-side twin.
+    pub pinned_light: Option<u64>,
     /// `CAVE_FADE_DEPTH`'s ramp, precomputed: how far toward `UNDERGROUND`
     /// a cell `i` rows below its column's sky floor is drawn, as a 0..=255
     /// weight.
@@ -1081,6 +1520,8 @@ impl Renderer {
     pub fn new() -> Self {
         Self {
             grain: GrainMode::default(),
+            bubbles: BubbleMode::default(),
+            gas: GasMode::default(),
             tree_depth: TreeDepth::default(),
             frame: 0,
             last_body_rects: Vec::new(),
@@ -1106,6 +1547,7 @@ impl Renderer {
             sky: Sky::at(0, 0, 1, 0, 1),
             last_sky_key: None,
             daylight: sky::LIGHT_LEVELS,
+            pinned_light: None,
             cave_ramp: {
                 let mut ramp = [0u8; CAVE_FADE_DEPTH as usize + 1];
                 for (i, slot) in ramp.iter_mut().enumerate() {
@@ -1177,6 +1619,19 @@ impl Renderer {
 
     pub fn cycle_grain(&mut self) {
         self.grain = self.grain.next();
+    }
+
+    /// `H` — step through the boiling looks. Same reasoning as
+    /// `cycle_grain`, and the same reason it stays rather than being
+    /// collapsed once one is picked: whether a pool reads as boiling is a
+    /// judgement about motion, and a contact sheet can only get it so far.
+    pub fn cycle_bubbles(&mut self) {
+        self.bubbles = self.bubbles.next();
+    }
+
+    /// `;` -- step through the gas looks. Same reasoning as `cycle_grain`.
+    pub fn cycle_gas(&mut self) {
+        self.gas = self.gas.next();
     }
 
     pub fn cycle_field_overlay(&mut self) {
@@ -1543,9 +1998,24 @@ impl Renderer {
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
         let weather = crate::sim::weather::at(world.seed, world.frame);
-        self.sky = Sky::at(world.frame, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
+        // **The drawn storm and the landing storm have to be the same
+        // storm.** Falling precipitation is drawn straight from
+        // `weather::at` and is never simulated -- `weather::step` puts water
+        // in where it *lands*, deliberately writing nothing into a sky column
+        // -- so the two are only ever kept in agreement by both reading the
+        // same numbers. `World::storm_supply` is the second such number
+        // (intensity was the first): the sky can only rain what it is
+        // holding, and a bankrupt one that still drew a full downpour would
+        // be visibly lying, for the whole length of a front, about the one
+        // thing the player can see.
+        let storm_supply = world.storm_supply();
+        // Both the gradient and the ambient tint come from the same frame, so
+        // a pin moves them together -- half-pinning would light the ground at
+        // noon under a midnight sky.
+        let lit_at = self.pinned_light.unwrap_or(world.frame);
+        self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
-        self.daylight = sky::daylight_level(world.frame);
+        self.daylight = sky::daylight_level(lit_at);
         self.rebuild_horizon(world);
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
@@ -1639,7 +2109,13 @@ impl Renderer {
             // ends when the rain does. This is exactly the cost that made
             // `ParticleSystem` the wrong vehicle -- there it would have been
             // permanent instead.
-            || weather.is_precipitating()
+            //
+            // Gated on the supply as well, so a front over a bankrupt sky
+            // does not buy the full-redraw cost for a frame with no streaks
+            // in it. Same factor as the draw below, or this would force
+            // repaints for rain that is not there (or, worse the other way,
+            // skip repaints for rain that is).
+            || (weather.is_precipitating() && storm_supply > 0.0)
             // A strike lifts every pixel in the frame, so the frame after one
             // has to be repainted or the flash sticks around as a permanently
             // brightened world.
@@ -1664,7 +2140,7 @@ impl Renderer {
                 let sx = (i % width as usize) as i32;
                 let sy = (i / width as usize) as i32;
                 let (wx, wy) = self.screen_to_world(sx, sy);
-                let colour = self.cell_colour(world, wx, wy);
+                let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                 pixel.copy_from_slice(&colour);
             }
             self.last_player_pose = player_pose;
@@ -1746,7 +2222,7 @@ impl Renderer {
                 for sy in rect.min_y..=rect.max_y {
                     for sx in rect.min_x..=rect.max_x {
                         let (wx, wy) = self.screen_to_world(sx, sy);
-                        let colour = self.cell_colour(world, wx, wy);
+                        let colour = self.cell_colour(world, wx, wy, self.sub_cell(sx, sy));
                         put(frame, width, height, sx, sy, colour);
                         n += 1;
                     }
@@ -1758,7 +2234,7 @@ impl Renderer {
         // Over the world, not just over sky cells: rain falls in *front* of
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
-        self.draw_precipitation(weather, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
+        self.draw_precipitation(weather, storm_supply, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
         if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
             self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
         }
@@ -1784,6 +2260,7 @@ impl Renderer {
     fn draw_precipitation(
         &self,
         weather: crate::sim::weather::Weather,
+        storm_supply: f32,
         world_frame: u64,
         (vx0, vy0): (i32, i32),
         (vx1, vy1): (i32, i32),
@@ -1797,7 +2274,17 @@ impl Renderer {
             Precipitation::Rain => sky::Fall::Rain,
             Precipitation::Snow => sky::Fall::Snow,
         };
-        for drop in sky::drops(world_frame, fall, weather.intensity, weather.wind, (vx0, vy0), (vx1, vy1)) {
+        // **Multiplied into the intensity, which is exactly the right knob
+        // for it.** `sky::drops` treats intensity as a *thinning* factor --
+        // light rain is fewer drops, not fainter ones, and its own comment
+        // says why (fading them instead reads as fog). So a half-supplied sky
+        // draws half the streaks, which is the same picture a half-supplied
+        // storm deposits: `weather::step` thins its column budget by the
+        // identical factor. Dimming the drops here instead would put the two
+        // out of step -- a full-density downpour that lands a trickle.
+        for drop in
+            sky::drops(world_frame, fall, weather.intensity * storm_supply, weather.wind, (vx0, vy0), (vx1, vy1))
+        {
             // Walked in **world** space from tail to head -- downward, the
             // way it falls -- so the walk can stop at the ground. Drawn in
             // screen space by projecting each sample, rather than walking
@@ -1966,13 +2453,23 @@ impl Renderer {
     /// pixel grid beyond that; the CA cell it becomes on landing carries
     /// all the same visual weight bulk material has, so a free particle
     /// mid-flight not doing that too is not a loss worth more complexity.
+    ///
+    /// **The lighting is the exception to that, and it was missing.** The
+    /// grain is a texture and a cell can go without it for a few frames of
+    /// flight; the light level is not — `sky::apply_light` is a 0.42x term
+    /// at the dark end of the cycle, so raw palette colour meant a grain
+    /// *flashed brighter* the instant it left the grid and flashed back
+    /// when it landed. See `draw_chunk_bodies` for the whole reasoning.
     fn draw_particles(&self, world: &World, particles: &ParticleSystem, frame: &mut [u8], width: u32, height: u32) {
+        let ambient = self.sky.ambient();
         for particle in particles.iter() {
             let Some((sx, sy)) = self.world_to_screen(particle.x.round() as i32, particle.y.round() as i32) else {
                 continue;
             };
             let palette = &world.materials.get(particle.material).palette;
-            let colour = palette[particle.shade as usize % palette.len()];
+            let raw = palette[particle.shade as usize % palette.len()];
+            let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+            let colour = [lit[0], lit[1], lit[2], raw[3]];
             let block = self.zoom.max(1);
             for dy in 0..block {
                 for dx in 0..block {
@@ -1988,8 +2485,43 @@ impl Renderer {
     /// cannot duplicate them), so the per-cell pass above cannot see it. A
     /// falling chunk would otherwise simply vanish for the whole of its
     /// flight and reappear on landing.
+    ///
+    /// # Lit here as well as in the grid, and why only that term
+    ///
+    /// This pass and `draw_particles` painted **raw palette colour**, so the
+    /// same rock was drawn by two different pipelines depending on whether
+    /// it was in the grid or in flight. `sky::apply_light` alone is up to a
+    /// 0.42x difference (`sky::UNLIT_FLOOR`), so every promotion flashed its
+    /// cells brighter and every landing flashed them back — and a cascade
+    /// promotes and lands bodies continuously. That is the "random flashes
+    /// during cascades" the owner reported: measured on `scene=ligament`,
+    /// 34-99 bodies and up to 2,514 cells in flight in a single tile, drawn
+    /// pale grey against rock the sky had darkened to brown.
+    ///
+    /// Three terms are still not shared with `cell_colour`, each for its
+    /// own reason:
+    ///
+    /// - **Grain, deliberately.** `draw_particles`' doc already argues that
+    ///   a free cell not carrying the same visual weight mid-flight is not
+    ///   worth more complexity, and position-keyed noise on a *moving* body
+    ///   would shimmer as it moves rather than reading as texture. The term
+    ///   that mattered was the lighting one.
+    /// - **Crack darkening, because there is nothing to draw.**
+    ///   `rigid::promote` builds a `BodyCell` from material and shade only
+    ///   — the flags, and with them `FLAG_CRACK_DOWN`/`_RIGHT`, are dropped
+    ///   at promotion and `Cell::new` re-creates an uncracked cell on
+    ///   landing. A slab really does lose its fissures the moment it starts
+    ///   falling, and keeping them is a change to what a body *carries*,
+    ///   not to how it is painted.
+    /// - **The cave fade**, which is a property of the column a cell sits
+    ///   in and is already applied to the sky behind it.
+    ///
+    /// Sharing `cell_colour` outright would be the tidy answer and is not
+    /// what this is: that function takes a `World` and a grid position and
+    /// reads neighbours, and unpicking it is a bigger change than the bug.
     fn draw_chunk_bodies(&self, world: &World, frame: &mut [u8], width: u32, height: u32) {
         let block = self.zoom.max(1);
+        let ambient = self.sky.ambient();
         for body in &world.chunk_bodies {
             for cell in &body.cells {
                 let (wx, wy) = body.cell_position(cell);
@@ -1997,7 +2529,9 @@ impl Renderer {
                     continue;
                 };
                 let palette = &world.materials.get(cell.material).palette;
-                let colour = palette[cell.shade as usize % palette.len()];
+                let raw = palette[cell.shade as usize % palette.len()];
+                let lit = sky::apply_light([raw[0], raw[1], raw[2]], self.daylight, ambient);
+                let colour = [lit[0], lit[1], lit[2], raw[3]];
                 for dy in 0..block {
                     for dx in 0..block {
                         put(frame, width, height, sx + dx, sy + dy, colour);
@@ -2258,6 +2792,77 @@ impl Renderer {
     /// `-1` rather than a computed value for a column outside the cached
     /// range or one that has never held anything: both mean open sky, and
     /// `y - i32::MAX` would wrap.
+    /// What this position would look like with nothing in it — sky above
+    /// the skyline, unlit rock below it.
+    ///
+    /// Two callers: the empty-cell path, which is what it was extracted
+    /// from, and `GasMode::Translucent`, which needs to know what is
+    /// *behind* a gas cell in order to see through it. Cheap enough for the
+    /// second one: a `Vec` index (`sky_depth`), an array index into
+    /// `cave_ramp` and three mixes, with no `World::get` anywhere -- which
+    /// is what the fake-AO experiment could not say for itself.
+    /// The colour behind a cell: sky above the frozen skyline, faded cave
+    /// dark below it, and the void reveal when `F11` is on.
+    ///
+    /// Takes `world` for the glow lookup alone. Two copies of this existed
+    /// when the water-cycle branch met master -- an extracted one here and
+    /// an inline one in `cell_colour` -- and they had already drifted by a
+    /// `reveal_voids` branch and the glow tint. That is how a translucent
+    /// cloud ends up composited over a background nobody is drawing, so
+    /// there is one copy now and both callers take it.
+    fn background_at(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
+        // Sky, not a flat background. Empty space inside the world is
+        // *air*, and drawing it black made every world read as a cutaway
+        // diagram rather than a place -- the strongest remaining tell,
+        // once the ground itself started looking like ground.
+        //
+        // Empty space is also where the day/night cycle was invisible.
+        // The oscillator has driven the light channel since M16, so
+        // plants and moss have always known what time it is while the
+        // screen did not; this is that same cosine, read rather than
+        // reinvented (`sky::Sky::at`).
+        let daylight = self.sky.colour_at(x, y);
+        let depth = self.sky_depth(x, y);
+        if depth < 0 {
+            return daylight;
+        }
+        if self.reveal_voids {
+            // `F11`: every enclosed void marked, however deep -- see the
+            // field doc. Flat, not depth-faded: the point is that a vault
+            // 280 rows down reads exactly as loudly as a shallow tunnel.
+            return REVEAL_VOID;
+        }
+        // Inside the ground: unlit rock, not daylight. Constant rather than
+        // following the sky, because a cave is dark at noon as well -- and
+        // deliberately distinct from the `VOID` outside the world, which is
+        // a different kind of nothing.
+        //
+        // Faded in over `CAVE_FADE_DEPTH` rather than switched at the
+        // boundary. Light reaches in through an opening and falls off;
+        // cutting instead put a black rectangle behind every roof and made
+        // a cave mouth a cutout rather than an opening.
+        let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
+        let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
+        let mut air = [
+            mix(daylight[0], UNDERGROUND[0]),
+            mix(daylight[1], UNDERGROUND[1]),
+            mix(daylight[2], UNDERGROUND[2]),
+            255,
+        ];
+        // Glow-lit cave air: the void near a glowing lining blends toward
+        // `GLOW_AIR_TINT` by the local light level, so a breached chamber
+        // holds a soft pool of warm light instead of the flat dark every
+        // other cavity gets. On top of the cave fade, not instead of it --
+        // the fade is the darkness this light is seen against.
+        let glow = self.glow_at(world, x, y);
+        if glow > 0.0 {
+            for (c, tint) in air.iter_mut().zip(GLOW_AIR_TINT) {
+                *c = (*c as f32 + (tint as f32 - *c as f32) * glow).round() as u8;
+            }
+        }
+        air
+    }
+
     fn sky_depth(&self, x: i32, y: i32) -> i32 {
         let i = x - self.horizon_origin;
         if i < 0 || i as usize >= self.horizon.len() {
@@ -2371,7 +2976,17 @@ impl Renderer {
         }
     }
 
-    fn cell_colour(&self, world: &World, x: i32, y: i32) -> [u8; 4] {
+    /// The colour of one *pixel*, which is nearly always the colour of the
+    /// cell it lands in.
+    ///
+    /// `sub` is that pixel's offset inside its zoom block — `(0, 0)` at zoom
+    /// 1, where a cell is one pixel and there is nothing to be inside of.
+    /// Exactly one thing reads it (the crack strip, see `CRACK_EDGE_DARKEN`),
+    /// and everything else here is per *cell*, which is why this stays one
+    /// function rather than splitting into a cell pass and a pixel pass: the
+    /// heat glow, the grain and the sky light all cost more than the strip
+    /// test that needs the offset.
+    fn cell_colour(&self, world: &World, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
         if !world.in_bounds(x, y) {
             return VOID;
         }
@@ -2387,13 +3002,28 @@ impl Renderer {
         // the rock at any zoom. Without this the entire mechanic is
         // invisible: rock would weaken, sag and eventually drop with nothing
         // on screen ever having looked damaged.
+        //
+        // Zoomed in, the edge does have pixels of its own and gets them: a
+        // strip along the bottom of the block for `crack_down`, along the
+        // right for `crack_right`. See `CRACK_EDGE_DARKEN`. At `block == 1`
+        // every test below collapses to `cell.cracked()` and the darken
+        // reverts to `CRACK_DARKEN`, so the 1:1 picture is bit-identical to
+        // what it always was -- including the minified view, which draws at
+        // `zoom == 1` and samples one cell per pixel.
         if cell.cracked() {
-            base = [
-                (base[0] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[1] as u16 * CRACK_DARKEN / 256) as u8,
-                (base[2] as u16 * CRACK_DARKEN / 256) as u8,
-                base[3],
-            ];
+            let block = self.zoom.max(1);
+            let strip = (block / CRACK_STRIP_DIVISOR).max(1);
+            let on_edge =
+                (cell.crack_down() && sub.1 >= block - strip) || (cell.crack_right() && sub.0 >= block - strip);
+            if on_edge {
+                let darken = if block == 1 { CRACK_DARKEN } else { CRACK_EDGE_DARKEN };
+                base = [
+                    (base[0] as u16 * darken / 256) as u8,
+                    (base[1] as u16 * darken / 256) as u8,
+                    (base[2] as u16 * darken / 256) as u8,
+                    base[3],
+                ];
+            }
         }
         // Wet ground is dark ground. Saturation already existed on every
         // powder that can hold water -- infiltration writes it, roots read
@@ -2421,7 +3051,65 @@ impl Renderer {
                 base[3],
             ];
         }
-        let saturation = crate::sim::update::soil_moisture(cell);
+        // **Main's ungated `let saturation = soil_moisture(cell);` was
+        // dropped here on purpose, not lost to a merge.** It is the bug
+        // below: `aux` is a tagged union and only a `Powder` holds
+        // saturation in it. The tree-haze block above is kept whole.
+        //
+        // **Gated on `Powder`, and that gate is a bug fix rather than a
+        // tidy-up.** `Cell::aux` is a tagged union (see its own doc): only
+        // on a `Powder` does it hold saturation. On a `Solid` or a `Plant`
+        // it is the **distance to the nearest structural anchor**, on a
+        // `Creature` the owning creature id, and on a `Liquid` the fill
+        // amount. Without the gate every stone cell in the world was drawn
+        // darker in proportion to how far it stood from an anchor -- a
+        // live, invisible, per-frame structural quantity rendered as
+        // dampness at up to 41% -- and `structural::tick`'s relaxation
+        // wavefront then re-lit it over the following frames wherever
+        // anything was disturbed. That is what reached the owner as "a pale
+        // light effect spreads through rock, lightening it over time", on a
+        // plain strike with no explosion anywhere near it. `CLAUDE.md`'s
+        // "two conventions for `Cell::aux` point opposite ways", one kind
+        // further along.
+        //
+        // The same test `apply_organism_overlay`'s `SoilMoisture` channel
+        // has always made, which is what proved this was an oversight: the
+        // debug overlay of this very quantity gated correctly while the
+        // main path did not.
+        //
+        // **Standing water was the other casualty, and it was worse than
+        // it looks.** `LIQUID_FULL` and `SOIL_SATURATED` are both 1000, so
+        // a liquid's fill went straight through this at full scale -- and
+        // since `aux == 0` means *full* on a `Liquid`, the darkening got
+        // *stronger* the fuller the cell was and then snapped to nothing at
+        // exactly full, on top of the deliberate `fill_dimming` below.
+        // Measured on `scene=worldgen preset=rolling seed=1`: the sea's
+        // 8,051 pixels went from a mean [114, 150, 190] to [121, 163, 214]
+        // when the gate landed -- +12% on the blue channel, murk to water.
+        //
+        // **Gated on `water_capacity`, not on `Powder`** -- and the merge
+        // that brought corpses in is what forced it. `aux` is a tagged union;
+        // this branch reads it as soil water, so any powder using the field
+        // for something else draws as if it were soaking wet. A `corpse` now
+        // carries **what it is worth to eat** there, on an energy scale where
+        // one ant body cell is 120 and a full kill is 1020, against
+        // `SOIL_SATURATED`'s 1000. The darkening is monotone *decreasing* in
+        // worth while `corpse.ron`'s palette is monotone *increasing*, so the
+        // two partially cancel: the ramp's red span collapsed from 100 to 40,
+        // and its top three steps from 56 to 14 -- back below the width that
+        // was already judged "pretty minor" and widened once for it. A burnt
+        // body (`aux` 0, no darkening) drew *brighter* than an equally-poor
+        // starved one.
+        //
+        // `apply_organism_overlay`'s `SoilMoisture` channel already tests it
+        // this way, and the note above says the two should agree. It is also
+        // strictly stronger for this path's own purpose: sand and gravel are
+        // `Powder` with `water_capacity: 0`, and only `soil.ron` opts in.
+        let saturation = if world.materials.get(cell.material).water_capacity > 0 {
+            crate::sim::update::soil_moisture(cell)
+        } else {
+            0
+        };
         if saturation > 0 {
             let t = saturation as u32 * (256 - DAMP_DARKEN) / material::SOIL_SATURATED.max(1) as u32;
             let scale = (256 - t) as u16;
@@ -2455,49 +3143,7 @@ impl Renderer {
             // Deliberately *inside* the bounds check above, so the void
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
-            let daylight = self.sky.colour_at(x, y);
-            let depth = self.sky_depth(x, y);
-            base = if depth < 0 {
-                daylight
-            } else if self.reveal_voids {
-                // `F11`: every enclosed void marked, however deep — see the
-                // field doc. Flat, not depth-faded: the point is that a
-                // vault 280 rows down reads exactly as loudly as a shallow
-                // tunnel.
-                REVEAL_VOID
-            } else {
-                // Inside the ground: unlit rock, not daylight. Constant
-                // rather than following the sky, because a cave is dark at
-                // noon as well -- and deliberately distinct from the `VOID`
-                // outside the world, which is a different kind of nothing.
-                //
-                // Faded in over `CAVE_FADE_DEPTH` rather than switched at
-                // the boundary. Light reaches in through an opening and
-                // falls off; cutting instead put a black rectangle behind
-                // every roof and made a cave mouth a cutout rather than an
-                // opening.
-                let t = self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16;
-                let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
-                let mut air = [
-                    mix(daylight[0], UNDERGROUND[0]),
-                    mix(daylight[1], UNDERGROUND[1]),
-                    mix(daylight[2], UNDERGROUND[2]),
-                    255,
-                ];
-                // Glow-lit cave air: the void near a glowing lining blends
-                // toward `GLOW_AIR_TINT` by the local light level, so a
-                // breached chamber holds a soft pool of warm light instead
-                // of the flat dark every other cavity gets. On top of the
-                // cave fade, not instead of it — the fade is the darkness
-                // this light is seen against.
-                let glow = self.glow_at(world, x, y);
-                if glow > 0.0 {
-                    for (c, tint) in air.iter_mut().zip(GLOW_AIR_TINT) {
-                        *c = (*c as f32 + (tint as f32 - *c as f32) * glow).round() as u8;
-                    }
-                }
-                air
-            };
+            base = self.background_at(world, x, y);
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -2625,6 +3271,16 @@ impl Renderer {
                     *c = (*c as f32 + (fire - *c as f32) * t).round() as u8;
                 }
             }
+
+            // Bubbles, inside the same branch and after the tint, so a
+            // pocket of vapour draws over the warm cast rather than under
+            // it. Deliberately here and not in a branch of its own: this
+            // one already costs a temperature read and already admits only
+            // cells that are off ambient, which is the guard the whole
+            // effect would otherwise need for itself. See `BubbleMode`.
+            if self.bubbles != BubbleMode::Off && is_liquid {
+                self.apply_bubbles(world, x, y, cell, &mut rgb);
+            }
         }
 
         // Fake AO (darkening a cell by how enclosed it is) was tried here
@@ -2649,7 +3305,25 @@ impl Renderer {
         // the top of the range and the darkening barely touches it. The one
         // thing that emits is the one thing that stays bright, which is the
         // behaviour a special case would have had to fake.
-        let rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+        let mut rgb = sky::apply_light(rgb, self.daylight, self.sky.ambient());
+
+        // Translucency, after the light and not before it: `background_at`
+        // returns an already-lit colour, so blending first would light the
+        // background twice and a cloud would read as a bright patch rather
+        // than as something you can see through. See `GasMode`.
+        if self.gas != GasMode::Opaque && world.materials.kind(cell.material) == material::MaterialKind::Gas {
+            let alpha = match self.gas {
+                GasMode::ByFill => {
+                    let fill = crate::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32;
+                    GAS_ALPHA_MIN + (GAS_ALPHA - GAS_ALPHA_MIN) * fill.clamp(0.0, 1.0)
+                }
+                _ => GAS_ALPHA,
+            };
+            let behind = self.background_at(world, x, y);
+            for (c, b) in rgb.iter_mut().zip(behind) {
+                *c = (*c as f32 * alpha + b as f32 * (1.0 - alpha)).round().clamp(0.0, 255.0) as u8;
+            }
+        }
         // Depth grade after the sky light, so the two compose: deep rock at
         // night is `UNLIT_FLOOR x DEPTH_LIGHT_FLOOR` of its palette, which
         // is what pulls the night cross-section back under the night sky's
@@ -2751,11 +3425,38 @@ impl Renderer {
         }
         let cell = world.get(x, y);
         if self.organism_overlay == OrganismOverlay::SoilMoisture {
-            if world.materials.kind(cell.material) != material::MaterialKind::Powder {
+            // **Gated on `water_capacity`, not merely on `Powder`.** `aux`
+            // is a tagged union and this branch reads it as soil water, so
+            // any powder that uses the field for something else draws as if
+            // it were soaking wet. A corpse now carries what it is worth as
+            // meat there, and would have shown up on the moisture overlay as
+            // the wettest thing on screen -- a debug readout confidently
+            // lying about a channel, which is how a fix gets sent at working
+            // code. `update_soil_water` and the field sampler both gate on
+            // this already; this branch was the one that did not.
+            if world.materials.get(cell.material).water_capacity == 0 {
                 return base;
             }
             let t = crate::sim::update::soil_moisture(cell) as f32 / material::SOIL_SATURATED as f32;
             let ramp = scalar_ramp(t.clamp(0.0, 1.0), SCALAR_RAMP_MOISTURE);
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
+        if self.organism_overlay == OrganismOverlay::FoodValue {
+            let worth = crate::sim::creature::food_value(world, cell);
+            if worth <= 0.0 {
+                return base;
+            }
+            // Normalised against a reference mouthful rather than against the
+            // frame's maximum: a ramp whose scale moves with the scene makes
+            // two contact sheets incomparable, and the question this answers
+            // is "how much is this worth" and not "which cell here is worth
+            // most".
+            let ramp = scalar_ramp((worth / crate::sim::creature::REFERENCE_MOUTHFUL).clamp(0.0, 1.0), SCALAR_RAMP_FOOD);
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
@@ -2767,10 +3468,13 @@ impl Renderer {
         }
         let cell_type = organism::cell_type(cell.aux());
         let (ramp, blend) = match self.organism_overlay {
-            // Both handled above, before the organism-tissue guard: `Off`
-            // returns immediately, and `SoilMoisture` asks about inert
-            // `Powder` rather than organism cells.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture => return base,
+            // All handled above, before the organism-tissue guard: `Off`
+            // returns immediately, `SoilMoisture` asks about inert `Powder`
+            // rather than organism cells, and `FoodValue` deliberately asks
+            // about every cell in the world -- a fallen leaf and a corpse
+            // are food and belong to no organism, which is exactly the case
+            // the tissue guard below would drop.
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
@@ -2815,6 +3519,133 @@ impl Renderer {
             *c = (*c as f32 + (r - *c as f32) * blend).round().clamp(0.0, 255.0) as u8;
         }
         out
+    }
+
+    /// Draws vapour inside a boiling `Liquid` cell — see `BubbleMode`.
+    ///
+    /// **A pure function of `(x, y, frame)` and the cell's own temperature,
+    /// with no stored state and no writes back into the sim**, the same
+    /// shape the animated `GrainMode` variants use. That is not tidiness:
+    /// bubbles as free particles were considered and are structurally
+    /// impossible here, because `particle::advance_and_check_landing` lands
+    /// a particle the instant its next substep is occupied — and every
+    /// substep inside a pool is occupied, so a bubble particle would
+    /// convert back into a cell on its first frame without ever rising.
+    ///
+    /// The pattern scrolls by indexing at `y + rise`: the element drawn at
+    /// `y` this frame is the one that was at `y + 1` a moment ago, so the
+    /// whole field appears to climb, and it costs one integer add.
+    ///
+    /// Sited on a **two-cell grid**, not per pixel, because the first thing
+    /// that goes wrong with this effect is that it reads as texture rather
+    /// than as bubbles — a one-pixel speckle at any density is grain, which
+    /// this renderer already has a whole enum of. The block's upper half is
+    /// its crown and blends further toward `BUBBLE_TINT` than its lower
+    /// half, which is the cheapest thing that reads as domed.
+    fn apply_bubbles(&self, world: &World, x: i32, y: i32, cell: Cell, rgb: &mut [u8; 3]) {
+        let heat_to_boil =
+            |t: i16| ((t as f32 - BUBBLE_MIN_TEMPERATURE) / (BUBBLE_FULL_TEMPERATURE - BUBBLE_MIN_TEMPERATURE)).clamp(0.0, 1.0);
+        let mut boil = heat_to_boil(cell.temperature());
+        if self.bubbles == BubbleMode::Surface {
+            // The near-top test first, and *before* the temperature gate,
+            // which is the whole of the fix -- see the block below. Two
+            // `World::get`s, paid only by liquid that is already off
+            // ambient (the caller's own guard), and everything below the
+            // second row of its body stops here.
+            let same = |ny: i32| world.get(x, ny).material == cell.material;
+            if same(y - 1) && same(y - 2) {
+                return;
+            }
+            boil = boil.max(boil_below(world, x, y, cell, heat_to_boil));
+        }
+        if boil <= 0.0 {
+            return;
+        }
+        let rise = (self.frame / BUBBLE_RISE_PERIOD) as i32;
+        // `Columns` stretches the site vertically and climbs at twice the
+        // rate, so a site reads as a stream leaving one spot on the bottom
+        // rather than as a free-floating pocket.
+        let (block_w, block_h, scroll) = match self.bubbles {
+            BubbleMode::Columns => (2, 4, rise * 2),
+            BubbleMode::Large => (BUBBLE_LARGE_SITE, BUBBLE_LARGE_SITE, rise),
+            _ => (BUBBLE_SITE, BUBBLE_SITE, rise),
+        };
+        let sy = y + scroll;
+        // **Density is per *pixel*, not per site**, so a masked bubble does
+        // not quietly thin the effect. `BUBBLE_DENSITY` is the share of the
+        // pool that should light up; a site lights with that share scaled
+        // by how much of its own area it actually covers. Without this, a
+        // 5-of-9 disc drew a third of what a 4-of-4 square did -- 3,250
+        // changed pixels on `scene=simmer` became 1,125, from a change that
+        // was only supposed to be about shape. That mode is gone and the
+        // correction stays, because `Large` needs exactly the same thing:
+        // it lights `BUBBLE_LARGE_LIT` of 36.
+        let (sx, sy_site) = (x.div_euclid(block_w), sy.div_euclid(block_h));
+        let disc = large_bubble_disc(sx, sy_site);
+        let lit = match self.bubbles {
+            BubbleMode::Large => disc.1,
+            _ => block_w * block_h,
+        };
+        let rarity = if self.bubbles == BubbleMode::Large { BUBBLE_LARGE_RARITY } else { 1.0 };
+        let density = BUBBLE_DENSITY * rarity * (block_w * block_h) as f32 / lit as f32;
+        // **A big bubble is lit or not as a whole, by the water at its
+        // foot** -- and that is not a refinement, it is what makes the mode
+        // legible at all. `boil` is the *pixel's* own heat, and a pool is
+        // hot at the bottom and cool at the top, so a six-cell site
+        // straddles the ramp: its lower rows clear the threshold and its
+        // upper rows do not, and a disc drawn that way is sliced into a
+        // horizontal lens. Rendered and looked at before it was measured --
+        // the pan read as flat cloud streaks rather than bubbles.
+        //
+        // A bubble forms at the hot floor and rises intact, so the site
+        // asks the cell under its own centre-bottom instead. One extra
+        // `World::get`, paid only by `Large` and only by cells the caller
+        // has already found to be off ambient.
+        let gate = if self.bubbles == BubbleMode::Large {
+            let fx = sx * block_w + block_w / 2;
+            let fy = (sy_site * block_h + block_h - 1) - scroll;
+            let foot = world.get(fx, fy);
+            if foot.material == cell.material {
+                heat_to_boil(foot.temperature())
+            } else {
+                boil
+            }
+        } else {
+            boil
+        };
+        let site = rng::jitter(sx, sy_site);
+        if site >= density * gate {
+            return;
+        }
+        let (ix, iy) = (x.rem_euclid(block_w), sy.rem_euclid(block_h));
+        // **Only `Large` is masked**, and `BUBBLE_SITE`'s doc records why
+        // rounding the small one is not on the table: at two cells across
+        // there is nothing to round, and at three the mask draws a cross,
+        // which play called worse than the square it replaced.
+        //
+        // `Columns` keeps its 2x4 stretch unmasked for a different reason:
+        // it is deliberately *not* a bubble but a stream leaving a
+        // nucleation site, and rounding it would collapse the difference
+        // between the two modes.
+        if self.bubbles == BubbleMode::Large && !large_bubble_covers(ix, iy, disc.0) {
+            return;
+        }
+        // Two rows are a dome by being brighter on top; six are not, and a
+        // hard split across the middle of a big disc reads as two stacked
+        // half-moons. `Large` ramps instead. The small sites keep the split
+        // exactly as it was -- for a 2-high site the ramp is the same thing,
+        // but `Columns` is 2x4 and would quietly change look.
+        let lift = if self.bubbles == BubbleMode::Large {
+            let t = 1.0 - iy as f32 / (block_h - 1) as f32;
+            BUBBLE_UNDERSIDE + (BUBBLE_LIFT - BUBBLE_UNDERSIDE) * t
+        } else if iy < block_h / 2 {
+            BUBBLE_LIFT
+        } else {
+            BUBBLE_UNDERSIDE
+        } * (BUBBLE_FLOOR + (1.0 - BUBBLE_FLOOR) * boil);
+        for (c, tint) in rgb.iter_mut().zip(BUBBLE_TINT) {
+            *c = (*c as f32 + (tint - *c as f32) * lift).round().clamp(0.0, 255.0) as u8;
+        }
     }
 
     /// Blends `base` toward a colour ramp keyed on the currently-selected
@@ -2868,6 +3699,34 @@ impl Renderer {
             }
             return out;
         }
+        // **Temperature joined them, for the reason above and one more.**
+        // As a blend it was unreadable twice over: the sky's day/night
+        // forcing is single degrees on a range sized for a fire's hundreds,
+        // so it moved a colour byte by a hair — and what it moved it against
+        // was the cell's own colour, which the renderer is *already* tinting
+        // with the time of day. A warm ground at noon and a warm-lit ground
+        // at sunset came out looking the same, which is the one comparison
+        // the channel exists to make. Contact sheets of a full day over
+        // generated terrain were built and read before and after this
+        // change; before, the surface band's own temperature was not
+        // legible at all.
+        //
+        // Signed, because this channel now has a below-ambient half that a
+        // clamp at zero would erase: blue for cooler than ambient, orange
+        // for warmer. Logarithmic in the distance from ambient, because the
+        // two things worth seeing are three orders of magnitude apart — a
+        // 6-degree night still reaches a third of the ramp, a 900-degree
+        // fire still saturates it.
+        if matches!(self.field_overlay, FieldOverlay::Temperature) {
+            let delta = world.field_at(x, y).temperature - AMBIENT_TEMPERATURE as f32;
+            let t = (delta.abs().ln_1p() / TEMPERATURE_OVERLAY_MAX.ln_1p()).clamp(0.0, 1.0);
+            let ramp = scalar_ramp(t, if delta >= 0.0 { SCALAR_RAMP_WARM } else { SCALAR_RAMP_COOL });
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
         let (ramp, magnitude) = match self.field_overlay {
             FieldOverlay::Off => return base,
             FieldOverlay::Pressure => {
@@ -2881,11 +3740,8 @@ impl Renderer {
                 let colour = if t >= 0.0 { [255.0, 60.0, 60.0] } else { [60.0, 90.0, 255.0] };
                 (colour, t.abs())
             }
-            FieldOverlay::Temperature => {
-                let f = world.field_at(x, y);
-                let t = ((f.temperature - AMBIENT_TEMPERATURE as f32) / TEMPERATURE_OVERLAY_MAX).clamp(0.0, 1.0);
-                ([255.0, 140.0, 40.0], t)
-            }
+            // Temperature is handled by the full-replace branch above.
+            FieldOverlay::Temperature => return base,
             FieldOverlay::Light => {
                 let f = world.field_at(x, y);
                 let t = (f.light / LIGHT_OVERLAY_MAX).clamp(0.0, 1.0);
@@ -2944,6 +3800,22 @@ impl Renderer {
     /// negative infinity the same way `ChunkCoord::containing` already
     /// establishes is required — truncating division would fold screen
     /// column -1 onto the same world cell as column 0.
+    /// Where a screen pixel sits *inside* the cell `screen_to_world` maps it
+    /// to, in pixels from the block's top-left.
+    ///
+    /// `(0, 0)` at zoom 1 and at every minified scale, where one pixel is
+    /// one cell (or several) and there is no inside. `rem_euclid` to match
+    /// `screen_to_world`'s `div_euclid`: left of the camera the two have to
+    /// agree, or a block one cell to the left of the origin would be drawn
+    /// with its strip on the wrong side.
+    fn sub_cell(&self, sx: i32, sy: i32) -> (i32, i32) {
+        if self.zoom > 1 {
+            (sx.rem_euclid(self.zoom), sy.rem_euclid(self.zoom))
+        } else {
+            (0, 0)
+        }
+    }
+
     pub fn screen_to_world(&self, sx: i32, sy: i32) -> (i32, i32) {
         if self.zoom > 1 {
             (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
@@ -3231,16 +4103,16 @@ mod tests {
         r.rebuild_horizon(&world);
 
         r.terrain_light = TerrainLight::Depth;
-        let surface = brightness(r.cell_colour(&world, 10, 64));
-        let shallow = brightness(r.cell_colour(&world, 10, 65));
-        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
-        let water_depth = r.cell_colour(&world, 64, 60);
+        let surface = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
+        let shallow = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
+        let deep = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let water_depth = r.cell_colour(&world, 64, 60, (0, 0));
 
         r.terrain_light = TerrainLight::Off;
-        let shallow_flat = brightness(r.cell_colour(&world, 10, 65));
-        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS));
-        let surface_flat = brightness(r.cell_colour(&world, 10, 64));
-        let water_flat = r.cell_colour(&world, 64, 60);
+        let shallow_flat = brightness(r.cell_colour(&world, 10, 65, (0, 0)));
+        let deep_flat = brightness(r.cell_colour(&world, 10, 64 + DEPTH_LIGHT_RAMP_ROWS, (0, 0)));
+        let surface_flat = brightness(r.cell_colour(&world, 10, 64, (0, 0)));
+        let water_flat = r.cell_colour(&world, 64, 60, (0, 0));
 
         assert!(
             deep < shallow,
@@ -3271,8 +4143,8 @@ mod tests {
         // depth 1, stays bright. Grain differs by position, so the
         // comparison needs the ramp's spread (~2.4x at these depths), not
         // equality.
-        let notch_rock = brightness(r.cell_colour(&world, 112, 97));
-        let valley_rock = brightness(r.cell_colour(&world, 160, 97));
+        let notch_rock = brightness(r.cell_colour(&world, 112, 97, (0, 0)));
+        let valley_rock = brightness(r.cell_colour(&world, 160, 97, (0, 0)));
         assert!(
             notch_rock < valley_rock * 3 / 4,
             "rock beside a narrow notch floor must not light up as if at the surface ({notch_rock} vs valley {valley_rock})"
@@ -3341,9 +4213,9 @@ mod tests {
         r.sky = crate::sky::Sky::at(600, 0, 127, 0, 127); // mid-morning, so the sky is bright
 
         let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
-        let sky = brightness(r.cell_colour(&world, 64, 19));
-        let just_under = brightness(r.cell_colour(&world, 64, 21));
-        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH));
+        let sky = brightness(r.cell_colour(&world, 64, 19, (0, 0)));
+        let just_under = brightness(r.cell_colour(&world, 64, 21, (0, 0)));
+        let deep = brightness(r.cell_colour(&world, 64, 21 + CAVE_FADE_DEPTH, (0, 0)));
         let dark = brightness(UNDERGROUND);
 
         assert!(
@@ -3354,6 +4226,160 @@ mod tests {
             deep <= dark + 2,
             "past the fade depth it must reach full dark, or every cave in the world turns grey: {deep} against {dark}"
         );
+    }
+
+    /// Reported from play: "a pale light effect spreads through rock,
+    /// lightening it over time" — from the core of whatever was hit, deep
+    /// as well as shallow, every time.
+    ///
+    /// It was the damp darkening reading a `Solid` cell's `aux`, which on a
+    /// `Solid` is its **distance to the nearest anchor**, not saturation.
+    /// So every stone cell was drawn darker in proportion to how far it
+    /// stood from an anchor, and `structural::tick`'s relaxation wavefront
+    /// re-lit it over the following frames wherever anything was disturbed.
+    /// Measured on `scene=worldcrack preset=rolling seed=1 strike=12`
+    /// against the same world unstruck: 2,683 grey-stone pixels brightening
+    /// at frame 400, in a halo running x 200-339 around a 12-cell strike at
+    /// x=256 — a thousand of them more than 40 cells from anything the blow
+    /// touched.
+    ///
+    /// Two reads of one cell at one position, so the grain, the palette
+    /// shade and the lighting are identical between them by construction
+    /// and `aux` is the only thing that moved.
+    #[test]
+    fn a_solids_anchor_distance_does_not_change_how_it_is_drawn() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        // Deep enough that the cave fade is at its floor for both reads.
+        let (x, y) = (32, 50);
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(0));
+        let anchored = r.cell_colour(&world, x, y, (0, 0));
+        // 900 is a plausible standing distance in generated terrain, and
+        // above `SOIL_SATURATED`'s own scale it would be a 41% darkening.
+        world.set(x, y, Cell::new(material::STONE, 3).with_aux(900));
+        let far_from_an_anchor = r.cell_colour(&world, x, y, (0, 0));
+
+        assert_eq!(
+            anchored, far_from_an_anchor,
+            "a Solid cell's structural anchor distance is not dampness and must not be drawn: \
+             aux=0 drew {anchored:?}, aux=900 drew {far_from_an_anchor:?}"
+        );
+    }
+
+    /// The other side of the same gate, and the reason it is a gate rather
+    /// than a deletion: saturation is real on a `Powder` and drawing it is
+    /// the whole point of the block. A fix that simply removed the
+    /// darkening would pass the test above and lose the feature.
+    #[test]
+    fn a_powders_saturation_still_darkens_it() {
+        let soil = {
+            let world = World::new(Rect::new(0, 0, 63, 63));
+            world.materials.id_of("soil").expect("soil is a compiled-in material")
+        };
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 32..64 {
+                world.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        world.begin_step();
+        let mut r = Renderer::new();
+        r.rebuild_horizon(&world);
+
+        let (x, y) = (32, 50);
+        let brightness = |c: [u8; 4]| c[0] as i32 + c[1] as i32 + c[2] as i32;
+        world.set(x, y, Cell::new(soil, 3).with_aux(0));
+        let dry = brightness(r.cell_colour(&world, x, y, (0, 0)));
+        world.set(x, y, Cell::new(soil, 3).with_aux(900));
+        let wet = brightness(r.cell_colour(&world, x, y, (0, 0)));
+
+        assert!(
+            wet < dry - dry / 8,
+            "wet ground has to read as visibly darker than dry ground: dry {dry}, wet {wet}"
+        );
+    }
+
+    /// Reported from play as "random flashes" during cascades.
+    ///
+    /// Bodies and free particles are drawn by a second pass that painted
+    /// **raw palette colour** — no `sky::apply_light` — so the same rock was
+    /// drawn one way in the grid and another in flight. At the dark end of
+    /// the cycle the lighting term alone is `sky::UNLIT_FLOOR` = 0.42, so
+    /// every promotion flashed its cells brighter and every landing flashed
+    /// them back, continuously, for as long as a cascade lasted.
+    ///
+    /// The grain is *deliberately* still missing in flight (see
+    /// `draw_particles`' own doc), so the bar is "equal up to the grain
+    /// term" rather than equality: position-keyed noise on a moving body
+    /// would shimmer as it moves, and the term that mattered was the
+    /// lighting one.
+    #[test]
+    fn a_body_in_flight_is_lit_the_same_way_the_grid_is() {
+        const X: i32 = 30;
+        const Y: i32 = 20;
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in 0..64 {
+            for y in 40..64 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // Freeze the skyline on the floor alone, so placing and removing
+        // the test cell cannot move it between the two reads.
+        world.begin_step();
+
+        let particles = ParticleSystem::new();
+        let (w, h) = (64u32, 64u32);
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let mut r = Renderer::new();
+        // A dark phase, pinned rather than stepped to: this is where the
+        // two pipelines are furthest apart, and a pin is a fixed *phase*
+        // instead of a frame number that would drift with the day length.
+        //
+        // `pinned_light` takes a frame, so the phase goes through
+        // `sky::frame_for_daylight` rather than being written as a literal.
+        // That is the merge of two independently-built pins -- this branch's
+        // fraction-valued `daylight_pin` and `origin/main`'s frame-valued
+        // `pinned_light` -- onto the one field, keeping the phase spelling
+        // at the call sites that wanted it.
+        r.pinned_light = Some(sky::frame_for_daylight(0.0));
+        let pixel = |frame: &[u8]| {
+            let i = (Y as usize * w as usize + X as usize) * 4;
+            [frame[i], frame[i + 1], frame[i + 2], frame[i + 3]]
+        };
+
+        world.set(X, Y, Cell::new(material::STONE, 3));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_grid = pixel(&frame);
+
+        world.set(X, Y, Cell::EMPTY);
+        world.chunk_bodies.push(crate::sim::rigid::ChunkBody::at(
+            vec![crate::sim::rigid::BodyCell { dx: 0, dy: 0, material: material::STONE, shade: 3 }],
+            X as f32,
+            Y as f32,
+        ));
+        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        let in_flight = pixel(&frame);
+
+        // The grid pixel carries the grain and the body pixel does not, so
+        // they may differ by that factor and no more.
+        let slack = JITTER_STRENGTH / (1.0 - JITTER_STRENGTH);
+        for c in 0..3 {
+            let allowed = (in_grid[c] as f32 * slack).round() as i32 + 1;
+            let delta = in_flight[c] as i32 - in_grid[c] as i32;
+            assert!(
+                delta.abs() <= allowed,
+                "a promoted body must be lit like the rock it broke off: in the grid {in_grid:?}, \
+                 in flight {in_flight:?}, channel {c} differs by {delta} against {allowed} allowed for grain"
+            );
+        }
     }
 
 
@@ -3578,7 +4604,112 @@ mod tests {
             (base[2] as i32 + (base[2] as i32 * jitter_permille) / 1000).clamp(0, 255) as u8,
             255,
         ];
-        assert_eq!(renderer.cell_colour(&world, 10, 10), expected);
+        assert_eq!(renderer.cell_colour(&world, 10, 10, (0, 0)), expected);
+    }
+
+    /// **K4's degradation pin: at zoom 1 a crack draws exactly what it
+    /// always drew.**
+    ///
+    /// The strip is a magnification feature — a cell has no interior at 1:1,
+    /// so the whole cell darkens by `CRACK_DARKEN` regardless of which edge
+    /// carries the bit, which is what the last several years of sheets show
+    /// and what every filmstrip still renders (that harness draws at renderer
+    /// zoom 1 and upscales the pixels afterwards). If this ever stops being
+    /// true, every archived contact sheet stops being comparable.
+    ///
+    /// Asserted as "all three crack states draw the same colour, darker than
+    /// no crack": direction-agnostic is precisely the old behaviour, and it
+    /// is what a naive strip implementation breaks first (a `crack_right`
+    /// cell would stop darkening at all, because at block size 1 there is no
+    /// right-hand column to put it in).
+    #[test]
+    fn at_zoom_one_a_cracked_cell_still_darkens_whole() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        let r = Renderer::new();
+        assert_eq!(r.zoom, 1, "test setup: this is the 1:1 pin");
+        // **One position, four states.** The grain is keyed on position
+        // (`rng::jitter(x, y)`), so two cells side by side do not render the
+        // same colour even with identical contents -- comparing neighbours
+        // would be measuring the grain, not the crack.
+        let mut colour_of = |cell: Cell| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, (0, 0))
+        };
+
+        let plain = colour_of(stone);
+        let down = colour_of(stone.with_crack_down(true));
+        let right = colour_of(stone.with_crack_right(true));
+        let both = colour_of(stone.with_crack_down(true).with_crack_right(true));
+
+        assert!(down[0] < plain[0], "a cracked cell must draw darker than an uncracked one at 1:1");
+        assert_eq!(down, right, "at 1:1 a crack must darken the whole cell whichever edge carries it");
+        assert_eq!(down, both, "at 1:1 two crack bits must draw the same as one");
+
+        // And the exact pixel, not merely "darker": the 1:1 look is
+        // `CRACK_DARKEN` over the whole cell and then the ordinary grain, and
+        // an archived contact sheet is only comparable while that is true to
+        // the byte. Computed the pre-K4 way by hand, the same technique
+        // `field_overlay_off_matches_the_pre_overlay_render_exactly` uses --
+        // asserting against a second `cell_colour` call would pass whatever
+        // either of them did.
+        let base = world.materials.get(material::STONE).palette[0];
+        let jitter_permille = ((rng::jitter(10, 10) - 0.5) * 2000.0 * JITTER_STRENGTH) as i32;
+        let expected: Vec<u8> = (0..3)
+            .map(|c| {
+                let darkened = (base[c] as u16 * CRACK_DARKEN / 256) as u8 as i32;
+                (darkened + (darkened * jitter_permille) / 1000).clamp(0, 255) as u8
+            })
+            .collect();
+        assert_eq!(&down[..3], &expected[..], "the 1:1 crack pixel is not what it has always been");
+    }
+
+    /// And zoomed in, it is a line along the severed edge rather than a
+    /// smear over the cell — the other half of K4, and the half that is
+    /// visible in the app.
+    ///
+    /// The geometry is the assertion: for `crack_down`, the bottom rows of
+    /// the block darken and the top rows are left exactly as the uncracked
+    /// cell beside them; for `crack_right`, the right-hand columns. A
+    /// whole-cell darken passes neither.
+    #[test]
+    fn zoomed_in_a_crack_draws_only_along_its_own_edge() {
+        let mut world = World::new(Rect::new(0, 0, 31, 31));
+        let stone = Cell::new(material::STONE, 0);
+        world.set(10, 10, stone);
+        let mut r = Renderer::new();
+        r.zoom = 6; // strip = 6 / CRACK_STRIP_DIVISOR = 2 px
+
+        // Same cell, same grain, three states -- see the 1:1 pin above.
+        let mut cracked = |cell: Cell, sub: (i32, i32)| {
+            world.set(10, 10, cell);
+            r.cell_colour(&world, 10, 10, sub)
+        };
+        let plain = cracked(stone, (0, 0));
+        let down = stone.with_crack_down(true);
+        let right = stone.with_crack_right(true);
+
+        // `crack_down`: top rows untouched, bottom rows darkened, all the way
+        // across.
+        for sx in 0..6 {
+            let (top, middle, bottom) = (cracked(down, (sx, 0)), cracked(down, (sx, 3)), cracked(down, (sx, 5)));
+            assert_eq!(top, plain, "the top of a crack_down cell must not darken");
+            assert_eq!(middle, plain, "the middle of a crack_down cell must not darken");
+            assert!(bottom[0] < plain[0], "the bottom row of a crack_down cell is the crack and must darken");
+        }
+        // `crack_right`: the same, rotated a quarter turn.
+        for sy in 0..6 {
+            let (left, edge) = (cracked(right, (0, sy)), cracked(right, (5, sy)));
+            assert_eq!(left, plain, "the left of a crack_right cell must not darken");
+            assert!(edge[0] < plain[0], "the right column of a crack_right cell is the crack and must darken");
+        }
+        // And the strip darkens *harder* than the 1:1 whole-cell version it
+        // replaces, because the same visual weight comes out of fewer pixels.
+        let strip = cracked(down, (0, 5));
+        let mut flat = Renderer::new();
+        flat.zoom = 1;
+        let whole = flat.cell_colour(&world, 10, 10, (0, 0));
+        assert!(strip[0] < whole[0], "the strip should darken harder than the whole-cell version it replaces");
     }
 
     #[test]
@@ -3595,7 +4726,7 @@ mod tests {
         world.set(50, 50, Cell::new(material::STONE, 0));
         world.add_pressure_impulse(5, 5, 3, 40.0); // disturbance confined to a far corner
         let mut renderer = Renderer::new();
-        let off = renderer.cell_colour(&world, 50, 50);
+        let off = renderer.cell_colour(&world, 50, 50, (0, 0));
         // **Blend channels only, deliberately.** `PheromoneA`/`PheromoneB`
         // are excluded because they are full-replace by design: a cell with
         // a zero reading draws at `SCALAR_RAMP_FLOOR` of its ramp colour,
@@ -3604,10 +4735,41 @@ mod tests {
         // "overlay is off"). Adding them to this list would be asserting
         // that the fix for the canopy-density blank sheet had not been
         // applied.
-        for overlay in [FieldOverlay::Pressure, FieldOverlay::Temperature, FieldOverlay::Light, FieldOverlay::Moisture] {
+        //
+        // **`Temperature` left this list when the sky started writing that
+        // channel**, for the same reason and not as a concession: it is
+        // full-replace now, its ambient reading draws at the ramp floor, and
+        // an overlay that renders "20C" and "26C" as the same pixel cannot
+        // show a day/night cycle at all. `the_temperature_overlay_tells_warm
+        // _from_cool` below is the guard that replaced this one for it.
+        for overlay in [FieldOverlay::Pressure, FieldOverlay::Light, FieldOverlay::Moisture] {
             renderer.field_overlay = overlay;
-            assert_eq!(renderer.cell_colour(&world, 50, 50), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
+            assert_eq!(renderer.cell_colour(&world, 50, 50, (0, 0)), off, "{overlay:?} tinted an unaffected cell far from any real disturbance");
         }
+    }
+
+    #[test]
+    fn the_temperature_overlay_tells_warm_from_cool() {
+        // The day/night sky forcing is a few degrees on a channel whose
+        // other user is a fire. Under the old linear-on-900 blend a whole
+        // warm afternoon and a whole cold night rendered as the same pixel
+        // as ambient -- so this asserts the three cases are three colours,
+        // which is the property that makes `filmstrip channel=temperature`
+        // able to show a day at all.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for x in [10, 30, 50] {
+            world.set(x, 10, Cell::new(material::STONE, 0));
+        }
+        world.add_heat(30, 10, 2, 6.0); // a warm afternoon, not a fire
+        world.add_heat(50, 10, 2, -6.0); // and a cold night
+        let mut renderer = Renderer::new();
+        renderer.field_overlay = FieldOverlay::Temperature;
+        let ambient = renderer.cell_colour(&world, 10, 10, (0, 0));
+        let warm = renderer.cell_colour(&world, 30, 10, (0, 0));
+        let cool = renderer.cell_colour(&world, 50, 10, (0, 0));
+        assert_ne!(warm, ambient, "a 6-degree warm reading rendered identically to ambient");
+        assert_ne!(cool, ambient, "a 6-degree cool reading rendered identically to ambient");
+        assert!(warm[0] > cool[0] && cool[2] > warm[2], "warm and cool must not be the same hue: warm {warm:?}, cool {cool:?}");
     }
 
     #[test]
@@ -3687,8 +4849,8 @@ mod tests {
         let mut r = Renderer::new();
         r.field_overlay = FieldOverlay::PheromoneA;
         assert_eq!(
-            r.cell_colour(&world, 10, 10),
-            r.cell_colour(&world, 20, 20),
+            r.cell_colour(&world, 10, 10, (0, 0)),
+            r.cell_colour(&world, 20, 20, (0, 0)),
             "equal pheromone over different materials must draw identically -- a blend would leak the material colour through"
         );
 
@@ -3697,10 +4859,10 @@ mod tests {
         let off_pixel = {
             let mut plain = Renderer::new();
             plain.field_overlay = FieldOverlay::Off;
-            plain.cell_colour(&world, 40, 40)
+            plain.cell_colour(&world, 40, 40, (0, 0))
         };
-        assert_ne!(r.cell_colour(&world, 40, 40), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
-        assert_ne!(r.cell_colour(&world, 40, 40), r.cell_colour(&world, 10, 10), "and a zero reading must still be distinguishable from a strong one");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
+        assert_ne!(r.cell_colour(&world, 40, 40, (0, 0)), r.cell_colour(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
     }
 
     #[test]
@@ -3717,6 +4879,449 @@ mod tests {
         let sand = world.materials.get(material::SAND).palette[1];
         let idx = (20 * w as usize + 10) * 4;
         assert_eq!(&frame[idx..idx + 4], &sand, "particle did not draw at its rounded position");
+    }
+
+    /// A pool of water at `temp`, filling the world, drawn once.
+    fn boiling_pool_frame(mode: BubbleMode, temp: i16) -> Vec<u8> {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 0..64 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(temp));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = mode;
+        let particles = ParticleSystem::new();
+        let mut frame = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        frame
+    }
+
+    /// How many pixels of `a` differ from `b`.
+    fn pixels_differing(a: &[u8], b: &[u8]) -> usize {
+        a.chunks(4).zip(b.chunks(4)).filter(|(p, q)| p != q).count()
+    }
+
+    #[test]
+    fn every_bubble_mode_actually_draws_bubbles_in_boiling_water() {
+        // **A counter, not a picture.** The first version of this effect
+        // was judged from a `scene=boil` contact sheet and read as "no
+        // change" -- which at that zoom is indistinguishable from the
+        // bubbles being drawn *and* lost in the steam cloud over the pool.
+        // Only a count separates the two, and the count is what says the
+        // mechanism ran at all (`CLAUDE.md`).
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        for mode in [BubbleMode::Rising, BubbleMode::Large, BubbleMode::Columns, BubbleMode::Surface] {
+            let on = boiling_pool_frame(mode, 95);
+            let drawn = pixels_differing(&off, &on);
+            println!("{}: {drawn} of 4096 pixels bubbled", mode.label());
+            assert!(drawn > 0, "{} drew nothing in a pool at 95C", mode.label());
+            // Sparse, and that is the other half of the claim: a mode that
+            // lit a third of the pool would be foam, not boiling water.
+            assert!(drawn < 4096 / 3, "{} bubbled {drawn} of 4096 pixels, which is foam rather than boiling", mode.label());
+        }
+    }
+
+    /// Squared distance between two RGB triples. Squared because nothing
+    /// here compares a distance to anything but another distance.
+    fn colour_gap(a: [f32; 3], b: [f32; 3]) -> f32 {
+        (0..3).map(|i| (a[i] - b[i]).powi(2)).sum()
+    }
+
+    /// A drawn bubble has to be nearer steam than the water it sits in.
+    ///
+    /// # The guard the colour complaint needed and did not have
+    ///
+    /// Reported from play: the bubbles *"are not the color of steam"*. Every
+    /// bubble test in this file passed through that, and none of them could
+    /// have caught it -- they count *which* pixels light and what shape the
+    /// lit set is, and the complaint was about the colour of the pixels that
+    /// were already lighting in the right places.
+    ///
+    /// `BUBBLE_TINT` was steam's colour the whole time. What was wrong was
+    /// the blend fraction: at the old `BUBBLE_LIFT`/`BUBBLE_UNDERSIDE` a lit
+    /// pixel came out **44 from the pond and 166 from steam** (RGB units, on
+    /// `scene=simmer`) -- numerically a shade of water. It now sits 150 from
+    /// the pond and 60 from steam, on the other side of the line, and this
+    /// asserts the side rather than the number so a re-tune of either
+    /// constant is free until it crosses back.
+    #[test]
+    fn a_bubble_is_drawn_nearer_steam_than_water() {
+        let world = World::new(Rect::new(0, 0, 1, 1));
+        let steam = world.materials.id_of("steam").expect("steam is a built-in");
+        let tint = world
+            .materials
+            .get(steam)
+            .palette
+            .iter()
+            .map(|c| colour_gap(BUBBLE_TINT, [c[0] as f32, c[1] as f32, c[2] as f32]))
+            .fold(f32::INFINITY, f32::min);
+        // The doc on `BUBBLE_TINT` claims it *is* steam's colour, and the
+        // whole fix rests on that claim, so it is asserted rather than
+        // asserted-in-prose: 20 units covers the spread of steam's own three
+        // palette entries and nothing wider.
+        assert!(tint < 20.0 * 20.0, "BUBBLE_TINT is {:.0} RGB units from steam's nearest palette colour", tint.sqrt());
+
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        for mode in [BubbleMode::Rising, BubbleMode::Large, BubbleMode::Columns, BubbleMode::Surface] {
+            let on = boiling_pool_frame(mode, 95);
+            let (mut lit, mut nearer_steam) = (0usize, 0usize);
+            for (water, bubble) in off.chunks(4).zip(on.chunks(4)) {
+                if water == bubble {
+                    continue;
+                }
+                lit += 1;
+                let w = [water[0] as f32, water[1] as f32, water[2] as f32];
+                let b = [bubble[0] as f32, bubble[1] as f32, bubble[2] as f32];
+                if colour_gap(b, BUBBLE_TINT) < colour_gap(b, w) {
+                    nearer_steam += 1;
+                }
+            }
+            let share = nearer_steam as f32 / lit as f32;
+            println!("{}: {nearer_steam} of {lit} lit pixels nearer steam than water ({:.0}%)", mode.label(), share * 100.0);
+            // Not all of them: a bubble's shaded underside is *meant* to keep
+            // some water in it, and `Columns` is a stream rather than a
+            // bubble. The bar is that the effect as a whole reads as gas.
+            assert!(share > 0.75, "{} drew {:.0}% of its pixels nearer water than steam", mode.label(), (1.0 - share) * 100.0);
+        }
+    }
+
+    /// Prints which pixels each bubble mode lights, as a map, on the
+    /// uniform pool the guards use.
+    ///
+    /// A probe rather than a guard, and the reason it exists is recorded in
+    /// `CLAUDE.md`: a contact sheet answers *what and where*, and at the
+    /// zoom one is read at, "one six-cell disc" and "four small blobs in a
+    /// row" are the same picture. Judging `Large`'s clustering off a PNG
+    /// sent this session down a wrong turn twice before the map settled it.
+    #[test]
+    #[ignore = "probe, not a guard"]
+    fn probe_bubble_layout() {
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        for mode in [BubbleMode::Rising, BubbleMode::Large, BubbleMode::Columns] {
+            let on = boiling_pool_frame(mode, 95);
+            println!("== {}", mode.label());
+            for y in 0..32 {
+                let row: String = (0..64)
+                    .map(|x| {
+                        let i = (y * 64 + x) * 4;
+                        if off[i..i + 4] != on[i..i + 4] {
+                            '#'
+                        } else {
+                            '.'
+                        }
+                    })
+                    .collect();
+                println!("{row}");
+            }
+        }
+    }
+
+    /// **`Large` is a disc; `Rising` is deliberately still a square.**
+    ///
+    /// Both halves matter, and the second one is why this test is not the
+    /// one it replaces. Rounding `Rising` was built, shipped and rejected
+    /// on sight -- *"You went from squares to crosses. That is worse"* --
+    /// so a guard that demands round bubbles everywhere would be a guard
+    /// against the thing play asked for. `BUBBLE_SITE` holds the reasoning.
+    ///
+    /// Asserted as **no lit `Large` site has a lit corner**, over whichever
+    /// row alignment the scroll happens to be at, rather than by eye: a
+    /// masked bubble and an unmasked one are twelve pixels apart at a zoom
+    /// no contact sheet is read at.
+    #[test]
+    fn a_large_bubble_is_a_disc_and_a_small_one_is_not() {
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        let on = boiling_pool_frame(BubbleMode::Large, 95);
+        let lit = |x: usize, y: usize| {
+            let i = (y * 64 + x) * 4;
+            off[i..i + 4] != on[i..i + 4]
+        };
+        assert!((0..64).any(|x| (0..64).any(|y| lit(x, y))), "nothing was drawn, so this asserts nothing");
+
+        let site = BUBBLE_LARGE_SITE as usize;
+        let square_free = (0..site).any(|offset| {
+            (0..64 / site).all(|sx| {
+                (0..(64 - offset) / site).all(|sy| {
+                    let (x0, y0) = (sx * site, offset + sy * site);
+                    let any = (0..site).any(|dx| (0..site).any(|dy| lit(x0 + dx, y0 + dy)));
+                    !any || ![(0, 0), (site - 1, 0), (0, site - 1), (site - 1, site - 1)]
+                        .iter()
+                        .any(|&(dx, dy)| lit(x0 + dx, y0 + dy))
+                })
+            })
+        });
+        assert!(square_free, "every row alignment has a lit LARGE site with a lit corner, so the mask is not being applied");
+
+        // And the paired half: `Rising` still fills its site corner to
+        // corner. If someone rounds it again this fails, which is the
+        // point -- the last person to do it had this file's own doc
+        // comment in front of them.
+        let small = boiling_pool_frame(BubbleMode::Rising, 95);
+        let small_lit = |x: usize, y: usize| {
+            let i = (y * 64 + x) * 4;
+            off[i..i + 4] != small[i..i + 4]
+        };
+        let site = BUBBLE_SITE as usize;
+        let full_square = (0..64 / site).any(|sx| {
+            (0..64 / site).any(|sy| {
+                let (x0, y0) = (sx * site, sy * site);
+                (0..site).all(|dx| (0..site).all(|dy| small_lit(x0 + dx, y0 + dy)))
+            })
+        });
+        assert!(full_square, "no RISING site is lit corner to corner; the square has been rounded off again");
+    }
+
+    /// `BUBBLE_LARGE_LIT` divides the density on the per-pixel path, so it
+    /// is hardcoded rather than counted — and this is what stops it
+    /// drifting away from the mask it claims to describe. A wrong count
+    /// here does not crash or look broken; it silently changes how much
+    /// boil the mode draws, which is exactly the failure the density
+    /// correction exists to prevent.
+    #[test]
+    fn the_large_bubble_mask_lights_what_the_density_correction_assumes() {
+        for (radius_sq, claimed) in BUBBLE_LARGE_DISCS {
+            let counted = (0..BUBBLE_LARGE_SITE)
+                .flat_map(|ix| (0..BUBBLE_LARGE_SITE).map(move |iy| (ix, iy)))
+                .filter(|&(ix, iy)| large_bubble_covers(ix, iy, radius_sq))
+                .count();
+            assert_eq!(counted as i32, claimed, "the disc at radius^2 {radius_sq} lights {counted} cells, not the {claimed} its entry claims");
+        }
+    }
+
+    /// **Both sizes actually appear.** A mix that is 100:0 is not a mix,
+    /// and nothing else in the file would notice -- the density correction
+    /// is per site, so a broken size hash draws a perfectly respectable
+    /// grid of identical bubbles, which is the artifact this replaced.
+    #[test]
+    fn a_large_bubble_field_holds_both_of_its_sizes() {
+        let mut seen = [0usize; BUBBLE_LARGE_DISCS.len()];
+        for sx in 0..40 {
+            for sy in 0..40 {
+                let disc = large_bubble_disc(sx, sy);
+                let i = BUBBLE_LARGE_DISCS.iter().position(|d| d.0 == disc.0).expect("a disc from the table");
+                seen[i] += 1;
+            }
+        }
+        for (i, count) in seen.iter().enumerate() {
+            // A third of 1,600 either way: far from an even split, and far
+            // from a hash that has collapsed onto one branch.
+            assert!(*count > 1600 / 3, "size {i} came up {count} times in 1,600 sites; the size hash is lopsided");
+        }
+    }
+
+    /// **Changing a bubble's shape must not change how much boil it
+    /// draws**, which it did once.
+    ///
+    /// `BUBBLE_DENSITY` is the share of the *pool* that should light up, and
+    /// it was being applied per *site* — so a 5-of-9 disc quietly cut the
+    /// effect to a third: 3,250 changed pixels on `scene=simmer` became
+    /// 1,125, from a change that was only supposed to be about shape. The
+    /// density is normalised by how much of its own area a site covers, and
+    /// that correction is what lets `Large` mask twelve of its
+    /// thirty-six cells away and still boil as hard as `Rising`.
+    ///
+    /// So the claim is across *modes*, not for one of them: whichever
+    /// bubble you pick, the pool boils as much as that mode means to.
+    ///
+    /// `Large` is the interesting case, because it is *deliberately*
+    /// sparser (`BUBBLE_LARGE_RARITY` — fewer and bigger is what was asked
+    /// for). Pinning it against `Rising` scaled by that constant separates
+    /// the two effects: a broken mask or a lost density correction shows
+    /// up, and retuning the rarity does not have to touch this test.
+    #[test]
+    fn changing_a_bubbles_shape_does_not_thin_the_boil() {
+        let off = boiling_pool_frame(BubbleMode::Off, 95);
+        let mut small = 0usize;
+        for mode in [BubbleMode::Rising, BubbleMode::Large, BubbleMode::Columns] {
+            let drawn = pixels_differing(&off, &boiling_pool_frame(mode, 95));
+            println!("{}: {drawn} of 4096 pixels bubbled", mode.label());
+            if mode == BubbleMode::Large {
+                // Half and double the population `BUBBLE_LARGE_RARITY`
+                // asks for: wide enough to survive a reshuffle of the
+                // pattern, narrow enough to catch a mask that has lost or
+                // gained a third of its area.
+                let want = small as f32 * BUBBLE_LARGE_RARITY;
+                assert!(
+                    (drawn as f32) > want * 0.5 && (drawn as f32) < want * 2.0,
+                    "LARGE lit {drawn} of 4096 pixels against RISING's {small}; at BUBBLE_LARGE_RARITY it should be near {want:.0}, \
+                     so the mask or the per-pixel density correction has changed the strength rather than the shape"
+                );
+                continue;
+            }
+            // A 64x64 pool at `BUBBLE_DENSITY`, measured 655 of 4,096 for
+            // `Rising` -- the bars are half and double that.
+            assert!(
+                (300..1300).contains(&drawn),
+                "{} lit {drawn} of 4096 pixels in a uniformly boiling pool; the effect has changed strength, not just shape",
+                mode.label()
+            );
+            if mode == BubbleMode::Rising {
+                small = drawn;
+            }
+        }
+    }
+
+    /// A pan whose floor is boiling and whose surface is merely warm —
+    /// which is what a heated pool actually looks like, and what
+    /// `boiling_pool_frame`'s uniform 95C world is not.
+    fn simmering_pan_frame(mode: BubbleMode) -> Vec<u8> {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        // Ten rows deep -- a pan, like `scene=simmer`'s. A first version
+        // was forty deep and drew nothing *correctly*: the floor was
+        // thirty-two rows under the surface and `SURFACE_BUBBLE_DEPTH` is
+        // eight, so there was no heat within reach to read. A fixture that
+        // cannot contain the situation looks exactly like a broken
+        // mechanism (`CLAUDE.md`).
+        for y in 50..60 {
+            for x in 0..64 {
+                // 30C at the surface: off ambient, so the renderer's heat
+                // branch admits it, and under `BUBBLE_MIN_TEMPERATURE`, so
+                // its own heat can never light a bubble.
+                let temp = if y >= 56 { 95 } else { 30 };
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(temp));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = mode;
+        let particles = ParticleSystem::new();
+        let mut frame = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        frame
+    }
+
+    /// **`Surface` reads the heat below it, not its own.**
+    ///
+    /// The mode needed a cell that was both near the top of its body and
+    /// over `BUBBLE_MIN_TEMPERATURE`, and heat arrives from underneath — so
+    /// on any bottom-heated pool those two sets are in different places and
+    /// the mode drew essentially nothing. Measured on `filmstrip
+    /// scene=simmer`, four tiles at zoom 5: **25 of 97,460 pixels** differed
+    /// from `Off` before, and 1,650 after — with `Rising` at 3,250 and
+    /// `Columns` at 1,350 on the same sheet, so it is a distinct look and
+    /// not a copy of one of them.
+    ///
+    /// The owner saw exactly this and named the cause in the same breath:
+    /// *"All images look mostly identical. But also if we are testing
+    /// bubbles in water the boiling needs to happen at the bottom of the
+    /// pond/lake instead of the top."*
+    ///
+    /// The paired negative keeps it honest: the same pan with a **cold**
+    /// floor must still draw nothing, or the fix is just "bubble whenever
+    /// the water is wet".
+    #[test]
+    fn surface_bubbles_read_the_heat_below_them_rather_than_their_own() {
+        let off = simmering_pan_frame(BubbleMode::Off);
+        let on = simmering_pan_frame(BubbleMode::Surface);
+        let drawn = pixels_differing(&off, &on);
+        // Two rows of a 64-wide pan qualify as "near the surface", so the
+        // ceiling here is 128 cells' worth of `BUBBLE_DENSITY` — and it
+        // fell from 16 to 7 when the bubble became a 3x3 disc, because a
+        // taller site puts less of itself inside a two-row band. The
+        // control is **exactly 0** either way, which is what makes a small
+        // absolute number a clean separation rather than a marginal one.
+        assert!(
+            drawn >= 4,
+            "Surface drew {drawn} pixels over a boiling floor -- a bubble is made below where it pops, \
+             and this mode has to ask about the water underneath or it is dead on every real pool"
+        );
+
+        // Nothing under the surface is warm enough: nothing may be drawn.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 50..60 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(30));
+            }
+        }
+        let draw_it = |mode| {
+            let mut renderer = Renderer::new();
+            renderer.bubbles = mode;
+            let mut frame = vec![0u8; 64 * 64 * 4];
+            renderer.draw(&world, &ParticleSystem::new(), &HashSet::new(), &mut frame, (64, 64), true);
+            frame
+        };
+        assert_eq!(
+            pixels_differing(&draw_it(BubbleMode::Off), &draw_it(BubbleMode::Surface)),
+            0,
+            "a pan with nothing hot in it bubbled; the downward scan is not reading temperature"
+        );
+    }
+
+    #[test]
+    fn bubbles_are_silent_below_their_threshold_and_climb_with_the_frame() {
+        // The two ways this effect could be wrong without being invisible:
+        // drawing in water nobody heated, and drawing a *static* pattern
+        // that reads as a texture rather than as anything rising.
+        let cold = boiling_pool_frame(BubbleMode::Rising, AMBIENT_TEMPERATURE);
+        let cold_off = boiling_pool_frame(BubbleMode::Off, AMBIENT_TEMPERATURE);
+        assert_eq!(
+            pixels_differing(&cold, &cold_off),
+            0,
+            "water at ambient bubbled; the effect is not gated on temperature"
+        );
+
+        // Same world, successive frames: the pattern must move. Drawn from
+        // one renderer so its own frame counter advances, which is the only
+        // thing that changes between the two.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        for y in 0..64 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(material::WATER, 0).with_temperature(95));
+            }
+        }
+        let mut renderer = Renderer::new();
+        renderer.bubbles = BubbleMode::Rising;
+        let particles = ParticleSystem::new();
+        let mut first = vec![0u8; 64 * 64 * 4];
+        let mut later = vec![0u8; 64 * 64 * 4];
+        renderer.draw(&world, &particles, &HashSet::new(), &mut first, (64, 64), true);
+        for _ in 0..BUBBLE_RISE_PERIOD {
+            renderer.draw(&world, &particles, &HashSet::new(), &mut later, (64, 64), true);
+        }
+        assert!(
+            pixels_differing(&first, &later) > 0,
+            "the bubble pattern is identical {BUBBLE_RISE_PERIOD} frames later; nothing is rising"
+        );
+    }
+
+    #[test]
+    fn translucent_gas_lets_the_background_through_and_opaque_does_not() {
+        // A band of smoke against open sky, drawn three ways. The claim is
+        // ordered rather than absolute: every mode has to move the pixel
+        // *toward* what is behind it more than the last, and `Opaque` has
+        // to move it not at all -- which is what keeps the way back to the
+        // old look genuinely the old look rather than nearly it, now that
+        // `ByFill` is the default.
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        let smoke = world.materials.id_of("smoke").expect("smoke.ron should be embedded");
+        for y in 20..30 {
+            for x in 0..64 {
+                world.set(x, y, Cell::new(smoke, 0).with_aux(400));
+            }
+        }
+        let draw = |mode: GasMode| {
+            let mut renderer = Renderer::new();
+            renderer.gas = mode;
+            let particles = ParticleSystem::new();
+            let mut frame = vec![0u8; 64 * 64 * 4];
+            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+            frame
+        };
+        // The sky itself, at a row nothing was drawn into, is what a fully
+        // transparent gas cell would converge to.
+        let opaque = draw(GasMode::Opaque);
+        let sky_idx = (10 * 64 + 32) * 4;
+        let sky = [opaque[sky_idx], opaque[sky_idx + 1], opaque[sky_idx + 2]];
+        let gas_idx = (25 * 64 + 32) * 4;
+        let distance = |f: &[u8]| {
+            (0..3).map(|c| (f[gas_idx + c] as i32 - sky[c] as i32).abs()).sum::<i32>()
+        };
+        let (o, t, b) = (distance(&opaque), distance(&draw(GasMode::Translucent)), distance(&draw(GasMode::ByFill)));
+        println!("distance from the sky behind it: opaque {o}, translucent {t}, by-fill {b}");
+        assert!(o > 0, "the test cell already matches the sky, so this asserts nothing");
+        assert!(t < o, "translucent gas did not move toward what is behind it ({t} against {o})");
+        // aux 400 is a thinned cell, so by-fill has to be thinner still.
+        assert!(b < t, "by-fill did not thin a 40%-full cell past the flat alpha ({b} against {t})");
     }
 
     #[test]

@@ -16,6 +16,7 @@ use std::collections::{BinaryHeap, HashMap};
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
@@ -107,10 +108,52 @@ pub struct CreatureStats {
     /// Drops that happened at the nest — food actually delivered home.
     /// **The number that proves the loop rather than its parts.**
     pub deliveries: u64,
-    /// Arrivals at the nest after having been away. Splits "never got
-    /// home" from "never picked anything up", which the delivery count
-    /// alone cannot.
+    /// **Not a trip counter, and not a sessility guard — read
+    /// `forage_trips` for either.** It increments on any move made while
+    /// nest-adjacent, guarded on `OrganismState::since_nest > 0`; but
+    /// `since_nest` is bumped unconditionally every tick, so that guard is
+    /// false exactly once in a creature's life and this counts *loitering*.
+    /// One ant, a nest and no food scores `moves 648, nest_visits 389`.
+    ///
+    /// Kept because the ratio against `moves` is still a real readout — an
+    /// immobile colony drives it toward 1 and a ranging one toward 0 — and
+    /// because deleting it would silently change every scene that prints
+    /// it. What it is not is "arrivals at the nest after having been away",
+    /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
+    /// from home and came back.** The thing `nest_visits` was believed to
+    /// be counting and never was.
+    ///
+    /// Booked at the moment of nest contact, off
+    /// `OrganismState::forage_max` — a spatial depth that re-anchors on
+    /// every contact, so neither loitering nor `tick_interval` can inflate
+    /// it. See that field for why the obvious `since_nest` fix is unsound.
+    pub forage_trips: u64,
+    /// Summed depth of the trips in `forage_trips`, in cells. `/
+    /// forage_trips` is the mean foraging range — **the quantity that was
+    /// missing, and the reason no foraging change could be judged.**
+    pub forage_depth_sum: u64,
+    /// Deepest single excursion any creature has made, in cells. Bounds the
+    /// mean: a colony with a good mean and a small max is commuting a fixed
+    /// route, which is a different animal from one that ranges.
+    pub forage_depth_max: u64,
+    /// **The excursion-depth profile, and the reason this metric does not
+    /// live or die on one threshold.** Bucket `i` counts excursions that
+    /// reached at least `FORAGE_REACH_BUCKETS[i]` cells from home — a
+    /// cumulative distribution, so it is monotonically non-increasing and
+    /// bucket 0 is every excursion there was.
+    ///
+    /// A single count needs a bar, and a bar set from an aspiration is how
+    /// this project gets numbers that cannot fail for the right reason. The
+    /// profile needs none: an immobile colony is a spike in bucket 0 that
+    /// vanishes by bucket 2, and a ranging one carries weight out to the
+    /// distance of whatever it is ranging *to*. That shape is the readout,
+    /// and it is what `forage_trips`'s bar was then set from.
+    ///
+    /// It also separates two colonies a mean cannot: a hundred short hops
+    /// and ten real trips average the same as a hundred medium ones.
+    pub forage_reach: [u64; 8],
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -118,55 +161,114 @@ pub struct CreatureStats {
 
 /// Where every joule went. See `World::energy_ledger`.
 ///
-/// The invariant, asserted in the ascii scenes:
-/// `sum(live creature energy) == granted + eaten - metabolized - moved
-/// - synapse_tax - died_holding`.
+/// Two stocks, not one. **Live** is the energy inside creatures; **meat**
+/// is the energy standing in the world as corpse cells (and in whatever a
+/// carrier is holding). Every account below is a monotone counter, and each
+/// one is labelled as a *source* (value created out of nothing), a *sink*
+/// (value destroyed) or a *transfer* (value moved between the two stocks).
+///
+/// ```text
+/// live = granted + harvested_plant + harvested_corpse + overdrawn
+///        - metabolized - moved - synapse_tax - stored_in_meat - dissipated
+///
+/// meat = stamped + stored_in_meat - harvested_corpse - meat_lost
+/// ```
 ///
 /// # What this can and cannot catch, because the difference has been
 /// # misread once
 ///
 /// It catches **charges that do not land**: a cost debited from the ledger
 /// but never taken off a creature, or vice versa. That is a real class of
-/// bug and the identity finds it immediately.
+/// bug and the first identity finds it immediately.
 ///
-/// It **cannot catch energy creation**, and reading a balanced census as
-/// "energy is conserved" is a mistake. `granted`, `eaten` and
-/// `died_holding` are all *free terms defined as whatever happened*, so
-/// they move the two sides of the identity together by construction. When
-/// a beetle bites an ant, `eaten` grows by the **eater's** `eat_energy` --
-/// a constant with no relationship to what the victim had -- and
-/// `died_holding` deletes the victim's remainder; both are booked, the
-/// identity holds, and 300 joules were conjured. If the bite only takes a
-/// trailing segment there is no sink at all and the identity still holds.
+/// It **cannot be a conservation law**, and reading a balanced census as
+/// "energy is conserved" is a mistake. `granted`, `stamped` and
+/// `harvested_plant` are genuinely free — the sun is the largest source in
+/// the world by far and lives entirely outside these numbers, and nothing
+/// books photosynthesis yet.
 ///
-/// So this is an *accounting* ledger, not a conservation law. The property
-/// evolution actually needs (P-20) is weaker and different: **no lineage
-/// may extract unbounded energy from a cycle it controls.** That is what
-/// `creature::tests::a_sealed_world_with_no_food_source_runs_down` tests,
-/// and it does not pass today -- see its doc for the pump it reproduces.
-/// A closed ledger is only reachable once plants book photosynthesis into
-/// the same accounts, since the sun is the largest free source in the
-/// world by far and lives entirely outside these numbers.
+/// **What changed at S3, and why it matters more than the tidiness.** The
+/// old ledger had one `eaten` account and it was a free term *defined as
+/// whatever happened*: `eat_energy` was a constant of the **eater**, so
+/// when a beetle bit an ant, `eaten` grew by the beetle's number, the
+/// victim's remainder was written off, both were booked, the identity held,
+/// and 300 joules were conjured (§13l). `harvested_corpse` is not free: it
+/// is matched, joule for joule, by meat that was booked into `stamped` when
+/// the animal was built or into `stored_in_meat` when it died. That is what
+/// makes the second identity above worth asserting, and it is the property
+/// evolution actually needs (P-20): **no lineage may extract unbounded
+/// energy from a cycle it controls.**
+///
+/// `meat_lost` is not an account here, because nothing hooks the seam a
+/// corpse is destroyed through (decay, fire, an explosion, the brush).
+/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
+/// asserts it as one. In a sealed box where nothing eats corpses but the
+/// ants, it is tight.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
-    /// Energy created out of nothing, at spawn. The only source besides
-    /// eating, and the one that has to be counted or nothing balances.
+    /// **Source.** Metabolic energy created at spawn — a creature's
+    /// `start_energy`, the pool it can actually spend.
     pub granted: f64,
-    /// **Also created out of nothing** -- `eat_energy` is a property of the
-    /// eater, not of the food, and no food cell has an energy account for
-    /// it to come out of. Counted so the identity closes, not because
-    /// anything was transferred. See the type doc.
-    pub eaten: f64,
+    /// **Source.** Structural energy created at spawn: `body_energy` for
+    /// every cell of the body. The animal can never spend this; it exists
+    /// so that a *starved* creature, dead at exactly 0, still leaves food
+    /// behind. Booked separately from `granted` because it is never part of
+    /// the live stock — it goes straight into meat when the animal dies.
+    pub stamped: f64,
+    /// **Source.** Eating something whose worth comes from its material:
+    /// leaf, moss, seed, a live animal's flesh. Free until plants book
+    /// photosynthesis into the same accounts.
+    pub harvested_plant: f64,
+    /// **Transfer**, out of the meat stock and into the live one. Eating a
+    /// cell that carries its own worth in `Cell::aux`.
+    pub harvested_corpse: f64,
     pub metabolized: f64,
     pub moved: f64,
     pub synapse_tax: f64,
-    pub died_holding: f64,
+    /// **Transfer**, out of the live stock and into meat: what a creature
+    /// still had in the bank when it died, written into its corpse cells
+    /// alongside the stamp. Was `died_holding`, and the rename is the
+    /// point — it is not destroyed, it is what makes a fresh kill better
+    /// eating than carrion.
+    pub stored_in_meat: f64,
+    /// **Sink.** Leftover energy with nowhere to go: a creature died in a
+    /// world with no `corpse` material compiled in, so there was nothing to
+    /// write the worth into. Should read 0 in every real scene; it is here
+    /// so that the case does not silently unbalance the live identity.
+    pub dissipated: f64,
+    /// **A correction, and the only term that adds back.** Charges that
+    /// landed on a creature which could not pay them: an animal dies *at*
+    /// zero in the accounting but arrives there having been debited past
+    /// it, so its last tick of metabolism came out of an empty bank.
+    ///
+    /// Found by `the_standing_meat_never_exceeds_what_was_put_into_it` the
+    /// first time the live identity was ever asserted rather than printed
+    /// — 2.16 joules across twelve ants over 40,000 frames, which is small,
+    /// real, and exactly the kind of free term that becomes an attractor
+    /// the moment something can select on it. Booked rather than clamped
+    /// away at the charge sites, because a creature that overshoots zero
+    /// by a tick is honest behaviour and pretending it did not is how a
+    /// counterweight constant gets born.
+    pub overdrawn: f64,
 }
 
 impl EnergyLedger {
     /// What the live population's total energy should equal.
     pub fn expected_live_total(&self) -> f64 {
-        self.granted + self.eaten - self.metabolized - self.moved - self.synapse_tax - self.died_holding
+        self.granted + self.harvested_plant + self.harvested_corpse
+            - self.metabolized
+            - self.moved
+            - self.synapse_tax
+            - self.stored_in_meat
+            - self.dissipated
+            + self.overdrawn
+    }
+
+    /// The most meat that can be standing in the world. An **upper bound**,
+    /// not an equality — see the type doc on `meat_lost`.
+    pub fn max_standing_meat(&self) -> f64 {
+        self.stamped + self.stored_in_meat - self.harvested_corpse
     }
 }
 
@@ -254,6 +356,20 @@ pub struct World {
     /// `pop_due_active_site` before the tick runs, so a site that
     /// reschedules itself is a fresh request rather than a dropped one.
     pending_evaporation: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup index again, for `ActiveKind::Dissipate`, and
+    /// load-bearing for the same reason as `pending_evaporation` directly
+    /// above rather than merely for cost: the CA sweep asks for a
+    /// dissipation site on **every frame** a gas cell fails to move, so
+    /// without this the number of rolls a trapped cell gets each second
+    /// would be proportional to how long its chunk happened to stay awake
+    /// after it settled — smoke in a busy crater would fade faster than the
+    /// same smoke in a quiet one, which is a size/activity dependence
+    /// nothing about the mechanic wants.
+    ///
+    /// A third set rather than one keyed on kind, matching the choice made
+    /// for `pending_evaporation`: the existing paths' behaviour stays
+    /// untouched.
+    pending_dissipation: std::collections::HashSet<(i32, i32)>,
     /// The topmost row of *ground* in each column, indexed from
     /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
     /// column that held no ground at all; empty until `freeze_sky_surface`
@@ -285,6 +401,20 @@ pub struct World {
     /// want this keyed per chunk column instead, alongside everything else
     /// that is currently sized to a resident world.
     sky_surface: Vec<i32>,
+    /// The same dedup idea as `pending_structural_checks`, for
+    /// `ActiveKind::Decay`, and it exists for a different reason worth
+    /// stating: decay sites are scheduled by `World::end_step`'s settle
+    /// scan, which fires **every time a chunk goes from awake to settled**.
+    /// A litter drift that is disturbed and re-settles ten times would
+    /// otherwise stack ten sites on each of its cells, and since each site
+    /// independently rolls `DECAY_CHANCE_*`, the effective decay rate would
+    /// become a function of how often the ground was walked on. That is not
+    /// a performance problem, it is a correctness one -- the rate has to be
+    /// a property of the material, not of the chunk's history.
+    ///
+    /// `Decay` carries no state beyond position, so `(x, y)` is an
+    /// unambiguous key, exactly as for a structural check.
+    pending_decay_sites: std::collections::HashSet<(i32, i32)>,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -337,6 +467,10 @@ pub struct World {
     /// reason `fields` is: the signal outlives whoever deposited it, which
     /// is the entire point of stigmergy.
     pub pheromones: Pheromones,
+    /// The "did it fire" counters for the field solve — see [`FieldStats`],
+    /// which explains why the obvious alternative (counting unsettled tiles)
+    /// cannot answer the question they exist for.
+    pub field_stats: field::FieldStats,
     /// The "did it fire" counters for creature behaviour — `FailureCounts`
     /// in shape and in purpose.
     ///
@@ -372,6 +506,35 @@ pub struct World {
     /// allocating on their own schedule this is the number that says
     /// whether the assumption still holds at play rates.
     pub organism_generation_wraps: u32,
+    /// **Seeds that waited for water and then germinated** — the counter
+    /// for the dormancy mechanic, because a picture cannot show it and no
+    /// existing readout separates the cases.
+    ///
+    /// `plant_probe` prints "seeds or seedlings", which lumps a seed
+    /// patiently waiting on dry ground together with a seedling starving
+    /// after germinating on it — the exact two states this mechanic exists
+    /// to tell apart, and the failure it was built to end. A stand can look
+    /// identical either way.
+    ///
+    /// Counts only germinations that were *deferred at least once*: a seed
+    /// that lands on damp ground and sprouts immediately is the old
+    /// behaviour and is not evidence of anything.
+    pub seeds_germinated_after_waiting: u32,
+
+    /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
+    /// field humidity was on when the roll was made.
+    ///
+    /// Split rather than totalled, because the question these were added for
+    /// is not "how much rotted" but **"which rate is the world running on"**.
+    /// The two chances differ 25x (`decay::DECAY_CHANCE_DAMP` 0.05 against
+    /// `DECAY_CHANCE_DRY` 0.002), so a total conflates a little damp ground
+    /// with a lot of dry ground and cannot tell them apart -- which is the
+    /// distinction the worldgen soil baseline moved, and the reason anyone is
+    /// looking. A picture cannot show it either: rotted litter and unrotted
+    /// litter are the same few pixels at contact-sheet zoom.
+    pub decayed_damp: u32,
+    /// Counterpart to `decayed_damp`; see it for why these are separate.
+    pub decayed_dry: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -420,6 +583,65 @@ pub struct World {
     /// modes -- one of which is "this was overloaded" and the other "this
     /// was never held". Read by `examples/filmstrip.rs` beside the image.
     pub structural_failures: FailureCounts,
+    /// Cumulative temperature-triggered transition counts (boiled,
+    /// condensed, froze, melted, reacted). Same "did it fire at all"
+    /// instrumentation as `structural_failures`, for the same reason: a
+    /// steam plume and painted smoke are indistinguishable in a contact
+    /// sheet. Read by `examples/filmstrip.rs` beside the image.
+    pub phase_changes: crate::sim::fire::PhaseCounts,
+    /// How often evaporation found the air above a surface already
+    /// saturated, split by surface kind -- see `evaporation::DrynessCounts`.
+    pub dryness_counts: crate::sim::evaporation::DrynessCounts,
+    /// **The atmosphere's water, in liquid-water cell-equivalents** — the
+    /// credit half of the outer water cycle, and the one number that closes
+    /// it.
+    ///
+    /// The inner cycle (boil, condense, freeze, melt) is conserved per cell
+    /// already: `fire::transform` carries a cell's fill across every
+    /// transition and hands it back. The *outer* cycle was not conserved at
+    /// all. `evaporation::tick` deleted water and credited nothing;
+    /// `weather::step` spawned water cells out of the sky. A world's total
+    /// water was whatever the difference between those two rates happened to
+    /// be, and neither of them knew the other existed.
+    ///
+    /// This is where the one goes and where the other comes from. Scaled so
+    /// **1.0 is one full water cell** (`material::LIQUID_FULL`'s 0..1000
+    /// scale divided out), which is the same unit `weather`'s
+    /// `water_equivalents` census reports, so `water_equivalents(world) +
+    /// atmospheric_bank` is a constant a test can actually assert on.
+    ///
+    /// `f64` for the reason `energy_ledger` is one: it accumulates over long
+    /// runs, and an `f32` total stops being able to represent a single cell's
+    /// worth of credit once it passes about sixteen million.
+    ///
+    /// **One bank for the whole world, not a per-column or per-region one.**
+    /// The atmosphere mixes — that is `evaporation::shelter`'s whole story
+    /// about why a gale makes the air over a puddle and the air over a lake
+    /// read identically — so a bank that tracked *where* the water went would
+    /// be modelling a thing the field channel already models badly on
+    /// purpose, at the cost of an extra grid. What this is for is the
+    /// conservation law, and a conservation law is global.
+    ///
+    /// Written only by `credit_atmosphere` and `spend_atmosphere`; `pub` so
+    /// a test can drain it and a harness can print it.
+    pub atmospheric_bank: f64,
+    /// Where a denser cell displaced near-full liquid at a free surface
+    /// this frame — **candidate** splash sites, not splashes. See
+    /// `CellSurface::report_splash` for why the sweep only reports them,
+    /// and `particle::throw_splashes` for the one place that acts on them.
+    ///
+    /// Cleared at the top of every step, so a frame nobody drained is
+    /// discarded rather than growing, and bounded at `MAX_SPLASH_SITES` so
+    /// a blob landing in a lake cannot make the list the expensive part of
+    /// the frame.
+    pub splash_sites: Vec<(i32, i32, f32)>,
+    /// Cumulative count of splash droplets actually thrown -- the "did it
+    /// fire at all" counter for the effect, and a different number from
+    /// `splash_sites.len()`, which is only how many candidates the sweep
+    /// reported this frame. A droplet in flight is one pixel and a contact
+    /// sheet cannot tell one from a stray grain of water, so the count is
+    /// what says the mechanism ran. Bumped by `particle::throw_splashes`.
+    pub splashes_thrown: u32,
     /// Whether rock with nowhere to go cracks in place instead of
     /// displacing. See `structural::crush_in_place`; `true` is the shipped
     /// behaviour.
@@ -470,10 +692,17 @@ pub struct World {
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
     pub chain_window: u64,
-    /// Where the world was last disturbed, and when. A small ring: only
-    /// the most recent handful matter, since older ones fall outside
-    /// `chain_window` anyway.
-    pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
+    /// Where the world was last disturbed, when, and **how big the wound
+    /// was**. A small ring: only the most recent handful matter, since
+    /// older ones fall outside `chain_window` anyway. See
+    /// `structural::Disturbance` for why the extent is not optional.
+    pub disturbances: std::collections::VecDeque<crate::sim::structural::Disturbance>,
+    /// Failures already judged and part-way through coming down, one slice
+    /// per `structural::STRUCTURAL_TICK_INTERVAL` frames. See
+    /// `structural::StagedFracture` and `advance_staged_fractures`; empty
+    /// in every frame where nothing is mid-collapse, which is nearly all of
+    /// them.
+    pub staged_fractures: std::collections::VecDeque<crate::sim::structural::StagedFracture>,
 
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
@@ -517,6 +746,16 @@ pub struct FailureCounts {
     /// Furthest a failure has ever been found from the cell whose check
     /// found it, in cells.
     ///
+    /// **This is not a containment measure and never was**, whatever it has
+    /// been labelled: it is Manhattan `|failure.at - (x, y)|`, the distance
+    /// from the *checked cell* to the *failing ancestor*, bounded by
+    /// construction to `load::ROOTWARD_CHECK_STEPS` hops. It cannot see how
+    /// far the consequence landed from what the player hit, and measured on
+    /// a rolling-world blast it reads **1 cell** while real failures are
+    /// landing everywhere. `max_damage_reach` below is the number that
+    /// answers that question; this one answers the empirical question its
+    /// own paragraph below poses and nothing else.
+    ///
     /// Instrumentation for a decision, not a metric anyone needs at
     /// runtime. `Reports/prior-art-destruction.md` flags
     /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
@@ -528,6 +767,29 @@ pub struct FailureCounts {
     /// standing at a stress ratio of 1.87. So the question is empirical:
     /// how far do failures *actually* land from their trigger here?
     pub max_chain_reach: u32,
+    /// **The containment measure**: the greatest Chebyshev distance from
+    /// the nearest *live* disturbance to any cell a consequence actually
+    /// destroyed, over the whole run.
+    ///
+    /// Reported in the units `World::chain_reach` is written in (see
+    /// `World::distance_to_live_disturbance`, its measurement twin), so it
+    /// can be read straight against the `F9` setting: at LOCAL this
+    /// standing at 200 says damage travelled four times past the licence,
+    /// and no other counter here can say that at all.
+    ///
+    /// **Damage only.** Recorded where something stops being what it was --
+    /// the region handed to the fracturer, each paced slice,
+    /// `break_free` on the organism path, and the cells a crush actually
+    /// fissures. Deliberately *not* recorded for `rigid::settle`'s landing
+    /// scheduling or for a check that was scheduled and refused: those are
+    /// **work**, not damage, and folding them in would make the number
+    /// unreadable -- a scheduled check that changed nothing is exactly what
+    /// a contained world is full of.
+    ///
+    /// Nothing is recorded when there is no live disturbance at all, rather
+    /// than `0`: see `World::distance_to_live_disturbance` for why zero is
+    /// the wrong answer to "nothing was disturbed".
+    pub max_damage_reach: u32,
     /// The largest single failing region, in cells.
     ///
     /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
@@ -570,11 +832,129 @@ pub struct FailureCounts {
     /// from cracks too fine to see at that zoom. An image cannot say
     /// whether the thing you built is what produced it.
     pub crushed_cells: u32,
+    /// Slices `structural::advance_staged_fractures` took off a failure
+    /// that was too big to fracture in one tick, and the cells they took.
+    ///
+    /// The "did it fire at all" counter for R3a, and it is exactly the
+    /// question a contact sheet cannot answer: a collapse that arrives in
+    /// one frame and one that arrives in five bites look identical in a
+    /// grid of stills, and the difference between them is the whole
+    /// change. `overloaded`/`unsupported` above cannot say it either --
+    /// they count the *failure*, which is recorded once, whole, before any
+    /// of this.
+    pub staged_slices: u32,
+    pub staged_cells: u32,
+    /// Cells lifted out of the grid into a tumbling `ChunkBody`, and how
+    /// many bodies they became.
+    ///
+    /// **The only counter here that measures a displacement rather than a
+    /// judgement.** Every field above it is recorded at `structural.rs`'s
+    /// `record` call, which runs before the free-face test, the boundary
+    /// erosion, the slicing and the fracture -- so all of them can be large
+    /// on a run where nothing whatsoever moved. That is not hypothetical:
+    /// it is the exact shape of the owner's *"no pieces move, ever"*
+    /// against a harness reporting hundreds of unsupported failures.
+    ///
+    /// Recorded inside `rigid::promote`, at the line that actually pushes
+    /// the body, rather than at any call site -- `fracture_with_impulse`,
+    /// `calve_collar` and `fracture_shell` all reach it through the same
+    /// door, and so does anything added later.
+    ///
+    /// Cells that left a fracture as part of a promoted `ChunkBody`, and
+    /// cells that left it as rubble.
+    ///
+    /// **The mass, because the event counts were answering a different
+    /// question than the one being asked.** Reported from play against a
+    /// collapse whose region sizes and body count had both improved by a
+    /// large factor: *"they don't look like chunks when they fall, they are
+    /// still mostly dust when they sink."* He was right and every counter
+    /// said otherwise, because `size_buckets` measures how big the *region*
+    /// was and "peak chunk bodies" counts how many *events* there were, and
+    /// a player watches neither — he watches how much of what is falling is
+    /// in pieces big enough to see.
+    ///
+    /// A region of 83 cells that fractures into eleven 4-cell fragments is
+    /// a large region, several bodies' worth of events, and entirely dust
+    /// on screen. Only the ratio of these two tells them apart.
+    pub promoted_bodies: u32,
+    pub promoted_cells: u32,
+    /// Cells converted in place to `breaks_into` rubble -- the other half
+    /// of a fracture's output, and the one the ethos calls grit.
+    ///
+    /// Paired with `promoted_cells` deliberately: the ratio between them is
+    /// the block-size distribution the owner's *"a few blocks, more
+    /// cobbles, a lot of grit"* is about, and either number alone cannot
+    /// show it.
+    ///
+    /// Two code paths write the identical conversion and both are counted:
+    /// `rigid::shatter_to_rubble`, which takes the fragments that came out
+    /// below `MIN_BODY_CELLS`, and `structural::break_free`, which is the
+    /// fallback when a region was too small to fracture at all. Neither
+    /// counts a cell whose material has no `breaks_into` -- both decline
+    /// and leave it standing, and counting a decline would make grit look
+    /// like it happened.
+    ///
+    /// **`break_free`'s organism path is deliberately *not* counted.** The
+    /// third caller is `structural.rs`'s plant-support check turning a
+    /// limb that lost its anchor into deadwood: the same conversion, an
+    /// entirely different event, and one that fires on its own schedule
+    /// all through any world with vegetation in it. Folding it in here
+    /// would put tree death into the number that is supposed to say how
+    /// rock came apart, and swamp it on exactly the generated worlds this
+    /// counter exists to judge.
+    pub shattered_cells: u32,
+    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    ///
+    /// **The mean and the max together still hide the shape, and the shape
+    /// is the whole question.** `largest_failure` says a 12-cell region
+    /// happened once; the mean says 1.7; neither says whether the
+    /// distribution has a body between them or is 570 single cells with one
+    /// outlier. The answer decides whether the fragment ladder can help at
+    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
+    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
+    /// lives entirely under 8 cannot produce a chunk however the rungs are
+    /// tuned. The owner's report is the other end of the same fact:
+    /// *"better with chunks instead of pile of dust"*.
+    ///
+    /// Bucket edges are the two floors and powers of two around them, so
+    /// the boundary that matters is a boundary in the readout too.
+    pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// The size of every body promoted, bucketed by doubling: `<8`
+    /// (impossible -- `MIN_BODY_CELLS` is 8, so it stays 0 and is the
+    /// sanity check on the bucketing), `8-15`, `16-31`, `32-63`, `64-127`,
+    /// `128-255`, `256+`.
+    ///
+    /// **`promoted_bodies` and `promoted_cells` cannot answer the question
+    /// this does.** Their ratio is a *mean*, and a run of forty 30-cell
+    /// blocks and a run of one 200-cell slab plus thirty-nine 25-cell ones
+    /// have nearly the same mean and are the two outcomes the ethos is
+    /// about: *"a few blocks, more cobbles, a lot of grit"* is a
+    /// **distribution**, and its absence -- everything one size, or the
+    /// all-or-nothing split -- reads as fake on sight. Reported from play
+    /// as *"could the pattern of cracks be more heterogeneous, so the
+    /// chunks that break off are different sizes"*.
+    ///
+    /// Seven `u32`s on a struct that is copied per tile, which is the
+    /// cheapest thing that can answer a distribution question at all.
+    pub promoted_sizes: [u32; 7],
 }
+
+/// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
+/// `rigid::MIN_FRACTURE_CELLS` and 8 is `MIN_BODY_CELLS`; a region below the
+/// first cannot fracture at all, and one below the second cannot yield a
+/// promoted body.
+pub const SIZE_BUCKETS: [u32; 7] = [1, 2, 3, 6, 8, 16, 64];
 
 impl FailureCounts {
     pub fn record_reach(&mut self, reach: u32) {
         self.max_chain_reach = self.max_chain_reach.max(reach);
+    }
+
+    /// See `max_damage_reach`. Callers pass a distance already resolved
+    /// against a *live* disturbance (`World::distance_to_live_disturbance`
+    /// returned `Some`), so there is no sentinel to filter here.
+    pub fn record_damage_reach(&mut self, reach: i32) {
+        self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
@@ -583,8 +963,39 @@ impl FailureCounts {
         self.deepest_confined = self.deepest_confined.max(depth);
     }
 
+    pub fn record_staged(&mut self, cells: usize) {
+        self.staged_slices += 1;
+        self.staged_cells += cells as u32;
+    }
+
+    /// One body, `cells` cells, actually lifted off the grid. See
+    /// `promoted_bodies`.
+    ///
+    /// `saturating_add` rather than the `+=` its neighbours use, and that
+    /// is not a style slip: the fields above it count discrete failure
+    /// events and this one counts *cells*, over runs that go to 5,000
+    /// frames and nine charges. A wrap here would read as a collapse in
+    /// the one counter the night's work is judged by.
+    pub fn record_promoted(&mut self, cells: usize) {
+        self.promoted_bodies = self.promoted_bodies.saturating_add(1);
+        self.promoted_cells = self.promoted_cells.saturating_add(cells as u32);
+        // Bucket by doubling from 8, the smallest a body can be. `ilog2`
+        // rather than a loop, and clamped at the top so a 400-cell body
+        // (`MAX_BODY_CELLS`) lands in the last bucket rather than past it.
+        let bucket = if cells < 8 { 0 } else { (cells.ilog2() as usize - 2).min(6) };
+        self.promoted_sizes[bucket] = self.promoted_sizes[bucket].saturating_add(1);
+    }
+
+    /// `cells` cells converted where they stood. See `shattered_cells` for
+    /// which paths count and which one deliberately does not.
+    pub fn record_shattered(&mut self, cells: usize) {
+        self.shattered_cells = self.shattered_cells.saturating_add(cells as u32);
+    }
+
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
         self.largest_failure = self.largest_failure.max(cells as u32);
+        let bucket = SIZE_BUCKETS.iter().rposition(|&edge| cells as u32 >= edge).unwrap_or(0);
+        self.size_buckets[bucket] += 1;
         match mode {
             crate::sim::load::FailureMode::Overloaded => {
                 self.overloaded += 1;
@@ -615,17 +1026,23 @@ impl World {
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
+            pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
+            pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
             body_index: HashMap::new(),
             species: SpeciesRegistry::builtin(),
             pheromones: Pheromones::new(bounds),
+            field_stats: field::FieldStats::default(),
             creature_stats: CreatureStats::default(),
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
             organism_generation_wraps: 0,
+            seeds_germinated_after_waiting: 0,
+            decayed_damp: 0,
+            decayed_dry: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -634,8 +1051,23 @@ impl World {
             chain_reach: i32::MAX,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
+            staged_fractures: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
+            phase_changes: crate::sim::fire::PhaseCounts::default(),
+            // **A fresh world's early storms run on an endowment.** The sky
+            // starts holding exactly one full-supply storm's reserve, so
+            // frame 0 of a brand-new world rains exactly as hard as it did
+            // before this existed — every scene and every guard written
+            // against the old behaviour still sees it — and only a world
+            // that has spent more than it has evaporated back starts to
+            // thin out. Seeding it at zero instead would mean no world ever
+            // saw rain until something had dried up first, which is not a
+            // water cycle, it is a drought with a cycle bolted on.
+            atmospheric_bank: crate::sim::weather::STORM_RESERVE,
+            dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
+            splash_sites: Vec::new(),
+            splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
         };
         world.ensure_chunks_for(bounds);
@@ -712,6 +1144,21 @@ impl World {
     /// `EnergyLedger`'s invariant.
     pub fn live_creature_energy(&self) -> f64 {
         self.organisms.iter().filter_map(|slot| slot.state.as_ref()).map(|state| state.energy as f64).sum()
+    }
+
+    /// Read-only view of one organism's whole-plant state, for probes.
+    ///
+    /// **A plain alias for `organism`, and only still here because it has
+    /// callers.** It was added on the plant line to get around `organism`
+    /// being `pub(crate)`, which an example crate could not see; the
+    /// creature line made `organism` itself `pub` for its own reasons, so
+    /// the workaround outlived the problem and the two met at the merge.
+    /// Kept rather than removed because ten call sites across `plant.rs`
+    /// and `examples/plant_probe.rs` read it and renaming them is churn,
+    /// not reconciliation — but prefer `organism` in new code, and fold
+    /// this away whenever those sites are next touched anyway.
+    pub fn organism_state(&self, organism_id: u16) -> Option<&organism::OrganismState> {
+        self.organism(organism_id)
     }
 
     /// Every live organism's encoded id.
@@ -832,9 +1279,26 @@ impl World {
         }
         // See `pending_evaporation`'s own doc — this one is load-bearing for
         // the *rate*, not only for the frame cost.
+        //
+        // `insert` returns false when the position was already present, so
+        // each of these both tests and marks in one go -- the structural arm
+        // above needs two calls only because its index is also read
+        // elsewhere. Two arms rather than one keyed on kind, because the
+        // two sets are independent and the structural path's behaviour must
+        // stay untouched.
         if matches!(site.kind, scheduler::ActiveKind::Evaporate { .. })
             && !self.pending_evaporation.insert((site.x, site.y))
         {
+            return;
+        }
+        // See `pending_dissipation`'s own doc — load-bearing for the rate,
+        // exactly as the evaporation one above is.
+        if matches!(site.kind, scheduler::ActiveKind::Dissipate) && !self.pending_dissipation.insert((site.x, site.y)) {
+            return;
+        }
+        // The same guard again for decay, which `origin/main` added
+        // independently against its own site kind. Two kinds, two sets.
+        if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
         self.active_sites.push(Reverse(site));
@@ -933,6 +1397,12 @@ impl World {
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
         }
+        if let scheduler::ActiveKind::Dissipate = site.kind {
+            self.pending_dissipation.remove(&(site.x, site.y));
+        }
+        if let scheduler::ActiveKind::Decay = site.kind {
+            self.pending_decay_sites.remove(&(site.x, site.y));
+        }
         Some(site)
     }
 
@@ -965,6 +1435,13 @@ impl World {
     /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
         let state = OrganismState {
+            water: 0.0,
+            water_status: 1.0,
+            water_uptake: 0.0,
+            water_demand: 0.0,
+            water_uptake_acc: 0.0,
+            water_desiccation: 0.0,
+            endowment: 0.0,
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
@@ -980,8 +1457,23 @@ impl World {
             energy: 0.0,
             carrying: None,
             since_nest: 0,
+            forage_anchor: (0, 0),
+            forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
             genome: Vec::new(),
+            shoot_top_y: None,
+            sympodial_forks: 0,
+            plagiotropic_steps: 0,
+            foliage_band: 0,
+            bark_band: 0,
+            inherited: false,
+            generation: 0,
+            seeds_set: 0,
+            alleles: [0; organism::DISCRETE_LOCI],
+            deferred_germination: false,
+            rigid_steps: 0,
+            lateral_departures: 0,
+            departure_angle_sum: 0.0,
         };
         if let Some(slot_index) = self.free_organism_slots.pop() {
             let slot = &mut self.organisms[(slot_index - 1) as usize];
@@ -1074,6 +1566,11 @@ impl World {
     /// *reuse*, so bumping here as well would advance it twice per
     /// life-cycle and burn the 4-bit space at double rate. One bump per
     /// reuse, in exactly one place.
+    ///
+    /// **`plant::step_organisms` is the second caller**, releasing plant
+    /// organisms whose cell list has gone empty — the one liveness
+    /// definition that cannot orphan a standing cell, since a cell still
+    /// referring to the organism is exactly what makes the list non-empty.
     pub(crate) fn free_organism(&mut self, organism_id: u16) {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
@@ -1087,6 +1584,18 @@ impl World {
         }
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+    }
+
+    /// How many organism slots are currently allocated, and how many of
+    /// those are live — the high-water reading the 4,095 ceiling is judged
+    /// against.
+    ///
+    /// The live half is `live_organism_count` rather than a second copy of
+    /// the same filter: the two accessors arrived independently on the two
+    /// merged lines, and one of them counting differently from the other
+    /// later is exactly the kind of drift nobody would think to check.
+    pub fn organism_slot_usage(&self) -> (usize, usize) {
+        (self.organisms.len(), self.live_organism_count())
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -1272,6 +1781,68 @@ impl World {
 
         self.register_body_chunks(id, &body);
         self.bodies[id.index as usize].state = Some(body);
+    }
+
+    /// Put `fill` units of water into the sky's bank — the credit half of
+    /// the outer cycle. `fill` is on `material::LIQUID_FULL`'s 0..1000
+    /// scale, which is what every liquid write in the engine already speaks;
+    /// the division to cell-equivalents happens here so no caller has to
+    /// remember it.
+    ///
+    /// **Three callers, all of them water by construction**:
+    /// `evaporation::tick` for a drying puddle, `evaporation::tick_soil` for
+    /// a drying soil surface, and `fire::try_phase_change` for steam that
+    /// condenses under open sky. `evaporates` is set on exactly one material
+    /// and `condenses_into_sky` on exactly one; soil moisture is on
+    /// `SOIL_SATURATED`'s scale, which infiltration already exchanges 1:1
+    /// with a liquid fill. If any of those is ever set on something that is
+    /// not water, this needs the density ratio the melt path already carries
+    /// (`fire::melt_fill`) — a cell-equivalent is a *water* cell-equivalent,
+    /// and a lighter liquid's fill is not worth the same water.
+    #[inline]
+    pub(crate) fn credit_atmosphere(&mut self, fill: u16) {
+        self.atmospheric_bank += fill as f64 / crate::sim::material::LIQUID_FULL as f64;
+    }
+
+    /// Take `cells` cell-equivalents out of the bank for something the sky is
+    /// about to create, or refuse and change nothing.
+    ///
+    /// **All-or-nothing, and floored at zero**, which is what keeps this an
+    /// accounting identity rather than an approximation: a caller that gets
+    /// `true` has already been charged and must create the cell, and a
+    /// caller that gets `false` must not. There is no partial spend, because
+    /// there is no such thing as three-tenths of a spawned water cell.
+    ///
+    /// The gross throttle is `storm_supply` below — by the time a spawn asks
+    /// here the storm has already been thinned to what the bank can afford,
+    /// so a refusal is the rounding at the very bottom of the barrel rather
+    /// than the mechanism. Both exist: the supply factor is what the storm
+    /// *looks* like, this is what it may actually *spend*.
+    #[inline]
+    pub(crate) fn spend_atmosphere(&mut self, cells: f64) -> bool {
+        if self.atmospheric_bank < cells {
+            return false;
+        }
+        self.atmospheric_bank -= cells;
+        true
+    }
+
+    /// How much of a full-strength storm the sky can currently pay for,
+    /// `0.0..=1.0`.
+    ///
+    /// **The same factor the simulation throttles the storm by and the
+    /// renderer thins the drawn rain by**, which is the whole reason it is a
+    /// method here rather than a local in `weather::step`. Falling
+    /// precipitation is drawn straight from `weather::at(seed, frame)` and
+    /// is not simulated at all (`weather::step`'s own doc: it is simulated
+    /// where it lands, not where it falls), so a bankrupt sky with the gate
+    /// on the landing side alone would *draw* a downpour that deposits
+    /// nothing — visibly, for as long as the front lasts. One factor, read
+    /// in both places, is what keeps the drawn storm and the landing storm
+    /// the same storm.
+    #[inline]
+    pub fn storm_supply(&self) -> f32 {
+        crate::sim::weather::supply(self.atmospheric_bank)
     }
 
     /// Register every chunk `body`'s current full footprint touches in
@@ -1529,6 +2100,21 @@ impl World {
     /// keep awake" is the number that gates the 2026-08 world review's
     /// rivers track (`Reports/world-review-2026-08.md` §4).
     pub fn unsettled_field_tiles(&self) -> usize {
+        self.fields.values().filter(|t| !t.settled()).count()
+    }
+
+    /// The same count, for the headless harnesses (`examples/ascii.rs`), which
+    /// live in another crate and so cannot see the `#[cfg(test)]` form above.
+    ///
+    /// The warning on that one applies here with knobs on: this is a full scan
+    /// of the tile map and **nothing in the engine may branch on it**. It
+    /// exists because "did the field actually stay asleep for a whole day"
+    /// cannot be answered by a timing (a scan that costs 0.02 ms and one that
+    /// costs 0.00 ms are the same number through a `Duration` at this scale)
+    /// and must not be answered by a picture — `CLAUDE.md`: "did it fire at
+    /// all" needs a counter.
+    #[doc(hidden)]
+    pub fn awake_field_tiles(&self) -> usize {
         self.fields.values().filter(|t| !t.settled()).count()
     }
 
@@ -1837,6 +2423,23 @@ impl World {
     pub fn organism_cell_mut(&mut self, x: i32, y: i32) -> Option<&mut organism::OrganismCell> {
         let id = self.get(x, y).organism_id();
         self.organism_mut(id)?.cells.get_mut(&(x, y))
+    }
+
+    /// The **water stock** of the organism owning this cell, and its
+    /// stomatal term — see `OrganismState::water` for why the balance is
+    /// held per organism rather than per cell.
+    pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+    }
+
+    /// The open-stomata shortfall of the organism owning this cell — what
+    /// drought shedding reads. Deliberately not `water_status`: see
+    /// `OrganismState::water_desiccation` for why prudence must not read
+    /// as thirst.
+    pub fn desiccation_at(&self, x: i32, y: i32) -> f32 {
+        let id = self.get(x, y).organism_id();
+        self.organism(id).map_or(0.0, |s| s.water_desiccation)
     }
 
     /// Carbon at `(x, y)`, or `0.0` where there is no organism cell —
@@ -2309,6 +2912,12 @@ impl World {
     }
 
     pub fn begin_step(&mut self) {
+        // Last frame's candidates, dropped rather than carried. A caller
+        // that owns a `ParticleSystem` drains them right after its step
+        // (`App::update`); one that does not -- `examples/ascii.rs`, the
+        // unit tests -- simply never sees them, which is the behaviour that
+        // makes the effect optional rather than load-bearing.
+        self.splash_sites.clear();
         // Idempotent, and the first simulated frame is the right moment:
         // the world has been generated (or hand-built) by now, and nothing
         // has had a chance to dig into it or build on top of it yet, since
@@ -2365,6 +2974,26 @@ impl World {
         &self.sky_surface
     }
 
+    /// Whether `(x, y)` sits above this column's frozen ground surface.
+    ///
+    /// The stored definition of "outdoors" (see `sky_surface`), asked as a
+    /// predicate so callers do not each have to remember that the slice is
+    /// indexed from `bounds.min_x` and that `i32::MAX` means "this column
+    /// never held any ground".
+    ///
+    /// `false` before the surface has been frozen, which only happens on a
+    /// world nothing has ever stepped — `begin_step` freezes it before the
+    /// first sweep runs, so no CA rule can observe that state. Answering
+    /// `false` there is the conservative direction anyway: it keeps
+    /// whatever the indoor behaviour is.
+    pub fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        let Some(b) = self.bounds else { return false };
+        let Some(&ground) = self.sky_surface.get((x - b.min_x) as usize) else {
+            return false;
+        };
+        y < ground
+    }
+
     pub fn end_step(&mut self) {
         // Recomputing reach is a full scan of the chunk's cells, so it only
         // runs at the one point that is both cheap and safe: exactly when a
@@ -2376,6 +3005,22 @@ impl World {
         // cost near-zero once everything sleeps.
         let materials = &self.materials;
         let touched = &mut self.touched_chunks;
+        // **Where decayable matter gets its decay site**, collected here and
+        // scheduled after the loop (the loop holds `self.chunks` mutably, so
+        // it cannot call `schedule_active_site`).
+        //
+        // A decay site is a bare coordinate and nothing makes it follow its
+        // cell -- `move_cell` touches no scheduler state -- so scheduling one
+        // when the cell is *created* strands it the moment the cell falls,
+        // which for shed litter is every time. Scheduling on **settle**
+        // instead is not a workaround for that; it is what the rule actually
+        // means. Weathering happens to matter that has come to rest, so the
+        // awake->settled transition is exactly the event, and a cell that
+        // moves afterwards simply gets a fresh site when it settles again.
+        // Bounded (one chunk), rare (chunks settle once and stay settled),
+        // and free of any hot-path cost. See `Reports/open-bugs-handoff.md`
+        // §0 for the four candidates this was chosen over.
+        let mut settled_decayables: Vec<(i32, i32)> = Vec::new();
         for chunk in self.chunks.values_mut() {
             let was_settled = chunk.is_settled();
             chunk.end_sweep();
@@ -2405,7 +3050,24 @@ impl World {
             if !was_settled && settled_now {
                 chunk.recompute_reach(|cell| materials.get(cell.material).sweep_reach());
                 chunk.recompute_has_liquid(|cell| materials.kind(cell.material) == MaterialKind::Liquid);
+                // Rides the scan `recompute_reach` is already doing, on the
+                // same transition and for the same reason it was chosen:
+                // this is the one point that is both cheap and safe.
+                let bounds = chunk.coord.bounds();
+                for y in bounds.min_y..=bounds.max_y {
+                    for x in bounds.min_x..=bounds.max_x {
+                        if materials.get(chunk.get_world(x, y).material).decays_into.is_some() {
+                            settled_decayables.push((x, y));
+                        }
+                    }
+                }
             }
+        }
+        // Deduped inside `schedule_active_site`, which is what stops a drift
+        // that settles repeatedly stacking sites and turning the decay rate
+        // into a function of how often the ground was disturbed.
+        for (x, y) in settled_decayables {
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
         }
     }
 
@@ -2494,7 +3156,37 @@ impl CellSurface for World {
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
         World::absorb_liquid(self, x, y, fill)
     }
+
+    #[inline]
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32) {
+        if self.splash_sites.len() < MAX_SPLASH_SITES {
+            self.splash_sites.push((x, y, strength));
+        }
+    }
+
+    #[inline]
+    fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
+        self.phase_changes.record(event);
+    }
+
+    #[inline]
+    fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        World::is_outdoors(self, x, y)
+    }
+
+    #[inline]
+    fn credit_atmosphere(&mut self, fill: u16) {
+        World::credit_atmosphere(self, fill);
+    }
 }
+
+/// How many splash candidates one frame may record. A cap on *work*, not a
+/// gate on whether splashing happens (`CLAUDE.md`) -- every site past this
+/// is one more droplet in a frame that already has plenty, and the sweep
+/// visits them in a fixed order, so dropping the tail is a look decision
+/// rather than a correctness one. Sized well above what a sand blob
+/// entering a pool produces so it is a backstop, not the usual path.
+pub(crate) const MAX_SPLASH_SITES: usize = 256;
 
 /// Squared distance from a cell to the segment `a`–`b`, which is what makes the
 /// brush a capsule rather than a rectangle around the cursor's path.

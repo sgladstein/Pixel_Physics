@@ -10,6 +10,9 @@
     penetration_resistance: 3.5,
     density: 1.9,
     friction_angle: 45.0,
+    // See Material::blast_resistance -- coarse and loose, well under
+    // stone's 1.0.
+    blast_resistance: 0.4,
     // **Two families of four tones**, `family * 4 + tone`, and the split is
     // about *context* rather than about region -- see
     // `worldgen::passes::BURIED_FAMILY`.

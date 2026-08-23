@@ -24,7 +24,31 @@
     // banks against anything upright instead of spreading out flat. This
     // is the single number that decides whether snow reads as snow.
     friction_angle: 42.0,
+    // See Material::blast_resistance -- trivially blown through, same
+    // spirit as the trivial penetration_resistance above.
+    blast_resistance: 0.2,
     melting_point: 2.0,
+    // **Not optional, and its absence was a real bug**, not a tuning
+    // choice: `fire.rs`'s `diffuse_heat` early-exits at conductivity <= 0,
+    // so a flake the storm had chilled below 2 degrees could never warm
+    // back up. It sat at storm temperature forever, permanently
+    // off-ambient, keeping its own chunk awake for the rest of the run --
+    // and the wiki's promise that "drifts thaw when the front passes" was
+    // only ever true of the cells a storm never actually reached. The
+    // probe for it is `fire.rs`'s
+    // `a_snow_drift_chilled_by_a_storm_thaws_after_it_passes`, which was
+    // written `#[ignore]`d against this exact gap: at conductivity 0 it
+    // panicked at its 2000-frame budget; with this line the flake warms
+    // -6 -> -4 -> -2 -> 0 -> 2 and melts at frame 3.
+    //
+    // 0.08 matches water's, which is a coincidence worth stating rather
+    // than a derivation: real snow insulates far better than water. What
+    // this number sets in practice is how long a drift takes to give up
+    // the storm's cold once the storm has gone, and matching the meltwater
+    // it turns into means a thawing drift and the puddle under it settle
+    // back to ambient together instead of one of them holding the chunk
+    // awake after the other is done.
+    heat_conductivity: 0.08,
     melts_into: "water",
     colors: [
         (246, 248, 253),

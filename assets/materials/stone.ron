@@ -69,6 +69,39 @@
     base_colors: 4,
     max_unsupported_span: 16,
 
+    // Stone is a **product** of a reaction now (lava quenched by water), and
+    // README.md's rule for that is unconditional: any target of
+    // `burns_into`/`melts_into`/`boils_into`/a reaction inherits the source's
+    // temperature and needs somewhere to put it. Left at the default 0 the
+    // crust arrives at the lava's own 1000C and can *never* cool -- with no
+    // conductivity, no melting point and no reactions, `fire::update` takes
+    // its thermally-inert fast path and returns before it ever reads the
+    // temperature again, so the cell is not merely slow to settle, it is
+    // frozen hot for the rest of the run.
+    //
+    // Measured rather than assumed, because it is not the awake-chunk cost
+    // that note warns about -- it is worse. A quenched flow in
+    // `filmstrip scene=lavapour`, with this line absent: the crust becomes a
+    // permanent 1000C boiler sitting in the pond. `reacted` stops at 811 by
+    // frame ~1100 (all the lava is spent), and `boiled` keeps climbing
+    // *linearly forever* -- 24,803 at frame 1100, 61,851 at frame 2300, a
+    // steady ~30 boil/condense pairs every frame with nothing left burning
+    // and nothing left flowing -- while 10 of 40 chunks never sleep again.
+    // It reads on screen too: the crust draws tan, not grey, because
+    // `render.rs`'s heat glow blends a 1000C cell halfway to its bright fire
+    // tint whatever the material is.
+    //
+    // With this line: `boiled` converges (see the commit that added lava for
+    // the paired numbers) and the crust cools to grey rock. The cost is the
+    // real trade -- stone is the most numerous material in the world, and a
+    // nonzero conductivity takes every *visited* stone cell off that fast
+    // path and onto four neighbour temperature reads. `examples/ascii.rs`
+    // has no stone in its stress scenes, so it cannot see that cost at all;
+    // it was measured on the stone-heavy scenes instead. 0.1, matching
+    // `ash.ron` (the other combustion product) rather than a physical basalt
+    // figure, and well under `diffuse_heat`'s 0.25 stability ceiling.
+    heat_conductivity: 0.1,
+
     // Attached rock -- the massif the slice is cut through -- is braced by
     // material out of plane, so it reaches far further than anything the
     // player stacks in front of it. 16 * 12 = 192 cells, comfortably more
@@ -86,6 +119,34 @@
     // "the wall crumbled". Raise it for rock that should calve slabs;
     // lower it for anything that should shatter into grit.
     fragment_rungs: 6,
+
+    // The joint fabric (`sim::fracture_field`) -- how far apart the planes
+    // rock is disposed to part along sit, in cells. Stone is the only
+    // shipped material that has any: sand, soil, gravel and snow are
+    // already the fragments, so they stay at the 0.0 default and a blast
+    // moves them exactly as it always did.
+    //
+    // This sets fragment width directly, and the owner's brief on it was
+    // two-sided: the pattern has to read as *closed straight-edged
+    // polygons* rather than wandering lines (which is why the mechanism is
+    // a Worley domain map and not a walker), and it has to be **sparser**
+    // than the worldgen cave sheet he pointed at -- "I like a little of
+    // it, but there is too much". The cave field used 22 across the whole
+    // world; a blast halo is only a few blast-radii wide, so the pitch has
+    // to be small enough for several polygons to read across it and large
+    // enough that they read as blocks rather than a mesh.
+    //
+    // 13 was chosen off a four-way look at 9 / 11 / 13 / 16 on the same
+    // buried charge, and A/B'd against 20 as the clearly-sparser arm. 9
+    // fills the halo with a fine net that reads as texture; 20 gives two or
+    // three blocks and the web stops reading as a web. 13 puts roughly six
+    // or seven polygons across a radius-20 blast's halo.
+    //
+    // It is **not** the lever for how much a blast eats -- coarsening it to
+    // 16 cut the nine-blast sweep's rock-destroyed maximum by only 5%, and
+    // `explosion::Tuning::joint_open_fraction` by 20%. Change this for the
+    // size of the pieces; change that one for the bill.
+    joint_spacing: 13.0,
 
 
     // Rock is strong in compression, weak in bending, weakest in tension.

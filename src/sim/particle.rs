@@ -391,6 +391,114 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
     // Genuinely nowhere to go — dropped, as before.
 }
 
+/// Upward speed a splash droplet leaves at, and how much of that it also
+/// carries sideways at the outermost droplet of a burst.
+///
+/// Modest against `MAX_SPEED_PER_AXIS` (8): a droplet that clears a pool by
+/// twenty cells is not a splash, it is an eruption, and the pool it left is
+/// visibly short of a cell when it lands somewhere else entirely.
+const SPLASH_UP: f32 = 2.2;
+const SPLASH_OUT: f32 = 1.1;
+
+/// How many droplets one splash site may throw. Each one is a whole cell
+/// taken out of the pool, so this is a bound on how much water is in the
+/// air at once as much as it is a look decision.
+const SPLASH_DROPLETS: i32 = 3;
+
+/// The reported strength at which a splash becomes a *crown* rather than a
+/// single drop — see `CellSurface::report_splash`.
+const SPLASH_CROWN_STRENGTH: f32 = 0.5;
+
+/// Turn this frame's splash candidates (`World::splash_sites`) into
+/// droplets, taking each droplet's water **out of the pool it came from**.
+///
+/// **The removal and the launch are in the same function, and that is the
+/// whole design.** `land` writes a full cell wherever a droplet comes down,
+/// so a droplet that was not debited somewhere is water manufactured. The
+/// sweep therefore only reports sites (`CellSurface::report_splash`) and
+/// never removes anything, which is what lets `examples/ascii.rs` and every
+/// unit test step the world with no `ParticleSystem` at all and lose
+/// nothing.
+///
+/// Every site is re-checked here rather than trusted, because a site is a
+/// frame old by the time this runs and the cell it names may have drained,
+/// frozen, been buried or moved: only a near-full liquid cell with air
+/// directly above it is taken.
+///
+/// Run after the CA sweep and before `ParticleSystem::step`, the same
+/// ordering and for the same reason as everything else in `App::update`.
+pub fn throw_splashes(world: &mut World, particles: &mut ParticleSystem) {
+    if world.splash_sites.is_empty() {
+        return;
+    }
+    // Taken rather than borrowed: the loop needs `&mut World` to empty the
+    // cells it takes. Same borrow shape as `ParticleSystem::step`'s drain.
+    let sites = std::mem::take(&mut world.splash_sites);
+    for (x, y, strength) in sites {
+        // Droplets fan out from the site, one per column, so a burst reads
+        // as a crown rather than as three grains stacked in one place --
+        // **unless the event is small**, in which case it is one drop.
+        // Three whole cells of water leaving a simmering pan every time a
+        // bubble bursts is a fountain, not a simmer.
+        let fan = if strength >= SPLASH_CROWN_STRENGTH { SPLASH_DROPLETS / 2 } else { 0 };
+        for offset in -fan..=fan {
+            let dx = x + offset;
+            let cell = world.get(dx, y);
+            if world.materials.kind(cell.material) != super::material::MaterialKind::Liquid {
+                continue;
+            }
+            if super::update::liquid_fill(cell) < SPLASH_MIN_FILL {
+                continue;
+            }
+            // **Air above, or nothing but the pool's own film.**
+            //
+            // The plain air test is what a crown wants -- a droplet needs
+            // somewhere to go -- and on its own it refuses every site on a
+            // *settled* pool, because a settled pool's top row is the
+            // remainder of its volume and is never full. That is already
+            // recorded as the reason
+            // `a_body_entering_water_at_speed_reports_a_crown_and_one_sliding_in_does_not`
+            // counts sites rather than droplets, and it made
+            // `fire.rs`'s simmering-surface pops fire **zero** times on
+            // `scene=simmer`: every site correctly reported, every one
+            // declined.
+            //
+            // A part-filled cell of the same liquid is not a lid. Taking
+            // the full cell under it conserves exactly as before -- a whole
+            // cell out, a whole cell in when the droplet lands -- and the
+            // film falls into the hole on the next sweep.
+            if !world.in_bounds(dx, y - 1) {
+                continue;
+            }
+            let cover = world.get(dx, y - 1);
+            let filmed = cover.material == cell.material && super::update::liquid_fill(cover) < SPLASH_MIN_FILL;
+            if cover.material != super::material::EMPTY && !filmed {
+                continue;
+            }
+            // Debit first. If anything below this line fails, the cell is
+            // already gone and the water is lost -- `spawn` cannot fail,
+            // which is why the order is safe, and why it is worth saying
+            // so here rather than leaving the next reader to check.
+            world.set(dx, y, super::cell::Cell::EMPTY);
+            world.splashes_thrown += 1;
+            particles.spawn(
+                dx as f32,
+                (y - 1) as f32,
+                SPLASH_OUT * offset as f32 * strength,
+                -SPLASH_UP * strength,
+                cell.material,
+                cell.shade,
+            );
+        }
+    }
+}
+
+/// The fill a cell must hold before a droplet may be taken out of it --
+/// full, for the reason `update::SPLASH_MIN_FILL` documents. The sweep
+/// checks it when it reports a site and this checks it again when it acts a
+/// frame later, and the two have to agree.
+const SPLASH_MIN_FILL: u16 = super::material::LIQUID_FULL;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,6 +512,120 @@ mod tests {
             w.set(x, 63, super::super::cell::Cell::new(material::STONE, 0));
         }
         w
+    }
+
+    /// Water in the whole world, in cell-equivalents — fill, not occupancy
+    /// (`CLAUDE.md`'s metric traps), plus whatever is still in the air.
+    ///
+    /// **Droplets in flight have to be counted or the metric is a lie**: a
+    /// splash takes a cell out of the grid and gives it back several frames
+    /// later, so a grid-only census reads a genuine conservation as a loss
+    /// on exactly the frames the mechanism is doing something.
+    fn water_in_world(w: &World, ps: &ParticleSystem) -> f64 {
+        let full = material::LIQUID_FULL as f64;
+        let mut total = 0.0;
+        for y in 0..64 {
+            for x in 0..64 {
+                let cell = w.get(x, y);
+                if cell.material == material::WATER {
+                    total += super::super::update::liquid_fill(cell) as f64 / full;
+                }
+            }
+        }
+        total + ps.iter().filter(|p| p.material == material::WATER).count() as f64
+    }
+
+    #[test]
+    fn a_splash_takes_its_droplets_out_of_the_pool() {
+        // **The conservation claim, as a paired comparison** (`CLAUDE.md`):
+        // the same scene run twice, once with the splash sites drained and
+        // once with them ignored, so everything the mechanism is *not*
+        // about -- settling, the last of the fill shuffling sideways --
+        // cancels. A single run against a remembered number would be
+        // measuring the pool's own drift.
+        //
+        // The failure this exists for is manufacture, and it is a real
+        // shape: `land` writes a *whole* cell wherever a droplet comes
+        // down, so a droplet taken from a cell holding 900 comes back as
+        // 1,000. Measured on `filmstrip scene=splash` before the fill gate
+        // was tightened to full: 30,351.3 cell-equivalents at the start and
+        // 30,363.3 at the end over 499 droplets.
+        let run = |throw: bool| {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            for x in 0..64 {
+                w.set(x, 63, super::super::cell::Cell::new(material::STONE, 0));
+            }
+            // Walls, or the pool drains off the sides and the census is
+            // measuring the world's edges rather than the splash.
+            for y in 40..63 {
+                w.set(0, y, super::super::cell::Cell::new(material::STONE, 0));
+                w.set(63, y, super::super::cell::Cell::new(material::STONE, 0));
+            }
+            for x in 1..63 {
+                for y in 45..63 {
+                    w.set(x, y, super::super::cell::Cell::new(material::WATER, 0));
+                }
+            }
+            // Loose grains rather than a block: a splash site needs air
+            // above the displaced water, which a solid slab never leaves.
+            for x in 8..56 {
+                for y in 10..40 {
+                    if super::super::rng::jitter(x, y) < 0.06 {
+                        w.set(x, y, super::super::cell::Cell::new(material::SAND, 0));
+                    }
+                }
+            }
+            let mut ps = ParticleSystem::new();
+            let before = water_in_world(&w, &ps);
+            for _ in 0..400 {
+                crate::sim::parallel::step(&mut w);
+                if throw {
+                    throw_splashes(&mut w, &mut ps);
+                }
+                ps.step(&mut w);
+            }
+            (before, water_in_world(&w, &ps), w.splashes_thrown)
+        };
+
+        let (before, after, thrown) = run(true);
+        let (control_before, control_after, control_thrown) = run(false);
+        println!("splashing: {before:.2} -> {after:.2} over {thrown} droplets; control {control_before:.2} -> {control_after:.2}");
+        assert_eq!(control_thrown, 0, "the control threw droplets; it is not a control");
+        assert!(thrown > 0, "no droplet was ever thrown, so this asserts nothing about splashing");
+        // Against the control, not against the starting value: the pool
+        // settles a little either way, and the claim is that splashing does
+        // not change how much water there is. A tenth of a cell per droplet
+        // in either direction is far tighter than the whole-cell error the
+        // gate exists to prevent.
+        let per_droplet = (after - control_after).abs() / thrown as f64;
+        assert!(
+            per_droplet < 0.1,
+            "splashing moved the tally by {per_droplet:.3} cells per droplet against the control ({after:.2} vs {control_after:.2} over {thrown})"
+        );
+    }
+
+    #[test]
+    fn a_splash_never_takes_a_cell_that_is_not_full() {
+        // The gate on its own, at unit scale, because the integration test
+        // above can only see the sum. A half-full cell must be left alone:
+        // it would come back whole.
+        let mut w = test_world();
+        w.set(30, 40, super::super::cell::Cell::new(material::WATER, 0).with_aux(500));
+        w.splash_sites.push((30, 40, 1.0));
+        let mut ps = ParticleSystem::new();
+        throw_splashes(&mut w, &mut ps);
+        assert_eq!(w.get(30, 40).material, material::WATER, "a half-full cell was thrown as a whole droplet");
+        assert_eq!(ps.len(), 0);
+        assert_eq!(w.splashes_thrown, 0);
+
+        // ...and the full one beside it is taken, so the refusal above is
+        // the gate doing its job rather than the whole path being dead.
+        w.set(30, 40, super::super::cell::Cell::new(material::WATER, 0));
+        w.splash_sites.push((30, 40, 1.0));
+        throw_splashes(&mut w, &mut ps);
+        assert_eq!(w.get(30, 40).material, material::EMPTY, "a full cell at a free surface was not thrown");
+        assert_eq!(ps.len(), 1);
+        assert_eq!(w.splashes_thrown, 1);
     }
 
     #[test]
