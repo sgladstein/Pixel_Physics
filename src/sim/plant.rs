@@ -4001,10 +4001,24 @@ fn is_frontier(cell_type: CellType) -> bool {
 
 /// How far down a shed leaf will look for somewhere to rest.
 ///
-/// A crown sits well above the ground and the walk has to cross it, so this
-/// is deliberately generous. It bounds the work and nothing else: a leaf that
-/// finds no rest inside it stays where the walk got to, never nowhere.
-const LITTER_FALL_REACH: i32 = 64;
+/// It bounds the work and nothing else: a leaf that finds no rest inside it
+/// stays where the walk got to, never nowhere.
+///
+/// **It was 64, and 64 was gating the outcome rather than bounding the
+/// work.** A grown crown in the `litter_probe` scene tops out around 125 rows
+/// above the ground, so a leaf shed high in it ran the walk out *inside the
+/// canopy* and came to rest on the first branch below wherever the count
+/// expired. Measured on that scene at 12,000 frames, standing litter resting
+/// on plant tissue: **44.4% at 64, 39.3% here**, and litter within three rows
+/// of the ground **29.5% -> 35.4%**. `CLAUDE.md`: any `if too_big { return }`
+/// is a claim that the largest cases deserve the least behaviour -- here the
+/// tallest trees, whose leaves have furthest to fall, were the ones whose
+/// litter never reached the floor.
+///
+/// Larger than any world is tall on purpose, so the bound is real (the loop
+/// always terminates) without ever being the thing that decides where a leaf
+/// lands.
+const LITTER_FALL_REACH: i32 = 512;
 
 /// What a shed leaf leaves behind: a `litter` cell, not a hole.
 ///

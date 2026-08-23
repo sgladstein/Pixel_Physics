@@ -27,17 +27,24 @@
     // sheet. This is the difference between "there is litter under that
     // tree" and "there is a uniform brown line across the world".
     friction_angle: 42.0,
-    // Browns and faded olives — leaves that have left the tree. Kept
-    // deliberately close in value so a litter layer reads as *texture* on
-    // the ground rather than as a second canopy lying down; the greens are
-    // gone, which is what says "shed" at a glance.
+    // Warm browns and ochres — leaves that have left the tree. The greens
+    // going is what says "shed" at a glance.
+    //
+    // **Lighter and warmer than the set this replaces, by the owner's blind
+    // A/B (2026-08-23, card `20260823T055722360Z-93ee75`).** The original
+    // six were kept deliberately close to soil in value, so a litter layer
+    // would read as ground *texture* rather than as a second canopy lying
+    // down. Judged against soil at play zoom that lost: the floor was there
+    // and could not be seen. These sit clearly above soil in luminance while
+    // staying in the same hue family, so a drift still reads as ground cover
+    // rather than as something painted on.
     colors: [
-        (104, 82, 48),
-        (118, 94, 56),
-        (88, 70, 40),
-        (126, 106, 68),
-        (96, 88, 52),
-        (110, 100, 62),
+        (150, 110, 50),
+        (168, 128, 62),
+        (132, 96, 44),
+        (182, 146, 78),
+        (140, 116, 56),
+        (160, 132, 70),
     ],
     // Between `leaf` (0.75, burns out in 40) and `deadwood` (0.35, 300).
     // Dry litter is the fuel that actually carries a ground fire, and it

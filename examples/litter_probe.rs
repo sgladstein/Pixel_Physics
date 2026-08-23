@@ -16,22 +16,26 @@
 //! own position, and let the powder fall from there — so a leaf shed in the
 //! middle of a crown landed on the first branch under it and stayed, and
 //! 3,825 of 4,330 standing cells were resting on plant tissue. It now walks
-//! the leaf down through its own crown to where it would have come to rest,
-//! so the on-plant column should be a small remainder rather than the bulk.
-//! That is the number this probe exists to keep honest, in either
-//! direction: it must stay able to *fail*, so do not read a low on-plant
-//! count as proof the walk is working until the totals also add up.
+//! the leaf down through its own crown to where it would have come to rest.
 //!
 //!   - **on terrain** — it reached the ground. A walking creature can touch
 //!     it; a forest floor accumulates.
-//!   - **on plant** — it is sitting on a branch, metres up. It keeps its
-//!     chunk's decay schedule alive and feeds nothing that cannot climb.
+//!   - **against plant** — the cell underneath is a live organism cell.
 //!   - **airborne** — still falling this frame.
 //!
-//! A plain height histogram cannot make that call, because a low branch and
-//! a deep floor pile occupy the same rows. Walking down the pile to whatever
-//! is actually under it can, and it is the verb in the complaint: *did this
-//! come to rest on a branch?*
+//! **`against plant` is two opposite verdicts wearing one number, and
+//! reading it as the bad one cost a whole detour.** A drift piled against a
+//! trunk at floor level rests *on the trunk*, because a litter cell is a grid
+//! cell and cannot go behind a tree the way the gnome can — he is an entity
+//! with his own collision rules, it is a material, and two materials cannot
+//! share a cell. That case is `litter.ron`'s 42-degree friction angle working
+//! as designed. Litter genuinely caught in the canopy is the mechanism
+//! failing. They score identically here.
+//!
+//! **So this column is only meaningful beside the height bands**, which are
+//! what tell the two apart, and it must never be quoted alone. Measured on
+//! this scene at 12,000 frames: 39.3% against plant, and 88% of all litter
+//! within four rows of the ground — so nearly all of it is round trunk bases.
 //!
 //! Also prints the 3-rows-above-terrain count, which is the form the
 //! creature side's earlier reading took, so the two are comparable.
@@ -45,10 +49,11 @@
 //!
 //! `out=x.png` writes the classification as a picture: **litter resting on a
 //! branch in magenta, litter resting on the ground in cyan**, over a world
-//! dimmed to a quarter. A plain screenshot cannot show this — litter's
-//! palette is browns and so is wood's, deliberately (`litter.ron` keeps the
-//! shed leaves close in value so a layer reads as ground texture), and
-//! WP-B2 already flagged that the two may be too close to tell apart. So
+//! dimmed to a quarter. **Read the picture, not just the split** — the shape
+//! is the answer: magenta in vertical streaks hugging the trunks is litter
+//! drifted against tree bases, and magenta scattered through the canopy is
+//! litter genuinely stuck up a tree. A plain screenshot cannot show either,
+//! because litter and wood are both browns. So
 //! this is a **full replace on fixed colours**, not a tint: a magnitude
 //! blend into a brown cell was tried once elsewhere in this engine and
 //! produced a sheet that read as blank.
@@ -97,6 +102,22 @@ fn rest_of(world: &World, litter: pixel_physics::sim::material::MaterialId, x: i
             return Rest::Airborne;
         }
         if below.organism_id() != 0 {
+            // **"Resting on plant" is not "stranded up a tree", and reading
+            // it as one cost a whole detour.** A drift that has piled against
+            // a trunk at floor level rests on the trunk, because a litter
+            // cell *is* a grid cell and cannot be behind the tree the way the
+            // gnome can -- he is an entity with his own collision rules, it
+            // is a material, and two materials cannot share a cell. So this
+            // bucket counts the drift-against-a-trunk case and the
+            // caught-in-the-canopy case together, and they are opposite
+            // verdicts: the first is `litter.ron`'s 42-degree friction angle
+            // working, the second is the mechanism failing.
+            //
+            // The height bands below are what separate them, so **read this
+            // number with them and never on its own**. Measured on this scene
+            // at 12,000 frames: 39.3% rests on plant, and 88% of all litter
+            // is within four rows of the ground -- so nearly all of that 39%
+            // is piled round trunk bases, which is what a forest floor does.
             return Rest::Plant;
         }
         return Rest::Terrain;
@@ -163,7 +184,9 @@ fn main() {
     // creature actually cares about: how far above the ground is the food.
     // A count needs a bar; this profile does not.
     const HEIGHT_BANDS: [i32; 6] = [1, 2, 4, 8, 16, 32];
-    println!("  frame | canopy |  litter | on-terrain  on-plant  airborne | <=3 rows | rotted (damp/dry)");
+    // `against-plant`, not `on-plant`: at floor level the thing a drift rests
+    // on is usually a trunk, and the old label read as "stuck up a tree".
+    println!("  frame | canopy |  litter | on-terrain  against-plant  airborne | <=3 rows | rotted (damp/dry)");
     let sample = |world: &World| {
         let canopy = common::canopy_top(world).map(|y| y.to_string()).unwrap_or_else(|| "NONE".into());
         let (mut total, mut on_terrain, mut on_plant, mut airborne, mut near) = (0u32, 0u32, 0u32, 0u32, 0u32);
@@ -230,7 +253,7 @@ fn main() {
     println!("  shed cells that ever existed (standing + rotted): {}", total + rotted);
     if total > 0 {
         println!(
-            "  standing split: on-terrain {:.1}%  on-plant {:.1}%  |  within 3 rows of terrain {:.1}%",
+            "  standing split: on-terrain {:.1}%  against-plant {:.1}% (read with the bands above -- mostly drifts round trunk bases)  |  within 3 rows of terrain {:.1}%",
             100.0 * on_terrain as f32 / total as f32,
             100.0 * on_plant as f32 / total as f32,
             100.0 * near as f32 / total as f32,

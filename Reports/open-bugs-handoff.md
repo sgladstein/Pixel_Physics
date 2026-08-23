@@ -1040,6 +1040,28 @@ the wilting point from bone-dry goes from ~2 strikes to ~18.
 
 ### A. The slot-1 root spread has collapsed — **OPEN. Three explanations tried; the third was wrong too, and the lever now measures as dead.**
 
+> **2026-08-23, from the `creatures-m18` merge: this test flips with litter
+> volume, and has still never been seed-swept.** Three measurements in one
+> session, same machine, same build settings:
+>
+> | tree | draw -1 | draw +1 | spread | vs 10% bar |
+> |---|---|---|---|---|
+> | `origin/main` 5515071 (baseline) | 294 | 318 | 8.2% | **red** |
+> | + creatures-m18 merge | — | — | — | *green* |
+> | + `LITTER_FALL_REACH` 64 -> 512 | 354 | 378 | 6.8% | **red** |
+>
+> The sign never changes and neither does the failure mode; only the margin
+> moves, and it moves by a couple of points either side of the bar as the
+> volume of litter on the floor changes. **The green in the middle row is not
+> a fix and must not be read as one** — it is one sample from a distribution
+> straddling the bar, which is the exact shape `CLAUDE.md` warns about when a
+> bar is set near a measured value.
+>
+> What this adds to the section below: the lever is not merely weak, it is
+> weak enough that an unrelated change to ground cover moves it across the
+> acceptance threshold. Any future attempt on this bug should **sweep seeds
+> and report an order statistic** before believing either a red or a green.
+
 **Settled by seed sweep, 2026-08-22 — it is NOT a flaky guard, so do not
 move the bar.** My third explanation was that the test is single-seed
 (`root_slot_run(1, 1, ±1.0, 12_000)` — seed 1 both arms) over a system whose

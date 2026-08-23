@@ -1433,7 +1433,8 @@ its own per-material rate, so the floor reaches equilibrium instead of
 integrating the canopy's shedding forever.
 
 **What it costs, measured paired in one session on one machine.** The colony
-scene at 12,000 frames went **mean 3.121 ms → 3.078 ms**. That is the headline
+scene at 12,000 frames went **mean 3.121 ms → 2.979 ms** — litter that reaches
+the floor and rots is *cheaper* than the bare canopy it replaced. That is the headline
 result and it is not a rounding artifact: the same mechanism measured **+45%**
 (1.875 → 2.714 ms) on `creatures-m18`, where litter never rotted and simply
 accumulated. Worst-frame moved 46.1 → 66.4 ms and is *not* quoted as a
@@ -1454,10 +1455,26 @@ regression — worst-frame spread on identical binaries has been measured at
   reads above the damp gate. The dry rate is the one that governs.
 - `decay_chance_*` is resolved from a serde default at parse time rather than
   a `0.0`-means-shared sentinel, so `decay_chance_dry: 0.0` means what it says.
-- **44% of standing litter still rests on plant tissue** (466 of 1,049 cells),
-  and only 30% sits within three rows of the ground. That is 8x better than
-  before the merge (3,825 of 4,330, 88%) and 81% of everything ever shed rots
-  away, but it is not yet "the vast majority on the floor". With the owner.
+- **"Against plant" is not "stuck in a tree", and the probe used to imply it
+  was.** 39% of standing litter has a live organism cell underneath it, and
+  almost all of that is a drift piled against a trunk *at floor level* — 88%
+  of all litter sits within four rows of the ground and none of it is more
+  than 32 rows up. A litter cell is a grid cell and cannot go behind a tree
+  the way the gnome can: he is an entity with his own collision rules, it is
+  a material, and two materials cannot share a cell. So resting on a trunk
+  base is `litter.ron`'s 42-degree friction angle working, not failing.
+  `litter_probe` now names the column `against-plant` and refuses to be read
+  without the height bands.
+
+**Two follow-ups the owner judged by eye, after the merge landed.** Litter's
+palette is warmer and lighter than the browns it shipped with: the original
+set was deliberately close to soil so a layer would read as ground *texture*,
+and at play zoom that lost — the floor was there and could not be seen. Chosen
+from a blind A/B. And `LITTER_FALL_REACH` went 64 → 512, because a grown crown
+tops out ~125 rows above the ground and the walk was running out *inside the
+canopy*: the tallest trees, whose leaves have furthest to fall, were the ones
+whose litter never reached the floor. Litter against plant 44.4% → 39.3%,
+within three rows of the ground 29.5% → 35.4%.
 
 **Foraging range, and why `nest_visits` was never the guard it read as.**
 `CreatureStats::nest_visits` guards on `since_nest > 0`, and `since_nest` is
