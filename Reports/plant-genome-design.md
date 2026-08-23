@@ -462,6 +462,41 @@ comparable across the re-map. Variance for slots 6–8 lives on the shoot
 genotype"); the root `Grow` vector carries 1 and 5 and is finally
 non-zero.
 
+**Addendum, 2026-08-23 — slot 9 appended, `GENOTYPE_TRAITS` 9 → 10.**
+The table above is the map as signed off and slots 0–8 are unchanged; a
+tenth was added after it for a trait this document did not anticipate.
+
+| slot | trait | consumer | tree variance |
+|---|---|---|---|
+| 9 | **strain-response gain** | *none yet — capacity for a later package* | 0.7 (provisional, not measured) |
+
+Appended rather than taken from a dead slot, which is the choice §above
+recommends against in general and is right here for one reason: the
+re-purposing argument turns on a dead draw rewriting no measured
+phenotype, and it spends the record's comparability each time it is used.
+It was spent once already at this map (only slots 0/2/3/4 survived
+comparable), the F4 megastudy re-run is queued against the current
+numbering, and there is no dead slot left to spend anyway. Appending is
+exempt from the never-renumber rule mechanically rather than by
+convention — draws are keyed `rng::stream(world_seed, x, y, slot)`, so a
+slot's value does not depend on how many slots exist — and two guard
+tests in `plant.rs` pin that with fingerprints over a grown, breeding
+stand, both confirmed able to fail.
+
+The one place appending was *not* free: `set_seed`'s mutation loop spends
+one draw per slot from a shared `Rng`, so a tenth slot drawn inline would
+have shifted every allele roll after it. `plant::SEQUENCED_TRAITS` freezes
+the prefix at 9 and the appended slots mutate after the loci; the bred
+genomes are bit-identical across the widening, verified against `main`.
+
+The variance is a **provisional default, not a measured value** — the
+trait has no consumer, so there is no outcome to regress a width against.
+Each species carries its own widest in-service width there (its
+`pipe_ratio` width: 0.7, and 0.5 on conifer). What it must not be is
+`0.0`, which would be a slot no population can explore. Re-derive it when
+the response curve lands. `examples/genome_drift` is the instrument for
+that and for the `MUTATION_SIGMA` sweep this document leaves open.
+
 **Discrete — `DISCRETE_LOCI = 6`** (seed strategy deferred, §4.8).
 
 | slot | locus | alleles | consequence |

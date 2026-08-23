@@ -484,11 +484,28 @@ pub enum Behavior {
         /// tree wants the written numbers and not a draw around them.
         /// Indexed by trait — **`GENOTYPE_TRAITS`' own doc holds the slot
         /// map and is the contract.** All zeroes disables jitter. The
-        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7 are borrowed
-        /// from the same vector by the passes that consume them — one
-        /// plant, one genotype); the root's `Grow` reads 1/5/8 from the
-        /// RootTip entry's own vector, which is what lets root and shoot
-        /// diverge within one individual.
+        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7/9 are
+        /// borrowed from the same vector by the passes that consume them
+        /// — one plant, one genotype); the root's `Grow` reads 1/5/8 from
+        /// the RootTip entry's own vector, which is what lets root and
+        /// shoot diverge within one individual.
+        ///
+        /// **Slot 9's width is provisional and is not from measurement**,
+        /// which is a gap left visible rather than relabelled away
+        /// (`CLAUDE.md`: set bars from measurement, and where the number
+        /// cannot be had yet, record both and leave the gap). The trait
+        /// has no consumer, so there is no outcome to regress a width
+        /// against; what it must not be is `0.0`, because a slot at zero
+        /// width is a slot no population can explore and this one exists
+        /// precisely to give selection something to act on. So each
+        /// species carries its **own widest in-service width** there —
+        /// the same number as its `pipe_ratio` slot, 0.7 where the others
+        /// run wide and 0.5 on conifer, whose whole vector is tighter.
+        /// That is a defensible default rather than a measured value: it
+        /// invents no new number, it spans better than 5x between the
+        /// extreme individuals, and it is wide enough that a mean moving
+        /// under selection will clear the drift the readout shows on an
+        /// unselected control. Re-derive it once the response curve lands.
         ///
         /// **Slots are positional and must never be renumbered** — the slot
         /// index selects which stored draw a trait reads, so moving a trait
@@ -1773,13 +1790,41 @@ pub struct OrganismState {
 /// signed off 2026-08-18). Slots 0/2/3 are read by the shoot's `Grow`,
 /// 1/5/8 by the root's `Grow` (from the RootTip entry's own vector — that
 /// separation is what lets root and shoot diverge within one individual),
-/// 4/6/7 by whole-plant passes that borrow the shoot vector:
+/// 4/6/7/9 by whole-plant passes that borrow the shoot vector:
 ///
 ///   0 shoot branch chance        5 root tropism gain
 ///   1 root branch chance         6 root:shoot allocation bias
 ///   2 shoot plastochron          7 stomatal closure point
 ///   3 turgor per cell            8 root penetration force
-///   4 pipe ratio
+///   4 pipe ratio                 9 strain-response gain
+///
+/// **Slot 9 is capacity, not yet a trait: it has a width and a draw and
+/// no consumer.** It is the heritable half of a reaction norm — how
+/// strongly *this individual* re-allocates carbon away from height and
+/// into root and stem when it is repeatedly loaded (thigmomorphogenesis,
+/// in the botany). The point of spending a slot rather than a constant is
+/// that a constant makes plasticity something the author decided and a
+/// slot makes it something selection can act on: the population can
+/// discover how responsive it should be, and different lineages can
+/// settle differently. The response curve itself is a later package.
+///
+/// **Appended, not re-purposed, and that was a deliberate call.** Slots
+/// 1 and 5 set the precedent for re-purposing a measured-dead slot, and
+/// re-purposing here would have cost nothing in bytes. It would have cost
+/// the measurement record a second time — only slots 0/2/3/4 survived the
+/// last re-map comparable, and the F4 megastudy re-run is already queued
+/// against the current numbering. Appending is exempt from the
+/// never-renumber rule for a mechanical reason rather than a stylistic
+/// one: `plant::seed_genotype` keys each draw on `rng::stream(world_seed,
+/// x, y, slot)`, so a slot's value is a function of its own index and
+/// nothing else, and adding one draws a stream nobody had drawn before.
+/// `plant::tests::appending_a_genome_slot_leaves_every_existing_genome_untouched`
+/// pins that with a fingerprint over a grown, breeding stand.
+///
+/// The one place appending is *not* automatically free is the mutation
+/// loop in `plant::set_seed`, which draws one jitter per slot from a
+/// shared `Rng` — a tenth slot consumes a tenth draw and would shift
+/// every draw after it. See that function for how the sequence is held.
 ///
 /// Slots 1 and 5 were `upward_weight` and `light_weight`, measured inert
 /// across 1,024 genomes at ±40% / ±50% and held at zero width in every
@@ -1789,7 +1834,7 @@ pub struct OrganismState {
 /// phenotype, which is the property the never-renumber rule below exists
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
-pub const GENOTYPE_TRAITS: usize = 9;
+pub const GENOTYPE_TRAITS: usize = 10;
 
 /// How many heritable **body traits** a creature carries — the width of
 /// both `CreatureDef::traits` (the authored ancestral values) and
@@ -1824,7 +1869,7 @@ pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
-/// `genotype_draws` jitters nine scalars around a species mean. Run a
+/// `genotype_draws` jitters ten scalars around a species mean. Run a
 /// population on that and you get a Gaussian cloud — *a spectrum*, by
 /// construction, however long it runs and however hard selection pushes.
 /// There is no setting of a continuous genome that yields two clumps.
