@@ -1334,6 +1334,55 @@ if he cannot, that is a regression whoever set the number. **Not fixed
 here**: the fix is the missing bole, which is the tree-architecture
 programme, not a merge repair.
 
+### X. A desert with no desert plants — **DECISION CARD WITH THE OWNER, 2026-08-23 (W2). Still: do not "fix" this by watering deserts.**
+
+**The three levers are now costed against the code rather than estimated,
+and two of the three costs on this page have changed.** Full working in
+`Reports/grassfire-and-the-desert-2026-08-23.md` part two; the card is on
+the owner's review queue. Nothing is implemented and nothing should be until
+it comes back.
+
+- **(a) sand gets a `water_capacity`.** The prerequisite this page names —
+  *teach the liquid tallies about held water first* — **is already paid**:
+  `weather::water_equivalents` counts held water under `MaterialKind::Powder
+  if m.water_capacity > 0`, keyed on the field and not on a material name,
+  so a second water-holding powder joins the ledger automatically. The
+  conservation guards need re-running, not re-writing. The cost that *is*
+  real is arithmetic and is not small: `update::plant_available_fraction`
+  measures a cell against `SOIL_WILTING_POINT` (180) as an **absolute aux
+  value**, not as a fraction of that material's own capacity — so a *small*
+  capacity does nothing at all. At 150, a saturated sand cell is still under
+  the wilting point, a plant gets exactly zero, and the world has bought an
+  infiltration cost over every sand cell in it. **The threshold is 180
+  before a plant gets one drop.** Also not desert-only: every beach and dune
+  starts absorbing, darkening, and (as of W2) refusing to carry fire.
+- **(b) roots reach the water table.** **There is no water table in the
+  desert to reach.** `assets/worldgen.ron`'s `arid` preset sets
+  `table_offset: 4000.0` — four thousand cells below the datum, off the
+  bottom of the world, deliberately; `params.rs` names `arid` and `flat` as
+  the two presets that put it past the world floor, and
+  `tests/worldgen.rs`'s `the_dry_presets_keep_their_table_below_the_world_
+  floor` guards it. So this lever begins by deciding to break that guard on
+  purpose: the decision inside it is a *worldgen* one first — does the
+  desert get a table at all — and only then a root-reach one. Give it one
+  and the existing terms land
+  it of the order of 90–100 cells down, which is Arc B4's taproot niche:
+  **these two decide together.** Second-order: the aquifer-daylighting pass
+  is switched *off* for `arid` by that same zero, not absent, so springs and
+  seeps in a canyon wall come with it.
+- **(c) stored rain.** Rain already falls on the desert and runs off, which
+  is a flash flood and is correct. The lever is really *let a storm leave a
+  decaying pulse of drinkable water behind*, and the engine already has the
+  shape of the storage (`FieldTile::moisture_floor`, an authored lower bound
+  evaporation may not cross, written once by worldgen for the aquifer). The
+  cost is that **nothing in `assets/species/` can use it** — every plant
+  here is a perennial that accumulates, and a desert annual is its own
+  package. Largest of the three, and the one that buys the most distinct
+  behaviour.
+
+The rest of this entry stands unchanged and is still the reasoning the card
+is built on.
+
 ### X. A desert with no desert plants — **DESIGN DIRECTION, 2026-08-22. Do not "fix" this by watering deserts.**
 
 **CORRECTED 2026-08-22: the stated mechanism below was wrong, and the
@@ -2505,7 +2554,61 @@ the walk seeds its heap from it and drops it — so an anchorage term wanting
 inside that seeding loop, not a new traversal. `OrganismCell::support` is the
 per-cell distance the same walk already writes.
 
-### G. Grassfire arrives with a standing negative verdict — **OPEN, inherited, 2026-08-22**
+### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
+
+**Resolution of the two mechanical claims**, with the full account and every
+number in `Reports/grassfire-and-the-desert-2026-08-23.md`:
+
+- ***"It doesn't spread at all"* was not slow spread, it was a fire going
+  out.** `try_ignite` scans four neighbours, so a front reaches one
+  4-connected component of fuel and no more. A 160-founder sward looks
+  continuous by a column census — one empty column in a 484-column span —
+  and is **71 separate 4-connected islands**, largest 16% of the sward.
+  Measured before the fix on the 64-founder sward: **14 grass cells
+  consumed**, `alight 0` by frame 300 — one island's worth.
+  Fixed by giving burning fuel a **flame body** (`assets/materials/
+  flame.ron`, a `Gas` created already alight; `MaterialDef::flame_into` /
+  `flame_chance`, unset by default so nothing else changes). Being *burning*
+  means `try_ignite`'s existing scan ignites what a lick touches at no added
+  cost to that scan. The load-bearing part is that the direction is
+  **rolled**: a fixed search order sent every lick straight up (the cell
+  above a blade is nearly always empty) and gained no lateral reach at all.
+- ***"`MOISTURE_IGNITION_RESISTANCE` changes nothing"* was true, and neither
+  standing suspect was the cause.** Not the 0.9 constant, and not the
+  `include_str!` rebuild trap. The term's input reads **exactly 0.000 at
+  96.8% of fuel cells, at every ground wetness from the wilting point to
+  saturated** — `field::step_diffusion` skips a blocked block, and
+  `rebuild_blocked` marks a block blocked if any `Solid` *or `Plant`* cell
+  falls in it, so a block with fuel in it never diffuses. **The presence of
+  fuel is what makes a block read bone dry.** For **96.8% of fuel cells the term
+  reduced ignition by exactly zero** at every wetness; averaged over all
+  fuel cells it reduced it by **2.9%** at saturation, all of that coming
+  from the 3.2% of blades sitting in the soil's own block. (A band mean over
+  the sward's *rows* reads 0.000/0.041/0.142/0.230 — monotone, plausible,
+  and describing blocks the fuel is not in. That is what hid it.) Replaced by
+  `CellSurface::ground_wetness_at` (the moisture *source*, at the cell's
+  block and the one below) and a cutoff rather than a scale, because spread
+  here is a percolation. Paired guard: `fire::tests::a_fire_crosses_a_dry_
+  sward_and_stops_on_a_wet_one`, **171 cells consumed dry against 4 wet**.
+  Swept over 12 procedurally different swards: at field capacity no sward
+  loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
+
+**Still open, and it is `render.rs`'s, not fire's.** The fire now has a body,
+a plume and a char scar, and it still draws *pale*. Every burning thing
+saturates the heat ramp (it tops out 400C above ambient; grass burns at
+520C, a flame at 780C) and the top of that ramp, `FIRE_TINT_HIGH`, is
+(255, 210, 110) — a yellow-white. A burning meadow therefore draws as
+**straw**. A two-constant prototype (LOW (150,30,12) / HIGH (255,138,36))
+reads as fire at a glance and is **not shipped**, because those constants
+also colour lava, quench crust and warm water — three looks the owner has
+already judged. The A/B is on the owner's review queue; whoever takes it
+owns re-checking those three. Two attempts that made it worse are in
+`Reports/dead-ends.md` under *rendering*.
+
+<details>
+<summary>The original entry, kept because the verdict is the bar</summary>
+
+### G (original). Grassfire arrives with a standing negative verdict — OPEN, inherited, 2026-08-22
 
 Not a merge regression: it was built and judged on `plant-ecology-design`
 before the merge, and the merge carries it forward unchanged. Recorded here
@@ -2524,6 +2627,8 @@ the *behaviour* is wrong (it does not spread), and there is a design steer
 (**moisture vs dryness should gate spread**) which is a mechanic that does
 not exist yet. The last one is the interesting one, and F1/F8 above are
 about exactly the moisture channel it would have to read.
+
+</details>
 
 ### 0f. ~~A melting `Powder` manufactures water~~ — **FIXED**
 
