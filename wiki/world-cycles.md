@@ -52,11 +52,16 @@ cave whether or not it was one, so every overhang in the world hung a
 hard-edged dark rectangle in the sky beneath it, and a boulder standing over a
 pond drew a dark band straight down through the water to the bottom.
 
-What has *not* changed is the other direction: **ground you remove is still
-ground**. An open pit you dig into a hillside still reads as cave, however
-wide it is and however much sky is over it, because the alternative is a mine
-that fills with daylight as you widen it. That one is a known rough edge
-rather than a decision anybody likes.
+**Ground you remove is still ground — but the light now finds its way in.**
+Dig an open pit into a hillside and it is bright at the rim and darkens toward
+the floor, the way a real quarry does; dig a shaft and it goes dark a room's
+depth down whatever width you make it; drive a tunnel in from a cliff face and
+the daylight reaches a little way past the mouth and no further. None of that
+is a rule about shape. The sky simply has to *get there*, falling off as it
+goes, and a shaft is a bad path where a pit is a wide open one.
+
+So the old trade is gone: a mine no longer fills with daylight as you widen
+it, and a quarry no longer reads as a black rectangle cut into a sunlit hill.
 
 **The rock itself carries depth.** In any cross-section — a cliff face, the
 wall of your shaft, the cutaway the screen always is — the ground is

@@ -2083,11 +2083,11 @@ impl App {
             } else {
                 format!(" — glow {}", self.renderer.glow_shape.label())
             },
-            // Sky light (`F12`), same flipped rule as the depth light:
-            // the depth-based cave fade is the default, so the label appears
-            // only once someone has switched to a propagated mode — and it
-            // carries the measured cost, because a selector nobody can price
-            // is a selector nobody can choose from.
+            // Sky light (`F12`), same rule as the rest: silent on the
+            // default, named the moment someone switches away from it. Since
+            // the verdicts made propagated /4 the default, the label now
+            // appears when someone has gone *back* to the old depth fade to
+            // compare — which is exactly when a screenshot needs to say so.
             if self.renderer.sky_light == render::SkyLight::default() {
                 String::new()
             } else {

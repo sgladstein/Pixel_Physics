@@ -1670,13 +1670,15 @@ dark rectangle in the sky beneath it
 the `G` selector and the continuous zoom (§9). The remaining tiers stay in
 `PLAN.md`. Play-facing: [`wiki/world-cycles.md`](wiki/world-cycles.md).
 
-Known limitation, deliberate: **ground you dig out still reads as cave**, so
-an open pit is dark however wide it is and however much sky is over it. The
-cells were rock when the world was made, and every rule that tried to tell a
-pit from a tunnel by shape broke at some width
-(`Reports/underground-definition.md`). Fixing it properly means propagating
-sky light rather than classifying space — the prior art, and what this engine
-already has that could drive it, is in
+That darkness is now **propagated rather than assumed**: sky light is seeded
+only where a cell was outdoors at genesis and spreads at Terraria's
+0.91-per-air-cell, 0.56-per-solid over a 4-cell block grid, so an open pit is
+bright at its rim and dark at the floor while a dug shaft still goes dark at
+any width — which is the property no rule based on shape could hold.
+`F12` cycles it against the old depth-based fade for comparison. Costs +2.3 ms
+on a frame where the world or camera changed, and nothing at all on a settled
+one. Design, prior art and the measurements in
+[`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
 ## Performance

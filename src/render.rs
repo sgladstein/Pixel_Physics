@@ -161,13 +161,23 @@ const SKY_LIGHT_MARGIN: i32 = 64;
 /// keeps it, block 1 costs 4.4 ms and is exact.
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub enum SkyLight {
-    /// The shipped cave fade: darkness is a function of depth below the
-    /// frozen skyline. A dug pit is uniformly black however wide it is.
-    #[default]
+    /// The older cave fade: darkness is a function of depth below the frozen
+    /// skyline. A dug pit is uniformly black however wide it is. Kept as the
+    /// comparison, not as the answer.
     Depth,
-    /// Sky light propagated on a 4-cell block grid — the recommended one.
+    /// Sky light propagated on a 4-cell block grid — **the default**.
     /// 10,240 blocks for a 512x320 viewport, which is within a whisker of
     /// the ~8,400-tile light map a Terraria *screen* carries.
+    ///
+    /// Default on the strength of three separate verdicts rather than one:
+    /// the design-round card (`20260823T005213673Z-68e25a`) and the
+    /// prototype card (`20260823T020127421Z-823b63`) both picked it by
+    /// name over the per-pixel and /2 alternatives, and the blind A/B
+    /// against a stored per-pixel field (`20260823T030324126Z-77658b`) came
+    /// back *"they look a little different but not clear which is better"* —
+    /// which is the answer that settles it. A look nobody can pick between
+    /// does not justify the machinery the per-pixel version needs.
+    #[default]
     Coarse4,
     /// The same on 2-cell blocks: four times the work, and closer to exact
     /// on one-cell features.
@@ -201,7 +211,7 @@ impl SkyLight {
     /// price is a selector nobody can choose from.
     pub fn label(self) -> &'static str {
         match self {
-            SkyLight::Depth => "DEPTH (current)",
+            SkyLight::Depth => "DEPTH (the old cave fade)",
             SkyLight::Coarse4 => "PROPAGATED /4 (~0.13 ms)",
             SkyLight::Coarse2 => "PROPAGATED /2 (~0.55 ms)",
             SkyLight::Exact => "PROPAGATED /1 (~4.4 ms, reference)",
@@ -2898,14 +2908,29 @@ impl Renderer {
                 for dy in 0..block {
                     for dx in 0..block {
                         let (x, y) = (ox + dx, oy + dy);
-                        if x < bounds.min_x || x > bounds.max_x || y > bounds.max_y {
-                            continue;
-                        }
                         // Above the world is open sky, and has to seed as
                         // such or a camera at the top of the world would
                         // find its own ceiling dark.
                         if y < bounds.min_y {
                             outdoors += 1;
+                            continue;
+                        }
+                        // **Everywhere else outside the world is a wall, not
+                        // a window.** Skipping these cells left them
+                        // counting as neither solid nor outdoors, which made
+                        // them fully transmissive air: daylight ran down the
+                        // columns *beside* the world at 0.91 a cell and came
+                        // back in from the side, so a sealed room lit up
+                        // through the world edge.
+                        //
+                        // Caught by `the_dark_under_a_roof_fades_in_with_
+                        // depth_rather_than_cutting`, one of the four guards
+                        // `underground-definition.md` left behind — it reads
+                        // 486 where full dark is 93. Not a test-only defect:
+                        // the same leak reaches any room within the decay
+                        // radius of the world's left or right edge.
+                        if x < bounds.min_x || x > bounds.max_x || y > bounds.max_y {
+                            solid += 1;
                             continue;
                         }
                         let cell = match chunk {
@@ -3215,6 +3240,17 @@ impl Renderer {
         // first rows under a roof, which propagation does for itself.
         let t = match self.sky_light {
             SkyLight::Depth => self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16,
+            // **No grid means fall back to the ramp, not to daylight.**
+            // `sky_light_at` answers 1.0 when it has nothing, which is the
+            // right default for a caller asking about open sky and exactly
+            // wrong here: control only reaches this line when `under_sky`
+            // has already said the cell is *inside the ground*, so "no
+            // information" must mean dark, not lit. Reachable whenever
+            // `cell_colour` is used without `draw` having run — a handful of
+            // tests, and it lit a sealed room to 486 where full dark is 93
+            // until `the_dark_under_a_roof_fades_in_with_depth_rather_than_
+            // cutting` caught it.
+            _ if self.sky_light_grid.is_empty() => self.cave_ramp[depth.clamp(1, CAVE_FADE_DEPTH) as usize] as u16,
             _ => (((1.0 - self.sky_light_at(x, y)) * 255.0).round() as u16).min(255),
         };
         let mix = |a: u8, b: u8| ((a as u16 * (255 - t) + b as u16 * t) / 255) as u8;
@@ -4521,6 +4557,61 @@ mod tests {
         assert!(pit_rim > 0.3, "the rim of a 40-wide open pit must be lit: {pit_rim}");
         assert!(pit_floor < pit_rim, "the pit must be a gradient, not a flat fill: rim {pit_rim}, floor {pit_floor}");
         assert!(chamber < 0.05, "a sealed chamber must stay dark: {chamber}");
+    }
+
+    /// Daylight must not come in **around the side of the world**.
+    ///
+    /// The propagation runs over the viewport plus a margin, so its region
+    /// routinely extends past the world's own bounds. Cells out there are
+    /// not solid and not outdoors, and the first version simply skipped
+    /// them — which left them counting as perfectly transmissive air. Sky
+    /// seeded above the world then ran *down the columns beside it* at the
+    /// air rate and re-entered from the side, lighting sealed rock near the
+    /// left and right edges.
+    ///
+    /// Outside the world is a wall, not a window. The one exception is
+    /// *above* it, which is genuinely sky and is seeded as such.
+    ///
+    /// Guarded here because nothing else was: the four
+    /// `underground-definition.md` guards all build worlds whose interesting
+    /// geometry sits far from the edge, and reverting the fix left every one
+    /// of them green.
+    #[test]
+    fn daylight_does_not_leak_around_the_edge_of_the_world() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 100..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A sealed chamber hard against the right-hand edge — well inside
+        // the rock, and well inside the propagation margin that reaches past
+        // the world.
+        for x in 185..199 {
+            for y in 115..135 {
+                world.set(x, y, Cell::EMPTY);
+            }
+        }
+        world.begin_step();
+
+        let mut r = Renderer::new();
+        r.sky_light = SkyLight::Coarse4;
+        r.rebuild_horizon(&world);
+        r.rebuild_sky_light(&world, (200, 200));
+
+        // The chamber is sealed, so it must be as dark as rock at the same
+        // depth in the middle of the world — the paired control, which is
+        // what makes this about the *edge* rather than about depth.
+        let at_edge = r.sky_light_at(193, 125);
+        let mid_world = r.sky_light_at(100, 125);
+        assert!(
+            at_edge < 0.01,
+            "a sealed chamber against the world edge is lit ({at_edge}) — daylight is coming round the side"
+        );
+        assert!(
+            at_edge <= mid_world + 0.01,
+            "the edge chamber ({at_edge}) is brighter than solid rock at the same depth mid-world ({mid_world})"
+        );
     }
 
     /// `App::reset` builds a new `World` and keeps the `Renderer`, so the

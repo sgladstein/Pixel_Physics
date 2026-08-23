@@ -1,6 +1,7 @@
 # Sky light: the design round for the open-cast-dig case
 
-**Status: prototyped and in the app on `F12`** (DEPTH → /4 → /2 → /1), with
+**Status: shipped. Propagated /4 is the default**, with `F12` cycling to
+DEPTH → /2 → /1 for comparison, and
 `skylight=off|4|2|1` on `viewshot` and `filmstrip`. Two of this report's own
 claims were wrong and are corrected in *What building it changed* at the
 bottom — read that before trusting the cost or accuracy figures above it.
@@ -343,3 +344,63 @@ and it is the reason to keep Option 2 as the default even now that Option 3 is
 known to work.
 
 *Option 3 freshness: 2026-08-23.*
+
+## The verdicts, and what they settled
+
+Three cards, answered independently, and they agree:
+
+- **Design round** (`20260823T005213673Z-68e25a`), per-pixel vs /4 vs /8 —
+  *"2 looks good"*, which was /4.
+- **Prototype** (`20260823T020127421Z-823b63`), the four modes in the app —
+  *"2 looks best"*, which was /4 again, over per-pixel and /2.
+- **Blind A/B against a stored per-pixel field**
+  (`20260823T030324126Z-77658b`) — *"They look a little different but not
+  clear which is better"*, with no pane chosen.
+
+That last one is the one that decides the architecture. **A look nobody can
+pick between does not justify option 3's machinery** — 1.3 MB, a ~45 ms
+genesis solve, a per-edit-site bill that is unbounded in a busy frame, and one
+obligation option 2 does not have at all: catch *every* cell change including
+the CA's own, or the stale bright patch is permanent. Option 3 is measured,
+works, and is not worth building. It stays recorded here in case the two cases
+it uniquely serves ever come up — panning cost, and off-screen queries like
+creature sight or a minimap.
+
+So /4 became the default, and the old depth fade moved to `F12` as the
+comparison.
+
+## Two bugs the flip surfaced, both real
+
+Turning it on by default ran it through guards the prototype had never
+reached.
+
+**1. Daylight came in around the side of the world.** The propagation region
+is the viewport plus a margin, so it routinely extends past the world's own
+bounds — and cells out there were neither solid nor outdoors, so the code
+skipped them and left them counting as perfectly transmissive air. Sky seeded
+*above* the world then ran down the columns *beside* it at the air rate and
+re-entered from the side, lighting sealed rock near the left and right edges.
+Measured at **0.0149 in a sealed chamber against the edge, where the same
+depth mid-world reads 0.0** — faint, and above the 1/255 floor.
+
+Nothing caught it: all four `underground-definition.md` guards build their
+geometry far from the edge, and reverting the fix left every one of them
+green. Now guarded by
+`daylight_does_not_leak_around_the_edge_of_the_world`, and worth noting that
+the *absolute* threshold in that test would have missed it too — 0.0149
+slipped under a 0.02 bar. Only the **paired** comparison against mid-world
+rock caught it, which is exactly what `CLAUDE.md` says a paired comparison is
+for.
+
+**2. The no-grid fallback was backwards.** `sky_light_at` answers `1.0` when
+it has no grid, which is the right default for a caller asking about open sky
+and exactly wrong at the one place that reads it: control only reaches the
+ramp when `under_sky` has already established the cell is *inside the
+ground*, so "no information" there has to mean dark, not lit. Reachable from
+any `cell_colour` call without a preceding `draw` — a handful of tests — and
+it lit a sealed room to 486 where full dark is 93. Caught by
+`the_dark_under_a_roof_fades_in_with_depth_rather_than_cutting`, one of the
+four guards `underground-definition.md` left behind, doing precisely the job
+it was written for four milestones ago.
+
+*Shipped freshness: 2026-08-23.*
