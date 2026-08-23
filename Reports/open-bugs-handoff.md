@@ -4538,6 +4538,68 @@ Blocks the deposition half of §H, which needs ants that travel to have
 anything to measure.
 
 
+### R. An ant put down on open water stands on the surface for ever, and `found_colony` puts them there — **OPEN, found 2026-08-23 while rendering a WP-9 review card**
+
+Found by looking, not by a metric: every attempt to render `scene=colony` for
+a review card came back as a line of ants strung out across a lake.
+
+    cargo run --release --example filmstrip -- scene=colony seed=2 \
+        channel=gutbias start=0 every=4 count=1 cols=1 zoom=8 \
+        crop=230,112,150,30 out=/tmp/water.png
+
+**Frame 0 — before one creature tick has run — already shows it**, as an
+evenly spaced dashed line sitting on the water surface at exactly
+`COLONY_ANT_SPACING`. So the first half of this is placement, not
+locomotion. Re-render the same crop at `start=600` and the same ants are
+still up there, now *irregularly* spaced: they have been walking about on it
+for six hundred frames. Reproduced with `climbs_over_kin: false`, so it is
+not WP-9's climb-over-kin — that change grants footing on a *nestmate*, and
+these ants are alone on open water.
+
+Two independent causes, both in `creature.rs`, and either alone is enough:
+
+1. **`World::found_colony` will plant on water.** Its `surface` closure takes
+   the first cell that is not `Empty` or `Gas` — `Liquid` included — and
+   plants an ant one row above it. The nest-painting loop six lines above it
+   *does* exclude water, and says why in a comment ("painting over water or a
+   creature would be a surprise"); the ant loop never got the same guard.
+
+2. **Nothing makes it fall afterwards.** `step_chain`'s whole-piece support
+   test wants `Solid | Powder | Plant` in the 8-neighbourhood, so an ant over
+   water is correctly judged *unsupported* — but the fall it then attempts
+   requires every cell of the fallen chain to land somewhere `World::is_empty`
+   says is free, and water is not free. The fall is refused and the ant stays
+   exactly where it was. `head_has_foothold` also refuses `Liquid`, which only
+   means water is never *preferred*: footing is a score among three candidates,
+   not a veto, so an ant with water on all sides still steps onto it.
+
+**Why it matters past looking wrong.** `scene=colony` runs the `wetland`
+preset, which has lakes by definition, and on the seeds where the colony
+lands near a shore a large share of the population spends the whole run
+standing on one. Foraging and survival numbers taken from that scene are
+then partly numbers about ants on water. Seeds measured while looking for a
+usable review scene: `seed=2` (35 placed) and `seed=8` (34 placed) are both
+mostly-on-the-lake; `seed=12` (31 placed) and `seed=9` (34) are mostly on
+land; the default seed and `seed=1` panic in the scene's own
+`expect("some dry ground")`.
+
+**Not established, and stated as a guess:** the scene's `would_place` scorer
+uses a *different* surface predicate from the one `found_colony` uses —
+`dry_surface` searches from `y = 0` and demands `Solid | Powder`, while
+`found_colony` searches downward from the cursor row and accepts anything
+solid-or-liquid — so the scene can believe it chose dry ground while
+placement lands on the lake. That the two disagree is a fact about the
+source; that it is the whole explanation for a given seed's count is not
+measured.
+
+**Not fixed here.** The placement half is a one-line guard (match the
+nest-painting loop's `Solid | Powder`). The locomotion half is a design
+question — does an ant drown, float, or swim? — and both are outside
+WP-8/WP-9's scope, so this is filed rather than patched. Whoever takes it
+should do the two halves together: fixing only placement leaves an ant that
+wanders onto a pond still walking on it.
+
+
 ## Closed this session
 
 - **Chunk-seam cliffs** (powders) and **terracing** (liquids), both from the
