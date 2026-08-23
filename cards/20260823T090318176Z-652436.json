@@ -1,0 +1,41 @@
+{
+  "id": "20260823T090318176Z-652436",
+  "created": "2026-08-23T09:03:18Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/lane-a",
+    "branch": "claude/pixel-physics-lane-a-uitlfe",
+    "commit": "4ddd38f",
+    "agent": null,
+    "session_id": "10b138ba-8965-56cd-8f24-b5f44ff4dac3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/lane-a"
+  },
+  "title": "Who evolves: a new grazer, or the ant colony?",
+  "question": "A — selection on individuals, by budding, on a NEW solitary-grazer ancestor, with ants and beetles left as authored showcase animals? Or B — hold to colony-scale selection? If A: what animal should the grazer be, and should S5 ship on its own?",
+  "context_md": "**This blocks S6 (reproduction). Nothing downstream is being built until it is answered, and the answer also decides the order of two stages.**\n\nThe picture is only context: the authored ant as it looks today, on generated terrain — the dark specks along the pale surface line, 17 of them founded here. **The decision is textual; nothing in the image is being judged.**\n\n### 1. The main call (evolution plan, decision E5)\n\n`creature-direction.md` §7b specified selection at **colony** scale — queens found colonies, colonies compete. The evolution plan overturns that to **selection on individuals, by budding, on a new solitary grazer**; ants and beetles stay hand-authored showcase animals and never evolve.\n\nThe reason is watchability: a colony generation is far too slow to see anything happen. The call is **reversible on a number, not an opinion** — §7b comes back the day a colony generation completes inside ~20,000 frames.\n\n- **A** — a new solitary grazer evolves; ants and beetles stay authored *(the plan's recommendation)*\n- **B** — hold to colony-scale selection, and accept the evolution will be too slow to watch\n\n### 2. If A — what animal should the grazer be?\n\nIt is a **new animal on screen**, and the one evolution will visibly reshape, so it wants to be worth looking at rather than a recoloured ant. The picture is the honest baseline for that: at play zoom an ant is a dark speck a couple of cells across. A solitary surface grazer is the plan's assumption; anything else is equally buildable — the mechanics do not care what it is.\n\n### 3. Does S5 ship on its own, before any evolution exists?\n\nS5 makes diet **one heritable number** (`gut_bias`: a gut tuned for leaves is bad at flesh). Shipped alone, before reproduction exists, that is **two authored ancestors one number apart** — different colours, different parts of the world, visibly different diets — with **no evolution in it yet**. S6 is what makes it heritable.\n\n- **Ship S5 alone** — visible divergence sooner, judged by eye\n- **Hold it until S6** — one bigger, heritable moment\n\nThis changes the order of two stages, not their content.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the authored ant today",
+      "files": [
+        "20260823T090318176Z-652436/000-card1_ants.png"
+      ],
+      "caption": "scene=colony, wetland preset, seed 0, frame 1200 (noon). Ants are the dark specks on the pale surface band.",
+      "meta": {
+        "ants founded": 17,
+        "founded at": "x=408, surface y=112",
+        "zoom": "10x (1 world cell = 10px)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
