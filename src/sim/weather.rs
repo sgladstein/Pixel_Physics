@@ -959,8 +959,12 @@ pub fn step(world: &mut World) {
     // days rather than two live ones -- a statement about where the number
     // came from, not an invariant. `Reports/dead-ends.md` carries the entry.
     //
-    // Identical to `world.frame` at the default.
-    let w = at(world.seed, world.weather_frame());
+    // Reached through `World::weather` rather than `at(seed, weather_frame())`
+    // spelled out here, so that `weather_override` is honoured on this path
+    // too: that is the one resolution point both the simulation and the
+    // renderer read, and the storm that lands has to be the storm that is
+    // drawn. Identical to `world.frame` at the default.
+    let w = world.weather();
     // Wind is not gated on precipitation -- a dry gale is weather too, and
     // the wind channel is generated whether or not anything is falling.
     gust(world, w);

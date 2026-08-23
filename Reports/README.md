@@ -187,6 +187,22 @@ field rework — see `open-bugs-handoff.md`.
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
+- [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
+  **review + proposed queue.** The whole plant record read together after the
+  2026-08-22 merge and the "one big mass" verdict; revised same-day on the
+  owner's direction to lead with the evolution framework and root
+  differentiation; the stale-record list; the finding that worldgen sows only
+  `"tree"` and moss.
+- [plant-implementation-split-2026-08-23.md](plant-implementation-split-2026-08-23.md)
+  — **execution plan** for the review's queue: three parallel lanes (plant
+  core, structural verbs, world & species data), one session per package,
+  with paste-ready briefs; successor to `plant-work-split.md` in role.
+- [plant-morphology-reach-2026-08-23.md](plant-morphology-reach-2026-08-23.md)
+  — **design note, answering a direct owner question.** Can this substrate
+  reach a sunflower, a tomato, a climbing vine? Yes: the random walk is the
+  variation mechanism, not the ceiling — the four missing primitives are
+  organ cell types, determinate axes, rosettes/whorls, and a climbing
+  tropism with attachment as data. Three open owner calls in §7.
 
 ## Creatures and ecology
 
