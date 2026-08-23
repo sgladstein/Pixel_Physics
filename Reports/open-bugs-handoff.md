@@ -3144,3 +3144,30 @@ Anything asking "which species are in this world" has to resolve
 *organisms*. `flora_census` in `tests/worldgen.rs` and
 `examples/flora_census` both do it that way, and the same trap applies to any
 future guard over creature species.
+
+### W1c. `generated_terrain_is_already_at_rest` went red on `main` on 2026-08-23 — 57 water cells, `terraced` seed 3
+
+Not this lane's, and recorded here only so the next session does not spend
+its afternoon attributing it. Measured, not assumed:
+
+- At base commit `a0fa433`, `cargo test --release` on this branch failed
+  **only** `a_forced_vault_world_is_sealed_and_arrives_at_rest` (main's
+  known world-scale failure) and the quarantined bug-A test.
+- After merging `origin/main` at `9b54be3`, `generated_terrain_is_already_at_rest`
+  also fails: *"terraced seed 3: 57 cells left their position; first:
+  (82,147) water, (83,147) water, (84,147) water, …"*.
+- Built `9b54be3` alone in a clean worktree and ran the same test: it fails
+  with **byte-identical numbers** — same preset, same seed, same 57 cells,
+  same coordinates.
+
+So it arrived with `main`'s own commits between `a0fa433` and `9b54be3`, and
+any branch that merges `main` after that inherits it.
+
+It cannot be a flora regression, and that is worth stating because the test
+sits next to the flora work: the test sets `tree_density = 0.0` and
+`moss_density = 0.0` before building, and `life_scatter` returns
+immediately when both are zero, so the sowing rule does not execute in any
+world this test looks at. `spring_flow = 0.0` is set too, so the moving
+cells are not a spring either — they are standing water in a `terraced`
+world, which points at the placement or settling of pooled water rather than
+at any live process.
