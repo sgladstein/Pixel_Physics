@@ -888,7 +888,42 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
     // scavenging efficiency, not foraging, and immobility wins.
     //
     // Leaves only, so the food is somewhere an ant has to go and get.
-    def.food = if econ.moss { vec!["leaf".to_string(), "moss".to_string()] } else { vec!["leaf".to_string()] };
+    //
+    // **Same menu, said the way S5 says it.** `def.food` is gone: what is
+    // nutritious is `gut_bias` against `MaterialDef::food_class` now. The
+    // translation is exact rather than approximate, and it is written out
+    // because an economy arm whose *menu* moved silently would invalidate
+    // every baseline taken through it:
+    //
+    //   corpse off the menu  ->  a pure herbivore gut. Corpse is
+    //     `food_class: 1.0`, so the matched filter reads 0.0 against a gut
+    //     of -1.0 and a corpse yields nothing however rich its stamp. This
+    //     is the paragraph above, expressed as the animal rather than as a
+    //     list -- and it is now a fact about *this ant* rather than a fact
+    //     about this harness.
+    //   leaf (+ moss) only   ->  everything else priced at zero here. The
+    //     list excluded `seed` and `litter` by omission and the filter
+    //     cannot: they are `food_class: -1.0` like leaf, so a herbivore
+    //     sees them. Litter especially -- S4 puts it on the forest floor
+    //     in quantity, and letting it onto the menu would raise food
+    //     density in the one arm that exists to keep food scarce.
+    //
+    // Plants keep their *full* value at this gut (filter 1.0), which is
+    // what the name list gave them, so the forager's income per mouthful is
+    // unchanged across this rewrite. **Lane A: this is a semantic change to
+    // your instrument -- the menu is preserved, but re-baseline before
+    // quoting a number through it.**
+    def.traits[organism::TRAIT_GUT_BIAS] = -1.0;
+    for name in ["seed", "litter"] {
+        if let Some(id) = world.materials.id_of(name) {
+            world.materials.get_mut(id).food_energy = 0.0;
+        }
+    }
+    if !econ.moss {
+        if let Some(id) = world.materials.id_of("moss") {
+            world.materials.get_mut(id).food_energy = 0.0;
+        }
+    }
     world.species.set_creature(species, def);
     let ant_material = world.materials.id_of("ant").expect("ant");
 

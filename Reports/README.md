@@ -200,6 +200,12 @@ field rework — see `open-bugs-handoff.md`.
   work packages with file anchors, steps, measurements and landing
   checklists; the scope guard on what must not start before the owner's
   verdicts (S6, S7's larder, new channels).
+- [foraging-range-measurement.md](foraging-range-measurement.md) —
+  **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
+  on landing (2026-08-23). Why `nest_visits` counted loitering and what
+  replaced it: the `forage_reach` profile, `FORAGE_TRIP_MIN` derived from a
+  sessile control, the 19-cell bubble, and the litter-in-the-canopy finding
+  with the owner's call and the paired table it produced.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.

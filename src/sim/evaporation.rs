@@ -386,19 +386,71 @@ pub(crate) fn schedule_damp_soil<S: CellSurface>(surface: &mut S, x: i32, y: i32
     });
 }
 
+/// How many rows down from a bare soil surface evaporation can reach —
+/// **the sink half of `weather::SOAK_DEPTH`, and set equal to it.**
+///
+/// This did not exist, and its absence *is*
+/// `Reports/open-bugs-handoff.md` §F8. The sink below dried the surface
+/// cell and only the surface cell, on the reasoning that "soil under soil
+/// keeps what it has and gives it up to the surface by capillary flow".
+/// Capillary flow does not do that: `update.rs`'s exchange deliberately
+/// rests once the gradient falls under `SOIL_CAPILLARY_REST`
+/// (`SOIL_SATURATED - SOIL_FIELD_CAPACITY`, i.e. 380), and that band is
+/// wider than the range the sink can pull (`SOIL_FIELD_CAPACITY -
+/// SOIL_WILTING_POINT`, 440). So the profile parks at "surface at the
+/// wilting point, everything under it at up to 560" and stops: the
+/// surface cell then fails the predicate below, its site retires, and the
+/// rest of the bed holds what it has for ever.
+///
+/// Measured on a plantless 128-wide bed over ten weather epochs, three
+/// seeds, before this constant existed: soil `aux` **monotone
+/// non-decreasing on every one**, seed 1 climbing 230,400 -> 463,927 and
+/// seeds 4 and 7 rising once and then flat to the last frame. And it was
+/// not the humidity shadow §1m suspected — 19,388 soil checks on seed 1
+/// with **3** of them becalmed. The sink was running and had nothing left
+/// it was allowed to touch.
+///
+/// **Equal to `SOAK_DEPTH` on purpose**: that is how deep a drop wets, so
+/// this is how deep the sun can take it back, and the source and the sink
+/// then cover the same band. Water below it came down by drainage and is
+/// the water table, which does not evaporate — that part of §F8's
+/// "ratchets to field capacity" is correct behaviour and stays.
+const SOIL_DRY_REACH: i32 = super::weather::SOAK_DEPTH;
+
 /// The soil half of `is_exposed_surface`, and kept beside it for the same
 /// reason that one exists: the scheduler and the tick have to agree.
 ///
-/// Air *directly above*, so only the top of a bed dries. Soil under soil
-/// keeps what it has and gives it up to the surface by capillary flow
-/// (`update.rs`), which is the mechanism that actually dries a field.
+/// Air *directly above*, so only the top of a bed is a drying site — but
+/// the site speaks for the `SOIL_DRY_REACH` rows beneath it, not for its
+/// own cell alone. It stays live while any of them holds water above the
+/// floor, which is what stops a surface cell that has reached the floor
+/// from retiring a column that is still full underneath.
 fn is_damp_soil_surface<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
-    let cell = surface.get(x, y);
-    let m = surface.materials().get(cell.material);
-    m.water_capacity > 0
-        && m.kind == MaterialKind::Powder
-        && super::update::soil_moisture(cell) > SOIL_DRY_FLOOR
-        && surface.get(x, y - 1).is_empty()
+    let m = surface.materials().get(surface.get(x, y).material);
+    if m.water_capacity == 0 || m.kind != MaterialKind::Powder || !surface.get(x, y - 1).is_empty() {
+        return false;
+    }
+    drying_front(surface, x, y).is_some()
+}
+
+/// The shallowest cell in this site's band that still holds water above the
+/// floor, and how far down it is — the drying front. `None` once the whole
+/// band is at the wilting point.
+///
+/// Stops at the first cell that cannot hold water, so a thin soil cap over
+/// stone speaks only for the soil.
+fn drying_front<S: CellSurface>(surface: &S, x: i32, y: i32) -> Option<(i32, Cell, u16)> {
+    for d in 0..SOIL_DRY_REACH {
+        let cell = surface.get(x, y + d);
+        if surface.materials().get(cell.material).water_capacity == 0 {
+            return None;
+        }
+        let moisture = super::update::soil_moisture(cell);
+        if moisture > SOIL_DRY_FLOOR {
+            return Some((d, cell, moisture));
+        }
+    }
+    None
 }
 
 pub(crate) fn schedule_from_sweep<S: CellSurface>(surface: &mut S, x: i32, y: i32) {
@@ -445,12 +497,18 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
         // cell that has drained away entirely.
         return Vec::new();
     }
-    let cell = world.get(x, y);
+    // **The front, not the surface cell.** One cell dries per check -- the
+    // shallowest that still has water -- and the rate falls with its depth,
+    // the same `1/(d+1)` profile `weather.rs`'s soak uses on the way in.
+    // Drying one cell per check rather than the whole band is what makes
+    // this a descending front instead of a slab, and it bounds the work at
+    // one write however deep `SOIL_DRY_REACH` goes.
+    let Some((depth, cell, moisture)) = drying_front(world, x, y) else { return Vec::new() };
     let reschedule =
         ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: 0 }, next_frame: world.frame + CHECK_INTERVAL };
 
     let rate = dryness_counted(world, x, y, true) * (1.0 - shelter(world, x, y)) * warmth(world, x, y);
-    let loss = (SOIL_DRY_PER_CHECK as f32 * rate) as u16;
+    let loss = (SOIL_DRY_PER_CHECK as f32 * rate / (depth + 1) as f32) as u16;
     if loss == 0 {
         // Sheltered or saturated air. Still on the schedule, for the reason
         // the liquid path gives: a rate of zero is a statement about the
@@ -461,9 +519,8 @@ fn tick_soil(world: &mut World, x: i32, y: i32, stale_ticks: u8) -> Vec<ActiveSi
         return vec![ActiveSite { x, y, kind: ActiveKind::Evaporate { stale_ticks: stale_ticks + 1 }, next_frame: world.frame + CHECK_INTERVAL }];
     }
 
-    let moisture = super::update::soil_moisture(cell);
     let loss = loss.min(moisture - SOIL_DRY_FLOOR);
-    world.set(x, y, cell.with_aux(moisture - loss));
+    world.set(x, y + depth, cell.with_aux(moisture - loss));
     // Credit exactly what was removed, on the same 1:1 scale infiltration
     // already uses to move fill into `aux`.
     world.credit_atmosphere(loss);

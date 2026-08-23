@@ -172,6 +172,23 @@ pub trait CellSurface {
     /// shape as `schedule_active_site`.
     fn count_phase_event(&mut self, event: PhaseEvent);
 
+    /// Book meat destroyed by the sweep into `EnergyLedger::meat_lost` —
+    /// `fire::tick_burn`'s burnout, the one destruction path that runs
+    /// inside a CA rule rather than from a driver holding `&mut World`.
+    ///
+    /// Same queue-and-merge shape as `count_phase_event` directly above, and
+    /// for the same reason: only `World` owns the ledger, so `ChunkView`
+    /// tallies privately and `run_pass` merges. A worker adding into a shared
+    /// `f64` would be a data race, and doing it under a lock would put a
+    /// contended atomic on a CA rule.
+    ///
+    /// **An `f64` sum rather than a count**, unlike its neighbour: what is
+    /// being lost is a *quantity* of energy and two corpses are rarely worth
+    /// the same. Summing per chunk and adding the sums is exact for the
+    /// f64 addition it replaces up to ordering, and the ordering is
+    /// deterministic because `run_pass` merges chunks in a fixed order.
+    fn book_meat_lost(&mut self, worth: f64);
+
     /// Whether `(x, y)` is above this column's frozen ground surface — the
     /// engine's stored definition of "outdoors" (`World::sky_surface`).
     ///

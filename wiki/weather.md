@@ -1,13 +1,16 @@
 # Weather
 
-*Current as of: 2026-08-22 (the water bank — rain now comes out of what
-evaporated, and damp ground gives its water back to the sky — plus drying
-that follows the sun; and cold is now something the air does rather than
-something only snowfall does, so a pond ices over across a minute or two
-and holds; and the sheet now thickens quickly then slowly rather than at
-one pace, with lying snow slowing it rather than speeding it up; and how
-fast the weather changes its mind is now a setting, separate from the length
-of a day).*
+*Current as of: 2026-08-23 (how fast the weather changes its mind is now a
+setting, separate from the length of a day; rain now reaches the soil through
+leaf litter, grass and other loose cover instead of being stopped dead by it,
+and bare ground goes on drying downwards after its surface is dry, so
+unplanted ground rises and falls with the weather instead of only ever getting
+wetter; before that, the water bank — rain comes out of what evaporated,
+and damp ground gives its water back to the sky — plus drying that follows
+the sun; and cold is something the air does rather than something only
+snowfall does, so a pond ices over across a minute or two and holds; and
+the sheet thickens quickly then slowly rather than at one pace, with lying
+snow slowing it rather than speeding it up).*
 
 **How fast it changes is a setting** (`O` → WORLD, `weather_slowdown`),
 and it is deliberately *separate* from the length of a day: turning one does
@@ -39,6 +42,13 @@ What it leaves behind is the point:
   hold water, deepest at the surface and fading below, so a rained-on
   hillside is visibly damp and dries out afterwards. Bare rock holds
   nothing and only gets wet on top.
+- **Loose cover does not keep the rain out.** Leaf litter, grass, drifted
+  sand and lying snow hold no water themselves, but rain goes through them
+  and wets the ground underneath — so a forest floor deep in shed leaves is
+  damp ground with leaves on it, not dry ground with a lid. It used to be
+  the lid, which had mulch doing the exact opposite of what mulch does.
+  Rock still stops the rain, and so does a gap: rain caught in a canopy
+  stays in the canopy rather than falling through to the roots.
 - **Puddles form** where water cannot soak in. On soil most rain
   disappears into the ground; on stone it collects, runs downhill and
   pools. Rain falling into standing water does not pile it higher.
@@ -173,6 +183,21 @@ back.
 
 Water sealed under rock never dries at all, and neither does anything under
 a roof; there has to be open air above it for the water to go anywhere.
+
+### Bare ground dries downwards, and only so far
+
+Damp ground gives its water back to the sky like standing water does, and
+it does not stop when the top layer is dry: the drying works its way down
+through roughly the same few cells the rain reached on the way in, more
+slowly the deeper it gets. So a bed of bare soil out in the weather rises
+through a wet spell and falls back through a dry one, and a world left to
+itself does not simply get wetter and wetter — which is what used to
+happen, because only the very top of the ground could ever dry and the
+water below it had nowhere to go.
+
+Water that has drained deeper than that is the water table, and it stays.
+Nothing at that depth is exposed to the air, and it is what a deep root
+reaches for.
 
 ### Puddles dry in the afternoon, and barely overnight
 

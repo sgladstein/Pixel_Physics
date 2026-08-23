@@ -135,20 +135,41 @@ jobs:
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
   # --- Known-red quarantine -------------------------------------------------
-  # Two gates are red on `main` today for reasons that have nothing to do with
-  # whatever branch is being pushed: bug A (the slot-1 root spread) and the
-  # `ascii` foraging scene (the colony has gone sessile -- 2 round trips
-  # against a bar of 14 set from 98 on the same scene). Both are recorded in
-  # `Reports/open-bugs-handoff.md` and are guards the owner keeps
-  # deliberately. Bug Y closed and its job is gone, which is the mechanism
-  # working as intended.
+  # **One** gate is red on `main` today for a reason that has nothing to do
+  # with whatever branch is being pushed: the `ascii` foraging scene, where
+  # the colony has gone sessile -- 2 round trips against a bar of 14 set from
+  # 98 on the same scene. It is recorded in `Reports/open-bugs-handoff.md`
+  # (§H2) and quarantined by name in `known-red-ascii` below.
   #
-  # **Bug H used to be on this list and is closed.** It was the reason the
-  # whole `ascii` job was non-blocking, because the example could not exclude
-  # one scene by name. It can now, so `ascii` gates again -- and the reason
-  # that matters is the foraging red above: it landed while the blanket was
-  # on and went unseen for two commits. A quarantine wide enough to hide the
-  # bug it was opened for is wide enough to hide the next one.
+  # **Bug Y closed and bug H closed**, and their jobs are gone -- the
+  # mechanism working as intended, twice. Bug H's closure is the more
+  # instructive one: the whole `ascii` job was non-blocking because the
+  # example could not exclude one scene by name, and the foraging regression
+  # landed behind that blanket and went unseen for two commits. `ascii` gates
+  # again now, with `skip=foraging`. Quarantine by name, never in bulk.
+  #
+  # **Bug A's exclusion and its paired job are gone, and its bug is NOT
+  # closed** -- read this before assuming it was. The guard asserted a 10%
+  # slot-1 root ordering off a *single seed*; the 8-seed sweep says the lever
+  # is dead (mean of per-seed ratios 0.994, SE 0.046 -- 0.1 SE from exactly no
+  # effect). No bar with headroom exists over data consistent with 1.0, so the
+  # claim could not be honestly recalibrated and was **split** instead: what is
+  # measurably true (slot 1 does not move the shoot, and does not order roots
+  # backwards) is asserted seed-swept by
+  # `slot_1_is_a_root_locus_and_not_a_shoot_one` and gates in `test` and
+  # `test-debug`; the dead half survives as an `#[ignore]`d reproduction under
+  # the original name. A `continue-on-error` job pointed at an ignored test
+  # reports green, which this file's own rule calls worse than a red one --
+  # hence deletion rather than retargeting. `open-bugs-handoff.md` §A carries
+  # the gap.
+  #
+  # One caution that no exclusion covers: `tests/worldgen.rs`'s
+  # `a_forced_vault_world_is_sealed_and_arrives_at_rest` and
+  # `generated_terrain_is_already_at_rest` are both red on `main` itself
+  # (§H3, and both are *water* failing to settle), so a perfectly healthy
+  # branch shows a red `test` job. Attribute against `main` before touching
+  # it -- and note `cargo test --lib` does not run `tests/`, so a local
+  # `--lib` gate will not see them.
   #
   # Turning branch CI on without doing something about them would show every
   # agent four red jobs on push one, and a permanently-red signal teaches
@@ -167,7 +188,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --release --locked
 
   test-debug:
     # The release profile compiles `debug_assert!` out, and this codebase
@@ -181,7 +202,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
+      - run: cargo test --locked
 
   clippy:
     name: cargo clippy
@@ -265,16 +286,6 @@ jobs:
   # *visible and executing* rather than being skipped into invisibility -- and
   # so that the day one starts passing, something says so. A green tick here is
   # the signal to delete both the job and its exclusion.
-
-  known-red-roots:
-    # Bug A: the slot-1 root spread. Excluded from `test` and `test-debug`.
-    name: "known red: bug A (slot-1 root spread)"
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
 
   known-red-ascii:
     # `forage_loop_scene`: the colony has gone sessile. Excluded from `ascii`

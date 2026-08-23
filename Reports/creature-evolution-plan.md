@@ -605,6 +605,23 @@ sealed-box guards run on an ant-only colony, where ants do not eat ants, so the
 bound is tight there. Closing it means a sink for a stamp destroyed without
 becoming a corpse, and it belongs with S6, when a parent starts paying stamps.
 
+> **Update 2026-08-23 (WP-6): the sink now exists, and this seam is still
+> open on purpose.** `EnergyLedger::meat_lost` was added for the *other*
+> gap named in the same breath — meat destroyed by fire, an explosion or the
+> brush, which nothing booked, and which is why `max_standing_meat` was an
+> upper bound rather than a bound. It is exactly the shape this paragraph
+> asks for: an account for worth that leaves the world without being eaten.
+>
+> **It was deliberately not pointed at living flesh, and the reason is the
+> one this paragraph already gives.** The living-flesh gap is not a missing
+> account, it is a missing *transaction*: the stamp is not destroyed, it is
+> still standing in `stamped` against a body that has been partly eaten, and
+> booking it as lost would be a second wrong entry rather than the correction
+> of the first. What it waits on is a parent paying stamps for a child, so
+> that the stamp has somewhere to come *from* as well as somewhere to go.
+> Close it with S6, as written. `meat_lost`'s own doc carries a pointer back
+> here so the two are found together.
+
 ### 2.4 S4 — Litter: the canopy's production falls to where ants walk
 
 **The binding quantity is the fraction of animals that find food** (§13o's
@@ -931,6 +948,89 @@ filter is the wrong shape and an asymmetric penalty is the next thing to try.
 
 **Cost.** 4 bytes per organism; the predicate is cheaper than the string scan
 it replaces.
+
+#### As built (2026-08-23), and two things this section got wrong
+
+*(A third verdict landed the same day and is recorded at the mechanism
+rather than here: the spec's "render.rs lerps the creature palette by it"
+went to a blind A/B and lost — **A, untinted** — matching `ant.ron`'s
+standing note that contrast, not hue, is the readable signal at 1–2 px.
+`render.rs`'s gut-tint constants carry the verdict and the card id; the
+readout for the trait is the signed `GutBias` overlay, not the body
+colour.)*
+
+Recorded here rather than silently deviated from, per the implementation
+handoff's own instruction: *if a WP's measurement contradicts this document,
+the measurement wins.* Both were found by arithmetic and by the suite, before
+anything depended on them.
+
+**1. The cannibal trap cannot be closed by `gut_bias` and a threshold.** The
+handoff asks for the ant's gut and the eat threshold to be set "so ant-flesh
+yield for ants lands below threshold". They cannot be: `ant` material is
+`food_class: 1.0` worth 120, and a **starved** ant's corpse cell is
+`food_class: 1.0` worth `body_energy + 0/cells` — also exactly 120. Same point
+on the axis, same number. Any threshold that hides a living nestmate hides the
+starved corpse with it, and the starved corpse is precisely what §2.3's
+structural stamp exists to keep edible ("a starved animal still leaves meat").
+
+So the difference is stated as data instead, per `CLAUDE.md`, and the data was
+already in the world: `creature_dies` writes a corpse **without** an organism
+id. Edibility is `diet_yield > threshold` **and not a living member of my own
+species**, behind `CreatureDef::eats_kin`, default off. Beetle-eats-ant
+predation survives by construction — a beetle's kin is a beetle. It also stops
+an animal eating its own tail, which the name list had been preventing by the
+accident of "ant" not being on the ant's own menu.
+
+**2. There was no viable omnivore at the shipped economy, and the fix was to
+widen the economy rather than narrow the animal — the owner's call, not
+this document's.** Measured on the one scene that can answer it — one
+animal, an inexhaustible wall of leaf, nothing to do but eat
+(`creature::tests::print_grazer_viability_against_gut_bias`):
+
+| gut | leaf yield | intake/cost | survived |
+|---|---|---|---|
+| **−1.0** | 120.0 | 0.946 | **yes** |
+| −0.9 | 108.3 | 0.993 | yes |
+| −0.8 | 97.2 | 0.781 | no |
+| −0.5 | 67.5 | 0.793 | no |
+| 0.0 | 30.0 | 0.706 | no |
+
+A **perfectly matched** grazer already runs at 0.95 — *below* the 1.0 that
+would pay for its own existence. The margin is negative before the filter is
+applied at all, so every point of digestive mismatch comes straight out of a
+deficit, and the viable band is one tenth of the axis wide. That is a fact
+about the economy, not about the matched filter, and it makes §2.4's third
+coupled call (the abundance retune) a prerequisite for the two-humped survival
+curve this section asks for: **the carnivore hump cannot exist while no gut
+off the axis ends can feed an animal at all.** The falsifier note above
+anticipates a single hump and blames carrion scarcity; the measurement says
+the first cause is upstream of that.
+
+The first landing took that as a constraint and authored the ant at −1.0, a
+detritivore — which kept the plant economy bit-identical and cost the colony
+its scavenging. Card `20260823T104411499Z-963f8d` put the trade to the owner,
+whose verdict was, in full: **"An omnivore should be viable."**
+
+So the economy widened. The factor is measured
+(`print_omnivore_viability_against_food_scale`) rather than chosen: at **4x**
+face value a neutral gut draws 120 a mouthful and reaches intake/cost 0.946 —
+the *identical* ratio a perfectly matched gut had at the old scale, because
+the filter's 0.25 at neutral is exactly what 4x cancels. The shipped ant is
+therefore economically the pre-S5 ant: `ascii` is bit-identical to `main` at
+12,000 frames, and the only line that moves is the `food stock` census, which
+reads face values and so reads 4x while no animal extracts more.
+
+Not taken higher, deliberately: past 4x the shipped ant is *richer* than
+before, and a richer floor is §13i's sit-still attractor. Specialising is
+what pays now — a gut at −1.0 draws 480 from a leaf against the shipped
+ant's 120.
+
+**What this resolves for §2.5's own measurement plan.** The two-humped
+survival curve this section asks for was unreachable at the old scale,
+because no gut off the axis ends could feed an animal at all; the falsifier
+note above blames carrion scarcity, and the first cause was upstream of it.
+At 4x the curve is measurable — which is what makes the sweep worth running
+when Lane A's instruments land.
 
 ### 2.6 S6 — Reproduction, inheritance, mutation
 

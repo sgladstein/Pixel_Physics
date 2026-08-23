@@ -2743,6 +2743,13 @@ fn parse() -> Args {
                 // one readout that can answer "where is the food" was
                 // unreachable from the harness that judges by eye.
                 "foodvalue" => a.organism_overlay = OrganismOverlay::FoodValue,
+                // Landed *with* the overlay this time, not a stage later:
+                // the readout above was unreachable from here for a whole
+                // milestone because only the render half shipped, and an
+                // unknown `channel=` value is silently ignored rather than
+                // rejected -- so a sheet rendered with a typo'd channel
+                // looks exactly like a mechanism that does nothing.
+                "gutbias" => a.organism_overlay = OrganismOverlay::GutBias,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
