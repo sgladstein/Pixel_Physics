@@ -1498,6 +1498,8 @@ fn step_chain(
     let base = [turn.max(0.0), persist, (-turn).max(0.0)];
     let mut scores = [0.0f32; 3];
     let mut passable = [false; 3];
+    // Resolved once for all three candidates -- see `kin_footing`.
+    let kin = kin_footing(world, organism, def);
     for (i, &d) in dirs.iter().enumerate() {
         let (dx, dy) = DIRS[d as usize];
         let (tx, ty) = (hx + dx, hy + dy);
@@ -1531,7 +1533,7 @@ fn step_chain(
             // probability, and the colony spent 59% of its moves falling.
             // A footing *bonus* puts the supported candidate an order of
             // magnitude clear of the floor, where the discount belongs.
-            base[i] + if body_has_foothold(world, def, &landing, (tx, ty)) { footing } else { 0.0 }
+            base[i] + if body_has_foothold(world, def, &landing, (tx, ty), kin) { footing } else { 0.0 }
         } else {
             0.0
         };
@@ -1687,7 +1689,7 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
             // Body-aware, like the candidate scan: a wide creature must not
             // re-orient into a heading its shape cannot occupy.
             let landing = body_after_step(def, &chain, (tx, ty), d, d);
-            landing.iter().all(|&p| world.is_empty(p.0, p.1) || chain.contains(&p)) && body_has_foothold(world, def, &landing, (tx, ty))
+            landing.iter().all(|&p| world.is_empty(p.0, p.1) || chain.contains(&p)) && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
     if let Some(state) = world.organism_mut(organism) {
@@ -1727,12 +1729,26 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
 /// which is exactly how it came to log 33,881 falls before the head-only
 /// rule went in. A rigid body cannot stretch: if any cell of it is near
 /// ground, all of it is.
-fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], head: (i32, i32)) -> bool {
+fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], head: (i32, i32), kin: Option<Kin>) -> bool {
     if def.body.is_rigid() {
-        landing.iter().any(|&p| head_has_foothold(world, p))
+        landing.iter().any(|&p| head_has_foothold(world, p, kin))
     } else {
-        head_has_foothold(world, head)
+        head_has_foothold(world, head, kin)
     }
+}
+
+/// The kin-footing licence for `organism`, or `None` if its species does
+/// not climb over its own kind.
+///
+/// Resolved once per step at the site that already holds the organism,
+/// rather than per candidate cell — `head_has_foothold` runs over eight
+/// neighbours for each of three candidates, and a species lookup inside
+/// that loop would be twenty-four of them for a `bool` that cannot change.
+fn kin_footing(world: &World, organism: u16, def: &CreatureDef) -> Option<Kin> {
+    if !def.climbs_over_kin {
+        return None;
+    }
+    Some(Kin { organism, species: world.organism(organism)?.species })
 }
 
 /// Is there anything for the head to hold on to at `(x, y)`?
@@ -1758,7 +1774,7 @@ fn body_has_foothold(world: &World, def: &CreatureDef, landing: &[(i32, i32)], h
 ///
 /// Two fixes failing the same way meant the predicate was wrong, not the
 /// tuning.
-fn head_has_foothold(world: &World, (x, y): (i32, i32)) -> bool {
+fn head_has_foothold(world: &World, (x, y): (i32, i32), kin: Option<Kin>) -> bool {
     NEIGHBOURS_8.iter().any(|&(dx, dy)| {
         let (nx, ny) = (x + dx, y + dy);
         // **The edge of the world is not scenery.** `World::get` returns a
@@ -1769,9 +1785,43 @@ fn head_has_foothold(world: &World, (x, y): (i32, i32)) -> bool {
         // x = 0 heading permanently north, a slice of the colony walking
         // up the side of the world forever. Correct for sand, wrong for
         // anything with legs.
-        world.in_bounds(nx, ny)
-            && matches!(world.materials.kind(world.get(nx, ny).material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+        if !world.in_bounds(nx, ny) {
+            return false;
+        }
+        let cell = world.get(nx, ny);
+        matches!(world.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant)
+            || kin.is_some_and(|k| k.is_walkable_nestmate(world, cell))
     })
+}
+
+/// **Who counts as walkable ground**, for a species that walks over its own
+/// kind — WP-9 arm 1, and the deliberate re-test of dead ends 775/829,
+/// whose condition line says in as many words: *"re-test if creatures gain
+/// pass-through or climb-over."*
+///
+/// It grants **footing only, never passability.** A creature cell stays
+/// something you cannot *enter*; this makes it something you can stand
+/// *on*. Two multi-cell chains swapping through each other is a different
+/// and much harder change, and nothing here approaches it.
+///
+/// **`self` is excluded, and that exclusion is the whole safety of it.** A
+/// chain's own tail is permanently inside its head's 8-neighbourhood, so
+/// counting own cells would make every ant its own foothold — in mid-air,
+/// forever. That is the same failure as counting the out-of-bounds
+/// `BEDROCK` sentinel above, which turned the world edge into an
+/// infinitely tall ladder, and it would be worse: the ladder would follow
+/// the animal.
+#[derive(Clone, Copy)]
+struct Kin {
+    organism: u16,
+    species: SpeciesId,
+}
+
+impl Kin {
+    fn is_walkable_nestmate(self, world: &World, cell: Cell) -> bool {
+        let other = cell.organism_id();
+        other != 0 && other != self.organism && world.organism(other).is_some_and(|s| s.species == self.species)
+    }
 }
 
 /// Rewrite a chain from `from` to `to`, carrying every whole `Cell`.
@@ -3258,6 +3308,132 @@ mod tests {
 
         assert!(!nestmate_seen_as_food(false), "with eats_kin off, a living nestmate is not food");
         assert!(nestmate_seen_as_food(true), "with eats_kin on it must be -- if this fails, the arm proves nothing and the test above it is vacuous");
+    }
+
+    fn set_climbs_over_kin(w: &mut World, species: &str, on: bool) -> CreatureDef {
+        let id = w.species.id_of(species).expect("species");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.climbs_over_kin = on;
+        w.species.set_creature(id, def.clone());
+        def
+    }
+
+    /// **A nestmate is ground, but only for a species that says so** —
+    /// WP-9 arm 1, and the deliberate re-test of dead ends 775/829.
+    ///
+    /// Both arms run on a scene with **no terrain under the head at all**,
+    /// so the only thing that could possibly be a foothold is the other
+    /// ant. A version of this with a floor would pass whatever the flag
+    /// does, which is the scene error this file has paid for repeatedly.
+    #[test]
+    fn a_living_nestmate_is_a_foothold_only_for_a_species_that_climbs() {
+        let footing = |on: bool| -> bool {
+            let mut w = test_world();
+            // A short ledge for the nestmate to stand on, and nothing at
+            // all beneath the climber's head.
+            for x in 104..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            // The climber stands on its *own* ledge well away from the
+            // query point, so `kin_footing` is exercised with a real
+            // organism and the climber's own body is nowhere near the cell
+            // being asked about.
+            for x in 130..138 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let def = set_climbs_over_kin(&mut w, "ant", on);
+            let mate = spawn(&mut w, "ant", 106, 100);
+            let climber = spawn(&mut w, "ant", 132, 100);
+            assert!(w.organism(mate).is_some() && w.organism(climber).is_some(), "both ants must place");
+            // (104, 99) is diagonally above the nestmate's tail at (105,
+            // 100) and has no terrain in its own neighbourhood.
+            let head = (104, 99);
+            let ant_material = w.materials.id_of("ant").expect("ant material");
+            assert_eq!(w.get(105, 100).material, ant_material, "the scene must put a nestmate cell in reach of the test position");
+            assert!(
+                !NEIGHBOURS_8.iter().any(|&(dx, dy)| matches!(
+                    w.materials.kind(w.get(head.0 + dx, head.1 + dy).material),
+                    MaterialKind::Solid | MaterialKind::Powder | MaterialKind::Plant
+                )),
+                "test setup: terrain in reach of the head would make both arms pass for the wrong reason"
+            );
+            head_has_foothold(&w, head, kin_footing(&w, climber, &def))
+        };
+
+        assert!(!footing(false), "by default a creature is not ground: dead ends 775/829 hold");
+        assert!(footing(true), "with climbs_over_kin a nestmate is ground -- if this fails the re-test measured nothing");
+    }
+
+    /// **Can `(Crowding, Tumble, w)` demonstrate itself?** — the pre-flight
+    /// for WP-9 arm 2, run *before* the sweep rather than after it.
+    ///
+    /// Arm 2 needs no code at all: both slots exist, so the whole arm is
+    /// one line of `ant.ron` and a sweep over `w`. What it does need is for
+    /// the pathway to be live, and this repo has twice spent a sweep to
+    /// discover that it was not — the `include_str!` arms that came back
+    /// byte-identical, and the megastudy whose eight logs were one
+    /// population. `CLAUDE.md`'s rule is to check a planned step can
+    /// demonstrate itself before promising it will.
+    ///
+    /// So: a crowd, and `tumbles` against `w`. If the column does not move,
+    /// the sweep would measure nothing and the arm is blocked on something
+    /// else — which is much cheaper to learn here.
+    ///
+    /// **A measurement, not a guard.** The *value* of `w` is a foraging
+    /// claim and belongs to `forage_probe seeds=8` (WP-4), which is not on
+    /// `main`; nothing here picks one.
+    #[test]
+    #[ignore = "a measurement, not a guard -- prints numbers, asserts nothing"]
+    fn print_crowding_tumble_pathway_check() {
+        println!("     w   tumbles   moves   blocked");
+        for w_gain in [0.0f32, 0.5, 1.0, 2.0] {
+            let mut w = test_world();
+            for x in 60..160 {
+                w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+            }
+            let species = w.species.id_of("ant").expect("ant species");
+            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // The authored instincts plus the one under test. **`(Crowding,
+            // Move, -0.3)` is left exactly as authored** -- ablating it cost
+            // 69% of deliveries (13f), and this arm is about adding a
+            // re-orientation drive, not about removing that one.
+            let mut instincts = def.instincts.clone();
+            instincts.push(brain::Instinct(brain::BrainInput::Crowding, brain::BrainOutput::Tumble, w_gain));
+            w.species.set_genome(species, brain::genome_from_wiring(&instincts, &def.hidden_wiring, &def.hidden_outputs));
+
+            // Shoulder to shoulder on purpose: the crowd is the input.
+            for x in (70..150).step_by(2) {
+                if let Some(site) = plant_creature_seed(&mut w, x, 100, "ant") {
+                    w.schedule_active_site(site);
+                }
+            }
+            run(&mut w, 6_000);
+            let st = w.creature_stats;
+            println!("  {w_gain:>4.1}   {:>7}   {:>5}   {:>7}", st.tumbles, st.moves, st.moves_blocked);
+        }
+    }
+
+    /// **An ant is never its own ladder**, and this is the whole safety of
+    /// arm 1.
+    ///
+    /// A chain's own tail sits permanently inside its head's
+    /// 8-neighbourhood, so a kin rule that did not exclude `self` would
+    /// give every ant a foothold in mid-air, forever — the same shape as
+    /// the out-of-bounds `BEDROCK` sentinel that turned the world edge into
+    /// an infinitely tall ladder, except that this ladder would follow the
+    /// animal.
+    #[test]
+    fn a_climbing_ant_is_never_its_own_foothold() {
+        let mut w = test_world();
+        let def = set_climbs_over_kin(&mut w, "ant", true);
+        // Nothing in the world at all: no floor, no nestmate.
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let head = w.organism(ant).expect("live").chain[0];
+        assert_eq!(w.get(99, 100).organism_id(), ant, "its own tail should be beside its head, which is the situation under test");
+        assert!(
+            !head_has_foothold(&w, head, kin_footing(&w, ant, &def)),
+            "an ant alone in the sky must have no foothold -- its own body must not count"
+        );
     }
 
     /// **The eat verb pays the filter, not the cell's face value** — the

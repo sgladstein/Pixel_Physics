@@ -1050,6 +1050,24 @@ pub struct CreatureDef {
     /// narrow one. This vector is the body-side half of that call.
     #[serde(default)]
     pub trait_variance: [f32; CREATURE_TRAITS],
+    /// Whether a **living nestmate counts as ground** — an ant walks over
+    /// another ant the way it walks over terrain.
+    ///
+    /// **Footing only, never passability**, and the asymmetry is the whole
+    /// design: a creature cell stays something you cannot *enter*, so two
+    /// chains never swap through each other. See `creature::Kin`.
+    ///
+    /// Default off, and opted into on the species rather than tested in the
+    /// footing loop — the dispatch site already holds the def, and the
+    /// alternative is a `bool` re-resolved for each of twenty-four
+    /// neighbour cells per step.
+    ///
+    /// This is the deliberate re-test of dead ends 775/829, which gridlocked
+    /// a shoulder-to-shoulder colony at 27,386 blocked ticks against a
+    /// single pickup and whose condition line reads *"re-test if creatures
+    /// gain pass-through or climb-over"*.
+    #[serde(default)]
+    pub climbs_over_kin: bool,
     /// Whether this species will bite a **living** member of its own
     /// species.
     ///
