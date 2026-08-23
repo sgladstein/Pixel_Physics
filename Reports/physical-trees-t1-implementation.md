@@ -124,10 +124,24 @@ merged branch). Both are reported.
 
 ### 4a. On the merged tree, against `main` at `00d1551`
 
-- **`ascii`'s organism scene: mean 4.492 ms against `main`'s 4.634, worst
-  66.1 against 69.1**, 12,000 frames. The branch measures marginally
-  *faster*, which is noise in the direction that flatters it and is reported
-  as noise. No scene in `ascii` reports a FAIL on either arm.
+**Both arms measured on a quiet machine, one at a time.** An earlier pass
+ran the suite, the acceptance cases and `ascii` concurrently and produced
+`ascii` worst 118.6 ms and a `lavadrop` frame-budget failure; neither
+survived re-measurement, and both are recorded here rather than dropped
+because they are exactly `CLAUDE.md`'s "re-measure the baseline in the same
+session" case and they cost a detour.
+
+- **`ascii`'s organism scene: mean 4.638 ms against `main`'s 4.698, worst
+  72.6 against 93.4**, 12,000 frames. The branch measures marginally
+  *faster* on the mean, which is noise in the direction that flatters it and
+  is reported as noise. No scene in `ascii` reports a FAIL on either arm.
+- **`acceptance.sh`'s `lavadrop` case fails on `main` and passes here.**
+  Quiet machine, same command, `repeat=2`: `main` **74.96 ms** (spread
+  74.96-77.74) against a 60 ms budget; this branch **56.33 ms** (spread
+  56.33-66.67). So the red is the base branch's, not this change's — and the
+  branch's own spread straddles the bar, so the case is close enough to its
+  budget to flake on either arm. Filed in `open-bugs-handoff.md`; CI's own
+  acceptance job passed on this branch's head.
 - **`seedsweep.sh`: order statistics identical.** `cells lost` max 324, p90
   200, median 0, total 1,285 on both arms; `rock destroyed` total 1,100, max
   837, p90 28, median 0 on both. 23 of the 24 rows byte-identical; `rolling

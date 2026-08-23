@@ -5236,6 +5236,40 @@ bending and silently did not hold against the one mode left. Latent until
 to spend its life lying on loose rubble. Fixed by guarding the clamp on the
 opt-out itself; it reaches only `log` and `nest` in the shipped set.
 
+### T1d. `acceptance.sh`'s `lavadrop` sits close enough to its frame budget to flake, and is over it on `main` — **OPEN, not this branch's**
+
+Noticed while gating T1 and measured rather than assumed, because a frame
+budget is exactly the assertion `CLAUDE.md` says never to read against a
+remembered number.
+
+Same command (`scene=lavadrop start=2 every=300 count=4 ... repeat=2
+max_frame_ms=60`), one arm at a time on an otherwise idle machine:
+
+| | worst frame (best of 2) | spread |
+|---|---|---|
+| `main` at `00d1551` | **74.96 ms — over the 60 ms budget** | 74.96-77.74 |
+| `claude/t1-fell-as-pieces` at `8d89b93` | 56.33 ms — under it | **56.33-66.67** |
+
+Two separate things, and they want different remedies:
+
+- **The base branch is over the bar.** Whatever moved it is in `main`'s own
+  recent history, not in a felling package; `lavadrop` builds no plant and
+  the T1 changes it can reach are a comparison that short-circuits *earlier*
+  than the code it guards.
+- **The case is flaky either way.** The branch's own two runs span
+  56.33-66.67, straddling 60, so a green here is a coin toss on this
+  machine. `repeat=2` reports the *best* of two, which hides that. CI's
+  acceptance job has passed on both, so the CI runner is faster than this
+  one — which is the reason a bar this close to the measurement gets
+  rubber-stamped rather than caught.
+
+**First observed contended and nearly misattributed.** The failure surfaced
+on a run sharing the machine with the full test suite and `ascii`, at 66.07
+ms, and it read as a regression from this branch. It is not; the same window
+also reported `ascii` worst at 118.6 ms against 72.6 uncontended. Recorded
+because the misreading is the point: a timing gate measured beside other
+work is measuring the other work.
+
 ### T1c. §1c's settle loss is now a counter
 
 `FailureCounts::settle_lost_cells` counts every cell `rigid::settle` could

@@ -2624,9 +2624,13 @@ the change (`7cd1357` both sides): `ascii`'s organism scene mean 4.603 ms
 against 4.509, worst 57.7 against 58.2, inside the spread that scene is
 known to have; `seedsweep.sh` order statistics exactly equal (max 324, p90
 202, median 0 both arms; 23 of 24 rows byte-identical). On the merged tree
-against `main` at `00d1551`: mean **4.492** against 4.634, worst 66.1
-against 69.1; sweep order statistics identical again (max 324, p90 200,
-median 0, total 1,285). Both drivers agree on the fell scene (serial 1,157
+against `main` at `00d1551`, both arms on a quiet machine one at a time:
+mean **4.638** against 4.698, worst 72.6 against 93.4; sweep order
+statistics identical again (max 324, p90 200, median 0, total 1,285). An
+earlier pass measured all three gates concurrently and produced a
+`lavadrop` frame-budget failure and an `ascii` worst of 118.6 ms; neither
+survived re-measurement, and `lavadrop` turns out to be **over its budget on
+`main`** (74.96 ms) and under it here (56.33) — `open-bugs-handoff.md` T1d. Both drivers agree on the fell scene (serial 1,157
 of 2,645 as pieces, parallel 1,160 of 2,648). `acceptance.sh` green, and the
 suite green including `tests/worldgen.rs`. The ant scene does move — 76 → 73 organisms,
 deliveries 643 → 188 — because leaf debris is `litter` now and `litter` is
