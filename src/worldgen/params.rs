@@ -405,7 +405,7 @@ impl Default for WorldgenParams {
             region_variation: 0.75,
             palette_field: 0.30,
             residual_density: 1.4,
-            spring_flow: 5.0,
+            spring_flow: 16.0,
             vault_density: 1.6,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,

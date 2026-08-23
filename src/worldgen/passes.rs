@@ -1109,6 +1109,7 @@ const ROUGH_SCALE: f32 = 23.0;
 /// rather than cutting across it.
 const SECTION_ASPECT: f32 = 1.6;
 
+
 /// Fraction of the half-height the conduit must stay clear of, top and
 /// bottom.
 ///
@@ -1171,6 +1172,22 @@ const TRIB_WANDER: f32 = 0.30;
 /// Wavelengths of meander over a feeder's whole length. Under one, so a
 /// branch bends once rather than corrugating -- see `trib_wander`.
 const TRIB_WANDER_WAVES: f32 = 0.9;
+
+/// How far the monumental chamber's wall wanders from its nominal radius,
+/// as a fraction of it, and how many lobes it wanders in.
+///
+/// The chamber was a literal rasterised ellipse until the owner named it:
+/// *"That overall cave shape here is bad though. It looks like a perfect
+/// oval, not natural"* (card `20260823T103359957Z-2eaf50`). The precedent
+/// for the fix is `lens_roughness`, which did the same thing to the sand
+/// lenses -- *"Much better"* (card `20260822T084149897Z-f5e022`).
+///
+/// `LOBES` is the radius of the circle traced through the noise lattice by
+/// the unit direction, so the count of features around the wall is roughly
+/// its circumference: 1.6 gives ~10. Fewer reads as a lumpy egg, many more
+/// reads as a crinkled edge on a shape that is still an oval underneath.
+const CHAMBER_WALL_AMP: f32 = 0.22;
+const CHAMBER_WALL_LOBES: f32 = 1.6;
 
 /// Longest horizontal run of void with stone directly above it that a
 /// system may keep, in cells -- the roof-span bound the round-2 arithmetic
@@ -2285,10 +2302,50 @@ fn grow_monumental_chamber(ctx: &Ctx, env: CaveEnv, k: i32, cx: i32, void: &mut 
     let rh = rh_draw.min((env.half_w - bx.abs()) as f32).max(2.0);
 
     let mut added = Vec::new();
-    let (rv_i, rh_i) = (rv.ceil() as i32, rh.ceil() as i32);
+    // Bounds widened by the wall's own amplitude, or every bulge would be
+    // clipped flat against the old `r <= 1` box and the roughening would show
+    // up only as bites taken *out* of the oval -- which reads worse than the
+    // oval did.
+    let (rv_i, rh_i) =
+        ((rv * (1.0 + CHAMBER_WALL_AMP)).ceil() as i32, (rh * (1.0 + CHAMBER_WALL_AMP)).ceil() as i32);
     for dy in -rv_i..=rv_i {
         for dx in -rh_i..=rh_i {
-            if (dx as f32 / rh).powi(2) + (dy as f32 / rv).powi(2) > 1.0 {
+            // **Not an ellipse any more.** This was
+            // `(dx/rh)^2 + (dy/rv)^2 > 1.0` -- a literal rasterised oval,
+            // unioned on top of whatever the carve had produced. Phase 3
+            // replaced the *carve* with dissolution and never touched this,
+            // so the biggest room in every system stayed a drawn primitive;
+            // shown one, the owner: *"That overall cave shape here is bad
+            // though. It looks like a perfect oval, not natural"* (card
+            // `20260823T103359957Z-2eaf50`).
+            //
+            // The radius is perturbed instead, by an fBm sampled on the
+            // **unit direction** rather than on the cell. Sampling the cell
+            // would vary the threshold *along* a ray as well as across it,
+            // which punches stone islands into the middle of the room; on the
+            // direction it is constant along every ray, so the outline is
+            // irregular and the interior stays solid void. That also keeps
+            // the shape star-shaped about its centre, hence radially
+            // connected -- which is what lets the re-settle below stay sound,
+            // since growth must never disconnect (it is a pure union).
+            let (nx, ny) = (dx as f32 / rh, dy as f32 / rv);
+            let r = (nx * nx + ny * ny).sqrt();
+            let limit = if r < 1e-3 {
+                // The centre has no direction to sample. Always inside.
+                1.0
+            } else {
+                let (ux, uy) = (nx / r, ny / r);
+                let w = noise::fbm_2d(
+                    seed,
+                    Purpose::CaveWall,
+                    ux * CHAMBER_WALL_LOBES,
+                    uy * CHAMBER_WALL_LOBES,
+                    2,
+                ) * 2.0
+                    - 1.0;
+                1.0 + CHAMBER_WALL_AMP * w
+            };
+            if r > limit {
                 continue;
             }
             let (ex, ey) = (bx + dx, by + dy);

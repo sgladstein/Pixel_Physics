@@ -219,6 +219,16 @@ pub enum Purpose {
     /// wants one or two springs, and picking "the first one scanning left to
     /// right" would put every world's waterfall near x = 0.
     Spring = 34,
+    /// The monumental chamber's wall: an fBm perturbation of its boundary
+    /// radius, so a room is not a drawn oval.
+    ///
+    /// **Its own stream rather than `CaveVariety`**, which the dissolution
+    /// carve now uses for the aspect draw, the trunk's meander, the room
+    /// field and every tributary. Sharing it would correlate a chamber's
+    /// wall with the shape of the conduit it hangs off — the two would bulge
+    /// and pinch together, which is the one thing a roughening term must not
+    /// do if it is to read as rock rather than as a wave.
+    CaveWall = 35,
 }
 
 /// SplitMix64-style finalizer over `(seed, purpose, x, y)`.

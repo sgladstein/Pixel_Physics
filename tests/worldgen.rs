@@ -3597,12 +3597,31 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
     /// How far either side of the outlet to look for the source pool, and how
     /// many of those columns must hold standing water. The cut basin is
     /// `SPRING_BASIN_W` = 40 columns wide and the outlet sits at its middle,
-    /// so half of it reaches ~20 either way. Measured: the cut basin gives
-    /// **38** columns and the face-outlet build it replaced gives **8**, so
-    /// the bar sits three times below the pass and half again above the fail
-    /// -- headroom in both directions rather than on top of either.
+    /// so half of it reaches ~20 either way. Measured at the span the pass
+    /// then drew: the cut basin gave **38** columns and the face-outlet build
+    /// it replaced gave **8**, so a bar of 12 sat three times below the pass
+    /// and half again above the fail.
+    ///
+    /// **Re-derived 2026-08-23, and the headroom is genuinely worse now.**
+    /// The owner's verdict took `spring::MAX_SPAN` to 8 (card
+    /// `20260823T092729596Z-2fa6b0`), and a wider outlet drains the lip
+    /// faster than a narrow one fills it: measured over the same three seeds,
+    /// the source pool is **18 / 21 / 11** columns where it was 38. The bar
+    /// has to come down with it, and 10 against a measured minimum of 11 and
+    /// a failure mode at 8 is **thin** -- it is stated here rather than
+    /// dressed up, because a bar sitting one column off the measurement is
+    /// the shape of thing that flakes on the next legitimate change.
+    ///
+    /// Two levers were tried and neither is the answer, both recorded in
+    /// `Reports/dead-ends.md`: raising `SPRING_BASIN_MIN_W` to match the span
+    /// demands a shelf most rims do not have and collapsed placement to *no
+    /// spring at all* on two of three seeds, and raising `SPRING_BASIN_W`
+    /// from 40 to 56 moved the pool width by **exactly nothing**, because
+    /// what bounds the cut is the run of level ground, not the cap. Restoring
+    /// the old margin needs the source basin to scale with the outlet it
+    /// feeds without costing placement, which this session did not find.
     const SOURCE_SPAN: i32 = 24;
-    const SOURCE_COLUMNS: usize = 12;
+    const SOURCE_COLUMNS: usize = 10;
     let presets = presets();
     // `canyon` is the preset with the faces: measured 1.0 springs per world
     // over six seeds, against 0.8 rolling, 0.5 terraced and 0.0 wetland (which
@@ -3692,6 +3711,7 @@ fn a_generated_world_grows_a_spring_that_actually_runs() {
         let wide = (sp.x - SOURCE_SPAN..=sp.x + SOURCE_SPAN)
             .filter(|&sx| standing_depth(&world, sx.clamp(0, w - 1), sp.y, SOURCE_BAND, h, water_id) >= 3)
             .count();
+        report.push_str(&format!("  seed {seed}: source pool {wide} columns wide\n"));
         assert!(
             wide >= SOURCE_COLUMNS,
             "seed {seed}: only {wide} columns of standing water near the outlet, under the {SOURCE_COLUMNS} \

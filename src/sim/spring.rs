@@ -107,20 +107,31 @@ const THROTTLE_FILL: u16 = (material::LIQUID_FULL as u32 * 9 / 10) as u16;
 /// difference and never as an absolute.
 pub const MAX_TOTAL_SPAN: i32 = 16;
 
-/// Widest single spring. A face weeping over six columns reads as a real
-/// cascade; past that it reads as the ocean falling in, and the budget is
-/// better spent on a second fall somewhere else.
+/// Widest single spring.
 ///
-/// **That claim has never had a picture behind it, and this constant is not
-/// what makes the shipped fall thin.** The pass takes
-/// `span = budget.min(MAX_SPAN)` where the budget is the preset's
-/// `spring_flow` — **5.0 on every preset that has springs at all**, and 0.0
-/// on `arid` and `flat` — so every generated spring in the game is
-/// *budget*-limited and raising this alone moves exactly nothing. The owner
-/// has called the fall too thin twice; the lever is `spring_flow`, and the
-/// trade it makes is width against *number of falls*, since the budget is
-/// spent whole on the first spring before the next candidate is considered.
-pub const MAX_SPAN: i32 = 6;
+/// **Six was an assertion with no picture behind it, and the owner has now
+/// falsified it.** The doc used to read "a face weeping over six columns
+/// reads as a real cascade; past that it reads as the ocean falling in" —
+/// written from taste, never shown to anyone, and left standing through
+/// three review rounds in which he twice called the fall too thin. Card
+/// `20260823T092729596Z-2fa6b0`, a blind A/B of the shipped fall against a
+/// 12-wide one, came back **for the wider pane**.
+///
+/// Eight rather than twelve, and that is a second decision he made
+/// explicitly. This constant caps a *single* fall while `spring_flow` is a
+/// per-preset budget spent whole on each accepted candidate, so width trades
+/// against **how many falls a world gets**: `spring_flow: 16.0` buys one
+/// 16-wide cascade, or two 8-wide ones somewhere apart. Shown that trade —
+/// which the card had not shown him, since it pictured a single fall — he
+/// chose two. Hence 8 here and 16.0 in every preset that has springs.
+///
+/// Note this is a cap, not the width: raising it alone still moves nothing,
+/// because `span = budget.min(MAX_SPAN)` and the budget binds first. Both
+/// numbers have to move together, and [`MAX_TOTAL_SPAN`] has to admit their
+/// sum — 8 + 8 = 16 passes `flowing + span > MAX_TOTAL_SPAN` by exactly one
+/// step, which is the kind of edge that silently ships one fall while the
+/// commit message claims two.
+pub const MAX_SPAN: i32 = 8;
 
 /// One spring: an outlet at `(x, y)` weeping across `span` columns —
 /// emission fills the air cells at `(x .. x + span, y)`. A `span` of 1 is
