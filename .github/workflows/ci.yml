@@ -66,24 +66,23 @@ concurrency:
 
 # **The toolchain is pinned, and it was `@stable` until it broke.** Run 136's
 # `clippy` job went red on code nobody had touched: `dtolnay/rust-toolchain@
-# stable` floats, it had moved to 1.98.0, and two lints that did not exist in
-# 1.94 fired under `-D warnings` -- `manual_checked_ops` on
-# `examples/filmstrip.rs`'s `chunks * 100 / (chunks + dust)` and
-# `unnecessary_sort_by` on `src/worldgen/column.rs:1133`. The same commit was
-# clippy-clean locally on 1.94.1, which is exactly how this hides: the branch
-# is fine, the compiler moved.
+# stable` floats, it had moved to 1.98.0, and lints that did not exist in the
+# pinned version fired under `-D warnings`. The same commit was clippy-clean
+# locally, which is exactly how this hides -- the branch is fine, the compiler
+# moved. With several agents pushing in parallel, a gate that reddens on its
+# own schedule is indistinguishable from a real break and trains people to
+# stop reading the board.
 #
-# With several agents pushing in parallel, a gate that turns red on its own
-# schedule is worse than useless -- it is indistinguishable from a real break
-# and it trains people to ignore the board. Pinning trades "new lints arrive
-# automatically" for "CI says the same thing today as yesterday", which is the
-# right trade here. Bump it deliberately, as its own change, fixing whatever
-# the new release flags in the same commit.
+# Pinned at 1.98 as of 2026-08-23, bumped *deliberately and with its own
+# fixes in the same commit*, which is the rule this pin exists to enforce.
+# The four lints 1.98 added were fixed rather than allowed: three
+# `unnecessary_sort_by` (worldgen/column.rs, filmstrip.rs x2) and one
+# `manual_checked_ops` (filmstrip.rs). Verified on a real 1.98 toolchain, not
+# inferred: clippy clean, and 891 tests green.
 #
-# Not fixed in place instead, because `examples/filmstrip.rs` is touched by
-# five unmerged branches right now and it is the most-collided file in the
-# repo. `src/worldgen/column.rs` is uncontested and could be fixed today, but
-# fixing one of two leaves the gate red anyway.
+# Note the first run only reported *three* errors before aborting the build;
+# the fourth was behind that abort. Fix, re-run, repeat until clean -- a
+# compiler that stops at the first failing crate is not giving you the count.
 #
 # **One job per gate, and the split is a bug fix rather than tidying.**
 # These were six steps of a single job, and a step only runs if the one
@@ -152,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots
 
   test-debug:
@@ -166,7 +165,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo test --locked -- --skip root_and_shoot_branching_read_different_slots
 
   clippy:
@@ -174,7 +173,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
         with:
           components: clippy
       - run: cargo clippy --all-targets --release --locked -- -D warnings
@@ -218,7 +217,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo run --release --example ascii --locked
 
   acceptance:
@@ -233,7 +232,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
         # `wood` is bug Y; it runs in the known-red job below.
       - run: SKIP_CASES=wood bash scripts/acceptance.sh
 
@@ -252,7 +251,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
         with:
           components: rustfmt
       - run: cargo fmt --check
@@ -271,7 +270,7 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo test --release --locked root_and_shoot_branching_read_different_slots
 
   known-red-gnome:
@@ -287,5 +286,5 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: ONLY_CASES=wood bash scripts/acceptance.sh

@@ -3570,7 +3570,7 @@ fn describe_hanging(world: &World, cells: &[(i32, i32)]) -> Vec<String> {
         }
         clusters.push(c);
     }
-    clusters.sort_by(|a, b| b.size.cmp(&a.size));
+    clusters.sort_by_key(|c| std::cmp::Reverse(c.size));
     // Six is enough to see the shape of the distribution without burying
     // the tile it belongs to; the tail is summarised rather than dropped,
     // because "and 200 singletons" is itself the finding in the scattered
@@ -3664,7 +3664,7 @@ fn describe_afloat(world: &World) -> Vec<String> {
             ));
         }
     }
-    out.sort_by(|a, b| b.0.cmp(&a.0));
+    out.sort_by_key(|o| std::cmp::Reverse(o.0));
     out.into_iter().map(|(_, line)| line).collect()
 }
 
@@ -5076,10 +5076,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             // into fragments below `MIN_BODY_CELLS` is dust on screen and
             // reads as a success in every other number here.
             let (chunks, dust) = (f.promoted_cells, f.shattered_cells);
-            if chunks + dust > 0 {
+            // `checked_div` rather than a `> 0` guard around a bare `/`:
+            // same behaviour, and it is the shape clippy's
+            // `manual_checked_ops` asks for (1.98+).
+            if let Some(pct) = (chunks * 100).checked_div(chunks + dust) {
                 println!(
-                    "    what came off: {chunks} cells as chunks, {dust} as dust ({}% chunk by mass)",
-                    chunks * 100 / (chunks + dust)
+                    "    what came off: {chunks} cells as chunks, {dust} as dust ({pct}% chunk by mass)"
                 );
             }
             println!(

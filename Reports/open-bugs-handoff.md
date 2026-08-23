@@ -806,6 +806,54 @@ deliberate so a landing body does not silently re-attach.
 > Still open, still red against its bar of 200. No longer blocking on the
 > ecology line.
 
+> ---
+>
+> **SECOND UPDATE 2026-08-23: the "not litter" conclusion above does not
+> survive its own control.** Deleting litter *outright* doubles his range.
+> Paired, same build, one variable, measured on `c6ffba2`:
+>
+> | | travelled | bar |
+> |---|---|---|
+> | as shipped | **98** | 200 |
+> | `shed_to_litter` -> `Cell::EMPTY` (shed leaves vanish) | **195** | 200 |
+>
+> So litter accounts for **97 of the 102-cell shortfall**, not none of it,
+> and the residual after removing it is 5 cells rather than 102.
+>
+> **Both updates are correct and that is the interesting part.** The three
+> interventions above changed litter's *properties* -- it rots faster, it
+> walks down, `insubstantial` lets the gnome through it -- and moved the
+> number by 0. This one removes litter's *existence* and moves it by 97.
+> Whatever litter is doing to him, it is not being reached by any of the
+> property switches aimed at it.
+>
+> **The mechanism is open, and two plausible explanations are already
+> ruled out by measurement:**
+>
+> - *`insubstantial` is unwired.* No: `assets/materials/litter.ron:81`
+>   sets `insubstantial: true`, and `player.rs`'s `footing()` returns
+>   `Footing::Free` for it before the `Powder => Soft` arm, deliberately.
+> - *It is the wade drag.* Unlikely: he reports `wading` in **both** arms,
+>   so whatever the wade path costs him, it is being paid with litter gone
+>   too. `soaked` counts rows whose footing is `Soft`, and litter is not
+>   `Soft`.
+>
+> The `footing()` comment names its own suspects: `Free` opts litter out of
+> two readers "neither of them tested" -- the aim ray and `displace_disc`.
+> That is where to look next, along with `depenetrate`, which runs before
+> movement and takes `wade` as its reach.
+>
+> **Reproduction**, ~60 s per arm: patch `shed_to_litter` in
+> `src/sim/plant.rs` to `world.set(x, y, Cell::EMPTY); return;` behind an
+> env guard, rebuild (materials and species are `include_str!`-compiled, so
+> a rebuild is mandatory), then
+> `ONLY_CASES=wood bash scripts/acceptance.sh` for each arm.
+>
+> Do not quote the 34, the 152, or "the residual is not litter" without
+> re-running: this case has now moved under three separate sessions without
+> anyone re-measuring, which is how the 34 survived into a world that no
+> longer had it.
+
 `scripts/acceptance.sh`'s `wood` case fails on the merged branch:
 
 ```
