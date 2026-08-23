@@ -10,53 +10,102 @@ on:
   pull_request:
     branches: [main]
 
+# **One job per gate, and the split is a bug fix rather than tidying.**
+# These were six steps of a single job, and a step only runs if the one
+# before it succeeded. `cargo test` is the first and the slowest, so any
+# red test marked the other five `skipped` -- not run, not reported, and
+# indistinguishable at a glance from passing.
+#
+# That is not hypothetical. With `root_and_shoot_branching_read_different_
+# slots` red on `main` (open-bugs-handoff.md bug A, a guard the owner keeps
+# deliberately), `ascii` and `acceptance` had not executed in CI at all.
+# Both were failing. `ascii` was failing *undiagnosed* -- see bug H, found
+# only by running the gates locally against a clean `origin/main` worktree.
+# A green tick for a gate that never ran is worse than a red one.
+#
+# The cost is honest: every job builds its own copy, so this trades total
+# compute for wall-clock and for independent reporting. Wall-clock drops
+# from the sum of the gates to the slowest single one (measured locally:
+# 292s release tests, 398s debug tests, 9s clippy, 135s ascii, 239s
+# acceptance -- so roughly 18 minutes becomes roughly 9). If the compute
+# ever matters, a Rust build cache is the lever, not re-merging the jobs.
 jobs:
   test:
+    name: cargo test (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --release --locked
+
+  test-debug:
+    # The release profile compiles `debug_assert!` out, and this codebase
+    # uses debug asserts as real invariant guards (organism/creature index
+    # overflow, `clear_moved` ownership, `tick_burn` on a non-burning
+    # cell, `set_aux` during a burn). Until this step existed, no CI
+    # configuration ever compiled a single one of them — a guard that is
+    # never built protects nothing.
+    name: cargo test (debug, compiles the debug_assert guards)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --locked
+
+  clippy:
+    name: cargo clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy, rustfmt
+          components: clippy
+      - run: cargo clippy --all-targets --release --locked -- -D warnings
 
-      - name: cargo test
-        run: cargo test --release --locked
+  ascii:
+    # examples/ascii.rs is written specifically to need no window or GPU,
+    # so it "works over a remote shell and in CI" (its own module doc) --
+    # this is the same worst-frame-timing scene suite used to judge
+    # performance regressions locally, run headless here as a smoke test.
+    name: cargo run --example ascii
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo run --release --example ascii --locked
 
-      # The release profile compiles `debug_assert!` out, and this codebase
-      # uses debug asserts as real invariant guards (organism/creature index
-      # overflow, `clear_moved` ownership, `tick_burn` on a non-burning
-      # cell, `set_aux` during a burn). Until this step existed, no CI
-      # configuration ever compiled a single one of them — a guard that is
-      # never built protects nothing.
-      - name: cargo test (debug, compiles the debug_assert guards)
-        run: cargo test --locked
+  acceptance:
+    # The structural acceptance cases, run rather than remembered. Each
+    # asserts the *mechanism* as well as the outcome -- a scene that
+    # should collapse has to show the failure criterion firing, not just
+    # that material moved. That distinction is not academic: `capped` was
+    # recorded as passing its acceptance case ("the column still stands")
+    # for two commits while the whole structure was frozen and had never
+    # been evaluated at all. See scripts/acceptance.sh.
+    name: structural acceptance cases
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bash scripts/acceptance.sh
 
-      - name: cargo clippy
-        run: cargo clippy --all-targets --release --locked -- -D warnings
-
-      # examples/ascii.rs is written specifically to need no window or GPU,
-      # so it "works over a remote shell and in CI" (its own module doc) --
-      # this is the same worst-frame-timing scene suite used to judge
-      # performance regressions locally, run headless here as a smoke test.
-      - name: cargo run --example ascii
-        run: cargo run --release --example ascii --locked
-
-      # The structural acceptance cases, run rather than remembered. Each
-      # asserts the *mechanism* as well as the outcome -- a scene that
-      # should collapse has to show the failure criterion firing, not just
-      # that material moved. That distinction is not academic: `capped` was
-      # recorded as passing its acceptance case ("the column still stands")
-      # for two commits while the whole structure was frozen and had never
-      # been evaluated at all. See scripts/acceptance.sh.
-      - name: structural acceptance cases
-        run: bash scripts/acceptance.sh
-
-      # Informational only, not gating: the codebase predates rustfmt.toml
-      # (added alongside this workflow) and has not yet had a full `cargo
-      # fmt` pass run against it, which would be a large, separate change
-      # deserving its own review rather than being bundled into CI setup.
-      # See PLAN.md's issues-backlog entry (#10) for why this is a known,
-      # deliberate gap rather than an oversight.
-      - name: cargo fmt --check (informational)
-        run: cargo fmt --check
+  fmt:
+    # Informational only, not gating: the codebase predates rustfmt.toml
+    # (added alongside this workflow) and has not yet had a full `cargo
+    # fmt` pass run against it, which would be a large, separate change
+    # deserving its own review rather than being bundled into CI setup.
+    # See PLAN.md's issues-backlog entry (#10) for why this is a known,
+    # deliberate gap rather than an oversight.
+    #
+    # Its own job now, which also removes the accident that made it
+    # informational twice over: as the last step of the old single job it
+    # could not run at all unless every gate before it had passed.
+    name: cargo fmt --check (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --check
         continue-on-error: true
