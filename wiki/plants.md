@@ -211,6 +211,16 @@ which it did not before at the tighter `F9` settings — the fire licenses
 the collapse the same way a blow does. So does erasing a trunk with the
 brush. See `structural-collapse.md` for what that setting does.
 
+**How much of the tree comes down depends on `F9`**, and at the tight end
+that is visible rather than academic. Cutting the same tree at each setting:
+at SPREAD and LOCAL the whole crown goes; at TIGHT about half of it does and
+the top stays up, standing on nothing; at NONE nothing comes down at all and
+you are left with a cut trunk holding its whole canopy in the air. That is
+the setting doing exactly what it says — NONE means only what you struck
+ever fails — and it is the same trade the rock pages describe, now visible
+on trees too. If a half-fallen tree reads worse than a slowly-unravelling
+one, the setting is the lever.
+
 **A stump is left, and it stays alive.** The roots and the last row or two
 of trunk are still anchored, so they are still the plant. What they do not
 yet do is regrow — a topped tree sits there indefinitely rather than

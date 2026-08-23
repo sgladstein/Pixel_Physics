@@ -69,7 +69,18 @@ is set far more by how big the blast itself was than by where `F9` is
 pointed. The setting reliably controls **how much** comes down — at the
 tightest settings almost nothing does — but a big charge marks rock a long
 way out at every setting, because the web it wakes is part of the blast
-rather than part of the aftermath.*
+rather than part of the aftermath.
+
+Since 2026-08-23, three more things can now cause a collapse that never
+could: erasing rock with the brush, fire burning through a trunk, and lava
+quenching into fresh crust. At SPREAD you will not notice — nothing was
+being held back there — but at every other setting those three used to do
+nothing at all, so burning through a tree's base left the crown hanging.
+
+Starting the setting at **TIGHT** was tried in the same change and backed
+out: it stops a built room's ceiling coming down when you cut its wall,
+which is the open question at the end of this page arriving as the default.
+**LOCAL** is the setting to try if SPREAD feels too loose.*
 
 Any solid structure needs an unbroken path of connected material leading
 back down to the ground, or out to the edge of the world, to stay up. Cut
@@ -291,7 +302,10 @@ cycled with `F9`, named in the title bar whenever it is not the default:
   should. Nothing is held back.
 - **LOCAL** — consequences stay within a wide room of the wound.
 - **TIGHT** — the wound and its surroundings only. Undermining still brings
-  things down, but a hillside stops unravelling.
+  things down, but a hillside stops unravelling. **Big structures are the
+  catch**: a 200-wide room's ceiling fails as one piece reaching about a
+  hundred cells from where you cut, and TIGHT allows about twenty — so the
+  room simply stays up. Tried as the default and backed out for that.
 - **NONE** — only what you struck is ever destroyed. Nothing collapses
   afterwards, at all.
 

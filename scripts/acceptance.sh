@@ -42,6 +42,29 @@
 # only alongside a measurement taken on the runner itself.
 BUDGET_MS=60
 
+# **These cases run at the shipped `chain_reach`, which is `TIGHT`.**
+#
+# That is deliberate and it has a trap in it. TIGHT only licenses a
+# structural failure near something that reported itself disturbed
+# (`World::record_disturbance`), so a scene that hand-places geometry and
+# asserts *nothing fails* passes on the leash rather than on the load
+# model -- vacuously, and it would stop catching the regression it exists
+# for. Two scenes broke outright when TIGHT landed -- `ligament` reported 0
+# overload failures on the case that exists to show a neck snapping, and
+# `rockdrop` left 600 cells of slab hanging in the air -- and both now
+# record the disturbance their own construction implies.
+#
+# `capped` was checked for the *opposite* failure and does not have it:
+# run with the leash off (`chain_reach=spread`) it still measures 0
+# failures, so the model is what holds that column up, not the policy. It
+# records a disturbance anyway, so the case cannot quietly acquire the
+# dependency later. If a new "must stand" case is added, check it the same
+# way: run it at `chain_reach=spread` and confirm the verdict does not
+# move.
+#
+# `chain_reach=NAME` on a `run` line takes the leash off for a case that
+# genuinely wants the model unlimited. Nothing here needs it today.
+
 set -uo pipefail
 
 FILM="cargo run --release --quiet --example filmstrip --"

@@ -266,13 +266,25 @@ pub struct Tuning {
     /// cave."
     ///
     /// So some volume has to leave, and the only question is how much. At
-    /// 1.0 nothing leaves and you cannot dig; at 0.0 rock simply vanishes
-    /// and destruction stops producing debris, which this project has
-    /// already rejected once on the same grounds. The default keeps
-    /// enough to pile at his feet and walk over, and the removed fraction
-    /// is the natural hook if mined stone ever becomes something you
-    /// carry — that is where it would go. Cycle the named presets with
-    /// `F2`; see `SPOIL_MODES`.
+    /// 1.0 nothing leaves and you cannot dig; at 0.0 rock simply goes.
+    ///
+    /// **0.10 is the default, set by playtest** — shown `CLEAN`, `TRACE`
+    /// and `DUST` as animations of the same 42 bites, the owner picked
+    /// `TRACE`. (`CLEAN` was the answer to the previous, coarser card and
+    /// shipped briefly; the finer comparison overturned it.) An earlier
+    /// version of this comment argued the
+    /// opposite, that vanishing rock is the no-debris failure
+    /// `CLAUDE.md` records, and 0.35 shipped on that reasoning. It was
+    /// the wrong reading of the rule: what that rule forbids is
+    /// *destruction* that produces nothing, and `dig_yield` is not
+    /// destruction's number — it is only the **mining verb's**
+    /// (`rigid::mine`). A collapse still fractures, still throws its
+    /// graded debris, and never consults this. What 0.35 actually bought
+    /// was a tunnel that silted up behind the digger, which is a
+    /// different thing from a collapse feeling like one. The retained
+    /// fraction is still the natural hook if mined stone ever becomes
+    /// something you carry — `F2` to `DUST` or `SPOIL` is where that
+    /// starts. See `SPOIL_MODES`.
     pub dig_yield: f32,
 }
 
@@ -308,7 +320,8 @@ impl Default for Tuning {
             mantle_reach: 4,
             climb_speed: 0.9,
             surface_hop: 0.75,
-            dig_yield: 0.35,
+            // Mirrors SPOIL_MODES[0] (TRACE), chosen by playtest.
+            dig_yield: 0.10,
         }
     }
 }
@@ -323,18 +336,37 @@ impl Default for Tuning {
 /// opposite ends of this number, and which is more fun is not something
 /// argument settles -- it is the grain-mode situation again.
 ///
-/// Ordered from the built default outward, so cycling is a tour from
-/// "some of it stays" to each extreme.
+/// Ordered from the built default outward, and the tour is deliberately
+/// not monotone: `TRACE` first, then down to `CLEAN`, then up through
+/// `DUST`, `SPOIL` and `HOARD`. One press either side of the default
+/// reaches both of the things a player is most likely to want next -- none
+/// at all, or noticeably more -- and cycling back is always possible.
+///
+/// **`TRACE` is first on a playtest verdict, and it is the second answer to
+/// the same question.** `CLEAN` was picked first and shipped; shown CLEAN,
+/// TRACE and DUST side by side as animations, the answer was TRACE. Both
+/// verdicts are in `.git/pixel-physics-review`; the second supersedes the
+/// first and neither was argued for here.
 pub struct SpoilMode {
     pub name: &'static str,
     pub note: &'static str,
     pub dig_yield: f32,
 }
 
-pub const SPOIL_MODES: [SpoilMode; 4] = [
+pub const SPOIL_MODES: [SpoilMode; 5] = [
+    // **The gap between 0.0 and 0.35 was too wide, and the owner said so.**
+    // Judging CLEAN against DUST, the verdict was "most of the options
+    // produce too much dust... if there was a 10% option that would be
+    // interesting, but 1/3 is even too much". The list stepped 0 -> 35 ->
+    // 55 -> 100, so there was nothing between "no rubble at all" and a
+    // third -- which measured on `scene=tunnel` is enough to wade in from
+    // the nineteenth bite and be buried by the thirtieth. A tenth is where
+    // "you can see where you dug" lives without the bore filling in behind
+    // you, and shown all three it is what was chosen.
+    SpoilMode { name: "TRACE", note: "a tenth stays - enough to see where you dug", dig_yield: 0.10 },
+    SpoilMode { name: "CLEAN", note: "rock simply goes; no rubble at all", dig_yield: 0.0 },
     SpoilMode { name: "DUST", note: "a third stays as rubble, the rest blows away", dig_yield: 0.35 },
     SpoilMode { name: "SPOIL", note: "half stays - tunnels silt up behind you", dig_yield: 0.55 },
-    SpoilMode { name: "CLEAN", note: "rock simply goes; no rubble at all", dig_yield: 0.0 },
     SpoilMode { name: "HOARD", note: "nothing is lost - you cannot dig far", dig_yield: 1.0 },
 ];
 
@@ -2252,7 +2284,15 @@ mod tests {
     fn a_bite_opens_a_bore_and_removes_only_what_it_broke() {
         let mut world = world_with_cliff();
         world.player = Some(Player::at(66, 84));
-        let tuning = Tuning::default();
+        // **Pinned to `DUST`, not the default.** Both halves of this test
+        // need spoil to exist: `displaced > 0` is about the shove, and the
+        // `1 - dig_yield` ratio needs a denominator that is not the whole
+        // bite. The default is `CLEAN` (0.0) since the playtest, at which
+        // there is nothing left to shove and the shove assertion fails for
+        // a reason that has nothing to do with displacement. The default
+        // path has its own case below.
+        let dust = SPOIL_MODES.iter().find(|m| m.name == "DUST").expect("a DUST mode must exist");
+        let tuning = Tuning { dig_yield: dust.dig_yield, ..Tuning::default() };
         let before = occupied_cells(&world);
         let bite_at = bite_point(&world, world.player.as_ref().unwrap(), (76, 78), &tuning);
         let broken = solid_cells_in_disc(&world, bite_at.0, bite_at.1, tuning.dig_radius as i32);
@@ -2273,6 +2313,40 @@ mod tests {
         assert!(
             lost.abs_diff(expected) <= 2,
             "expected to lose about {expected} of {broken} broken cells, lost {lost}"
+        );
+    }
+
+    /// The shipped default, and the end of `dig_yield` that had no case:
+    /// at `CLEAN` a bite opens a bore and leaves nothing behind in it.
+    ///
+    /// Paired with `at_full_yield_nothing_leaves_the_world` deliberately --
+    /// between them they pin both ends of the range, and either alone is
+    /// passable by a `mine` that ignores the number entirely.
+    #[test]
+    fn at_clean_a_bite_leaves_no_spoil_in_its_bore() {
+        let mut world = world_with_cliff();
+        world.player = Some(Player::at(66, 84));
+        // **Pinned to CLEAN by name, not to the default.** This was
+        // `at_the_default_yield_...` and asserted `dig_yield == 0.0`, which
+        // was true for one playtest and stopped being true at the next:
+        // the default is `TRACE` (0.10) now. What the case is *for* is the
+        // zero end of the range, so it says so, and it keeps testing that
+        // end wherever the default sits. `CLAUDE.md`: assert the property,
+        // not an instant that happened to coincide with it.
+        let clean = SPOIL_MODES.iter().find(|m| m.name == "CLEAN").expect("a CLEAN mode must exist");
+        let tuning = Tuning { dig_yield: clean.dig_yield, ..Tuning::default() };
+        assert_eq!(tuning.dig_yield, 0.0, "CLEAN is the zero end of the range");
+        let before = occupied_cells(&world);
+        dig(&mut world, (76, 78), &tuning).expect("a fresh gnome digs immediately");
+        let after = occupied_cells(&world);
+        assert!(before > after, "a bite at CLEAN must remove volume");
+        // The bore is open *and* clear: not one cell of the disc it cut is
+        // occupied by anything. At DUST this row holds rubble.
+        let bore: Vec<Cell> = (-2..=2).map(|dy| world.get(71, 84 + dy)).collect();
+        assert!(
+            bore.iter().all(|c| c.material == material::EMPTY),
+            "at CLEAN the bore should be empty through its middle, found {:?}",
+            bore.iter().map(|c| world.materials.get(c.material).name.clone()).collect::<Vec<_>>()
         );
     }
 

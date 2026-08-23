@@ -1701,7 +1701,7 @@ impl App {
     /// thing it drew off-screen was the line telling you which key closes
     /// it. `the_help_page_fits_inside_its_own_panel` now fails if that
     /// recurs.
-    fn help_columns() -> ([HelpRow; 30], [HelpRow; 26]) {
+    fn help_columns() -> ([HelpRow; 30], [HelpRow; 27]) {
         use HelpRow::{Blank, Head, Key, Note};
         (
             [
@@ -1762,6 +1762,7 @@ impl App {
                 Key(",", "TREES IN FRONT / BEHIND"),
                 Key("; F10", "DEPTH LIGHT"),
                 Key("0 F11", "REVEAL CAVES"),
+                Key("F12", "SKY LIGHT"),
                 Key("' QUOTE", "GLOW SHAPE"),
             ],
         )
@@ -2150,7 +2151,7 @@ impl App {
     /// enough to verify frame rate and sleeping at a glance.
     pub fn status(&self, fps: f32) -> String {
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -2198,6 +2199,16 @@ impl App {
                 String::new()
             } else {
                 format!(" — glow {}", self.renderer.glow_shape.label())
+            },
+            // Sky light (`F12`), same rule as the rest: silent on the
+            // default, named the moment someone switches away from it. Since
+            // the verdicts made propagated /4 the default, the label now
+            // appears when someone has gone *back* to the old depth fade to
+            // compare — which is exactly when a screenshot needs to say so.
+            if self.renderer.sky_light == render::SkyLight::default() {
+                String::new()
+            } else {
+                format!(" — sky light {}", self.renderer.sky_light.label())
             },
             // The void reveal (`F11`) is a debug X-ray, so a screenshot with
             // it on must say so — magenta caves in a shared image with no
@@ -2700,21 +2711,34 @@ mod tests {
         // Inside `dig_reach` (30 from his centre at x=30) and beyond the
         // trunk at x=40, so the pick has to see *through* living tissue to
         // reach it -- which is the other half of the same fix.
-        let rubble = id(&app, "rubble");
         for y in 55..70 {
             for x in 50..58 {
                 app.world.set(x, y, Cell::new(stone, 0).with_attached(true));
             }
         }
-        let count_rubble = |app: &App| (55..70).map(|y| (45..65).filter(|&x| app.world.get(x, y).material == rubble).count()).sum::<usize>();
-        let rubble_before = count_rubble(&app);
+        // **Counts the stone that went, not the rubble that arrived**, and
+        // the difference is the whole point of the assertion. This read
+        // `rubble_after > rubble_before`, which is evidence of the pick
+        // reaching the rock only while the spoil setting happens to leave
+        // any: `dig_yield` decides what fraction of what a bite breaks
+        // stays behind, `thin_to_spoil` rounds that to whole cells, and at
+        // the shipped `TRACE` (0.10) a bite this size keeps zero. The test
+        // then failed reporting "0 -> 0" on a click that had cut the rock
+        // perfectly well.
+        //
+        // Stone leaving is the direct evidence and is independent of the
+        // setting -- whether the removed rock became rubble or dust, it is
+        // no longer stone. `CLAUDE.md`: assert the property the test is
+        // named for, not an artifact that happens to correlate with it.
+        let count_stone = |app: &App| (55..70).map(|y| (45..65).filter(|&x| app.world.get(x, y).material == stone).count()).sum::<usize>();
+        let stone_before = count_stone(&app);
         // Let the bite cooldown run down the way a player would.
         for _ in 0..12 {
             app.update();
         }
         app.paint_stroke((55, 62), (55, 62), false);
-        let rubble_after = count_rubble(&app);
-        assert!(rubble_after > rubble_before, "a click past the tree should have cut rock: {rubble_before} -> {rubble_after}");
+        let stone_after = count_stone(&app);
+        assert!(stone_after < stone_before, "a click past the tree should have cut rock: {stone_before} -> {stone_after} stone");
     }
 
     /// The help panel is the only place several keys are documented, and
@@ -3409,7 +3433,23 @@ mod tests {
             next_frame: app.world.frame + 5,
         });
 
-        app.cycle_chain_mode(); // SPREAD -> LOCAL: a tighten
+        // **Cycle to SPREAD first, then tighten off it.** This read
+        // `app.cycle_chain_mode(); // SPREAD -> LOCAL: a tighten`, which
+        // depended on SPREAD being the mode a fresh `App` starts in. It is
+        // `TIGHT` now, and one cycle off TIGHT is a *loosen* -- which
+        // deliberately does not relicense, so the case failed while
+        // testing nothing about tightening. Driven by name rather than by
+        // index so it survives the list being reordered again.
+        while crate::sim::structural::CHAIN_MODES[app.chain_mode].name != "SPREAD" {
+            app.cycle_chain_mode();
+        }
+        let before = app.world.chain_reach;
+        app.cycle_chain_mode();
+        assert!(
+            app.world.chain_reach < before,
+            "test setup: cycling off SPREAD must be a tighten, got {} after {before}",
+            app.world.chain_reach
+        );
 
         assert!(
             app.world.staged_fractures.is_empty(),
