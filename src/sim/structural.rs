@@ -813,6 +813,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         // the other -- this is the damage, so this is where it is measured.
         record_damage_reach_over(world, &region);
         if !super::rigid::fracture_failing_region(world, &region, failure.at) {
+            // Declined for being under `MIN_FRACTURE_CELLS`, so this region
+            // becomes grit rather than pieces. Counted, because it is the
+            // only place the dust outcome is decided and nothing measured
+            // it -- see `FailureCounts::crumbled`.
+            world.structural_failures.crumbled += 1;
+            world.structural_failures.crumbled_cells += region.len() as u32;
             // The region was under `MIN_FRACTURE_CELLS`, so nothing here
             // will ever fly -- this whole branch is grit by construction,
             // and it is the branch that makes `promoted_cells: 0` next to
@@ -2883,7 +2889,18 @@ pub fn advance_staged_fractures(world: &mut World) {
     // the thing the containment number has to be able to see.
     record_damage_reach_over(world, &slice);
     if !super::rigid::fracture_failing_region(world, &slice, staged.at) {
-        // Same grit-by-construction branch as `tick`'s, one tick later.
+        // Same grit-by-construction branch as `tick`'s, one tick later --
+        // and it has to book the same counter, which it did not when
+        // `FailureCounts::crumbled` arrived. That counter was written
+        // against a build where `tick` held the *only* decline-to-grit
+        // path; staging added a second one and the count was left behind,
+        // so it under-read on precisely the large collapses it exists to
+        // describe. Measured on `scene=room wall=8 dig=1`: 7,284 of 8,045
+        // failed cells arrive here rather than through `tick`, and the
+        // grit line reported 8. `slice`, not `region` -- the remainder is
+        // re-judged on a later tick and would otherwise be counted twice.
+        world.structural_failures.crumbled += 1;
+        world.structural_failures.crumbled_cells += slice.len() as u32;
         let mut grit = 0usize;
         for &(fx, fy) in &slice {
             grit += usize::from(break_free(world, fx, fy));

@@ -2654,6 +2654,51 @@ paired result (`blast=300,45,20,180,60`, rolling seed 1, against the
 control's 6 / 100). Any change here has to re-run that pairing and be judged
 by eye, which is a piece of work rather than a merge repair.
 
+### L. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed — **OPEN, pre-existing on `main`, 2026-08-23**
+
+`CLAUDE.md` lists same-build determinism as **required**. It does not hold on
+the scene the seed sweep is built out of.
+
+**Reproduction.** One release binary, five identical invocations:
+
+```
+./target/release/examples/filmstrip.exe scene=worldcrack preset=canyon seed=3 \
+    strike=12 start=2 every=900 count=5 zoom=1 out=target/filmstrips/d.png
+```
+
+rock destroyed: **837, 1077, 1083, 1083, 1283** — a 53% spread. An independent
+audit got 993–1336 over nine runs, and `RAYON_NUM_THREADS=1` does **not**
+remove it, so it is not rayon work-stealing.
+
+**Pre-existing, ruled out by measurement.** It is not the load-sharing change:
+a clean `origin/main` binary containing none of that code gives rock destroyed
+**37, 37, 81** on three identical runs of the same scene. Sharing amplifies the
+absolute spread (it fails more material, so the chaos has more to work with)
+but does not cause it.
+
+**Not universal.** `terraced 1` returned −1042 on six independent runs. The
+signature is stable on most seeds and unstable on a few — which is the worst
+possible shape, because the unstable ones are the ones carrying the signal, and
+a single-sample grid cannot tell an unstable seed from a real regression.
+
+**Leads, not verified.** Two candidates for a per-process perturbation that
+chaos then amplifies: `structural.rs`'s single per-frame `world.load_budget` is
+drained across all sites, so any ordering change moves which checks come back
+`Deferred`; and `world.rs` builds `body_index` by iterating a
+`std::collections::HashSet<ChunkCoord>`, whose iteration order `RandomState`
+re-seeds **per process**, with `find_body_at` returning the first match in that
+list. Either would give exactly this stable-on-most-seeds picture. Neither has
+been confirmed.
+
+**Why it matters beyond one change.** `seedsweep.sh` is the instrument
+`CLAUDE.md` prescribes for every change to a model over procedural content, and
+the file's own guidance sends cascade comparisons to it. On the seeds that
+actually move, it is currently reading noise at the same magnitude as signal. A
+repeat count per cell (median of N) would make it usable again without fixing
+the root cause, and is much cheaper than finding it.
+
+---
+
 ### K. `try_step`'s rotation-fit probe compares every cell against itself — **OPEN, pre-existing in both parents, 2026-08-23**
 
 Also from the merge review. In `rigid.rs` around the rotation fit, the probe

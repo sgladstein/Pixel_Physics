@@ -341,6 +341,111 @@ pub fn support_parent(world: &World, x: i32, y: i32) -> Option<(i32, i32)> {
     best.map(|(pos, _)| pos)
 }
 
+/// How far out a member is allowed to be before this stops looking for its
+/// ends, in cells.
+///
+/// **Deliberately not `MAX_SECTION`, and that distinction is the whole
+/// point of this constant existing.** `MAX_SECTION` bounds the *work* of a
+/// section walk -- how many cells the sharing and the capacity term will
+/// look at. This bounds a *question*: is the thing this cell belongs to a
+/// discrete member with two free faces, or part of something that just
+/// keeps going?
+///
+/// They were the same number for one commit and it was a real bug, caught
+/// by review rather than by any test here. `scene=capped` is a 60-cell-wide
+/// column under an overhanging cap -- a built structure with air on both
+/// sides, and the exact "beefy block with holes in it" shape the owner
+/// reported this whole defect against. At `MAX_SECTION` it measured
+/// **147 columns, 0 members, 0 moved**: the rule could not fire on it,
+/// because 60 is wider than a 40-cell window can see across. That is
+/// `CLAUDE.md`'s *"a size cap must bound work, never gate whether something
+/// happens"*, arriving for the third time in this file's history.
+///
+/// Set from measurement with headroom: the widest member in any acceptance
+/// scene is `capped`'s 60, and generated terrain is hundreds of cells wide,
+/// so anything in between separates the two cases. 96 sits above the first
+/// with room and far below the second. `ShareCounts::too_wide` counts the
+/// runs that hit it, so if it ever starts deciding outcomes instead of
+/// bounding a search, that is visible rather than silent.
+const MAX_MEMBER_WIDTH: i32 = 96;
+
+/// Whether `(x, y)` belongs to a **member** -- something that fails as one
+/// piece -- rather than to a slab that simply keeps going.
+///
+/// A member ends in air at both hands: a wall, a pillar, a door jamb. A
+/// massif does not, and there is nothing for the cells of one to
+/// redistribute between.
+///
+/// Walked outward from the cell itself rather than read off the ends of
+/// `section_cells`, so the answer does not depend on how far the section
+/// walk happened to get. Sharing still only reaches `MAX_SECTION` cells --
+/// that is the work bound and it stays -- but *whether to share at all* is
+/// now its own question with its own constant. See `MAX_MEMBER_WIDTH`.
+///
+/// # Why this test exists
+///
+/// The first version of the section rule had no such test, and it fed
+/// `Reports/next-session-handoff.md` 1c -- the big strike's *lateral*
+/// unzip, where a shallow surface sheet fails sideways along itself.
+/// Coupling every window of that sheet made each cell inherit the worst
+/// load anywhere near it, which is the unzip's own mechanism handed a
+/// shortcut. Measured on `seedsweep.sh strike=12` run to rest: rock
+/// destroyed p90 2,227 -> 4,465, with single runs reporting 49,265 overload
+/// failures. With the test the sweep comes back below baseline.
+fn is_member(world: &World, section: &[(i32, i32)], vertical_path: bool) -> (bool, bool) {
+    // **The section walk has usually answered this already, for free.**
+    // `section_cells` grows outward until it meets non-body material *or*
+    // hits `MAX_SECTION`, so a run that came back short can only have
+    // stopped on air, at both hands. Every wall, pillar and jamb anyone
+    // builds lands here and pays nothing -- which matters, because the
+    // alternative is a walk on every evaluated cell of every frame and that
+    // measured +30% on two scenes at `repeat=5`.
+    if section.len() < MAX_SECTION as usize {
+        return (true, false);
+    }
+    // Inconclusive: the walk stopped because it ran out of budget, not
+    // because it found an edge. Now go and look, from where it left off.
+    let (sx, sy) = if vertical_path { (1, 0) } else { (0, 1) };
+    let (Some(lo_x), Some(hi_x), Some(lo_y), Some(hi_y)) = (
+        section.iter().map(|c| c.0).min(),
+        section.iter().map(|c| c.0).max(),
+        section.iter().map(|c| c.1).min(),
+        section.iter().map(|c| c.1).max(),
+    ) else {
+        return (false, false);
+    };
+    let mut width = section.len() as i32;
+    for (dir, from) in [(-1, (lo_x, lo_y)), (1, (hi_x, hi_y))] {
+        let mut step = 1;
+        loop {
+            if width > MAX_MEMBER_WIDTH {
+                return (false, true); // no end within reach: not a member, and the search gave up
+            }
+            let (px, py) = (from.0 + dir * sx * step, from.1 + dir * sy * step);
+            if !is_body_material(world, world.get(px, py).material) {
+                break; // this hand ends in air
+            }
+            width += 1;
+            step += 1;
+        }
+    }
+    (true, false)
+}
+
+/// Whether `(x, y)` passes its load straight down -- its support is the
+/// cell directly below or directly above it, or it stands on the ground.
+///
+/// The predicate `section_cells` runs to choose an axis, named and reused
+/// so that "is this cell a column" is asked the same way in both places.
+/// Whichever way it is asked, it has to agree with `section_cells`, or the
+/// run and the flow crossing it would be describing different objects.
+fn flows_down(world: &World, x: i32, y: i32) -> bool {
+    match support_parent(world, x, y) {
+        Some((px, _)) => px == x,
+        None => rests_on_ground(world, x, y),
+    }
+}
+
 /// Whether `(x, y)` borders literal bedrock (or the world edge, which
 /// `Cell::OUT_OF_BOUNDS` reports as bedrock) — held from outside the model
 /// entirely, and the **only** thing that exempts a cell from evaluation.
@@ -643,14 +748,74 @@ pub type AnchorMemo = HashMap<(i32, i32), bool>;
 pub struct Cache {
     pub subtrees: SubtreeMemo,
     pub anchors: AnchorMemo,
+    pub cuts: CutMemo,
+    pub shares: ShareCounts,
 }
 
 impl Cache {
     pub fn clear(&mut self) {
         self.subtrees.clear();
         self.anchors.clear();
+        self.cuts.clear();
+        // `shares` is deliberately **not** cleared. The memos describe one
+        // frame and are void the moment the grid changes; the counters
+        // describe the whole run and answer "did this ever fire", which is
+        // a question a per-frame number cannot.
     }
 }
+
+/// How often the section rule actually did something, cumulative over a run.
+///
+/// # Why this exists, and why the third field is the only one that answers
+/// the question
+///
+/// `CLAUDE.md`: *"Did it fire at all" needs a counter, not a picture* -- and
+/// an independent review of this rule made exactly the catch that paragraph
+/// is about. The evidence offered for the rule being safe on terrain was
+/// `dig=6` bit-identical and `terrain` plus all five `crack` cases identical
+/// to the cell. That is equally the signature of a rule that **never
+/// executed**, and `is_member` is capped by `MAX_SECTION`, so a massif
+/// hundreds of cells wide can never reach air within the window and can
+/// never be a member.
+///
+/// So the counters are a funnel, and each step is a different claim:
+///
+/// - `columns` -- cells whose load path is vertical. The population the
+///   rule could ever apply to.
+/// - `members` -- of those, cells in a run with air at both ends.
+/// - `moved` -- of those, cells whose load **actually changed** as a
+///   result. This is the one to read. Entering the branch is not firing:
+///   a cut whose worst cell is the one being evaluated comes out with the
+///   number it already had, and counting that as a hit would reproduce the
+///   vacuous-pass shape this counter exists to detect.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct ShareCounts {
+    pub columns: u64,
+    pub members: u64,
+    pub moved: u64,
+    /// Runs that hit `MAX_MEMBER_WIDTH` without finding air at both ends.
+    /// Terrain, mostly, and legitimately so -- but if this ever climbs on a
+    /// *built* scene then that constant has stopped bounding a search and
+    /// started deciding outcomes, which is the bug it was introduced to fix.
+    pub too_wide: u64,
+}
+
+/// The worst subtree crossing one horizontal cut, keyed by the cut itself.
+///
+/// Every cell of a cut computes the same answer -- that is the entire point
+/// of judging the section rather than the cell -- so a seventeen-deep wall
+/// was walking seventeen cells seventeen times. Measured before this went
+/// in: `scene=room wall=8 dig=1` at **55.89 ms** a frame against 27.71 with
+/// the rule off, and `scene=worldcrack strike=12` at 26.64 against 14.54.
+/// Roughly a doubling on exactly the scenes the model exists for, which
+/// `CLAUDE.md` calls a hard constraint rather than a tiebreaker.
+///
+/// Keyed on `(min_x, max_x, y)` and not on the starting cell, because the
+/// run is what decides the answer. It has to be the *span* rather than one
+/// end: `section_cells` grows outward from wherever it was asked and stops
+/// at `MAX_SECTION`, so two cells far apart in a long run see different
+/// forty-cell windows and genuinely must not share an entry.
+pub type CutMemo = HashMap<(i32, i32, i32), Subtree>;
 
 /// How many neighbours are genuinely holding `(x, y)` up: those strictly
 /// closer to an anchor, across an uncracked edge.
@@ -1244,14 +1409,26 @@ const MAX_COVER_PROBE: u32 = 8;
 const MAX_OPENING_PROBE: u32 = 16;
 
 pub fn capacity(world: &World, x: i32, y: i32) -> i64 {
+    let parent = support_parent(world, x, y);
+    let section = section_cells(world, x, y, parent);
+    capacity_within(world, x, y, parent, &section)
+}
+
+/// `capacity`, reusing a parent and section the caller has already walked.
+///
+/// Not an optimisation for its own sake: `evaluate_within` needs both to
+/// decide which object is on trial, and walking a forty-cell run twice per
+/// evaluated cell is a `World::get` per cell per frame in the hottest loop
+/// this module has. Measured on `scene=worldcrack strike=12`, splitting
+/// this out took the frame back from 21.85 ms to 14.44 against a 12.96 ms
+/// baseline.
+fn capacity_within(world: &World, x: i32, y: i32, parent: Option<(i32, i32)>, section_cells: &[(i32, i32)]) -> i64 {
     let cell = world.get(x, y);
     let m = world.materials.get(cell.material);
     if m.max_unsupported_span == u16::MAX {
         return i64::MAX; // this material does not participate in the structural system at all
     }
     let base = (m.max_unsupported_span as i64).pow(2) / 2;
-    let parent = support_parent(world, x, y);
-    let section_cells = section_cells(world, x, y, parent);
     let section = section_cells.len() as i64;
     // Attachment buys *capacity*, never immunity. Anchoring on it made an
     // undercut shelf unfallable however much was dug from beneath it --
@@ -1466,34 +1643,182 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     }
 
     let supported = is_supported(world, x, y, &mut cache.anchors, budget);
-    let (mass_fp, moment_fp, truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    let parent = support_parent(world, x, y);
+    // The same predicate `section_cells` runs, hoisted because three things
+    // below need to know it and it decides which *object* is on trial.
+    let vertical_path = flows_down(world, x, y);
+    let section = section_cells(world, x, y, parent);
+    let (mut mass_fp, mut moment_fp, mut truncated) = subtree_sum(world, x, y, &mut cache.subtrees, budget);
+    // **On a column, the thing under trial is the section, not the cell --
+    // and until this line the demand was per cell while the capacity was
+    // per section.** That mismatch is the one-pixel red line the owner
+    // reported three times, and the note below has said so since it was
+    // found. Measured on `scene=room wall=8 dig=0`, straight across one
+    // 17-cell wall at y=200:
+    //
+    // ```
+    // (132,200)  mass  157   the outer face
+    // (136..144) not evaluated -- buried, so `is_structurally_interesting`
+    //                            never asks
+    // (148,200)  mass 3058   the inner face
+    // ```
+    //
+    // Nineteen to one, and thirteen of the seventeen cells hold no opinion
+    // at all. Every one of them was then compared against `base x 17^2` --
+    // the bending capacity of the *whole* wall. So the inner face was
+    // judged roughly right by accident (it happened to carry nearly
+    // everything), the outer face was judged free, and the room stood
+    // because of the accident rather than because of the model. Cut the
+    // inner face and the building goes; cut anywhere else in the same wall
+    // and nothing happens, which is exactly what was reported.
+    //
+    // `section_cells` on a vertical path is a horizontal run: a **cut**
+    // across the member. So every cell of the cut is judged at the cut's
+    // worst, which is only saying in the criterion what `failing_region`
+    // already says about the outcome three screens down -- *the section
+    // fails, not the cell*. A wall does not part one lamina at a time, so
+    // no lamina of it gets to be judged as though the rest were not there.
+    //
+    // # Why the worst and not the sum
+    //
+    // Summing is the first thing to reach for -- the flow through a cut is
+    // the sum of what crosses it, and `subtree_sum` has already divided
+    // every hand-off by `support_count` so the shares do add up without
+    // double-counting. It was built, measured and withdrawn, and the
+    // measurement is worth keeping because it is not a tuning failure.
+    //
+    // A sum changes what a thick member is *worth*, not just how the load
+    // inside it is arranged. Demand `N x D/2` against capacity `base x D^2`
+    // makes a column's allowable load `2 x base x D` -- linear in its
+    // width, which is the honest answer for something in compression, and
+    // the model has been quadratic in it since it was written. Every
+    // constant in the file is calibrated against the quadratic. Measured on
+    // the acceptance suite: `scene=worked` went from 7 overload failures to
+    // **918** and lost 1,351 rock against 21, and `caveshallow` went 214 to
+    // 2,260. Not because the arrangement was wrong but because a
+    // seventeen-deep wall stopped being seventeen times stronger than the
+    // arithmetic elsewhere assumes.
+    //
+    // Restoring that would mean lifting `base`, and that is on the
+    // do-not-retry list for a reason of its own: it takes `scene=undercut`
+    // to zero spalling. So the quadratic is a real and separate defect,
+    // recorded in the handoff, and **not** something to smuggle in behind a
+    // distribution fix. The worst-of-the-cut is a pure redistribution: the
+    // aggregate strength of every structure in the world is exactly what it
+    // was, and only *where* the model is willing to fail has changed.
+    //
+    // # Tried and withdrawn: filtering the cut to cells that flow downward
+    //
+    // A horizontal run is a genuine cut only where the flow crossing it is
+    // vertical, so an earlier version skipped any cell of the run whose own
+    // load travels sideways. On the **summing** version that was
+    // load-bearing and obvious: without it a run reaching out of a wall and
+    // into a roof counted the same cantilever once per cell and reported
+    // `mass 62,391` on a room built from about 14,000 cells. A number
+    // bigger than the world it came from needs no argument.
+    //
+    // Under a max it earns nothing. Taking a maximum cannot double-count,
+    // so no hand-built scene distinguishes it -- stated in the tests, which
+    // could not be made to fail for its removal -- and on the seed sweep it
+    // is worse: `seedsweep.sh strike=12` run to rest, 24 runs, filter on
+    // against off, **rock destroyed max 7,065 against 4,704** and cells
+    // lost max 2,525 against 1,538, for about 45% of the frame on
+    // `scene=worldcrack strike=12` (21.76 ms against 15.06). It was kept
+    // for one earlier sweep that said the opposite, taken before
+    // `MAX_MEMBER_WIDTH` existed and therefore over a different population
+    // of members. Reinstating it needs a sweep that separates it, not the
+    // argument from physics, which is sound and still loses.
+    //
+    // `vertical_path` below remains, and is an **early-out rather than a
+    // correctness gate**: `section_cells` returns a vertical run for a
+    // sideways-supported cell, so a shelf would be asking an unrelated
+    // question. Cheap, and it keeps the rule off every shelf cell in the
+    // world before any walking happens.
+    let member = vertical_path && world.section_share && {
+        cache.shares.columns += 1;
+        let (member, too_wide) = is_member(world, &section, vertical_path);
+        cache.shares.too_wide += u64::from(too_wide);
+        member
+    };
+    if member {
+        cache.shares.members += 1;
+        let lo = section.iter().map(|c| c.0).min().unwrap_or(x);
+        let hi = section.iter().map(|c| c.0).max().unwrap_or(x);
+        let worst = match cache.cuts.get(&(lo, hi, y)) {
+            Some(&known) => known,
+            None => {
+                // Seeded from this cell, so its own subtree is already in
+                // the running -- which is why it is skipped inside the loop.
+                let mut worst = (mass_fp, moment_fp, truncated);
+                for &(sx, sy) in &section {
+                    if (sx, sy) == (x, y) {
+                        continue;
+                    }
+                    let (cm, cmo, ct) = subtree_sum(world, sx, sy, &mut cache.subtrees, budget);
+                    // The whole `(mass, moment)` pair moves together, never
+                    // the larger mass with this cell's own moment: they
+                    // describe one subtree and mixing two of them describes
+                    // nothing. `truncated` is the exception and is OR-ed,
+                    // because a truncated share anywhere in the cut
+                    // understates the cut.
+                    worst.2 |= ct;
+                    // **OPEN DEFECT: this selects on mass, and the
+                    // criterion downstream is torque.** `torque` below is
+                    // `|moment - x*mass|`, so the largest-mass subtree of a
+                    // cut is not necessarily the one that loads this cell
+                    // hardest: a heavier neighbour whose centroid sits
+                    // nearly overhead has a smaller lever arm than a
+                    // lighter one reaching out sideways. When that
+                    // neighbour wins here, the cell is charged *less* than
+                    // its own subtree would have charged it -- the exact
+                    // opposite of "no lamina judged as though the rest were
+                    // not there", which is the whole argument for this
+                    // block.
+                    //
+                    // Found by review of the port onto `main`, and made
+                    // more reachable by it: `cc048c4`'s powder surcharge
+                    // enters at the node's own x (see `powder_surcharge`),
+                    // adding mass at roughly zero eccentricity, which is
+                    // precisely the input that wins on mass while lowering
+                    // torque. No test covers it -- every section-share test
+                    // is pure stone and every surcharge test is built on a
+                    // horizontal path, where this block is gated off.
+                    //
+                    // Not fixed here, deliberately. The obvious repair --
+                    // floor the shared torque at the cell's own, so sharing
+                    // can never subtract -- is a change to a model over
+                    // procedural content, and `CLAUDE.md` requires the seed
+                    // sweep before one of those, not after. Selecting on
+                    // torque directly is not a drop-in either: torque
+                    // depends on `x` and this memo is keyed on the cut
+                    // `(lo, hi, y)` and shared by every cell in it.
+                    if cm > worst.0 {
+                        (worst.0, worst.1) = (cm, cmo);
+                    }
+                }
+                cache.cuts.insert((lo, hi, y), worst);
+                worst
+            }
+        };
+        if worst.0 != mass_fp {
+            cache.shares.moved += 1;
+        }
+        (mass_fp, moment_fp, truncated) = worst;
+    }
     let mass = (mass_fp / LOAD_SCALE) as u32;
     let moment = moment_fp / LOAD_SCALE;
-    // **Load concentrates through a single path, and that is the open
-    // defect this model has left.** Reported from play: a beefy block with
-    // holes in it broke immediately while a thin arch beside it stood, and
-    // the stress view showed a **one-pixel red line** through an otherwise
-    // green structure. The line is not a display artifact -- it is the
-    // whole building's weight routed through one cell.
-    //
-    // The cause is that the support forest is a shortest-path *tree*: where
-    // several parallel routes exist it picks exactly one, so material above
-    // a hole is carried entirely by whichever side the `NEIGHBOURS_4`
-    // tie-break chose, however thick the other side is.
-    //
-    // **Dividing the moment by the section was tried here and reverted.**
-    // It fixed the block and broke `scene=undercut`, and the reason is
-    // worth keeping: peak bending stress in a section of depth D is M/D²,
-    // which this model already had right (capacity carries the D², torque
+    // **Dividing the moment by the section was tried here and reverted**,
+    // and it is still the wrong answer to the concentration the block
+    // above fixes. Peak bending stress in a section of depth D is M/D²,
+    // which this model already has right (capacity carries the D², torque
     // carries the M). Dividing again makes it M/D³ -- over-strong, so an
     // undercut shelf stops spalling. Worse, it double-counts: in a shelf
     // the rows *already* chain independently to the cliff, so that sharing
     // is present in the tree and must not be applied twice.
     //
-    // The real fix is load sharing between genuinely parallel supports,
-    // which is a flow problem rather than a tree one, and is what
-    // `Reports/destruction-plan.md`'s E1 (push damage outward from the
-    // break) is shaped to address. Recorded rather than bodged.
+    // The block above shares nothing on a shelf for exactly that reason:
+    // it applies only where the load path is vertical, which is the one
+    // place the tree shares nothing at all.
     let mut torque = (moment_fp - x as i64 * mass_fp).abs() / LOAD_SCALE;
     // **A column is not charged the beam's moment.** Measured on
     // `scene=room`, and it is the reason one chisel cut brought a whole
@@ -1538,16 +1863,9 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // beam's moment against a capacity the granular divisor had already cut
     // by 64 -- the other half of the crater-rim failure described on
     // `section_cells`.
-    match support_parent(world, x, y) {
-        Some(parent @ (px, _)) if px == x => {
-            let half = (section_cells(world, x, y, Some(parent)).len() as i64 / 2).max(1);
-            torque = torque.min(mass as i64 * half);
-        }
-        None if rests_on_ground(world, x, y) => {
-            let half = (section_cells(world, x, y, None).len() as i64 / 2).max(1);
-            torque = torque.min(mass as i64 * half);
-        }
-        _ => {}
+    if vertical_path {
+        let half = (section.len() as i64 / 2).max(1);
+        torque = torque.min(mass as i64 * half);
     }
     // **A roof spans the opening under it, not the length of the drive.**
     // The third clamp of the same family, and the one that puts back what
@@ -1585,8 +1903,14 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // change bending outcomes over a void, not bearing outcomes on rubble,
     // and if it ever looks like it is tipping pieces that used to sit still,
     // this line is where to look first.
-    let mut capacity = capacity(world, x, y);
-    if support_parent(world, x, y).is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
+    let mut capacity = capacity_within(world, x, y, parent, &section);
+    // `mass` here is now the whole cut's flow, and that is deliberate: this
+    // is the rule `CLAUDE.md` names as having been got wrong once already
+    // by being "correct for a piece and applied per cell", so a slab lying
+    // on its own rubble was judged as many separate knife-edge footings.
+    // `bearing_moment` already reads the *piece's* footing width; feeding it
+    // the *piece's* weight is the other half of that pairing.
+    if parent.is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
         capacity = capacity.min(bearing_moment(world, x, y, mass));
     }
     Some(Load { mass, moment, torque, capacity, supported, truncated })
@@ -1790,6 +2114,315 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// `capacity` and `capacity_within` must agree on every cell, always.
+    ///
+    /// The split exists purely so `evaluate_within` can hand over a parent
+    /// and a section it has already walked -- walking a 40-cell run twice
+    /// per evaluated cell was most of the frame cost this rule added. That
+    /// makes it a **pure refactor**, and "behaviour is intended to be
+    /// unchanged" is exactly the claim `CLAUDE.md` records a commit message
+    /// making while shipping only its doc comment. So it is asserted rather
+    /// than intended.
+    ///
+    /// Swept over a world with all four support geometries in it -- a
+    /// free-standing wall, a cantilevered shelf, ground-resting slab and
+    /// cracked rock -- because the two paths can only diverge through
+    /// `support_parent` or `section_cells`, and those are exactly what
+    /// differs between those cases.
+    #[test]
+    fn the_two_capacity_paths_agree_on_every_cell() {
+        let mut w = test_world();
+        // Ground-resting slab.
+        for y in 50..64 {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // A free-standing wall on it.
+        for y in 20..50 {
+            for x in 10..21 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        // A cantilevered shelf off the wall -- support arrives sideways, so
+        // `section_cells` returns a vertical run here and not a horizontal
+        // one. That is the case most likely to catch a mismatch.
+        for y in 22..26 {
+            for x in 21..50 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        structural::compute_world_distances(&mut w);
+        let mut checked = 0;
+        for y in 0..64 {
+            for x in 0..64 {
+                if !is_body_material(&w, w.get(x, y).material) {
+                    continue;
+                }
+                let parent = support_parent(&w, x, y);
+                let section = section_cells(&w, x, y, parent);
+                assert_eq!(
+                    capacity(&w, x, y),
+                    capacity_within(&w, x, y, parent, &section),
+                    "the two capacity paths disagree at ({x},{y})"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 1000, "test setup: only {checked} cells were body material, so this swept almost nothing");
+    }
+
+    /// A free-standing wall, 11 cells thick, with a cap reaching out to
+    /// one side so the roof's load enters at one face.
+    ///
+    /// Unattached on purpose: `is_structurally_interesting` skips anything
+    /// buried and attached, and a wall that is never evaluated proves
+    /// nothing. This is the shape a player builds anyway.
+    fn wall_under_a_one_sided_cap(share: bool) -> World {
+        let mut w = test_world();
+        w.section_share = share;
+        for y in 20..64 {
+            for x in 20..31 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        for y in 17..20 {
+            for x in 20..56 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        structural::compute_world_distances(&mut w);
+        w
+    }
+
+    /// **A wall carries its roof through every cell of its thickness**, not
+    /// through whichever face `NEIGHBOURS_4` happened to break a tie
+    /// toward.
+    ///
+    /// The regression test for the defect the owner reported three separate
+    /// times and saw as a one-pixel red line down an otherwise green
+    /// building. Measured in the harness on `scene=room wall=8 dig=0`, at
+    /// one row of one wall: the outer face carried mass 157 and the inner
+    /// face 2,956, and the eleven cells between them were never evaluated
+    /// at all -- while every one of them was judged against the bending
+    /// capacity of the whole 17-cell section.
+    ///
+    /// Paired against the same world with the rule switched off rather than
+    /// against a remembered number, per `CLAUDE.md`. That is also what
+    /// makes it non-vacuous: if this geometry ever stops producing a
+    /// concentration, the control half fails first and says which end went
+    /// wrong, instead of the equality passing for the wrong reason.
+    #[test]
+    fn both_faces_of_a_wall_carry_the_roof_not_just_the_one_it_lands_on() {
+        let concentrated = wall_under_a_one_sided_cap(false);
+        let outer = evaluate(&concentrated, 20, 40).expect("outer face evaluable").mass;
+        let inner = evaluate(&concentrated, 30, 40).expect("inner face evaluable").mass;
+        assert!(
+            inner > outer * 4,
+            "test setup: this geometry must concentrate load on the near face, but read outer {outer} inner {inner} -- with no concentration to remove, the assertion below would pass for the wrong reason"
+        );
+
+        let shared = wall_under_a_one_sided_cap(true);
+        let outer = evaluate(&shared, 20, 40).expect("outer face evaluable").mass;
+        let inner = evaluate(&shared, 30, 40).expect("inner face evaluable").mass;
+        assert_eq!(outer, inner, "both faces of one wall are one member and must be judged as one");
+        assert!(outer > 0, "and the shared reading must be the load, not zero");
+
+        // **Nothing may end up carrying more than the world contains.**
+        //
+        // A standing sanity invariant rather than a guard on any one rule,
+        // and cheap enough to be worth having. The summing version of this
+        // code read `mass 62,391` at the wall-to-cap joint of a room built
+        // from about 14,000 cells, by taking its cut *along* a cantilever
+        // instead of across it. A number larger than the world it came from
+        // is the tell.
+        //
+        // This is what guards the *shape* of the arithmetic rather than any
+        // one term. The `flows_down` filter that used to prevent it has
+        // been withdrawn (see `evaluate_within`) precisely because a max
+        // cannot double-count -- so if a later change reaches for a sum
+        // again, or widens the cut along the flow, this is the assertion
+        // that should catch it before a seed sweep has to.
+        let stone: u32 = (0..64).map(|y| (0..64).filter(|&x| shared.get(x, y).material == material::STONE).count() as u32).sum();
+        for x in 20..31 {
+            let at_the_joint = evaluate(&shared, x, 19).expect("the cap's underside is evaluable").mass;
+            assert!(
+                at_the_joint <= stone,
+                "({x},19) reports carrying {at_the_joint} of a structure that is only {stone} cells -- the cut is being taken along the load rather than across it"
+            );
+        }
+    }
+
+    /// A run that never finds an end is **not** a member, and its cells
+    /// keep exactly the load they already carried.
+    ///
+    /// The guard on the half of this rule that cost the most to find, and a
+    /// paired comparison so it cannot pass by the mechanism being dead: the
+    /// *same* tower on the *same* wall, and only the wall's thickness
+    /// differs.
+    ///
+    /// # This test previously encoded the bug it was meant to guard
+    ///
+    /// Worth reading before changing it. Its first version used a 45-cell
+    /// wall as the "unbounded" case and passed, because `is_member` then
+    /// read the ends of `section_cells` -- which stops at `MAX_SECTION`
+    /// (40). So *anything* wider than 40 was excluded, including
+    /// `scene=capped`'s 60-cell built column, and the test agreed because it
+    /// was measuring the same work cap. An independent review caught it;
+    /// no test here could have, because the test shared the defect.
+    ///
+    /// The unbounded case is now genuinely unbounded -- 140 cells against
+    /// `MAX_MEMBER_WIDTH`'s 96 -- and the world is widened to hold it.
+    /// **If `MAX_MEMBER_WIDTH` ever rises above 140, this test goes quietly
+    /// vacuous**, so the width is asserted rather than assumed.
+    #[test]
+    fn a_run_with_no_ends_is_not_a_member_so_nothing_is_shared_across_it() {
+        /// A wall on the floor with a tower on its left end -- a one-sided
+        /// load that a member is supposed to spread and a slab is not.
+        fn wall_under_a_tower(share: bool, thickness: i32) -> World {
+            let mut w = World::new(Rect::new(0, 0, 255, 63));
+            w.section_share = share;
+            let x0 = 50;
+            for y in 30..64 {
+                for x in x0..(x0 + thickness) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            for y in 10..30 {
+                for x in x0..(x0 + 5) {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            structural::compute_world_distances(&mut w);
+            w
+        }
+        const WIDE: i32 = 140;
+        // A *compile-time* assertion, not a runtime one: if
+        // `MAX_MEMBER_WIDTH` is ever raised past this, the wide wall
+        // silently becomes a member and this test starts asserting that
+        // sharing does nothing where it should do something. That must break
+        // the build, not pass quietly.
+        const _: () = assert!(WIDE > MAX_MEMBER_WIDTH, "the wide wall must not fit inside MAX_MEMBER_WIDTH, or the exclusion below is vacuous");
+
+        // The far side of a wall thin enough to have two ends.
+        let thin_off = evaluate(&wall_under_a_tower(false, 11), 60, 40).expect("evaluable").mass;
+        let thin_on = evaluate(&wall_under_a_tower(true, 11), 60, 40).expect("evaluable").mass;
+        assert!(
+            thin_on > thin_off,
+            "test setup: the far side of an 11-thick wall must gain load from the tower ({thin_off} -> {thin_on}), or the exclusion below is only proof that the rule never runs"
+        );
+
+        // The same cell of a wall too wide for either end to be found.
+        // Probed near the tower, because `section_cells` fills leftward
+        // first: a cell far from it gets a window that never reaches the
+        // load and would read unchanged either way, which is how the first
+        // version of this test passed with the gate deleted.
+        let wide_off = evaluate(&wall_under_a_tower(false, WIDE), 88, 40).expect("evaluable").mass;
+        let wide_on = evaluate(&wall_under_a_tower(true, WIDE), 88, 40).expect("evaluable").mass;
+        assert_eq!(wide_on, wide_off, "a run with no ends has nothing to redistribute between and must be untouched");
+    }
+
+    /// A built column wider than `MAX_SECTION` is still a member.
+    ///
+    /// The regression test for what the review found: `is_member` used to
+    /// read the ends of a section walk capped at `MAX_SECTION`, so a
+    /// 60-cell column -- `scene=capped`, and the "beefy block with holes in
+    /// it" the owner reported this defect against in the first place --
+    /// could not be a member and the rule never fired on it. Measured
+    /// before: **147 columns, 0 in a member, 0 moved**. After: 101 in a
+    /// member, 3 moved.
+    ///
+    /// `CLAUDE.md`: *a size cap must bound work, never gate whether
+    /// something happens*. `MAX_SECTION` still bounds how many cells the
+    /// sharing looks at; it no longer decides whether there is a member
+    /// there to look at.
+    #[test]
+    fn a_built_column_wider_than_a_section_walk_is_still_a_member() {
+        fn column(share: bool) -> World {
+            let mut w = World::new(Rect::new(0, 0, 127, 63));
+            w.section_share = share;
+            // 60 wide, like `scene=capped`, so wider than MAX_SECTION (40)
+            // and narrower than MAX_MEMBER_WIDTH.
+            for y in 24..64 {
+                for x in 20..80 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            // A tower on **one end** of it. A cap spanning the whole top
+            // was tried first and proves nothing: it loads every column of
+            // the section equally, so the worst of the cut is each cell's
+            // own reading and the rule correctly changes nothing. A
+            // concentration has to exist before a test can watch it spread.
+            for y in 6..24 {
+                for x in 20..27 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            structural::compute_world_distances(&mut w);
+            w
+        }
+        // Compile-time, for the same reason as above: the column has to stay
+        // wider than a section walk and narrower than a member, or it stops
+        // testing the gap between them.
+        const WIDE: i64 = 60;
+        const _: () = assert!(WIDE > MAX_SECTION, "the column must be wider than a section walk or this proves nothing");
+        const _: () = assert!(WIDE < MAX_MEMBER_WIDTH as i64, "and narrower than a member, or it is excluded for the other reason");
+        let off = column(false);
+        let on = column(true);
+        let (mut differs, mut compared) = (0, 0);
+        // Within a section walk of the tower, since sharing still only
+        // reaches `MAX_SECTION` cells -- that bound stays, and is not what
+        // this test is about.
+        for x in 20..59 {
+            let (a, b) = (evaluate(&off, x, 40), evaluate(&on, x, 40));
+            if let (Some(a), Some(b)) = (a, b) {
+                compared += 1;
+                if a.mass != b.mass {
+                    differs += 1;
+                }
+            }
+        }
+        assert!(compared > 0, "test setup: no cell of the column was evaluable");
+        assert!(differs > 0, "a 60-cell built column with air on both sides is a member; the rule must reach it");
+    }
+
+    /// A shelf is untouched: it takes its support sideways, and its rows
+    /// already chain independently to the cliff.
+    ///
+    /// The standing guard against re-introducing the reverted
+    /// divide-by-section, which took `scene=undercut` to zero failures. The
+    /// section rule is gated on a vertical load path precisely so that a
+    /// horizontal one keeps every number it had.
+    #[test]
+    fn a_cantilevered_shelf_shares_nothing_because_its_path_is_sideways() {
+        fn shelf(share: bool) -> World {
+            let mut w = test_world();
+            w.section_share = share;
+            for y in 10..54 {
+                for x in 0..20 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            for y in 20..26 {
+                for x in 20..50 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+            structural::compute_world_distances(&mut w);
+            w
+        }
+        let (off, on) = (shelf(false), shelf(true));
+        for x in [21, 30, 40] {
+            for y in 20..26 {
+                assert_eq!(
+                    evaluate(&off, x, y).map(|l| (l.mass, l.torque, l.capacity)),
+                    evaluate(&on, x, y).map(|l| (l.mass, l.torque, l.capacity)),
+                    "the shelf cell ({x},{y}) takes its support horizontally and must be judged exactly as before"
+                );
+            }
+        }
     }
 
     /// **A walk that spends the last of the frame budget defers; it does
@@ -2407,3 +3040,6 @@ mod tests {
         assert!(far_past.mass > column(0).mass, "a pile eight times the cap must still be a load");
     }
 }
+
+
+

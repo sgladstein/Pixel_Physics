@@ -428,23 +428,37 @@ every=400 count=4"` stops at frame 1,202, which is mid-collapse. Measured on
 | `flat 1` | 20 | **199** |
 | `rolling 7` | none — rock *gained* 223 | **88** |
 
-Four of the eight destroy rock by 3,602. **The default sees one of them**,
-and understates that one by 1.9x. `terraced 7` reverses outright: −634 cells
-lost at 1,202 becomes +326 at 3,602.
+Four of the eight destroy rock by 3,602. **The default misses two of them
+outright** — it reads rock as net *gained* where the collapse has not yet
+arrived — and understates the two it does see, by 1.9x on `terraced 1` and
+**10x** on `flat 1`. `terraced 7` reverses outright: −634 cells lost at 1,202
+becomes +326 at 3,602.
 
 **Read `rock`, not `cells lost`, for the settling question.** `rock`
 plateaus — `terraced 1` runs −952, −1,042, −1,042, −1,052, −1,052 across
-frames 1,802 to 9,002 — while `cells lost` never settles on these presets at
-all, because rubble keeps accruing from ordinary weathering long after the
-cascade is over: the same run drifts 849 → 1,109 → 745 → −126 → −1,322. A
-longer budget makes `cells lost` monotonically better-looking for no reason
-connected to the change under test.
+frames 1,802 to 9,002 — while `cells lost` never settles at all: the same run
+goes 849 → 1,109 → 745 → −126 → −1,322.
+
+**That drift is an oscillation, not accumulation, and it is not the cascade.**
+An earlier version of this section blamed it on weathering accruing rubble.
+The control that settles it is the same scene with **no verb at all**: at
+`strike=0`, `terraced 1` reports **zero failures and `rock +0` at every tile**
+while `cells lost` swings 0 → 290 → 471 → 44 → −725 → −1,684. Nothing broke,
+so no rock became rubble; the rubble census is simply riding something
+periodic, and on `wetland` the `rock` column matches the frozen-water count
+exactly — `rock +833` against `833 frozen` — which points at the water cycle.
+Amplitude is about ±1,700 cells, **larger than most damage figures in the
+sweep**, so a `cells lost` reading taken at any single frame is that frame's
+phase plus the damage, and the two are not separable. This is the
+*divide-the-oscillator-out* problem below, not a too-short budget — and until
+it is divided out, `cells lost` cannot be used to compare two models on these
+presets at all.
 
 So `awake` and `sites` are a weaker tell than they look: on `rolling` and
 `terraced` both sit near 5,000 sites indefinitely and never reach zero. The
 tell that works is that **the quantity being censused has stopped moving**
 across two consecutive tiles. `every=900 count=5` is enough for `rock`;
-nothing measured so far is enough for `cells lost`.
+no budget is enough for `cells lost`, because the problem is phase, not length.
 
 Worse, and the reason this needs its own heading rather than a footnote: two
 runs that diverge on one frame are **different worlds** by the next, so a
@@ -468,10 +482,10 @@ never reach the fragment ladder at all.
 A mean cannot separate "smaller pieces" from "more evaluations of the same
 piece". If the question is whether something turned to dust, count the
 regions that fell below the fracture threshold and read that against the
-total that failed. **No counter for this exists on `main`**: it was built as
-`FailureCounts::crumbled` on branch `load-share`, which has not landed, so
-today the mean is the only thing here and it cannot answer the question.
-Add the counter before believing either way.
+total that failed. `FailureCounts::crumbled` counts exactly that -- the
+regions `rigid::fracture_failing_region` declined and the cells they took --
+and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
+not the mean, whenever the question is whether something turned to dust.
 
 ### Compare two runs, not one run against a remembered number
 

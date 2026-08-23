@@ -416,6 +416,7 @@ fn build(args: &Args) -> World {
     // cut as much as for the run that follows it.
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
+    w.section_share = args.share;
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
     }
@@ -2017,6 +2018,27 @@ struct Args {
     /// the one under test has to be held constant (`CLAUDE.md`: a channel
     /// that oscillates by design must be divided out of decisions).
     daylight: Option<f32>,
+    /// `channel=stress` -- repaint the sheet with `load::evaluate`'s stress
+    /// ratio, the same green-to-red ramp the app draws on `N`.
+    ///
+    /// Not one of `render.rs`'s overlays because it is not a stored channel:
+    /// it is the *output* of the model under test, and it has to be computed
+    /// here. It exists because the load-concentration defect is literally
+    /// visible -- a one-pixel red line down an otherwise green wall -- and
+    /// arguing about it from a mass probe takes an afternoon that one glance
+    /// settles.
+    ///
+    /// **A full replace, not a blend**, per `CLAUDE.md`: the app blends at
+    /// 0.55 into the cell's own colour, which is fine on a live screen you
+    /// can toggle and unreadable at the zoom a contact sheet is read at --
+    /// grey stone under a 45% green wash is grey stone.
+    ///
+    /// And **"not evaluated" gets its own colour** (dark blue) rather than
+    /// falling through to the material. It is a third state, not a low
+    /// stress, and conflating it with green is exactly how a model that
+    /// never looks at 15 cells of a 17-cell wall reads as "the wall is
+    /// fine".
+    stress: bool,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2329,6 +2351,10 @@ struct Args {
     /// `arch=0` -- turn off `World::arch_relief`, so a roof carries the
     /// whole column above it again. The control for the arching change.
     arch: bool,
+    /// `share=0` -- turn off `World::section_share`, so each cell is judged
+    /// on its own load path again. The control for the load-concentration
+    /// change, and the only way to see the one-pixel red line come back.
+    share: bool,
     /// `chain_reach=N` -- how far from something actually disturbed a
     /// failure may happen, in cells. Unset means no limit, the shipped
     /// behaviour. `0` is "only what you struck ever fails".
@@ -2409,6 +2435,7 @@ fn parse() -> Args {
         organism_overlay: OrganismOverlay::Off,
         field_overlay: FieldOverlay::Off,
         daylight: None,
+        stress: false,
         gif: false,
         explosions: Vec::new(),
         blasts: Vec::new(),
@@ -2436,6 +2463,7 @@ fn parse() -> Args {
         max_rock_above: None,
         confine: true,
         arch: true,
+        share: true,
         chain_reach: None,
         joint_spacing: None,
         joint_bands: None,
@@ -2540,8 +2568,9 @@ fn parse() -> Args {
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
+                "stress" => a.stress = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress"
                 ),
             },
             "daylight" => {
@@ -2579,6 +2608,7 @@ fn parse() -> Args {
             }
             "confine" => a.confine = v != "0" && v != "false",
             "arch" => a.arch = v != "0" && v != "false",
+            "share" => a.share = v != "0" && v != "false",
             "chain_reach" => a.chain_reach = Some(v.parse().expect("chain_reach")),
             "joints" => a.joint_spacing = Some(v.parse().expect("joints=<spacing in cells>")),
             "bands" => a.joint_bands = Some(v.parse().expect("bands=<grain contrast 0..0.9>")),
@@ -3620,6 +3650,41 @@ fn describe_afloat(world: &World) -> Vec<String> {
     out.into_iter().map(|(_, line)| line).collect()
 }
 
+/// Repaint `frame` with the load model's own verdict, cell by cell.
+///
+/// Three states, deliberately, because the model has three: material this
+/// model has an opinion about (the green-to-red ramp), material it declines
+/// to evaluate (dark blue), and no material at all (near-black). The middle
+/// one is not cosmetic -- `is_structurally_interesting` skips anything
+/// buried, so the inside of a thick wall is never load-tested, and painting
+/// it the same green as "evaluated and fine" would hide the very thing this
+/// channel was added to look at.
+///
+/// One shared `Cache` for the whole screen, for the reason
+/// `load::evaluate_with_cache` documents: per-cell caches make this
+/// O(region x subtree) and it is drawn over a whole world.
+fn paint_stress(world: &World, frame: &mut [u8]) {
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    let mut budget = u32::MAX;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            let colour = match pixel_physics::sim::load::evaluate_with_cache(world, x, y, &mut cache, &mut budget) {
+                // The app's ramp exactly (`App::draw_stress_overlay`), so
+                // what a sheet shows and what the owner sees on `N` are the
+                // same picture -- at alpha 1.0 rather than 0.55.
+                Some(l) => {
+                    let ratio = l.stress().clamp(0.0, 1.0);
+                    [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255]
+                }
+                None if world.get(x, y).material == material::EMPTY => [12, 12, 16, 255],
+                None => [30, 40, 90, 255],
+            };
+            let dst = (((y * WIDTH) + x) * 4) as usize;
+            frame[dst..dst + 4].copy_from_slice(&colour);
+        }
+    }
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -4109,6 +4174,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
+            if args.stress {
+                paint_stress(&world, &mut frame);
+            }
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
             blit_tile(&mut tile, tile_w, (0, 0), &frame, args.crop, args.zoom);
@@ -4286,6 +4354,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         let drew = std::time::Instant::now();
         renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
         worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
+        if args.stress {
+            paint_stress(&world, &mut frame);
+        }
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
         blit_tile(&mut sheet, sheet_w, (gx * (tile_w + gap), gy * (tile_h + gap)), &frame, args.crop, args.zoom);
@@ -4924,6 +4995,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             world.decayed_damp,
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
+        );
+        // **How much of the failure became grit rather than pieces.** The
+        // mean region size cannot answer this and was misread as answering
+        // it -- see `FailureCounts::crumbled`.
+        let failed_cells = f.overloaded_cells + f.unsupported_cells;
+        println!(
+            "    crumbled to grit (region < MIN_FRACTURE_CELLS): {} regions, {} cells of {} failed ({:.0}%)",
+            f.crumbled,
+            f.crumbled_cells,
+            failed_cells,
+            if failed_cells == 0 { 0.0 } else { 100.0 * f.crumbled_cells as f64 / failed_cells as f64 }
+        );
+        // **Did the section rule fire at all**, printed next to the image
+        // rather than inferred from it. A review of that rule caught the
+        // report offering "identical to the cell on terrain" as evidence it
+        // was safe there, which is equally what a rule that never ran
+        // produces. `moved` is the number that answers it -- see
+        // `load::ShareCounts`.
+        let sh = world.load_cache.shares;
+        println!(
+            "    section share: {} columns, {} in a member, {} actually moved, {} too wide to tell",
+            sh.columns, sh.members, sh.moved, sh.too_wide
         );
         // How much of the damage happened to rock with nowhere to go --
         // the mid-mountain collapse the owner reports as looking fake.
