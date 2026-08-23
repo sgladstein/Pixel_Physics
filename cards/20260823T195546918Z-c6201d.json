@@ -1,0 +1,68 @@
+{
+  "id": "20260823T195546918Z-c6201d",
+  "created": "2026-08-23T19:55:46Z",
+  "board": "fire",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w2-grassfire-desert",
+    "commit": "4706ebc",
+    "agent": null,
+    "session_id": "e9be7bb2-5d48-5a52-8ce8-760d8e4d53c7",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The in-between you asked for: a burn that stops halfway",
+  "question": "Is the middle one what you meant by an in-between — a fire that eats a patch of the meadow and stops, leaving a mosaic?",
+  "context_md": "You said of the last two cards: *\"an inbetween everything burns and nothing burns would be good\"*. **It already does this — I showed you the two extremes, which was a bad choice of demo for that question.** Sorry; here is the middle.\n\nSame sward all three times, same ignition, one number different: how wet the ground is.\n\nSwept finely on one sward, cells consumed of 1,993:\n\n| ground wetness | consumed | front reached |\n|---|---|---|\n| 0.00 | **1993 (all)** | x=488 |\n| 0.20 | 442 (22%) | x=110 |\n| 0.30 | 1599 (80%) | x=386 |\n| 0.40 | **440 (22%)** | x=110 |\n| 0.50 | 229 (11%) | x=100 |\n| 0.60 | 137 (7%) | x=63 |\n| 1.00 | 10 (0.5%) | x=53 |\n\n**One thing to be straight about: it is not a dial.** Fire spread is a percolation, so at a given wetness the outcome turns on whether the front happens to cross one particular gap — which is why 0.30 burns 80% and 0.40 burns 22%. Across 12 different swards the same pattern held: at bone dry, 5 of 12 burned out entirely and the other 7 landed between 11% and 42%. So partial burns are the *common* case and total ones are the extreme; what I cannot give you is a knob that reliably says \"burn exactly half\".\n\nIf you want the in-between to be more reliable rather than more common, say so and I will look at what makes the threshold that sharp — but I did not want to retune something you might already be happy with.\n\nAlso: these are rendered with the **orange** fire colour you picked on the other card.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "dry — burns end to end",
+      "files": [
+        "20260823T195546918Z-c6201d/000-mosaic_dry.gif"
+      ],
+      "caption": "ground wetness 0.00",
+      "meta": {
+        "grass consumed": "1993 of 1993 (100%)",
+        "front": "x=488, lit at x=51"
+      },
+      "focus": null,
+      "gif_frames": 22
+    },
+    {
+      "label": "damp — burns a patch and stops",
+      "files": [
+        "20260823T195546918Z-c6201d/001-mosaic_mid.gif"
+      ],
+      "caption": "ground wetness 0.40",
+      "meta": {
+        "grass consumed": "440 of 1993 (22%)",
+        "front": "x=110, lit at x=51"
+      },
+      "focus": null,
+      "gif_frames": 22
+    },
+    {
+      "label": "saturated — refuses",
+      "files": [
+        "20260823T195546918Z-c6201d/002-mosaic_wet.gif"
+      ],
+      "caption": "ground wetness 1.00",
+      "meta": {
+        "grass consumed": "10 of 1993 (0.5%)",
+        "front": "x=53, lit at x=51",
+        "contact ignitions": 0
+      },
+      "focus": null,
+      "gif_frames": 22
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
