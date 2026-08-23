@@ -1,0 +1,56 @@
+{
+  "id": "20260823T092729596Z-2fa6b0",
+  "created": "2026-08-23T09:27:29Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-phase-2-review-vmn56t",
+    "commit": "c208191",
+    "agent": null,
+    "session_id": "eab387e1-ddba-5bcb-aced-8377c185b0ac",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The waterfall, wider: is this what 'too thin' meant?",
+  "question": "You have called the fall too thin twice. Does one of these read as a real cascade — and if so, is it right, or now too much? Same world, same seed, same camera, same moment.",
+  "context_md": "Both panes have the **source-basin fix** in them, which you have never been shown: the pool at the top left is *cut* by the pass and filled to the lip, then it spills over the rim. The last time you saw this you said *\"a weird cut through a sharp piece of stone with again a giant weird column behind it\"* — the column was a rock formation, not part of the spring, and this camera has none.\n\nWhat differs is **width only**.\n\nTwo things I tested and ruled out first, so you do not have to:\n\n- **It is not `MAX_SPAN`.** Every spring in the game is limited by the preset's flow budget, not by the width cap, so raising the cap alone changes nothing at all.\n- **It is not brightness.** Water is drawn dimmer the emptier the cell is, and I thought that was making the fall faint. Rendered at less than half the dimming, the picture is *almost byte-identical* — the falling water is already near-full, so there is nothing for it to brighten.\n\nCost: measured, the standing frame cost barely moves with width — 1, 3 and 6 columns all land within noise of each other. Having a spring at all is what costs (~3 ms/frame); how wide it is is close to free.\n\nIf the wide one is too much, the same budget can buy **two** narrower falls in different places instead — that is the other thing this number trades.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped — span 5",
+      "files": [
+        "20260823T092729596Z-2fa6b0/000-wf_A.png"
+      ],
+      "caption": "spring_flow 5.0, the shipped value",
+      "meta": {
+        "span (columns)": 5,
+        "cells emitted": 7500,
+        "drained %": 86,
+        "throttled": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "wider — span 12",
+      "files": [
+        "20260823T092729596Z-2fa6b0/001-wf_B.png"
+      ],
+      "caption": "spring_flow 12.0, MAX_SPAN 12",
+      "meta": {
+        "span (columns)": 12,
+        "cells emitted": 17999,
+        "drained %": 94,
+        "throttled": 1
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
