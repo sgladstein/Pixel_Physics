@@ -1,0 +1,84 @@
+{
+  "id": "20260823T170427497Z-71d696",
+  "created": "2026-08-23T17:04:27Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/w1-sow-flora",
+    "commit": "e485339",
+    "agent": null,
+    "session_id": "3aaa5665-c84f-539a-9208-13974ee23ca8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Four species again — the conifer you judged was drawing the wrong colours",
+  "question": "With conifer actually blue-green on rust bark, does the set read as four plants any better than before — or is your \"size and colour\" verdict unchanged?",
+  "context_md": "**A correction, not a retune.** You judged the earlier four-species card and said *\"Different-ish. The biggest differences are still size and color.\"* One of those four was broken when you saw it.\n\n`conifer.ron` shipped with **no `foliage_bands` and no `bark_bands` at all**. My own edit wrote the explanatory note above those two fields and replaced the fields along with it, putting back only the note. Both are `#[serde(default)]`, so absent parses cleanly as `count: 0` — and `count: 0` is the sentinel meaning *\"this species never declared a range\"*, which makes `banded_shade` fall through to a uniform draw over the **whole** palette. So conifer was wearing a random mix of all eight hues on both axes, in the exact card that was asking you whether the species look different.\n\nIt was quietly an economy bug too: the founding leaf-economy allele is derived from the drawn foliage band, so every conifer founded on allele 0 instead of a mixed stand.\n\nNothing could have caught it — not a parse error, not a panic, not a behaviour any test looked at. A default doing exactly what it promises. There is a guard now (`every_woody_species_declares_a_palette_range_and_they_are_disjoint`), verified to fail both for the missing fields and for an overlap before I kept it.\n\nAll four re-rendered on the current head, which also now includes P1's water-book merge, so they are on one engine. Same scene, seed and frame as before. **Only conifer's appearance changed** — the other three had correct bands all along.\n\nI am not claiming this fixes your verdict. The silhouettes are unchanged and your point about the random-walk growth stands. But you judged a set where one member was noise, so it seemed wrong to leave that standing.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tree",
+      "files": [
+        "20260823T170427497Z-71d696/000-id2_tree.png"
+      ],
+      "caption": "unchanged — damp deep country",
+      "meta": {
+        "foliage bands": "2-3 mid/yellow-green",
+        "bark bands": "0-1 mid/dark red-brown",
+        "leaf_cluster": 10,
+        "height budget (rows)": 120
+      },
+      "focus": null
+    },
+    {
+      "label": "conifer — THIS is the one that was broken",
+      "files": [
+        "20260823T170427497Z-71d696/001-id2_conifer.png"
+      ],
+      "caption": "now blue-green on rust; was a uniform draw over all 8 bands",
+      "meta": {
+        "foliage bands": "0-1 blue-greens (RESTORED)",
+        "bark bands": "4-5 rust/plum (RESTORED)",
+        "leaf_cluster": 6,
+        "height budget (rows)": 150
+      },
+      "focus": null
+    },
+    {
+      "label": "shrub",
+      "files": [
+        "20260823T170427497Z-71d696/002-id2_shrub.png"
+      ],
+      "caption": "unchanged — the dry margin",
+      "meta": {
+        "foliage bands": "4-5 olives",
+        "bark bands": "2-3 near-black/grey-brown",
+        "leaf_cluster": 12,
+        "height budget (rows)": 40
+      },
+      "focus": null
+    },
+    {
+      "label": "creeper",
+      "files": [
+        "20260823T170427497Z-71d696/003-id2_creeper.png"
+      ],
+      "caption": "unchanged — a skin of soil over rock",
+      "meta": {
+        "foliage bands": "6-7 pale/deep sage",
+        "bark bands": "6-7 olive-drab/green-grey",
+        "leaf_cluster": 14,
+        "height budget (rows)": 8
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
