@@ -350,10 +350,49 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                 let (nx, ny) = (x + dx, y + dy);
                 let n = world.get(nx, ny);
                 match world.materials.kind(n.material) {
+                    // **A drink takes what it drinks and leaves the rest —
+                    // `Reports/open-bugs-handoff.md` §F3.**
+                    //
+                    // This arm used to write `Cell::EMPTY` and credit at
+                    // most `rate`, so a full water cell (1,000 fill) was
+                    // deleted to pay for 1.5 units of plant water: about
+                    // 96% of it destroyed, silently, because nothing tallies
+                    // held water. It was tuned on branches where ponds never
+                    // evaporated; main added evaporation drawing down the
+                    // same ponds.
+                    //
+                    // The exchange rate is not a new constant. The Powder
+                    // arm below already prices a drink — `rate` of plant
+                    // water costs `SOIL_UPTAKE_PER_TICK` of the cell's
+                    // 0..1,000 store — and a `Liquid`'s fill is on that same
+                    // scale (`material::LIQUID_FULL` and `SOIL_SATURATED`
+                    // are both 1,000). Reusing it makes the two arms one
+                    // currency instead of two, which is the property that
+                    // was actually missing.
+                    //
+                    // **Income is unchanged**, and that is the point: the
+                    // plant still gains at most `rate` per tick per wet
+                    // neighbour, exactly as before. What changes is how fast
+                    // the *pond* goes down — 17 drinks to empty a full cell
+                    // rather than one — so this is a conservation fix, not
+                    // an economy change.
+                    //
+                    // `aux == 0` on a `Liquid` means FULL, so a drained cell
+                    // must be written as `Cell::EMPTY` and never as
+                    // `with_aux(0)` (`material::LIQUID_FULL`'s own doc).
                     MaterialKind::Liquid => {
-                        world.set(nx, ny, Cell::EMPTY);
-                        water = (water + rate).min(capacity);
-                        world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                        let want = rate.min(capacity - water);
+                        if want > 0.0 {
+                            let fill = update::liquid_fill(n);
+                            let asked = (want / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                            let taken = asked.min(fill);
+                            if taken > 0 {
+                                water += taken as f32 / SOIL_UPTAKE_PER_TICK as f32 * rate;
+                                let left = fill - taken;
+                                world.set(nx, ny, if left == 0 { Cell::EMPTY } else { n.with_aux(left) });
+                                world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                            }
+                        }
                     }
                     // **Drink from damp soil** -- Decision 3's §4d path
                     // 2, and the fix for a gap `PLAN.md` recorded and
@@ -3015,6 +3054,76 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
         }
     }
 }
+
+/// **Where `break_root_tips` stops, counted — the instrument bug §A asked
+/// for, and the one bug §U needs too.**
+///
+/// `Reports/open-bugs-handoff.md` §A infers that main's field model
+/// switched this amplifier off, from a *mean* stomatal term crossing
+/// `ROOT_REINITIATION_STATUS` (0.90 -> 0.96). Its own closing note says
+/// that inference is not a measurement: "a mean can cross while the
+/// distribution that matters does not". §U's likely mechanism is the same
+/// function seen from the other side — water stress *triggers* root
+/// re-initiation and nothing throttles the carbon that pays for it, so
+/// scarcity buys extra tissue at no cost.
+///
+/// Both questions are "did this fire, and if not, which line turned it
+/// back", which `CLAUDE.md` says wants a counter rather than a picture or
+/// an aggregate. The exits are counted separately because they mean
+/// opposite things: `GATED` is the plant saying *I am not thirsty*, while
+/// `NO_CANDIDATE` and `POOR` are a thirsty plant that cannot act — and
+/// §U's diagnosis is precisely a claim about which of those dominates.
+///
+/// `#[cfg(test)]` on the `S8E` pattern beside it: this is per-organism
+/// per-upkeep-tick work in the sweep's shadow, and both consumers (the §A
+/// seed sweep, the §U paired bed) are tests. `note_root_tip_exit` compiles
+/// to nothing in a release build.
+#[cfg(test)]
+pub(crate) static ROOT_TIP_EXITS: [std::sync::atomic::AtomicU64; 6] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+/// Entered the function at all — one per organism per upkeep tick.
+pub(crate) const ROOT_TIP_CALLS: usize = 0;
+/// Left at the `status >= ROOT_REINITIATION_STATUS` gate: demand met.
+pub(crate) const ROOT_TIP_GATED: usize = 1;
+/// Thirsty, but already at `max_active_tips` — the cap, not the economy.
+pub(crate) const ROOT_TIP_AT_CAP: usize = 2;
+/// Thirsty and under the cap, but no mature root cell has soil to grow into.
+pub(crate) const ROOT_TIP_NO_CANDIDATE: usize = 3;
+/// Thirsty, under the cap, sites available — and no cell holds `cost`.
+/// **The exit §U's "scarcity buys tissue for free" reading predicts should
+/// be large.**
+pub(crate) const ROOT_TIP_POOR: usize = 4;
+/// A `MatureBody` cell became a `RootTip`. The only exit that does anything.
+pub(crate) const ROOT_TIP_FIRED: usize = 5;
+
+/// Read and clear. `[calls, gated, at_cap, no_candidate, poor, fired]` —
+/// read `fired` first, then whichever exit swallowed the rest.
+#[cfg(test)]
+pub(crate) fn take_root_tip_exits() -> [u64; 6] {
+    let mut out = [0u64; 6];
+    for (o, c) in out.iter_mut().zip(ROOT_TIP_EXITS.iter()) {
+        *o = c.swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    out
+}
+
+#[cfg(test)]
+#[inline]
+fn note_root_tip_exit(which: usize) {
+    ROOT_TIP_EXITS[which].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_root_tip_exit(_which: usize) {}
+
 /// Re-initiate a root tip from mature root tissue when the plant is short
 /// of water — **the root analogue of `break_buds`, and the mechanism whose
 /// absence made the whole water economy unstable.**
@@ -3044,9 +3153,11 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
 /// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
 fn break_root_tips(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
+    note_root_tip_exit(ROOT_TIP_CALLS);
     let species_id = state.species;
     let status = state.water_status;
     if status >= ROOT_REINITIATION_STATUS {
+        note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
     }
     let Some((cost, max_active_tips)) =
@@ -3111,11 +3222,21 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
             _ => {}
         }
     }
-    if tips >= max_active_tips as usize || candidates.is_empty() {
+    if tips >= max_active_tips as usize {
+        note_root_tip_exit(ROOT_TIP_AT_CAP);
+        return;
+    }
+    if candidates.is_empty() {
+        note_root_tip_exit(ROOT_TIP_NO_CANDIDATE);
         return;
     }
     let Some((rx, ry, held)) = richest else { return };
     if held < cost {
+        // **The exit §U hangs on.** A thirsty plant that cannot afford the
+        // tip it wants is water stress costing carbon, which is what real
+        // drought does. A thirsty plant that can always afford it is
+        // scarcity buying tissue for free, which is what §U measured.
+        note_root_tip_exit(ROOT_TIP_POOR);
         return;
     }
 
@@ -3135,6 +3256,7 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
     write_carbon(world, bx, by, stake);
     let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
     world.schedule_active_site(site);
+    note_root_tip_exit(ROOT_TIP_FIRED);
 }
 
 
@@ -5625,6 +5747,91 @@ mod tests {
 
 
 
+    /// **A root drinks what it drinks and leaves the rest —
+    /// `Reports/open-bugs-handoff.md` §F3.**
+    ///
+    /// `absorb_water`'s `Liquid` arm wrote `Cell::EMPTY` and credited at
+    /// most `rate`, so a full 1,000-fill water cell was destroyed to pay
+    /// for 1.5 units of plant water — about 96% of it annihilated, and
+    /// silently, because nothing tallies held water. It was tuned on
+    /// branches where ponds never evaporated; main added evaporation
+    /// drawing down the same ponds.
+    ///
+    /// This is §F3's "conservation tally on that arm", driven directly
+    /// rather than through a scene. **Its 2x2 (tree/no-tree x
+    /// weather/no-weather over pond volume) was built first and does not
+    /// work here**, and the reason is worth keeping: free water standing
+    /// against unsaturated soil *infiltrates*, so any pond placed within
+    /// reach of a root system drains into the bank at a rate that dwarfs
+    /// drinking, and the scene measures infiltration wearing absorption's
+    /// clothes. Three geometries were tried (tank under a stone shelf, tank
+    /// under a punched shelf, sealed pocket inside the bed) and each
+    /// measured zero or nothing at all — the first because the root stops a
+    /// row short of the water, the second because a seed is a `Powder` and
+    /// falls through the hole, the third because the pocket infiltrated
+    /// away to nothing inside 1,500 frames. Driving the arm is the honest
+    /// measure.
+    ///
+    /// Paired against the exchange rate the `Powder` arm already uses:
+    /// `rate` of plant water costs `SOIL_UPTAKE_PER_TICK` of a cell's
+    /// 0..1,000 store, and `LIQUID_FULL` and `SOIL_SATURATED` are the same
+    /// 1,000. Measured, one drink from one full cell, same build:
+    ///
+    /// | | fill taken | water credited | fill per unit of water |
+    /// |---|---|---|---|
+    /// | before | **1,000** | 1.50 | **667** |
+    /// | after | 60 | 1.50 | **40** |
+    ///
+    /// 40 is `SOIL_UPTAKE_PER_TICK / rate` exactly — the two arms are one
+    /// currency now, which is the property that was missing. Income is
+    /// unchanged in both rows, which is what makes this a conservation fix
+    /// and not an economy change.
+    #[test]
+    fn a_root_leaves_the_water_it_did_not_drink() {
+        const RATE: f32 = 1.5;
+        let mut w = test_world();
+        // A real organism, because `absorb_water` reads its capacity from
+        // `root_cells` and credits through `credit_water`. Planted and then
+        // hand-posed rather than grown: what is under test is one arm of
+        // one function, and a grown plant would bring soil uptake, upkeep
+        // and transpiration in with it.
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+        w.organism_mut(id).expect("just planted").root_cells = 200;
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        place(&mut w, (60, 60), rootwood, id, CellType::MatureBody, (0.0, 0.0));
+        w.set(61, 60, Cell::new(material::WATER, 0));
+
+        let fill_before = update::liquid_fill(w.get(61, 60));
+        assert_eq!(fill_before, material::LIQUID_FULL, "test setup: a freshly painted water cell reads as full");
+        let water_before = w.organism(id).expect("alive").water;
+        absorb_water(&mut w, 60, 60, RATE);
+        let after = w.get(61, 60);
+        let fill_after = if after.material == material::WATER { update::liquid_fill(after) } else { 0 };
+        let credited = w.organism(id).expect("alive").water - water_before;
+        let taken = fill_before - fill_after;
+        println!(
+            "one drink: fill {fill_before} -> {fill_after} (took {taken}), water credited {credited:.2}, \
+{:.0} fill per unit of water (the soil arm's rate is {:.0})",
+            taken as f32 / credited.max(f32::EPSILON),
+            SOIL_UPTAKE_PER_TICK as f32 / RATE
+        );
+        assert!(credited > 0.0, "test setup: the root should have drunk something");
+        // The whole of §F3 in one line: what left the cell is what the
+        // plant got, at the engine's own soil-to-plant exchange rate.
+        let expected = credited / RATE * SOIL_UPTAKE_PER_TICK as f32;
+        assert!(
+            (taken as f32 - expected).abs() <= 1.0,
+            "the drink is not conserved: {taken} of fill left the cell for {credited:.2} of plant water, \
+where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of fill for 1.50 of water)"
+        );
+        assert!(
+            after.material == material::WATER,
+            "one drink emptied a full water cell; the remainder is being destroyed rather than left as partial fill"
+        );
+    }
+
     #[test]
     fn roots_consume_adjacent_water() {
         let mut w = test_world();
@@ -7790,6 +7997,173 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         let (ml, mh) = (mean(&lows), mean(&highs));
         println!("mean   {ml:>8.1}  {mh:>8.1}   {:>5.2}", mh / ml.max(1.0));
         println!("seeds where +1 beat -1 by the guard's 10%: {agree}/8");
+    }
+
+    /// **Does `break_root_tips` fire at all in this world — bug §A's own
+    /// named "measurement that would do it".**
+    ///
+    /// §A's third explanation is that main's field model raised uptake by
+    /// 67%, pushing the mean stomatal term from 0.90 to 0.96 and so over
+    /// `ROOT_REINITIATION_STATUS`, which shuts the root amplifier and
+    /// collapses the slot-1 spread. That is inferred from an aggregate
+    /// mean, and §A says so itself: "a mean can cross while the
+    /// distribution that matters does not. Counting the firings is a
+    /// `#[cfg(test)]` counter at `plant.rs:3017` and one paired run".
+    ///
+    /// This is that paired run. The two arms are the guard's own draws, so
+    /// the histogram is directly comparable to
+    /// `print_root_branch_slot_seed_sweep`'s root counts.
+    ///
+    /// **Run alone** — the counter is a process-global atomic, so a
+    /// concurrently-running test that grows a plant lands in this
+    /// histogram: `cargo test --release break_root_tip_firings --
+    /// --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn print_break_root_tip_firings_by_slot_draw() {
+        println!("draw   root  shoot |    calls    gated   at_cap  no_cand     poor    FIRED");
+        for draw in [-1.0f32, 1.0] {
+            let _ = take_root_tip_exits();
+            let (root, shoot) = root_slot_run(1, 1, draw, 12_000);
+            let e = take_root_tip_exits();
+            println!(
+                "{draw:>4.1} {root:>6} {shoot:>6} | {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                e[ROOT_TIP_CALLS], e[ROOT_TIP_GATED], e[ROOT_TIP_AT_CAP], e[ROOT_TIP_NO_CANDIDATE], e[ROOT_TIP_POOR], e[ROOT_TIP_FIRED]
+            );
+        }
+    }
+
+    /// **Bug §U's reproduction, with the counter beside it.**
+    ///
+    /// §U measured one bed over 12,000 frames with only the soil moisture
+    /// differing: nearly dry (aux 310) grew **982** cells and 428 wood
+    /// against field capacity's (620) **734** and 299. Drought made the
+    /// tree bigger, which inverts dendrochronology.
+    ///
+    /// Its unproven mechanism is this function: water stress *triggers*
+    /// root re-initiation, and nothing appears to throttle the carbon that
+    /// pays for it — "a compensation response with the penalty missing".
+    /// That is a claim about which exit dominates, so it is answerable by
+    /// counting rather than by arguing. `FIRED` high and `poor` near zero
+    /// on the dry arm is the missing penalty. `FIRED` equal on both arms
+    /// says the extra mass is not coming from here at all and §U's
+    /// candidate mechanism is wrong.
+    ///
+    /// Paired by construction — one scene, one seed, one number differing —
+    /// which is the comparison `CLAUDE.md` asks for over a run against a
+    /// remembered figure. Run alone, per the note on the probe above.
+    #[test]
+    #[ignore]
+    fn print_drought_grows_bigger_with_root_tip_counter() {
+        println!("bed      moisture  cells   wood   root  shoot |    calls    gated   at_cap  no_cand     poor    FIRED");
+        // **Both beds, because the bed is a candidate cause.** §U's figures
+        // (982 cells) are an order of magnitude under what the deep walled
+        // bed grows, so they were taken on the 17x8 `plant_tree_on_ground`
+        // scene. Running only the deep bed would answer a different
+        // question and read as "§U does not reproduce".
+        for shallow in [true, false] {
+            for moisture in [310u16, material::SOIL_FIELD_CAPACITY] {
+                let _ = take_root_tip_exits();
+                let (cells, wood, root, shoot) = drought_run(1, moisture, 12_000, shallow);
+                let e = take_root_tip_exits();
+                let bed = if shallow { "17x8   " } else { "61x30  " };
+                println!(
+                    "{bed} {moisture:>8} {cells:>6} {wood:>6} {root:>6} {shoot:>6} | {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                    e[ROOT_TIP_CALLS], e[ROOT_TIP_GATED], e[ROOT_TIP_AT_CAP], e[ROOT_TIP_NO_CANDIDATE], e[ROOT_TIP_POOR], e[ROOT_TIP_FIRED]
+                );
+            }
+        }
+    }
+
+    /// **§U's claim as an order statistic, not one run.** Eight seeds, the
+    /// bed §U's own cell counts point at, dry against field capacity.
+    ///
+    /// `CLAUDE.md`: "Compare two runs, not one run against a remembered
+    /// number" — and §U *is* a remembered number (982 against 734, one bed,
+    /// one seed, 2026-08-22). Twelve identical trees from one genome span
+    /// 31 to 153 cells here, so a single pairing cannot tell a claim about
+    /// the economy from a seed that reshuffled. The count of seeds on which
+    /// dry beats wet is the answer; a 4/8 is noise and an 8/8 is §U.
+    ///
+    /// Run alone, per the note on the firing probe above.
+    #[test]
+    #[ignore]
+    fn print_drought_size_seed_sweep() {
+        println!("seed   dry cells  wet cells   dry wood  wet wood   dry>wet?");
+        let (mut dry_bigger, mut wood_bigger) = (0usize, 0usize);
+        let (mut dc, mut wc, mut dw, mut ww) = (0f64, 0f64, 0f64, 0f64);
+        for seed in 1u64..=8 {
+            let (d_cells, d_wood, _, _) = drought_run(seed, 310, 12_000, true);
+            let (w_cells, w_wood, _, _) = drought_run(seed, material::SOIL_FIELD_CAPACITY, 12_000, true);
+            if d_cells > w_cells {
+                dry_bigger += 1;
+            }
+            if d_wood > w_wood {
+                wood_bigger += 1;
+            }
+            dc += d_cells as f64;
+            wc += w_cells as f64;
+            dw += d_wood as f64;
+            ww += w_wood as f64;
+            println!(
+                "{seed:>4}   {d_cells:>9}  {w_cells:>9}   {d_wood:>8}  {w_wood:>8}   {}",
+                if d_cells > w_cells { "YES (bug U)" } else { "no" }
+            );
+        }
+        println!("mean   {:>9.0}  {:>9.0}   {:>8.0}  {:>8.0}", dc / 8.0, wc / 8.0, dw / 8.0, ww / 8.0);
+        println!("seeds where drought grew a BIGGER plant: {dry_bigger}/8   more wood: {wood_bigger}/8");
+        println!("(bug U as filed predicts 8/8 on both. Real drought predicts 0/8 on wood.)");
+    }
+
+    /// A bed with the soil moisture as the free variable and the genome
+    /// left alone — §U's comparison. `shallow` picks
+    /// `plant_tree_on_ground`'s 17x8 bed (§U's own, by its cell counts)
+    /// over `root_slot_run`'s deep walled 61x30 one. Returns total cells,
+    /// wood cells, and the sidecar's own root/shoot split.
+    fn drought_run(seed: u64, moisture: u16, frames: usize, shallow: bool) -> (usize, usize, u32, u32) {
+        let mut w = test_world();
+        w.seed = seed;
+        let (x, y) = (100, 40);
+        if shallow {
+            plant_tree_on_ground_with_moisture(&mut w, x, y, moisture);
+        } else {
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const HALF: i32 = 30;
+            const ROWS: i32 = 30;
+            for fx in (x - HALF - 1)..=(x + HALF + 1) {
+                w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+            }
+            for dy in 1..=ROWS {
+                w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+                for fx in (x - HALF)..=(x + HALF) {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(moisture));
+                }
+            }
+            w.plant_tree(x, y);
+        }
+        let id = w.get(x, y).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+        run_with_fields(&mut w, frames);
+        let b = w.bounds().unwrap();
+        let (mut cells, mut wood) = (0usize, 0usize);
+        for cy in b.min_y..=b.max_y {
+            for cx in b.min_x..=b.max_x {
+                let c = w.get(cx, cy);
+                if c.organism_id() == 0 {
+                    continue;
+                }
+                cells += 1;
+                // Wood in §U's sense: the woody stem, not the root wood
+                // that `reinforces_powder` marks and not the foliage.
+                if !w.materials.get(c.material).reinforces_powder && organism::cell_type(c.aux()) != Some(CellType::Leaf) {
+                    wood += 1;
+                }
+            }
+        }
+        let state = w.organism(id);
+        let (root, shoot) = state.map_or((0, 0), |s| (s.root_cells, s.shoot_cells));
+        (cells, wood, root, shoot)
     }
 
     /// A deep, wide, walled soil bed — root branching needs somewhere to

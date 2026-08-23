@@ -580,6 +580,174 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         println!("  architecture events  [{}]", counters.join(", "));
     }
 
+    // **Can a number say what the owner's eye says? — §Z / review item C4.**
+    //
+    // The standing verdict on the stand is "everything has merged together
+    // into a big mass. I cannot identify individual trees", and the metric
+    // that reported success on the same picture was the widest unbroken run
+    // of plant cells: 39 against a 56-cell founder spacing, i.e. no row is
+    // continuous across two crowns. That number was correct and the
+    // conclusion drawn from it was wrong -- crowns interleave with one- and
+    // two-cell gaps, so every row breaks and the eye still reads one mass.
+    // A contiguous-run metric measures whether crowns *touch*; it cannot
+    // measure whether they are *distinguishable*.
+    //
+    // §Z names two candidates and neither had been built. Both are here,
+    // because they fail differently: components can merge through a single
+    // shared block, and a gap census cannot see a crown that is separate
+    // but hidden behind another.
+    //
+    // **Calibration, and it is the whole point.** These are not reported as
+    // good or bad; they are reported against the two answered cards. On the
+    // default 8-tree stand at the frame the absolute card was taken, a
+    // metric that tracks the eye must read *materially fewer than 8*. A
+    // metric that reports 8 has reproduced the contiguous-run failure and
+    // must be said so of, not tuned until it agrees.
+    {
+        // The field's own resolution (`field::FIELD_SCALE`), which is
+        // §Z's proposal: at cell resolution two crowns a single empty
+        // column apart are two components, and the eye does not see them
+        // that way.
+        const BLOCK: i32 = 8;
+        let ground = ground_y();
+        let (bw, bh) = ((width + BLOCK - 1) / BLOCK, (ground + BLOCK - 1) / BLOCK);
+        let mut foliage = vec![0u32; (bw * bh) as usize];
+        for y in 0..ground {
+            for x in 0..width {
+                let c = w.get(x, y);
+                if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(organism::CellType::Leaf) {
+                    foliage[((y / BLOCK) * bw + x / BLOCK) as usize] += 1;
+                }
+            }
+        }
+        // Threshold swept rather than chosen. One leaf in an 8x8 block is
+        // the literal reading of "at field resolution", and it is also the
+        // most fusible; if the count only drops below the founder count at
+        // a threshold nobody can justify, that is the metric failing and
+        // the sweep is what shows it.
+        let components = |min_leaves: u32| -> (usize, usize) {
+            let solid: Vec<bool> = foliage.iter().map(|&n| n >= min_leaves).collect();
+            let mut seen = vec![false; solid.len()];
+            let (mut n, mut largest) = (0usize, 0usize);
+            for start in 0..solid.len() {
+                if !solid[start] || seen[start] {
+                    continue;
+                }
+                n += 1;
+                let mut size = 0usize;
+                let mut stack = vec![start];
+                seen[start] = true;
+                while let Some(i) = stack.pop() {
+                    size += 1;
+                    let (bx, by) = ((i as i32) % bw, (i as i32) / bw);
+                    // 8-connected: a crown touching another only at a
+                    // corner is one mass to the eye, and 4-connectivity
+                    // would call it two.
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let (nx, ny) = (bx + dx, by + dy);
+                            if nx < 0 || ny < 0 || nx >= bw || ny >= bh {
+                                continue;
+                            }
+                            let j = (ny * bw + nx) as usize;
+                            if solid[j] && !seen[j] {
+                                seen[j] = true;
+                                stack.push(j);
+                            }
+                        }
+                    }
+                }
+                largest = largest.max(size);
+            }
+            (n, largest)
+        };
+        let blocks_with_any = foliage.iter().filter(|&&n| n > 0).count();
+        println!("\ndistinguishability (§Z / C4), {trees} founders planted:");
+        for t in [1u32, 2, 4, 8] {
+            let (n, largest) = components(t);
+            println!(
+                "  canopy components at field resolution, >= {t:>2} leaf/block: {n:>3}   largest holds {:>3}% of canopy blocks",
+                100 * largest / blocks_with_any.max(1)
+            );
+        }
+
+        // **The sky-gap census, §Z's other candidate.** A column counts as
+        // occupied if anything of any plant stands over the ground in it,
+        // so this asks the question the eye asks -- is there sky between
+        // those two trees -- rather than whether foliage happens to touch.
+        //
+        // Interior gaps only: the open world either side of the stand is
+        // not a gap between trees, and counting it would put a floor of two
+        // under every reading.
+        let occupied: Vec<bool> =
+            (0..width).map(|x| (0..ground).any(|y| w.get(x, y).organism_id() != 0)).collect();
+        let first = occupied.iter().position(|&o| o);
+        let last = occupied.iter().rposition(|&o| o);
+        let mut gaps: Vec<usize> = Vec::new();
+        if let (Some(a), Some(b)) = (first, last) {
+            let mut run = 0usize;
+            for &o in &occupied[a..=b] {
+                if o {
+                    if run > 0 {
+                        gaps.push(run);
+                    }
+                    run = 0;
+                } else {
+                    run += 1;
+                }
+            }
+        }
+        gaps.sort_unstable();
+        let spacing = width / (trees as i32 + 1);
+        println!(
+            "  interior sky gaps: {} (a fully separate stand of {trees} shows {}), widths {gaps:?}",
+            gaps.len(),
+            trees.saturating_sub(1)
+        );
+        println!(
+            "  founder spacing is {spacing} cells; gaps at least a quarter of it: {}",
+            gaps.iter().filter(|&&g| g as i32 * 4 >= spacing).count()
+        );
+        println!(
+            "  (calibration: the owner's absolute verdict on this stand was \"one big mass, I cannot identify\n   individual trees\", so a metric that tracks the eye must read well under {trees} here. See\n   Reports/open-bugs-handoff.md §Z.)"
+        );
+    }
+
+    // **Lineage turnover — the plan of record's Phase 0d, still unprinted
+    // until now.**
+    //
+    // `Reports/plant-evolution-design.md` §5: "the count of
+    // inherited-genome establishments per run is the plant equivalent of
+    // births-per-generation, and if it reads ~0 at 30k frames, every
+    // evolution claim at that horizon is about founders". A standing
+    // population count cannot answer that -- slots are reused, so a flat
+    // live count is equally consistent with a frozen stand and a fast
+    // cycle. Births and deaths are cumulative (`World::organism_turnover`)
+    // and separate them.
+    //
+    // Two different quantities, printed together because reading either
+    // alone has already misled once: **births** counts every seed that ever
+    // took a slot, most of which never grow; **establishments** counts the
+    // ones that reached a plant, which is what selection can act on.
+    {
+        let (born, died) = w.organism_turnover();
+        let (slots, live) = w.organism_slot_usage();
+        let per_k = |n: u64| 1_000.0 * n as f64 / frames.max(1) as f64;
+        println!(
+            "\nlineage turnover over {frames} frames: {born} born, {died} died ({:.2} and {:.2} per 1,000 frames); \
+{live} live in {slots} slots",
+            per_k(born),
+            per_k(died)
+        );
+        let descendants = per_organism.keys().filter(|id| w.organism_state(**id).is_some_and(|s| s.generation >= 1)).count();
+        let deepest = per_organism.keys().filter_map(|id| w.organism_state(*id).map(|s| s.generation)).max().unwrap_or(0);
+        println!(
+            "  established plants carrying an inherited genome: {descendants} of {} (deepest generation {deepest}) \
+-- at ~0 every claim from this run is about founders",
+            per_organism.len()
+        );
+    }
+
     println!("\n{} organism cells", cells.len());
 
     // Histogram before the dump: on a tree of any size the per-cell listing
