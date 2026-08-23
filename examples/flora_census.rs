@@ -164,7 +164,20 @@ fn main() {
                 format!("{n}: sown {s} est {e} cells {c}")
             })
             .collect();
-        println!("  seed {seed:>3}  gen {gen_ms:>6.0}ms  run {run_s:>6.1}s  {}", line.join(" | "));
+        // **The slot ceiling, printed rather than assumed.** Grass is the
+        // one sown species that breeds fast enough to matter to the 4,095
+        // organism-slot ceiling, and what happens past it is silent id
+        // corruption rather than a visible failure — a world at the ceiling
+        // and a world where nothing is breeding read identically in every
+        // other column of this line. `high-water` is the peak of
+        // concurrently-live organisms and `refused` the births the ceiling
+        // turned away; both are free from the allocator.
+        let (high_water, ceiling) = world.organism_slot_high_water();
+        let refused = world.organisms_refused();
+        println!(
+            "  seed {seed:>3}  gen {gen_ms:>6.0}ms  run {run_s:>6.1}s  slots {high_water}/{ceiling} refused {refused}  {}",
+            line.join(" | ")
+        );
     }
 
     // The order statistic, not the mean: outcomes here are chaotic in the
@@ -197,10 +210,17 @@ fn main() {
 /// answering it would set the thresholds wrong.
 fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32) {
     use pixel_physics::worldgen::column::Terrain;
+    use pixel_physics::worldgen::passes;
     let mut aridity: Vec<f32> = Vec::new();
     let mut elev: Vec<f32> = Vec::new();
     let mut depth: Vec<f32> = Vec::new();
     let mut table: Vec<f32> = Vec::new();
+    // **The woody sum, which is the fact the grass band is cut through.**
+    // Grass is the ground layer of open country, and "open" is not a species
+    // being absent — it is the whole woody preference summing low. Printed
+    // here, unclamped, because `life_scatter`'s own `budget` is
+    // `min(1.0, sum)` and that saturates across most of the world.
+    let mut woody: Vec<f32> = Vec::new();
     let (mut plantable, mut columns) = (0usize, 0usize);
     for seed in 1..=seeds as u64 {
         let mut world = World::new(Rect::new(0, 0, w, h));
@@ -226,6 +246,7 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
             elev.push(ch.elev);
             depth.push(plan.soil_depth as f32);
             table.push((plan.table_y - ground) as f32);
+            woody.push(passes::woody_budget(&passes::Site::new(ch.aridity, ch.elev, plan.soil_depth)));
         }
     }
     let q = |v: &mut Vec<f32>, name: &str| {
@@ -238,6 +259,7 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
     q(&mut elev, "elev");
     q(&mut depth, "soil_depth");
     q(&mut table, "table-below");
+    q(&mut woody, "woody-sum");
 }
 
 /// **How segregated the woody species actually are along the world.**

@@ -1,7 +1,8 @@
 # The World
 
 *Current as of: 2026-08-23. Updated when worldgen started sowing four
-woody species instead of one.*
+woody species instead of one, and again when grass joined them as a ground
+layer.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -256,8 +257,15 @@ made of three different things. **Wetland** is thickest, **arid** has none
 at all, and **flat** — the structural test bed — is deliberately empty so
 that nothing is standing on it.
 
-**Grass is not sown yet.** It exists and grows, but a world cannot start
-with it until grass can die of something — see `wiki/plants.md`.
+**Grass comes with a new world too, and it grows where the woody plants
+thin out.** It is a separate layer rather than a fifth kind of tree: the
+budget above is for the woody plants, and grass takes the ground between
+them. Where that ground is open — the dry margin, a thin skin of soil over
+rock, anywhere the country supports woody cover poorly — a sward comes up.
+Where the country carries forest, grass mostly does not, and what would
+happen to it there is the same thing that happens to it under a closed
+canopy: it is shaded out. A grass seed on sand does not come up at all,
+which is why a desert stays a desert.
 
 ## Worlds arrive settled
 

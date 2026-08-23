@@ -955,6 +955,107 @@ fn a_sown_woody_species_also_comes_up() {
     }
 }
 
+/// **Grass reaches the world, and comes up when it gets there.**
+///
+/// The grass half of A1, and it is a separate test from the woody sweep
+/// above rather than a fifth entry in [`WOODY`] for the same reason grass is
+/// a separate layer in `life_scatter`: it is sown off its own density knob,
+/// on the columns the woody loop declined, and its counts live on a
+/// different scale (median 24 a world against the woody 6-16). Folding it
+/// into the woody sweep would have meant one bar for two distributions, and
+/// the loose end of that bar is the species it was not set from.
+///
+/// **Measured over these sixteen worlds before the bars were set**: sown
+/// min 7, median 24, max 60, present in 16 of 16. Paired against `main` in
+/// the same session, all four woody species are bit-identical (conifer
+/// 2/6/27, creeper 2/12/23, shrub 1/6/25, tree 1/16/35 on both) — grass
+/// takes its columns from *moss*, whose median goes 20 to 19, which is the
+/// two ground layers competing for the same leftover ground and is the
+/// interaction to expect rather than a defect.
+///
+/// The sweep genuinely sweeps this rule: grass's per-world count runs 7 to
+/// 60 across these sixteen seeds, an 8.6x spread, so the order statistic is
+/// reading a procedure and not a fixed scene (`CLAUDE.md` — all eight
+/// acceptance scenes once stayed green through a change that made one world
+/// lose 26x more material, because `seed=` reached only two of them).
+#[test]
+fn grass_is_sown_across_a_seed_sweep() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut counts: Vec<usize> = Vec::new();
+    for seed in FLORA_SEEDS {
+        let mut world = World::new(Rect::new(0, 0, FLORA_BOUNDS.0, FLORA_BOUNDS.1));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        let (sown, _) = flora_census(&world);
+        counts.push(sown.get("grass").copied().unwrap_or(0));
+    }
+    let present = counts.iter().filter(|&&c| c > 0).count();
+    let mut v = counts.clone();
+    v.sort_unstable();
+    let median = v[v.len() / 2];
+    // One world may miss it outright, exactly as the woody sweep allows: the
+    // placement field is clustered by design and a world whose swards all
+    // fall in the sea is a real outcome.
+    assert!(
+        present >= FLORA_SEEDS.len() - 1,
+        "grass is missing from {} of {} generated worlds (counts {v:?})",
+        FLORA_SEEDS.len() - present,
+        FLORA_SEEDS.len()
+    );
+    // A third of the measured median of 24, so the bar has real headroom and
+    // still fails long before grass goes to zero.
+    assert!(median >= 8, "grass's median world holds only {median} (counts {v:?})");
+    // **And an upper bound, which the woody sweep has no equivalent of.**
+    // Grass is the one species that reproduces fast enough to matter to the
+    // 4,095 organism-slot ceiling, and the failure it walks into is silent id
+    // corruption rather than an ugly picture. This bar is a *sowing* bound at
+    // 2,047 columns and so only a proxy for that — it catches a density or
+    // band change that blankets the world, not a runaway seeding rate. The
+    // standing-organism high-water mark over a long run in the shipped world
+    // is the real measurement and lives in the report, not here, because it
+    // costs minutes rather than seconds.
+    assert!(median <= 72, "grass's median world holds {median} — three times the measured 24, so the sward is blanketing the world (counts {v:?})");
+}
+
+/// Grass is sown where it can actually come up.
+///
+/// The same claim `a_sown_woody_species_also_comes_up` makes, and it needs
+/// making separately for grass because grass's hazard is the opposite one.
+/// A woody species sown into country too dry for its germination bar is sown
+/// forever and comes up never; grass has the *lowest* bar of the five
+/// (`soil_water_threshold: 0.10`) so it germinates almost anywhere it lands
+/// — what kills it is **shade**, which P3 made live. So the rule that would
+/// fail here is sowing a sward under a closed canopy, and this is what says
+/// the weight's reading of the woody sum keeps it out from under one.
+///
+/// Pooled rather than per seed, for the same reason: per world the numbers
+/// are single digits and a rate over a handful of plants is noise. Measured
+/// pooled over these eight worlds at 300 frames: 76 of 79 sown came up.
+#[test]
+fn sown_grass_also_comes_up() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut pooled_sown, mut pooled_up) = (0usize, 0usize);
+    for seed in FLORA_SEEDS.iter().take(8) {
+        let mut world = World::new(Rect::new(0, 0, 1023, 383));
+        worldgen::generate(&mut world, Spec::Generated { params, seed: *seed });
+        for _ in 0..300 {
+            step(&mut world);
+        }
+        let (sown, up) = flora_census(&world);
+        pooled_sown += sown.get("grass").copied().unwrap_or(0);
+        pooled_up += up.get("grass").copied().unwrap_or(0);
+    }
+    assert!(pooled_up >= 20, "grass established {pooled_up} plants across the whole sweep ({pooled_sown} sown)");
+    // Half, against a measured 0.96. Grass that is sown and mostly fails to
+    // come up is being sown under a canopy, which is a weight bug wearing a
+    // rarity costume.
+    assert!(
+        pooled_up as f32 / pooled_sown.max(1) as f32 >= 0.5,
+        "grass germinated {pooled_up} of {pooled_sown} sown — it is being sown where it cannot come up"
+    );
+}
+
 #[test]
 fn planted_life_is_clustered_rather_than_evenly_spaced() {
     // The claim the squared cluster field exists to make. Evenly spaced
