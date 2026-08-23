@@ -1168,7 +1168,7 @@ fn diet_sweep(seeds: u64, frames: usize) {
         println!();
     }
     println!("[separation] two cohorts, plant food west / meat east, |mean x(A) - mean x(B)| over the last quarter");
-    println!("{:>12} {:>10} {:>10} {:>16} {:>14}", "cohorts", "mean", "min..max", "placed A+B (min)", "food W+E (min)");
+    println!("{:>12} {:>10} {:>10} {:>16} {:>14} {:>14}", "cohorts", "mean", "min..max", "placed A+B (min)", "food W+E (min)", "both-alive (min)");
     for &(a, b) in &[(-0.8f32, 0.8f32), (0.0, 0.0)] {
         let runs: Vec<SeparationRun> = std::thread::scope(|scope| {
             let handles: Vec<_> = (0..seeds).map(|s| scope.spawn(move || diet_separation(a, b, frames, BASE_SEED + s))).collect();
@@ -1181,7 +1181,12 @@ fn diet_sweep(seeds: u64, frames: usize) {
         let pb = runs.iter().map(|r| r.placed_b).min().unwrap_or(0);
         let fw = runs.iter().map(|r| r.litter_seeded).min().unwrap_or(0);
         let fe = runs.iter().map(|r| r.corpse_seeded).min().unwrap_or(0);
-        println!("{:>5.1}/{:<5.1} {mean:>10.1} {:>4.1}..{:<4.1} {:>10}+{:<5} {:>8}+{:<5}", a, b, sep[0], sep[sep.len() - 1], pa, pb, fw, fe);
+        // A zero here means the mean above is not a separation at all --
+        // see `SeparationRun::samples`.
+        let ns = runs.iter().map(|r| r.samples).min().unwrap_or(0);
+        let hi = sep.last().copied().unwrap_or(0.0);
+        let lo = sep.first().copied().unwrap_or(0.0);
+        println!("{:>5.1}/{:<5.1} {mean:>10.1} {:>4.1}..{:<4.1} {:>10}+{:<5} {:>8}+{:<5} {ns:>14}", a, b, lo, hi, pa, pb, fw, fe);
     }
 }
 
@@ -1242,6 +1247,14 @@ fn diet_one(bias: f32, carrion: bool, frames: usize, seed: u64) -> (Sample, usiz
 /// counts is how a spawn-layout number gets quoted under the wrong label.
 struct SeparationRun {
     separation: f32,
+    /// **How many samples actually had both cohorts alive at once.** Without
+    /// it `separation` is unreadable at 0.0: a run where the cohorts mixed
+    /// perfectly and a run where one cohort starved before the sampling
+    /// window opened both divide by `max(1)` and both print `0.0` -- and
+    /// 0.0 is exactly what the both-at-0 null arm is supposed to show, so
+    /// the failure wears the success's face. `placed_a`/`placed_b` cannot
+    /// catch it: they are counted at spawn and never fall.
+    samples: usize,
     placed_a: usize,
     placed_b: usize,
     litter_seeded: usize,
@@ -1313,6 +1326,7 @@ fn diet_separation(bias_a: f32, bias_b: f32, frames: usize, seed: u64) -> Separa
     }
     SeparationRun {
         separation: (sep_sum / sep_n.max(1.0)) as f32,
+        samples: sep_n as usize,
         placed_a: cohorts[0].len(),
         placed_b: cohorts[1].len(),
         litter_seeded,
