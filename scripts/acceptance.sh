@@ -391,6 +391,36 @@ run wood     scene=wood     start=6600 every=1 count=1 crop=0,140,512,180 zoom=2
 #     this bar was moved for. See `Tuning::shoulder_grains`.
 run woodalt  scene=wood     frame0=3600 start=6600 every=1 count=1 crop=0,140,512,180 zoom=2 min_travelled=40 repeat=1
 
+# 9. A chopped tree comes down.
+#
+#    The verb, gated on its own counter. Nothing else in `FailureCounts`
+#    moves when a crown is severed -- the organism structural path records
+#    neither `overloaded` nor `unsupported` -- so `min_failing_cells` and
+#    `min_overloaded` both read **zero** through a run that took an entire
+#    tree apart, and this case would have passed every bar in the file
+#    while guarding nothing. `min_severed` is the number that says whether
+#    the mechanism fired.
+#
+#    Measured 2,362 cells severed at frame 6,000 with `fell=`'s six bites;
+#    the bar is 1,000, well under it, and the failure it guards is the one
+#    that was live until this branch: **0**, a trunk cut through and a
+#    canopy left standing in the air, still growing.
+#
+#    `fell=` rather than a typed `chop=`, deliberately: it takes its aim
+#    from the tree that is actually there, so this case does not silently
+#    become a sheet of an untouched tree the first time anything moves the
+#    bole.
+#
+#    **One individual, and it cannot sweep.** `CLAUDE.md` asks a guard over
+#    procedural content to gate an order statistic over seeds; `seed=` does
+#    not reach `PlantScene`, so `scene=fell` grows the same tree from
+#    `DEFAULT_WORLD_SEED` every time and there is no procedure here to
+#    sweep. The mechanism-level guards are the `rigid.rs` unit tests
+#    (`a_blow_cuts_living_wood` and its neighbours), which are hand-placed
+#    and seed-free; this case guards the whole pipeline end to end on the
+#    one individual it has. Recorded rather than papered over.
+run fell     scene=fell     fell=6000 start=6000 every=25 count=4 crop=190,110,140,110 zoom=2 min_severed=1000 repeat=1
+
 echo
 if [ "$fails" -gt 0 ]; then
   echo "acceptance: $fails case(s) FAILED -- images in $OUT"

@@ -164,6 +164,111 @@ and the chisel cannot damage a tree at all, and the explosion remains the
 only tree-damaging verb. That half is a change to the dig verbs, not to
 what records a disturbance.
 
+**The dig-verb half, LANDED 2026-08-23, lane S package S1
+(`claude/s1-felling-instrument`)** — the "still open, untouched" paragraph
+directly above is what this closes. Written after that branch merged the
+playtest-defaults line; the two were built in parallel and the licence half
+above is that line's, not this one's.
+
+*What was actually wrong, and it is not what the top of this entry says.*
+The `organism_id() != 0` tests this entry names were **not load-bearing**.
+Removing them changed nothing at all, measured: four `strike` blows across a
+26-cell bole took **0 cells** and left every counter at zero.
+`rigid::is_body_material` — the predicate one line earlier in the same
+condition — is `MaterialKind::Solid` alone, and `wood` is `Plant`, so no
+organism cell ever reached the organism test. Two gates, one visible in this
+report and one not, and only the invisible one mattered. `CLAUDE.md`'s "a
+change that moves *nothing* is different evidence from one that moves a
+little", read the right way round.
+
+The fix is `rigid::is_tool_target`, a second predicate (`Solid | Plant`,
+still excluding bedrock) used by `strike` and `mine_swept` only.
+`is_body_material` keeps its meaning for `label_component` and
+`trace_contours`, which answer "what piece of *rock* is this" for the M8 body
+pipeline — widening it there would change what a component is on every scene
+in the engine to fix two verbs. Guards: `rigid.rs`'s `tool_target_tests`,
+confirmed to fail against the pre-fix predicate.
+
+*Measured, `scene=fell fell=6000` (new instrument, at SPREAD):* six bites
+sever the bole, the axe itself takes 134 cells of living tissue and throws 6
+bodies (67 cells), then `plant::anchor_support` declares the crown unreached
+and **2,360 cells** are severed by the support check. Standing living tissue
+2,906 → 409 (roots and stump). Both drivers agree: 2,360 parallel, 2,363
+serial. Before the branch the identical cut left the crown standing and
+*growing* — 2,823 → 2,911 over the next 210 frames, with every counter in
+`FailureCounts` at zero. **These numbers predate `TIGHT` becoming the
+default and must be re-read at the shipped setting** before anything is
+concluded from them.
+
+*New instrument.* `filmstrip scene=fell` (one tree, fixed trunk x, room to
+fall), `fell=frame[,radius[,force]]` (chop through the subject's own thinnest
+bole row, wherever it is — seed- and age-independent, and the knob lane P's
+resprout work wants), `chop=x,y,r,force,frame` (a hand-aimed `strike`),
+`min_severed=N` (the acceptance bar), and a three-line felling census under
+every tile: standing tissue split shoot/root, where the bole is and what a
+cut through it costs, detached-and-still-standing cells, the furthest finite
+support distance, deadwood and litter, and how many body cells are plant
+material. `FailureCounts::severed_organism_cells` is the new "did it fire"
+counter — nothing else in that struct moves when a crown comes down, so
+`min_failing_cells` reads zero through a run that dismantles a whole tree.
+`scripts/acceptance.sh`'s `fell` case gates it.
+
+**The owner's verdict on the result, and it redirects the line.** The GIF
+went out as review card `20260823T092247531Z-a33d82` (board `felling`);
+the answer was *"It reads as a tree disintegrating into dust. I am wondering
+if we should take a step back and plan something more ambitious. Eventually I
+would want trees to be physical in the world, be able to sway in the wind,
+have branches break off if a rock falls on it. We need a more real physical
+and partially rigid modeling."*
+
+So **D3 as scoped (fix the fragment ladder) is on hold** pending a design
+round on partially-rigid trees. What the instrument found that bears on that
+design, recorded here because it is measurement and not opinion:
+
+1. **The engine has two representations of matter and neither is partially
+   rigid** — a cell welded to the grid (infinitely stiff, no pose) or a
+   `ChunkBody` (free, no attachment, no hinge). `BodyCell` is
+   `{dx, dy, material, shade}`; identity is lost at promotion. The dust is
+   that gap, not a separate defect: the only available transition is
+   welded → gone, and `break_free` takes it one cell at a time.
+2. **A skeleton is already computed every organism tick and nothing reads it
+   as pose** — `plant::anchor_support` (Dijkstra from the root anchors) and
+   `plant::accumulate_support` (basipetal parent ordering). Both answer only
+   yes/no support questions.
+3. **`ChunkBody` cannot express a hinge, and it is a redesign not a
+   constant** — `spin` accrues from *speed*, so a just-cut trunk has none;
+   rotation is quarter-turn snaps gated on the turned shape fitting.
+   `felling-blockers.md` §2 said this before the instrument existed and the
+   instrument confirms it.
+4. **Half of "a rock lands on a branch" already exists** —
+   `structural::supported_load` already counts material resting on organism
+   tissue and shortens the allowable span. What is missing is that the
+   failure emits powder instead of a limb.
+
+**Also left:** `rigid::loosen_shell` still declines organism cells (the third
+of the three skips at the top of this entry), so a blast rim throws no wood.
+Left deliberately — it is the same promote-an-organism-cell decision the
+design round owns.
+
+*Measured across `F9` after merging the playtest-defaults line, and it took a
+harness bug out with it.* `scene=fell fell=6000`, cells severed by the
+support check: **SPREAD 2,360 / LOCAL 2,333 / TIGHT 1,108 / NONE 0** (standing
+tissue 407 / 445 / 1,712 / 2,836). At TIGHT half the crown comes down and the
+top stays in the air; at NONE the cut trunk holds its whole canopy. Both are
+the leash doing what it says, and both are now in `wiki/plants.md`.
+
+The first attempt at that table read **byte-identical at all three settings**,
+which is `CLAUDE.md`'s own tell that a knob was never connected — and it was
+not. `filmstrip`'s `build()` applied `chain_reach=`, `confine=`, `arch=`,
+`share=`, `joints=` and `bands=` to a world that **five scenes then throw
+away**: `grove`, `wood`, `climb`, `shake` and `fell` all construct through
+`common::PlantScene` and `return` its world. Every one of those knobs was
+silently inert on all five. Fixed by splitting `build_scene` out and
+re-applying the settings to the world that is actually returned — idempotent
+for the scenes that already worked. **Lane P and lane W should know**: any
+`grove`/`wood`/`climb`/`shake` measurement that varied one of those six
+arguments before this commit varied nothing.
+
 ### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
 
 `c089aa2` reshaped what a failing region is (boundary erosion, fragments

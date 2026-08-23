@@ -1,10 +1,13 @@
 # Structural Collapse
 
-*Current as of: 2026-08-23 (a wall now carries its roof through all of its
-thickness rather than down the one column the load happened to land on, so
-damaging a wall anywhere across it counts where before only one hidden line
-did -- though on the rooms tested this changes the arithmetic more than it
-changes what you see; rock submerged in water sinks
+*Current as of: 2026-08-23 (the brush and fire now license collapses the
+way a blow does — see the last section — and the pick and chisel can cut
+living wood, for which see `plants.md`; and a wall now carries its roof
+through all of its thickness rather than down the one column the load
+happened to land on, so damaging a wall anywhere across it counts where
+before only one hidden line did -- though on the rooms tested this changes
+the arithmetic more than it changes what you see). Before those, 2026-08-22
+(rock submerged in water sinks
 rather than hanging, and reaches the bottom as rock rather than as grit;
 how fast it sinks now depends on how big the piece is, so a slab leads and
 grit trails; so does rock left in steam or standing on debris that has
@@ -329,6 +332,17 @@ already started: switching to a tighter setting mid-cave-in stops the rest
 of it arriving, rather than only affecting the next one. And it applies to
 trees, which previously ignored it entirely — a blast could take a limb off
 a tree fifty cells away at any setting, including NONE.
+
+**And every verb now reports itself, which two of them did not.** The
+setting works by asking "was anything actually disturbed near here" — so a
+tool that destroys something without saying so leaves the answer *no*, and
+at LOCAL, TIGHT and NONE nothing near it is ever allowed to fall. Two tools
+were silent: the brush and fire. Erasing a pillar left the roof floating,
+and a trunk that burned away left its crown standing in the air as living
+wood. Both now report the damage they do, so at every setting a hole you
+made and a hole a fire made have the same consequences a struck hole
+already had. At SPREAD — the default — none of this changes anything,
+because at SPREAD everything is licensed anyway.
 
 The whole range is one number, so it is worth trying the ends rather than
 reasoning about them. Note what the tighter settings cost, and there are

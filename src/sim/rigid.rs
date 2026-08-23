@@ -267,6 +267,36 @@ fn is_body_material(world: &World, x: i32, y: i32) -> bool {
     world.materials.kind(material) == MaterialKind::Solid && material != material::BEDROCK
 }
 
+/// What a hand tool may cut: `is_body_material` **plus `Plant`**.
+///
+/// # Why this is a second predicate and not a widened first one
+///
+/// `is_body_material` above is `Solid` alone, and that is the real reason
+/// the pick and the chisel could not touch a tree -- not the
+/// `organism_id() != 0` tests that used to sit beside it in `strike` and
+/// `mine_swept` and that `open-bugs-handoff.md` §D1 names. Removing those
+/// changed nothing at all, measured: four blows across a 26-cell bole took
+/// **0 cells** and left every counter at zero, because `wood` is
+/// `MaterialKind::Plant` and never reached the organism test at all. Two
+/// gates, one visible in the report and one not, and only the invisible one
+/// was load-bearing -- `CLAUDE.md`'s "a change that moves *nothing* is
+/// different evidence from one that moves a little", read the right way
+/// round for once.
+///
+/// It stays separate because `is_body_material`'s other callers are
+/// `label_component` and `trace_contours`, which answer "what piece of
+/// *rock* is this" for the M8 body pipeline. Widening it there would change
+/// what a component *is* on every scene in the engine to fix two verbs.
+///
+/// `structural::is_body_material` -- the structural system's own, `Solid |
+/// Plant` since architecture item 9 -- is the one this now agrees with, and
+/// that agreement is the point: a trunk is exactly as capable of being cut
+/// as a stone span is of being undercut.
+fn is_tool_target(world: &World, x: i32, y: i32) -> bool {
+    let material = world.get(x, y).material;
+    matches!(world.materials.kind(material), MaterialKind::Solid | MaterialKind::Plant) && material != material::BEDROCK
+}
+
 /// A point in grid-corner space: cell `(x, y)` occupies the unit square
 /// from corner `(x, y)` to `(x + 1, y + 1)`.
 pub type Point = (i32, i32);
@@ -1174,7 +1204,18 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
             if distance2_to_segment((x, y), from, to) > radius * radius || !world.in_bounds(x, y) {
                 continue;
             }
-            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+            // **Living tissue is cut like anything else.** This used to
+            // read `|| world.get(x, y).organism_id() != 0`, which meant the
+            // chisel could not touch a tree at all: a gnome could bore
+            // through granite and not through a sapling
+            // (`open-bugs-handoff.md` §D1). The exclusion was defensive --
+            // an organism cell's `aux` is a cell-type tag, not a structural
+            // distance -- and nothing here reads `aux`. `shatter_to_rubble`
+            // goes through `World::set`, which unregisters the cell from
+            // its organism on the way, and `plant::anchor_support` then
+            // re-walks the plant from its anchors on the organism's next
+            // tick and finds whatever the cut severed unreached.
+            if !is_tool_target(world, x, y) {
                 continue;
             }
             shatter_to_rubble(world, x, y); // the cut itself: material, not vacuum
@@ -1324,7 +1365,12 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
             if d2 > chip * chip || !world.in_bounds(x, y) {
                 continue;
             }
-            if !is_body_material(world, x, y) || world.get(x, y).organism_id() != 0 {
+            // Living tissue too -- see `mine_swept`'s note on why the
+            // `organism_id() != 0` exclusion that used to be here went.
+            // This is the axe: without it the pick could break a mountain
+            // and not a twig, and `design-philosophy.md` §0a's "no verb
+            // behind the effect" applied to every plant in the world.
+            if !is_tool_target(world, x, y) {
                 continue;
             }
             if d2 <= core * core {
@@ -4373,5 +4419,137 @@ mod tests {
             rotation_fits(&w, &body, shape_of(&w, &body)),
             "with the slot opened above and below, the turned bar fits and the probe should say so"
         );
+    }
+}
+
+/// Guards for `is_tool_target` — that a hand tool reaches living tissue,
+/// and that it still reaches rock the way it always did.
+///
+/// Written as unit fixtures rather than as another `scene=fell` bar for
+/// `CLAUDE.md`'s guard rule: a plant grown from `DEFAULT_WORLD_SEED` is one
+/// individual and cannot be swept, and the thing being guarded here is a
+/// *predicate*, which hand-placed cells test exactly. `scripts/
+/// acceptance.sh`'s `fell` case guards the pipeline these sit under.
+#[cfg(test)]
+mod tool_target_tests {
+    use super::*;
+    use crate::sim::cell::Cell;
+    use crate::sim::chunk::Rect;
+    use crate::sim::material;
+
+    /// A block of `wood` with a floor under it. `organism_id` is set on the
+    /// wood so the cells are living tissue rather than the inert
+    /// hand-painted wood `structural.rs`'s burning-tree test uses — which
+    /// `Reports/felling-blockers.md` §1 names as a superseded test that has
+    /// never once exercised the organism branch.
+    fn wood_block(organism_id: u16) -> World {
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
+        for x in 0..64 {
+            for y in 60..64 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+        for x in 24..40 {
+            for y in 40..60 {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(organism_id));
+            }
+        }
+        w
+    }
+
+    fn wood_cells(w: &World) -> usize {
+        let wood = w.materials.id_of("wood").expect("wood");
+        (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == wood).count()
+    }
+
+    /// **The D2 guard.** A blow on a living trunk has to remove living
+    /// trunk. Until `is_tool_target` existed this took exactly zero cells:
+    /// `is_body_material` is `Solid` alone and `wood` is `Plant`, so the
+    /// whole chip zone was skipped before the `organism_id` test the bug
+    /// report named was ever reached.
+    #[test]
+    fn a_blow_cuts_living_wood() {
+        let mut w = wood_block(7);
+        let before = wood_cells(&w);
+        strike(&mut w, 32, 50, 5, 6.0);
+        let after = wood_cells(&w);
+        assert!(after < before, "a blow on living wood took nothing: {before} cells before, {after} after");
+    }
+
+    /// The same blow on the same geometry with no organism owning it.
+    /// Paired with the test above rather than asserted alone, because the
+    /// pair is what says the predicate keys on *material kind* and not on
+    /// ownership -- and a single-arm assertion would pass just as happily
+    /// against a rule that had merely swapped which half it excluded.
+    #[test]
+    fn a_blow_cuts_inert_wood_too() {
+        let mut w = wood_block(0);
+        let before = wood_cells(&w);
+        strike(&mut w, 32, 50, 5, 6.0);
+        assert!(wood_cells(&w) < before, "a blow on hand-painted wood took nothing");
+    }
+
+    /// The chisel, which had the identical gate one function along.
+    #[test]
+    fn a_chisel_bores_through_living_wood() {
+        let mut w = wood_block(7);
+        let before = wood_cells(&w);
+        let dusted = mine(&mut w, 32, 50, 4, 0.5);
+        assert!(wood_cells(&w) < before, "a chisel bit on living wood took nothing");
+        assert!(dusted > 0, "a dig at yield 0.5 removed no volume at all");
+    }
+
+    /// Bedrock stays exempt. `is_tool_target` widened the *kind* test and
+    /// must not have widened the bedrock exclusion with it -- the world's
+    /// boundary wall is not a thing a player may cut free, and
+    /// `is_body_material`'s own doc records what happens when a flood fill
+    /// reaches it.
+    #[test]
+    fn a_blow_does_not_cut_bedrock() {
+        let mut w = wood_block(7);
+        let floor: usize =
+            (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::BEDROCK).count();
+        strike(&mut w, 32, 62, 6, 8.0);
+        let after: usize =
+            (0..64).flat_map(|x| (0..64).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == material::BEDROCK).count();
+        assert_eq!(floor, after, "a blow cut into bedrock");
+    }
+
+    /// **The other half of §D1**: the brush was the one destructive verb
+    /// the leash could not see, so at LOCAL/TIGHT/NONE erasing a trunk
+    /// licensed nothing and the crown stayed up. Asserts the disturbance
+    /// exists and that it actually covers the wound, which is the part an
+    /// extent of zero would silently get wrong.
+    #[test]
+    fn erasing_with_the_brush_records_a_disturbance() {
+        let mut w = wood_block(7);
+        w.chain_reach = 8;
+        assert!(!w.within_disturbance(32, 50), "nothing has been disturbed yet");
+        w.paint_capsule((28, 50), (36, 50), 2, material::EMPTY, 1.0);
+        assert!(w.within_disturbance(32, 50), "an erase through living wood recorded no disturbance");
+        assert!(w.within_disturbance(36, 50), "the disturbance does not cover the far end of its own stroke");
+    }
+
+    /// Painting is not destruction, but it does change what holds what up,
+    /// and the disturbance is what licenses the re-evaluation. Kept as its
+    /// own case so a later change that narrows the record to erases only
+    /// has to be a deliberate one.
+    #[test]
+    fn painting_structure_records_a_disturbance_too() {
+        let mut w = wood_block(0);
+        w.chain_reach = 8;
+        w.paint_capsule((10, 50), (10, 50), 2, material::STONE, 1.0);
+        assert!(w.within_disturbance(10, 50), "painting stone recorded no disturbance");
+    }
+
+    /// A stroke over open air is not a disturbance and must not evict a
+    /// real one from the sixteen-entry ring.
+    #[test]
+    fn a_stroke_that_changes_no_structure_records_nothing() {
+        let mut w = wood_block(0);
+        w.chain_reach = 8;
+        w.paint_capsule((2, 2), (6, 2), 2, material::EMPTY, 1.0);
+        assert!(!w.within_disturbance(4, 2), "erasing empty sky recorded a disturbance");
     }
 }
