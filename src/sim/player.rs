@@ -143,6 +143,53 @@ pub struct Tuning {
     /// Horizontal speed multiplier while any powder overlaps him. Slogging
     /// through a drift should cost something, or wading is only a visual.
     pub wade_slowdown: f32,
+    /// How much loose powder **in any one row** above the wade line he
+    /// shoulders past instead of stopping against, in cells.
+    ///
+    /// **This exists because scattered grains were a wall.** `wade_rows`
+    /// says powder may reach his knees and no higher, which is the right
+    /// claim about walking into a *drift* and the wrong one about the
+    /// stray grains a forest floor, a dug tunnel or a splash leaves lodged
+    /// in a canopy. Measured in `scene=wood`: first a single `soil` cell
+    /// at (108,194) held him for eleven thousand frames, and behind it a
+    /// scatter of four to seven more, spread one and two to a row over
+    /// (112..116, 180..187). None of them is an obstacle; together they
+    /// were a fence.
+    ///
+    /// **Per row, not per rect, and the distinction is the whole fix.** A
+    /// drift is made of *courses* — its face fills rows across his whole
+    /// width — while a scatter is one or two cells in each of several
+    /// rows. A rect-wide total cannot tell seven scattered grains from one
+    /// full course of seven, so it has to be set below a course to keep a
+    /// drift solid, which leaves it too small to clear a scatter; measured
+    /// that way the gnome got 98 cells through the wood at 0 and 103 at 6.
+    /// Counting per row separates them cleanly at every setting, which is
+    /// why the panel's whole range is safe: at 6 a full course of 7 still
+    /// stops him, so `he_sinks_into_a_deep_drift_but_only_to_the_knee`
+    /// holds however this is tuned.
+    ///
+    /// **4 from a sweep, not from taste**, over six start frames of
+    /// `scene=wood` (the stand takes no seed, so the frame window is the
+    /// axis that redraws it). Cells travelled, min and median across the
+    /// six:
+    ///
+    /// | allowance | min | median |
+    /// |---|---|---|
+    /// | 0 (the old veto) | 1 | 44 |
+    /// | 2 | 44 | 93 |
+    /// | 3 | 49 | 94 |
+    /// | **4** | **50** | **161** |
+    /// | 5 | 51 | 166 |
+    /// | 6 | 47 | 47 |
+    ///
+    /// 6 is a cliff, not a plateau's end: one short of a full course, he
+    /// sinks into the forest floor instead of walking over it and does
+    /// worse than the veto. 4 and 5 are indistinguishable on the worst
+    /// case, so 4 takes the one with two steps of margin from that edge
+    /// rather than one.
+    ///
+    /// 0 restores the old veto exactly, for A/B.
+    pub shoulder_grains: u8,
     /// Vertical acceleration in water, as a multiple of `gravity`.
     /// Negative: he is lighter than water and rises. -0.3 rises slowly
     /// enough to read as floating up rather than as a balloon.
@@ -241,6 +288,7 @@ impl Default for Tuning {
             dig_cooldown: 8,
             wade_rows: 4,
             wade_slowdown: 0.4,
+            shoulder_grains: 4,
             buoyancy: 0.18,
             swim_damp: 0.84,
             stroke_impulse: 1.3,
@@ -798,8 +846,8 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
 }
 
 /// Whether the rectangle with top-left `(x, y)` is somewhere the gnome may
-/// stand: no hard blocker anywhere in it, and loose powder only in the
-/// bottom `wade` rows.
+/// stand: no hard blocker anywhere in it, and above the bottom `wade` rows
+/// no row holding more than `shoulder` cells of loose powder.
 ///
 /// That second clause is the wade. Allowing powder at the feet and not at
 /// the chest is what makes him sink into a drift to about the knee and
@@ -807,13 +855,31 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
 /// through it as if it were air. It is also, deliberately, the same
 /// predicate `depenetrate` uses, so sand arriving around his boots is not
 /// treated as an invasion needing a shove — only sand up to his chest is.
-fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32) -> bool {
+///
+/// **The chest test is per row, and it counts rather than vetoing.** The
+/// veto read "any powder above the knee is a wall" — a claim about a drift
+/// applied to individual cells, under which one stray `soil` grain lodged
+/// in a canopy stopped the gnome dead for eleven thousand frames of
+/// `scene=wood`. Step-up could not save him either: lifting slides the
+/// offending cell *down* his body toward the wade rows, so a grain at
+/// chest height wants a lift of `chest - dy`, one more than `step_up`
+/// reaches at exactly the height that grain sat. A drift's face fills
+/// whole courses across his width and still stops him at any setting of
+/// the allowance; see `Tuning::shoulder_grains` for why the row is the
+/// right unit and the rect is not.
+fn rect_free(world: &World, bodies: &Bodies, x: i32, y: i32, wade: i32, shoulder: i32) -> bool {
     let chest = PLAYER_HEIGHT - wade;
     for dy in 0..PLAYER_HEIGHT {
+        let mut grains = 0;
         for dx in 0..PLAYER_WIDTH {
             match footing(world, bodies, x + dx, y + dy) {
                 Footing::Hard => return false,
-                Footing::Soft if dy < chest => return false,
+                Footing::Soft if dy < chest => {
+                    grains += 1;
+                    if grains > shoulder {
+                        return false;
+                    }
+                }
                 _ => {}
             }
         }
@@ -828,6 +894,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         return;
     };
     let wade = tuning.wade_rows as i32;
+    let shoulder = tuning.shoulder_grains as i32;
     // Body cells near him, once. The margin covers this tick's whole
     // sweep — the furthest he can travel plus the depenetration reach —
     // so the window is gathered before he moves and is still valid after.
@@ -840,7 +907,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // on us. Shortest clear push wins; up is tried first at each distance
     // because material arrives from above, and "on top of the pile" is
     // the right place to end up.
-    depenetrate(world, &bodies, &mut p, wade);
+    depenetrate(world, &bodies, &mut p, wade, shoulder);
 
     if p.buried {
         // Entombed: no movement, no jump, velocities dead. Coyote and the
@@ -1141,7 +1208,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_x != 0.0 {
             let next_x = p.x + step_x;
             let (nxi, nyi) = (next_x.round() as i32, p.y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade) {
+            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
                 p.x = next_x;
             } else {
                 // Lift the same horizontal move over whatever blocked it,
@@ -1183,7 +1250,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
                 };
                 let mut climbed = false;
                 for lift in 1..=lift_limit {
-                    if !rect_free(world, &bodies, nxi, nyi - lift, wade) {
+                    if !rect_free(world, &bodies, nxi, nyi - lift, wade, shoulder) {
                         continue;
                     }
                     if mantling {
@@ -1212,7 +1279,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         if step_y != 0.0 {
             let next_y = p.y + step_y;
             let (nxi, nyi) = (p.x.round() as i32, next_y.round() as i32);
-            if rect_free(world, &bodies, nxi, nyi, wade) {
+            if rect_free(world, &bodies, nxi, nyi, wade, shoulder) {
                 p.y = next_y;
             } else {
                 // Landing or head bonk: the vertical axis dies, the
@@ -1278,7 +1345,7 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
             // ahead it was already further than this window reaches. He
             // then spent the whole collapse in free fall beside it.
             let catchable = world.chunk_bodies.get(i).is_some_and(|b| b.vy >= 0.0);
-            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade) {
+            if catchable && rect_free(world, &bodies, xi, row - PLAYER_HEIGHT, wade, shoulder) {
                 p.y = (row - PLAYER_HEIGHT) as f32;
                 p.grounded = true;
                 carrier = Some(i);
@@ -1935,15 +2002,15 @@ fn inside_player(p: &Player, x: i32, y: i32) -> bool {
 /// each distance (see `step`'s call-site comment), then sideways, then
 /// down — down last because being squeezed downward through a floor gap
 /// is the least expected outcome of being landed on.
-fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32) {
+fn depenetrate(world: &World, bodies: &Bodies, p: &mut Player, wade: i32, shoulder: i32) {
     let (xi, yi) = p.rect_origin();
-    if rect_free(world, bodies, xi, yi, wade) {
+    if rect_free(world, bodies, xi, yi, wade, shoulder) {
         p.buried = false;
         return;
     }
     for d in 1..=DEPENETRATE_REACH {
         for (dx, dy) in [(0, -d), (-d, 0), (d, 0), (0, d)] {
-            if rect_free(world, bodies, xi + dx, yi + dy, wade) {
+            if rect_free(world, bodies, xi + dx, yi + dy, wade, shoulder) {
                 p.x += dx as f32;
                 p.y += dy as f32;
                 p.buried = false;
@@ -2107,7 +2174,11 @@ mod tests {
         let p = world.player.as_ref().unwrap();
         assert!(!p.buried, "one intruding cell should be escapable");
         let (nx, ny) = p.rect_origin();
-        assert!(rect_free(&world, &Bodies::none(), nx, ny, Tuning::default().wade_rows as i32), "the rect should be clear after depenetration");
+        let t = Tuning::default();
+        assert!(
+            rect_free(&world, &Bodies::none(), nx, ny, t.wade_rows as i32, t.shoulder_grains as i32),
+            "the rect should be clear after depenetration"
+        );
 
         // Entomb him completely: buried, and motionless.
         let (xi, yi) = world.player.as_ref().unwrap().rect_origin();
@@ -2308,17 +2379,18 @@ mod tests {
         world.player = Some(Player::at(66, 84));
         let tuning = Tuning::default();
         let wade = tuning.wade_rows as i32;
+        let shoulder = tuning.shoulder_grains as i32;
         for i in 0..40 {
             // Legal *before* the bite, so the assertion after it is about
             // the bite and not about where he had already walked.
             let (bx, by) = world.player.as_ref().unwrap().rect_origin();
-            if !rect_free(&world, &Bodies::none(), bx, by, wade) {
+            if !rect_free(&world, &Bodies::none(), bx, by, wade, shoulder) {
                 continue;
             }
             dig(&mut world, (74, 84), &tuning);
             let (ax, ay) = world.player.as_ref().unwrap().rect_origin();
             assert!(
-                rect_free(&world, &Bodies::none(), ax, ay, wade),
+                rect_free(&world, &Bodies::none(), ax, ay, wade, shoulder),
                 "bite {i} shoved spoil into a position the gnome was standing in"
             );
             tick(&mut world, PlayerInput::default());
@@ -3009,6 +3081,94 @@ mod tests {
             }
         }
         world
+    }
+
+    /// Walk him right for `ticks` and report how far he got, against a
+    /// world the caller has already furnished.
+    fn distance_walked(world: &mut World, tuning: &Tuning, ticks: usize) -> f32 {
+        let start = world.player.as_ref().expect("a gnome").x;
+        for _ in 0..ticks {
+            step(world, PlayerInput { right: true, ..Default::default() }, tuning);
+        }
+        world.player.as_ref().expect("a gnome").x - start
+    }
+
+    /// One grain of soil at chest height, in his path, on open floor.
+    fn world_with_a_stray_grain(grains: i32) -> World {
+        let mut world = world_with_floor();
+        let soil = world.materials.id_of("soil").expect("soil is compiled in");
+        // Standing on the floor at y=88 puts his rect at rows 74..=87, so
+        // rows 74..=83 are the chest and 84..=87 are the wade.
+        //
+        // **y=79 is not an arbitrary chest row, it is the one step-up
+        // cannot reach.** Lifting slides an offender *down* the body, so a
+        // grain at `dy` needs a lift of `chest - dy` to fall into the wade
+        // rows: `dy` 5 wants 5, and `step_up` is 4. A grain one row lower
+        // is cleared by the existing step-up and reproduces nothing --
+        // which is exactly what the first draft of this test placed, and
+        // its control caught it.
+        for i in 0..grains {
+            world.set(40 + i, 79, Cell::new(soil, 0));
+        }
+        world.player = Some(Player::at(10, 81));
+        world
+    }
+
+    #[test]
+    fn a_stray_grain_at_chest_height_is_not_a_wall() {
+        // **The bug this rule was rewritten for.** Found in `scene=wood`:
+        // a single `soil` cell at (108,194), lodged in a canopy, stopped
+        // the gnome dead for eleven thousand frames. Step-up cannot save
+        // him — lifting slides the offending cell *down* his body toward
+        // the wade rows, so a grain at chest height wants a lift of
+        // `chest - dy`, which at that height was one more than `step_up`
+        // reaches.
+        let tuning = Tuning::default();
+        let mut world = world_with_a_stray_grain(1);
+        let went = distance_walked(&mut world, &tuning, 200);
+        assert!(went > 40.0, "one grain should not stop him; he covered {went:.1} cells");
+
+        // **The control, and it is what keeps this test honest.** At
+        // `shoulder_grains: 0` the rule is the old veto exactly, and the
+        // same grain must still stop him — otherwise this passes for some
+        // reason other than the change under test.
+        let vetoing = Tuning { shoulder_grains: 0, ..Default::default() };
+        let mut world = world_with_a_stray_grain(1);
+        let stopped = distance_walked(&mut world, &vetoing, 200);
+        assert!(stopped < 30.0, "the old veto should still wall him; he covered {stopped:.1} cells");
+    }
+
+    #[test]
+    fn a_bank_of_soil_is_still_a_wall() {
+        // **Written to fail for the *replacement* artifact**, per the house
+        // rule: the risk in counting rather than vetoing is that the wade
+        // line stops meaning anything and he strolls through a bank. A
+        // course of powder across his whole width is what a drift is made
+        // of, and it must stop him at every setting the panel offers —
+        // which is why the count is per row and the allowance is capped
+        // below `PLAYER_WIDTH`.
+        for shoulder in 0..=6u8 {
+            let tuning = Tuning { shoulder_grains: shoulder, ..Default::default() };
+            let mut world = world_with_floor();
+            let soil = world.materials.id_of("soil").expect("soil is compiled in");
+            for y in 60..88 {
+                for x in 40..52 {
+                    world.set(x, y, Cell::new(soil, 0));
+                }
+            }
+            world.player = Some(Player::at(10, 81));
+            let went = distance_walked(&mut world, &tuning, 200);
+            // Not "he never touches it" — he leans into the face by up to
+            // `shoulder` columns, which is the allowance doing exactly what
+            // it says and reads as sinking into the edge of a drift. The
+            // claim is that he never gets *through*: the bank spans
+            // x=40..=51, so clearing it would put his centre past 54, i.e.
+            // 44 cells covered.
+            assert!(
+                went < 40.0,
+                "a 12-wide bank must stop him at shoulder_grains={shoulder}, he covered {went:.1} cells"
+            );
+        }
     }
 
     #[test]

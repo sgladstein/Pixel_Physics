@@ -1,6 +1,7 @@
 # The Gnome
 
-*Current as of: 2026-08-23. New since the last pass: living plants are
+*Current as of: 2026-08-23. New since the last pass: loose grains at
+chest height no longer wall him, living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
@@ -137,6 +138,18 @@ and keeps going, noticeably slower for as long as any of it is around him.
 Deeper than that and it stops being wading: material up to his chest holds
 him where he is, and material all around him is the burial described
 below.
+
+What stops him is a *bank*, though, not a grain. A few loose cells lying
+across his chest — dirt caught in a canopy, the spatter from a dig, the
+litter of a forest floor — he shoulders past without slowing. It takes
+several of them abreast, the way the face of a drift is several abreast,
+before they read as something to stop against. Before that distinction
+existed a single grain of soil lodged in a tree could pen him in
+completely, and in a grown wood that happened constantly.
+
+Deep banks in a forest floor are still a wall he has no way over: he
+sinks to the knee and stops, and he cannot climb *onto* loose material
+the way he steps up onto rock. Dig through it, or go round.
 
 Water he swims in. Falling in, he goes under with whatever speed he
 arrived with, the water eats that speed quickly, and how he behaves after

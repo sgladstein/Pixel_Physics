@@ -4,9 +4,9 @@
 and rejected, extracted by a ten-agent census (2026-08-21, 542 entries)
 over the source comments, the Reports, `README.md` and `PLAN.md` that
 record them; 549 after the plant-line merge of 2026-08-21 added five and
-its decay work added two more on 2026-08-22, and 561 after the gnome
-tree-interaction pass added a `character` section of twelve on
-2026-08-23.
+its decay work added two more on 2026-08-22, and 563 after the gnome
+tree-interaction pass added a `character` section of twelve on 2026-08-23
+and the chest-rule fix added two more.
 Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
@@ -1100,7 +1100,7 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/update.rs mod seam_cliffs (cause paragraph) and test chunking_the_sweep_does_not_change_where_a_pile_settles** - Three movement-rule hypotheses for seam cliffs were wrong first, including the recorded leading one (seam cells failing to get flowing() set — they do get it). The cause is the chunk-by-chunk sweep order making the seam column a one-grain-per-frame conveyor (33 straight-down slumps vs 0.9 sideways escapes/frame); the step_monolithic control is what found it.
   *Re-test when:* Any artifact aligned with the F1 chunk grid: suspect sweep decomposition before movement rules, and use the monolithic control.
 
-## character  (12 entries)
+## character  (14 entries)
 
 The M9 gnome. Every entry here is from the tree-interaction pass
 (`claude/gnome-tree-interaction-l87ijo`); the citation is the record.
@@ -1129,6 +1129,11 @@ The M9 gnome. Every entry here is from the tree-interaction pass
   *Re-test when:* Permanent measurement lesson — measure the quantity the mechanism changes, not the one that is easiest to sample.
 - **src/render.rs `last_player_pose` (comment); test `turning_on_the_spot_repaints_him`** - Keying the sprite's dirty-rect comparison on its screen *rectangle* alone. Turning on the spot or starting a swing changes every pixel of him without moving his rectangle, so the comparison skipped the repaint and left the old pose on screen. The key is the whole pose now.
   *Re-test when:* Holds for any per-sprite state that changes appearance without changing extent.
+- **src/sim/player.rs `Tuning::shoulder_grains` (comment); test `a_bank_of_soil_is_still_a_wall`** - Counting the chest-height powder that blocks the gnome **per rect** rather than per row. It cannot tell seven scattered grains from one full course of seven, so keeping a drift solid caps the allowance below `PLAYER_WIDTH`, and that cap is already too small to clear a scatter: measured over `scene=wood`, 98 cells travelled at an allowance of 0 and 103 at 6, against 357 once the same count was taken per row.
+  *Re-test when:* Never as stated — the row is the unit because a drift is made of courses. The shape to revisit is the *quantity*, if a cheap way to ask "is this grain part of a large connected mass" ever exists; a flood fill per cell per frame is not it.
+- **src/sim/player.rs `Tuning::shoulder_grains` (comment)** - Setting the allowance to 6, one short of a full course, on the reasoning that higher is more forgiving. It is a cliff rather than a plateau: he stops walking over the forest floor and starts sinking into it, and does *worse* than the original veto — min/median cells travelled over six start frames 47/47, against 50/161 at 4 and 1/44 at 0.
+  *Re-test when:* Holds while `wade_rows` is 4 of 14. A forgiveness knob has a ceiling as well as a floor, and the sweep found it.
+
 
 ## other  (17 entries)
 

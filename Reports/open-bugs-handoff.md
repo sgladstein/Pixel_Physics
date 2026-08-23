@@ -15,6 +15,43 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 stone branch. Numbered apart because `0`, `0b`, `0c` and `0d` below are
 worldgen's and were here first.
 
+### C1. A forest-floor bank is a wall the gnome has no way over
+
+Found while fixing the scattered-grain half of the same symptom (that half
+is fixed; see `Tuning::shoulder_grains`). At the worst of six `scene=wood`
+start windows the gnome stops for good at x=59 with `grounded=true`,
+`wading=true`, `lift_limit=4` and **no `Footing::Hard` cell anywhere in the
+rect he is trying to enter** — the blocker is loose soil in the forest
+floor, five cells abreast at chest height.
+
+That is the wade model meeting terrain it cannot express a way over.
+`wade_rows` lets powder reach the knee and no higher, and `step_up` mounts
+a *ledge* — it asks `rect_free` at a lifted position, which a tall powder
+face fails at every lift. So he can neither wade through a bank nor climb
+onto it, and a forest floor that piles above knee height is terminal
+wherever it spans his width.
+
+**Measured, so the gap is visible rather than argued.** Cells travelled in
+the 600 ticks after he sets off, over six start frames, at the shipped
+`shoulder_grains: 4`: 357, 50, 161, 358, 264, 134. Acceptance case 8 gates
+200 at `frame0=0` (357, green); case 8b gates 40 at the worst window
+(`frame0=3600`, 50), and the gap between 40 and 200 is this bug.
+
+Not attempted, and each wants measuring before it is believed:
+
+- **Let him mount powder.** Treat a powder surface as steppable, so
+  step-up can climb a bank the way it climbs rubble. Closest to what a
+  player expects; the risk is that it also lets him walk up the face of a
+  drift, which is the thing `wade_rows` exists to stop.
+- **Displace the grains.** He has `displace_disc` for digging already, but
+  `player::step` is documented as reading the grid and never writing it —
+  the ghost contract — so this is an architectural change, not a tweak.
+- **Ask whether the floor should pile this deep at all.** The banks are new
+  with main's litter and forest-floor work; the model may be right and the
+  world wrong. Cheapest to check first.
+
+---
+
 ### D1. The brush and fire license nothing, so a burnt trunk leaves its crown in the air
 
 `World::record_disturbance` has exactly three production callers —
