@@ -93,6 +93,7 @@ fn main() {
     let (mut seeds, mut frames, mut preset) = (8usize, 0usize, String::new());
     let (mut w, mut h) = (2047i32, 639i32);
     let mut terrain = false;
+    let mut mix = false;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -102,6 +103,7 @@ fn main() {
             "w" => w = v.parse::<i32>().expect("w=N") - 1,
             "h" => h = v.parse::<i32>().expect("h=N") - 1,
             "terrain" => terrain = v != "0",
+            "mix" => mix = v != "0",
             _ => panic!("unknown argument {arg:?}"),
         }
     }
@@ -120,6 +122,10 @@ fn main() {
 
     if terrain {
         report_terrain(params, seeds, w, h);
+        return;
+    }
+    if mix {
+        report_mix(params, seeds, w, h);
         return;
     }
 
@@ -232,4 +238,92 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
     q(&mut elev, "elev");
     q(&mut depth, "soil_depth");
     q(&mut table, "table-below");
+}
+
+/// **How segregated the woody species actually are along the world.**
+///
+/// Written after the owner's verdict on the first generated-world panorama:
+/// *"Mostly more of the same"* — the four species were sown, established and
+/// counted, and crossing the world still did not read as country changing.
+/// A count says a species is present; only this says whether it is present
+/// *somewhere in particular*.
+///
+/// Two readings, because they fail differently:
+///
+/// - **same-species neighbour fraction** — for each plant, how many of its
+///   four nearest woody neighbours along x share its species. `1.0` is
+///   perfect belts, and the baseline for "no spatial structure at all" is
+///   not zero but each species' own share of the population, which is
+///   printed beside it. A value at that baseline means the niche weights
+///   are decorative and the cluster noise is doing all the placing.
+/// - **run length** — consecutive plants of one species. Belts read as long
+///   runs; a mixed thicket reads as runs of one or two however many plants
+///   there are.
+fn report_mix(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32) {
+    let mut pooled: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut pooled_runs: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for seed in 1..=seeds as u64 {
+        let mut world = World::new(Rect::new(0, 0, w, h));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        // Every planted organism as (x, species), in world order.
+        let bounds = world.bounds().expect("bounded world");
+        let mut seen: BTreeMap<u16, (i32, String)> = BTreeMap::new();
+        for y in bounds.min_y..=bounds.max_y {
+            for x in bounds.min_x..=bounds.max_x {
+                let id = world.get(x, y).organism_id();
+                if id == 0 || seen.contains_key(&id) {
+                    continue;
+                }
+                if let Some(st) = world.organism(id) {
+                    seen.insert(id, (x, world.species.get(st.species).name.clone()));
+                }
+            }
+        }
+        // Moss is not part of this question -- it is a different kind of
+        // thing and it is placed by the unoffset field, so including it
+        // would dilute the very structure being measured.
+        let mut plants: Vec<(i32, String)> = seen.into_values().filter(|(_, n)| n != "moss").collect();
+        plants.sort();
+        for i in 0..plants.len() {
+            let (_, ref name) = plants[i];
+            let lo = i.saturating_sub(2);
+            let hi = (i + 3).min(plants.len());
+            let (mut same, mut total) = (0, 0);
+            for (j, (_, other)) in plants.iter().enumerate().take(hi).skip(lo) {
+                if j == i {
+                    continue;
+                }
+                total += 1;
+                if other == name {
+                    same += 1;
+                }
+            }
+            let e = pooled.entry(name.clone()).or_default();
+            e.0 += same;
+            e.1 += total;
+        }
+        let mut i = 0;
+        while i < plants.len() {
+            let mut j = i;
+            while j + 1 < plants.len() && plants[j + 1].1 == plants[i].1 {
+                j += 1;
+            }
+            pooled_runs.entry(plants[i].1.clone()).or_default().push(j - i + 1);
+            i = j + 1;
+        }
+    }
+    let population: usize = pooled_runs.values().flatten().sum();
+    println!("  pooled woody plants: {population} over {seeds} worlds\n");
+    println!("  species     same-species neighbours   share of population   longest run   mean run");
+    for (name, runs) in &pooled_runs {
+        let (same, total) = pooled[name];
+        let n: usize = runs.iter().sum();
+        let share = n as f32 / population.max(1) as f32;
+        let frac = same as f32 / total.max(1) as f32;
+        let longest = runs.iter().copied().max().unwrap_or(0);
+        let mean = n as f32 / runs.len().max(1) as f32;
+        println!("  {name:<10}          {frac:>6.2}                {share:>6.2}            {longest:>4}       {mean:>5.2}");
+    }
+    println!("\n  Read `same-species neighbours` against `share of population`: equal means no");
+    println!("  spatial structure at all, and the niche weights are decorative.");
 }
