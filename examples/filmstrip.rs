@@ -3777,6 +3777,92 @@ fn dump_materials(world: &World, args: &Args) {
     }
 }
 
+/// What `log_pieces` found: the orientation split, the mass held in pieces,
+/// and every piece's `(cells, width, height)` largest first.
+#[derive(Default)]
+struct LogPieces {
+    lying: usize,
+    upright: usize,
+    square: usize,
+    cells_in_pieces: usize,
+    sizes: Vec<(usize, i32, i32)>,
+}
+
+/// The settled `log` pieces, folded into 8-connected clusters: how many,
+/// how big, and — the part nothing else here can say — **how many are lying
+/// down rather than standing on end**.
+///
+/// # Why orientation, and why it needed its own instrument
+///
+/// The acceptance question for T1 is *"do you see logs lying on the
+/// ground"*, and the owner's answer to the first card was *"it doesn't
+/// obviously look like fallen logs"*. That has two completely different
+/// causes and no counter in the repo could tell them apart: either the
+/// pieces are not being made, or they are being made and are standing
+/// upright. The second is a live complaint on a neighbouring board in those
+/// words — *"the long skinny vertical pieces should fall over, instead of
+/// all standing upright"* — so it is not a hypothetical.
+///
+/// A piece is called **lying** when its bounding box is wider than tall,
+/// **upright** when taller than wide, and **square** otherwise. Deliberately
+/// the bounding box and not a fitted axis: at this resolution a log is a few
+/// cells thick and any moment-of-inertia fit on a 3-cell-wide blob is
+/// measuring rounding. The question being asked is the coarse one a player
+/// answers by eye.
+///
+/// Only pieces of `MIN_BODY_CELLS` or more are counted, because that is what
+/// "a piece" means everywhere else in this pipeline — a 3-cell speck of log
+/// is grit that happens to have landed as a body, and counting it as a
+/// fallen log would flatter the number the card is about.
+fn log_pieces(world: &World) -> LogPieces {
+    let Some(log) = world.materials.id_of("log") else { return LogPieces::default() };
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
+    let mut pieces: Vec<(usize, i32, i32)> = Vec::new();
+    let (mut lying, mut upright, mut square, mut cells_in_pieces) = (0usize, 0usize, 0usize, 0usize);
+    for y0 in 0..HEIGHT {
+        for x0 in 0..WIDTH {
+            if world.get(x0, y0).material != log || seen.contains(&(x0, y0)) {
+                continue;
+            }
+            let mut stack = vec![(x0, y0)];
+            seen.insert((x0, y0));
+            let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (x0, x0, y0, y0);
+            let mut n = 0usize;
+            while let Some((x, y)) = stack.pop() {
+                n += 1;
+                lo_x = lo_x.min(x);
+                hi_x = hi_x.max(x);
+                lo_y = lo_y.min(y);
+                hi_y = hi_y.max(y);
+                for dy in -1..=1 {
+                    for dx in -1..=1 {
+                        let (nx, ny) = (x + dx, y + dy);
+                        if (dx, dy) == (0, 0) || !world.in_bounds(nx, ny) {
+                            continue;
+                        }
+                        if world.get(nx, ny).material == log && seen.insert((nx, ny)) {
+                            stack.push((nx, ny));
+                        }
+                    }
+                }
+            }
+            if n < pixel_physics::sim::rigid::MIN_BODY_CELLS {
+                continue;
+            }
+            let (w, h) = (hi_x - lo_x + 1, hi_y - lo_y + 1);
+            cells_in_pieces += n;
+            match w.cmp(&h) {
+                std::cmp::Ordering::Greater => lying += 1,
+                std::cmp::Ordering::Less => upright += 1,
+                std::cmp::Ordering::Equal => square += 1,
+            }
+            pieces.push((n, w, h));
+        }
+    }
+    pieces.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    LogPieces { lying, upright, square, cells_in_pieces, sizes: pieces }
+}
+
 /// The `hanging` census's cells, folded into 8-connected clusters, one
 /// line each.
 ///
@@ -6422,6 +6508,22 @@ impl FellCensus {
         println!(
             "      {} of those pieces landed as {} cells of log; {} cells were lost in settle (nowhere to place)",
             pieces, world.structural_failures.settled_tissue_cells, world.structural_failures.settle_lost_cells
+        );
+        // **Lying or standing, which is the acceptance question and not a
+        // rephrasing of the counts above.** "It doesn't obviously look like
+        // fallen logs" has two causes that every other number here reads
+        // the same: no pieces, or pieces standing on end. See `log_pieces`.
+        let p = log_pieces(world);
+        let biggest: Vec<String> = p.sizes.iter().take(4).map(|&(c, w, h)| format!("{c} cells {w}x{h}")).collect();
+        println!(
+            "      settled log pieces (>= {} cells): {} holding {} cells -- {} lying, {} upright, {} square; largest [{}]",
+            pixel_physics::sim::rigid::MIN_BODY_CELLS,
+            p.sizes.len(),
+            p.cells_in_pieces,
+            p.lying,
+            p.upright,
+            p.square,
+            biggest.join(", ")
         );
     }
 }

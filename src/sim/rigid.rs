@@ -113,7 +113,7 @@ const STALL_FRAMES_BEFORE_SETTLING: u8 = 3;
 /// Smallest failing region worth flying as a coherent body. Below this, the
 /// per-cell `breaks_into` conversion looks the same and costs less — a
 /// single cell "tumbling" is just a grain.
-pub(crate) const MIN_BODY_CELLS: usize = 8;
+pub const MIN_BODY_CELLS: usize = 8;
 
 /// Smallest failing region worth fracturing at all. Below this the region is
 /// left to the caller's per-cell conversion, which looks the same and costs

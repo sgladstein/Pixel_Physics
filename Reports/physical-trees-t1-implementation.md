@@ -178,6 +178,55 @@ session" case and they cost a detour.
   a stand's shed foliage became food. That is the ecology `litter.ron` was
   written for; it is a real behaviour change and it is not free.
 
+## 4c. The owner's verdict, and the measurement it produced
+
+Both acceptance cards came back negative (`20260823T205007532Z-6cd949`,
+`20260823T205101430Z-3ed269`, both blind, `blind_was: [1, 0]` on each — so
+the displayed **A was this branch** and **B was `main`**):
+
+> "B fully instantly disintegrates into dust. A partially disintegrates into
+> dust, the rest of the tree is static. **Nothing reads even close to tree
+> falling over. I think this approach needs to be fully reconsidered.**"
+
+> "B is clearly a pile of dust with nothing else. **Not so sure about A. I
+> would need to see it in action. It doesn't obviously look like fallen
+> logs.**"
+
+Three claims in there and they are not the same claim.
+
+**"The rest of the tree is static" is T2's scope.** Nothing in T1 makes a
+tree topple; the crown drops straight down and lands where it stood. The
+card invited a judgement the stage could not earn, which is `CLAUDE.md`'s
+*check that a planned step can demonstrate itself before promising it will*
+— a card-framing failure, recorded as one.
+
+**"It doesn't obviously look like fallen logs" is the one that is genuinely
+T1's, and it now has a number.** That sentence has two possible causes that
+every counter in the repo read identically: the pieces are not being made,
+or they are being made and are standing on end. So `filmstrip::log_pieces`
+was built to separate them — 8-connected clusters of settled `log`, bucketed
+by whether the bounding box is wider than tall.
+
+**The pieces are there and they are upright.** On the settled `scene=fell`
+pile: **13 pieces of 8+ cells holding 543 cells — 2 lying down, 11
+upright**, largest 244 cells at **26 wide by 41 tall**.
+
+That is the same failure the owner has flagged on a neighbouring board in
+these words — *"the long skinny vertical pieces should fall over, instead of
+all standing upright"* — and the cause is structural rather than tuned: a
+piece cut out of a standing tree **is** a vertical piece, and nothing
+rotates it on the way down. `Reports/physical-trees-design-2026-08-23.md`
+§6.1 diagnosed exactly this before any of it was built (`spin` accrues from
+*speed*, so a just-cut trunk with no speed accumulates none, and a
+quarter-turn is gated on the rotated shape fitting). T1 confirms it with a
+number on its own output rather than from a source reading.
+
+**So the ladder is not what is wrong.** The piece tier is producing pieces
+of the right size distribution; every one of them is landing in the pose it
+held in the tree. Whether that makes rotation the next work is the owner's
+call and is being put to them; it is recorded here because the measurement
+holds either way.
+
 ## 5. Filed, not fixed
 
 **`settle` drops a cell with nowhere to go, and a felled crown lands in a
