@@ -1,0 +1,56 @@
+{
+  "id": "20260823T070522398Z-751d66",
+  "created": "2026-08-23T07:05:22Z",
+  "board": "world-speed",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-speed-time-scaling-s5nrc7",
+    "commit": "8c4b19b",
+    "agent": null,
+    "session_id": "60322fad-16ef-5ba6-b0b0-4adbc9da8cc6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Day length is a setting now — is eight minutes the pace you want?",
+  "question": "Both strips are the same 3,150 frames of play (~52 s). A cycles a whole day; B holds in mid-morning. Eight minutes is what ships — is that the pace, or do you want longer or shorter?",
+  "context_md": "**The mechanism works** — that is what the pair shows, and it is the part I am confident about. Same real window, same scene, only the day knob differs.\n\n**What I am asking about is the number.** You said the cycle repeats too often rather than that dawn and dusk go past too quickly, so this slows the whole cycle uniformly:\n\n| setting | one full day | flat unchanging night |\n|---|---|---|\n| 1 (before) | 60 s | 30 s |\n| 4 | 4 min | 2 min |\n| **8 (shipped)** | **8 min** | **4 min** |\n| 16 | 16 min | 8 min |\n\n**The cost to weigh.** Half of every cycle is night, and night is a flat floor the light channel does not move through at all — so a longer day buys a proportionally longer stretch of nothing happening. At eight minutes that is four straight minutes of unchanging dark. If that reads as dead air, the answer is a smaller number here, or a separate change to the *shape* of the curve so dawn and dusk take a larger share (not built).\n\n**Already measured, so please ignore these:** physics is untouched at every setting (bit-identical grid, asserted); a longer day costs 3.5x *fewer* field solves per frame, so this is cheaper, not dearer; and it is live-adjustable under `O` -> WORLD without a restart, so whatever you say here is a one-line default change.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — day=1 (before)",
+      "files": [
+        "20260823T070522398Z-751d66/000-sky1.png"
+      ],
+      "caption": "60 s per cycle: day, sunset, night, dawn, day",
+      "meta": {
+        "real frames spanned": 3150,
+        "sky frames advanced": 3150,
+        "fraction of a cycle": 0.875,
+        "seconds of play at 60Hz": 52.5
+      },
+      "focus": null
+    },
+    {
+      "label": "B — day=8 (shipped)",
+      "files": [
+        "20260823T070522398Z-751d66/001-sky8.png"
+      ],
+      "caption": "8 min per cycle: mid-morning throughout",
+      "meta": {
+        "real frames spanned": 3150,
+        "sky frames advanced": 394,
+        "fraction of a cycle": 0.109,
+        "seconds of play at 60Hz": 52.5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
