@@ -1408,6 +1408,27 @@ binaries were checked distinct with `strings` before either was run).
 **0.296 in all eight** — bit-stable across both trees, which is what rules
 the harness out as the source of any delta.
 
+**Reference genomes, same pairing** (`creature_space genomes=1 seeds=8
+frames=18000`, so `authored` and `zero` are over the same eight seeds the
+recorded figures used):
+
+| genome | baseline | retuned | recorded before (§4 above) |
+|---|---|---|---|
+| `authored` | 0.699 | **0.703** | 0.709, then 0.690 after §L |
+| `zero` | 0.298 | **0.298** | 0.298, then 0.297 after §L |
+
+**`zero` is identical across the two trees to three digits, and that is
+the strongest control in this work package.** An immobile animal never
+eats and never pays a move cost, so its survival is a pure function of
+the world it is sitting in — the same reasoning this section used to
+attribute 0.300 → 0.298 to the scene rather than the instrument. Had the
+abscission change altered the world in any way a stationary animal could
+feel, `zero` would have moved. It did not.
+
+So all three guards agree on the same statement: advantage ≤ 0.010,
+`ants fed` ≤ +0.01, `authored` +0.004, `zero` 0.000. **The retune changes
+the floor without changing the economy.**
+
 **The retune does not move this guard, and that is the intended result
 rather than a null one.** Every delta is at most 0.010 against a seed-scale
 sd of ~0.1. Slowing leaf fall changes *where* the food is, not how much
