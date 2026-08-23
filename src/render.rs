@@ -430,8 +430,30 @@ const HEAT_GLOW_RANGE: f32 = 400.0;
 /// orange regardless of intensity. A cooling coal and an actively raging
 /// fire should not read as the identical colour just because both cross
 /// `is_burning()`'s own threshold.
-const FIRE_TINT_LOW: [f32; 3] = [180.0, 55.0, 20.0];
-const FIRE_TINT_HIGH: [f32; 3] = [255.0, 210.0, 110.0];
+///
+/// **Re-picked 2026-08-23, by the owner, off a blind A/B** — the card
+/// *"Fire colour: straw or orange?"*, which put the old pair against this
+/// one on an identical grassfire with the panes reversed. The old
+/// `FIRE_TINT_HIGH` was a pale yellow-white, and because *everything* that
+/// burns saturates `HEAT_GLOW_RANGE` (it tops out 400C above ambient;
+/// grass burns at 520C, a flame at 780C), every fire in the world drew at
+/// that one colour. Over green grass it came out as **straw**, which is
+/// most of what the standing grassfire verdict — *"Just looks like you are
+/// cycling colors"* — was actually describing.
+///
+/// **Widening the ramp instead was tried first and is the wrong
+/// direction** (`Reports/dead-ends.md`, rendering): at a lower heat ratio
+/// the tint sits near `FIRE_TINT_LOW` and is *blended over the fuel's own
+/// colour*, so a grassfire came out murky olive. The fix had to be the
+/// colour at the top of the ramp, because that is where everything sits.
+///
+/// **This pair is not fire's alone**, which is why it went to the owner
+/// rather than being changed in passing: the same two constants colour
+/// lava, fresh quench crust, and warm water. See
+/// `Reports/grassfire-and-the-desert-2026-08-23.md` §6 for what each of
+/// those three looks like on both pairs.
+const FIRE_TINT_LOW: [f32; 3] = [150.0, 30.0, 12.0];
+const FIRE_TINT_HIGH: [f32; 3] = [255.0, 138.0, 36.0];
 /// Frames per flicker step for an actively burning cell — a real flame's
 /// visible flicker rate is on the order of 10-15Hz, not a 60fps repaint, so
 /// re-rolling every single frame would read as noise, not fire. `jitter3`
@@ -1026,6 +1048,20 @@ const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
 /// zero is the one that has committed to nothing. Green for plant matter,
 /// red for flesh, matching the palette lerp below so the overlay and the
 /// creature's own colour cannot tell different stories.
+/// **And the midpoint has to be bright too**, which is the second time this
+/// channel has learned the same lesson from the opposite side. The signed
+/// version above fixed a `-1.0` ant rendering at the ramp floor; the owner
+/// then put the ant back at `0.0`, and `|bias| = 0` walked it straight into
+/// the floor again. A magnitude ramp makes *specialists* bright and
+/// *generalists* dim, and the only animal that ships is a generalist.
+///
+/// So it is a true **diverging** ramp: a visible neutral at the middle,
+/// green and red at the ends, and `|bias|` chooses how far from neutral
+/// rather than how bright. Every creature is now legible whatever its gut,
+/// which is the property a readout for "where are the animals and what do
+/// they eat" actually needs — the alternative is a channel that can only
+/// see the animals nobody has built yet.
+const SCALAR_RAMP_GUT_NEUTRAL: [f32; 3] = [225.0, 225.0, 215.0];
 const SCALAR_RAMP_GUT_PLANT: [f32; 3] = [110.0, 245.0, 90.0];
 const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
 
@@ -4145,13 +4181,19 @@ impl Renderer {
             if state.chain.is_empty() {
                 return base;
             }
-            // **Magnitude on the ramp, sign on the hue** -- see
-            // `SCALAR_RAMP_GUT_PLANT`. `|bias|` is how committed the gut is
-            // and picks the brightness; which end it is committed *to*
-            // picks the colour. A specialist of either kind is bright, and
-            // the dim cells are the undecided ones.
+            // **Diverging from a visible neutral** -- see
+            // `SCALAR_RAMP_GUT_NEUTRAL`. `|bias|` is how far from the middle
+            // to travel, not how bright to be, so a generalist reads as pale
+            // and a specialist as green or red. Nothing lands on the ramp
+            // floor, because there is no ramp floor on this channel.
             let bias = state.traits[organism::TRAIT_GUT_BIAS];
-            let ramp = scalar_ramp(bias.abs().clamp(0.0, 1.0), if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT });
+            let end = if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT };
+            let t = bias.abs().clamp(0.0, 1.0);
+            let ramp = [
+                SCALAR_RAMP_GUT_NEUTRAL[0] + (end[0] - SCALAR_RAMP_GUT_NEUTRAL[0]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[1] + (end[1] - SCALAR_RAMP_GUT_NEUTRAL[1]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[2] + (end[2] - SCALAR_RAMP_GUT_NEUTRAL[2]) * t,
+            ];
             let mut out = base;
             for (c, r) in out.iter_mut().take(3).zip(ramp) {
                 *c = r.round().clamp(0.0, 255.0) as u8;
@@ -6838,7 +6880,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
-            .map(|_| world.push_organism(species))
+            .map(|_| world.push_organism(species).expect("an organism slot is free"))
             .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {

@@ -239,7 +239,10 @@ pub fn plant_worm_seed(world: &mut World, x: i32, y: i32) -> Option<ActiveSite> 
     // `RNG_SLOT_SHADE`. Ordering the other way round would need a
     // placeholder identity, which is how position-keyed draws get
     // reintroduced by accident.
-    let organism = world.push_organism(worm_species);
+    // At the slot ceiling nothing hatches -- `World::push_organism` counts
+    // the refusal. `None` is the answer this already gives for an occupied
+    // cell, so the caller's handling is unchanged.
+    let organism = world.push_organism(worm_species)?;
     let shades = world.materials.get(worm_id).palette.len().max(1) as u32;
     let shade = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_SHADE).below(shades) as u8;
     world.set(x, y, Cell::new(worm_id, shade).with_organism_id(organism).with_aux(pack_cell_type(CellType::Head)));
@@ -727,7 +730,9 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     // the structural grant is per body cell.
     let body_cells = positions.len();
 
-    let organism = world.push_organism(species_id);
+    // At the slot ceiling nothing hatches -- see `plant_worm_seed` above,
+    // and `World::push_organism` for why refusal beats a corrupted id.
+    let organism = world.push_organism(species_id)?;
     let shades = world.materials.get(material_id).palette.len().max(1) as u32;
     for (i, &(px, py)) in positions.iter().enumerate() {
         let shade = rng::stream(world.seed, organism as u64, i as u64, RNG_SLOT_SHADE).below(shades) as u8;
@@ -2881,7 +2886,7 @@ mod tests {
         w.free_organism(doomed);
 
         let heir = w.species.id_of("worm").expect("worm species");
-        let heir = w.push_organism(heir);
+        let heir = w.push_organism(heir).expect("an organism slot is free");
         assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to inherit the slot");
         if let Some(state) = w.organism_mut(heir) {
             state.energy = 999.0;

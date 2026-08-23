@@ -2766,7 +2766,7 @@ mod tests {
         // A living trunk within `shake_reach`, with open air either side of
         // it so the dislodge has somewhere to drop from.
         let species = app.world.species.id_of("tree").expect("tree is compiled in");
-        let organism = app.world.push_organism(species);
+        let organism = app.world.push_organism(species).expect("an organism slot is free");
         let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
         for y in 55..70 {
             app.world.set(40, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
