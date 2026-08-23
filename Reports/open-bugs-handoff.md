@@ -808,7 +808,42 @@ land claiming to be food. `rigid.rs`'s `BodyCell` has the same shape and is
 **not** a bug: it only ever holds `Solid`/`Plant`, and its `aux = 0` is
 deliberate so a landing body does not silently re-attach.
 
-### Y. The gnome cannot get through the wood, and it is the missing bole — **OPEN, 2026-08-23**
+### Y. ~~The gnome cannot get through the wood~~ — **FIXED 2026-08-23: one grain of soil was a wall**
+
+> **RESOLVED, and the litter attribution below was a correlate rather than
+> the cause.** `wood` now travels **357** cells against its bar of 200, on
+> the merged build. The mechanism, found by instrumenting the rejection
+> rather than reasoning about it:
+>
+> `rect_free` vetoed **any** powder above the wade line — a claim about
+> walking into a drift, applied per cell. At the stuck frame the gnome was
+> `grounded`, `lift_limit=4`, step-up working, and the rect he was trying
+> to enter held **exactly one blocker**: a single `soil` cell at
+> (108,194). Step-up could not clear it either, because lifting slides the
+> offender *down* his body toward the wade rows, so a grain at `dy` wants a
+> lift of `chest - dy` — this one sat at `dy` 5 wanting 5, against a
+> `step_up` of 4. One row lower and nobody would ever have seen it.
+>
+> **This is why the two measurements below disagreed.** `litter.ron` has
+> `decays_into: "soil"`, so shed foliage rots into a `Powder` and leaves
+> loose grains scattered through and under the canopy. Disabling
+> `shed_to_litter` bought 118 cells because it removed the *source* of
+> those grains; `Material::insubstantial` bought exactly 0 because litter
+> was never the blocker — the soil it rots into is. Both numbers were
+> right and the attribution between them was not, and the entry's closing
+> guess (tree architecture) was wrong.
+>
+> Fixed by counting powder **per row** instead of vetoing per rect
+> (`Tuning::shoulder_grains`, 4 from a sweep over six start windows,
+> confirmed by a blind A/B). A scatter is one or two cells in each of
+> several rows; a drift's face is whole courses across his width, and still
+> stops him at every setting the panel offers.
+>
+> **The bar was sound and is untouched.** What replaced the quarantine is
+> case `8b`, which runs the worst-grown stand and gates 40 against a
+> measured 50 — see bug C1 for the residual, which is a different mechanism
+> and still open.
+
 
 > **UPDATE 2026-08-23, measured on the `creatures-m18` merge: the 34 below
 > no longer reproduces, and the litter attribution under it is now wrong.**
