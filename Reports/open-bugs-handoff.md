@@ -3027,6 +3027,48 @@ branch printed the same 0.000/0.000 and *passed*, so the true values are
 small and non-zero and the ordering flipped somewhere below the third
 decimal.
 
+### H2. `ascii` never reaches bug H any more — the colony scene goes sessile first — **OPEN, inherited from `main`, 2026-08-23**
+
+**A second `ascii` red, and it fires 172 lines *before* bug H's.** §H records
+`examples/ascii.rs:1850`, the ants moisture-gradient setup assertion, as the
+thing that stops `ascii`. It is no longer reached: the foraging-loop scene now
+panics at **`ascii.rs:1678`**, the colony sessility guard, and the run ends
+there. §H was diagnosed against `origin/main` at `da1faf0`, which *did* reach
+1850; main is now `a0fa433`, so something landed in between. Anyone re-checking
+§H will see this instead and should not read it as §H having changed shape.
+
+**Measured, paired, same machine, same session** — `origin/main`'s `src/`
+swapped into a clean tree against this branch's, both `cargo run --release
+--example ascii`:
+
+| | forage trips (bar 14) | deepest | reach profile | live organisms | deliveries |
+|---|---|---|---|---|---|
+| `origin/main` `a0fa433` | **2** | 15 | [689, 22, 8, 2, 0, 0, 0, 0] | 76 | 143 |
+| this branch (P1) | **7** | 15 | [998, 59, 19, 7, 0, 0, 0, 0] | 71 | — |
+
+**Inherited, and this branch moves the failing number the right way** (2 → 7
+against a bar of 14, with every reach bucket higher). Recorded rather than
+fixed: the water fixes were not aimed at ant foraging, 7 is still under the
+bar, and a guard over ant behaviour on generated terrain belongs to whoever
+owns the creature line.
+
+**The bar's own doc says how it was set and that is the first thing to check.**
+It reads "measured 98 trips, deepest 18, mean depth 10.3 over 12,000 frames
+after the litter merge", with the bar at 14 — a seventh, explicitly chosen
+because "outcome spread here is large and a bar near the measurement flakes".
+Main now measures 2. That is not a bar flaking; something took the colony from
+98 to 2 and nobody noticed, because `ascii` is `continue-on-error` for §H and
+the panic at 1678 looks like the §H panic at a glance in a truncated log.
+
+The scene's food is a **stand of trees** whose leaves the ants forage
+(`ascii.rs:1429`'s own note: a corpse pile gave 2.5 pickups and zero
+deliveries, trees gave 44.8 and 28.8). So the quantity to census first is how
+much foliage is standing and where, not the ant brain — `CLAUDE.md`'s "when a
+mechanism appears inert, check the scene still contains the situation you think
+it does". Both runs above deliver food (main: 1,340 pickups, 143 deliveries),
+so the colony is not starving; it is finding food without going 8 cells to get
+it.
+
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
