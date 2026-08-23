@@ -295,6 +295,33 @@ fn main() {
         material::SOIL_WILTING_POINT,
     );
 
+    // **Is there such a thing as a sheltered spot?** Asked by lane S while
+    // staging wind-throw (`Reports/physical-trees-design-2026-08-23.md`
+    // §11.5): `weather::at(seed, frame)` takes no position, so the
+    // *driving* wind is global and time-only, and the open question is
+    // whether anything downstream makes it local. Fire is now a second
+    // consumer of that channel -- a flame is a `Gas`, and `update_gas`
+    // steers every gas cell through `wind_biased_order`, which reads
+    // `field_wind_at` -- so this harness can answer it with a number
+    // instead of a reading of the source.
+    //
+    // Sampled across the sward at one instant. A spread of zero means the
+    // field carries the global wind unchanged and a fire leans the same
+    // way everywhere; a nonzero spread means `weather::gust`'s dipole
+    // impulses (radius 26) do make it local, at least while they last.
+    {
+        let winds: Vec<f32> = (0..width).step_by(field::FIELD_SCALE as usize).map(|x| { let f = w.field_at(x, sward_top); f.vx }).collect();
+        let lo = winds.iter().cloned().fold(f32::INFINITY, f32::min);
+        let hi = winds.iter().cloned().fold(f32::NEG_INFINITY, f32::max);
+        let mean = winds.iter().sum::<f32>() / winds.len().max(1) as f32;
+        println!(
+            "  wind across the sward at frame {}: min {lo:.4} mean {mean:.4} max {hi:.4} (spread {:.4}) over {} samples",
+            w.frame,
+            hi - lo,
+            winds.len(),
+        );
+    }
+
     let ignite_x = (width as f32 * a.at) as i32;
     let ignite_y = sward_top.max(ground_y - 6);
     let lit = (ignite_y - 3..=ignite_y + 3)

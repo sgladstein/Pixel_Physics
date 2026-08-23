@@ -280,6 +280,53 @@ constants. It is not shipped because it moves lava, quench crust and warm
 water — three looks the owner has already judged — and that trade is not
 W2's to make. The A/B is on the owner's queue.
 
+### 7. Two answers lane S asked for, measured rather than read off the source
+
+Both asked while wind-throw was being staged
+(`Reports/physical-trees-design-2026-08-23.md` §11), because fire and
+wind-throw would become two consumers of one channel.
+
+**Yes, fire reads wind — and it barely matters today.** A flame is a `Gas`,
+and `update::update_gas` steers every gas cell through
+`wind_biased_order`, which reads `field_wind_at`. So flame licks lean
+downwind for free and nothing in `fire.rs` had to ask for it.
+
+**On "is there such a thing as a sheltered spot": the driving wind is
+global, but the field is not, transiently.** `fire_probe` now prints the
+horizontal wind across the sward, 64 samples at `FIELD_SCALE` spacing.
+Three start frames, one instant each:
+
+| frame | min | mean | max | **spread** |
+|---|---|---|---|---|
+| 3,600 | −0.0000 | −0.0000 | 0.0000 | **0.0000** |
+| 7,200 | −0.0000 | 0.0006 | 0.0387 | **0.0387** |
+| 10,800 | −0.0000 | −0.0000 | 0.0000 | **0.0000** |
+
+Two of the three are *exactly* flat — no wind anywhere, so no shelter
+because there is nothing to shelter from. The third is the interesting
+one: one part of the sward reads 0.0387 while the rest reads zero, which
+is a `weather::gust` dipole (radius 26) sitting in the field. So locality
+**does** exist downstream of the global driver, at gust scale and for as
+long as a gust lasts — what does not exist is *persistent* shelter, because
+nothing positional (terrain, a stand, a wall) feeds the driving wind.
+
+Stated with its limits: three instants on one seed, sampled at sward
+height. It is enough to say the field is not uniform; it is not enough to
+characterise the duty cycle, and the magnitudes here (0.04 peak) are small
+enough that **this branch should not be described as having wind-driven
+fire spread.** The lean is real, wired, and currently almost invisible.
+
+**Litter is fuel, and it does not throw flame.** `litter.ron` carries
+`flammability: 0.6` and no `flame_into`, deliberately — only `grassblade`
+opts in. So the runaway lane S asked about (a windy epoch shedding litter
+at a 41.6% duty cycle *and* fanning it) is **currently self-limiting**: a
+litter layer burns only where it is contiguous, exactly as grass did
+before this branch, because contact-only spread cannot cross the gaps in
+a scatter of shed leaves. That is a property of a default, not a
+guarantee — the day anyone gives `litter` a `flame_into`, the two
+mechanisms meet and the question becomes real. Worth measuring then, not
+now.
+
 ---
 
 ## Part two — E6, the desert decision
