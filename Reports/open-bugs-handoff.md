@@ -5110,10 +5110,41 @@ the whole of it.
   / 158,230 cells**, because a failure that cannot convert is rescheduled
   forever.
 
-**The shape of the fix.** Ask whether the body-material cell under the grain
-*reaches an anchor*, not whether it is attached — `chain_reaches_anchor`
-already answers exactly that, with a memo, and `grain_is_footing` has
-neither. It is a load-model change and was outside T1's surface.
+**This is not an oversight — it is a named, accepted trade-off whose
+"nobody has reported it" clause has just expired.** `grain_is_footing`'s own
+doc says so in as many words, under *What this gives up, named*:
+
+> a slab resting on rubble resting on a *player-built* (and therefore
+> unattached) platform now reads as unsupported, because the chain out of
+> the powder lands on unattached rock. Solid-on-solid is untouched — only a
+> granular layer sandwiched inside player-built structure loses, **which no
+> scene here builds and nobody has reported.**
+
+A felled tree builds exactly that, every time, at scale: log on grit on log
+is a granular layer sandwiched inside unattached structure. So the clause
+that licensed the trade-off no longer holds, and this entry exists to say so
+rather than to propose a fourth support model.
+
+**The shape of the fix, and why T1 did not attempt it.** The obvious answer
+— ask whether the body-material cell under the grain *reaches an anchor*
+rather than whether it is attached — is what `chain_reaches_anchor` already
+computes, with a memo that `grain_is_footing` does not have, and it closes a
+loop: `rests_on_ground` → `grain_is_footing` → `chain_reaches_anchor` →
+`support_parent` → `is_anchor` → `rests_on_ground`. The other obvious
+answer, reading the cell's stored `aux`, is **already rejected in that
+function's doc** and for a reason that still stands ("here it would be
+circular, since the distance under a swallowed grain is 0 *because of this
+rule*").
+
+What the doc's own framing suggests instead: the case it is protecting
+against is a grain *swallowed inside the asking piece*, and the case that is
+now failing is a grain resting on a **different** piece. That is a
+distinction `evaluate_within` can already make — it holds `section_cells` —
+and it is data rather than shape, which is the axis `CLAUDE.md` says these
+predicates keep getting wrong. Three predicates have failed here by reading
+shape; this needs to be someone's deliberate fourth, with the raft cases
+(`scene=lavadrop`, `scene=rockdrop`) re-run, not a fix bolted on to a
+felling package.
 
 ### T1b. The structural opt-out did not hold against bearing — **CLOSED**
 
