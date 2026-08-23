@@ -737,6 +737,29 @@ T1's consequence pipeline.
 **T5 — torque rotation (v2).** Only if T2's verdict is "slides, doesn't
 turn". Costs are unmeasured; T5 begins by measuring them.
 
+**T6 — wind-throw.** A storm knocks a tree over: root anchorage against the
+overturning moment, and slenderness as an independent failure mode. §11.
+- *Build the instrument first.* There is no scene that puts a grown stand in
+  a pinned storm, and `weather::at` is a pure function of `(seed, frame)`, so
+  a windy epoch has to be *found* rather than asked for. `scene=windthrow`
+  before the mechanism — S1's lesson, and T3's already.
+- *Bar:* the four rungs of §11.3 are **separately visible in one sweep** —
+  uprooted, snapped, delimbed, shed-only — with the count of each printed
+  beside the GIF. A run in which every failure is the same rung has not
+  cleared this bar whatever its total, because a graded outcome is the whole
+  point of the stage and an all-or-nothing one is the failure
+  `design-philosophy.md` §0a names first.
+- *Cost bar:* **zero standing cost.** The evaluation runs only for organisms
+  a gust actually overlaps, at organism-tick cadence, off quantities
+  `anchor_support` already produced. `ascii`'s organism scene mean within
+  noise of `main`, re-measured in the same session.
+
+**T6 is placed after T2 and not before it** because it is a *trigger* on the
+fall machinery, not a fall of its own: until a severed tree comes down as
+pieces (T1) and travels sideways as it goes (T2), a wind-throw would show the
+player the same cone of sawdust the owner already rejected, from a new cause.
+Its economy half is a different matter and does not wait — §11.6.
+
 **Why sway is fourth.** It is the only item whose cost is a *standing bill*
 rather than an event, it is the only one that needs a renderer change to
 scale, and it is not what the owner's card was about. T1–T3 answer the
@@ -798,3 +821,302 @@ the merged tree, same stand to the cell (28,421 plant cells, 14,939 wood /
 gust band **3.07–3.90 ms**. Every headline holds; the table in §3.2 keeps the
 pre-merge run's numbers because that is the run the argument was built on,
 and the two agree inside the spread.
+
+---
+
+## 11. Addendum, 2026-08-23 — wind-throw: roots as anchorage, slenderness as the second failure mode
+
+**Design, nothing built.** Added by the plant-program integrator after this
+report merged (PR #23), from a brief the owner gave in conversation rather
+than on a card. The three scheduling and scope calls it raised were put to
+the owner the same evening and **all three are decided** — §11.8 records them
+in their decided form.
+
+### 11.0 The brief, verbatim
+
+> "One thing that I forgot to mention when we explored physical tree design
+> [...] I also want roots to play a role in stabalizing the tree. if you
+> have a weak root system, the tree can be knocked over in a wind storm or
+> damaged. Additionally if the tree is very top heavy with a skinny trunk
+> (regardless of root) that could cause the tree to fall over in a storm.
+> Obviously there should also be costs to having large root systems and
+> large trunks so we don't just push everything to large roots and trunks,
+> but this could result in biomes with few storms to have smaller roots and
+> thinner trunks because they are not needed. Thoughts?"
+
+### 11.1 Why this closes a hole rather than adding a feature
+
+**Root investment currently has a price and no benefit.** Lane P is about to
+ship the owner's root-blob directive — a root cell not touching soil earns
+nothing and costs something (`plant-implementation-split-2026-08-23.md` §4,
+and card `20260823T163504317Z-3cef7b`). Taken alone that is a monotone lever:
+a quantity with a cost and no counterweight has exactly one optimum, the
+minimum, and an economy that is working correctly will find it and hold every
+plant there. The visible result is not "roots got sensible", it is *one root
+morphology everywhere* — the same complaint the owner already made twice
+about the three architectural levers (§*Ask which pixels a lever moves* in
+`CLAUDE.md`, and `plant-appearance-design.md`).
+
+Anchorage is the counterweight. It is what makes root allocation a genuine
+trade rather than a tax, and it is the reason this belongs *near* the root
+economy rather than five stages downstream of it. §11.6.
+
+**And it is the first destructive verb the world owns.** T1, T2 and T3 all
+originate with the player — an axe, a dropped rock. Wind-throw and W2's
+grassfire would be the two things that take a tree apart while the player is
+standing somewhere else watching it happen. `design-philosophy.md` §0a's
+third named failure is "no verb behind the effect"; this is the verb that
+does not need a hand on it.
+
+### 11.2 What already exists, which is most of it
+
+| the quantity | where it already lives |
+|---|---|
+| **what counts as an anchor** | `plant::is_structural_anchor` — root tissue (a `reinforces_powder` material, or a `CellType::RootTip`) adjacent to a water-holding `Powder`, or *any* cell adjacent to a `Solid` |
+| **how many anchors, and how wide they spread** | free from the walk `plant::anchor_support` already runs once per `ORGANISM_TICK_INTERVAL` (45 frames) — it enumerates the anchor set to seed its Dijkstra and currently throws the set away |
+| **the overturning test** | `load.rs::bearing_moment`, and its reduction to "is the centroid inside the middle third" — the same question already answered for rock, against a base width |
+| **stem width as a function of crown mass** | `thicken` / `pipe_ratio` (Shinozaki), gated on `leaf_count / stem_width > pipe_ratio` |
+| **the storm** | `weather::gust` — a bounded dipole impulse, `GUST_RADIUS = 26`, fired every `GUST_INTERVAL = 26` frames while `\|wind\| > GUST_THRESHOLD = 0.45`, which is 41.6% of frames at the default seed |
+| **the fall** | T2's segment shear. Wind-throw needs a *trigger*, not new falling machinery |
+
+Two consequences worth stating plainly, because they change how much work
+this is:
+
+- **"How well rooted is this tree" is not a new subsystem.** It is a number
+  recoverable from a walk that already runs, at no additional traversal.
+- **"Top-heavy with a skinny trunk" is not something to author.** `thicken`
+  already ties width to the leaf mass above it, so a slender tree is what
+  happens when the crown flushes faster than the stem thickens — a shaded
+  tree racing for height, or a good year following a bad one. Slenderness
+  (height above the anchor plate ÷ stem width at the base) is one division
+  away from quantities that exist. It should be *read*, never assigned.
+
+### 11.3 The design call: two causes must produce two different-looking outcomes
+
+The owner named two independent failure modes. If both render as "the tree
+falls over", half of what was asked for is invisible on screen — and a binary
+fall is `design-philosophy.md` §0a's all-or-nothing failure arriving in a
+third subsystem. Grade it, and let the *cause* pick the rung:
+
+| condition | outcome | what is on the ground afterwards |
+|---|---|---|
+| anchorage loses to the moment | **uproot** — the whole plant tips as one piece, the root plate lifting with it | a crater of disturbed soil, the butt in the air, no stump |
+| well anchored, too slender | **snap** — the stem fails at its most-loaded section, well above the ground | a *rooted stump*, the top down as pieces |
+| marginal | **limb off** — T3's delivered-impulse pipeline, driven by wind instead of a rock | one branch |
+| ordinary gust | leaf and twig shed | `litter`, which the decay, ant and fire layers already read |
+
+The distinguishing detail is the last column, not the physics: **the stump
+tells the player which of the two things happened**, hours of play later.
+That is legible feedback surviving past the event, which is what the ethos
+asks for and what a fall animation alone cannot give.
+
+The bottom rung is worth more than it looks. It fires in ordinary weather at
+a 41.6% duty cycle, so the mechanic is something the player feels constantly
+rather than once a season — and it feeds a litter layer that already has
+consumers.
+
+### 11.4 Do not add a third cost
+
+The brief asks for costs on large roots and large trunks so the economy does
+not push everything to both. **Those costs already exist and a third would be
+double-charging:**
+
+- roots: the root-blob economy P2 is re-deriving (interior root tissue earns
+  nothing and respires);
+- trunk: thickening is carbon that did not become leaf, and `pipe_ratio`
+  already ties width to the crown it serves.
+
+So the work here is *not* "add a price for anchorage". It is: make sure those
+two prices are real, then add the benefit that makes paying them rational in
+some places and wasteful in others. A separate anchorage cost would be a
+knob nobody can set from evidence — `design-philosophy.md` §2a's test,
+failed.
+
+### 11.5 What does not exist, and the biome outcome depends on it
+
+**Wind has no geography.** `weather::at(seed, frame)` takes no position:
+`wind` is `channel(seed, frame, 3) * 2.0 - 1.0`, one value for the entire
+world. Gusts fire *at* a location, but their strength is global and
+time-only. So "a sheltered valley grows slender trees and an exposed ridge
+grows squat ones" **cannot emerge today** — every tree in the world
+experiences the same storm, and the biome divergence the owner asked for has
+nothing to vary against.
+
+The obvious fix is a spatial wind field, and that is precisely the shape of
+the term this engine already reverted: a steady global wind measured at a
+permanent 3.55 ms/frame and recorded as a dead end four separate times (§7.2).
+**The distinction that makes a cheaper version legal:** the reverted term
+*wrote* pressure into the field every frame on every scene. What is wanted
+here is a term that is *read*, by a handful of organisms, on the frames a
+gust fires. Nothing is written and nothing is kept.
+
+Cheapest shape that does the job: **exposure derived from terrain at gust
+time** — open fetch upwind, and height above the local ground — queried only
+for the organisms a 26-cell gust actually overlaps. No new field, no new
+storage, no standing cost, and it is a pure function of terrain and frame so
+it stays deterministic. Unpriced; it would be T6's first measurement.
+
+### 11.6 How the divergence actually arrives — plasticity before selection
+
+Two mechanisms can produce "biomes with few storms grow thinner trees", and
+the report recommends the second one first.
+
+**Selection.** Heritable root and stem allocation, plus differential
+survival, over generations. This is the answer the plant genome exists for
+and it is where this should end up. It cannot go first: the axis it would
+act on does not currently vary. The owner's own cards
+(`3cef7b`, `6825a2`, `a227da`) record that the root-blob endpoint erased the
+slot-5 root axis — selection cannot act on a lever whose settings all produce
+the same plant, and lane B's root-differentiation re-renders are already
+queued behind P2 for exactly this reason.
+
+**Plasticity.** A tree that is repeatedly shaken puts carbon into root and
+stem instead of height. This is real (thigmomorphogenesis: wind-exposed
+trees grow shorter, more tapered, and more heavily rooted), it is **one
+directive inside the economy P2 is already re-deriving**, and it produces the
+divergence *within a single plant's lifetime*. That last point is what
+decides the order: a playtest can see it, which means it can be judged by eye
+on a card, which is this project's only real acceptance channel. Selection
+needs generations, a working reproduction schedule, and a heritable axis that
+varies — three things that are not all true yet.
+
+**W3's two-patch divergence instrument is already the right measurement** and
+is already queued: same founders, windy patch against sheltered patch,
+scored on root:shoot and on slenderness. It needs §11.5's exposure to exist
+before it can be pointed at wind, and nothing else.
+
+#### 11.6a Can plasticity *derive itself* from selection? — asked by the owner, answered from source
+
+The owner's question, 2026-08-23: *"I would love to plasticity derive itself
+from selection/evolution, but I don't know if our model has the complexity
+for that."*
+
+**The model has the complexity.** Read at `4018aee`, the evolutionary
+machinery is complete and is not a sketch:
+
+- `OrganismState::genotype_draws: [f32; GENOTYPE_TRAITS]` — continuous, and
+  `set_seed` copies the parent's array into the child with **independent
+  per-trait jitter** (`MUTATION_SIGMA`), clamped to `[-1, 1]`. Its comment is
+  explicit about why the traits drift separately: "two offspring of one
+  parent can differ on branching and agree on height, which is what lets a
+  population explore corners of the trait space rather than sliding along one
+  diagonal."
+- `alleles: [u8; DISCRETE_LOCI]` — six discrete loci, inherited whole and
+  mutated by *jumping* rather than drifting, so a morph holds together
+  between excursions.
+- `seed_genotype` **declines to redraw an inherited genome** (`if
+  ...s.inherited { return; }`), which is the difference between a population
+  that breeds and one that inherits.
+- `generation`, `seeds_set`, `endowment`, and cumulative `organisms_born` /
+  `organisms_died` all already exist.
+
+So **a reaction norm is not new machinery.** "How strongly does this
+individual redirect carbon when it is shaken" is one more continuous trait,
+read through the same `genotype(world, organism_id, slot, variance)` call
+`pipe_ratio` already uses at slot 4. Selection then acts on the slope, not
+just the intercept — which is exactly what the owner asked for, and it costs
+one slot and one multiply.
+
+**Two things stand between that and a result, and neither is complexity.**
+
+1. **There is no free slot.** `GENOTYPE_TRAITS = 9` and every index is spoken
+   for — 1 growth rate, 2 plastochron, 3 turgor, 4 `pipe_ratio`, 5 upward
+   weight, 6 root allocation, 7 stomatal reserve, 8 penetration force, plus a
+   computed `bc_slot` for branch chance. The slot ceiling is **lane P's
+   current package (P3)**, so the gate on a heritable reaction norm is
+   already being worked, by accident rather than by plan.
+2. **Generational throughput is unmeasured, and this project already wrote
+   down that it matters.** `plant-evolution-design.md` §5, quoted verbatim in
+   `world.rs`'s doc for these counters: *"the count of inherited-genome
+   establishments per run is the plant equivalent of births-per-generation,
+   and if it reads ~0 at 30k frames, every evolution claim at that horizon is
+   about founders."* `organisms_born` / `organisms_died` exist precisely to
+   answer that and the number has not been read. **Read it before promising
+   anything selection-derived** — it is one printout, not a study, and it
+   decides whether selection is a mechanism or a rounding error at play
+   horizons.
+
+**The recommendation, which is not a fork.** Build the plastic response as a
+**heritable reaction norm from the start**, with its slot's founding
+distribution drawn wide. Plasticity then works from frame one — that is the
+visible mechanic, judgeable on a card, no generations required — and
+selection acts on the same number for free as soon as turnover supports it.
+There is no version of this where "do plasticity now, evolution later" means
+building twice; the only cost of doing it right is one genome slot, which is
+blocked on a fix already in flight.
+
+The honest caveat: **selection moving that slot has to be *demonstrated*, not
+assumed.** Windthrow helps more than it looks — it is a selective *death*,
+which is the strongest kind of pressure and the one this model has been short
+of — but a claimed divergence needs the born/died counters, the two-patch
+instrument, and an order statistic over seeds. `CLAUDE.md` records a 3.5-hour
+megastudy that turned out to be three populations wearing twenty-four logs;
+this is exactly the shape of study that fails that way.
+
+### 11.7 Traps, filed before anyone builds
+
+1. **The wind-throw decision is a whole-*plant* judgement, never a per-cell
+   structural check.** This is the one that would turn a good mechanic into a
+   catastrophe. A structural check fired mid-organism amputates it — the
+   measured precedent is a stand going from 20,213 living cells to 772 from a
+   *single* check (`CLAUDE.md`, the structural-check amputation gotcha). The
+   rule here evaluates a moment about a root plate; the quantities it needs
+   (a crown centroid, an anchor half-width, a tipping moment) are defined for
+   a whole plant and undefined for a cell. This is `CLAUDE.md`'s "which
+   object does this rule evaluate — a cell, a section, or a whole piece?",
+   and it has already been missed twice in this repo by sessions that had the
+   paragraph in front of them.
+2. **No standing cost.** Evaluate only organisms a gust overlaps, at
+   organism-tick cadence, off the anchor set `anchor_support` already built.
+   A per-frame stability pass over every tree is §3.5's bill with a different
+   name on it.
+3. **Sway must not feed this.** T4's rider generalises: sway is a *display*
+   of wind and never a second input to it. A lean that fed the overturning
+   moment would rediscover the dead end where a blast shockwave dominated the
+   growth formula outright.
+4. **Do not tune it on one storm or one seed.** Wind-throw is chaotic in the
+   seed by construction — which tree is marginal reshuffles on any legitimate
+   change. `seedsweep.sh`, run to rest, gated on an order statistic, built
+   *before* the model changes. `CLAUDE.md` records two model changes that
+   were green on all eight acceptance cases and ate fifty times more world
+   than the bug they fixed.
+5. **Count the rungs, do not average them.** "How many trees fell" is the
+   metric trap this report already names twice: a failure count is not a
+   damage count, and a mean over events is not the size of the pieces. The
+   quantity that answers §11.3 is the *census by rung*.
+
+### 11.8 The three calls, decided by the owner 2026-08-23
+
+Put to the owner as open questions and answered the same evening. Recorded
+here in their decided form so nothing is re-litigated.
+
+1. **The economy half moves into P2 now.** *"agreed to pull the benefit into
+   P2 brief."* Anchorage-as-benefit is carried by lane P's next package
+   rather than waiting behind lane S's T2, because P2 is where the root
+   *cost* lands and a cost shipped without its counterweight is what produces
+   the minimal-root monoculture of §11.1. The two halves are now in different
+   lanes on purpose: lane P owns *what roots buy*, lane S owns *the storm that
+   collects*.
+2. **Exposure is in scope and is its own package.** *"start a new session to
+   fix the wind geography."* Dispatched as **W4 — wind geography**, briefed
+   against §11.5: terrain-derived exposure, read-only, one consumer
+   (`weather::gust`), instrument before mechanism. The distinction from the
+   reverted steady-wind term is the whole brief and is restated in §11.5.
+3. **Plasticity is built as a heritable reaction norm**, so that selection
+   can act on it rather than being an alternative to it — the owner's
+   preference, and §11.6a establishes from source that the model already has
+   the machinery. Gated on the genome slot ceiling, which is lane P's current
+   package.
+
+### 11.9 Freshness
+
+Written 2026-08-23 against `main` at `4018aee` (this report's own merge). No
+figure in this section was measured; every number quoted is read from source
+at that commit — `plant::is_structural_anchor` and `anchor_support`
+(`src/sim/plant.rs`), `bearing_moment` (`src/sim/load.rs`), `thicken` and
+`pipe_ratio` (`src/sim/plant.rs`), and `weather::at` / `weather::gust` with
+`GUST_THRESHOLD`, `GUST_INTERVAL` and `GUST_RADIUS` (`src/sim/weather.rs`).
+The 41.6% duty cycle is quoted from §3.4 of this report, not re-measured.
+**Nothing here has been rendered or judged by eye**, which for a mechanic
+whose whole acceptance is §11.3's four visible rungs means every claim in it
+is a prediction.

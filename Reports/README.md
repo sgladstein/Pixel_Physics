@@ -148,6 +148,12 @@ tried?"*.
   implemented; merged.**
 - [plant-species-authoring.md](plant-species-authoring.md) — **live
   guide.** What authoring a second plant species actually needs.
+- [root-blob-and-uptake-surface-2026-08-23.md](root-blob-and-uptake-surface-2026-08-23.md)
+  — **measurement, no mechanism.** Sizes the owner's "a root cell not
+  touching soil cannot benefit the plant and has a cost" proposal before it
+  is built: a third of every root system is walled in, but the share does
+  not rise with mass, so the cost is a flat tax rather than a brake. The
+  argument that survives is the unpriced 51-79% per-plant contact spread.
 - [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
   **implemented.** Worldgen sows four woody species instead of the
   hardcoded `"tree"`, by weights over terrain facts that already existed;
@@ -328,7 +334,13 @@ field rework — see `open-bugs-handoff.md`.
   Carries the measurement that prices render-side sway at +8.0 ms/frame over
   a grown stand, and the deleted prototype that takes a fell from 1.7% to
   58% of the severed mass coming down as pieces. Supersedes
-  `felling-blockers.md` §2.
+  `felling-blockers.md` §2. **§11 is a later addendum** — wind-throw, with
+  roots as anchorage and slenderness as an independent failure mode, staged
+  as T6. Its three scheduling calls are decided (the economy half moves into
+  P2; wind geography is dispatched as W4; plasticity is built as a heritable
+  reaction norm), and §11.6a establishes from source that the genome already
+  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
+  been measured or rendered.
 
 ## Open working files
 
