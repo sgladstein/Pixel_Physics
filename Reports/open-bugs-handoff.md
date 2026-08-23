@@ -164,6 +164,111 @@ and the chisel cannot damage a tree at all, and the explosion remains the
 only tree-damaging verb. That half is a change to the dig verbs, not to
 what records a disturbance.
 
+**The dig-verb half, LANDED 2026-08-23, lane S package S1
+(`claude/s1-felling-instrument`)** — the "still open, untouched" paragraph
+directly above is what this closes. Written after that branch merged the
+playtest-defaults line; the two were built in parallel and the licence half
+above is that line's, not this one's.
+
+*What was actually wrong, and it is not what the top of this entry says.*
+The `organism_id() != 0` tests this entry names were **not load-bearing**.
+Removing them changed nothing at all, measured: four `strike` blows across a
+26-cell bole took **0 cells** and left every counter at zero.
+`rigid::is_body_material` — the predicate one line earlier in the same
+condition — is `MaterialKind::Solid` alone, and `wood` is `Plant`, so no
+organism cell ever reached the organism test. Two gates, one visible in this
+report and one not, and only the invisible one mattered. `CLAUDE.md`'s "a
+change that moves *nothing* is different evidence from one that moves a
+little", read the right way round.
+
+The fix is `rigid::is_tool_target`, a second predicate (`Solid | Plant`,
+still excluding bedrock) used by `strike` and `mine_swept` only.
+`is_body_material` keeps its meaning for `label_component` and
+`trace_contours`, which answer "what piece of *rock* is this" for the M8 body
+pipeline — widening it there would change what a component is on every scene
+in the engine to fix two verbs. Guards: `rigid.rs`'s `tool_target_tests`,
+confirmed to fail against the pre-fix predicate.
+
+*Measured, `scene=fell fell=6000` (new instrument, at SPREAD):* six bites
+sever the bole, the axe itself takes 134 cells of living tissue and throws 6
+bodies (67 cells), then `plant::anchor_support` declares the crown unreached
+and **2,360 cells** are severed by the support check. Standing living tissue
+2,906 → 409 (roots and stump). Both drivers agree: 2,360 parallel, 2,363
+serial. Before the branch the identical cut left the crown standing and
+*growing* — 2,823 → 2,911 over the next 210 frames, with every counter in
+`FailureCounts` at zero. **These numbers predate `TIGHT` becoming the
+default and must be re-read at the shipped setting** before anything is
+concluded from them.
+
+*New instrument.* `filmstrip scene=fell` (one tree, fixed trunk x, room to
+fall), `fell=frame[,radius[,force]]` (chop through the subject's own thinnest
+bole row, wherever it is — seed- and age-independent, and the knob lane P's
+resprout work wants), `chop=x,y,r,force,frame` (a hand-aimed `strike`),
+`min_severed=N` (the acceptance bar), and a three-line felling census under
+every tile: standing tissue split shoot/root, where the bole is and what a
+cut through it costs, detached-and-still-standing cells, the furthest finite
+support distance, deadwood and litter, and how many body cells are plant
+material. `FailureCounts::severed_organism_cells` is the new "did it fire"
+counter — nothing else in that struct moves when a crown comes down, so
+`min_failing_cells` reads zero through a run that dismantles a whole tree.
+`scripts/acceptance.sh`'s `fell` case gates it.
+
+**The owner's verdict on the result, and it redirects the line.** The GIF
+went out as review card `20260823T092247531Z-a33d82` (board `felling`);
+the answer was *"It reads as a tree disintegrating into dust. I am wondering
+if we should take a step back and plan something more ambitious. Eventually I
+would want trees to be physical in the world, be able to sway in the wind,
+have branches break off if a rock falls on it. We need a more real physical
+and partially rigid modeling."*
+
+So **D3 as scoped (fix the fragment ladder) is on hold** pending a design
+round on partially-rigid trees. What the instrument found that bears on that
+design, recorded here because it is measurement and not opinion:
+
+1. **The engine has two representations of matter and neither is partially
+   rigid** — a cell welded to the grid (infinitely stiff, no pose) or a
+   `ChunkBody` (free, no attachment, no hinge). `BodyCell` is
+   `{dx, dy, material, shade}`; identity is lost at promotion. The dust is
+   that gap, not a separate defect: the only available transition is
+   welded → gone, and `break_free` takes it one cell at a time.
+2. **A skeleton is already computed every organism tick and nothing reads it
+   as pose** — `plant::anchor_support` (Dijkstra from the root anchors) and
+   `plant::accumulate_support` (basipetal parent ordering). Both answer only
+   yes/no support questions.
+3. **`ChunkBody` cannot express a hinge, and it is a redesign not a
+   constant** — `spin` accrues from *speed*, so a just-cut trunk has none;
+   rotation is quarter-turn snaps gated on the turned shape fitting.
+   `felling-blockers.md` §2 said this before the instrument existed and the
+   instrument confirms it.
+4. **Half of "a rock lands on a branch" already exists** —
+   `structural::supported_load` already counts material resting on organism
+   tissue and shortens the allowable span. What is missing is that the
+   failure emits powder instead of a limb.
+
+**Also left:** `rigid::loosen_shell` still declines organism cells (the third
+of the three skips at the top of this entry), so a blast rim throws no wood.
+Left deliberately — it is the same promote-an-organism-cell decision the
+design round owns.
+
+*Measured across `F9` after merging the playtest-defaults line, and it took a
+harness bug out with it.* `scene=fell fell=6000`, cells severed by the
+support check: **SPREAD 2,360 / LOCAL 2,333 / TIGHT 1,108 / NONE 0** (standing
+tissue 407 / 445 / 1,712 / 2,836). At TIGHT half the crown comes down and the
+top stays in the air; at NONE the cut trunk holds its whole canopy. Both are
+the leash doing what it says, and both are now in `wiki/plants.md`.
+
+The first attempt at that table read **byte-identical at all three settings**,
+which is `CLAUDE.md`'s own tell that a knob was never connected — and it was
+not. `filmstrip`'s `build()` applied `chain_reach=`, `confine=`, `arch=`,
+`share=`, `joints=` and `bands=` to a world that **five scenes then throw
+away**: `grove`, `wood`, `climb`, `shake` and `fell` all construct through
+`common::PlantScene` and `return` its world. Every one of those knobs was
+silently inert on all five. Fixed by splitting `build_scene` out and
+re-applying the settings to the world that is actually returned — idempotent
+for the scenes that already worked. **Lane P and lane W should know**: any
+`grove`/`wood`/`climb`/`shake` measurement that varied one of those six
+arguments before this commit varied nothing.
+
 ### D2. A room's collapse arrives at frame ~350 where it used to arrive at ~150
 
 `c089aa2` reshaped what a failing region is (boundary erosion, fragments
@@ -3456,7 +3561,18 @@ the foraging entry below).
 `ascii` is gating in CI again on this basis, with `skip=foraging` naming the
 one scene still red instead of the whole example being non-blocking.
 
-### H2. The `ascii` colony has gone sessile — **OPEN on `main`, quarantined by name, 2026-08-23**
+### H2. The `ascii` colony has gone sessile — **CLOSED 2026-08-23 via §L: same bug, filed twice, one root cause**
+
+> **Merged at landing (2026-08-23): this is §L, independently found by P1's
+> gate run, and §L carries the close** — the rock-country fallback admitted
+> only the argmax region and deleted the residual towers from the colony's
+> home range; widening the fallback to the country field's own scale
+> restores the scene. The entry below is P1's independent measurement,
+> kept because it agrees with §L's to the digit and adds one datum §L did
+> not have: the water-book fixes alone moved the scene 2 → 7 trips, which
+> says the food's *water supply* participates in the collapse's magnitude
+> but is not its cause. The `known-red-ascii` quarantine this heading
+> referenced is deleted with the close.
 
 > **Superseded in framing, 2026-08-23.** This entry was opened as "`ascii`
 > never reaches bug H any more" — true at the time, and no longer the point:
@@ -3571,6 +3687,11 @@ the first seed that says no. Neither says how many seeds fail, because both
 panic rather than collect. Whoever picks this up should make the loops gather
 failures first; the count per preset is the measurement, and right now nobody
 has it.
+
+*This is §M, filed twice — §M carries the moved counts after §L's
+rock-country fix (the worst natural mover shifts to wetland seed 3, and the
+forced-vault stress case gains a collapsing spire that is not the water
+bug). Read §M's dated note before attributing any count change here.*
 ### I. ~~The disturbance-extent guard inverts once rubble stops anchoring~~ — **FIXED 2026-08-23. The measure was wrong, not the mechanism.**
 
 `sim::structural::tests::a_disturbance_extent_licenses_the_wound_but_not_the_chain`
@@ -3920,7 +4041,89 @@ history, the local blind spot, and a starting commit:**
   this by widening the settle budget until that has been checked — 0 cells
   to 57 is a behaviour change, not a drift past a threshold.
 
-### L. The colony has gone sessile: 98 round trips became 2 — **OPEN, found 2026-08-23; bisected to the world-scale merge (see the merged filing at the end of this entry)**
+**Counts moved with the §L fix (2026-08-23), bug unchanged — and the vault
+red changed shape, which needs saying precisely.** The rock-country
+fallback widening (§L's close) changes terrain on fallback worlds. Both
+tests are still red, differently:
+
+- `generated_terrain_is_already_at_rest` now reports worst `wetland seed
+  3: 87 cells` (was `terraced seed 3: 57`), **still all water** — the same
+  claim broken, a different pond under it. Across all presets x 5 seeds,
+  worlds now carrying far more spires, **zero mineral cells move**: the
+  widened band generates at rest.
+- `a_forced_vault_world_is_sealed_and_arrives_at_rest` now fails at
+  `rolling seed 3: 705 cells` of **stone** (was 47 of water). That is not
+  the water bug: the test forces chambers at `vault_min_depth: 40` — five
+  times shallower than the natural 200 — into a 2048-wide world the band
+  now mostly covers, and a spire over a 40-row-deep forced chamber
+  collapses when stepped. Natural worlds show no such motion (the bullet
+  above), so this is the stress configuration meeting the band, not
+  generation shedding stone in play. Whoever picks §M up should attribute
+  the water half first and treat the stone count as this interaction.
+
+Recorded so the next reader does not bisect the count change to the wrong
+cause. Not the same root as §L: springs place zero in the foraging scene's
+world (0 cliff candidates, measured under `SPRING_DEBUG=1`), so the
+springs-pass lead above is untouched by §L's fix.
+
+### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
+
+**Root cause, found by looking at the scene, exactly as the bisect predicted.**
+`region.rs`'s rock-country guarantee (`gate = FORMATION_BARREN.min(best)`)
+admits, when it fires, only the single region that drew the field maximum.
+The foraging scene's 512x120 world has **two** regions; at rolling seed 1
+they read country 0.4141 (cx=47 — the colony's home range) against 0.4691
+(cx=459), both far under `FORMATION_BARREN` (0.70) — "essentially a single
+value", as the guarantee's own comment says a sub-period world samples — and
+the knife-edge kept only cx=459. The **two residual stone towers standing
+inside the nest patch (x≈42–68)** on the creature parent, the terrain every
+foraging bar was measured on, vanished; the freed soil columns then grew
+worldgen trees, so the canopy edge moved from x≈88 to x≈64, *inside* the
+nest patch.
+
+**Both halves matter, and they interact — measured by ablation on the merge's
+world** (temporary scene switches, one build, same seed):
+
+| arm | trips | deliveries | falls | nest-visits |
+|---|---|---|---|---|
+| parent `c6ffba2` (towers, canopy from x≈88) | 92 | 192 | 901 | 3,598 |
+| merge world (no towers, canopy in nest patch) | 2 | 143 | 64 | 684 |
+| merge + hand towers | 35 | 277 | 413 | 1,234 |
+| merge + worldgen trees cleared x<210 | 30 | 9 | 709 | 18,426 |
+| both | 245 | **0** | 2,423 | 11,052 |
+
+No single lever restores the parent's shape: towers alone leave food at the
+doorstep, clearing food alone leaves the loop unable to close (0–9
+deliveries over the scene's food distance). The parent's balance — vertical
+home terrain plus food starting at the nest patch's edge — is what the
+92–98 bar measured.
+
+**The fix is in worldgen, not the scene.** The fallback now reads the best
+draw as *defining* the country and gives it the field's own extent: regions
+within `ROCK_COUNTRY_SCALE / 2` of the best centre belong to it
+(`region.rs`, beside `FORMATION_BARREN`). A 512 world becomes rock country
+whole; a shipped-size fallback world (1 in 16 seeds) gets one country-sized
+band instead of one region-sized cluster — the cluster shape is the exact
+failure `FORMATION_BARREN`'s own comment records the owner rejecting, so the
+knife-edge was wrong at both scales. On the gated path (best ≥ 0.70) nothing
+changes.
+
+**Restored, measured on the same scene:** forage trips **100** (bar 14, set
+from 98; the parent read 92 on the same code path), nest-visits 3,792
+(parent 3,598), falls 960 (901), mean depth 10.3 (10.3), deliveries 230
+(192), profile `[3798, 452, 171, 100, 0, 0, 0, 0]`. The 2,000-frame counters
+are **identical** to the parent's run — the towers regenerate at the same
+sites. The bar stays at 14, unmoved, as this entry demanded. Re-measured
+after merging the water book (PR #19) into the fix: **112 trips**, mean
+depth 10.6, deepest 16, nest-visits 3,773 — the water fixes move the scene
+the same direction they moved it alone (2 → 7 in §H2's paired datum), on
+top of the restored terrain.
+
+**Not §M's springs water.** The springs pass places nothing in this scene's
+world; the collapse is the residuals/region gate, a different pass on the
+same branch. §M stands untouched.
+
+The original filing follows, kept for the record.
 
 `examples/ascii.rs`'s `forage_loop_scene` fails its own sessility guard on
 `main`:
