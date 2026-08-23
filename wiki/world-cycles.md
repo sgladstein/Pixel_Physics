@@ -71,6 +71,11 @@ night sky. It is a whole-world effect rather than a local one: the underground
 is not separately dark, and a torch does not light its surroundings. Making
 depth and light sources matter is a different feature, and a much bigger one.
 
+Loose material is lit the same way. A slab that breaks off and the grit
+thrown up with it stay the colour of the rock they came from for the whole of
+their fall, so a collapse at dusk is a dusk-coloured collapse — rather than
+each piece flashing pale as it comes loose and darkening again as it lands.
+
 ## Day, night, and decay
 
 The world moves through a full day and night, with light rising and

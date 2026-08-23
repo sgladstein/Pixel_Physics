@@ -46,6 +46,13 @@ tried?"*.
   where this engine's approach sits.
 - [destruction-plan.md](destruction-plan.md) — **plan.** "Destruction
   eager, building forgiving" — the synthesis of the two documents above.
+- [explosion-stone-review.md](explosion-stone-review.md) — **shipped, and
+  the live design record for blasting.** Why a blast in stone looked wrong
+  and what each of five rounds did about it; §15-16 are the joint fabric
+  (rock has a grain and a blast wakes it), §17 the containment retraction.
+  Carries the measured dead ends for this area — read it before touching
+  `explosion.rs`, `fracture_field.rs` or the confined branch of
+  `structural.rs`.
 - [building-rethink.md](building-rethink.md) — **proposal, not built.**
   Building should not be a physics puzzle; from a direct playtest steer.
 - [load-concentration-review-response.md](load-concentration-review-response.md)

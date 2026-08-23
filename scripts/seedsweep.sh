@@ -46,7 +46,12 @@ PRESETS="${PRESETS:-rolling terraced wetland arid flat canyon}"
 SEEDS="${SEEDS:-1 3 7 24301}"
 FRAMES="${FRAMES:-start=2 every=400 count=4}"
 VERB="${*:-dig=6}"
-FILM="${FILM:-target/release/examples/filmstrip.exe}"
+# Plain path first, `.exe` as the fallback: this repo is built on Windows
+# *and* Linux, and the default used to be Windows-only.
+FILM="${FILM:-target/release/examples/filmstrip}"
+if [ ! -x "$FILM" ] && [ -x "$FILM.exe" ]; then
+  FILM="$FILM.exe"
+fi
 OUT="${OUT_DIR:-target/filmstrips}"
 mkdir -p "$OUT"
 

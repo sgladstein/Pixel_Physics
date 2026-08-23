@@ -377,6 +377,40 @@ pub struct MaterialDef {
     /// elsewhere.
     #[serde(default)]
     pub evaporates: bool,
+    /// Chance per tick that one cell of this `Gas` simply stops existing —
+    /// `update.rs`'s `update_gas`. The gas equivalent of `evaporates`, and
+    /// the only removal rule gas has ever had: until this landed **nothing
+    /// anywhere in the simulation deleted a gas cell**, so a blast's smoke
+    /// rose, spread, and then sat under whatever ceiling it found forever
+    /// (`Reports/explosion-stone-review.md` §11, open item 8 — a buried
+    /// crater kept a grey cap for the rest of the session).
+    ///
+    /// **The arithmetic, because a per-tick chance is not a readable
+    /// number.** A cell survives a tick with probability `1 - p`, so its
+    /// half-life is `n = ln(0.5) / ln(1 - p)` ticks, which at 60 ticks a
+    /// second is `n / 60` seconds. For the small values that matter here
+    /// `n ≈ 0.693 / p`:
+    ///
+    /// | `p` | half-life | 90% gone |
+    /// |---|---|---|
+    /// | 0.002 | 346 frames (5.8 s) | 19.2 s |
+    /// | 0.004 | 173 frames (2.9 s) | 9.6 s |
+    /// | 0.008 | 86 frames (1.4 s) | 4.8 s |
+    ///
+    /// The table is what the value was *picked from*, not what picked it —
+    /// the arithmetic only narrows the range, and which end of it looks
+    /// right is a judgement made against a rendered sheet (`CLAUDE.md`,
+    /// "look before you measure"). See `smoke.ron` for the number that
+    /// survived that.
+    ///
+    /// **Defaults to 0.0, meaning never**, so any other gas added later
+    /// keeps exactly today's immortal behaviour until it says otherwise —
+    /// and, because `update_gas` skips the roll entirely at 0.0, keeps
+    /// today's random stream as well, bit for bit.
+    ///
+    /// Meaningless on any kind but `Gas`; nothing dispatches it elsewhere.
+    #[serde(default)]
+    pub dissipation: f32,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -666,6 +700,32 @@ pub struct MaterialDef {
     #[serde(default)]
     pub breaks_into: String,
 
+    /// Mechanical resistance to a blast's confinement probe, unitless and
+    /// relative to stone's own `1.0` — a ray marching outward from an
+    /// epicentre spends this much of `Tuning::containment_floor * radius`
+    /// per cell of this material it crosses before it may call a sector
+    /// "open" (`explosion::probe_confinement`). Lower means a blast finds
+    /// the free face through this material sooner, i.e. clears it as if it
+    /// were easier to push through -- sand and soil are well under stone,
+    /// so the same charge under the same cover reads sand's looseness as
+    /// *less resistant to being blown through*, not merely "softer to dig".
+    ///
+    /// Defaults to stone's own value, per `design-philosophy.md` §2a's rule
+    /// that gameplay-facing numbers graduate to data immediately rather than
+    /// waiting for a second material to justify the field -- a `Solid` or
+    /// `Powder` material that says nothing here resists a blast exactly as
+    /// much as rock does, which is the honest default: unset should read as
+    /// "as hard to push through as anything else", not "no resistance at
+    /// all".
+    ///
+    /// **Never read for a `Liquid`-kind material.** `cast_confinement_ray`
+    /// treats every `Liquid` cell as a free face regardless of this field --
+    /// the same as air or gas -- because a liquid cannot brace a blast on a
+    /// detonation's timescale, it displaces instead of confining. Setting
+    /// this on `water.ron`/`oil.ron` would silently do nothing; do not add
+    /// it there.
+    #[serde(default = "default_blast_resistance")]
+    pub blast_resistance: f32,
     /// Whether a `Liquid` directly beneath this material holds it up —
     /// **buoyancy, stated as data because the load model cannot infer it.**
     ///
@@ -803,6 +863,41 @@ pub struct MaterialDef {
     #[serde(default = "default_fragment_rungs")]
     pub fragment_rungs: u32,
 
+    /// The pitch of this material's **joint fabric**, in world cells — the
+    /// characteristic width of the block it comes apart into. `0.0` (the
+    /// default) means *not jointed*, and nothing about
+    /// `sim::fracture_field` ever touches it.
+    ///
+    /// Jointing is a property of brittle rock: it has bedding planes and
+    /// cooling joints, and a blast finds them. Sand, soil, gravel and snow
+    /// have no such planes — they are already the fragments — so they stay
+    /// at `0.0` and a blast moves them the way it always did.
+    ///
+    /// This is read **at the call site that already holds the `Cell`**, as a
+    /// `Vec` index on the resolved `Material`, never by matching a name in a
+    /// loop (`CLAUDE.md`'s hot-path rule). It is what makes "which materials
+    /// get joints" a content question rather than a hardcoded id test.
+    ///
+    /// Smaller is finer. The worldgen cave field that the pattern was
+    /// modelled on used 22 for a whole-world network; a blast wants a good
+    /// deal smaller, because the fabric has to read as *several* polygons
+    /// across a halo only a few blast-radii wide.
+    #[serde(default)]
+    pub joint_spacing: f32,
+
+    /// How far this material's grain varies from place to place, as a
+    /// fraction of `joint_spacing`. `0.0` (the default) is a uniform grain
+    /// everywhere, which is the behaviour that shipped before this existed.
+    ///
+    /// At `0.4` a band of rock is jointed at 1.4x the nominal pitch, another
+    /// at 0.6x, and half of them at the nominal — see
+    /// `sim::fracture_field::pitch_at`, which carries the four-seed table.
+    /// In short: it buys a visibly varied crack pattern, narrows the
+    /// promoted-cell spread (best case down a quarter, worst case up 7%),
+    /// and costs 10-14 ms on the worst frame. Off by default because of the
+    /// last of those.
+    #[serde(default)]
+    pub joint_band_contrast: f32,
 
     /// What one step of `max_unsupported_span` costs, per direction the
     /// support comes *from*: standing on the cell below, leaning on the one
@@ -848,6 +943,13 @@ fn default_fragment_rungs() -> u32 {
 
 fn default_attached_span_bonus() -> u16 {
     1
+}
+
+/// 1.0 -- stone's own value, so a `.ron` that says nothing about
+/// `blast_resistance` blasts exactly as every material always has (every
+/// sector reads as open at the shipped `containment_floor`).
+fn default_blast_resistance() -> f32 {
+    1.0
 }
 
 /// 0.65, matching the hardcoded `MIN_LIQUID_BRIGHTNESS` of 0.35 this
@@ -987,6 +1089,8 @@ pub struct Material {
     pub glow: f32,
     /// See `MaterialDef::evaporates`.
     pub evaporates: bool,
+    /// See `MaterialDef::dissipation`.
+    pub dissipation: f32,
     /// See `MaterialDef::reinforces_powder`.
     pub reinforces_powder: bool,
     /// See `MaterialDef::climbable`.
@@ -1022,6 +1126,8 @@ pub struct Material {
     /// See `MaterialDef::freeze_min_fill`.
     pub freeze_min_fill: u16,
     pub max_unsupported_span: u16,
+    /// See `MaterialDef::blast_resistance`. Always >= 0.
+    pub blast_resistance: f32,
     /// See `MaterialDef::floats`.
     pub floats: bool,
     /// See `MaterialDef::condenses_into_sky`.
@@ -1032,6 +1138,11 @@ pub struct Material {
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
     pub fragment_rungs: u32,
+    /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
+    /// negative, and never small enough to divide the world into slivers.
+    pub joint_spacing: f32,
+    /// See `MaterialDef::joint_band_contrast`. `0.0` is a uniform grain.
+    pub joint_band_contrast: f32,
     /// See `MaterialDef::support_cost_below` and its siblings.
     pub support_cost_below: u16,
     pub support_cost_beside: u16,
@@ -1285,6 +1396,11 @@ impl From<MaterialDef> for Material {
             water_capacity: def.water_capacity,
             glow: def.glow,
             evaporates: def.evaporates,
+            // Clamped rather than trusted: a negative value would be a
+            // silent "never" (`Rng::chance` returns false at or below 0),
+            // and anything above 1 is a gas that vanishes on the frame it
+            // is created, which reads as the material not existing at all.
+            dissipation: def.dissipation.clamp(0.0, 1.0),
             reinforces_powder: def.reinforces_powder,
             climbable: def.climbable,
             scenery: def.scenery,
@@ -1315,6 +1431,14 @@ impl From<MaterialDef> for Material {
             intrinsic_temperature: def.intrinsic_temperature,
             freeze_min_fill: def.freeze_min_fill,
             max_unsupported_span: def.max_unsupported_span,
+            // Floored at 0: a negative value would make a probe ray's
+            // accumulated cost go *down* as it marches deeper into this
+            // material, which can only make an already-open sector look
+            // more contained the further the ray travels -- nonsensical,
+            // and not a case any `.ron` file has a legitimate reason to
+            // want, so it is guarded here rather than left to corrupt the
+            // sector classification silently.
+            blast_resistance: def.blast_resistance.max(0.0),
             floats: def.floats,
             condenses_into_sky: def.condenses_into_sky,
             max_cantilever_reach: def.max_cantilever_reach,
@@ -1325,6 +1449,12 @@ impl From<MaterialDef> for Material {
             // At least one rung, or the ladder has no rungs to draw from
             // and `Rng::below(0)` is meaningless.
             fragment_rungs: def.fragment_rungs.max(1),
+            // Clamped rather than asserted: this is content, and a
+            // hand-edited `.ron` must not be able to panic the simulation.
+            // A negative or sub-cell pitch is meaningless, so both read as
+            // "not jointed" -- the same treatment `0.0` gets by default.
+            joint_spacing: if def.joint_spacing >= 1.0 { def.joint_spacing } else { 0.0 },
+            joint_band_contrast: def.joint_band_contrast.clamp(0.0, 0.9),
             // Clamped to at least 1 so a lateral or upward step always costs
             // *something*. All three at 0 would let a distance propagate
             // arbitrarily far without ever growing, silently disabling
@@ -1535,6 +1665,7 @@ impl MaterialRegistry {
             water_capacity: 0,
             glow: 0.0,
             evaporates: false,
+            dissipation: 0.0,
             reinforces_powder: false,
             climbable: false,
             scenery: false,
@@ -1563,8 +1694,11 @@ impl MaterialRegistry {
             condenses_into_sky: false,
             max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
+            blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            joint_spacing: 0.0,
+            joint_band_contrast: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,
@@ -1584,6 +1718,7 @@ impl MaterialRegistry {
             water_capacity: 0,
             glow: 0.0,
             evaporates: false,
+            dissipation: 0.0,
             reinforces_powder: false,
             climbable: false,
             scenery: false,
@@ -1615,8 +1750,11 @@ impl MaterialRegistry {
             condenses_into_sky: false,
             max_cantilever_reach: u16::MAX,
             breaks_into: String::new(),
+            blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            joint_spacing: 0.0,
+            joint_band_contrast: 0.0,
             support_cost_below: 1,
             support_cost_beside: 1,
             support_cost_above: 1,

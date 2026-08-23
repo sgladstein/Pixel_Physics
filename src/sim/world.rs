@@ -255,6 +255,20 @@ pub struct World {
     /// `pop_due_active_site` before the tick runs, so a site that
     /// reschedules itself is a fresh request rather than a dropped one.
     pending_evaporation: std::collections::HashSet<(i32, i32)>,
+    /// The same dedup index again, for `ActiveKind::Dissipate`, and
+    /// load-bearing for the same reason as `pending_evaporation` directly
+    /// above rather than merely for cost: the CA sweep asks for a
+    /// dissipation site on **every frame** a gas cell fails to move, so
+    /// without this the number of rolls a trapped cell gets each second
+    /// would be proportional to how long its chunk happened to stay awake
+    /// after it settled — smoke in a busy crater would fade faster than the
+    /// same smoke in a quiet one, which is a size/activity dependence
+    /// nothing about the mechanic wants.
+    ///
+    /// A third set rather than one keyed on kind, matching the choice made
+    /// for `pending_evaporation`: the existing paths' behaviour stays
+    /// untouched.
+    pending_dissipation: std::collections::HashSet<(i32, i32)>,
     /// The topmost row of *ground* in each column, indexed from
     /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
     /// column that held no ground at all; empty until `freeze_sky_surface`
@@ -571,10 +585,17 @@ pub struct World {
     /// Generous by default: a cave-in that arrives a few seconds after you
     /// undermine something is the mechanic, not a bug.
     pub chain_window: u64,
-    /// Where the world was last disturbed, and when. A small ring: only
-    /// the most recent handful matter, since older ones fall outside
-    /// `chain_window` anyway.
-    pub disturbances: std::collections::VecDeque<(i32, i32, u64)>,
+    /// Where the world was last disturbed, when, and **how big the wound
+    /// was**. A small ring: only the most recent handful matter, since
+    /// older ones fall outside `chain_window` anyway. See
+    /// `structural::Disturbance` for why the extent is not optional.
+    pub disturbances: std::collections::VecDeque<crate::sim::structural::Disturbance>,
+    /// Failures already judged and part-way through coming down, one slice
+    /// per `structural::STRUCTURAL_TICK_INTERVAL` frames. See
+    /// `structural::StagedFracture` and `advance_staged_fractures`; empty
+    /// in every frame where nothing is mid-collapse, which is nearly all of
+    /// them.
+    pub staged_fractures: std::collections::VecDeque<crate::sim::structural::StagedFracture>,
 
     /// Per-frame caches for the load walks (`load::Cache`).
     /// Cleared by `scheduler::step` each frame and again by
@@ -618,6 +639,16 @@ pub struct FailureCounts {
     /// Furthest a failure has ever been found from the cell whose check
     /// found it, in cells.
     ///
+    /// **This is not a containment measure and never was**, whatever it has
+    /// been labelled: it is Manhattan `|failure.at - (x, y)|`, the distance
+    /// from the *checked cell* to the *failing ancestor*, bounded by
+    /// construction to `load::ROOTWARD_CHECK_STEPS` hops. It cannot see how
+    /// far the consequence landed from what the player hit, and measured on
+    /// a rolling-world blast it reads **1 cell** while real failures are
+    /// landing everywhere. `max_damage_reach` below is the number that
+    /// answers that question; this one answers the empirical question its
+    /// own paragraph below poses and nothing else.
+    ///
     /// Instrumentation for a decision, not a metric anyone needs at
     /// runtime. `Reports/prior-art-destruction.md` flags
     /// `ROOTWARD_CHECK_STEPS = 128` as having 7 Days to Die's exact bug
@@ -629,6 +660,29 @@ pub struct FailureCounts {
     /// standing at a stress ratio of 1.87. So the question is empirical:
     /// how far do failures *actually* land from their trigger here?
     pub max_chain_reach: u32,
+    /// **The containment measure**: the greatest Chebyshev distance from
+    /// the nearest *live* disturbance to any cell a consequence actually
+    /// destroyed, over the whole run.
+    ///
+    /// Reported in the units `World::chain_reach` is written in (see
+    /// `World::distance_to_live_disturbance`, its measurement twin), so it
+    /// can be read straight against the `F9` setting: at LOCAL this
+    /// standing at 200 says damage travelled four times past the licence,
+    /// and no other counter here can say that at all.
+    ///
+    /// **Damage only.** Recorded where something stops being what it was --
+    /// the region handed to the fracturer, each paced slice,
+    /// `break_free` on the organism path, and the cells a crush actually
+    /// fissures. Deliberately *not* recorded for `rigid::settle`'s landing
+    /// scheduling or for a check that was scheduled and refused: those are
+    /// **work**, not damage, and folding them in would make the number
+    /// unreadable -- a scheduled check that changed nothing is exactly what
+    /// a contained world is full of.
+    ///
+    /// Nothing is recorded when there is no live disturbance at all, rather
+    /// than `0`: see `World::distance_to_live_disturbance` for why zero is
+    /// the wrong answer to "nothing was disturbed".
+    pub max_damage_reach: u32,
     /// The largest single failing region, in cells.
     ///
     /// The mean (`overloaded_cells / overloaded`) is not enough on its own:
@@ -671,22 +725,34 @@ pub struct FailureCounts {
     /// from cracks too fine to see at that zoom. An image cannot say
     /// whether the thing you built is what produced it.
     pub crushed_cells: u32,
-    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    /// Slices `structural::advance_staged_fractures` took off a failure
+    /// that was too big to fracture in one tick, and the cells they took.
     ///
-    /// **The mean and the max together still hide the shape, and the shape
-    /// is the whole question.** `largest_failure` says a 12-cell region
-    /// happened once; the mean says 1.7; neither says whether the
-    /// distribution has a body between them or is 570 single cells with one
-    /// outlier. The answer decides whether the fragment ladder can help at
-    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
-    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
-    /// lives entirely under 8 cannot produce a chunk however the rungs are
-    /// tuned. The owner's report is the other end of the same fact:
-    /// *"better with chunks instead of pile of dust"*.
+    /// The "did it fire at all" counter for R3a, and it is exactly the
+    /// question a contact sheet cannot answer: a collapse that arrives in
+    /// one frame and one that arrives in five bites look identical in a
+    /// grid of stills, and the difference between them is the whole
+    /// change. `overloaded`/`unsupported` above cannot say it either --
+    /// they count the *failure*, which is recorded once, whole, before any
+    /// of this.
+    pub staged_slices: u32,
+    pub staged_cells: u32,
+    /// Cells lifted out of the grid into a tumbling `ChunkBody`, and how
+    /// many bodies they became.
     ///
-    /// Bucket edges are the two floors and powers of two around them, so
-    /// the boundary that matters is a boundary in the readout too.
-    pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// **The only counter here that measures a displacement rather than a
+    /// judgement.** Every field above it is recorded at `structural.rs`'s
+    /// `record` call, which runs before the free-face test, the boundary
+    /// erosion, the slicing and the fracture -- so all of them can be large
+    /// on a run where nothing whatsoever moved. That is not hypothetical:
+    /// it is the exact shape of the owner's *"no pieces move, ever"*
+    /// against a harness reporting hundreds of unsupported failures.
+    ///
+    /// Recorded inside `rigid::promote`, at the line that actually pushes
+    /// the body, rather than at any call site -- `fracture_with_impulse`,
+    /// `calve_collar` and `fracture_shell` all reach it through the same
+    /// door, and so does anything added later.
+    ///
     /// Cells that left a fracture as part of a promoted `ChunkBody`, and
     /// cells that left it as rubble.
     ///
@@ -703,8 +769,67 @@ pub struct FailureCounts {
     /// A region of 83 cells that fractures into eleven 4-cell fragments is
     /// a large region, several bodies' worth of events, and entirely dust
     /// on screen. Only the ratio of these two tells them apart.
+    pub promoted_bodies: u32,
     pub promoted_cells: u32,
+    /// Cells converted in place to `breaks_into` rubble -- the other half
+    /// of a fracture's output, and the one the ethos calls grit.
+    ///
+    /// Paired with `promoted_cells` deliberately: the ratio between them is
+    /// the block-size distribution the owner's *"a few blocks, more
+    /// cobbles, a lot of grit"* is about, and either number alone cannot
+    /// show it.
+    ///
+    /// Two code paths write the identical conversion and both are counted:
+    /// `rigid::shatter_to_rubble`, which takes the fragments that came out
+    /// below `MIN_BODY_CELLS`, and `structural::break_free`, which is the
+    /// fallback when a region was too small to fracture at all. Neither
+    /// counts a cell whose material has no `breaks_into` -- both decline
+    /// and leave it standing, and counting a decline would make grit look
+    /// like it happened.
+    ///
+    /// **`break_free`'s organism path is deliberately *not* counted.** The
+    /// third caller is `structural.rs`'s plant-support check turning a
+    /// limb that lost its anchor into deadwood: the same conversion, an
+    /// entirely different event, and one that fires on its own schedule
+    /// all through any world with vegetation in it. Folding it in here
+    /// would put tree death into the number that is supposed to say how
+    /// rock came apart, and swamp it on exactly the generated worlds this
+    /// counter exists to judge.
     pub shattered_cells: u32,
+    /// Failing-region sizes, bucketed — `SIZE_BUCKETS` names the edges.
+    ///
+    /// **The mean and the max together still hide the shape, and the shape
+    /// is the whole question.** `largest_failure` says a 12-cell region
+    /// happened once; the mean says 1.7; neither says whether the
+    /// distribution has a body between them or is 570 single cells with one
+    /// outlier. The answer decides whether the fragment ladder can help at
+    /// all: `rigid::MIN_FRACTURE_CELLS` declines below 6, and 6-7 cells can
+    /// produce no fragment reaching `MIN_BODY_CELLS`, so a distribution that
+    /// lives entirely under 8 cannot produce a chunk however the rungs are
+    /// tuned. The owner's report is the other end of the same fact:
+    /// *"better with chunks instead of pile of dust"*.
+    ///
+    /// Bucket edges are the two floors and powers of two around them, so
+    /// the boundary that matters is a boundary in the readout too.
+    pub size_buckets: [u32; SIZE_BUCKETS.len()],
+    /// The size of every body promoted, bucketed by doubling: `<8`
+    /// (impossible -- `MIN_BODY_CELLS` is 8, so it stays 0 and is the
+    /// sanity check on the bucketing), `8-15`, `16-31`, `32-63`, `64-127`,
+    /// `128-255`, `256+`.
+    ///
+    /// **`promoted_bodies` and `promoted_cells` cannot answer the question
+    /// this does.** Their ratio is a *mean*, and a run of forty 30-cell
+    /// blocks and a run of one 200-cell slab plus thirty-nine 25-cell ones
+    /// have nearly the same mean and are the two outcomes the ethos is
+    /// about: *"a few blocks, more cobbles, a lot of grit"* is a
+    /// **distribution**, and its absence -- everything one size, or the
+    /// all-or-nothing split -- reads as fake on sight. Reported from play
+    /// as *"could the pattern of cracks be more heterogeneous, so the
+    /// chunks that break off are different sizes"*.
+    ///
+    /// Seven `u32`s on a struct that is copied per tile, which is the
+    /// cheapest thing that can answer a distribution question at all.
+    pub promoted_sizes: [u32; 7],
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -718,20 +843,46 @@ impl FailureCounts {
         self.max_chain_reach = self.max_chain_reach.max(reach);
     }
 
-    /// One fragment's worth of mass, split by where it went. See
-    /// `promoted_cells`.
-    pub fn record_fragment(&mut self, cells: usize, promoted: bool) {
-        if promoted {
-            self.promoted_cells += cells as u32;
-        } else {
-            self.shattered_cells += cells as u32;
-        }
+    /// See `max_damage_reach`. Callers pass a distance already resolved
+    /// against a *live* disturbance (`World::distance_to_live_disturbance`
+    /// returned `Some`), so there is no sentinel to filter here.
+    pub fn record_damage_reach(&mut self, reach: i32) {
+        self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
     }
 
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
         self.confined += 1;
         self.confined_cells += cells as u32;
         self.deepest_confined = self.deepest_confined.max(depth);
+    }
+
+    pub fn record_staged(&mut self, cells: usize) {
+        self.staged_slices += 1;
+        self.staged_cells += cells as u32;
+    }
+
+    /// One body, `cells` cells, actually lifted off the grid. See
+    /// `promoted_bodies`.
+    ///
+    /// `saturating_add` rather than the `+=` its neighbours use, and that
+    /// is not a style slip: the fields above it count discrete failure
+    /// events and this one counts *cells*, over runs that go to 5,000
+    /// frames and nine charges. A wrap here would read as a collapse in
+    /// the one counter the night's work is judged by.
+    pub fn record_promoted(&mut self, cells: usize) {
+        self.promoted_bodies = self.promoted_bodies.saturating_add(1);
+        self.promoted_cells = self.promoted_cells.saturating_add(cells as u32);
+        // Bucket by doubling from 8, the smallest a body can be. `ilog2`
+        // rather than a loop, and clamped at the top so a 400-cell body
+        // (`MAX_BODY_CELLS`) lands in the last bucket rather than past it.
+        let bucket = if cells < 8 { 0 } else { (cells.ilog2() as usize - 2).min(6) };
+        self.promoted_sizes[bucket] = self.promoted_sizes[bucket].saturating_add(1);
+    }
+
+    /// `cells` cells converted where they stood. See `shattered_cells` for
+    /// which paths count and which one deliberately does not.
+    pub fn record_shattered(&mut self, cells: usize) {
+        self.shattered_cells = self.shattered_cells.saturating_add(cells as u32);
     }
 
     pub fn record(&mut self, mode: crate::sim::load::FailureMode, cells: usize) {
@@ -768,6 +919,7 @@ impl World {
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
             pending_evaporation: std::collections::HashSet::new(),
+            pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
             pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
@@ -792,6 +944,7 @@ impl World {
             chain_reach: i32::MAX,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
+            staged_fractures: std::collections::VecDeque::new(),
             load_cache: crate::sim::load::Cache::default(),
             structural_failures: FailureCounts::default(),
             phase_changes: crate::sim::fire::PhaseCounts::default(),
@@ -1031,6 +1184,13 @@ impl World {
         {
             return;
         }
+        // See `pending_dissipation`'s own doc — load-bearing for the rate,
+        // exactly as the evaporation one above is.
+        if matches!(site.kind, scheduler::ActiveKind::Dissipate) && !self.pending_dissipation.insert((site.x, site.y)) {
+            return;
+        }
+        // The same guard again for decay, which `origin/main` added
+        // independently against its own site kind. Two kinds, two sets.
         if matches!(site.kind, scheduler::ActiveKind::Decay) && !self.pending_decay_sites.insert((site.x, site.y)) {
             return;
         }
@@ -1129,6 +1289,9 @@ impl World {
         }
         if let scheduler::ActiveKind::Evaporate { .. } = site.kind {
             self.pending_evaporation.remove(&(site.x, site.y));
+        }
+        if let scheduler::ActiveKind::Dissipate = site.kind {
+            self.pending_dissipation.remove(&(site.x, site.y));
         }
         if let scheduler::ActiveKind::Decay = site.kind {
             self.pending_decay_sites.remove(&(site.x, site.y));

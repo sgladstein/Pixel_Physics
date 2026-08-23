@@ -103,13 +103,48 @@ run terrain  scene=terrain  start=2 every=90 count=4 crop=0,0,512,320 zoom=1 max
 #    sum over a count for exactly this reason. Measured 2,713; the bar is
 #    1,800.
 #
+#    **Both bars are kept, and that is the merge, not indecision.** Two
+#    branches hit this same mode shift independently and each replaced the
+#    event count with a different outcome: `min_failing_cells` asks how much
+#    of the room gave way, `max_cave` asks whether the roof is still up.
+#    They are not the same question -- a room can shed 1,800 cells off its
+#    walls with the ceiling intact, and a ceiling can come down in fewer.
+#    Carrying both is strictly stricter than either and re-bars nothing;
+#    `CLAUDE.md`'s "a guard test must be able to fail for the *replacement*
+#    artifact" is the argument for keeping the pair rather than picking.
+#
+#    **`roomcut`'s bar was an event count and is now an outcome.** It read
+#    `min_overloaded=5` (measured 56 when it was written). `c089aa2` reshaped
+#    what a failing region is -- boundary erosion, and fragments separating
+#    along fissures -- and the room's collapse merged from thirty-seven
+#    separate failures into **one** paced failure of 1,903 cells. Same roof,
+#    same rubble on the floor, one event. Measured side by side against
+#    `origin/main`, roofed void as a percentage of what was there at the cut:
+#
+#        frame        2     200     400     800
+#        main      100%     20%     22%     22%
+#        this      100%     24%     18%     18%
+#
+#    The ceiling comes down on both, and slightly *further* here by frame
+#    400. What changed is that it arrives as one staged collapse rather than
+#    a shower of separate ones, and lands a little later -- main is down by
+#    frame ~150, this by ~350. So the bar is now `max_cave=40`: set from the
+#    24% measured with sixteen points of headroom, against 100% for a roof
+#    that never moves. **The timing change is real and is not hidden by
+#    this** -- it is recorded in `Reports/open-bugs-handoff.md` for a
+#    playtest verdict, because the owner has separately complained about
+#    breakage arriving late.
+#
+#    Second time an event-count bar here has caught a mode shift rather than
+#    a behaviour change; see case 6's note on `strike`.
+#
 #    A bigger budget than the rest, and not a tuning fudge: the room is the
 #    largest structure any scene here builds and the only one that is mostly
 #    *surface*, so far more of it is structurally interesting than in a solid
 #    massif. Measured 29-32 ms against the 13-22 ms the others sit at, so 90
 #    keeps the same ~3x margin over the measurement that 60 gives them.
 run roomstands scene=room wall=5 dig=0 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 max_failures=0   repeat=2 max_frame_ms=90
-run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_failing_cells=1800 repeat=2 max_frame_ms=90
+run roomcut    scene=room wall=5 dig=3 start=2 every=50 count=5 crop=100,120,280,200 zoom=2 min_failing_cells=1800 max_cave=40 repeat=2 max_frame_ms=90
 
 # 6. One dig into a *generated* world, on more than one seed. The case that
 #    the other seven are structurally blind to: every scene above builds

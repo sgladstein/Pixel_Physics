@@ -24,6 +24,9 @@
     // banks against anything upright instead of spreading out flat. This
     // is the single number that decides whether snow reads as snow.
     friction_angle: 42.0,
+    // See Material::blast_resistance -- trivially blown through, same
+    // spirit as the trivial penetration_resistance above.
+    blast_resistance: 0.2,
     melting_point: 2.0,
     // **Not optional, and its absence was a real bug**, not a tuning
     // choice: `fire.rs`'s `diffuse_heat` early-exits at conductivity <= 0,

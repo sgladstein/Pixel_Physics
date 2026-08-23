@@ -105,7 +105,13 @@ pub(crate) const MIN_BODY_CELLS: usize = 8;
 /// Smallest failing region worth fracturing at all. Below this the region is
 /// left to the caller's per-cell conversion, which looks the same and costs
 /// less.
-const MIN_FRACTURE_CELLS: usize = 6;
+///
+/// Shared with `structural::tick`, which uses it as the floor on a confined
+/// *severed piece* worth cracking at all: a chip this small has nothing left
+/// inside it to separate. Deliberately the same number as the one here, so
+/// "too small to come apart into pieces" means one thing in this engine
+/// rather than two.
+pub(crate) const MIN_FRACTURE_CELLS: usize = 6;
 
 /// Largest a single body may be. Past this one piece stops reading as a
 /// chunk broken off a wall and starts reading as the wall gliding intact,
@@ -173,12 +179,17 @@ const CRACK_RAYS: u32 = 5;
 /// Extra reach a ray gains from running into existing damage. Stress
 /// concentrates at a crack tip, so repeated blows in one place drive a
 /// fissure deeper instead of scribbling a new one each time.
-const CRACK_TIP_BONUS: i32 = 2;
+///
+/// Shared with `structural::walk_fissures`, which needs the identical rule
+/// for the identical reason and only on its blast path -- its wander is
+/// position-keyed, so a repeat charge retraces its own fissures exactly and
+/// would otherwise write nothing at all the second time.
+pub(crate) const CRACK_TIP_BONUS: i32 = 2;
 
 /// How many times a single ray may claim `CRACK_TIP_BONUS`. Bounds the walk
 /// so working one spot forever cannot drive a fissure across the whole
 /// world, while still leaving several blows' worth of room to grow.
-const CRACK_TIP_MAX_STEPS: i32 = 6;
+pub(crate) const CRACK_TIP_MAX_STEPS: i32 = 6;
 
 /// How much a blow of this radius shifts the fragment-size ladder. A tap
 /// chips; a heavy swing calves slabs. Capped at 2 (a 128-cell ceiling)
@@ -544,7 +555,34 @@ pub fn fracture_failing_region(world: &mut World, region: &[(i32, i32)], broke_a
 /// so the grit is a *consequence* of the same draw rather than a separate
 /// fudge factor.
 fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
-    fracture_with_impulse(world, region, None, 0, Some(broke_at))
+    // **A big collapse calves blocks; a small one chips.** This passed a
+    // flat `0` for as long as the ladder has existed, which meant a
+    // structural collapse drew fragment targets of 2..64 cells while a
+    // *blow* of the same material drew 8..256 -- so everything that came
+    // down after the event was systematically smaller than what the event
+    // itself threw, and two of the six rungs landed under `MIN_BODY_CELLS`
+    // and became grit before shape was even considered.
+    //
+    // Reported from play as the second of three complaints off the rolling
+    // world: *"could the pattern of cracks be more heterogeneous, so the
+    // chunks that break off are different sizes"*. The joint fabric is one
+    // half of that answer and this is the other, and this half is the one
+    // that was simply never wired: `size_bias` already existed, already
+    // took the right shape, and only `strike` and the blast shell were
+    // passing it anything.
+    //
+    // Sized off the region's own half-extent rather than a cell count, for
+    // the same reason `strike` sizes off the brush radius: what the ladder
+    // is asking is "how big is the thing that came apart", and a long thin
+    // shelf and a compact block of the same area do not come apart the
+    // same. Half-extent puts a collapse on exactly the scale a blow of that
+    // reach would be on, which keeps one ladder rather than inventing a
+    // second calibration.
+    let half = region
+        .iter()
+        .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
+    let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at))
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
@@ -615,9 +653,26 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // again.
         let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
         let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
-        let fragment = take_fragment(&mut left, seed, target);
+        let fragment = take_fragment(world, &mut left, seed, target);
+        // The `world` argument is this branch's size-biased ladder: a wide
+        // blow calves slabs where a tap chips.
+        //
+        // **`origin/main`'s `record_fragment(len, promoted)` call stood here
+        // and was dropped, deliberately.** It split one fragment's mass into
+        // `promoted_cells`/`shattered_cells` -- which this branch already
+        // records, at the two choke points that cannot drift out of step
+        // with what happened: `record_promoted` inside `promote` (the line
+        // that actually pushes the body, so `fracture_with_impulse`,
+        // `calve_collar` and `fracture_shell` all reach it through one
+        // door) and `record_shattered` inside `shatter_to_rubble` and
+        // `break_free`. Keeping both counted every promoted fragment's
+        // cells twice and every shattered fragment's twice over. The richer
+        // pair wins because it also carries `promoted_bodies` and
+        // `promoted_sizes`, which `record_fragment` has no way to fill.
+        // `size_buckets`, main's other counter here, is untouched: it is
+        // fed from `record` and measures the failing *region*, not the
+        // fragment, so it is a different quantity and both are kept.
         let promoted = fragment.len() >= MIN_BODY_CELLS;
-        world.structural_failures.record_fragment(fragment.len(), promoted);
         if promoted {
             promote(world, &fragment, impulse);
         } else {
@@ -629,7 +684,24 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
 }
 
 /// Flood up to `target` connected cells out of `left`, removing them.
-fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+///
+/// **A fissure is a fragmentation seam.** The flood refuses to cross a
+/// cracked edge, so a collapsing region comes apart along the cracks that
+/// are already in it rather than along BFS ring boundaries. Before this,
+/// cracks severed *support* (`load.rs` asks `edge_is_cracked` everywhere)
+/// and were then completely ignored when the thing they had undermined
+/// actually broke: the flood ran straight across them and the only random
+/// thing about a fragment was its size, never its shape. Whole collapses
+/// therefore came down as L1 rings -- "perfect columns or sharp
+/// triangles", the owner's second complaint off the prototype sheets.
+///
+/// Costs one bit test per admitted cell, at event time only.
+///
+/// A fragment cut small by dense cracking falls through to
+/// `shatter_to_rubble` at the call site, which is the graded outcome and
+/// not a fallback: heavily fissured rock *should* come away as grit while
+/// lightly fissured rock comes away as slabs.
+fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
     // Breadth-first, not depth-first. A DFS flood snakes: it follows one
     // arm to its end before coming back, so fragments came out as long
     // stringy runs — "thin individual pixel lines" rather than chunks. BFS
@@ -645,9 +717,23 @@ fn take_fragment(left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize
         }
         for (dx, dy) in NEIGHBOURS_4 {
             let next = (x + dx, y + dy);
-            if left.remove(&next) {
-                stack.push_back(next);
+            if !left.contains(&next) {
+                continue;
             }
+            // Tested *before* the claim, never after: `left.remove` is how
+            // a cell is claimed for this fragment, so removing it and then
+            // declining it would delete material from the region entirely
+            // -- neither in a fragment nor in the pool for the next seed,
+            // which is precisely what the conservation assertions exist to
+            // catch. `edge_is_cracked` owns each edge from one side (see
+            // its doc), so the step direction is handed to it as-is and it
+            // asks the neighbour about its own bit when stepping left or
+            // up.
+            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            left.remove(&next);
+            stack.push_back(next);
         }
     }
     // Anything still stacked was claimed out of `left` but never reached
@@ -708,6 +794,21 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         peak_speed: 0.0,
         reserved: false,
     });
+    // Counted here, on the line after the push, and not at any call site:
+    // this is the only place in the engine where rock leaves the grid as a
+    // moving piece, so it is the only place the count cannot drift out of
+    // step with what happened. `fracture_with_impulse` (collapse),
+    // `calve_collar` and `fracture_shell` (blast) all arrive through this
+    // door, and so will whatever is added next.
+    //
+    // It is also the *only* field of `FailureCounts` that measures a
+    // displacement. Everything else is recorded at `structural.rs`'s
+    // `record`, which runs before the free-face test, the erosion, the
+    // slicing and the fracture -- so `unsupported: 400` is entirely
+    // consistent with nothing at all having moved, which is exactly the
+    // shape of the owner's "no pieces move, ever" against a harness
+    // reporting hundreds of failures.
+    world.structural_failures.record_promoted(cells.len());
     // Taken *after* the push, so the walk below reads a world in which the
     // piece has already been lifted out and cannot find its own cells.
     let towards_liquid = falling_towards_liquid(world, cells);
@@ -808,7 +909,13 @@ fn falling_towards_liquid(world: &World, cells: &[(i32, i32)]) -> bool {
 
 /// Convert one cell to its material's `breaks_into`, losing attachment —
 /// whatever comes free is no longer backed by the mass it broke out of.
-fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
+///
+/// `pub(crate)` for `explosion::JointSeams`, which opens a joint into a seam
+/// of void *and grit* and wants the same conversion, the same attachment
+/// loss and — importantly — the same `record_shattered` bookkeeping. Grit
+/// counted anywhere else would not appear in the promoted-to-shattered ratio
+/// that says whether a break has a *distribution* of sizes behind it.
+pub(crate) fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let cell = world.get(x, y);
     let Some(into) = world.materials.get(cell.material).breaks_into else {
         return; // no configured debris: leave it rather than deleting content
@@ -817,6 +924,13 @@ fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     let shade = world.rng.below(shades) as u8;
     let temp = cell.temperature();
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    // After the conversion, never before the `breaks_into` check above:
+    // the decline leaves the cell exactly as it was, and counting a
+    // decline would make grit look like it happened. Grit is half of the
+    // "a few blocks, more cobbles, a lot of grit" distribution and its
+    // pair, `promoted_cells`, is the other -- neither number says anything
+    // about the shape of a break on its own.
+    world.structural_failures.record_shattered(1);
     world.schedule_structural_check_around(x, y);
 }
 
@@ -861,7 +975,16 @@ fn distance2_to_segment(p: (i32, i32), a: (i32, i32), b: (i32, i32)) -> i32 {
 /// scribbling a fresh one each time, and the player can work a crack along
 /// deliberately. That is the difference between damage that accumulates and
 /// damage that merely repeats.
-fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) {
+///
+/// Returns how many distinct cells were scored with a fresh fissure —
+/// `explosion.rs`'s blast report needs a count for its "did it fire at all"
+/// line (`CLAUDE.md`: a discrete event needs a counter, not just a
+/// picture), and `scored_now`'s own dedup is exactly that count, already
+/// computed for the crack-tip-bonus logic below. `pub(crate)` rather than
+/// private: the blast's crack halo (R1,
+/// `Reports/explosion-stone-review.md` §4) calls this from `explosion.rs`,
+/// the one other caller in the crate besides `strike`/`mine_swept` here.
+pub(crate) fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, rays: u32) -> u32 {
     // Ray directions are keyed on the *site*, not drawn fresh per blow, and
     // that is what makes damage accumulate. Jittering per call sent every
     // hit off in new directions, so a second blow on the same spot scored
@@ -907,6 +1030,7 @@ fn score_cracks(world: &mut World, cx: i32, cy: i32, from: i32, length: i32, ray
             r += 1;
         }
     }
+    scored_now.len() as u32
 }
 
 /// Hit the rock at `(cx, cy)` hard enough to break it.
@@ -1035,7 +1159,9 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
         return 0;
     }
     // Short, so a chisel weakens what it is cutting through without
-    // fissuring the whole wall the way a swing does.
+    // fissuring the whole wall the way a swing does. Return value (cells
+    // scored) ignored here -- only the blast report in `explosion.rs` needs
+    // a count.
     score_cracks(world, cx, cy, radius, radius + MINE_CRACK_REACH, MINE_CRACK_RAYS);
     // The rock around the cut stops being braced, which is what makes a
     // doorway's lintel notice the doorway.
@@ -1045,8 +1171,11 @@ pub fn mine_swept(world: &mut World, from: (i32, i32), to: (i32, i32), radius: i
     }
     world.add_pressure_impulse(cx, cy, radius.max(2), loosened.len() as f32 * MINE_PRESSURE);
     // A cut is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
+    // `World::chain_reach`. The extent is the chisel's own outer crack
+    // reach -- the same `radius + MINE_CRACK_REACH` handed to `score_cracks`
+    // above, so the licence covers exactly the rock this cut damaged and no
+    // more (`structural::Disturbance::extent`).
+    world.record_disturbance(cx, cy, radius + MINE_CRACK_REACH);
     // Last, so everything above sees the full bite as rubble. That
     // ordering is not incidental: it is exactly what `player::dig` did
     // when the thinning lived there, so moving it in here changes the
@@ -1125,9 +1254,6 @@ const MINE_CRACK_RAYS: u32 = 3;
 const MINE_PRESSURE: f32 = 0.4;
 
 pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
-    // A blow is a disturbance: it licenses failures near it. See
-    // `World::chain_reach`.
-    world.record_disturbance(cx, cy);
     // A blow has a floor, and the brush does not.
     //
     // Reported from play as "striking a cliff does nothing", with the
@@ -1145,6 +1271,17 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // want different sizes: you draw with a pencil and you swing a hammer.
     // So the brush still scales the blow, from a floor that always lands.
     let radius = radius.max(MIN_STRIKE_RADIUS);
+    // A blow is a disturbance: it licenses failures near it. See
+    // `World::chain_reach`. The extent is the swing's own crack reach --
+    // the same `radius * CRACK_REACH` handed to `score_cracks` below, so
+    // the licence covers exactly the rock this blow scored
+    // (`structural::Disturbance::extent`).
+    //
+    // **Recorded after the floor, not before it.** `radius` is rebound one
+    // line up, and a licence taken from the unfloored brush radius would be
+    // narrower than the swing that actually lands -- which is the same
+    // mistake as recording a point for a volume, one argument along.
+    world.record_disturbance(cx, cy, radius * CRACK_REACH);
     // Three zones, and the split is what makes a blow read as a blow rather
     // than as a hole appearing. The core is pulverized -- that is the bite.
     // A thin shell around it chips off immediately, so every hit produces
@@ -1172,7 +1309,9 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
         }
     }
     // Cracks reach well past the rock the blow actually removes -- that
-    // reach is the whole point of striking rather than erasing.
+    // reach is the whole point of striking rather than erasing. Return
+    // value (cells scored) ignored here -- only the blast report in
+    // `explosion.rs` needs a count.
     score_cracks(world, cx, cy, chip, radius * CRACK_REACH, CRACK_RAYS);
     // Loosen first, so the fracture below sees rock that is no longer
     // claiming to be braced by the massif.
@@ -1213,7 +1352,92 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 /// exposed. Only unattached solid cells are eligible, which means the rim
 /// has already been through `structural::detach_exposed_neighbours` and is
 /// genuinely no longer braced by the mass behind it.
-pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32) {
+///
+/// `confinement` is R2's probe result (`explosion::probe_confinement`, via
+/// `explosion::Confinement`) — **required, not optional** (`Reports/
+/// explosion-stone-review.md` §5). Without gating this loop too, a
+/// "contained" sector would still get its rim unattached and fractured by
+/// the call below even though `clear_annulus` never cleared a cell in it,
+/// which quietly reproduces the self-refilling bruise the containment gate
+/// exists to remove. Only `explosion.rs` calls this today, so the argument
+/// is always real confinement data, never a "no gating" sentinel.
+pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
+    if loosened.len() >= MIN_FRACTURE_CELLS {
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    }
+}
+
+/// Which half of a blast's ring a shell scan is interested in.
+///
+/// The blast's own stages only ever want `Open` — a contained sector's rim
+/// must stay exactly where it is, which is the whole of R2. The calving
+/// collar wants both, in two different places: the open rim it can throw
+/// into the void, and the *contained* pocket wall, which is the only rock a
+/// fully buried charge has anywhere to move.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ShellSectors {
+    /// Sectors that vented — reach equals the blast radius.
+    Open,
+    /// Sectors that read as buried, cleared only to the crush pocket.
+    Contained,
+}
+
+/// Break a collar off the rim along the cracks, once the blast's fissure
+/// star has finished growing. Returns how many cells were handed to the
+/// fragmenter.
+///
+/// This is `fracture_shell`'s sibling and shares its scan
+/// (`loosen_shell`), and the difference between them is *when* and *which
+/// way*: the shell fracture runs on every stage, on the rock the blast is
+/// breaking, thrown outward. This runs once, seconds later, on standing
+/// rock the star has just cut wedges out of, thrown inward (the caller
+/// passes a negative force) so the wedges tumble into the hole.
+///
+/// The seams are the cracks: `take_fragment` will not flood across a cracked
+/// edge, so what comes away is bounded by the fissures the player watched
+/// race outward rather than by BFS rings. That is the entire reason the
+/// calving waits for the star to finish instead of happening on the bang
+/// frame — before the walks have run there is nothing to break *along*.
+#[allow(clippy::too_many_arguments)]
+pub fn calve_collar(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    force: f32,
+    size_bias: u32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> u32 {
+    let loosened = loosen_shell(world, origin, inner, outer, confinement, sectors);
+    if loosened.len() < MIN_FRACTURE_CELLS {
+        // Below the fragmenter's own floor, and deliberately nothing else:
+        // converting a handful of cells to rubble here would make a blast
+        // with almost no rim to give eat a little of it anyway, every time.
+        return 0;
+    }
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    loosened.len() as u32
+}
+
+/// The annulus scan both `fracture_shell` and `calve_collar` run: collect
+/// the body cells in `inner..outer` whose sector matches `sectors`,
+/// unattaching each as it goes.
+///
+/// One function rather than two copies of the loop for the reason this file
+/// keeps re-learning: the sector test, the raggedness and the loosening rule
+/// all have to agree with `Blast::clear_annulus` about where this blast's
+/// edge is, and a second copy would drift from that agreement the first time
+/// either changed.
+fn loosen_shell(
+    world: &mut World,
+    origin: (i32, i32),
+    inner: i32,
+    outer: i32,
+    confinement: super::explosion::Confinement,
+    sectors: ShellSectors,
+) -> Vec<(i32, i32)> {
     let mut loosened = Vec::new();
     // An annulus, not a disc. Scanning the whole disc also swept up the
     // crater's *interior* -- material the blast was still working through --
@@ -1224,6 +1448,18 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             let (x, y) = (origin.0 + dx, origin.1 + dy);
             let d2 = dx * dx + dy * dy;
             if d2 > outer * outer || d2 < inner * inner || !world.in_bounds(x, y) {
+                continue;
+            }
+            // A contained sector's shell stays put -- see this function's
+            // own doc. Asked through the same `ragged_sector_limit`
+            // `clear_annulus` used to decide what actually cleared, so the
+            // two never disagree about where this blast's edge is: the
+            // reach is the smoothed one, and the per-cell raggedness is the
+            // same draw, so the thrown shell's boundary is the crater's own
+            // boundary rather than a clean 22.5-degree pie cut laid over a
+            // ragged hole.
+            let is_open = super::explosion::ragged_sector_limit(&confinement.sector_reach, dx, dy, x, y) >= confinement.radius as f32;
+            if is_open != (sectors == ShellSectors::Open) {
                 continue;
             }
             let cell = world.get(x, y);
@@ -1255,10 +1491,8 @@ pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: 
             loosened.push((x, y));
         }
     }
-    if loosened.len() >= MIN_FRACTURE_CELLS {
-        loosened.sort_unstable(); // deterministic seed order
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
-    }
+    loosened.sort_unstable(); // deterministic seed order
+    loosened
 }
 
 /// Advance every body one frame, settling any that have come to rest.
@@ -1951,7 +2185,7 @@ fn clear_or_displaceable(
         return true;
     }
     let kind = world.materials.kind(world.get(x, y).material);
-    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid) {
+    if !matches!(kind, MaterialKind::Powder | MaterialKind::Liquid | MaterialKind::Gas) {
         return false; // solid, plant, creature -- a real obstruction
     }
     // **Measured at the scene, not by a unit guard, and that is recorded
@@ -1975,7 +2209,38 @@ fn clear_or_displaceable(
         swaps.push((x, y));
         return true;
     }
-    displace(world, occupied, x, y)
+    if displace(world, occupied, x, y) {
+        return true;
+    }
+    // **Gas never blocks, even when there is nowhere to shove it.** Powder
+    // and liquid that cannot be moved are treated as solid, because deleting
+    // them would manufacture a hole in the world's material budget
+    // (`a_body_moving_through_powder_destroys_no_material`). A gas has no
+    // such claim: it is already the one kind the engine removes on its own
+    // (`Material::dissipation`, `update.rs`), and the alternative here is a
+    // boulder resting on smoke.
+    //
+    // Reported from play as *"chunks of rock that seem fully cracked all the
+    // way around stay put and don't fall into the leftover hole/crater"*, and
+    // this was one of the causes. `Tuning::smoke_fraction` backfills 18% of a
+    // cleared crater with `SMOKE`, so the hole a chunk is meant to fall into
+    // is the one place in the world densely full of gas -- and a fresh crater
+    // has no empty cell within `DISPLACE_SEARCH` to shove it to, so
+    // `displace` fails there almost every time. The chunk moved no substep,
+    // hit `STALL_FRAMES_BEFORE_SETTLING` and re-embedded roughly where it
+    // started.
+    //
+    // Measured, paired, `blast=300,45,20,180,60` on rolling seed 1, against
+    // the `smoke=0` control the same commit adds to `filmstrip`: at frame 80
+    // the shipped setting had **1 body / 10 cells** still in flight against
+    // the control's **6 bodies / 100 cells**, and peak concurrent bodies ran
+    // 8 against 16. The airborne mass collapsed between frames 74 and 80 --
+    // 174 -> 105 -> 97 -> 10 -- exactly where the smoke backfill lands.
+    if kind == MaterialKind::Gas {
+        world.set(x, y, Cell::EMPTY);
+        return true;
+    }
+    false
 }
 
 /// Shove the loose cell at `(x, y)` to the nearest empty cell that the body
@@ -2018,7 +2283,13 @@ fn displace(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -
 ///   reads as debris that can never come to rest.
 /// - **Structural checks are scheduled around the landing.** Otherwise a
 ///   landed chunk is invisible to the system that created it — it could not
-///   support anything, and nothing could be brought down by it.
+///   support anything, and nothing could be brought down by it. This is
+///   also the one re-check `load::powder_surcharge` relies on: a settled
+///   body is the bounded "something heavy just arrived on top of you"
+///   event, and the powder sweep itself schedules nothing. Every cell is
+///   scheduled, not just the footprint row, which is the superset the
+///   surcharge needs — do not narrow it to the bottom row as an
+///   optimisation without re-reading that function's re-check note.
 /// - **A cell with nowhere to go searches** rather than being dropped, so
 ///   landing on uneven ground does not quietly delete the overlapping part
 ///   of the body.
@@ -3544,6 +3815,56 @@ mod tests {
         assert_eq!(total_debris(&w), 18, "the body itself lost cells");
     }
 
+    /// A falling chunk goes *through* smoke, not onto it.
+    ///
+    /// The paired shape `CLAUDE.md` asks for: the same slab dropped down the
+    /// same shaft, once packed with smoke and once left open, must end at the
+    /// same height. Before this, `clear_or_displaceable` treated every kind
+    /// but `Powder` and `Liquid` as a real obstruction, so the smoke arm
+    /// stalled in mid-air and re-embedded three frames later -- and because
+    /// `Tuning::smoke_fraction` backfills a fresh crater, the one place in
+    /// the world thick with gas is exactly the hole the player is watching a
+    /// chunk fail to fall into.
+    ///
+    /// The shaft is packed solid with smoke deliberately: `displace` searches
+    /// `DISPLACE_SEARCH` rings for an *empty* cell, so a thin wisp would be
+    /// shoved aside and pass even under the old rule. What this pins is the
+    /// case with nowhere to shove it to, which is the case a crater is.
+    #[test]
+    fn a_falling_body_is_not_held_up_by_smoke() {
+        fn drop_through(fill: Option<MaterialId>) -> i32 {
+            let mut w = test_world();
+            for x in 0..64 {
+                w.set(x, 63, Cell::new(material::BEDROCK, 0));
+            }
+            // Walls, so the shaft cannot vent sideways -- otherwise `displace`
+            // finds room outside it and the two arms stop differing.
+            for y in 30..63 {
+                w.set(19, y, Cell::new(material::BEDROCK, 0));
+                w.set(30, y, Cell::new(material::BEDROCK, 0));
+            }
+            if let Some(m) = fill {
+                for y in 40..63 {
+                    for x in 20..30 {
+                        w.set(x, y, Cell::new(m, 0));
+                    }
+                }
+            }
+            let region = loose_slab(&mut w, 22, 31, 6, 3);
+            assert!(fracture_failing_region(&mut w, &region, region[0]), "the slab must promote");
+            for _ in 0..400 {
+                step_chunk_bodies(&mut w);
+            }
+            // Lowest stone cell anywhere: where the chunk came to rest.
+            (0..64).rev().find(|&y| (0..64).any(|x| w.get(x, y).material == material::STONE)).expect("the slab is somewhere")
+        }
+
+        let open = drop_through(None);
+        let smoky = drop_through(Some(material::SMOKE));
+        assert!(open > 55, "test setup: down an empty shaft the slab should reach the floor, it stopped at y={open}");
+        assert_eq!(smoky, open, "smoke held the chunk up at y={smoky} when an open shaft put it at y={open}");
+    }
+
     #[test]
     fn a_detached_shelf_promotes_through_the_real_cascade() {
         // Every promotion test above hands `try_promote_failing_region` a
@@ -3741,5 +4062,192 @@ mod tests {
         for ring in &rings {
             assert_eq!(signed_area(ring).abs(), 1);
         }
+    }
+
+    /// W3: a fissure is a fragmentation seam, not decoration.
+    ///
+    /// A cracked edge already severs *support* everywhere in `load.rs`, and
+    /// was then ignored by the thing that actually breaks the rock -- the
+    /// flood ran straight across it, so the only random property of a
+    /// fragment was its size and every collapse came apart along BFS rings.
+    #[test]
+    fn a_fragment_does_not_flood_across_a_fissure() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6); // 48 cells
+        // A clean vertical cut down the middle: every cell in column 23 has
+        // its right edge scored, so nothing may pass from x<=23 to x>=24
+        // (and, through `edge_is_cracked`'s mirror rule, nothing may come
+        // back the other way either).
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (20, 20), 48);
+
+        assert!(!fragment.is_empty(), "test setup: the flood should still take the seeded half");
+        assert!(
+            fragment.iter().all(|&(x, _)| x <= 23),
+            "the flood crossed a scored edge: {:?}",
+            fragment.iter().find(|&&(x, _)| x > 23)
+        );
+        assert_eq!(fragment.len() + left.len(), 48, "material was lost between the fragment and the remaining pool");
+    }
+
+    /// The same rule read from the other side, which is the half that is
+    /// easy to get wrong: `crack_right`/`crack_down` are *directional* edge
+    /// bits owned by one of the two cells, so stepping left or up has to
+    /// ask the neighbour about its own bit. A version that only tested the
+    /// `+x`/`+y` steps passes the test above and leaks in both the others.
+    #[test]
+    fn a_fissure_blocks_the_flood_from_either_side() {
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for y in 20..26 {
+            let cell = w.get(23, y);
+            w.set(23, y, cell.with_crack_right(true));
+        }
+        // Seeded on the *far* side this time, so every crossing attempt is
+        // a `-x` step asking cell 23 about its own right edge.
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let fragment = take_fragment(&w, &mut left, (27, 20), 48);
+        assert!(
+            fragment.iter().all(|&(x, _)| x >= 24),
+            "the flood crossed a scored edge travelling left: {:?}",
+            fragment.iter().find(|&&(x, _)| x < 24)
+        );
+
+        // And the horizontal edge, both ways, for the `crack_down` half.
+        let mut w = test_world();
+        let region = loose_slab(&mut w, 20, 20, 8, 6);
+        for x in 20..28 {
+            let cell = w.get(x, 22);
+            w.set(x, 22, cell.with_crack_down(true));
+        }
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let down = take_fragment(&w, &mut left, (20, 20), 48);
+        assert!(down.iter().all(|&(_, y)| y <= 22), "the flood crossed a scored edge travelling down");
+        let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
+        let up = take_fragment(&w, &mut left, (20, 25), 48);
+        assert!(up.iter().all(|&(_, y)| y >= 23), "the flood crossed a scored edge travelling up");
+    }
+
+    /// W2 seen from `fracture_shell`: the per-cell test that decides
+    /// whether this cell's direction is contained went from a binary sector
+    /// skip to the same jittered limit `clear_annulus` uses, so the crater
+    /// and the shell thrown off its rim agree about where the rim is. What
+    /// must not move is the *decision* at either extreme -- a contained
+    /// blast still throws nothing, an open one still throws.
+    #[test]
+    fn a_ragged_rim_still_holds_a_fully_contained_shell_and_throws_an_open_one() {
+        let radius = 20;
+        let build = |w: &mut World| {
+            for y in 0..64 {
+                for x in 0..64 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+
+        let mut contained = test_world();
+        build(&mut contained);
+        fracture_shell(
+            &mut contained,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement { sector_reach: [7; super::super::explosion::CONFINEMENT_SECTORS], radius },
+        );
+        assert!(contained.chunk_bodies.is_empty(), "a fully contained blast must still throw nothing off its rim");
+        assert_eq!(count_material(&contained, material::STONE), 64 * 64, "a contained blast must not convert rim material");
+
+        let mut open = test_world();
+        build(&mut open);
+        fracture_shell(
+            &mut open,
+            (32, 32),
+            radius,
+            radius + 3,
+            50.0,
+            1,
+            super::super::explosion::Confinement {
+                sector_reach: [radius as u8; super::super::explosion::CONFINEMENT_SECTORS],
+                radius,
+            },
+        );
+        assert!(!open.chunk_bodies.is_empty(), "an open blast must still throw its rim as pieces");
+    }
+
+    /// **Bug K's reproduction, and it fails today.** A body wedged in a slot
+    /// must refuse to rotate when the turned shape would land in rock.
+    ///
+    /// `advance` builds a probe, turns it, and asks `try_step` whether the
+    /// turned shape fits — but it passes the probe its **own** position as
+    /// the target. `try_step`'s first guard is
+    ///
+    /// ```text
+    ///     if (tx, ty) == (cx, cy) { continue }
+    /// ```
+    ///
+    /// and with `ox = probe.x.round()` against `cell_position`'s
+    /// `probe.x.round() + cell.dx`, the two are equal for *every* cell by
+    /// construction. So every cell is skipped, `horizontal` and `vertical`
+    /// are never set, `axis` is always `None`, and the caller reads that as
+    /// "the turn fits". A body wedged in a gap rotates straight through the
+    /// wall beside it — which is exactly the cheat the probe's own comment
+    /// says it exists to prevent.
+    ///
+    /// **Ignored rather than deleted, per `CLAUDE.md`: the reproduction
+    /// outlives the report.** Whoever fixes the probe gets a red test
+    /// instead of a paragraph, and `--ignored` is the only thing in the
+    /// engine that can currently tell a working probe from a vacuous one —
+    /// a probe that always answers "clear" looks identical to one that
+    /// works. Present in *both* parents of the water merge, so it is not
+    /// that merge's to fix; see `open-bugs-handoff.md` bug K.
+    ///
+    /// The scene is a one-cell-tall slot in solid stone with a 3x1 bar lying
+    /// in it. `rotate_quarter` maps `(dx, dy) -> (-dy, dx)`, so the turned
+    /// bar is 1x3 and its two new cells land in the rock above and below.
+    #[test]
+    #[ignore = "bug K: the rotation-fit probe compares every cell against its own position, so it never reports blocked"]
+    fn a_wedged_body_will_not_rotate_through_the_wall() {
+        let mut w = test_world();
+        for y in 0..64 {
+            for x in 0..64 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The slot the bar lies in, and nothing else, is open.
+        for x in 14..=16 {
+            w.set(x, 32, Cell::EMPTY);
+        }
+        let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
+        let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
+
+        // The probe exactly as `advance` builds it, arguments included.
+        let mut probe = body.clone();
+        probe.rotate_quarter();
+        for cell in &probe.cells {
+            let (px, py) = probe.cell_position(cell);
+            if (px, py) != (15, 32) {
+                assert_eq!(
+                    w.get(px, py).material,
+                    material::STONE,
+                    "test setup: the turned bar must land in rock at ({px}, {py}), or this proves nothing"
+                );
+            }
+        }
+        let shape = BodyShape {
+            density: mean_density(&w, &probe),
+            floats: body_floats(&w, &probe),
+            reach: body_extent(&probe) + 1,
+        };
+        let axis = try_step(&mut w, &probe, probe.x, probe.y, shape).axis;
+        assert!(
+            axis.is_some(),
+            "the turned bar overlaps rock above and below it, and the fit probe reported no obstruction at all"
+        );
     }
 }

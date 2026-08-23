@@ -1,7 +1,8 @@
 # Liquids & Gases
 
 *Current as of: 2026-08-22 (steam joins the weather; rock sinks in water;
-a boulder entering a pool throws a crown; smoke and steam are see-through).*
+a boulder entering a pool throws a crown; smoke and steam are see-through;
+smoke thins out and goes, and an explosion leaves some behind).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
@@ -57,16 +58,11 @@ There are two gases, and both rise rather than fall, drifting upward
 through open space and pooling against a ceiling once they hit one,
 spreading out as they go rather than staying in a tight column.
 
-**Smoke** can be placed like any other material — but nothing in the
-simulation currently produces it on its own; an explosion's crater, for
-instance, is left clean and empty once the dust settles rather than
-smoke-filled.
-
 **Steam** is boiled-off water — or water a lava flow quenched against (see
 [Fire & Heat](fire-and-heat.md)) — pale and a little lighter than smoke, so
-it rises through it. Unlike smoke it
-does not last: steam is born hot, cools as it drifts, and once cool enough
-it turns back into water.
+it rises through it. Neither gas lasts, but they go
+in different ways: smoke simply thins out and is gone, whereas steam is
+born hot, cools as it drifts, and once cool enough turns back into water.
 
 Both gases are **see-through**, and how much depends on how much of them
 there is: a thick plume hides what is behind it, a thinning one lets it
@@ -97,11 +93,18 @@ spell lifts — see
 [Weather](weather.md#cold-snaps-freeze-standing-water). It is the only
 solid in the world that floats, and the only one that will not last a day.
 
-**Smoke** is the world's other gas, alongside steam. Unlike a liquid or
-a powder, it rises rather than falls, drifting upward through open space
-and pooling against a ceiling once it hits one, spreading out as it goes
-rather than staying in a tight column. It can be placed like any other
-material, and the world produces it on its own too: an explosion
-backfills part of its crater with smoke, so a blast site hazes and
-drifts for a while rather than sitting clean — see
+**Smoke** is the other. It can be placed like any other material, and the
+world produces it on its own too: an explosion backfills part of its crater
+with smoke, so a blast site hazes and drifts for a while rather than
+sitting clean.
+
+It also **doesn't last**. A cloud thins out as it goes — visibly, over the
+first few seconds, with only stragglers left after ten or so — rather than
+persisting. A plume dwindles as it climbs instead of climbing forever, and
+a pocket caught under a roof with nowhere left to rise to fades away where
+it sits rather than becoming a permanent grey lid on the room. Sealed in
+completely, with no way out at all, it still goes; it just has to fade
+rather than drift.
+
+For what makes the crater in the first place, see
 [Explosions](explosions.md).

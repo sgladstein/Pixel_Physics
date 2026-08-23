@@ -30,6 +30,9 @@
     density: 2.8,
     friction_angle: 55.0,
     max_stability_angle: 65.0,
+    // See Material::blast_resistance -- already-broken rock, a loose pile
+    // like gravel rather than the intact stone it fell from.
+    blast_resistance: 0.4,
     // Mandatory, by README's own rule for every `breaks_into` target
     // (ash.ron states the same rule for burns_into): rubble inherits the
     // temperature of whatever crushed, and a crush inside a quench delta

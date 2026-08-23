@@ -17,6 +17,8 @@
     // universal, and material::SOIL_SATURATED for the scale (0 means dry,
     // the opposite of a Liquid's fill).
     water_capacity: 1000,
+    // See Material::blast_resistance -- loose tilth, well under stone's 1.0.
+    blast_resistance: 0.5,
     // Three families of four tones, `family * 4 + tone`, keyed by the
     // region's aridity at genesis (`worldgen::passes::palette_family`).
     // Family 0 is exactly what this file shipped before families existed and

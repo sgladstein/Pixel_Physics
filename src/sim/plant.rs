@@ -4524,10 +4524,10 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
 
 /// Dispatch one due active site to its growth function. Called from
 /// `scheduler::step` for every `ActiveKind` except `StructuralCheck`,
-/// `Creature`, `Decay` and `Evaporate`, which `scheduler::step` routes to
-/// `structural::tick`/`creature::tick`/`decay::tick`/`evaporation::tick`
-/// instead -- the match here still has to name all four variants to stay
-/// exhaustive.
+/// `Creature`, `Decay`, `Evaporate` and `Dissipate`, which `scheduler::step`
+/// routes to `structural::tick`/`creature::tick`/`decay::tick`/
+/// `evaporation::tick`/`update::dissipation_tick` instead -- the match here
+/// still has to name all five variants to stay exhaustive.
 pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     match site.kind {
         ActiveKind::Organism { organism, stale_ticks, plastochron } => organism_tick(world, site.x, site.y, organism, stale_ticks, plastochron),
@@ -4535,6 +4535,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         ActiveKind::Creature { .. } => unreachable!("scheduler::step routes Creature to creature::tick"),
         ActiveKind::Decay => unreachable!("scheduler::step routes Decay to decay::tick"),
         ActiveKind::Evaporate { .. } => unreachable!("scheduler::step routes Evaporate to evaporation::tick"),
+        ActiveKind::Dissipate => unreachable!("scheduler::step routes Dissipate to update::dissipation_tick"),
     }
 }
 

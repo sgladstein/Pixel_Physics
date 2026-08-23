@@ -120,6 +120,34 @@
     // lower it for anything that should shatter into grit.
     fragment_rungs: 6,
 
+    // The joint fabric (`sim::fracture_field`) -- how far apart the planes
+    // rock is disposed to part along sit, in cells. Stone is the only
+    // shipped material that has any: sand, soil, gravel and snow are
+    // already the fragments, so they stay at the 0.0 default and a blast
+    // moves them exactly as it always did.
+    //
+    // This sets fragment width directly, and the owner's brief on it was
+    // two-sided: the pattern has to read as *closed straight-edged
+    // polygons* rather than wandering lines (which is why the mechanism is
+    // a Worley domain map and not a walker), and it has to be **sparser**
+    // than the worldgen cave sheet he pointed at -- "I like a little of
+    // it, but there is too much". The cave field used 22 across the whole
+    // world; a blast halo is only a few blast-radii wide, so the pitch has
+    // to be small enough for several polygons to read across it and large
+    // enough that they read as blocks rather than a mesh.
+    //
+    // 13 was chosen off a four-way look at 9 / 11 / 13 / 16 on the same
+    // buried charge, and A/B'd against 20 as the clearly-sparser arm. 9
+    // fills the halo with a fine net that reads as texture; 20 gives two or
+    // three blocks and the web stops reading as a web. 13 puts roughly six
+    // or seven polygons across a radius-20 blast's halo.
+    //
+    // It is **not** the lever for how much a blast eats -- coarsening it to
+    // 16 cut the nine-blast sweep's rock-destroyed maximum by only 5%, and
+    // `explosion::Tuning::joint_open_fraction` by 20%. Change this for the
+    // size of the pieces; change that one for the bill.
+    joint_spacing: 13.0,
+
 
     // Rock is strong in compression, weak in bending, weakest in tension.
     // Leaning out costs the full step; hanging costs triple, so nothing
