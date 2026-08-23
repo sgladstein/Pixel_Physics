@@ -733,6 +733,62 @@ const GUST_STRENGTH: f32 = 34.0;
 /// Radius of a gust, in world cells.
 const GUST_RADIUS: i32 = 26;
 
+/// How far upwind [`exposure`] looks, in columns.
+///
+/// Set from the terrain's own length scale rather than by eye.
+/// `worldgen::params` builds hills at `hill_wavelength = 150.0` with
+/// `hill_amplitude = 30.0`, so a crest and the hollow beside it sit about 75
+/// columns apart. Looking roughly that far is what lets a hollow see the
+/// ridge that shelters it; looking much further averages the *next* hill in
+/// and washes the two back together.
+///
+/// It also has to stay well inside the window this is judged in.
+/// `Reports/dead-ends.md` records `FORMATION_BARREN`, where a feature whose
+/// whole point was spatial contrast was gated at a scale *wider* than a
+/// screen and came out indistinguishable from the uniform thinning it
+/// replaced. At 64 against the shipped 512-column viewport there are three
+/// or four hills on screen, so ridge and hollow are two visibly different
+/// places in the same picture rather than two different screenshots.
+pub const FETCH_COLUMNS: i32 = 64;
+
+/// The upwind slope, in cells per column, at which shelter or prominence
+/// contributes *half* of its half of the range.
+///
+/// **Measured, not chosen.** `wind_probe`'s `seeds=` sweep reports the raw
+/// pre-saturation slope distribution, and it is strikingly stable across
+/// presets that look nothing alike -- over 24 seeds each of `rolling`,
+/// `terraced`, `canyon` and `arid`, the median nonzero term is 0.37-0.50
+/// cells per column, p75 is 0.85-1.03, and p99 is 4.4-7.0. Set to the
+/// median so ordinary ground lands in the middle of the readable range.
+///
+/// It is a **soft** half-slope and not a clamp, and that is the point. The
+/// first version divided by this and clamped, which saturated more than a
+/// quarter of all terms: every seed of every preset then scored a full
+/// 1.000 spread between its most and least exposed column, so the statistic
+/// meant to discriminate landscapes could not tell any two of them apart,
+/// and the picture was a binary black-and-white mask. `CLAUDE.md`'s ethos
+/// section names that failure directly -- all-or-nothing outcomes read as
+/// fake, and a graded outcome beats a binary one.
+///
+/// `slope / (slope + this)` instead approaches 1.0 without reaching it, so
+/// 0.0 and 1.0 are asymptotes rather than the common case. That is also the
+/// honest shape: no real hollow is infinitely sheltered, and the largest
+/// slope this can even observe is capped at [`LOCAL_RELIEF`] by the search
+/// window [`surface_near`] uses, so treating a term of 8.0 as "the maximum"
+/// would be reading the instrument rather than the terrain.
+pub const EXPOSURE_HALF_SLOPE: f32 = 0.5;
+
+/// What [`exposure`] reads on open, dead-level ground.
+///
+/// Deliberately the *middle* of the range and not the top. Exposure has two
+/// ways to be interesting — ground that stands above its upwind fetch and
+/// ground that hides below it — and a scale pinned at 1.0 for flat country
+/// has nowhere left to put a ridge. It is also the sanity check
+/// `CLAUDE.md` asks for ("ask what a metric counts when nothing is wrong"):
+/// a level world must read this value uniformly, and
+/// `level_ground_is_uniformly_neutral` asserts exactly that.
+pub const NEUTRAL_EXPOSURE: f32 = 0.5;
+
 /// How far down a drop soaks, in cells.
 ///
 /// Rain wet only the single topmost cell in the first version, which is
@@ -842,6 +898,162 @@ pub fn strike(seed: u64, frame: u64, bounds: Option<Rect>) -> Option<Strike> {
         return Some(Strike { age, x, flash: (main.max(ret) + tail).min(1.0), id: w });
     }
     None
+}
+
+/// How much of the wind a *place* actually gets: `0.0` deeply sheltered,
+/// [`NEUTRAL_EXPOSURE`] on open level ground, `1.0` fully exposed.
+///
+/// # Why this exists
+///
+/// [`at`] takes no position. Wind is one number for the entire world, so
+/// before this there was no such thing as a sheltered spot: a hollow and an
+/// exposed ridge got identical weather, and every downstream consumer that
+/// wants to vary with terrain — wind-throw, fire spread — had nothing to
+/// vary against.
+///
+/// # This is a *read*, and that distinction is the whole design
+///
+/// A steady global wind **field** term was built here once, measured, and
+/// reverted — 0.0002 ms to a permanent **3.55 ms on every scene in the
+/// engine**, with six field tests failing. It is recorded four separate
+/// times in `Reports/dead-ends.md` and [`gust`]'s own doc is written around
+/// it. This is not a quieter version of it, and the difference is precise:
+///
+/// * **That term *wrote* pressure into the field, every frame, on every
+///   scene.** Uniform velocity in a bounded world drives air into the walls,
+///   which makes divergence, which makes pressure, which makes more
+///   velocity, and `field::is_converged` never returns true again.
+/// * **This one is read-only.** It writes nothing, stores nothing, wakes
+///   nothing, and keeps nothing between frames. It is a pure function of
+///   terrain and position — and of `frame` only through the wind direction
+///   already in [`at`] — that a consumer *samples* on the frames it needs.
+///
+/// The moment it writes to the field or caches per-tile state it has become
+/// the reverted term wearing a new name. `exposure_is_read_only` guards the
+/// claim by asserting a swept world is bit-identical across a call.
+///
+/// # The shape
+///
+/// Two terms, both falling out of one walk up the fetch. Walking *upwind*
+/// (`wind` is positive when the air moves toward `+x`, so upwind is `-x`)
+/// for [`FETCH_COLUMNS`], each column's surface gives a slope against the
+/// reference point `(x, y)`:
+///
+/// * **Shelter** — the steepest slope that *rises above* `y`. This is a
+///   horizon angle: the most obstructing thing upwind. A hollow behind a
+///   ridge is sheltered; so is the lee of a terrace step.
+/// * **Prominence** — the steepest slope that *falls away below* `y`. This
+///   is height above the local terrain. A crest whose upwind ground drops
+///   off stands in the open, and so does a tall tree on flat ground,
+///   because `y` is the point's own row and not the soil's.
+///
+/// They oppose each other around [`NEUTRAL_EXPOSURE`], so a mid-slope —
+/// where the ground both rises ahead and falls behind — correctly comes out
+/// middling rather than at an end.
+///
+/// # Cost
+///
+/// The walk carries the previous column's surface as a hint and searches a
+/// short window around it ([`surface_near`]), rather than re-running
+/// [`surface_under_sky`] per column. That is the same trick, for the same
+/// reason, as the crust-chill walk at [`LOCAL_RELIEF`]: scanning a column
+/// from the top of the sky is 240-odd rows here, and doing it 64 times a
+/// call would put a real cost on something meant to be sampled freely. One
+/// sky scan plus 64 windows is ~1.1k cell reads against ~15k.
+///
+/// [`World::get`] is a read of resident chunks only — it returns
+/// `Cell::EMPTY` for a chunk that is not loaded rather than generating one —
+/// so a query neither wakes a chunk nor dirties one, and the dirty-rect
+/// render skip is untouched.
+///
+/// A cliff ends the walk: [`surface_near`] returns `None` when nothing solid
+/// lies within [`LOCAL_RELIEF`] of the hint, and the terms are taken from
+/// the columns reached so far. [`Exposure::fetch`] reports that count, because
+/// a reading taken from three columns and one taken from sixty-four are not
+/// the same reading and an instrument that cannot tell them apart is one
+/// nobody can tell is disconnected.
+pub fn exposure(world: &World, x: i32, y: i32, wind: f32) -> f32 {
+    exposure_detail(world, x, y, wind).value
+}
+
+/// Everything [`exposure`] worked out on the way to its answer.
+///
+/// Exists because a bare scalar is not a readout. A corrected overlay in
+/// this repo was still misread as "everything at the ramp floor" when the
+/// real value was 40% of scale, and the fix for that class is a probe that
+/// prints the parts (`CLAUDE.md`, method). `fetch` in particular separates
+/// a reading taken from three columns from one taken from sixty-four.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Exposure {
+    /// The answer: `0.0` sheltered, [`NEUTRAL_EXPOSURE`] level, `1.0` open.
+    pub value: f32,
+    /// Columns of fetch actually walked before a cliff or the world edge
+    /// stopped it, out of [`FETCH_COLUMNS`].
+    pub fetch: i32,
+    /// Steepest upwind slope rising *above* the reference point, in cells
+    /// per column, before the soft curve at [`EXPOSURE_HALF_SLOPE`].
+    pub shelter: f32,
+    /// Steepest upwind slope falling *below* it, same units.
+    pub prominence: f32,
+}
+
+/// [`exposure`], with the terms it is built from — see [`Exposure`].
+pub fn exposure_detail(world: &World, x: i32, y: i32, wind: f32) -> Exposure {
+    let neutral = Exposure { value: NEUTRAL_EXPOSURE, fetch: 0, shelter: 0.0, prominence: 0.0 };
+    let Some(bounds) = world.bounds() else { return neutral };
+    // Upwind is where the air is coming *from*. `wind` is positive when it
+    // blows from the west, i.e. when the air moves toward `+x` — the same
+    // sign convention `gust`'s dipole `lead` uses, where high pressure sits
+    // behind and low pressure ahead.
+    let step = if wind >= 0.0 { -1 } else { 1 };
+    let Some(mut hint) = surface_under_sky(world, x, bounds.min_y, bounds.max_y) else {
+        // Nothing solid in this column at all. No terrain to be sheltered
+        // by and none to stand above, which is the neutral reading rather
+        // than an exposed one.
+        return neutral;
+    };
+    let mut shelter = 0.0f32;
+    let mut prominence = 0.0f32;
+    let mut reached = 0;
+    // A plain ascending range, not a set: same-build determinism is required
+    // (`PLAN.md`), and iteration order here is the whole answer because both
+    // terms are maxima.
+    for d in 1..=FETCH_COLUMNS {
+        let cx = x + step * d;
+        if cx < bounds.min_x || cx > bounds.max_x {
+            break;
+        }
+        let Some(s) = surface_near(world, cx, hint, bounds) else { break };
+        hint = s;
+        reached = d;
+        // `y` grows downward, so a surface *above* the reference point has
+        // the smaller row and `y - s` is positive.
+        let slope = (y - s) as f32 / d as f32;
+        shelter = shelter.max(slope);
+        prominence = prominence.max(-slope);
+    }
+    // Soft, not clamped -- see `EXPOSURE_HALF_SLOPE`. Both terms are >= 0,
+    // so neither denominator can vanish.
+    let open = prominence / (prominence + EXPOSURE_HALF_SLOPE);
+    let blocked = shelter / (shelter + EXPOSURE_HALF_SLOPE);
+    let value = (NEUTRAL_EXPOSURE + 0.5 * open - 0.5 * blocked).clamp(0.0, 1.0);
+    Exposure { value, fetch: reached, shelter, prominence }
+}
+
+/// [`exposure`] at the surface of column `x` — what the *ground* there gets.
+///
+/// The entry point for anything whose position is a place in the world
+/// rather than a cell: [`gust`] fires in the upper air, where every point
+/// is far above all terrain and the point form would read `1.0` everywhere
+/// and show nothing. What varies is the ground the squall lands over, so
+/// that is what is asked about.
+///
+/// `None` when the column holds nothing solid — open sky over the void,
+/// where there is no ground to have an exposure.
+pub fn ground_exposure(world: &World, x: i32, wind: f32) -> Option<f32> {
+    let bounds = world.bounds()?;
+    let s = surface_under_sky(world, x, bounds.min_y, bounds.max_y)?;
+    Some(exposure(world, x, s, wind))
 }
 
 /// Wind, delivered as gusts.
@@ -1567,6 +1779,151 @@ mod tests {
         for seed in 0..256u64 {
             for frame in 0..STRIKE_WINDOW * 2 {
                 let _ = strike(seed, frame, bounds);
+            }
+        }
+    }
+
+    /// A world whose surface is exactly the rows `profile` gives, on stone.
+    ///
+    /// Hand-built rather than generated, because these tests are about the
+    /// *function* and a generated world would make them assertions about
+    /// worldgen too — a scene that contradicts the code looks like a bug in
+    /// the code (`CLAUDE.md`).
+    fn shaped_world(profile: impl Fn(i32) -> i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 191));
+        for x in 0..256 {
+            let top = profile(x).clamp(0, 190);
+            for y in top..192 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w
+    }
+
+    /// **The control, and the one that has to be read first.** Dead-level
+    /// ground must read exactly [`NEUTRAL_EXPOSURE`] everywhere, because
+    /// there is no shelter and no prominence anywhere in it.
+    ///
+    /// `CLAUDE.md`: ask what a metric counts when nothing is wrong, before
+    /// trusting it about a case you do not know. A version of this that
+    /// reported anything else would make every reading on real terrain
+    /// unattributable — half signal, half offset, with no way to tell which.
+    #[test]
+    fn level_ground_is_uniformly_neutral() {
+        let w = shaped_world(|_| 150);
+        for x in (0..256).step_by(4) {
+            for wind in [1.0, -1.0, 0.3] {
+                let e = exposure(&w, x, 150, wind);
+                assert!(
+                    (e - NEUTRAL_EXPOSURE).abs() < 1e-6,
+                    "level ground at x={x} wind={wind} read {e}, not {NEUTRAL_EXPOSURE}"
+                );
+            }
+        }
+    }
+
+    /// The claim the whole package exists for: a hollow and a ridge in the
+    /// *same world* get different weather.
+    ///
+    /// Paired inside one world rather than compared across two, so it
+    /// cancels everything the rule is not about (`CLAUDE.md`: compare two
+    /// runs, not one run against a remembered number). The profile is a
+    /// single ridge with flat ground either side; the sheltered sample sits
+    /// in the ridge's lee and the exposed one on its crest.
+    #[test]
+    fn a_ridge_is_more_exposed_than_the_hollow_behind_it() {
+        // Wind from the west (+1.0 blows toward +x), so the lee is east of
+        // the crest and the fetch of a lee column runs back up over it.
+        let crest_x = 100;
+        let w = shaped_world(|x| if (x - crest_x).abs() < 20 { 150 - (20 - (x - crest_x).abs()) } else { 150 });
+        let crest = exposure(&w, crest_x, 130, 1.0);
+        let lee = exposure(&w, crest_x + 24, 150, 1.0);
+        assert!(crest > lee, "crest {crest} should be more exposed than its lee {lee}");
+        assert!(crest > NEUTRAL_EXPOSURE, "a crest should be above level ground, got {crest}");
+        assert!(lee < NEUTRAL_EXPOSURE, "a lee should be below level ground, got {lee}");
+        // And it must reverse when the wind does: the *same* column is
+        // sheltered from one side and open from the other. A version that
+        // ignored wind direction would pass every assertion above.
+        let lee_reversed = exposure(&w, crest_x + 24, 150, -1.0);
+        assert!(
+            lee_reversed > lee,
+            "the lee column should be less sheltered with the wind reversed: {lee_reversed} vs {lee}"
+        );
+    }
+
+    /// **The guard on the constraint this whole feature is shaped around.**
+    ///
+    /// A steady global wind *field* term was built here, measured at a
+    /// permanent 3.55 ms/frame on every scene with six field tests failing,
+    /// reverted, and recorded four separate times in `Reports/dead-ends.md`.
+    /// What makes this version legal is precisely that it is **read-only**:
+    /// the reverted term wrote pressure into the field every frame, and this
+    /// writes nothing, stores nothing and wakes nothing.
+    ///
+    /// So the claim is asserted rather than asserted-in-prose. Sampling
+    /// exposure across a whole settled world must leave the cell contents,
+    /// the awake-chunk count and the unsettled-field-tile count all exactly
+    /// where they were. The moment it caches per-tile state or touches the
+    /// field, this fails — which is the point of it.
+    #[test]
+    fn exposure_is_read_only() {
+        let mut w = shaped_world(|x| 150 - (x % 37) / 3);
+        w.seed = 11;
+        // Let it settle first, so "awake" and "unsettled" are meaningfully
+        // zero-ish rather than still full of the construction transient.
+        for _ in 0..200 {
+            parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        let mut solves = 0;
+        while w.unsettled_field_tiles() > 0 && solves < 3000 {
+            w.step_fields();
+            solves += 1;
+        }
+
+        let census = |w: &World| -> Vec<(i32, i32, material::MaterialId, u16)> {
+            let mut v = Vec::new();
+            for x in 0..256 {
+                for y in 0..192 {
+                    let c = w.get(x, y);
+                    v.push((x, y, c.material, c.aux()));
+                }
+            }
+            v
+        };
+        let before = census(&w);
+        let chunks_before = w.active_chunk_count();
+        let tiles_before = w.unsettled_field_tiles();
+        let frame_before = w.frame;
+
+        // Sample it hard: every column, several rows, both wind directions.
+        let mut checksum = 0.0f64;
+        for x in 0..256 {
+            for y in [120, 150, 170] {
+                for wind in [1.0, -1.0] {
+                    checksum += exposure(&w, x, y, wind) as f64;
+                }
+            }
+        }
+        assert!(checksum.is_finite(), "exposure produced a non-finite value");
+
+        assert_eq!(census(&w), before, "exposure changed the contents of the world");
+        assert_eq!(w.active_chunk_count(), chunks_before, "exposure woke a chunk");
+        assert_eq!(w.unsettled_field_tiles(), tiles_before, "exposure unsettled a field tile");
+        assert_eq!(w.frame, frame_before, "exposure advanced the frame");
+    }
+
+    /// Same build, same answer — `PLAN.md` requires same-build determinism,
+    /// and a maximum taken over an iteration order is exactly the shape that
+    /// loses it if anything unordered ever creeps into the walk.
+    #[test]
+    fn exposure_is_deterministic() {
+        let w = shaped_world(|x| 150 - (x % 23));
+        for x in (0..256).step_by(7) {
+            let first = exposure(&w, x, 140, 1.0);
+            for _ in 0..8 {
+                assert_eq!(exposure(&w, x, 140, 1.0), first, "exposure disagreed with itself at x={x}");
             }
         }
     }
