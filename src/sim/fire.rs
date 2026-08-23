@@ -187,22 +187,79 @@ pub enum PhaseEvent {
     Reacted,
 }
 
-/// Reference scale for normalizing a `field_moisture_at` reading into a 0..1
-/// "how saturated" fraction — matches `field.rs`'s own private `MAX_
-/// MOISTURE`, which isn't reachable from here, the same documented-
-/// assumption pattern `creature.rs`'s `WORM_MOISTURE_SATURATION` uses.
-const MOISTURE_SATURATION: f32 = 4.0;
-/// Maximum fraction `flammability` is suppressed by at full saturation —
-/// architecture §4's fire-resistance consumer ("wet material should resist
-/// ignition; nothing implements this today"). Only the probabilistic
-/// contact-ignition path below is affected, not the deterministic `cell.
-/// temperature() >= ignition_temperature` crossing above it in `try_ignite`
-/// — a fire hot enough to boil off the material's own moisture first can
-/// still set it alight, which is physically right (wet wood does eventually
-/// burn in a large enough fire) and keeps this from making moisture a hard
-/// fireproofing switch. Set high, not 1.0: real wet material is *very*
-/// resistant to catching from a neighbour, not perfectly immune.
-const MOISTURE_IGNITION_RESISTANCE: f32 = 0.9;
+/// **Ground wetness at or above which fuel will not catch from contact at
+/// all** — the owner's steer on the grassfire card, *"if we are going to
+/// do this, moisture vs dryness should play a role"*
+/// (`Reports/open-bugs-handoff.md` §G), given a value it can actually be
+/// seen at.
+///
+/// # What this replaced, and why it was not a tuning problem
+///
+/// The previous gate scaled `flammability` by `1 - saturation * 0.9`,
+/// where `saturation` was `field_moisture_at(x, y) / 4.0`. It was reported
+/// as "changes nothing measurable" for two milestones, and it did. The
+/// reason is not the 0.9 and not the 4.0: **`field_moisture_at` reads
+/// exactly 0.000 at 96.8% of fuel cells, at every ground wetness there
+/// is.** Measured on one grown 1,993-cell sward, re-wetted to four levels
+/// with 600 frames to settle each time, sampled at the grass cells
+/// themselves rather than over a band:
+///
+/// | soil water | humidity at the fuel | fuel cells reading exactly 0 |
+/// |---|---|---|
+/// | 0 (bone dry) | mean 0.000 | 100% |
+/// | 180 (wilting point) | mean 0.023 | 96.8% |
+/// | 620 (field capacity) | mean 0.080 | 96.8% |
+/// | 1000 (saturated) | mean 0.128 | 96.8% |
+///
+/// `field::step_diffusion` skips a blocked block outright, and
+/// `rebuild_blocked` marks a block blocked when any `Solid` **or `Plant`**
+/// cell falls in it — so a block with fuel in it never diffuses and holds
+/// ambient zero forever. Fuel is invisible to the humidity channel *because
+/// it is fuel*. Over the whole dry-to-saturated span the old term moved
+/// effective flammability from 0.850 to 0.806, and the 5% it did move came
+/// from the 3.2% of blades that happen to sit in the soil's own block.
+///
+/// `ground_wetness_at` is the channel that does answer: the moisture
+/// *source* the field rebuilds from the CA grid every frame, which is
+/// written for blocked blocks rather than in spite of them, and is on a
+/// clean `0..=1` scale (`held / water_capacity`) instead of a
+/// `MAX_MOISTURE` scale that only standing water ever reaches.
+///
+/// # Why a cutoff and not a scale
+///
+/// Fire spread here is a percolation: measured on this branch's flame
+/// front, a sward either carries a fire the width of the world or stops it
+/// inside a hundred cells, with very little in between. A gate that shaves
+/// 10% off ignition therefore does nothing at all until it crosses the
+/// threshold, and then does everything. So the gate is stated the way the
+/// outcome is: wet ground refuses, dry ground carries, and the interesting
+/// range is where the falloff between them puts the threshold.
+///
+/// The old constant's own doc argued against a hard switch, and that
+/// argument survives intact: this bounds the *contact* path only. The
+/// deterministic `temperature() >= ignition_temperature` crossing above it
+/// in `try_ignite` is untouched, so a fire hot enough to boil the water
+/// out of wet fuel first still sets it alight, which is both physically
+/// right and the reason a cutoff here is safe.
+///
+/// 0.8 rather than 1.0 so saturated is not the only thing that stops a
+/// fire — waterlogged ground is rare, and a meadow at field capacity
+/// should already be refusing.
+const FUEL_WETNESS_NO_IGNITION: f32 = 0.8;
+/// How sharply ignition falls off as ground wetness climbs toward
+/// `FUEL_WETNESS_NO_IGNITION`. Squared rather than linear because a linear
+/// ramp leaves half the flammability at half wetness, which on the
+/// percolation curve above is still "carries" — the transition has to
+/// happen somewhere a player would call damp, not somewhere they would
+/// call a bog.
+const FUEL_WETNESS_FALLOFF: f32 = 2.0;
+
+/// Where a burning cell may put a flame, and with what bias -- see
+/// `tick_burn`'s emission block for why the *direction* is the load-bearing
+/// part of this and the rate is not. Straight up twice out of six: fire
+/// climbs, but a third of all licks go sideways, and the sideways ones are
+/// the entire reason a front can leave the tussock it started on.
+const FLAME_DIRECTIONS: [(i32, i32); 6] = [(0, -1), (0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0)];
 
 /// Update heat, fire and phase state for the cell at `(x, y)`. Called once
 /// per visited cell, before movement is attempted — a phase change (stone
@@ -437,6 +494,10 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
     let material = surface.materials().get(cell.material);
     let burn_temp = material.burn_temperature;
     let burns_into = material.burns_into;
+    // Extracted with the rest, for the same borrow reason: the emission
+    // below needs `&mut surface` for the roll and the write.
+    let flame_into = material.flame_into;
+    let flame_chance = material.flame_chance;
     // `MaterialKind` is `Copy` — extracted up front for the same reason
     // `burn_temp`/`burns_into` are: the burnout branch below needs it after
     // `material`'s own borrow would otherwise still be live.
@@ -467,6 +528,85 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
         // and tree phototropism (M16) for anything burning nearby, per
         // `Reports/emergent-world-architecture.md` §2. Also untuned.
         surface.add_light(x, y, 1, 1.0);
+    }
+
+    // **The flame body.** Everything above this line is what fire was
+    // before: a tint on the fuel's own cell and a nudge to two fields.
+    // That is exactly what the owner saw -- *"Just looks like you are
+    // cycling colors"* (`Reports/open-bugs-handoff.md` §G) -- because it
+    // is exactly what the code did. Fire had no extent of its own; it
+    // could only ever be the silhouette of whatever happened to be alight.
+    //
+    // A lick of `flame` (see `flame.ron`) fixes the same two complaints
+    // with one mechanism, which is why it is one mechanism and not two:
+    //
+    //   - **Look.** A flame is a `Gas` that is spawned already burning, so
+    //     it rises, leans with the wind, renders at the top of the heat
+    //     ramp, lights the ground through `Material::glow`, and ages into
+    //     smoke through its own `burns_into`. The front gets a body above
+    //     the fuel and a plume off the top of it.
+    //   - **Spread.** `try_ignite`'s neighbour scan already asks
+    //     `is_burning()`, so a flame ignites fuel it drifts against with
+    //     no change to that scan and no cost added to it. That is what
+    //     lets a front cross the gaps between tussocks, and those gaps are
+    //     the whole of *"it doesn't spread at all"*: measured on this
+    //     branch, a 160-founder sward of 1,993 grass cells is **71
+    //     separate 4-connected islands**, largest 16% of the sward, so a
+    //     contact-only front burns one island and stops. The column
+    //     census says the sward is continuous (one empty column in the
+    //     whole span); the connectivity census says it is a scatter. Fire
+    //     reads the second one.
+    //
+    // **The direction is rolled, and that is the part that had to be got
+    // right rather than the rate.** The first version searched a fixed
+    // order -- up, then the upper diagonals, then the sides -- and took
+    // the first empty cell. In a sward the cell above a blade is almost
+    // always empty, so *every* lick went straight up, the flame rose in a
+    // column, and the front did not gain one cell of lateral reach: the
+    // fire looked much better and spread exactly as badly as before.
+    //
+    // Rolling a starting direction and rotating through the rest from
+    // there fixes it. `FLAME_DIRECTIONS` lists straight up twice out of
+    // six, so a lick is biased upward -- fire climbs -- while a third of
+    // them go sideways, which is what puts flame in the empty column
+    // *beside* a burning tussock. That flame is burning, so `try_ignite`'s
+    // existing neighbour scan lights whatever is 4-adjacent to it, and a
+    // sideways lick is 4-adjacent to three cells of the next column at
+    // once. Vertical misalignment between neighbouring tussocks is most of
+    // what makes a sward 71 islands rather than one, and one cell of
+    // lateral flame covers it.
+    //
+    // Straight **down** is deliberately absent. A fire that licks downward
+    // sets light to the ground under its own fuel, and a grassfire that
+    // burns into the soil reads as the world being on fire rather than the
+    // grass.
+    //
+    // The roll comes before the neighbour scan, not after, so a burning
+    // cell buried in a fuel bed -- with no empty neighbour at all, which is
+    // most of them -- pays one `chance` and no `get`s.
+    if let Some(flame) = flame_into {
+        if flame_chance > 0.0 && surface.rng().chance(flame_chance) {
+            let flame_def = surface.materials().get(flame);
+            let shades = flame_def.palette.len().max(1) as u32;
+            let flame_temperature = flame_def.burn_temperature;
+            let flame_duration = flame_def.burn_duration.max(1);
+            let shade = surface.rng().below(shades) as u8;
+            let start = surface.rng().below(FLAME_DIRECTIONS.len() as u32) as usize;
+            for i in 0..FLAME_DIRECTIONS.len() {
+                let (dx, dy) = FLAME_DIRECTIONS[(start + i) % FLAME_DIRECTIONS.len()];
+                let (nx, ny) = (x + dx, y + dy);
+                if !surface.in_bounds(nx, ny) || surface.get(nx, ny).material != material::EMPTY {
+                    continue;
+                }
+                let mut lick = Cell::new(flame, shade);
+                lick.ignite(flame_duration);
+                if flame_temperature.is_finite() {
+                    lick.set_temperature(flame_temperature.round() as i16);
+                }
+                surface.set(nx, ny, lick);
+                break;
+            }
+        }
     }
 
     cell.tick_burn();
@@ -573,8 +713,9 @@ fn tick_burn<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) {
 
 /// Two independent ways to catch fire: contact with a burning neighbour
 /// (probabilistic, rolled fresh — see the module doc for why that is safe
-/// here, and suppressed by local moisture — architecture §4 — see `MOISTURE_
-/// IGNITION_RESISTANCE`'s own doc), or the cell's own temperature crossing
+/// here, and gated by how wet the ground under the fuel is — architecture
+/// §4 — see `FUEL_WETNESS_NO_IGNITION`'s own doc), or the cell's own
+/// temperature crossing
 /// its `ignition_temperature` (deterministic, not probabilistic at all, so
 /// it carries none of `roll_reach_at`'s staleness risk regardless of chunk
 /// sleep timing, and not moisture-gated either — see that same doc).
@@ -602,8 +743,17 @@ fn try_ignite<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: &mut Cell) 
     if !any_burning {
         return;
     }
-    let saturation = (surface.field_moisture_at(x, y) / MOISTURE_SATURATION).clamp(0.0, 1.0);
-    let effective_flammability = flammability * (1.0 - saturation * MOISTURE_IGNITION_RESISTANCE);
+    // Read *after* the neighbour scan, never before it: this is the one
+    // read in `try_ignite` that can cost a `HashMap` lookup (see
+    // `CellSurface::ground_wetness_at`), and a flammable cell with nothing
+    // burning beside it — which is every flammable cell in the world,
+    // nearly always — has already returned above.
+    let wetness = surface.ground_wetness_at(x, y);
+    if wetness >= FUEL_WETNESS_NO_IGNITION {
+        return;
+    }
+    let dryness = 1.0 - wetness / FUEL_WETNESS_NO_IGNITION;
+    let effective_flammability = flammability * dryness.powf(FUEL_WETNESS_FALLOFF);
     if surface.rng().chance(effective_flammability) {
         ignite(surface, cell);
     }
@@ -1505,6 +1655,136 @@ mod tests {
         assert!(
             grass < foliage,
             "grass crossed in {grass} frames against foliage's {foliage}: grass is supposed to be the faster surface fuel, which is the reason it is its own material"
+        );
+    }
+
+    /// **Did the flame ever exist.** The paired burn below proves fire
+    /// crosses a dry sward and stops on a wet one, and it would go on
+    /// proving that if `flame_into` silently resolved to `None` -- a
+    /// renamed material, a dropped `include_str!` line, a typo in
+    /// `grassblade.ron` -- because contact spread along a *contiguous*
+    /// strip never needed the flame in the first place. `CLAUDE.md`'s
+    /// "did it fire at all needs a counter, not a picture", as a test: this
+    /// one fails if the mechanism is disconnected, and nothing else here
+    /// would.
+    #[test]
+    fn burning_grass_puts_flame_into_the_air() {
+        let mut w = World::new(Rect::new(0, 0, 99, 59));
+        let grass = w.materials.id_of("grassblade").expect("grassblade is compiled in");
+        let flame = w.materials.id_of("flame").expect("flame is compiled in");
+        assert_eq!(
+            w.materials.get(grass).flame_into,
+            Some(flame),
+            "grassblade's flame_into did not resolve -- the material is missing from the embedded list, or the name is misspelt"
+        );
+        for x in 20..=40 {
+            w.set(x, 41, Cell::new(material::STONE, 0));
+            w.set(x, 40, Cell::new(grass, 0));
+        }
+        w.ignite_circle(30, 40, 1);
+        let mut peak_flame = 0usize;
+        for _ in 0..200 {
+            crate::sim::update::step(&mut w);
+            let standing = (0..60)
+                .flat_map(|y| (0..100).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == flame)
+                .count();
+            peak_flame = peak_flame.max(standing);
+        }
+        println!("peak standing flame cells: {peak_flame}");
+        assert!(peak_flame > 0, "a burning sward produced no flame at all -- the emission in tick_burn never ran");
+        // A flame is a `Gas` that rises, so it must get *off* the fuel row
+        // it was licked from. A flame that only ever appears in the row it
+        // was born in is one that cannot reach the fuel beside it either,
+        // which is the entire spread mechanism.
+        let ever_above = (0..40)
+            .flat_map(|y| (0..100).map(move |x| (x, y)))
+            .any(|(x, y)| w.get(x, y).material == flame || w.get(x, y).material == w.materials.id_of("smoke").unwrap());
+        assert!(ever_above, "nothing the fire produced ever reached a row above the fuel -- the flame is not rising");
+    }
+
+    /// **The owner's steer, as a test.** *"if we are going to do this,
+    /// moisture vs dryness should play a role"* -- so the same strip of
+    /// grass over dry ground and over saturated ground must give two
+    /// different fires, and the difference must be large enough to see.
+    ///
+    /// Paired, not a bar on one arm: the two runs share a build, a seed, a
+    /// scene and a strip, and differ in one `aux` value on the soil under
+    /// it. Everything the rule is not about cancels.
+    #[test]
+    fn a_fire_crosses_a_dry_sward_and_stops_on_a_wet_one() {
+        const X0: i32 = 10;
+        const X1: i32 = 180;
+        const ROW: i32 = 60;
+
+        /// Grass cells consumed in `FRAMES`, and how far the front got.
+        /// A **continuous** quantity rather than a crossed/not-crossed
+        /// bool, per `CLAUDE.md`: a count of cells separates cleanly where
+        /// a knife-edge margin flakes.
+        fn burn(soil_water: u16) -> (usize, i32) {
+            const FRAMES: usize = 1_200;
+            let mut w = World::new(Rect::new(0, 0, 199, 119));
+            let grass = w.materials.id_of("grassblade").expect("grassblade is compiled in");
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in X0..=X1 {
+                // **Four rows of soil on a stone floor**, and both halves
+                // of that are load-bearing. Four rows so the field block
+                // under the strip is a soil block whatever `FIELD_SCALE`
+                // alignment `ROW` happens to land on -- `ground_wetness_
+                // at` reads one block down and a thin skin can fall either
+                // side of a block boundary. A stone floor because **soil
+                // is a `Powder`**: the first version of this scene laid
+                // soil over open space, it fell out of the world inside a
+                // few frames, and both arms then read wetness 0 over an
+                // empty column. That is `CLAUDE.md`'s scene error in its
+                // usual costume -- the mechanism looks inert, and what is
+                // actually inert is the situation. It is worth the four
+                // extra `set`s to make the arms differ in one number and
+                // nothing else.
+                for dy in 1..=4 {
+                    w.set(x, ROW + dy, Cell::new(soil, 0).with_aux(soil_water));
+                }
+                w.set(x, ROW + 5, Cell::new(material::STONE, 0));
+                w.set(x, ROW, Cell::new(grass, 0));
+            }
+            // The field has to be stepped before anything is lit, or the
+            // moisture source has never been scanned off the CA grid and
+            // both arms read a bone-dry world. This is the scene error
+            // `CLAUDE.md` warns about wearing its usual costume: the
+            // mechanism looks inert because the situation is not there yet.
+            for _ in 0..20 {
+                crate::sim::field::step(&mut w);
+            }
+            w.ignite_circle(X0 + 1, ROW, 2);
+            for _ in 0..FRAMES {
+                crate::sim::update::step(&mut w);
+                crate::sim::field::step(&mut w);
+            }
+            let standing = (X0..=X1).filter(|&x| w.get(x, ROW).material == grass).count();
+            let front = (X0..=X1)
+                .filter(|&x| w.get(x, ROW).material != grass)
+                .max()
+                .unwrap_or(X0);
+            ((X1 - X0 + 1) as usize - standing, front)
+        }
+
+        let (dry_burnt, dry_front) = burn(0);
+        let (wet_burnt, wet_front) = burn(material::SOIL_SATURATED);
+        println!("dry ground: {dry_burnt} grass cells consumed, front reached x={dry_front}");
+        println!("wet ground: {wet_burnt} grass cells consumed, front reached x={wet_front}");
+
+        assert!(
+            dry_burnt > 100,
+            "a fire on bone-dry ground consumed only {dry_burnt} of 171 grass cells -- the dry arm is supposed to be the one that carries"
+        );
+        // Set from the measured pair with headroom, not on the measured
+        // value: the wet arm's own burn is the handful of cells the
+        // ignition itself lit plus whatever the flame body reached before
+        // going out, and the bar is that it is a different *regime*, not
+        // that it is exactly the number this build produced.
+        assert!(
+            wet_burnt * 4 < dry_burnt,
+            "saturated ground let {wet_burnt} cells burn against dry ground's {dry_burnt} -- moisture is supposed to gate spread, and this is the reading that measured as changing nothing for two milestones"
         );
     }
 

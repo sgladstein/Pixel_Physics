@@ -3,7 +3,8 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-23. Written when water became a real currency and
+*Current as of: 2026-08-23 (a dry meadow carries fire and a wet one stops
+it). Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
 stopped all being made of the same stuff; again when roots stopped
@@ -108,12 +109,15 @@ Three consequences follow from that, and none of them is a rule about grass:
 - It is the **most flammable thing that grows** — cell for cell a fire runs
   through grass about a quarter faster than through a tree canopy, and bare
   soil will not carry one at all. The roots survive underground.
-  Fire steps from one plant to the one touching it, so a thin, patchy sward
-  is a firebreak and a thick closed one is a fuse. Nothing says so anywhere;
-  it falls out of the gaps. **In practice a grassfire is currently a slow,
-  local smoulder rather than a front sweeping a meadow** — see
-  `Reports/plant-implementation-plan.md` for the measurement and the two
-  fire-side changes that would be needed.
+  **A dry meadow now burns end to end**, as a front you can watch cross it,
+  throwing flames and trailing smoke and leaving a black scar; a
+  well-watered one takes light where the fire was set and goes out within a
+  few paces. That difference is how wet the ground under the grass is, and
+  it is the single thing that decides whether a meadow burns — see
+  [Fire & Heat](fire-and-heat.md). What used to happen instead was a local
+  smoulder at any wetness: fire could only step between blades actually
+  touching, and a sward that looks continuous is really a scatter of
+  separate tufts, so a fire burnt the tuft it was lit in and stopped.
 - It **breeds far faster than a tree** — it is cheap to build, it sets seed
   young, and it will colonise bare ground long before anything woody does.
 
