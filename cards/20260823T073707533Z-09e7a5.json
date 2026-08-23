@@ -1,0 +1,64 @@
+{
+  "id": "20260823T073707533Z-09e7a5",
+  "created": "2026-08-23T07:37:07Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "C:/Users/Scott/Code/pp-load-share",
+    "branch": "load-share-rescue",
+    "commit": "46b8e86",
+    "agent": null,
+    "session_id": "f7dff1a9-a2d7-4895-aa02-a1ffa861688c",
+    "user": "Scott",
+    "cwd": "C:\\Users\\Scott\\Code\\pp-load-share"
+  },
+  "title": "Room wall cut: more pieces, or just more mess (corrected)",
+  "question": "B breaks into more and smaller pieces than A and brings down 2.5x the rock. Does B read as better destruction, or just as more mess?",
+  "context_md": "**This supersedes card `20260823T064443585Z-e94b1e`, which overstated its case. Please judge this one.** Same two runs and the same GIFs; the numbers and the claim are corrected. An independent audit caught three errors, all mine.\n\n`scene=room wall=5 dig=3`, censused at rest (both reach `sites 0`), one binary with the model switched at runtime.\n\n**What I got wrong on the first card:**\n\n1. I said A was 'all-or-nothing' and B 'a distribution'. That was measured on *failure regions*, which are not pieces. The pieces are the `body sizes` line, and **A was already a distribution** â€” 28 bodies spread across six size bands. The real difference is **more pieces, shifted smaller**: 28 -> 43 bodies, and the largest band (256+) actually *falls*, 3 -> 2. Genuine, but far more modest than I claimed.\n2. I said `crumbled to grit` was 1 cell in both, so nothing turned to dust. The counter was under-reading â€” it missed the staged-collapse path entirely, which is 91% of the material on a big break. Fixed; it now reads 26 cells (A) against 24 (B), still ~1% either way.\n3. The number that actually tracks dust is `cells shattered to rubble`, and I did not quote it: it goes **77 -> 179, +132%**. So B does powder more than twice as much material. It is still a small share of the total, but it moves the wrong way and you should see it.\n\n**The honest summary:** B breaks the wall into more pieces, skewed smaller, with somewhat more powder and 2.5x the rock down. Whether that is *better destruction* or just more mess is exactly what I cannot get from a number.\n\n**Please ignore** the palette and overall dimness â€” plain renderer, no overlay, identical both sides.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A â€” one load path (current main)",
+      "files": [
+        "20260823T073707533Z-09e7a5/000-rc-share0.gif"
+      ],
+      "caption": "each cell judged on its own load path",
+      "meta": {
+        "pieces (bodies promoted)": "28 bodies, 1887 cells",
+        "body sizes": "8-15:7  16-31:6  32-63:3  64-127:5  128-255:4  256+:3",
+        "cells shattered to rubble": 77,
+        "crumbled to grit (corrected)": "15 regions, 26 cells of 1977 failed (1%)",
+        "overload failures": "1 (1975 cells)",
+        "rock destroyed": 143,
+        "cells lost": 95
+      },
+      "focus": null,
+      "gif_frames": 20
+    },
+    {
+      "label": "B â€” wall judged as one member",
+      "files": [
+        "20260823T073707533Z-09e7a5/001-rc-share1.gif"
+      ],
+      "caption": "every cell of a cut charged the worst load crossing it",
+      "meta": {
+        "pieces (bodies promoted)": "43 bodies, 2461 cells",
+        "body sizes": "8-15:12  16-31:10  32-63:6  64-127:6  128-255:7  256+:2",
+        "cells shattered to rubble": 179,
+        "crumbled to grit (corrected)": "14 regions, 24 cells of 2765 failed (1%)",
+        "overload failures": "7 (2733 cells)",
+        "rock destroyed": 359,
+        "cells lost": 209
+      },
+      "focus": null,
+      "gif_frames": 20
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
