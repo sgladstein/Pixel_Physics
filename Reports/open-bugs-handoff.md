@@ -3378,31 +3378,25 @@ panicked: the scene must actually contain the gradient it is testing: 0.000 vs 0
 line. So this is `main`'s, not the explosion merge's, and the merge
 reproduces it exactly.
 
-**Why no one had seen it — and this half is now fixed, 2026-08-23.**
-`.github/workflows/ci.yml` used to run all five gates as *sequential steps
-of one job*. `cargo test` was step 4 and was red on `main` (bug A, the
+**Why no one had seen it — the CI history, kept because the lesson outlived
+the bug.** `.github/workflows/ci.yml` once ran all five gates as *sequential
+steps of one job*. `cargo test` was step 4 and was red on `main` (bug A, the
 slot-1 lever); when it failed, steps 5-9 — including `cargo run --example
 ascii` and `scripts/acceptance.sh` — were marked **`skipped`**, not run.
 Verified on run `32604849243`: one job, one failure, five skipped steps. So
 "main is green" could not be concluded from CI for any gate after `cargo
-test`.
+test`, and had not been true for some time.
 
-**That topology is gone.** The workflow is now a nine-job matrix — `test`,
-`test-debug`, `clippy`, `ascii`, `acceptance`, `fmt`, `branches` and the
-two known-red quarantine jobs — each an independent job, so one red gate no
-longer hides the rest. Bug A is excluded from `test`/`test-debug` **by
-name** (`--skip root_and_shoot_branching_read_different_slots`) and re-run
-in a `continue-on-error` job of its own, so it stays visible and executing
-without blocking; this bug does the same, as the `ascii` job's
-`continue-on-error: true`.
-
-**The bug itself is still open**, and the workflow's own comment is the
-thing to read before touching it: it is *knife-edge*, not simply broken.
-Run 137 failed it and run 139 passed it while both printed the same `steep
-half 0.000, flat half 0.000`, because the assertion is `wet_grad >
-dry_grad` over two quantities equal to three decimals. **A green `ascii`
-run is therefore not evidence the bug closed** and must not be used to
-re-gate the job.
+That topology is gone: the workflow is a parallel job matrix, so one red
+gate no longer hides the rest. **Both quarantines this entry used to
+describe are also gone**, in opposite directions — bug A's `--skip` was
+retired when its test was `#[ignore]`d behind a seed-swept replacement
+guard, and `ascii`'s blanket `continue-on-error` came off once `ascii`
+learned scene selection, leaving `skip=foraging` and the one named scene in
+`known-red-ascii` (§H2). The general lesson is the part worth keeping: **a
+quarantine wide enough to hide the bug it was opened for is wide enough to
+hide the next one**, and while the blanket was on, `forage_loop_scene` went
+red and nobody saw it for two commits.
 
 The assertion is a *setup* check — `wet_grad > dry_grad`, i.e. "the scene
 contains the gradient this test is about" — so it is `CLAUDE.md`'s "a scene
@@ -3821,7 +3815,10 @@ this guard exists to stop is turning through a **wall**.
 
 **Measured, `scene=worked`** (`start=2 every=900 count=5`), which returns
 **bit-identical numbers across three runs of the same binary**, so this is
-the change and not run-to-run spread:
+the change and not run-to-run spread. Both arms were taken at the same base
+(`d5e7af8`, before this branch merged the lane landing in), which is what
+makes the pair comparable — the absolute numbers will have moved since, the
+delta between the arms is the result:
 
 | | before | after |
 |---|---|---|
@@ -3840,7 +3837,7 @@ what says the delta above is the probe and not collateral.
 
 Two things that are **not** evidence, recorded so they are not read as such.
 `scene=ligament` moved too, and its numbers are void — it is nondeterministic
-(see §L). And every scene's worst-frame timing improved, including
+(see §P). And every scene's worst-frame timing improved, including
 `strike`'s, which moved 196 ms -> 60 ms *while producing byte-identical
 output* — so the timings in this environment are noise-dominated and **no
 performance claim is made here** in either direction.
