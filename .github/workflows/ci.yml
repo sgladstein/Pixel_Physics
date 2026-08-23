@@ -91,13 +91,18 @@ concurrency:
 # red test marked the other five `skipped` -- not run, not reported, and
 # indistinguishable at a glance from passing.
 #
-# That is not hypothetical. With `root_and_shoot_branching_read_different_
-# slots` red on `main` at the time (open-bugs-handoff.md bug A; it is now an
-# `#[ignore]`d reproduction -- see the quarantine block below), `ascii` and
-# `acceptance` had not executed in CI at all.
-# Both were failing. `ascii` was failing *undiagnosed* -- see bug H, found
-# only by running the gates locally against a clean `origin/main` worktree.
-# A green tick for a gate that never ran is worse than a red one.
+# That is not hypothetical, and it has now happened twice. With
+# `root_and_shoot_branching_read_different_slots` red on `main`
+# (open-bugs-handoff.md bug A, a guard the owner keeps deliberately), `ascii`
+# and `acceptance` had not executed in CI at all. Both were failing. `ascii`
+# was failing *undiagnosed* -- see bug H, found only by running the gates
+# locally against a clean `origin/main` worktree. A green tick for a gate that
+# never ran is worse than a red one.
+#
+# The second time was the fix's own blind spot: `ascii` was made
+# `continue-on-error` in bulk because it could not exclude bug H by name, and
+# a much larger regression then landed behind that blanket and went unseen
+# for two commits. Quarantine by name, never in bulk.
 #
 # The cost is honest: every job builds its own copy, so this trades total
 # compute for wall-clock and for independent reporting. Wall-clock drops
@@ -129,50 +134,54 @@ jobs:
       - name: trunk has no stranded twin
         run: bash scripts/branchcheck.sh --gate --no-fetch
 
-  # --- Known-red quarantine, now empty --------------------------------------
-  # This block existed because three gates were red on `main` for reasons that
-  # had nothing to do with whatever branch was being pushed. All three are now
-  # resolved, by three different routes, and the quarantine machinery below is
-  # gone with them:
+  # --- Known-red quarantine -------------------------------------------------
+  # **One** gate is red on `main` today for a reason that has nothing to do
+  # with whatever branch is being pushed: the `ascii` foraging scene, where
+  # the colony has gone sessile -- 2 round trips against a bar of 14 set from
+  # 98 on the same scene. It is recorded in `Reports/open-bugs-handoff.md`
+  # (§H2) and quarantined by name in `known-red-ascii` below.
   #
-  #   * **bug Y** -- FIXED on `main`. The `wood` acceptance case gates again.
-  #   * **bug A** -- guard SPLIT, bug still open. See below.
-  #   * **bug H** -- `ascii` stays non-gating, but no longer for bug H's
-  #     reason: it dies earlier now, on the colony sessility guard (§H2), and
-  #     never reaches bug H's assertion at all.
+  # **Bug Y closed and bug H closed**, and their jobs are gone -- the
+  # mechanism working as intended, twice. Bug H's closure is the more
+  # instructive one: the whole `ascii` job was non-blocking because the
+  # example could not exclude one scene by name, and the foraging regression
+  # landed behind that blanket and went unseen for two commits. `ascii` gates
+  # again now, with `skip=foraging`. Quarantine by name, never in bulk.
   #
-  # One caution for whoever reads a red `cargo test` on a branch here:
-  # `tests/worldgen.rs`'s `a_forced_vault_world_is_sealed_and_arrives_at_rest`
-  # is red on `main` itself (§H3) and is *not* excluded from anything, so a
-  # perfectly healthy branch shows a red `test` job. Attribute against `main`
-  # before touching it -- and note `cargo test --lib` does not run `tests/`, so
-  # a local `--lib` gate will not see it.
-  #
-  # **Bug A's exclusion and its paired job are gone, and its bug is not
+  # **Bug A's exclusion and its paired job are gone, and its bug is NOT
   # closed** -- read this before assuming it was. The guard asserted a 10%
-  # slot-1 root ordering off a *single seed*, and the 8-seed sweep says the
-  # lever is dead: mean of per-seed ratios 0.994, SE 0.046, which is 0.1 SE
-  # from exactly no effect. No bar with headroom exists over data consistent
-  # with 1.0, so the claim could not be honestly recalibrated -- it was split
-  # instead. What is measurably true (slot 1 does not move the shoot, and does
-  # not order roots *backwards*) is asserted seed-swept and runs in `test`;
-  # the dead half survives as an `#[ignore]`d reproduction under the original
-  # name, with all three measurements in its doc comment. A `continue-on-error`
-  # job pointed at an ignored test reports green, which this file's own rule
-  # calls worse than a red one -- hence deletion rather than retargeting.
-  # `Reports/open-bugs-handoff.md` §A carries the gap.
+  # slot-1 root ordering off a *single seed*; the 8-seed sweep says the lever
+  # is dead (mean of per-seed ratios 0.994, SE 0.046 -- 0.1 SE from exactly no
+  # effect). No bar with headroom exists over data consistent with 1.0, so the
+  # claim could not be honestly recalibrated and was **split** instead: what is
+  # measurably true (slot 1 does not move the shoot, and does not order roots
+  # backwards) is asserted seed-swept by
+  # `slot_1_is_a_root_locus_and_not_a_shoot_one` and gates in `test` and
+  # `test-debug`; the dead half survives as an `#[ignore]`d reproduction under
+  # the original name. A `continue-on-error` job pointed at an ignored test
+  # reports green, which this file's own rule calls worse than a red one --
+  # hence deletion rather than retargeting. `open-bugs-handoff.md` §A carries
+  # the gap.
   #
-  # The reasoning that built the quarantine, kept because it is what to do if
-  # one is needed again: turning branch CI on with permanent reds would show
-  # every agent several red jobs on push one, and a permanently-red signal
-  # teaches people to stop reading it -- the same defect as a gate that never
-  # runs, which this repo has already paid for (`capped` passed its acceptance
-  # case for two commits while the structure was frozen and never evaluated).
-  # So a known red is *excluded by name* from the gating job and re-run in its
-  # own `continue-on-error` job, where it still executes and still logs, and
-  # the only thing that changes is whether it blocks. Delete the exclusion the
-  # day its bug closes -- and the paired job is what tells you that day
-  # arrived. That is exactly how bug Y's came off.
+  # One caution that no exclusion covers: `tests/worldgen.rs`'s
+  # `a_forced_vault_world_is_sealed_and_arrives_at_rest` and
+  # `generated_terrain_is_already_at_rest` are both red on `main` itself
+  # (§H3, and both are *water* failing to settle), so a perfectly healthy
+  # branch shows a red `test` job. Attribute against `main` before touching
+  # it -- and note `cargo test --lib` does not run `tests/`, so a local
+  # `--lib` gate will not see them.
+  #
+  # Turning branch CI on without doing something about them would show every
+  # agent four red jobs on push one, and a permanently-red signal teaches
+  # people to stop reading it -- the same defect as a gate that never runs,
+  # which this repo has already paid for (`capped` passed its acceptance case
+  # for two commits while the structure was frozen and never evaluated).
+  #
+  # So each known red is *excluded by name* from the gating job and re-run in
+  # its own `continue-on-error` job below. Nothing is skipped, hidden or
+  # deleted: the guard still executes and its output is still in the log. The
+  # only thing that changes is whether it blocks. Delete the exclusion the day
+  # its bug closes -- and the paired job is what tells you that day arrived.
   test:
     name: cargo test (release)
     runs-on: ubuntu-latest
@@ -211,41 +220,30 @@ jobs:
     # this is the same worst-frame-timing scene suite used to judge
     # performance regressions locally, run headless here as a smoke test.
     #
-    # Non-gating for now, and this one is a compromise rather than a clean
-    # quarantine. `ascii` has no scene selection, so bug H cannot be excluded
-    # by name the way the other two are, and `examples/ascii.rs` is touched by
-    # three unmerged branches right now -- adding selection to it mid-merge is
-    # how you turn one conflict into four. What saves it: the failing ants
-    # scene is the *last* of nineteen, so every other scene has already run and
-    # printed, worst-frame timings included. Nothing is lost by not blocking on
-    # it that was not already lost to the panic.
+    # **Gating again, and quarantined by name rather than in bulk.** This job
+    # was `continue-on-error` over bug H, for the stated reason that "ascii
+    # has no scene selection, so bug H cannot be excluded by name". It has
+    # selection now (`scene=`/`skip=`, matched against the title a scene
+    # prints), so the blanket comes off and one named scene stays behind in
+    # `known-red-ascii` below -- the same shape as bug A's `--skip`.
     #
-    # **Bug H is knife-edge, not simply broken, and a green run here does not
-    # mean it closed.** Measured 2026-08-23: run 137 (`push`, commit 6d2c2f4)
-    # failed it; run 139 (`pull_request`, same head merged with main) passed
-    # it -- and both printed the *same* numbers, `steep half 0.000, flat half
-    # 0.000`. The assertion is `wet_grad > dry_grad` over two quantities that
-    # are equal to three decimals, so it turns on a margin below 0.0005 and
-    # flips with any perturbation of the scene. Re-confirmed by hand on the
-    # merged tree: exit 0, still 0.000 vs 0.000.
+    # Taking the blanket off matters more than it sounds. While it was on,
+    # `forage_loop_scene` went red and nobody saw it for two commits: a
+    # quarantine wide enough to hide the bug it was opened for is wide enough
+    # to hide the next one, and it did. 30 of the 31 scenes run green here in
+    # 2m59s.
     #
-    # So do not read a passing `ascii` as evidence to re-gate this job -- that
-    # would put a coin-flip back on the critical path, which is the exact
-    # failure this quarantine exists to prevent. What closes bug H is the
-    # scene actually containing a gradient, or the guard comparing a
-    # continuous margin instead of two near-zero floats (CLAUDE.md: "prefer a
-    # continuous quantity over a count -- counts give knife-edge margins").
-    #
-    # Make this gating again once bug H is closed *on that basis*, or once
-    # `ascii` learns to select scenes -- whichever comes first. It is the only job here
-    # whose non-blocking status costs real coverage.
-    name: cargo run --example ascii (non-gating, bug H)
+    # Bug H itself is closed on the basis this comment used to ask for -- the
+    # scene now genuinely contains a gradient (a maintained spring, asserted
+    # standing), and the guard is a continuous margin averaged over 40
+    # samples (1.8146 measured, bar 0.5) instead of two near-zero floats
+    # compared with `>`.
+    name: cargo run --example ascii
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
-      - run: cargo run --release --example ascii --locked
+      - run: cargo run --release --example ascii --locked -- skip=foraging
 
   acceptance:
     # The structural acceptance cases, run rather than remembered. Each
@@ -283,32 +281,32 @@ jobs:
       - run: cargo fmt --check
         continue-on-error: true
 
-  # --- No known-red jobs remain, and that is new ----------------------------
-  # This section held one `continue-on-error` job per recorded red, each paired
-  # with an exclusion in a gating job above, so that a known bug stayed
-  # *visible and executing* rather than being skipped into invisibility. Both
-  # are now gone, from opposite directions and in the same merge:
-  #
-  #   * **bug Y** (the gnome through the wood) was FIXED on `main`, which
-  #     deleted `known-red-gnome` and dropped `SKIP_CASES=wood` from the
-  #     gating `acceptance` job. The case gates again.
-  #   * **bug A** (the slot-1 root spread) had its guard *split* rather than
-  #     fixed. The lever measures dead -- 0.994, SE 0.046 over 8 seeds, 0.1 SE
-  #     from no effect -- so no bar with headroom exists over the forward
-  #     claim. What is measurably true (slot 1 does not move the shoot, and
-  #     does not order roots backwards) is asserted seed-swept by
-  #     `slot_1_is_a_root_locus_and_not_a_shoot_one` and gates in `test` and
-  #     `test-debug`; the dead half survives as an `#[ignore]`d reproduction
-  #     under the original name. A `continue-on-error` job pointed at an
-  #     ignored test reports green, which this file's own rule calls worse
-  #     than a red one -- hence deletion rather than retargeting.
-  #     `Reports/open-bugs-handoff.md` §A carries the gap; **the bug is not
-  #     closed.**
-  #
-  # `ascii` is still non-gating, but it needs no paired job: it carries its own
-  # `continue-on-error` above. Note it no longer fails for bug H -- it dies
-  # earlier now, on the colony sessility guard, which is §H2.
-  #
-  # If a red has to be quarantined again, restore the shape rather than
-  # inventing one: an exclusion by name in the gating job, and a
-  # `continue-on-error` job that runs the same thing where it cannot block.
+  # --- The known reds, run where they cannot block ---------------------------
+  # Each pairs with an exclusion above. They exist so a recorded bug stays
+  # *visible and executing* rather than being skipped into invisibility -- and
+  # so that the day one starts passing, something says so. A green tick here is
+  # the signal to delete both the job and its exclusion.
+
+  known-red-ascii:
+    # `forage_loop_scene`: the colony has gone sessile. Excluded from `ascii`
+    # above by `skip=foraging`; run alone here.
+    #
+    # Measured on main: 2 round trips of 8+ cells against a bar of 14 that was
+    # set in da252dc from 98 on this same scene, and a reach profile of
+    # [689, 22, 8, 2, 0, 0, 0, 0] against the [3858, 475, 185, 98, 1, 0, 0, 0]
+    # README's M18 status still quotes. Deterministic, not noise -- identical
+    # counters on contended and solo runs.
+    #
+    # Not attributed to a commit yet, and the bar is deliberately not moved.
+    # The scene's own food census says 88% of the colony's food is leaf on
+    # standing trees and the stock triples over the run while the ants eat 0,
+    # so "how scarce should the floor be" is on the owner's queue as
+    # 20260823T091259637Z-9a41e4 -- the target is a game-feel call, not a
+    # number to tune here.
+    name: "known red: the colony has gone sessile (ascii forage scene)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.94
+      - run: cargo run --release --example ascii --locked -- scene=foraging

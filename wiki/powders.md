@@ -1,6 +1,6 @@
 # Powders
 
-*Current as of: 2026-08-21.*
+*Current as of: 2026-08-23.*
 
 Sand, gravel, ash, soil, and a handful of debris materials all behave the
 same basic way: they fall under gravity, and instead of spreading out flat
@@ -25,9 +25,15 @@ natural resting angle, the way real loose material does.
 Two more materials in this family come from elsewhere in the world rather
 than being something you'd paint on purpose:
 
-- **Corpse** is what's left after something living dies. From that point on
-  it behaves like ordinary loose matter — it falls, can be dug through,
-  buried, or burned, with nothing special about it any more.
+- **Corpse** is what's left after something living dies. It falls, can be
+  dug through, buried, or burned, like any other loose matter — but one
+  thing about it is not ordinary: **each cell of it remembers what it was
+  worth to eat.** A big animal leaves richer meat than a small one, and a
+  scavenger that finds the carcass gets what the animal was actually made
+  of rather than a flat rate for "corpse". A body that burns is the
+  exception: what comes out of a fire is priced as the cheapest thing it
+  could have been, on the reading that fire destroys some of a carcass's
+  worth.
 - **Deadwood** is a broken branch or fallen trunk. Being dry and cut off
   from a living tree's own moisture, it catches fire more readily than
   living wood does.

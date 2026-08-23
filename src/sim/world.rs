@@ -199,12 +199,17 @@ pub struct CreatureStats {
 /// evolution actually needs (P-20): **no lineage may extract unbounded
 /// energy from a cycle it controls.**
 ///
-/// `meat_lost` is not an account here, because nothing hooks the seam a
-/// corpse is destroyed through (decay, fire, an explosion, the brush).
-/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `meat_lost` **is** an account here as of 2026-08-23. It was not, and the
+/// meat identity was an upper bound rather than an equality because nothing
+/// hooked the seam a corpse is destroyed through. Three of the four paths
+/// that entry named are now booked — fire burning a corpse to ash, an
+/// explosion consuming one, the brush erasing one — and the fourth (decay)
+/// does not exist: `corpse.ron` declares no `decays_into`, so a corpse does
+/// not rot, and the day it does is the day that hook is needed.
 /// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
-/// asserts it as one. In a sealed box where nothing eats corpses but the
-/// ants, it is tight.
+/// still asserts a `<=`, because meat riding a `Particle` between a throw
+/// and a landing is standing nowhere; what closes exactly is
+/// `a_destroyed_corpse_is_booked_rather_than_forgotten`.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
     /// **Source.** Metabolic energy created at spawn — a creature's
@@ -251,6 +256,33 @@ pub struct EnergyLedger {
     /// by a tick is honest behaviour and pretending it did not is how a
     /// counterweight constant gets born.
     pub overdrawn: f64,
+    /// **Sink.** Meat destroyed rather than eaten: the worth stamped into a
+    /// `worth_in_aux` cell that something removed from the world without an
+    /// animal getting it. Fire burning a corpse to ash, an explosion
+    /// consuming one, the brush erasing one.
+    ///
+    /// Booked at the few call sites that destroy such a cell, **never in
+    /// `World::set`** — that is per-cell hot-path work on the sweep's
+    /// busiest seam, and `CLAUDE.md`'s "guard hot-path work at the call site
+    /// that already has the data" applies exactly: each of those sites has
+    /// already read the outgoing cell for its own reasons, so the hook costs
+    /// a `Vec` index on a branch that was taken anyway.
+    ///
+    /// **This is what turns `max_standing_meat` from a hope into a bound.**
+    /// Before it existed, meat could quietly go missing and every guard
+    /// passed: the meat identity was a `<=`, and `creature_biomass` is
+    /// asserted monotone non-increasing, which a loss also satisfies.
+    ///
+    /// **The other seam is still open and is deliberately not this one.**
+    /// Living flesh carries a stamp that nothing pays for, because its sink
+    /// — a parent paying stamps for a child — does not exist until S6
+    /// reproduction (`Reports/creature-evolution-plan.md` §2.3, "One seam
+    /// left open"; `creature.rs`'s `food_value` and `ant.ron`'s
+    /// `food_energy == body_energy` equality are the load-bearing pieces).
+    /// Close that one *with* S6, not here: without the sink there is nothing
+    /// for the booking to balance against. The two are recorded together on
+    /// purpose so whoever finds one finds the other.
+    pub meat_lost: f64,
 }
 
 impl EnergyLedger {
@@ -265,10 +297,32 @@ impl EnergyLedger {
             + self.overdrawn
     }
 
-    /// The most meat that can be standing in the world. An **upper bound**,
-    /// not an equality — see the type doc on `meat_lost`.
+    /// The most meat that can be standing in the world.
+    ///
+    /// **Was an upper bound and is now a real one**, because `meat_lost`
+    /// books the destruction paths that used to make it a hope: every joule
+    /// of meat was either stamped in, eaten out, or destroyed, and all three
+    /// are now accounts. What keeps it a `<=` rather than an `==` is only
+    /// meat in flight — a corpse cell riding a `Particle` between the throw
+    /// and the landing is standing nowhere.
     pub fn max_standing_meat(&self) -> f64 {
-        self.stamped + self.stored_in_meat - self.harvested_corpse
+        self.stamped + self.stored_in_meat - self.harvested_corpse - self.meat_lost
+    }
+
+    /// The worth of a cell about to be destroyed, or `None` if destroying it
+    /// loses no meat.
+    ///
+    /// The shared predicate behind every `meat_lost` booking, so the four
+    /// call sites cannot drift apart on what counts. Deliberately mirrors
+    /// `creature::food_value`'s gate — `worth_in_aux` **and** a non-zero
+    /// stamp — because the quantity being destroyed has to be the same
+    /// quantity an animal would have eaten. An unstamped corpse (`aux == 0`,
+    /// which `fire.rs`'s burnout writes deliberately) is worth the material
+    /// fallback to an eater but books nothing here: it never had a stamp to
+    /// lose, and charging the fallback would invent a sink out of a
+    /// material default.
+    pub fn meat_worth_of(materials: &MaterialRegistry, cell: Cell) -> Option<f64> {
+        (materials.get(cell.material).worth_in_aux && cell.aux() != 0).then(|| cell.aux() as f64)
     }
 }
 
@@ -401,6 +455,72 @@ pub struct World {
     /// want this keyed per chunk column instead, alongside everything else
     /// that is currently sized to a resident world.
     sky_surface: Vec<i32>,
+    /// Which positions were **inside the ground when the world was made** —
+    /// one bit per cell, row-major from `bounds.min_x`/`bounds.min_y`,
+    /// packed 64 to a `u64`. Empty until `freeze_underground_map` has run.
+    ///
+    /// **This is `sky_surface`'s answer asked per cell instead of per
+    /// column, and that is the whole of the difference.** The column form
+    /// asks *"is there anything solid above me in this column"*, which
+    /// cannot tell a cave roof from a cliff brow: the open air outside an
+    /// overhanging lip has rock above it in its column, so it drew as the
+    /// inside of a cave, and so did the air under any solid object standing
+    /// in the sky at genesis. Reported from play as dark bands under
+    /// overhangs and under objects; measured at 156–408 cells per 2048x640
+    /// world across seeds 1–6, in patches of twenty to fifty cells sitting
+    /// on the skyline (`examples/underground_probe.rs`,
+    /// `Reports/dark-bands-diagnosis.md`).
+    ///
+    /// Seeded by a flood fill from the top of the world through everything
+    /// that is not `Solid` or `Powder` — the exact complement of
+    /// `freeze_sky_surface`'s own predicate, so the two cannot hold
+    /// different opinions about what ground is. A cell is underground if it
+    /// was ground, or if it was air the sky could not reach.
+    ///
+    /// **It stores more history; it does not infer.** That distinction is
+    /// the one `Reports/dead-ends.md` §977 makes after four inference rules
+    /// failed in four different ways — *"revisit only by storing more
+    /// history, never by inferring"* — and every property the column form
+    /// was chosen for survives, because those all follow from the cells
+    /// having been rock: a shaft you dig stays a tunnel at any width, with
+    /// no threshold anywhere; a roof you build still leaves outdoors under
+    /// it; a grain left in the air casts nothing.
+    ///
+    /// The change is **one-directional by construction** — a cell can only
+    /// go from underground to outdoors, never the reverse — because both
+    /// ways of being marked here (it was solid; it was air with something
+    /// solid above it) put the column's topmost solid at or above the cell,
+    /// which is exactly what the column rule tested. Asserted by
+    /// `the_per_cell_map_never_turns_open_sky_into_cave`.
+    ///
+    /// 164 KB at 2048x640, against `sky_surface`'s 8 KB, and 5.8 ms to
+    /// build once against worldgen's own ~325 ms. M10's streaming will want
+    /// it per chunk alongside everything else sized to a resident world.
+    underground: Vec<u64>,
+    /// **The top of the ground, asked so that a cliff brow is not mistaken
+    /// for it.** One entry per column from `bounds.min_x`, `i32::MAX` for a
+    /// column that holds no ground at all — same shape and same convention
+    /// as `sky_surface`, and it exists because that array answers a subtly
+    /// different question than the terrain shading needs.
+    ///
+    /// `sky_surface` is the *topmost* ground in the column, which is right
+    /// for "is there anything above me" and wrong for "how deep am I". A
+    /// brow is ground, so it sets that entry, and every cell in its column
+    /// down to bedrock is then graded as if buried under the brow's height.
+    /// Measured, that drew a **straight vertical tone seam one to ten
+    /// columns wide running from the surface to the bottom of the world** —
+    /// 2,990 cells at x 332..337 on seed 5, a single 494-cell column on seed
+    /// 7 (`examples/underground_probe.rs`, `Reports/dark-bands-diagnosis.md`).
+    ///
+    /// So this walks each column **up from the bottom** and stops at the
+    /// first cell the sky can reach, recording the last row before it. That
+    /// skips a brow, because open air sits under one; it does *not* skip a
+    /// cave, because cave air is not outdoors and the walk carries straight
+    /// through; and a notch is untouched, so `light_datum`'s opening still
+    /// has the same job to do.
+    ///
+    /// Frozen once, after `underground`, which it reads.
+    ground_datum: Vec<i32>,
     /// The same dedup idea as `pending_structural_checks`, for
     /// `ActiveKind::Decay`, and it exists for a different reason worth
     /// stating: decay sites are scheduled by `World::end_step`'s settle
@@ -698,7 +818,10 @@ pub struct World {
     pub section_share: bool,
     /// How far from something that was actually disturbed a structural
     /// failure is allowed to happen, in cells, and for how long. See
-    /// `ChainMode`; `i32::MAX` is the shipped behaviour (no limit).
+    /// `ChainMode`. `i32::MAX` is the default -- `CHAIN_MODES[0]`
+    /// (`SPREAD`), no limit. `TIGHT` was built as the default on the
+    /// owner's request and measured back out; `ChainMode`'s own doc
+    /// carries the table and the reason.
     ///
     /// # Why this is a policy and not a deletion
     ///
@@ -1060,6 +1183,38 @@ impl FailureCounts {
 }
 
 impl World {
+    /// Take the leash off `chain_reach`, restoring the pre-playtest
+    /// behaviour in which the load model alone decides what fails.
+    ///
+    /// # Why the load-model tests want this and the game does not
+    ///
+    /// `chain_reach` is a **policy layered over** the load model: the model
+    /// works out that a cell cannot carry what is on it, and the policy
+    /// then decides whether the consequence is allowed to happen here. The
+    /// default is `TIGHT` because a playtest picked it, and TIGHT means
+    /// "near something that reported itself disturbed" -- which a unit test
+    /// that hand-places geometry and calls `schedule_structural_check`
+    /// directly never does, because no verb was involved.
+    ///
+    /// Left at the default those tests do not exercise a stricter model,
+    /// they exercise *nothing*: an empty disturbance ring refuses every
+    /// failure, so a beam that should snap simply stands and the assertion
+    /// fails for a reason that has nothing to do with what it is named
+    /// for. `CLAUDE.md`'s "a superseded mechanism's tests keep passing
+    /// while testing nothing" trap, run in reverse.
+    ///
+    /// So the model's own tests say so out loud here, and the policy keeps
+    /// its own paired test (`structural::tests::
+    /// a_reach_limit_keeps_damage_near_what_was_disturbed`), which sets a
+    /// reach explicitly and runs both sides. **Nothing outside `#[cfg(test)]`
+    /// should call this** -- a harness that wants the shipped behaviour
+    /// (`filmstrip`, `ascii`, `acceptance.sh`) must take the default, or it
+    /// stops measuring what the player sees.
+    pub fn without_chain_limit(mut self) -> Self {
+        self.chain_reach = i32::MAX;
+        self
+    }
+
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
             chunks: HashMap::new(),
@@ -1078,6 +1233,8 @@ impl World {
             pending_evaporation: std::collections::HashSet::new(),
             pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),
+            underground: Vec::new(),
+            ground_datum: Vec::new(),
             pending_decay_sites: std::collections::HashSet::new(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
@@ -1101,7 +1258,11 @@ impl World {
             crush_confined: true,
             arch_relief: true,
             section_share: true,
-            chain_reach: i32::MAX,
+            // Mirrors CHAIN_MODES[0], whichever that is. Kept in sync by
+            // `the_default_chain_reach_is_the_first_chain_mode`, so moving
+            // the default is one edit in one place. Currently SPREAD, so
+            // this is `i32::MAX` -- the literal it replaced.
+            chain_reach: crate::sim::structural::CHAIN_MODES[0].reach,
             chain_window: crate::sim::structural::CHAIN_WINDOW_FRAMES,
             disturbances: std::collections::VecDeque::new(),
             staged_fractures: std::collections::VecDeque::new(),
@@ -2782,7 +2943,25 @@ impl World {
                 // protection as `Solid` -- a grown tree is exactly as
                 // deliberately placed as a stone wall, and without this the
                 // brush could erase it cell by cell same as any loose powder.
-                let existing_material = self.get(x, y).material;
+                let existing = self.get(x, y);
+                let existing_material = existing.material;
+                // **The brush is a destruction path like any other.** Erasing
+                // a stamped corpse takes real meat out of the world, and
+                // before `meat_lost` existed it did so silently -- so a
+                // player tidying up a battlefield could make
+                // `max_standing_meat` a lie. Free here: the outgoing cell was
+                // already read on the line above for the solid-terrain guard.
+                //
+                // Only on an erase. Painting over a corpse is blocked for
+                // `Solid`/`Plant` and permitted otherwise, and that permitted
+                // case destroys meat too -- but it is a *replacement*, and
+                // charging it here would double-book against whatever the
+                // replacement is worth. Erasing is the unambiguous half.
+                if material == material::EMPTY {
+                    if let Some(worth) = EnergyLedger::meat_worth_of(&self.materials, existing) {
+                        self.energy_ledger.meat_lost += worth;
+                    }
+                }
                 if material != material::EMPTY
                     && existing_material != material::EMPTY
                     && matches!(
@@ -2875,6 +3054,18 @@ impl World {
                     continue;
                 }
                 self.schedule_structural_check_around(x, y);
+                // And it is a *disturbance*, not just a reason to re-check:
+                // laying stone under an overhang or cutting it out from
+                // under one is the player doing something to the world,
+                // and `World::chain_reach` only licenses failures near
+                // something that happened. Invisible while the default was
+                // no limit; the moment `TIGHT` became the default, a brush
+                // that scheduled checks but recorded nothing meant erasing
+                // a support did precisely nothing.
+                // Extent 0: this loop writes one cell, so the wound
+                // *is* this cell. A capsule stroke coalesces into a few
+                // records rather than one per cell.
+                self.record_disturbance(x, y, 0);
                 // Cutting rock costs its neighbours their backing, which is
                 // what lets mining produce anything at all -- see
                 // `structural::detach_exposed_neighbours`. Erasing only:
@@ -2990,6 +3181,8 @@ impl World {
         // both of those are things that happen while it runs. A regenerate
         // makes a whole new `World` (`App::reset`), so this cannot go stale.
         self.freeze_sky_surface();
+        self.freeze_underground_map();
+        self.freeze_ground_datum();
         self.frame = self.frame.wrapping_add(1);
     }
 
@@ -3040,20 +3233,160 @@ impl World {
         &self.sky_surface
     }
 
-    /// Whether `(x, y)` sits above this column's frozen ground surface.
+    /// Record which positions were inside the ground when the world was
+    /// made, once. See `underground`.
     ///
-    /// The stored definition of "outdoors" (see `sky_surface`), asked as a
-    /// predicate so callers do not each have to remember that the slice is
-    /// indexed from `bounds.min_x` and that `i32::MAX` means "this column
-    /// never held any ground".
+    /// A flood fill from the top row through everything that is not `Solid`
+    /// or `Powder`, marking everything it *fails* to reach. Deliberately the
+    /// same predicate as `freeze_sky_surface`, so the per-cell and
+    /// per-column answers cannot disagree about what counts as ground —
+    /// water and gas conduct (a lake is outdoors, and its level moves), rock
+    /// and soil block.
     ///
-    /// `false` before the surface has been frozen, which only happens on a
-    /// world nothing has ever stepped — `begin_step` freezes it before the
-    /// first sweep runs, so no CA rule can observe that state. Answering
-    /// `false` there is the conservative direction anyway: it keeps
-    /// whatever the indoor behaviour is.
+    /// **4-connected, not 8.** Air passes through a shared face; two rocks
+    /// touching at a corner are not a way out. The same distinction
+    /// `diffuse_resource` makes, for the same reason.
+    ///
+    /// Iterative with an explicit stack rather than recursion: the open air
+    /// over a 2048x640 world is a single region of ~400,000 cells and a
+    /// recursive fill would blow the stack on the first world that generated
+    /// a wide sky.
+    pub fn freeze_underground_map(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.underground.is_empty() {
+            return;
+        }
+        let (w, h) = (b.width() as usize, b.height() as usize);
+        let idx = |x: i32, y: i32| (y - b.min_y) as usize * w + (x - b.min_x) as usize;
+        let blocks = |world: &Self, x: i32, y: i32| {
+            matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder)
+        };
+
+        let mut open = vec![false; w * h];
+        let mut stack: Vec<(i32, i32)> = Vec::new();
+        for x in b.min_x..=b.max_x {
+            if !blocks(self, x, b.min_y) {
+                open[idx(x, b.min_y)] = true;
+                stack.push((x, b.min_y));
+            }
+        }
+        while let Some((x, y)) = stack.pop() {
+            for (nx, ny) in [(x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)] {
+                if nx < b.min_x || nx > b.max_x || ny < b.min_y || ny > b.max_y {
+                    continue;
+                }
+                if open[idx(nx, ny)] || blocks(self, nx, ny) {
+                    continue;
+                }
+                open[idx(nx, ny)] = true;
+                stack.push((nx, ny));
+            }
+        }
+
+        self.underground = vec![0u64; (w * h).div_ceil(64)];
+        for (i, reached) in open.iter().enumerate() {
+            if !reached {
+                self.underground[i >> 6] |= 1 << (i & 63);
+            }
+        }
+    }
+
+    /// The frozen per-cell underground map, or empty if it has not been
+    /// built — which only happens on a world nothing has ever stepped.
+    pub fn underground_map(&self) -> &[u64] {
+        &self.underground
+    }
+
+    /// Record the top of the ground in each column, once. See
+    /// `ground_datum`.
+    ///
+    /// Walks up from the bottom of the world and stops at the first cell the
+    /// sky can reach, so the answer is the top of the **lowest** run of cells
+    /// the sky cannot reach rather than the topmost ground of any kind.
+    ///
+    /// Reads `underground`, so it has to run after `freeze_underground_map`
+    /// and does — `begin_step` calls them in order. A column that is
+    /// outdoors right down to the world floor holds no ground at all and
+    /// takes `i32::MAX`, which is `sky_surface`'s convention for the same
+    /// thing.
+    pub fn freeze_ground_datum(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.ground_datum.is_empty() || self.underground.is_empty() {
+            return;
+        }
+        self.ground_datum = (b.min_x..=b.max_x)
+            .map(|x| {
+                let mut top = i32::MAX;
+                for y in (b.min_y..=b.max_y).rev() {
+                    if !self.was_underground(x, y) {
+                        break;
+                    }
+                    top = y;
+                }
+                top
+            })
+            .collect();
+    }
+
+    /// The frozen top-of-ground datum, or empty if it has not been built.
+    pub fn ground_datum(&self) -> &[i32] {
+        &self.ground_datum
+    }
+
+    /// Whether `(x, y)` was inside the ground when the world was made.
+    ///
+    /// `false` (and therefore "outdoors") for a position outside the world
+    /// or on a world that has never been stepped, matching `is_outdoors`'s
+    /// own conservative behaviour there.
+    pub fn was_underground(&self, x: i32, y: i32) -> bool {
+        let Some(b) = self.bounds else { return false };
+        if self.underground.is_empty() || x < b.min_x || x > b.max_x || y < b.min_y || y > b.max_y {
+            return false;
+        }
+        let i = (y - b.min_y) as usize * b.width() as usize + (x - b.min_x) as usize;
+        self.underground[i >> 6] & (1 << (i & 63)) != 0
+    }
+
+    /// Whether `(x, y)` is open to the sky rather than inside the ground.
+    ///
+    /// The stored definition of "outdoors", asked as a predicate so callers
+    /// do not each have to remember how it is indexed.
+    ///
+    /// **Reads the per-cell map, and falls back to the per-column
+    /// `sky_surface` only when there is no map.** The fallback is not a
+    /// second opinion — it is the older, coarser form of the same stored
+    /// answer, and it is reachable only on a world nothing has ever stepped,
+    /// which is a handful of tests: `begin_step` builds both before the
+    /// first sweep, so no CA rule can observe the gap. The two agree
+    /// everywhere except air that the sky could reach at genesis while
+    /// something solid stood above it in the same column — a cliff brow, or
+    /// an object hanging in the air — which is precisely the case the map
+    /// exists to get right.
+    ///
+    /// `false` before either has been recorded, which is the conservative
+    /// direction: it keeps whatever the indoor behaviour is.
     pub fn is_outdoors(&self, x: i32, y: i32) -> bool {
         let Some(b) = self.bounds else { return false };
+        // **Both out-of-range answers are carried over from the column
+        // form deliberately**, because `fire.rs`'s condensation asks this
+        // and must not change behaviour merely because the storage did. A
+        // column outside the world answered `false` (`sky_surface.get`
+        // returned `None`); a row outside it answered `y < ground`, so above
+        // the world was outdoors and below it was not. The map has no bit
+        // for either, so both are restated here rather than left to fall out
+        // of the indexing.
+        if x < b.min_x || x > b.max_x {
+            return false;
+        }
+        if y < b.min_y {
+            return true;
+        }
+        if y > b.max_y {
+            return false;
+        }
+        if !self.underground.is_empty() {
+            return !self.was_underground(x, y);
+        }
         let Some(&ground) = self.sky_surface.get((x - b.min_x) as usize) else {
             return false;
         };
@@ -3219,6 +3552,11 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        World::record_disturbance(self, x, y, extent)
+    }
+
+    #[inline]
     fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
         World::absorb_liquid(self, x, y, fill)
     }
@@ -3231,6 +3569,10 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn book_meat_lost(&mut self, worth: f64) {
+        self.energy_ledger.meat_lost += worth;
+    }
+
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         self.phase_changes.record(event);
     }
@@ -3280,6 +3622,164 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    // --- meat_lost: the destruction seam ---------------------------------
+
+    /// A world with a corpse slab in it, every cell stamped `worth`.
+    fn meat_world(worth: u16) -> (World, MaterialId, Rect) {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        let slab = Rect::new(50, 100, 77, 107);
+        for y in slab.min_y..=slab.max_y {
+            for x in slab.min_x..=slab.max_x {
+                w.set(x, y, Cell::new(corpse, 0).with_aux(worth));
+            }
+        }
+        (w, corpse, Rect::new(0, 0, 127, 127))
+    }
+
+    /// **Meat that leaves the world is booked, not forgotten.**
+    ///
+    /// The guard for `EnergyLedger::meat_lost`. Before it, a corpse burnt,
+    /// blasted or erased simply stopped existing and nothing recorded it —
+    /// which is what made `max_standing_meat` an upper bound rather than a
+    /// bound, and it could not be caught by any existing guard: the meat
+    /// identity was asserted as `<=`, and `creature_biomass` is asserted
+    /// monotone non-increasing, so a *loss* satisfied both.
+    ///
+    /// Asserted as **conservation across each arm** — meat standing
+    /// afterwards plus meat booked lost equals meat standing before — rather
+    /// than against the ledger's source terms, because this scene places its
+    /// corpses by hand rather than through `creature_dies`, so `stamped` is
+    /// legitimately 0 here and an identity built on it would be measuring
+    /// the wrong thing.
+    ///
+    /// **The control arm is the point of the test as much as the other
+    /// three.** A hook that fires when nothing is being destroyed is exactly
+    /// as wrong as one that never fires, and it is the failure a
+    /// conservation assertion alone cannot see.
+    #[test]
+    fn a_destroyed_corpse_is_booked_rather_than_forgotten() {
+        use crate::sim::creature::standing_meat;
+        const WORTH: u16 = 1_020;
+
+        // --- control: nothing destroys anything ---------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            for _ in 0..200 {
+                crate::sim::update::step(&mut w);
+            }
+            assert_eq!(
+                w.energy_ledger.meat_lost, 0.0,
+                "meat was booked lost in a world where nothing burns, blasts or erases"
+            );
+            assert!(
+                (standing_meat(&w, all) - before).abs() < 1.0,
+                "the control arm lost meat on its own ({before} -> {})",
+                standing_meat(&w, all)
+            );
+        }
+
+        // --- fire, on both drivers ---------------------------------------
+        // `corpse.ron` is flammable and burns into ash, so a body in a
+        // grassfire takes its stamp out of the world. Run under both drivers
+        // because this is the one destruction path that happens *inside* the
+        // CA sweep: the serial one books straight into the ledger and the
+        // parallel one tallies per chunk and merges in `run_pass`, and a
+        // merge that was dropped would show up here and nowhere else.
+        for parallel in [false, true] {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.ignite_circle(63, 103, 20);
+            for _ in 0..2_000 {
+                if parallel {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+            }
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            let driver = if parallel { "parallel" } else { "serial" };
+            assert!(lost > 0.0, "the {driver} driver burnt corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "{driver}: {before} of meat became {after} standing and {lost} booked lost — \
+                 {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- the brush ----------------------------------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.paint_circle(63, 103, 10, material::EMPTY);
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the brush erased corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "brush: {before} of meat became {after} standing and {lost} booked lost — {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- an explosion -------------------------------------------------
+        // The arm with two halves: a cell the blast *consumes* is meat
+        // destroyed, and a cell it *throws* is meat in flight, whose stamp
+        // rides `Particle::aux` (bug Z, fixed alongside this). Booking the
+        // throw would put `max_standing_meat` below the truth, so the
+        // identity here has to include what is still in the air — which is
+        // also the sharpest way to state that the two fixes are halves of
+        // one thing.
+        {
+            let (mut w, corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            let mut ps = crate::sim::particle::ParticleSystem::new();
+            crate::sim::explosion::trigger(&mut w, &mut ps, 63, 103, 20, 180.0);
+            let in_flight: f64 = ps
+                .iter()
+                .filter(|p| p.material == corpse && p.aux != 0)
+                .map(|p| p.aux as f64)
+                .sum();
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the blast consumed corpses and booked nothing ({before} -> {after})");
+            assert!(in_flight > 0.0, "test setup: the blast threw no stamped corpse, so the in-flight half is untested");
+            assert!(
+                (before - after - lost - in_flight).abs() < 1.0,
+                "blast: {before} of meat became {after} standing, {lost} booked lost and {in_flight} in flight — \
+                 {} unaccounted for",
+                before - after - lost - in_flight
+            );
+
+            // And once it lands, the in-flight half is standing again and
+            // nothing further is booked.
+            let lost_before_landing = w.energy_ledger.meat_lost;
+            for _ in 0..600 {
+                if ps.is_empty() {
+                    break;
+                }
+                ps.step(&mut w);
+            }
+            assert!(ps.is_empty(), "{} particles never landed", ps.len());
+            assert_eq!(
+                w.energy_ledger.meat_lost, lost_before_landing,
+                "landing a particle booked meat as lost — a throw is not a destruction"
+            );
+            let landed = standing_meat(&w, all);
+            assert!(
+                (before - landed - lost).abs() < 1.0,
+                "after landing: {before} of meat became {landed} standing and {lost} booked lost — {} unaccounted for",
+                before - landed - lost
+            );
+        }
     }
 
     // --- §11: touched_chunks --------------------------------------------
