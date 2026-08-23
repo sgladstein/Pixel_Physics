@@ -473,6 +473,24 @@ screen covers generation but not the settle behind it.
   time that wants its own measurement — but it is a visible change nobody
   asked for and it should be decided, not inherited.
 
+  **Corrected 2026-08-23: "what the player sees" is wrong, and the
+  distinction decides what the card has to show.** `render.rs`'s
+  `draw_precipitation` takes only the weather's `kind`, `intensity` and the
+  storm supply — **not** `MAX_COLUMNS_PER_FRAME`. The falling streaks are a
+  sky effect; the cap governs how many *water cells* get created. Rendered
+  paired at 24 against 96 on the same seed and the same chosen frame
+  (`rolling` seed 1, frame 36010, intensity 0.87), the two skies are
+  indistinguishable. So the 4x is a change to **wetting** — soil moisture,
+  puddles, and whatever grows on them — and not to the look of a storm.
+
+  That reframes the open question rather than closing it, and it kills the
+  obvious card: a sky A/B would come back "I see no difference in these
+  images", which is a verdict this queue has collected twice already. A card
+  that can be answered has to show a *consequence* after a storm, at both
+  settings, on the same seed. Priced while there: 24 -> 96 costs **+3.15 ms
+  mean and +15 ms on the worst frame** (31.862 -> 35.015 mean, 56.989 ->
+  71.949 worst, `viewshot` settle tail, paired, same session).
+
 ## 7a. The review round, and what it cost to read a picture wrong
 
 Both Phase 2 cards came back. The cave sizing got *"Looks better. I need to
