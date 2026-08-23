@@ -4,8 +4,15 @@
 //! needs no window or GPU — so it works over a remote shell and in CI. Run with:
 //!
 //! ```text
-//! cargo run --example ascii
+//! cargo run --example ascii                        # every scene
+//! cargo run --example ascii -- scene=foraging      # just the one
+//! cargo run --example ascii -- scene=ants,field    # any that match either
+//! cargo run --example ascii -- list=1              # the catalogue, run nothing
 //! ```
+//!
+//! `scene=` matches a case-insensitive substring of the title a scene prints,
+//! and an unknown argument or a term that matches nothing is an error rather
+//! than a silent empty run — see [`SceneFilter`].
 //!
 //! `X` marks sand the movement rules say should still be falling. A settled
 //! world must show none; any that appear are cells the sweep stopped examining.
@@ -17,8 +24,128 @@ use pixel_physics::sim::material::{self, MaterialId};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::{Channel, DECAY_RHO, DEPOSIT, DIFFUSE, PHEROMONE_INTERVAL};
 use pixel_physics::sim::{parallel, update, Cell, World};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
+
+/// Which scenes this run should execute: `scene=<term>[,<term>...]`, plus
+/// `list=1` to print the catalogue and run nothing.
+///
+/// **Why this exists.** `ascii` is the repo's behaviour-and-worst-frame
+/// harness, and it had no way to run one scene. Two costs followed, and
+/// neither was hypothetical. Iterating on a single scene meant a full pass
+/// over all nineteen — 3m28s, measured on this machine — so a scene was
+/// re-run about as rarely as that price implies. And CI could only quarantine
+/// the *whole example* when one scene went red: `.github/workflows/ci.yml`
+/// marked this job `continue-on-error` over bug H with the reason written out
+/// in its own comment — "ascii has no scene selection, so bug H cannot be
+/// excluded by name". A second and much larger regression then landed behind
+/// that blanket quarantine and went unseen through two commits
+/// (`forage_loop_scene`, 98 round trips -> 2). ci.yml names "once `ascii`
+/// learns to select scenes" as one of the two things that lets the job gate
+/// again; this is that.
+///
+/// **Matched against the scene's own printed title, case-insensitively, as a
+/// substring** — deliberately *not* a second registry of short keys. A
+/// parallel list of names is one more thing to fall out of step with what is
+/// actually on screen, and the title is already there. `scene=ants` runs the
+/// four ant scenes; `scene=foraging` runs one.
+///
+/// With no `scene=` argument every scene runs, in the same order, printing
+/// the same text — the default path is unchanged, so every baseline measured
+/// before this still compares.
+struct SceneFilter {
+    /// Lower-cased substrings. Empty means "run everything".
+    terms: Vec<String>,
+    /// `list=1`: print every scene's title and run none of them. Costs one
+    /// fast pass precisely because every scene is skipped.
+    list_only: bool,
+}
+
+impl SceneFilter {
+    /// **An unknown argument is rejected, never ignored.** `CLAUDE.md`
+    /// records a 3.5-hour study that produced eight byte-identical logs
+    /// because `worldseed=` reached a binary that had never heard of it: a
+    /// harness that shrugs at a typo cannot be trusted to have run what you
+    /// asked for, and it looks exactly like one that did.
+    fn from_args() -> Self {
+        let mut terms = Vec::new();
+        let mut list_only = false;
+        for arg in std::env::args().skip(1) {
+            if let Some(v) = arg.strip_prefix("scene=") {
+                terms.extend(v.split(',').filter(|s| !s.is_empty()).map(str::to_ascii_lowercase));
+            } else if let Some(v) = arg.strip_prefix("list=") {
+                list_only = v != "0";
+            } else {
+                eprintln!("ascii: unknown argument {arg:?}");
+                eprintln!("usage: ascii [scene=<term>[,<term>...]] [list=1]");
+                std::process::exit(2);
+            }
+        }
+        Self { terms, list_only }
+    }
+}
+
+static FILTER: OnceLock<SceneFilter> = OnceLock::new();
+static SCENES_RUN: AtomicUsize = AtomicUsize::new(0);
+static SCENES_SKIPPED: AtomicUsize = AtomicUsize::new(0);
+
+fn filter() -> &'static SceneFilter {
+    FILTER.get_or_init(SceneFilter::from_args)
+}
+
+/// Print a scene's header, and say whether the scene should run at all.
+///
+/// Every scene here opens with this instead of printing its own
+/// `=== title ===` line, and that is what makes the filter total: a scene
+/// that printed its own header would be a scene the filter could not skip,
+/// and there would be no second place to notice the omission.
+fn begin(title: &str) -> bool {
+    let f = filter();
+    if f.list_only {
+        println!("  {title}");
+        SCENES_SKIPPED.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    let lower = title.to_ascii_lowercase();
+    if !f.terms.is_empty() && !f.terms.iter().any(|t| lower.contains(t.as_str())) {
+        SCENES_SKIPPED.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    SCENES_RUN.fetch_add(1, Ordering::Relaxed);
+    println!("\n=== {title} ===");
+    true
+}
+
+/// **A filter that matches nothing is an error, not an empty run.** A typo in
+/// `scene=` would otherwise exit 0 having asserted nothing whatsoever, which
+/// is indistinguishable from a clean pass — the same shape of failure as the
+/// skipped-CI-step one that hid bug H for a month.
+fn finish() {
+    let (ran, skipped) = (SCENES_RUN.load(Ordering::Relaxed), SCENES_SKIPPED.load(Ordering::Relaxed));
+    if filter().list_only {
+        println!("ascii: {skipped} scenes available");
+        return;
+    }
+    println!("\nascii: {ran} scenes run, {skipped} skipped");
+    if ran == 0 {
+        eprintln!("ascii: scene={} matched none of the {skipped} scenes", filter().terms.join(","));
+        std::process::exit(2);
+    }
+}
 
 fn main() {
+    // The harness names its own parameters on line one, so a log always says
+    // what produced it (`CLAUDE.md`: "a knob nobody can see the value of is a
+    // knob nobody can tell is disconnected").
+    let f = filter();
+    if f.list_only {
+        println!("ascii: list=1 -- the scene catalogue; nothing is run");
+    } else if f.terms.is_empty() {
+        println!("ascii: scene=<unset>, running every scene");
+    } else {
+        println!("ascii: scene={}", f.terms.join(","));
+    }
+
     scene("sand piling on a floor", 78, 30, 400, |w| {
         w.paint_circle(39, 2, 4, material::SAND);
     });
@@ -271,6 +398,8 @@ fn main() {
     double_bridge_scene();
     nest_dig_scene();
     construction_scene();
+
+    finish();
 }
 
 /// A painted blob must **spread, fade and disappear**, and the plane must
@@ -283,7 +412,9 @@ fn main() {
 /// 512x320 scale, because the settled cost is what the hard gate in
 /// `Reports/creature-direction.md` §9d is set against.
 fn pheromone_decay_scene() {
-    println!("\n=== pheromone: a blob spreads, drains to zero, and the plane goes back to sleep ===");
+    if !begin("pheromone: a blob spreads, drains to zero, and the plane goes back to sleep") {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, 511, 319));
     world.end_step();
 
@@ -392,7 +523,9 @@ fn pheromone_decay_scene() {
 /// Stage-0 trap -- a follower pinned at the start scored 0.988 on it while
 /// going nowhere.
 fn trail_follow_scene() {
-    println!("\n=== pheromone: a follower tracks a bent trail (diffuse {DIFFUSE}, rho {DECAY_RHO}, SO 6) ===");
+    if !begin(&format!("pheromone: a follower tracks a bent trail (diffuse {DIFFUSE}, rho {DECAY_RHO}, SO 6)")) {
+        return;
+    }
     let (w, h) = (256i32, 160i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
 
@@ -493,7 +626,9 @@ fn trail_follow_scene() {
 /// sandbox's own scale (512x320, 40 chunks) since that is the scene the
 /// README's own performance numbers are measured against.
 fn field_sleep_scene() {
-    println!("\n=== field: sleeping after convergence (issue #4) ===");
+    if !begin("field: sleeping after convergence (issue #4)") {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, 511, 319));
     world.end_step(); // clears the "freshly created, everything dirty" CA state without needing a real sweep -- nothing was painted, so there is genuinely nothing for it to do
     world.add_pressure_impulse(256, 160, 10, 150.0);
@@ -538,7 +673,9 @@ fn field_sleep_scene() {
 /// Buried tiles are what the ground below is here to provide — the
 /// reassurance that "sky-lit tiles never sleep anyway" does not cover them.
 fn field_day_scene() {
-    println!("\n=== field: one full day/night cycle over settled ground ===");
+    if !begin("field: one full day/night cycle over settled ground") {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, 511, 319));
     // 160 rows of stone under 160 rows of sky: half the tiles are buried, and
     // buried is the state the measurement is about.
@@ -597,8 +734,9 @@ fn field_day_scene() {
 ///
 /// Reported per size so the scaling is visible rather than asserted.
 fn field_scaling_scene() {
-    println!("
-=== field: cost vs world size (issue #4 baseline) ===");
+    if !begin("field: cost vs world size (issue #4 baseline)") {
+        return;
+    }
     println!("{:>12}  {:>10}  {:>10}  {:>10}", "size", "settled", "local", "global");
     for &(w, h) in &[(512, 320), (1024, 640), (2048, 1280)] {
         let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
@@ -652,7 +790,9 @@ fn field_scaling_scene() {
 /// `FIELD_SCALE` times for no extra information. `#` marks a field cell
 /// blocked by CA-solid material, so walls are visible against the pressure.
 fn field_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
     for _ in 0..frames {
@@ -700,7 +840,9 @@ fn scene_with(
     step_fn: fn(&mut World),
     setup: impl FnOnce(&mut World),
 ) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
         world.set(x, h - 1, Cell::new(material::STONE, 0));
@@ -773,7 +915,9 @@ fn field_stress_scene(
     step_fn: fn(&mut World),
     setup: impl FnOnce(&mut World),
 ) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
         world.set(x, h - 1, Cell::new(material::STONE, 0));
@@ -811,7 +955,9 @@ fn field_stress_scene(
 /// calls here, not the one call that would leave every chunk permanently
 /// re-dirtying itself against its own initial paint.
 fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut World)) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
     world.end_step();
@@ -860,7 +1006,9 @@ fn render_stress_scene(title: &str, w: i32, h: i32, setup: impl FnOnce(&mut Worl
 ///
 /// One-off generation cost, not a frame cost -- nothing here runs per frame.
 fn terrain_generation_cost() {
-    println!("\n=== M17: structural distances for a freshly generated world ===");
+    if !begin("M17: structural distances for a freshly generated world") {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, 511, 319));
     let start = std::time::Instant::now();
     pixel_physics::app::build_terrain(&mut world);
@@ -993,7 +1141,9 @@ fn terrain_generation_cost() {
 /// drowned-spring guard), so a blocked fall self-limits instead of flooding
 /// the measurement.
 fn river_cost_scene(w: i32, h: i32) {
-    println!("\n=== river-cost at {w}x{h}: a spring, a fall and a pool held at steady state (world review §4) ===");
+    if !begin(&format!("river-cost at {w}x{h}: a spring, a fall and a pool held at steady state (world review §4)")) {
+        return;
+    }
     let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
     if let Some(e) = err {
         println!("worldgen presets unavailable ({e}); skipping river-cost scene");
@@ -1124,7 +1274,9 @@ fn river_cost_scene(w: i32, h: i32) {
 }
 
 fn structural_scene(title: &str, w: i32, h: i32) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let bridge_y = h / 2;
     for x in 0..w {
@@ -1162,7 +1314,9 @@ fn structural_scene(title: &str, w: i32, h: i32) {
 /// existing smoke/fire-agnostic mapping would hide the fire itself, so
 /// burning cells get their own marker here regardless of material).
 fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
         world.set(x, h - 1, Cell::new(material::STONE, 0));
@@ -1240,7 +1394,9 @@ fn creature_scene(title: &str, w: i32, h: i32, frames: usize) {
 /// this one cannot skip `step_fields`, since ash decay is moisture-gated
 /// and moisture only ever gets written during that phase.
 fn regrowth_scene(title: &str, w: i32, h: i32) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     for x in 0..w {
         world.set(x, h - 1, Cell::new(material::STONE, 0));
@@ -1324,7 +1480,9 @@ fn glyph(id: MaterialId) -> char {
 /// together (what the live app actually does), and prints growth stats
 /// alongside the usual ASCII view — `Y` for wood, `,` for moss.
 fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&mut World)) {
-    println!("\n=== {title} ===");
+    if !begin(title) {
+        return;
+    }
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     setup(&mut world);
 
@@ -1390,7 +1548,9 @@ fn plant_scene(title: &str, w: i32, h: i32, frames: usize, setup: impl FnOnce(&m
 /// genuinely foraging look identical at this zoom. `deliveries` is the
 /// number that separates them.
 fn forage_loop_scene() {
-    println!("\n=== ants: the foraging loop (nest, food pile, 60 ants) ===");
+    if !begin("ants: the foraging loop (nest, food pile, 60 ants)") {
+        return;
+    }
     let (w, h) = (512i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
@@ -1770,7 +1930,9 @@ fn mean_b(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> f32 {
 /// has fewer competing paths, so expect this to look less dramatic than the
 /// literature; that is the orientation, not a bug.
 fn double_bridge_scene() {
-    println!("\n=== ants: a double bridge made of terrain (short tunnel vs the long way over) ===");
+    if !begin("ants: a double bridge made of terrain (short tunnel vs the long way over)") {
+        return;
+    }
     let (w, h) = (240i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
@@ -1847,7 +2009,9 @@ fn double_bridge_scene() {
 /// 0.8 and an ant pushes 1.0, so it chews soil and is stopped by everything
 /// harder without a single material name appearing in the code.
 fn nest_dig_scene() {
-    println!("\n=== ants: excavating a chamber out of soil (and stopped by stone) ===");
+    if !begin("ants: excavating a chamber out of soil (and stopped by stone)") {
+        return;
+    }
     let (w, h) = (200i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
@@ -1893,7 +2057,9 @@ fn nest_dig_scene() {
 /// consequences of that, and writing a "build a wall" behaviour would be
 /// the signal to go and re-read that section.
 fn construction_scene() {
-    println!("\n=== ants: deposition follows the moisture gradient, with no build rule anywhere ===");
+    if !begin("ants: deposition follows the moisture gradient, with no build rule anywhere") {
+        return;
+    }
     let (w, h) = (240i32, 120i32);
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let floor = h - 8;
