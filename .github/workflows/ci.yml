@@ -164,8 +164,24 @@ jobs:
     # printed, worst-frame timings included. Nothing is lost by not blocking on
     # it that was not already lost to the panic.
     #
-    # Make this gating again the moment bug H closes, or the moment `ascii`
-    # learns to select scenes -- whichever comes first. It is the only job here
+    # **Bug H is knife-edge, not simply broken, and a green run here does not
+    # mean it closed.** Measured 2026-08-23: run 137 (`push`, commit 6d2c2f4)
+    # failed it; run 139 (`pull_request`, same head merged with main) passed
+    # it -- and both printed the *same* numbers, `steep half 0.000, flat half
+    # 0.000`. The assertion is `wet_grad > dry_grad` over two quantities that
+    # are equal to three decimals, so it turns on a margin below 0.0005 and
+    # flips with any perturbation of the scene. Re-confirmed by hand on the
+    # merged tree: exit 0, still 0.000 vs 0.000.
+    #
+    # So do not read a passing `ascii` as evidence to re-gate this job -- that
+    # would put a coin-flip back on the critical path, which is the exact
+    # failure this quarantine exists to prevent. What closes bug H is the
+    # scene actually containing a gradient, or the guard comparing a
+    # continuous margin instead of two near-zero floats (CLAUDE.md: "prefer a
+    # continuous quantity over a count -- counts give knife-edge margins").
+    #
+    # Make this gating again once bug H is closed *on that basis*, or once
+    # `ascii` learns to select scenes -- whichever comes first. It is the only job here
     # whose non-blocking status costs real coverage.
     name: cargo run --example ascii (non-gating, bug H)
     runs-on: ubuntu-latest
