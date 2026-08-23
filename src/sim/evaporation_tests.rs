@@ -823,3 +823,133 @@ fn probe_find_an_early_gale_seed() {
         }
     }
 }
+
+/// A plantless soil bed under the open sky, sampled once per weather epoch.
+///
+/// Bare, floored, and starting at the wilting point so a ratchet has the
+/// whole range to climb. Returns the summed soil `aux` after each epoch.
+fn unplanted_soil_series(seed: u64, epochs: u64) -> (Vec<u64>, World) {
+    const GROUND: i32 = 100;
+    const SOIL_ROWS: i32 = 10;
+    let mut w = World::new(Rect::new(0, 0, 127, 127));
+    w.seed = seed;
+    let soil = w.materials.id_of("soil").expect("soil must exist");
+    for x in 0..128 {
+        w.set(x, GROUND + SOIL_ROWS, Cell::new(material::STONE, 0));
+        for d in 0..SOIL_ROWS {
+            w.set(x, GROUND + d, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+        }
+    }
+    let total = |w: &World| -> u64 {
+        (0..128)
+            .flat_map(|x| (GROUND..GROUND + SOIL_ROWS).map(move |y| (x, y)))
+            .map(|(x, y)| crate::sim::update::soil_moisture(w.get(x, y)) as u64)
+            .sum()
+    };
+    let mut series = Vec::new();
+    for _ in 0..epochs {
+        for _ in 0..crate::sim::weather::WEATHER_EPOCH_FRAMES {
+            crate::sim::parallel::step(&mut w);
+            w.step_active_sites();
+            w.step_fields();
+        }
+        series.push(total(&w));
+    }
+    (series, w)
+}
+
+/// **Unplanted soil must be able to dry —
+/// `Reports/open-bugs-handoff.md` §F8.**
+///
+/// §F8, in full: "Soil `aux` has three sources and exactly one sink (root
+/// uptake): there is no soil-to-air drying, so unplanted soil ratchets
+/// toward field capacity across rain epochs. *Measure:* sum soil `aux` over
+/// 10 epochs on a plantless world -- monotone non-decreasing confirms it in
+/// one number."
+///
+/// Its premise was half right and the half it got wrong is the interesting
+/// one. **The soil-to-air sink already existed** (`tick_soil`, crediting the
+/// atmosphere for exactly what it removes) and it *ran*: measured on this
+/// scene, 19,388 soil checks on seed 1 over ten epochs. It was also not the
+/// humidity shadow §1m suspected — **3** of those 19,388 read becalmed. The
+/// sink was busy and had nothing it was allowed to touch, because it dried
+/// the surface cell and only the surface cell, and `update.rs`'s capillary
+/// exchange rests once the gradient falls under `SOIL_CAPILLARY_REST`
+/// (380) — wider than the range the sink can pull (620 - 180 = 440). So the
+/// profile parked at "surface at the wilting point, everything under it up
+/// to 560", the surface cell failed `is_damp_soil_surface`, its site
+/// retired, and the bed held what it had for ever. `SOIL_DRY_REACH` is the
+/// fix and carries the full derivation.
+///
+/// Measured, three seeds, ten epochs, same session and machine:
+///
+/// | seed | before | after |
+/// |---|---|---|
+/// | 1 | 230,400 -> 463,927, **never once falls** | 230,400 -> 308,067 -> 236,121, falls five times |
+/// | 4 | 232,038 -> 233,802 then flat to the last frame | rises and returns to 230,521 |
+/// | 7 | 240,000 -> 243,650 then flat to the last frame | rises and returns to 230,400, its own floor |
+///
+/// **The assertion is §F8's own test with its sign flipped, and there is no
+/// bar to set** — before, all three series were monotone non-decreasing;
+/// after, none of them is. A threshold would have had to be chosen; a
+/// monotonicity flip does not.
+///
+/// Four epochs rather than ten: every seed above first falls by epoch 3, so
+/// four carries the claim with one to spare and costs 40% of the run.
+#[test]
+fn unplanted_soil_gives_water_back_to_the_air() {
+    const EPOCHS: u64 = 4;
+    let mut ratcheting = Vec::new();
+    for seed in [1u64, 4, 7] {
+        let (series, w) = unplanted_soil_series(seed, EPOCHS);
+        let c = w.dryness_counts;
+        let monotone = series.windows(2).all(|p| p[1] >= p[0]);
+        println!(
+            "seed {seed}: soil aux by epoch {series:?}  (monotone non-decreasing: {monotone}; \
+{} soil checks, {} becalmed)",
+            c.soil_checks, c.soil_becalmed
+        );
+        if monotone {
+            ratcheting.push(seed);
+        }
+    }
+    assert!(
+        ratcheting.is_empty(),
+        "unplanted soil is ratcheting on seeds {ratcheting:?}: its moisture only ever rose across {EPOCHS} \
+weather epochs, so the bed has three sources and no reachable sink (open-bugs-handoff.md §F8)"
+    );
+}
+
+/// The same measure at §F8's own length, with the diagnostic counters —
+/// the probe `unplanted_soil_gives_water_back_to_the_air` was cut down
+/// from. Ten epochs shows the shape the guard's four only has to catch the
+/// start of: a bed that rises and falls with the weather rather than
+/// climbing.
+#[test]
+#[ignore]
+fn print_unplanted_soil_moisture_over_ten_epochs() {
+    const SOIL_ROWS: u64 = 10;
+    let full = 128 * SOIL_ROWS * material::SOIL_FIELD_CAPACITY as u64;
+    for seed in [1u64, 4, 7] {
+        let (series, w) = unplanted_soil_series(seed, 10);
+        let c = w.dryness_counts;
+        let monotone = series.windows(2).all(|p| p[1] >= p[0]);
+        println!(
+            "seed {seed}: soil aux by epoch {series:?}  ({:.0}% of field capacity at the end, monotone \
+non-decreasing: {monotone})",
+            100.0 * *series.last().unwrap() as f64 / full as f64
+        );
+        // **Which of the two ways the sink can be dead is it?** A becalmed
+        // check is §1m's humidity shadow; *no* checks at all means the
+        // schedule emptied. The distinction decided the fix, and the answer
+        // was neither -- the checks ran and were not becalmed.
+        println!(
+            "         soil checks {} ({} becalmed, {:.0}%), water checks {} ({} becalmed)",
+            c.soil_checks,
+            c.soil_becalmed,
+            100.0 * c.soil_becalmed_share().unwrap_or(0.0),
+            c.water_checks,
+            c.water_becalmed,
+        );
+    }
+}
