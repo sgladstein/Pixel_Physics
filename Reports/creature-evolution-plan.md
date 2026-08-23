@@ -1032,6 +1032,101 @@ note above blames carrion scarcity, and the first cause was upstream of it.
 At 4x the curve is measurable — which is what makes the sweep worth running
 when Lane A's instruments land.
 
+#### As measured (2026-08-23, WP-11 part 3): still one hump, and the retune was the wrong lever for it
+
+`creature_space mode=diet seeds=8 frames=18000`, **both halves in one
+session on one machine on one tree** — this branch's merge of `main` at
+`7cd1357`, with the abscission retune at `0.00075` on all four woody
+species. One binary per arm, verified distinct with `strings` before
+either was run.
+
+> **The ant is the pre-WP-9 ant** (`climbs_over_kin: false`). `main` took
+> it to `true` at `00d1551`, after these runs. Do not pair anything below
+> against a post-`00d1551` tree.
+
+**Survival vs `gut_bias`, mixed litter+carrion — the two-humped test:**
+
+| gut | before the retune | after |
+|---|---|---|
+| −1.0 | 0.862 | 0.877 |
+| −0.5 | 0.869 | 0.873 |
+| **0.0** | **0.901** | **0.911** |
+| +0.5 | 0.865 | 0.883 |
+| +1.0 | 0.609 | 0.614 |
+
+**Single-peaked, before and after — the falsifier this section names,
+holding for the second attempt.** The peak is the *generalist*, and the
+retune moved nothing about that: every paired delta is ≤ 0.018 against a
+seed spread that runs 0.52–0.99 within a single cell.
+
+**Litter-only control:** 0.903 / 0.898 / 0.889 / 0.804 / 0.299 before,
+0.886 / 0.882 / 0.880 / 0.826 / 0.276 after. Single-peaked at the
+herbivore end with a plateau collapsing off the end, in both — **the
+control passes its spec on both trees**, so the mixed arm's single peak
+is a fact about the world and not a bug in the sweep.
+
+**Carrion is doing something, and it is not enough.** At gut +1.0, paired
+across the two scenes: 0.609 mixed against 0.299 litter-only before the
+retune, 0.614 against 0.276 after. Meat roughly **doubles** a carnivore's
+survival in both worlds. The meat niche exists as a paired difference; it
+simply loses to a generalist that eats everything.
+
+**Why the retune could not have fixed this, which the part-2 pair
+explains.** The hypothesis was that a thinner floor would make the meat
+niche relatively worth more. It cannot, because slowing abscission does
+not reduce the plant food an animal can reach — **it relocates it**, from
+litter on the floor to leaf retained on the plant. §4's paired economy
+guard measures exactly that: advantage moves ≤ 0.010 and `ants fed` ≤
++0.01, while the colony-band food census *rises*. The plant side of the
+ledger never got smaller, so the generalist's edge never got smaller.
+**Abundance of litter was the wrong ecological lever for the second
+hump.** What is untried is the one this section actually prescribes:
+raising carrion — a richer structural stamp, or something that preys.
+
+**Separation, with the bar set against the both-at-0 arm as this section
+requires:**
+
+| | ±0.8 cohorts | both-at-0 null |
+|---|---|---|
+| before | 57.3 (5.9..91.3) | 10.6 (0.4..39.7) |
+| after | 50.4 (4.6..104.0) | 11.9 (3.5..33.9) |
+
+Means separate by roughly 5x on both trees. **The distributions do not
+cleanly separate**: the worst ±0.8 seed (5.9 before, 4.6 after) sits
+inside the null's range on both. Quote the distribution, never the mean
+alone. The null behaves as specified — two identical animals mix.
+
+**`both-alive (min)` reads 750 in all four separation arms**, which is
+what makes those means readable at all. Until this session the column did
+not exist and `diet_separation` divided by `sep_n.max(1.0)`, so a run
+where the cohorts were never alive together returned **0.0 — identically
+the value the null arm exists to produce**. The failure wore the
+control's face, and `placed_a`/`placed_b` could not catch it because both
+are counted at spawn and never fall.
+
+**Instrument caveats that stand, unchanged by the retune.** `foodcols`
+reads 73 of the 104 asked in every arm — the colony band runs out of
+empty columns — and it is the same 73 in every arm, so paired
+comparisons hold. The separation scene places 15+14 of 26+26 and its west
+litter bank is as thin as 4 cells; its absolute numbers still want a
+drier placement rule. `corpse@end` counts every corpse standing at the
+end **including ants that died during the run**, so it reads 6–74 even in
+the litter-only control: read it as "meat present", never as "meat
+seeded". Note that at gut +1.0 the litter-only control reads
+corpse@end 67–74 and survival 0.276–0.299 — emergent corpses demonstrably
+do *not* rescue a carnivore, which is the control working.
+
+**`EAT_YIELD_THRESHOLD`'s 12.0 cannot be re-derived from this sweep**,
+and its own comment's request for that should be read as unmet rather
+than satisfied. The bar must sit below a generalist's 30 and above a
+specialist's 1.2, and this sweep confirms the predicate fires — `eats`
+runs 0.90/0.90/0.92/0.22/0.19 across the litter-only axis, so meat-guts
+really do stop seeing leaves. But *every* value in the (1.2, 30) gap
+produces that same blindness pattern, so the survival curve is insensitive
+to where in the gap the bar sits. Pinning it needs a sweep over the
+threshold itself — five arms, each a rebuild, since it is a compiled
+constant.
+
 ### 2.6 S6 — Reproduction, inheritance, mutation
 
 **The first milestone in which evolution exists, and it is cheap:**
