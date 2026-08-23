@@ -502,6 +502,64 @@ mod tests {
         assert_eq!(c.sky_frame(100), 100, "a clamped-to-baseline day is still the identity");
     }
 
+    /// **Every settable knob must reach the panel.** The destructure binds
+    /// nothing and omits `..` on purpose: adding a field to `Clock` is then a
+    /// compile error here rather than a knob nobody can reach, which is the
+    /// failure `tunables.rs`'s own group-reachability test was written for
+    /// after a whole menu shipped empty.
+    ///
+    /// Lives here rather than beside `from_clock` because the anchors are
+    /// private to this module -- they are running state, not settings, and
+    /// the panel has no business listing them.
+    #[test]
+    fn every_settable_knob_is_registered_in_the_panel() {
+        let Clock {
+            day_minutes: _,
+            weather_slowdown: _,
+            growth_slowdown: _,
+            creature_slowdown: _,
+            gnome_slowdown: _,
+            anchor_frame: _,
+            anchor_sky: _,
+            anchor_weather: _,
+        } = Clock::default();
+
+        let listed: Vec<String> =
+            crate::tunables::from_clock(&Clock::default()).into_iter().map(|t| t.name).collect();
+        for knob in
+            ["day_minutes", "weather_slowdown", "growth_slowdown", "creature_slowdown", "gnome_slowdown"]
+        {
+            assert!(listed.iter().any(|n| n == knob), "{knob} is settable but the panel never lists it");
+        }
+        assert_eq!(listed.len(), 5, "the panel lists something that is not a knob: {listed:?}");
+    }
+
+    /// **The shipped asset must parse, and this test says what it contains.**
+    ///
+    /// `App::new` reads this file while `World::new` does not, so the app and
+    /// every harness deliberately run different clocks. That is the one thing
+    /// in this design that could rot silently -- a typo reverts the app to
+    /// baseline and nothing anywhere says so -- and `CLAUDE.md`'s rule for a
+    /// divergence like this is that it be stated rather than assumed.
+    ///
+    /// Naming the day length here rather than just asserting "it parses" is
+    /// the point: if somebody changes the shipped default, this test is where
+    /// they find out that the number is load-bearing for the app's first
+    /// impression, and the diff records what it moved from.
+    #[test]
+    fn the_shipped_clock_asset_parses_and_says_what_it_is() {
+        let text = std::fs::read_to_string(Clock::ASSET_PATH).expect("assets/clock.ron must exist");
+        let c: Clock = ron::from_str(&text).expect("assets/clock.ron must parse");
+        assert_eq!(c.day_minutes, 8, "the shipped day is eight real minutes");
+        assert_eq!(c.weather_slowdown, 1);
+        assert_eq!(c.growth_slowdown, 1);
+        assert_eq!(c.creature_slowdown, 1);
+        assert_eq!(c.gnome_slowdown, 1);
+        // And a world built without it is still baseline, which is the
+        // property every other guard in the engine leans on.
+        assert_eq!(Clock::default().day_minutes, 1);
+    }
+
     #[test]
     fn gnome_scale_is_a_reciprocal() {
         assert_eq!(Clock::default().gnome_scale(), 1.0);
