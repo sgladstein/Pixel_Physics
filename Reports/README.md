@@ -149,6 +149,11 @@ field rework — see `open-bugs-handoff.md`.
   set; the report behind `CLAUDE.md`'s "ask which *pixels* a lever moves".
 - [plant-night-session-handoff.md](plant-night-session-handoff.md) —
   **handoff.**
+- [plant-project-review-2026-08-23.md](plant-project-review-2026-08-23.md) —
+  **review + proposed queue.** The whole plant record read together after the
+  2026-08-22 merge and the "one big mass" verdict; a fresh three-arc queue
+  (readable stands, damage verbs, economy integrity) with its deviations from
+  the WP plan stated, and the stale-record list.
 
 ## Creatures and ecology
 
