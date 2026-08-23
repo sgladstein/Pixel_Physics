@@ -1,0 +1,56 @@
+{
+  "id": "20260823T172357314Z-ac1fb0",
+  "created": "2026-08-23T17:23:57Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-scale-phase-2-review-vmn56t",
+    "commit": "73e0d28",
+    "agent": null,
+    "session_id": "eab387e1-ddba-5bcb-aced-8377c185b0ac",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The waterfall at the width you picked",
+  "question": "Is this the width you meant by 'not too thin' — or has it gone past a cascade into a sheet?",
+  "context_md": "You chose the wider fall on card `2fa6b0`, then chose **~8 wide and two falls** over one 12-wide when I put the width-vs-count trade to you. Neither of those was a picture of 8, so this is that picture. Same seed, same camera, same frame; the outlets sit 2 columns apart.\n\n**What it cost, which you should see before confirming.** A wider outlet drains the lip faster than a narrow one fills it, so the *source pool* behind the fall roughly halves — measured 18 / 21 / 11 columns across three seeds where it used to be 38. The guard that checks a fall comes out of a pool rather than off a bare face had to come down from 12 columns to 10, and at a measured minimum of 11 that headroom is thin. I tried two ways to get the pool back and both are recorded as dead ends: widening the required shelf collapsed placement to *no spring at all* on two of three seeds, and widening the cut basin moved the pool by exactly nothing.\n\n**Ignore the rock.** The stepped grey face is ordinary terrain, not part of the spring — I framed this one deliberately to keep the standing tors out after last time.\n\nOne of these is what shipped before, one is what ships now.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "span 5",
+      "files": [
+        "20260823T172357314Z-ac1fb0/000-A_span5.png"
+      ],
+      "caption": "canyon seed 7, 900 frames settled",
+      "meta": {
+        "springs in world": 1,
+        "cells emitted": 4500,
+        "fill drained": 3531682,
+        "throttled": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "span 8, two falls",
+      "files": [
+        "20260823T172357314Z-ac1fb0/001-B_span8.png"
+      ],
+      "caption": "canyon seed 7, 900 frames settled",
+      "meta": {
+        "springs in world": 2,
+        "cells emitted": 14400,
+        "fill drained": 12575499,
+        "throttled": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
