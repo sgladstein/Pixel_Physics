@@ -93,6 +93,7 @@ fn main() {
     let (mut seeds, mut frames, mut preset) = (8usize, 0usize, String::new());
     let (mut w, mut h) = (2047i32, 639i32);
     let mut terrain = false;
+    let (mut tree_density, mut grass_density, mut moss_density): (Option<f32>, Option<f32>, Option<f32>) = (None, None, None);
     let mut mix = false;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -103,6 +104,16 @@ fn main() {
             "w" => w = v.parse::<i32>().expect("w=N") - 1,
             "h" => h = v.parse::<i32>().expect("h=N") - 1,
             "terrain" => terrain = v != "0",
+            // **Density overrides, so a control can be run without editing a
+            // preset.** The question these exist for: grass establishes at
+            // 96% and is down to 3 of 40 by frame 45,000 — is that the
+            // woody canopy closing over it (succession, and correct), or
+            // grass failing on its own? Only the same world with the woody
+            // layer switched off can separate those, and before this the
+            // comparison could not be expressed at all.
+            "treedensity" => tree_density = Some(v.parse().expect("treedensity")),
+            "grassdensity" => grass_density = Some(v.parse().expect("grassdensity")),
+            "mossdensity" => moss_density = Some(v.parse().expect("mossdensity")),
             "mix" => mix = v != "0",
             _ => panic!("unknown argument {arg:?}"),
         }
@@ -113,12 +124,33 @@ fn main() {
     }
     let name = if preset.is_empty() { presets.default_name() } else { preset.clone() };
     let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+    let mut overridden = params.clone();
+    if let Some(v) = tree_density {
+        overridden.tree_density = v;
+    }
+    if let Some(v) = grass_density {
+        overridden.grass_density = v;
+    }
+    if let Some(v) = moss_density {
+        overridden.moss_density = v;
+    }
+    let params = &overridden;
 
     // **The harness names its own parameters** — a log that does not say
     // which seed or which world size it ran is a log written by a binary
     // that may never have had the knob (`CLAUDE.md`, the megastudy that was
-    // three populations wearing 24 files).
-    println!("flora_census preset={name} seeds={seeds} frames={frames} world={}x{}", w + 1, h + 1);
+    // three populations wearing 24 files). The three densities are echoed
+    // whether or not they were overridden, for the same reason: a control
+    // run and the run it controls have to be distinguishable from their logs
+    // alone, months later.
+    println!(
+        "flora_census preset={name} seeds={seeds} frames={frames} world={}x{} tree_density={} grass_density={} moss_density={}",
+        w + 1,
+        h + 1,
+        params.tree_density,
+        params.grass_density,
+        params.moss_density
+    );
 
     if terrain {
         report_terrain(params, seeds, w, h);
