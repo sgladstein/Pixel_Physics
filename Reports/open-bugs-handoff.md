@@ -4146,3 +4146,79 @@ neighbour's. Latent today because `water_capacity` is opt-in and only
 goes live the moment a second water-holding powder exists with a different
 capacity — which is exactly what widening `water_capacity` to sand would
 do.
+
+---
+
+## Landing notes — lane W, package W1 (flora sowing + species identity), 2026-08-23
+
+Appended by the W1 session; the full account is
+`Reports/world-flora-sowing-2026-08-23.md`. Nothing here is a new bug — these
+are the two things a later session will otherwise re-derive or trip over.
+
+### W1a. `creeper.ron`'s root tips still run the superseded in-tick branch path — deliberately
+
+`creeper.ron`'s `RootTip` `Grow` carries `branch_chance: [0.05]` and **no**
+`branch_priming`, which is the path `tree`/`conifer`/`shrub` all abandoned
+with the comment "it cleared that twice in twelve thousand frames and fired
+zero times". Creeper's roots are therefore a single unbranched strand per
+tip.
+
+**Measured, not assumed, before deciding to ship it:** creeper establishes 45
+of 46 sown across an eight-world sweep and 28 of 28 in the shipped
+8,192-column world — the *highest* establishment rate of the four species. A
+plant eight rows tall is not root-limited, so the dead knob is not blocking
+the sowing work.
+
+Left alone because `branch_priming` sits in the root block, which the lane
+split assigns to lane P, and P4 is the package that rewrites root allocation.
+
+**For whoever lands P4:** set `branch_chance: [0.0]` and `branch_priming: [3]`
+in `creeper.ron` in the same change, and measure creeper's root cell count
+paired against this branch rather than against a remembered number.
+
+### W1b. A material-counting guard cannot see a species
+
+`the_world_arrives_with_both_moss_and_trees_in_it` counts `wood`/`seed`
+cells, and every woody plant in this engine is made of `wood` — so it passed
+unchanged through the entire period in which the world contained exactly one
+woody species. It is not a bad test; it is a test of a different claim.
+
+Anything asking "which species are in this world" has to resolve
+`Cell::organism_id()` through `World::organism` to a `SpeciesId` and count
+*organisms*. `flora_census` in `tests/worldgen.rs` and
+`examples/flora_census` both do it that way, and the same trap applies to any
+future guard over creature species.
+
+### W1c. ~~`generated_terrain_is_already_at_rest` went red on `main`~~ — **SUPERSEDED by §H3, which is the better record of the same failure**
+
+§H3 (lane P) covers both at-rest tests together, identifies the moving cells
+as **material 6, water**, and carries the paired before/after numbers across
+the P1 merge. That is the entry to read. What follows is this lane's
+independent attribution of the same thing, kept only because it rules out a
+flora cause that §H3 does not address — the two lanes found it from opposite
+ends within an hour of each other.
+
+Not this lane's, and recorded here only so the next session does not spend
+its afternoon attributing it. Measured, not assumed:
+
+- At base commit `a0fa433`, `cargo test --release` on this branch failed
+  **only** `a_forced_vault_world_is_sealed_and_arrives_at_rest` (main's
+  known world-scale failure) and the quarantined bug-A test.
+- After merging `origin/main` at `9b54be3`, `generated_terrain_is_already_at_rest`
+  also fails: *"terraced seed 3: 57 cells left their position; first:
+  (82,147) water, (83,147) water, (84,147) water, …"*.
+- Built `9b54be3` alone in a clean worktree and ran the same test: it fails
+  with **byte-identical numbers** — same preset, same seed, same 57 cells,
+  same coordinates.
+
+So it arrived with `main`'s own commits between `a0fa433` and `9b54be3`, and
+any branch that merges `main` after that inherits it.
+
+It cannot be a flora regression, and that is worth stating because the test
+sits next to the flora work: the test sets `tree_density = 0.0` and
+`moss_density = 0.0` before building, and `life_scatter` returns
+immediately when both are zero, so the sowing rule does not execute in any
+world this test looks at. `spring_flow = 0.0` is set too, so the moving
+cells are not a spring either — they are standing water in a `terraced`
+world, which points at the placement or settling of pooled water rather than
+at any live process.
