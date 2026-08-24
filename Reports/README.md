@@ -37,9 +37,26 @@ tried?"*.
   way first).
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **nine
   landed, four open.** The thirteen-recommendation review of `CLAUDE.md` as
-  always-loaded infrastructure. 5, 6, 7 and 12 are approved and blocked only
-  on `load-share`, `plant-branch-angle` and `perf-lock` merging; execute
-  them when those land.
+  always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
+  Only **rec 6** is provably unblocked: `load-share` is merged into `main`
+  (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
+  have no remote ref at all**, so recs 5, 7 and 12 are blocked on work that
+  cannot be tested for merge — absence is equally consistent with "merged
+  and deleted" and with "unpushed on one machine". One owner question
+  settles all three; see `agent-documentation-audit-2026-08-24.md` §5b/§5e.
+- [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
+  — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
+  call.** The companion to the three above, asking the other question: not *is
+  the documentation true* but *what does an agent pay to find what it needs*.
+  Carries the corpus measurements (~1.08M tokens; the six routed documents are
+  ~306k), the `CLAUDE.md` append-drift figure (5,475 lines added against 56
+  ever removed) and its section budget, the bug register's open/closed split,
+  and a re-run of the cold-agent benchmark above against today's tree. **§4b
+  lists three live identifier collisions in `open-bugs-handoff.md` — §Z already
+  resolves to two different bugs in two different reports — §5a records that
+  the repo version-controls none of its Claude Code configuration, and §5e that
+  two in-flight reports and `perf-lock` exist on none of the 49 remote
+  branches.**
 - [pixel-physics-issues.md](pixel-physics-issues.md) — **mostly closed.**
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
@@ -434,8 +451,32 @@ field rework — see `open-bugs-handoff.md`.
 ## In flight — exists on an unmerged branch, not in this directory yet
 
 When one of these merges, move its line into the sections above (docscheck
-flags the mismatch).
+flags the mismatch). Keep prose in this section free of backticked report
+filenames that already exist in `Reports/` — check 4 matches any such name
+here and cannot tell a listing from a passing mention.
 
-- `performance-audit.md` — worktree `perf-audit` (untracked).
-- `measurement-under-contention.md` — worktree `perf-lock` (untracked,
-  with a CLAUDE.md edit adding `scripts/perf.sh`).
+**All three former entries here were recovered and pushed 2026-08-24** — they
+had been in untracked worktrees on one machine, reachable from no remote. The
+recovery record is `perf-lock-recovery-2026-08-24.md` on
+`claude/perf-lock-recovery` (`369ec1d`). The old entries were wrong in three
+ways worth remembering: perf-lock's files were already committed, not
+untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
+never held the report at all; and a worktree's name is not its branch's name
+(plant-branch-angle lives in a worktree called `plant-crown`).
+
+- The contention-measurement report, `scripts/perf.sh`, and a `CLAUDE.md`
+  section — **`origin/perf-lock`** (`bdda4a9`). 6 ahead of `main` and **518
+  behind**, forked at `0efeb24`. Its `CLAUDE.md` is `+91 −1` against that fork
+  but **`+97 −467` against today's `main`**, so a naive merge reverts 467
+  lines of the most contested file in the repo. Re-apply the section onto
+  current `CLAUDE.md` rather than merging the branch. Blocks recommendation 12
+  of the CLAUDE.md review indexed above until it lands.
+- The frame-cost audit and four measurement harnesses —
+  **`origin/claude/perf-audit-recovery`** (`f7bebae`). A rescue, not a merge
+  candidate: not built, not checked, its worktree's `src/` changes held as a
+  `.patch` rather than committed, and its five new `examples/` binaries have
+  no rows in the instruments index yet (docscheck check 5 will fire).
+- §6a of the plant appearance report —
+  **`origin/claude/plant-appearance-6a-recovery`** (`8c35cff`). 50 lines that
+  were on no branch anywhere: the `thicken`/`stem_run` axis bug and a re-swept
+  `shade_death`.
