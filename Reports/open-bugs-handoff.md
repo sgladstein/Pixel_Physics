@@ -5174,3 +5174,61 @@ world this test looks at. `spring_flow = 0.0` is set too, so the moving
 cells are not a spring either — they are standing water in a `terraced`
 world, which points at the placement or settling of pooled water rather than
 at any live process.
+
+---
+
+## Fragility — the genome stand fingerprint goes red on *anyone's* plant change (lane P, genome slot 9, 2026-08-24)
+
+**Not a bug in the engine. A bug in a test's shape**, filed because it has
+already cost one wrong diagnosis within hours of being written and will keep
+costing them until the test is restructured.
+
+`plant::tests::appending_a_genome_slot_leaves_every_existing_genome_untouched`
+asserts a hardcoded FNV-1a fingerprint over a stand grown 8,000 frames. It was
+built to catch a genome slot being renumbered or re-purposed, and it does. But
+it hashes **the whole grown stand**, so it also fails for every legitimate
+change to plant behaviour landing from any lane.
+
+**The worked example.** The slot-9 widening branch was green on its own commit
+`89e50c7`. It then merged 32 commits of `main` — WP-11's leaf-fall rate
+reaching all four woody species, P3's generation loop (abscission at the
+frontier, senescence, `rot_remains`, seed viability as a per-frame hazard),
+W2's grassfire and its new `flame` material. The guard went red at
+`0x74d3fef3d454dd11` against a constant of `0x1a52804a2df78ebc`.
+
+The integrator read that as a bug in the widening — specifically an RNG leak in
+`set_seed` — and sent a fix for code that was, on that point, already correct.
+An hour went into it before the check that settles it was run.
+
+**The check that settles it, and it is one step.** Graft the test onto the
+`main` being merged, with the genome change absent, and run it there. Same
+value => the constant is stale, re-take it. Different => a real perturbation.
+On this incident plain `main` at `GENOTYPE_TRAITS = 9` produced
+`0x74d3fef3d454dd11` — byte-identical to the widened branch — so the constant
+was stale and the widening was exonerated. The assertion message now carries
+this procedure inline.
+
+**Why it is still standing.** The fingerprint is the only guard that covers
+*"some consumer now reads a different slot than it used to"*, which needs a
+grown phenotype to express. The three cheaper guards beside it are all
+drift-immune and cover the rest: `a_genome_slots_draw_is_a_pure_function_of_its
+_own_index` (the mechanical contract, no frames stepped),
+`widening_the_genome_does_not_move_the_breeding_draw_sequence` (200 direct
+`set_seed` calls), and `set_seed_leaves_the_callers_rng_position_alone` (the
+caller's stream position). None of those can be moved by another lane.
+
+**The fix when someone has the room.** Assert the property inside one binary
+instead of against a stored constant: grow the stand twice in the same run,
+identical but for the appended slot's expression, and assert the two
+fingerprints match. `SpeciesRegistry` already has the harness-only setter
+precedent for this (`set_genome`, `set_creature_params`) — a
+`set_genotype_variance` equivalent would let arm B zero slot 9's width while
+everything else is held fixed. That version is immune to WP-11, P3, W2 and
+whatever lands next, and it fails for exactly the reason the test is named for.
+Not done here: the owner's directive at the time was to finish the package
+without widening it.
+
+**Until then:** a red fingerprint after a merge is stale until proven
+otherwise, and the proof is one command. Do not read a changed magic number in
+a diff as a silent capitulation — the commit that changes it should say which
+`main` it was re-taken against and why.

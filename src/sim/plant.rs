@@ -5792,6 +5792,63 @@ mod tests {
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
     }
 
+    /// **The property, rather than two instants fitted to one trajectory**
+    /// (`CLAUDE.md`) — and the reason appending a genome slot is safe at
+    /// all, asserted directly instead of inferred from a grown stand.
+    ///
+    /// Every founding draw is `rng::stream(world_seed, x, y, slot)`, so
+    /// **slot N's value is a function of N and the germination site and
+    /// nothing else** — not of how many slots exist beside it, not of the
+    /// order they are filled in, not of anything downstream. That is the
+    /// whole licence for appending, and it is the sentence
+    /// `GENOTYPE_TRAITS`' doc makes the contract.
+    ///
+    /// This recomputes each slot's expected draw from the documented key
+    /// and checks the stored vector against it, slot by slot. It calls
+    /// `seed_genotype` directly rather than growing anything, which is
+    /// the point: it steps no frames, reads no species file and touches
+    /// no plant behaviour, so **nothing any other lane lands in `main`
+    /// can move it**. The stand fingerprint below is the complement —
+    /// broader, and fragile for exactly that reason (see its own note).
+    ///
+    /// Fails for a renumbering, a re-purposing, or any change to how a
+    /// draw is derived — the three things that silently rewrite every
+    /// genome ever measured.
+    #[test]
+    fn a_genome_slots_draw_is_a_pure_function_of_its_own_index() {
+        let mut w = test_world();
+        w.seed = 909_090;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
+        let (x, y) = (73, 41);
+        seed_genotype(&mut w, organism_id, x, y);
+
+        let draws = w.organism(organism_id).expect("live organism").genotype_draws;
+        for (slot, got) in draws.iter().enumerate() {
+            // The documented key, written out here on purpose: if this
+            // line and `seed_genotype` ever disagree, that is the bug
+            // this test is for, and a shared helper would hide it.
+            let mut rng = rng::stream(w.seed, x as u64, y as u64, slot as u64);
+            let want = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
+            assert_eq!(
+                *got, want,
+                "slot {slot} did not draw from `rng::stream(world_seed, x, y, {slot})`. A slot's \
+                 value must depend on its own index and nothing else -- that is what makes \
+                 appending a slot safe and renumbering one catastrophic. See `GENOTYPE_TRAITS`."
+            );
+        }
+
+        // Not vacuous: an all-zero vector would satisfy a broken
+        // derivation that returned a constant, and would pass the loop
+        // above if `seed_genotype` were gutted the same way.
+        assert!(draws.iter().any(|&d| d != 0.0), "a germinated plant should have drawn a real genotype");
+        assert!(
+            draws.iter().any(|&d| d != draws[0]),
+            "the slots should differ from each other -- one stream reused for every slot would \
+             make the whole genome a single number wearing ten labels"
+        );
+    }
+
     /// **The append-only guard on the genome layout.** Widening
     /// `GENOTYPE_TRAITS` must leave every genome that already exists
     /// bit-identical; this pins that with a fingerprint over a grown
