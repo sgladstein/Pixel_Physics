@@ -135,6 +135,17 @@ Slots peak at 91 of 4,095 with 0 refused, so nothing is throttled. Full cover
 of ~500 plantable columns would be ~250 plants; at the faster seed's rate that
 is on the order of **700,000 frames**, and that extrapolation is generous.
 
+**Re-measured after P2's economy landed (PR #40), and the answer holds.** The
+table above predates it, and `grass.ron`'s header had said a retired mat cannot
+starve for exactly one reason — *"superlinear maintenance respiration is
+package P2's"* — which P2 then shipped. Re-run on post-P2 `main`: plant counts
+hold within ±1 at both ends (seed 1 63 → 76, seed 2 61 → 63) and the curve is
+still flat. What moved is plant **size**: standing cells fall ~20% on every seed
+at both ends, so superlinear maintenance makes each grass plant a fifth smaller
+without changing how many stand — a datum lane P may want. Card
+`20260824T030939054Z-088ae6` carries the pre-P2 cell figures; its answer stands
+and its cell numbers are ~20% high.
+
 **Why: dispersal range is one cell.** `plant::set_seed` places a seed in an
 empty 8-neighbour of the parent, after which it falls and rolls. Offspring land
 inside or against the clump that made them, so grass cannot cross a gap and the

@@ -594,6 +594,37 @@ seeds is adding **11 plants per 45,000 frames**. At that rate reaching full
 cover takes on the order of **700,000 frames**, and that extrapolation is
 generous — it assumes a linear trend the flat curve does not support.
 
+### Re-measured after P2's economy landed, and the answer holds
+
+The table above was taken before PR #40 (P2, the economy re-derivation) merged
+— and `grass.ron`'s own header had said a retired mat *cannot* starve for
+exactly one reason: *"There is no maintenance cost anywhere in the engine yet…
+superlinear maintenance respiration is package P2's"*. P2 landed that, plus
+night-income scaling and the root contact-surface economy, so the assumption
+the curve rested on was removed underneath it. Re-run on post-P2 `main`, same
+seeds, same control:
+
+| | pre-P2 | post-P2 |
+|---|---|---|
+| seed 1 plants, 5,000 → 45,000 | 64 → 75 | **63 → 76** |
+| seed 2 plants, 5,000 → 45,000 | 61 → 62 | **61 → 63** |
+| seed 1 cells, 5,000 → 45,000 | 1,381 → 1,507 | **1,110 → 1,214** |
+| seed 2 cells, 5,000 → 45,000 | 1,072 → 1,081 | **862 → 882** |
+
+**The conclusion is unchanged and one number is not.** Plant counts hold within
+±1 at both ends, and the curve is still flat — grass still reaches its
+footprint by 5,000 frames and still gains ~13 plants and ~1 plant over the next
+40,000. What moved is plant *size*: **standing cells fall about 20% on every
+seed at both ends**, so superlinear maintenance makes each grass plant a fifth
+smaller without changing how many stand. Worth passing to lane P as a datum on
+what the re-derivation bought on a species with no leaf stage.
+
+Only the two endpoints were re-run, not the three intermediate points; they
+bracket the claim, which is about the plateau and the absence of spread.
+**Card `20260824T030939054Z-088ae6` carries the pre-P2 cell figures** — its
+answer stands, its cell numbers are ~20% high, and no correction card was
+posted because nothing the owner is being asked to decide turns on them.
+
 ### Why, and how confident that is
 
 **Dispersal range is one cell.** `plant::set_seed` places a seed into an empty
