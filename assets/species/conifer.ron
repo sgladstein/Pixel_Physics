@@ -207,7 +207,23 @@
             SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+            // **Leaf fall, at the rate the owner picked for `tree`.** This
+            // line was byte-identical across conifer, shrub, creeper and
+            // pre-retune `tree`: the three specialists inherited tree's
+            // leaf economics wholesale and none was ever tuned on its own.
+            // So when the owner chose the quarter rate on card
+            // `20260823T161006584Z-6ecbab` ("C is best") he was choosing
+            // this number, for the one woody species worlds sowed at the
+            // time. PR #20 then started sowing all four, which left his
+            // verdict covering a quarter of the world's woody flora and
+            // the floor still filling from the rest -- measured on the
+            // colony scene at 12,000 frames, soil-writing decay events ran
+            // 5,061 with none of them cut, 2,954 with `tree` alone cut,
+            // and 1,532 with all four. Carrying his rate across is
+            // executing the answer he already gave, not a new call; if a
+            // species should shed faster than the others that is a
+            // separate, per-species decision and wants its own card.
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
         ]),
     ],
 )
