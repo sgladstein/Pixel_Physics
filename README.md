@@ -2634,3 +2634,12 @@ days, zero forks). Third-party dependencies are all permissive and are
 inventoried in
 [`Reports/dependency-license-audit.md`](Reports/dependency-license-audit.md),
 which `scripts/licensecheck.sh` re-checks.
+
+Their attribution obligation is discharged by
+[`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt) — 213 components, 103
+licence blocks, generated from `Cargo.lock` by `bash scripts/notices.sh`. **It
+must ship with the executable** (or be reachable from an in-game credits
+screen): reproducing those notices is what MIT, BSD, ISC and Apache ask in
+return for commercial use. `bash scripts/notices.sh --check` fails if the
+committed copy has gone stale against `Cargo.lock`; run it after changing
+dependencies.

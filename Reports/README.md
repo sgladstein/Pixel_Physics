@@ -399,9 +399,13 @@ field rework — see `open-bugs-handoff.md`.
   2026-08-24.** Why the project's own MIT licence was reversed to proprietary
   (MIT grants everyone the right to *sell* it, and the game is meant to be
   sold), what that reversal cannot undo, and the 301-package third-party
-  inventory: all permissive, no copyleft. **Read this before touching
-  `LICENSE` or `Cargo.toml`'s licence fields** — restoring MIT would look like
-  housekeeping and is not. `scripts/licensecheck.sh` is the live re-check.
+  inventory: all permissive, no copyleft. §3 covers attribution —
+  `THIRD-PARTY-NOTICES.txt`, which **must ship with the executable** — and why
+  compatibility and attribution are separate obligations that get conflated.
+  **Read this before touching `LICENSE` or `Cargo.toml`'s licence fields** —
+  restoring MIT would look like housekeeping and is not.
+  `scripts/licensecheck.sh` and `scripts/notices.sh --check` are the live
+  re-checks.
 
 ## Open working files
 
