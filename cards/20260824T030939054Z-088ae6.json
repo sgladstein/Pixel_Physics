@@ -1,0 +1,47 @@
+{
+  "id": "20260824T030939054Z-088ae6",
+  "created": "2026-08-24T03:09:39Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "w3-grass-density",
+    "commit": "e1ad424",
+    "agent": null,
+    "session_id": "e508256a-2bd7-5dec-9d47-4ef4c1f5df05",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "How long grass takes to fill an area: it doesn't",
+  "question": "Given grass holds its sown footprint rather than spreading, is per-species seed dispersal worth pulling forward — or is a world that keeps roughly the grass it was sown with fine for now?",
+  "context_md": "You asked: *\"how long does it take to fill an ideal area\"*. **Measured answer: it does not fill, and it stops trying almost immediately.**\n\nThe control is your own case — the woody layer switched off entirely, so nothing shades anything. Two seeds, 2,048-column worlds with about 500 plantable columns each:\n\n| frames | seed 1 (64 sown) | seed 2 (63 sown) |\n|---|---|---|\n| 5,000 | 64 plants | 61 |\n| 10,000 | 65 | 60 |\n| 20,000 | 70 | 59 |\n| 30,000 | 69 | 60 |\n| **45,000** | **75** | **62** |\n\nGrass reaches its sown footprint inside **5,000** frames and then holds it. The next **40,000** frames — nine times longer than establishing took — buy 11 more plants on one seed and one on the other. Filling ~500 columns would need roughly 250 plants; at the faster seed's rate that is on the order of **700,000 frames**, and even that assumes a steady climb the flat curve does not show.\n\n**The image is the same thing to look at rather than read**: the shipped world with no trees in it at all, at 43,200 frames. Still scattered tussocks with bare soil between them.\n\n**Why, and it is one line of code rather than a tuning problem.** When a grass plant sets seed, the seed is placed in an empty cell *touching the parent* — one cell — and then falls and rolls a little. So offspring land inside or against the clump that made them, and **grass cannot cross a gap**. Where the generator sows it is very nearly where it stays for the rest of the run. That is the flat curve.\n\nI want to be straight about confidence: the code says the range is one cell and the measurement says the footprint does not grow, which is two independent supports — but I have not *isolated* it. Crowding, the seed bank decaying, and dry patches of marginal ground could each also be capping the stand. Telling them apart needs a run I have not made (one plant on uniformly good ground, measuring how far its descendants get).\n\n**What would actually give you spread is already on the queue**: per-species seed dispersal — seed mass, float and carry, so wind and water move seed instead of it dropping at the plant's feet. That is the mechanism your description assumes and the engine does not have yet. No density setting substitutes for it: density decides where grass *starts*, and on this evidence that is very nearly where it stays.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "no trees, 43,200 frames",
+      "files": [
+        "20260824T030939054Z-088ae6/000-fill_45k.png"
+      ],
+      "caption": "shipped world, woody layer switched off entirely — still scattered tussocks",
+      "meta": {
+        "seed 1 plants, 5,000 -> 45,000 frames": "64 -> 75",
+        "seed 2 plants, 5,000 -> 45,000 frames": "61 -> 62",
+        "seed 1 cells, 5,000 -> 45,000 frames": "1381 -> 1507",
+        "plantable columns per world": 500,
+        "plants needed for full cover": "~250",
+        "frames to full cover at observed rate": "~700,000",
+        "organism slots": "91 of 4095, 0 refused",
+        "seed dispersal range": "1 cell (empty 8-neighbour of the parent)",
+        "note": "curve measured at 2,048 columns; image is the 8,192-column shipped world"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
