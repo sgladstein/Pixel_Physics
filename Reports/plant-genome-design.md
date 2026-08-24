@@ -485,9 +485,14 @@ stand, both confirmed able to fail.
 
 The one place appending was *not* free: `set_seed`'s mutation loop spends
 one draw per slot from a shared `Rng`, so a tenth slot drawn inline would
-have shifted every allele roll after it. `plant::SEQUENCED_TRAITS` freezes
-the prefix at 9 and the appended slots mutate after the loci; the bred
-genomes are bit-identical across the widening, verified against `main`.
+have shifted every allele roll after it — and, because that `Rng` is `&mut`
+and borrowed from the caller, every draw the *caller* made after `set_seed`
+returned as well. `plant::SEQUENCED_TRAITS` freezes the prefix at 9 and the
+appended slots draw their jitter from their own keyed substream
+(`APPENDED_JITTER_SALT`), so the shared stream's consumption count is
+identical to pre-widening whatever the genome width. Bred genomes and the
+caller's stream position are both bit-identical across the widening,
+verified by running the same tests on `main`.
 
 The variance is a **provisional default, not a measured value** — the
 trait has no consumer, so there is no outcome to regress a width against.
