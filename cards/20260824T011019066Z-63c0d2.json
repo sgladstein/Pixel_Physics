@@ -1,0 +1,46 @@
+{
+  "id": "20260824T011019066Z-63c0d2",
+  "created": "2026-08-24T01:10:19Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "w3-grass-density",
+    "commit": "ac7b6b8",
+    "agent": null,
+    "session_id": "e508256a-2bd7-5dec-9d47-4ef4c1f5df05",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "Grass density raised — is this enough now?",
+  "question": "Is this the right amount of ground cover for open country now, or should it go further?",
+  "context_md": "You said: *\"I would say noticeable more grass, but it should also spread over time, so this could be ok to start. Maybe increase it a little bit\"* — so this is a modest step, x1.43 on every preset (`rolling` 0.35 to 0.50, `canyon` 0.22 to 0.31, `wetland` 0.45 to 0.63), keeping their relative design. Same place, same preset and same zoom as the pane you judged.\n\n**What it bought, measured:** over sixteen seeds at 2,048 columns the median world goes from **24 grass plants to 38**, min 7 to 9, max 60 to 76. In the shipped 8,192-column world at 3,600 frames, established grass goes **71 to 102** and grass cells 1,251 to 1,816. The four woody species are still bit-identical — grass costs them nothing.\n\n**Why this is one image and not a before/after pair, which is worth a sentence because it surprised me.** Raising the density does not thicken the existing patches; it *relocates* them, because a sward is spaced against its own last tussock. So any single window can go either way: this pocket went 100 grass cells to 88 even as the whole `canyon` world went 574 to 729. A two-pane comparison of one spot would have shown you the opposite of the change. Judge the amount you can see, not a diff — the diff is in the numbers above.\n\n**And the part of your answer this knob cannot deliver, which I would rather say now than have you discover it later.** You said it *\"should also spread over time\"*. Measured, it does the opposite: grass establishes at 95% and is then shaded out as the canopy closes — **3 of 40 still standing at 45,000 frames** on `rolling`. With the woody layer switched off on the same worlds it ends at 63 from 43 sown, having bred happily, so that is succession working rather than grass failing. Raising this number raises the *starting* amount, and most of any increase gets shaded out too. What would actually make grass persist and spread is disturbance (fire clearing canopy patches — already queued) or making grass more shade-tolerant (an economy constant in the plant lane). Neither is this knob, so if a mature world carrying real grass is what you want, that is the thread to pull, not this one.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "grass_density x1.43",
+      "files": [
+        "20260824T011019066Z-63c0d2/000-N_new.png"
+      ],
+      "caption": "canyon, seed 1, 3,600 frames — same ground and zoom as the pane you judged",
+      "meta": {
+        "grass cells in frame": 88,
+        "moss cells in frame": 23,
+        "woody cells in frame": 0,
+        "median world, 16 seeds (before -> after)": "24 -> 38 plants",
+        "shipped world established (before -> after)": "71 -> 102",
+        "shipped world grass cells (before -> after)": "1251 -> 1816",
+        "organism slots used": "320 of 4095, 0 refused",
+        "still standing at 45,000 frames": "3 of 40 (canopy closes over it)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
