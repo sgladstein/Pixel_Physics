@@ -319,6 +319,14 @@ field rework — see `open-bugs-handoff.md`.
   decides it. Read the "measure it against the clock, not across it"
   section before quoting any field timing; both earlier versions of this
   file were wrong because they did not.
+- [frame-cost-audit-2026-08.md](frame-cost-audit-2026-08.md) —
+  **measurement of record for whole-frame cost.** The first attribution of
+  `App::update` as a whole, at the shipped 8192x2560 size: 30.1 ms amortised
+  with nobody playing, 79% of frames over the 16.6 ms budget. Reranked the
+  performance backlog — issue #2 down (the sweep is a tenth of the frame),
+  `plant::step_organisms` up (a quarter of it, and in no plan). Read it
+  before quoting any per-phase cost; `field-settling-2026-08.md` remains the
+  record for the field's *internal* split and is not contradicted here.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —

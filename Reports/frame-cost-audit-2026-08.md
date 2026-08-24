@@ -85,6 +85,52 @@ Three things to read off this:
    `field-settling-2026-08.md` found the same thing one level down ("the sun
    wakes tiles over rock that has not moved in ten thousand frames").
 
+## Inside `step_organisms`: it is per-cell work, not per-organism overhead
+
+The split above raised a question a single total could not answer, and the two
+answers wanted opposite fixes. `ORGANISM_PASS=<every N frames>` (new, in
+`plant.rs`) settles it — and it is the **counters** that settle it, not the
+timings:
+
+```
+[organism] frame  live ticked cells  total | transport frontier support anchor buds roottips upkeep
+     1800   318      6     33   0.15 |  0.05  0.01  0.02  0.02  0.01  0.00  0.04
+     2700   302      6    202   0.94 |  0.22  0.07  0.16  0.16  0.07  0.00  0.25
+     3600   298      5    360   1.75 |  0.42  0.28  0.22  0.28  0.09  0.00  0.46
+     4500   278      5    969   5.27 |  0.93  1.88  0.46  0.67  0.27  0.00  1.06
+```
+
+**Cost tracks `cells`, not `live`.** ~300 organisms are alive and 5-6 tick per
+frame (`ORGANISM_TICK_INTERVAL` is 45), and the total is very nearly linear in
+cells ticked — 33 → 0.15 ms, 969 → 5.27 ms, about 5 µs a cell throughout. So
+the cost is the organisms that actually tick doing real work on their own
+cells. **The obvious hoist is worth nothing**: `step_organisms` resolves
+`is_creature` for all ~300 organisms before the cadence gate, and that
+overhead is invisible against this. It was the leading hypothesis before the
+counters and would have been a wasted change.
+
+The consequence worth flagging: this scales with **plant biomass**, and plants
+grow. It is 5.27 ms on the largest sample here and will keep climbing as a
+forest matures — an M10 scaling problem in the making, not a fixed cost.
+
+**One pass is superlinear, and only one.** Per-cell, `frontier`
+(`allocate_to_frontier`) costs 0.35 µs at 202 cells, 0.78 at 360 and 1.94 at
+969, while `transport`, `anchor`, `support` and `upkeep` all stay flat at
+~1 µs. The cause is in its donor loop: for **every** frontier cell it clones
+the whole donor list and re-sorts it with a comparator that calls
+`world.carbon_at` twice per comparison — `O(frontier × donors log donors)`
+world lookups. The re-sort is load-bearing (donors deplete as they are drawn),
+but the lookups inside the comparator are not.
+
+**Caching the sort key was tried and reverted**, and the reason is worth
+knowing before anyone tries it again: it changes the element type, Rust's
+`sort_unstable_by` specialises on element type, and the tie order among
+equal-carbon donors changes with it. Donor carbon is equal constantly — mature
+cells sit at `RESOURCE_SCALE`. Full entry in `Reports/dead-ends.md`, including
+the standing risk it leaves behind: **a Rust upgrade that retunes the sort can
+silently change how every plant grows**, and nothing in the suite would catch
+it.
+
 ## What this reranks
 
 The audit was run before any fix, precisely so the fix list could be wrong.

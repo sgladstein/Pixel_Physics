@@ -4598,6 +4598,36 @@ re-seeds **per process**, with `find_body_at` returning the first match in that
 list. Either would give exactly this stable-on-most-seeds picture. Neither has
 been confirmed.
 
+**The `body_index` lead is now eliminated by reading, 2026-08-24** (found
+during the frame-cost audit, `Reports/frame-cost-audit-2026-08.md`). It fails
+on two independent grounds, either of which is sufficient:
+
+- **The `HashSet` order cannot reach the list.** `promote_body` pushes the new
+  body's id **once per touched coord** — `self.body_index.entry(coord).
+  or_default().push(id)` — so every coord's `Vec<BodyId>` receives exactly one
+  push per body, whatever order the set is walked in. A given list's contents
+  and its order are therefore set by the order bodies are *promoted*, not by
+  the hasher's seed, and `find_body_at`'s "first match" is the
+  earliest-promoted owner either way. `demote_body` removes with `retain`,
+  which is order-preserving.
+- **The code does not run in production at all.** `promote_body` is the liquid
+  heightfield path, and `CLAUDE.md` records that subsystem as test-only —
+  "nothing in production promotes a body, because automatic promotion was
+  implemented and reverted over a real architectural gap". `scene=worldcrack`
+  never reaches it.
+
+So **§P's cause is still open**, and the remaining lead is the `load_budget`
+one. A related note for whoever picks this up: swapping the engine to a
+fixed-seed hasher was considered as a fix for this and should **not** be sold
+that way. It is a reasonable change for *speed*, but an audit of every
+hash-container iteration in `src/` found them all already order-safe —
+membership-only (`pending_*`), sorted immediately after collection (organism
+`cells`, `rigid.rs`'s `remaining`, the field's `awake`/`read`), or
+order-independent by construction (counts, dirty-rect unions, writes to
+disjoint flat indices). That is why `tests/determinism.rs` passes despite std
+seeding per *instance*, and it means a hasher swap has no known route to this
+bug.
+
 **Four candidate sources checked and eliminated, 2026-08-23** — recorded so
 the next session does not re-walk them:
 
