@@ -245,8 +245,9 @@ stills.
 the measurement is in `open-bugs-handoff.md` T1e: `log` *rises* to a plateau
 as bodies land and holds flat to within three cells over two hundred frames,
 while `litter` stands at 1,652 against it — 2.3 to 1, roughly 1,570 cells of
-it created in a single frame at severance. Fixed by letting foliage ride the
-piece it hangs on (§4e).
+it created in a single frame at severance. Addressed by letting foliage
+ride the piece it hangs on (§4e) — which fixed the mid-air cloud and **did
+not** fix the settled pile (§4f).
 
 **"The trunk doesn't move, it just turns gray"** is two things. Not moving
 is T2 — nothing here topples anything. *Turning grey* was T1's own and was a
@@ -287,6 +288,41 @@ promoted mass because it comes down attached, so the figure is no longer
 comparable with §8's bar in the terms that bar was written in. The settled
 composition is the number to read instead: `log` 631, `deadwood` 384,
 `litter` 466 at frame 8,750.
+
+## 4f. And it did not reach the bar — the falsification, stated plainly
+
+**The ride change transformed the fall and moved the settled state by almost
+nothing.** Put side by side, which is the comparison §4e failed to make
+before claiming a fix:
+
+| at rest | before the ride | after |
+|---|---|---|
+| `log` | 711 | 724 |
+| `litter` | 1,652 | 1,634 |
+| `deadwood` | ~380 | 382 |
+
+The leaves now arrive attached and convert on landing instead of in mid-air.
+The pile is the same pile. The owner's verdict was *"It is still very clearly
+dust."*
+
+**The reason is structural and no fragment ladder can reach it.** Censused
+against a pre-cut control — needed, because the raw box census reads 78%
+powder before you subtract the soil bank the tree is standing on:
+
+- of the tree's 2,740 settled cells, **640 (23%) are in coherent pieces**
+  and **2,016 (74%) are loose grain**;
+- `leaf` is **1,660 of the tree's 2,940 cells — 56%** — and every one becomes
+  `litter`, a `Powder` with a friction angle.
+
+Even with every wood cell coming down as a perfect log, over half the pile is
+grain. The ladder is confirmed working — 91%+ of *woody* mass promotes, the
+distribution is real, and the largest piece survives from landing to 1,550
+frames later losing eleven cells to decay. What the bar asks about is what
+*dominates the picture*, and that is foliage.
+
+Full account, with the numbers and the control, in `open-bugs-handoff.md`
+**T1f**; the method failure that let a "refixed" claim go out over an
+unchanged picture is **T1g**.
 
 **Still not fixed, and still the honest gap:** the pieces mostly land
 upright (6 of 11), because a piece cut out of a standing tree is a vertical
