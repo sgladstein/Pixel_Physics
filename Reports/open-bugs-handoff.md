@@ -5245,6 +5245,24 @@ draw_sequence` (200 direct `set_seed` calls), and
 `set_seed_leaves_the_callers_rng_position_alone` (the caller's stream
 position). **No genome guard now asserts a stored fingerprint.**
 
+**One more trap this incident exposed, and it is the reason a careful check
+looked conclusive and was not.** The workflow fires on `push:
+['claude/**']` *and* `pull_request: [main]`. A `pull_request` job checks out
+the **merge commit of head into base**, not the head SHA — so reading the
+constant in the file at the head, confirming it matches CI's `right`, and
+concluding "CI measured a different stand on my tree" is a sound-looking
+inference from a tree CI never built. The head was fine; the merge tree had
+W3 and W4 in it.
+
+Reproduced exactly rather than argued: checking out the head, merging
+`origin/main` into it and running the test locally returned
+`14407512503826467350` — the identical value CI reported. There is no
+machine-dependence and no determinism problem here.
+
+**So when a simulation-output golden goes red in CI, the tree to reproduce
+on is `merge(head, base)`, not head.** A local run on head that passes
+proves nothing about a `pull_request` job.
+
 **The general lesson, which is why this entry stays rather than being
 deleted:** a guard that hashes whole-simulation output is a guard on every
 lane's work, not on yours. When the property is "X changes nothing", the
