@@ -52,4 +52,12 @@
     // braced by the soil they thread, so they reach further than a branch.
     max_cantilever_reach: 128,
     breaks_into: "deadwood",
+    // Same three tiers `wood.ron` carries, and for the same reason: a root
+    // plate torn out of the bank is a piece, not a spray of grains. Roots
+    // are thinner than a bole, so far fewer of their fragments will clear
+    // `MIN_BODY_CELLS` -- which is the graded outcome doing its job rather
+    // than a case needing its own numbers.
+    fragment_floor: 5,
+    woody: true,
+    severs_into: "log",
 )

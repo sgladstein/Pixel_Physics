@@ -74,6 +74,19 @@ use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
 
+/// The eight-neighbour ring, for a flood over material whose *writer* placed
+/// it at eight — `MaterialDef::woody`, and `Grow` is that writer.
+///
+/// Deliberately **not** the flood rock uses. Two rock blobs touching at a
+/// corner are not one physical body, which
+/// `diagonal_only_contact_does_not_connect_two_components` guards on
+/// purpose; a crown, which is mostly diagonal twigs, is one plant and cutting
+/// it at every diagonal is what turned a fell into sawdust. Both are
+/// `CLAUDE.md`'s "a traversal must use the same neighbourhood the writer
+/// used" -- the writer just differs by material, which is why the choice is
+/// content and not a constant.
+const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)];
+
 /// Per-frame downward acceleration, matching `particle.rs`'s own `GRAVITY`.
 /// Deliberately the same number: debris thrown by a blast and debris that
 /// broke off a ceiling are the same event to a player, and two different
@@ -100,7 +113,7 @@ const STALL_FRAMES_BEFORE_SETTLING: u8 = 3;
 /// Smallest failing region worth flying as a coherent body. Below this, the
 /// per-cell `breaks_into` conversion looks the same and costs less — a
 /// single cell "tumbling" is just a grain.
-pub(crate) const MIN_BODY_CELLS: usize = 8;
+pub const MIN_BODY_CELLS: usize = 8;
 
 /// Smallest failing region worth fracturing at all. Below this the region is
 /// left to the caller's per-cell conversion, which looks the same and costs
@@ -385,6 +398,31 @@ pub struct BodyCell {
     /// Carried through the flight so a chunk lands with the same grain it
     /// broke off with — re-rolling it would make a landing visibly "pop".
     pub shade: u8,
+    /// The organism this cell belonged to when it left the grid, or `0` for
+    /// inert material.
+    ///
+    /// **Two bytes into existing padding** (`dx`/`dy` are `i32`,
+    /// `material` is a `MaterialId` and `shade` a `u8`), which is why this
+    /// is the answer rather than growing `Cell` -- whose flags are full at
+    /// 8/8 (`Reports/load-model-handoff.md`) -- or a position-keyed side
+    /// table, which is a recorded dead end (`Reports/dead-ends.md` §572).
+    ///
+    /// It buys three things at once, and all three were live defects:
+    ///
+    /// - `settle` writes the piece back as **dead tissue**
+    ///   (`MaterialDef::severs_into`) rather than as live `wood`, so a
+    ///   landed limb rots, feeds the litter layer and is something
+    ///   `decay.rs` can see. A `wood` wall someone painted has no organism
+    ///   id and still lands as the wall it was, which is why the test is
+    ///   this field and not the material.
+    /// - the felling census can report plant mass *in flight*. S1's own
+    ///   line read "bodies carrying plant material 0 of 0 body cells" and
+    ///   that zero is the number this package had to move.
+    /// - `promote` can decline to schedule a structural check around tissue
+    ///   that is already leaving -- the amputation landmine
+    ///   (`CLAUDE.md`'s structural-check gotcha) firing from *inside* the
+    ///   fall, which `Reports/felling-blockers.md` §3 step 4 predicted.
+    pub organism_id: u16,
 }
 
 impl BodyCell {
@@ -638,14 +676,21 @@ fn fracture(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) {
         .iter()
         .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
     let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
-    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at))
+    fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), false);
 }
 
 /// As `fracture`, but every fragment is thrown away from `origin` at
 /// `force`. This is what makes a *blow* different from a collapse: the same
 /// rock comes apart either way, but struck rock leaves the wound rather than
 /// sagging out of it.
-fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Option<((f32, f32), f32)>, size_bias: u32, broke_at: Option<(i32, i32)>) {
+fn fracture_with_impulse(
+    world: &mut World,
+    region: &[(i32, i32)],
+    impulse: Option<((f32, f32), f32)>,
+    size_bias: u32,
+    broke_at: Option<(i32, i32)>,
+    tissue: bool,
+) -> (usize, usize) {
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a), and a collapse is one. `break_free` has always written this for
     // a single cell converting to rubble; a region coming apart into chunks
@@ -687,6 +732,11 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
     remaining.sort_unstable(); // deterministic seed order, as `label_failing_region` already guarantees
     let mut left: HashSet<(i32, i32)> = remaining.iter().copied().collect();
 
+    // Returned rather than read back off `FailureCounts`, because the two
+    // tallies this feeds are different questions: `promoted_cells` is
+    // world-wide and cumulative, and the felling census needs *this event's*
+    // split to state a promoted share of severed mass at all.
+    let (mut promoted_cells, mut grit_cells) = (0usize, 0usize);
     for &seed in &remaining {
         if !left.contains(&seed) {
             continue;
@@ -707,9 +757,32 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // where a light tap produces chips -- without flattening the
         // distribution, which is what stops it reading as all-or-nothing
         // again.
-        let rungs = world.materials.get(world.get(seed.0, seed.1).material).fragment_rungs;
-        let target = (1usize << (1 + world.rng.below(rungs) as usize + size_bias as usize)).min(MAX_BODY_CELLS);
-        let fragment = take_fragment(world, &mut left, seed, target);
+        //
+        // **Where the ladder starts is the material's business too**, and
+        // that is the half that was missing rather than the number of
+        // rungs. `wood` drew rock's {2, 4, 8, 16, 32}, two rungs of which
+        // are under `MIN_BODY_CELLS` and so are grit before shape is
+        // considered -- 1.7% of a felled tree survived as pieces. See
+        // `MaterialDef::fragment_floor`.
+        let material = world.materials.get(world.get(seed.0, seed.1).material);
+        let (rungs, floor, diagonal) = (material.fragment_rungs, material.fragment_floor, material.woody);
+        // **Only wood seeds a fragment of severed tissue.** Foliage may be
+        // *claimed* by a fragment the flood reaches it through -- a leafy
+        // limb comes off with its leaves on -- but it never starts one and
+        // never chooses one's size, which is `Reports/physical-trees-
+        // design-2026-08-23.md` §5.3's actual argument: a leaf is not a
+        // small log and must not get a draw off wood's ladder. Anything no
+        // woody seed reaches is scattered after the loop.
+        if tissue && !diagonal {
+            continue;
+        }
+        // Clamped rather than left to wrap: `floor` and `size_bias` are
+        // both content-reachable, and a shift past the word size is a panic
+        // in debug and nonsense in release. `MAX_BODY_CELLS` caps the result
+        // anyway, so anything at or above its exponent is the same draw.
+        let exponent = (floor as usize + world.rng.below(rungs) as usize + size_bias as usize).min(usize::BITS as usize - 1);
+        let target = (1usize << exponent).min(MAX_BODY_CELLS);
+        let fragment = take_fragment(world, &mut left, seed, target, diagonal);
         // The `world` argument is this branch's size-biased ladder: a wide
         // blow calves slabs where a tap chips.
         //
@@ -728,15 +801,142 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
         // `size_buckets`, main's other counter here, is untouched: it is
         // fed from `record` and measures the failing *region*, not the
         // fragment, so it is a different quantity and both are kept.
-        let promoted = fragment.len() >= MIN_BODY_CELLS;
-        if promoted {
+        if fragment.len() >= MIN_BODY_CELLS {
             promote(world, &fragment, impulse);
+            promoted_cells += fragment.len();
         } else {
             for &(fx, fy) in &fragment {
-                shatter_to_rubble(world, fx, fy);
+                // **Organism grit is counted apart from rock grit, and
+                // does not schedule.** `shattered_cells` deliberately
+                // excludes the organism path (its own doc: a tree shedding
+                // deadwood fires all through any vegetated world and would
+                // swamp the number that says how *rock* came apart), and
+                // `structural::break_free` -- the conversion this replaces
+                // -- schedules nothing, leaving the fan-out to
+                // `schedule_organism_neighbours`. Scheduling here instead
+                // would fire checks inside a crown that is still coming
+                // down, which is the amputation gotcha `promote` above
+                // declines for the same reason.
+                if tissue {
+                    if convert_to_debris(world, fx, fy) {
+                        grit_cells += 1;
+                    }
+                } else {
+                    shatter_to_rubble(world, fx, fy);
+                    grit_cells += 1;
+                }
             }
         }
     }
+    // **Whatever no fragment claimed.** For rock this is empty by
+    // construction -- every cell of the region is a candidate seed, so the
+    // loop above consumes all of it. For severed tissue it is the foliage
+    // that hung off nothing a promoted piece reached, and it scatters, which
+    // is the third tier arriving as a consequence of the same draw rather
+    // than as a separate pass over the region.
+    //
+    // Walks `remaining` -- sorted -- rather than `left`, which is a
+    // `HashSet`: iterating that would make the *order* of conversion depend
+    // on the hasher, and `shatter_to_rubble`/`convert_to_debris` both draw a
+    // shade from `world.rng`. Same determinism rule as the seed loop, and
+    // the same one §2a names.
+    for &cell in &remaining {
+        if !left.remove(&cell) {
+            continue;
+        }
+        if tissue {
+            if convert_to_debris(world, cell.0, cell.1) {
+                grit_cells += 1;
+            }
+        } else {
+            shatter_to_rubble(world, cell.0, cell.1);
+            grit_cells += 1;
+        }
+    }
+    (promoted_cells, grit_cells)
+}
+
+/// Take a severed piece of an organism off the grid as a **distribution**:
+/// logs, branch-scale pieces, and a scatter of foliage.
+///
+/// Returns `(cells removed, cells that left as promoted body cells)`.
+///
+/// # Why this exists at all, and what it replaces
+///
+/// `structural::organism_structural_tick` used to convert **one cell** per
+/// check, straight to `breaks_into`. That is a `Powder` with a friction
+/// angle, so a felled tree's two and a half thousand cells did exactly what
+/// the granular rules say they must and piled into a cone of sawdust. The
+/// owner's word for it was "a tree disintegrating into dust"; there was no
+/// piece anywhere in the pipeline, so no piece could come out of it.
+/// Measured on one cut: 2,648 cells severed, **45 promoted (1.7%)**.
+/// `Reports/physical-trees-design-2026-08-23.md` §1 and §5.
+///
+/// # The three tiers, and why they are three mechanisms rather than one
+///
+/// `prior-art-destruction.md` §2.4: nobody derives a debris size
+/// distribution from physics, and that is not a gap -- every shipped game
+/// stacks one mechanism per size class. So:
+///
+/// - **Foliage scatters.** A crown is roughly a third leaf by cell count,
+///   and a leaf is not a small log. It comes off `breaks_into` to litter
+///   and never touches the ladder, where it would otherwise pad a draw into
+///   a "piece" that is mostly foliage. Gated on `MaterialDef::woody`, read
+///   at this call site off the resolved `Material`.
+/// - **Wood goes on the ladder**, at `wood.ron`'s own floor of
+///   {32, 64, 128, 256, 400} rather than rock's {2, 4, 8, 16, 32}, flooding
+///   at eight because that is the neighbourhood `Grow` placed it at.
+/// - **What comes out under `MIN_BODY_CELLS` is grit**, by the same draw --
+///   so the dust is a *consequence* of the distribution rather than a
+///   separate fudge, which is the shape `fracture`'s own doc argues for.
+///
+/// # No size cap on the region, deliberately
+///
+/// `MAX_BODY_CELLS` bounds a single fragment and the ladder splits whatever
+/// it is given, so a whole crown simply yields more pieces. A cap on the
+/// *decision* would mean the bigger the fall the more certain it dissolved
+/// -- written twice in `CLAUDE.md` and recorded three times in
+/// `dead-ends.md`, and it is exactly the failure this function exists to
+/// undo.
+pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (u32, u32) {
+    if region.is_empty() {
+        return (0, 0);
+    }
+    // **The whole region goes to the ladder, foliage included — but only
+    // wood may *seed* a fragment.**
+    //
+    // Converting every leaf to litter here, before the ladder ran, was the
+    // first shape of this function and it is what the owner saw frame by
+    // frame: *"the branches fall off as whole pieces (good), but then hit
+    // the ground and turn to dust"*. The pieces were fine. What turned to
+    // dust was the **foliage**, and it did so at the instant of severance —
+    // roughly 1,570 cells of `litter` powder created in a single frame,
+    // against 710 cells of `log` at rest. Litter outnumbered the piece tier
+    // 2.3 to 1, it is the brightest thing on screen, and the pieces fell
+    // through it and were buried in it.
+    //
+    // A leaf still never seeds a fragment and never sizes one — the draw is
+    // made at a woody seed, from wood's own ladder — so
+    // `Reports/physical-trees-design-2026-08-23.md` §5.3 holds where it
+    // argues foliage must not be *on* the ladder. What it did not argue,
+    // and what was wrong, is that foliage must leave the branch at the
+    // moment the branch does. A leafy limb comes off a real tree with its
+    // leaves on it; they let go later, in their own time, and that is what
+    // `MaterialDef::severs_into` on `leaf.ron` now does when the piece
+    // lands.
+    //
+    // Foliage that no promoted piece claims — a leaf whose twig fell below
+    // `MIN_BODY_CELLS`, or one hanging off nothing — still scatters, so the
+    // third tier is intact and is now a *consequence* of the same draw
+    // rather than a separate pass over the region.
+    let extent = {
+        let half = region
+            .iter()
+            .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
+        ((half.1 - half.0) / 2).max((half.3 - half.2) / 2)
+    };
+    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true);
+    ((promoted + grit) as u32, promoted as u32)
 }
 
 /// Flood up to `target` connected cells out of `left`, removing them.
@@ -757,7 +957,7 @@ fn fracture_with_impulse(world: &mut World, region: &[(i32, i32)], impulse: Opti
 /// `shatter_to_rubble` at the call site, which is the graded outcome and
 /// not a fallback: heavily fissured rock *should* come away as grit while
 /// lightly fissured rock comes away as slabs.
-fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize) -> Vec<(i32, i32)> {
+fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32), target: usize, diagonal: bool) -> Vec<(i32, i32)> {
     // Breadth-first, not depth-first. A DFS flood snakes: it follows one
     // arm to its end before coming back, so fragments came out as long
     // stringy runs — "thin individual pixel lines" rather than chunks. BFS
@@ -771,7 +971,16 @@ fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32)
         if out.len() >= target {
             break;
         }
-        for (dx, dy) in NEIGHBOURS_4 {
+        // **Four or eight, decided by the seed's own material.** See
+        // `NEIGHBOURS_8` and `MaterialDef::woody`: rock is four on purpose
+        // and organism tissue must be eight because that is the
+        // neighbourhood `Grow` wrote it at. Read once per fragment from the
+        // resolved `Material`, never per cell and never by name.
+        //
+        // A slice of the same array either way, so the eight-case costs one
+        // extra bound and nothing at four.
+        let ring: &[(i32, i32)] = if diagonal { &NEIGHBOURS_8 } else { &NEIGHBOURS_4 };
+        for &(dx, dy) in ring {
             let next = (x + dx, y + dy);
             if !left.contains(&next) {
                 continue;
@@ -785,7 +994,21 @@ fn take_fragment(world: &World, left: &mut HashSet<(i32, i32)>, seed: (i32, i32)
             // its doc), so the step direction is handed to it as-is and it
             // asks the neighbour about its own bit when stepping left or
             // up.
-            if super::structural::edge_is_cracked(world, x, y, dx, dy) {
+            // A **diagonal** step crosses no single edge, so it is asked
+            // about the two L-shaped routes that get to the same cell and
+            // admitted if either is clear. `edge_is_cracked` answers
+            // `false` for a diagonal offset, so without this a crack could
+            // never shape a piece of anything flooding at eight -- the
+            // seams would be there and the flood would walk round the
+            // corner of every one of them.
+            let blocked = if dx != 0 && dy != 0 {
+                let via_x = super::structural::edge_is_cracked(world, x, y, dx, 0) || super::structural::edge_is_cracked(world, x + dx, y, 0, dy);
+                let via_y = super::structural::edge_is_cracked(world, x, y, 0, dy) || super::structural::edge_is_cracked(world, x, y + dy, dx, 0);
+                via_x && via_y
+            } else {
+                super::structural::edge_is_cracked(world, x, y, dx, dy)
+            };
+            if blocked {
                 continue;
             }
             left.remove(&next);
@@ -810,14 +1033,33 @@ fn promote(world: &mut World, cells: &[(i32, i32)], impulse: Option<((f32, f32),
         .iter()
         .map(|&(cx, cy)| {
             let cell = world.get(cx, cy);
-            BodyCell { dx: cx - ox, dy: cy - oy, material: cell.material, shade: cell.shade }
+            BodyCell { dx: cx - ox, dy: cy - oy, material: cell.material, shade: cell.shade, organism_id: cell.organism_id() }
         })
         .collect();
+    // Read before the grid is emptied, since that write is what clears the
+    // organism id.
+    let organism_cells: Vec<bool> = cells.iter().map(|&(cx, cy)| world.get(cx, cy).organism_id() != 0).collect();
     for &(cx, cy) in cells {
         world.set(cx, cy, Cell::EMPTY);
     }
-    for &(cx, cy) in cells {
-        world.schedule_structural_check_around(cx, cy);
+    // **Not around tissue that is already leaving.** The organism support
+    // search is hop-bounded, so a check fired inside a crown that is coming
+    // down reads everything past the span limit as unsupported and converts
+    // it to deadwood -- `CLAUDE.md`'s structural-check amputation gotcha,
+    // firing from *inside* the fall, which is the one place it can do the
+    // most damage: the piece the ladder has just built gets taken apart
+    // behind it. `Reports/felling-blockers.md` §3 step 4 predicted this and
+    // `Reports/physical-trees-design-2026-08-23.md` §5.5 is why
+    // `BodyCell::organism_id` exists to make it testable.
+    //
+    // Inert cells keep their check, and that half is load-bearing too: a
+    // stone ledge that has just lost what was resting on it has genuinely
+    // changed and must be asked again. The pair is guarded by
+    // `promoting_tissue_does_not_schedule_checks_into_the_crown_it_left`.
+    for (&(cx, cy), &was_organism) in cells.iter().zip(&organism_cells) {
+        if !was_organism {
+            world.schedule_structural_check_around(cx, cy);
+        }
     }
     // A piece breaks *outward*, not straight down: seed a sideways nudge
     // and a starting tilt from which side of the fracture it came off. Both
@@ -972,14 +1214,9 @@ fn falling_towards_liquid(world: &World, cells: &[(i32, i32)]) -> bool {
 /// counted anywhere else would not appear in the promoted-to-shattered ratio
 /// that says whether a break has a *distribution* of sizes behind it.
 pub(crate) fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
-    let cell = world.get(x, y);
-    let Some(into) = world.materials.get(cell.material).breaks_into else {
-        return; // no configured debris: leave it rather than deleting content
-    };
-    let shades = world.materials.get(into).palette.len().max(1) as u32;
-    let shade = world.rng.below(shades) as u8;
-    let temp = cell.temperature();
-    world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    if !convert_to_debris(world, x, y) {
+        return; // no configured debris: left exactly as it was
+    }
     // After the conversion, never before the `breaks_into` check above:
     // the decline leaves the cell exactly as it was, and counting a
     // decline would make grit look like it happened. Grit is half of the
@@ -988,6 +1225,29 @@ pub(crate) fn shatter_to_rubble(world: &mut World, x: i32, y: i32) {
     // about the shape of a break on its own.
     world.structural_failures.record_shattered(1);
     world.schedule_structural_check_around(x, y);
+}
+
+/// The conversion itself: `(x, y)` becomes its material's `breaks_into`,
+/// unattached, at the same temperature. Returns whether anything happened.
+///
+/// Split out of `shatter_to_rubble` because the *bookkeeping* around it is
+/// not universal even though the write is. Rock grit is recorded and
+/// schedules a check on its neighbours; organism grit does neither, and
+/// both of those are load-bearing rather than an omission --
+/// `FailureCounts::shattered_cells` excludes the organism path on purpose,
+/// and a check scheduled inside a crown that is coming down amputates what
+/// is left of it (`CLAUDE.md`'s structural-check gotcha). This is the part
+/// they agree on.
+fn convert_to_debris(world: &mut World, x: i32, y: i32) -> bool {
+    let cell = world.get(x, y);
+    let Some(into) = world.materials.get(cell.material).breaks_into else {
+        return false; // no configured debris: leave it rather than deleting content
+    };
+    let shades = world.materials.get(into).palette.len().max(1) as u32;
+    let shade = world.rng.below(shades) as u8;
+    let temp = cell.temperature();
+    world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    true
 }
 
 
@@ -1400,7 +1660,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
     // and then threw nothing at all -- the larger the swing, the less
     // happened, which is exactly backwards.
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)));
+        fracture_with_impulse(world, &loosened, Some(((cx as f32, cy as f32), force)), size_bias(radius), Some((cx, cy)), false);
     }
     // Every destructive event owes feedback (`Reports/design-philosophy.md`
     // §0a). A blow shoves the air as well as the rock, which is what makes
@@ -1436,7 +1696,7 @@ pub fn strike(world: &mut World, cx: i32, cy: i32, radius: i32, force: f32) {
 pub fn fracture_shell(world: &mut World, origin: (i32, i32), inner: i32, outer: i32, force: f32, size_bias: u32, confinement: super::explosion::Confinement) {
     let loosened = loosen_shell(world, origin, inner, outer, confinement, ShellSectors::Open);
     if loosened.len() >= MIN_FRACTURE_CELLS {
-        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+        fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
     }
 }
 
@@ -1489,7 +1749,7 @@ pub fn calve_collar(
         // with almost no rim to give eat a little of it anyway, every time.
         return 0;
     }
-    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin));
+    fracture_with_impulse(world, &loosened, Some(((origin.0 as f32, origin.1 as f32), force)), size_bias, Some(origin), false);
     loosened.len() as u32
 }
 
@@ -2492,7 +2752,39 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // so it is no longer backed by the mass it came from -- landing must
         // not silently re-attach it, or a chunk that fell would become
         // immovable terrain wherever it happened to stop.
-        let fresh = Cell::new(cell.material, cell.shade);
+        // **A landed piece of a tree is not a tree.** `Cell::new` writes
+        // the material the body took off with, which for a promoted limb is
+        // live `wood` -- inert, unattached to any organism, invisible to
+        // `decay.rs`, and drawn as bark on something that is finished
+        // growing. `MaterialDef::severs_into` is the piece tier
+        // (`wood` -> `log`), and it is consulted only for a cell that
+        // *left the grid as tissue*, so a `wood` wall someone painted and
+        // then knocked down still lands as the wall it was.
+        //
+        // The shade is re-rolled rather than carried, because the palettes
+        // are different lengths and a bark index into a log's four colours
+        // is a different colour, not the same grain -- the one case where
+        // `BodyCell::shade`'s "never re-roll" rule does not apply, since
+        // the material changed underneath it.
+        let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
+            Some(into) => {
+                let shades = world.materials.get(into).palette.len().max(1) as u32;
+                let shade = world.rng.below(shades) as u8;
+                // Counted here rather than by censusing the material,
+                // because the two answer different questions and only this
+                // one is about the *pipeline*: a world census of `log`
+                // measures what is still standing, which decay and fire eat
+                // into, while this measures what the fall actually
+                // delivered. Read against
+                // `FailureCounts::severed_organism_pieces` -- the gap
+                // between them is `settle_lost_cells` and nothing else, and
+                // when it is not, something between promotion and landing
+                // is eating pieces.
+                world.structural_failures.record_settled_tissue(1);
+                Cell::new(into, shade)
+            }
+            None => Cell::new(cell.material, cell.shade),
+        };
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             world.set(x, y, fresh);
             landed.push((x, y));
@@ -2585,6 +2877,18 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // A column full to the top of the world -- genuinely nowhere,
         // matching `particle::land`'s own last resort for a grain with no
         // legal rest position.
+        //
+        // **Counted, because it is a real and un-fixed loss and it is about
+        // to become much more visible.** A body that lands in a pile of its
+        // own debris hits this arm for every cell of itself that has no
+        // opening within `nearest_free`'s rings, and a felled tree lands in
+        // a large pile of its own debris. `Reports/open-bugs-handoff.md`
+        // §1c has the standing figure (~10% of a body's cells); this is
+        // that number made readable per run rather than fixed here, which
+        // is deliberately out of T1's scope -- fixing it means deciding
+        // where a cell with nowhere to go *should* end up, and that is a
+        // settling question rather than a fragmentation one.
+        world.structural_failures.record_settle_loss(1);
     }
     // **Both where a cell was aimed and where it actually went**, and the
     // union rather than either alone.
@@ -2840,7 +3144,7 @@ mod tests {
     fn terminal_of(side: i32) -> f32 {
         let mut w = deep_tank();
         let cells: Vec<BodyCell> = (0..side)
-            .flat_map(|dx| (0..side).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+            .flat_map(|dx| (0..side).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
             .collect();
         w.chunk_bodies.push(ChunkBody::falling(cells, 40.0, 45.0, 0.0));
         let mut fastest = 0.0f32;
@@ -2910,7 +3214,7 @@ mod tests {
             w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
         }
         let cells: Vec<BodyCell> =
-            (0..6).flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 })).collect();
+            (0..6).flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 })).collect();
         // Dropped from high enough to be moving fast when it arrives, which
         // is the case that showed the artifact.
         w.chunk_bodies.push(ChunkBody::falling(cells, 60.0, 20.0, 2.0));
@@ -3167,7 +3471,7 @@ mod tests {
                 w.set(118, y, Cell::new(material::STONE, 0).with_attached(true));
             }
             let cells: Vec<BodyCell> = (0..6)
-                .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0 }))
+                .flat_map(|dx| (0..4).map(move |dy| BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 }))
                 .collect();
             let mut body = ChunkBody::at(cells, 60.0, start_y);
             body.vy = vy;
@@ -4162,6 +4466,265 @@ mod tests {
         );
     }
 
+    // --- T1: the fragment ladder's floor, the flood's neighbourhood, and
+    // --- the three tiers a severed organism comes apart into.
+
+    /// A `wood` cell owned by `organism_id`, the same shape
+    /// `structural.rs`'s own organism tests build.
+    fn organism_wood(w: &mut World, organism_id: u16) -> Cell {
+        let wood = w.materials.id_of("wood").unwrap();
+        Cell::new(wood, 0).with_organism_id(organism_id)
+    }
+
+    /// A world with a tree species pushed and a bedrock floor, for the
+    /// severance tests below.
+    fn tissue_world() -> (World, u16) {
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0).with_attached(true));
+        }
+        let species = w.species.id_of("tree").expect("tree species must be loaded");
+        let id = w.push_organism(species).expect("a fresh world has organism slots free");
+        (w, id)
+    }
+
+    /// `fragment_floor` defaults to 1, which is the exponent the ladder
+    /// started at before the field existed -- so every `.ron` that says
+    /// nothing about it must draw exactly the fragment sizes it always did.
+    ///
+    /// Asserted on `stone`, the material every destruction acceptance case
+    /// in the repo is calibrated against.
+    #[test]
+    fn the_fragment_ladder_floor_defaults_to_the_exponent_that_shipped() {
+        let w = test_world();
+        assert_eq!(
+            w.materials.get(material::STONE).fragment_floor,
+            1,
+            "moving rock's ladder is not what `fragment_floor` is for -- stone must draw 2..32 exactly as it always has"
+        );
+        assert!(!w.materials.get(material::STONE).woody, "rock floods at four on purpose; see `NEIGHBOURS_8`");
+    }
+
+    /// And `wood` is the material that asked for it. Read off the registry
+    /// rather than the file, so a `.ron` edit that does not reach the
+    /// binary (`CLAUDE.md`'s `include_str!` gotcha) fails here rather than
+    /// producing a sweep of identical runs.
+    #[test]
+    fn wood_starts_its_ladder_where_a_log_is_possible() {
+        let w = test_world();
+        let wood = w.materials.id_of("wood").expect("wood");
+        let m = w.materials.get(wood);
+        assert!(m.woody, "wood must fragment at eight and sever as pieces");
+        // The smallest rung has to clear `MIN_BODY_CELLS`, which is the
+        // whole defect: two of the default ladder's five rungs were under
+        // it and were grit before shape was considered.
+        assert!(
+            1usize << m.fragment_floor >= MIN_BODY_CELLS,
+            "wood's smallest fragment target ({}) must be able to become a body at all",
+            1usize << m.fragment_floor
+        );
+        assert_eq!(w.materials.get(m.severs_into.expect("wood needs a piece tier")).name, "log");
+    }
+
+    /// The single highest-leverage line in the package, guarded directly:
+    /// the same diagonal staircase floods as **one** fragment for organism
+    /// tissue and as **five** for rock.
+    ///
+    /// A crown is mostly diagonal twigs, so a four-connected flood cuts it
+    /// at every one of them before the size ladder gets a say.
+    #[test]
+    fn organism_tissue_floods_diagonally_where_rock_does_not() {
+        let (mut w, id) = tissue_world();
+        let staircase: Vec<(i32, i32)> = (0..5).map(|i| (20 + i, 20 + i)).collect();
+        for &(x, y) in &staircase {
+            let cell = organism_wood(&mut w, id);
+            w.set(x, y, cell);
+        }
+        let mut left: HashSet<(i32, i32)> = staircase.iter().copied().collect();
+        let woody = take_fragment(&w, &mut left, (20, 20), 48, true);
+        assert_eq!(woody.len(), 5, "`Grow` placed these at eight, so a flood that reads them back must too");
+
+        let mut left: HashSet<(i32, i32)> = staircase.iter().copied().collect();
+        let rock = take_fragment(&w, &mut left, (20, 20), 48, false);
+        assert_eq!(
+            rock.len(),
+            1,
+            "rock stays four-connected on purpose -- see `diagonal_only_contact_does_not_connect_two_components`"
+        );
+    }
+
+    /// The three tiers, on one severed region: wood becomes a **piece**,
+    /// the foliage hanging off that wood **rides down with it**, and
+    /// foliage no piece reaches **scatters**.
+    ///
+    /// The middle claim is the one that changed and the one worth guarding.
+    /// Converting every leaf at the instant of severance is what the owner
+    /// saw as *"the branches fall off as whole pieces (good), but then hit
+    /// the ground and turn to dust"* — roughly 1,570 cells of `litter`
+    /// created in a single frame against 710 of `log` at rest. A leafy limb
+    /// comes off a real tree with its leaves on.
+    #[test]
+    fn a_severed_limb_carries_its_own_foliage_down() {
+        let (mut w, id) = tissue_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let log = w.materials.id_of("log").expect("log");
+        // A 12x4 slab of wood -- comfortably over `MIN_BODY_CELLS` -- with
+        // a row of foliage hanging off its underside.
+        let mut region = Vec::new();
+        for x in 20..32 {
+            for y in 20..24 {
+                let cell = organism_wood(&mut w, id);
+                w.set(x, y, cell);
+                region.push((x, y));
+            }
+            w.set(x, 24, Cell::new(leaf, 0).with_organism_id(id));
+            region.push((x, 24));
+        }
+        region.sort_unstable();
+
+        let (severed, as_pieces) = fell_severed_tissue(&mut w, &region, (20, 20));
+        assert_eq!(severed, region.len() as u32, "every cell of the region left the tree");
+        assert!(as_pieces >= 32, "48 cells of wood at wood's own ladder must promote as pieces, not grit -- got {as_pieces}");
+        assert!(!w.chunk_bodies.is_empty(), "a promoted piece is a body, and a body is the thing a player can watch move");
+        assert!(
+            w.chunk_bodies.iter().flat_map(|b| b.cells.iter()).all(|c| c.organism_id == id),
+            "a body lifted out of a tree has to remember which tree, or it lands as inert wood"
+        );
+        // The foliage left the grid **with** the wood rather than being
+        // converted where it hung.
+        let carried = w.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.material == leaf).count();
+        assert!(carried >= 8, "the leaves hanging off a promoted limb must ride down on it, not turn to powder in mid-air -- {carried} of 12 carried");
+        assert_eq!(w.materials.get(log).name, "log", "test setup: the piece tier must exist");
+    }
+
+    /// And the half that must **not** change: a leaf never seeds a fragment
+    /// and never sizes one, so foliage that no woody piece reaches still
+    /// scatters rather than flying as a slab of its own.
+    ///
+    /// This is `Reports/physical-trees-design-2026-08-23.md` §5.3's actual
+    /// argument, and it is what keeps "leaves ride down" from quietly
+    /// becoming "leaves are logs". Without the wood-only seed rule this
+    /// clump is 24 cells — three times `MIN_BODY_CELLS` — and would promote
+    /// as a body made entirely of foliage.
+    #[test]
+    fn foliage_no_piece_reaches_still_scatters_and_never_seeds_one() {
+        let (mut w, id) = tissue_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let litter = w.materials.id_of("litter").expect("litter");
+        let mut region = Vec::new();
+        for x in 20..32 {
+            for y in 20..22 {
+                w.set(x, y, Cell::new(leaf, 0).with_organism_id(id));
+                region.push((x, y));
+            }
+        }
+        region.sort_unstable();
+
+        let (severed, as_pieces) = fell_severed_tissue(&mut w, &region, (20, 20));
+        assert_eq!(severed, region.len() as u32, "every cell of the region left the tree");
+        assert_eq!(as_pieces, 0, "a clump of pure foliage is not a piece however large it is");
+        assert!(w.chunk_bodies.is_empty(), "a leaf must never seed a fragment -- 24 cells of it would otherwise clear MIN_BODY_CELLS");
+        for &(x, y) in &region {
+            assert_eq!(w.get(x, y).material, litter, "unclaimed foliage scatters, which is the third tier");
+        }
+    }
+
+    /// A landed piece is **dead tissue**, not live wood — and a `wood` wall
+    /// somebody painted is still a wall.
+    ///
+    /// The pair is the test. Keying the conversion on the material would
+    /// turn a knocked-down player-built wall into logs; keying it on
+    /// `BodyCell::organism_id` is what tells the two apart.
+    #[test]
+    fn a_landed_tree_piece_settles_as_log_and_painted_wood_does_not() {
+        let (mut w, id) = tissue_world();
+        let wood = w.materials.id_of("wood").expect("wood");
+        let log = w.materials.id_of("log").expect("log");
+        let bar = |dx: i32, organism_id: u16| BodyCell { dx, dy: 0, material: wood, shade: 0, organism_id };
+
+        settle(&mut w, &ChunkBody::at((0..6).map(|dx| bar(dx, id)).collect(), 10.0, 40.0));
+        settle(&mut w, &ChunkBody::at((0..6).map(|dx| bar(dx, 0)).collect(), 30.0, 40.0));
+
+        for dx in 0..6 {
+            assert_eq!(w.get(10 + dx, 40).material, log, "a promoted limb lands as dead tissue, not as living wood");
+            assert_eq!(w.get(10 + dx, 40).organism_id(), 0, "and it is not re-attached to the tree it came off");
+            assert_eq!(w.get(30 + dx, 40).material, wood, "a painted `wood` wall has no organism id and must land as the wall it was");
+        }
+    }
+
+    /// `promote` declines to schedule a structural check around organism
+    /// cells that are already leaving.
+    ///
+    /// The organism support search is hop-bounded, so a check fired inside
+    /// a crown that is coming down reads everything past the span limit as
+    /// unsupported and converts it to deadwood -- `CLAUDE.md`'s amputation
+    /// gotcha, firing from inside the fall. Inert neighbours keep their
+    /// check, because a ledge that just lost what was on it has genuinely
+    /// changed.
+    #[test]
+    fn promoting_tissue_does_not_schedule_checks_into_the_crown_it_left() {
+        let (mut w, id) = tissue_world();
+        let piece: Vec<(i32, i32)> = (20..30).map(|x| (x, 20)).collect();
+        for &(x, y) in &piece {
+            let cell = organism_wood(&mut w, id);
+            w.set(x, y, cell);
+        }
+        // The rest of the crown, still attached, one row up.
+        for x in 20..30 {
+            let cell = organism_wood(&mut w, id);
+            w.set(x, 19, cell);
+        }
+        w.begin_step();
+        w.take_touched_chunks();
+        let before = w.active_site_count();
+        promote(&mut w, &piece, None);
+        assert_eq!(
+            w.active_site_count(),
+            before,
+            "a check scheduled into tissue that is already leaving is the amputation landmine firing from inside the fall"
+        );
+
+        let mut inert = test_world();
+        let slab: Vec<(i32, i32)> = (20..30).map(|x| (x, 20)).collect();
+        for &(x, y) in &slab {
+            inert.set(x, y, Cell::new(material::STONE, 0));
+            inert.set(x, y - 1, Cell::new(material::STONE, 0));
+        }
+        inert.begin_step();
+        let before = inert.active_site_count();
+        promote(&mut inert, &slab, None);
+        assert!(
+            inert.active_site_count() > before,
+            "rock that lost what was resting on it must still be re-asked -- the decline is about tissue, not about promotion"
+        );
+    }
+
+    /// Same build, same seed, same answer -- including the new 8-connected
+    /// walk, which is the place `Reports/physical-trees-design-2026-08-23.md`
+    /// §2a names as the exact shape of issue #7's live determinism
+    /// violation (iterating a `HashSet`).
+    #[test]
+    fn severing_the_same_limb_twice_produces_the_same_pieces() {
+        let sizes = || {
+            let (mut w, id) = tissue_world();
+            let mut region = Vec::new();
+            for x in 20..40 {
+                for y in 20..28 {
+                    let cell = organism_wood(&mut w, id);
+                    w.set(x, y, cell);
+                    region.push((x, y));
+                }
+            }
+            region.sort_unstable();
+            fell_severed_tissue(&mut w, &region, (20, 20));
+            let mut out: Vec<Vec<(i32, i32)>> =
+                w.chunk_bodies.iter().map(|b| b.cells.iter().map(|c| (c.dx, c.dy)).collect()).collect();
+            out.iter_mut().for_each(|c| c.sort_unstable());
+            out
+        };
+        assert_eq!(sizes(), sizes(), "the piece walk and the ladder must not depend on hash order");
+    }
+
     #[test]
     fn struck_rock_stops_being_part_of_the_background_mass() {
         // Loosening is what lets the *cascade* finish the job after the blow
@@ -4248,7 +4811,7 @@ mod tests {
             w.set(23, y, cell.with_crack_right(true));
         }
         let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
-        let fragment = take_fragment(&w, &mut left, (20, 20), 48);
+        let fragment = take_fragment(&w, &mut left, (20, 20), 48, false);
 
         assert!(!fragment.is_empty(), "test setup: the flood should still take the seeded half");
         assert!(
@@ -4275,7 +4838,7 @@ mod tests {
         // Seeded on the *far* side this time, so every crossing attempt is
         // a `-x` step asking cell 23 about its own right edge.
         let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
-        let fragment = take_fragment(&w, &mut left, (27, 20), 48);
+        let fragment = take_fragment(&w, &mut left, (27, 20), 48, false);
         assert!(
             fragment.iter().all(|&(x, _)| x >= 24),
             "the flood crossed a scored edge travelling left: {:?}",
@@ -4290,10 +4853,10 @@ mod tests {
             w.set(x, 22, cell.with_crack_down(true));
         }
         let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
-        let down = take_fragment(&w, &mut left, (20, 20), 48);
+        let down = take_fragment(&w, &mut left, (20, 20), 48, false);
         assert!(down.iter().all(|&(_, y)| y <= 22), "the flood crossed a scored edge travelling down");
         let mut left: HashSet<(i32, i32)> = region.iter().copied().collect();
-        let up = take_fragment(&w, &mut left, (20, 25), 48);
+        let up = take_fragment(&w, &mut left, (20, 25), 48, false);
         assert!(up.iter().all(|&(_, y)| y >= 23), "the flood crossed a scored edge travelling up");
     }
 
@@ -4389,7 +4952,7 @@ mod tests {
         for x in 14..=16 {
             w.set(x, 32, Cell::EMPTY);
         }
-        let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0 };
+        let bar = |dx: i32| BodyCell { dx, dy: 0, material: material::STONE, shade: 0, organism_id: 0 };
         let body = ChunkBody::at(vec![bar(-1), bar(0), bar(1)], 15.0, 32.0);
 
         // The setup check first: if the turned bar does not actually land in

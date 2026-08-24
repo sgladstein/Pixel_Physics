@@ -136,7 +136,31 @@
     // spray down. That is the property the note above actually wanted -- a
     // leaf is not a load path -- now enforced rather than approximated by a
     // small number.
-    breaks_into: "deadwood",
+    // **Litter, not deadwood, and no `woody` above.** A crown is roughly a
+    // third foliage by cell count (10,136 of 28,421 on the measured stand),
+    // and a leaf is not a small log: it has different physics on four
+    // numbers already and it must not sit on the fragment ladder padding a
+    // draw into a piece that is mostly foliage. So severed foliage goes
+    // down `breaks_into` as scatter while the wood beside it goes on the
+    // ladder -- the third of the three tiers in
+    // `Reports/physical-trees-design-2026-08-23.md` §5.3.
+    //
+    // `deadwood` was the target before this and was simply the only debris
+    // material that existed when leaves got one. `litter` is what the decay
+    // and ant layers already read (`litter.ron`'s own closing note records
+    // that nothing wrote it yet), so this is the switch-over that note is
+    // waiting for as much as it is a felling change.
+    breaks_into: "litter",
+    // **A leaf that rides down on its branch lets go when the branch
+    // lands.** `severs_into` is consulted only for a cell that left the
+    // grid as organism tissue, so this is the landing half of foliage
+    // riding with the piece it hangs on -- see `rigid::fell_severed_tissue`
+    // for why it rides at all. Same target as `breaks_into` deliberately:
+    // where the leaf ends up is the forest floor either way, and the whole
+    // difference the ride buys is that it gets there *with the branch*
+    // rather than as a cloud of powder created the instant the branch was
+    // cut.
+    severs_into: "litter",
 
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
