@@ -1311,10 +1311,18 @@ is a different claim from having done what those licences ask in return.
 | ~~§4a~~ | ~~**Apache-2.0 §4d NOTICE propagation.**~~ **(resolved 2026-08-24 by automating it, and the manual version would have got it wrong.)** `cargo-about` reproduces licence *texts* and does not collect crates' own `NOTICE` files, so this was filed as a manual pass over the 10 Apache-only crates. Done by hand, that pass finds **nothing** — none of those ten ships a `NOTICE`. `scripts/notices.sh` now scans **all 213 resolved components** instead, because the obligation follows the NOTICE file rather than the licence, and it finds **one**: `cfg_aliases 0.2.2` ships `NOTICES.md` disclosing that its macro is derived from `tectonic_cfg_support`, whose MIT copyright notice must therefore be reproduced. `cfg_aliases` is **MIT**, not Apache — the crate the filed scope would never have looked at. Its contents are now carried in `THIRD-PARTY-NOTICES.txt` automatically, and the section renders "none" rather than vanishing when empty, so a dropped step is visible. | chore |
 | §4b | **Wire `THIRD-PARTY-NOTICES.txt` into packaging** so it lands beside the executable, or is reachable from an in-game credits screen. There is no packaging step in this repo yet, which is exactly why the file is committed rather than generated at build time — but a notices file that ships only inside the source tree does not discharge the obligation, because the obligation is that the notice travels with the *binary*. Whoever builds the first release pipeline owns this. | chore, blocks release |
 
-Standing check, cheap and easy to forget: **`bash scripts/notices.sh --check`
-after any change to `Cargo.toml` or `Cargo.lock`.** A new dependency silently
-invalidates the committed notices file, and nothing else in the repo notices —
-`docscheck.sh` does not know about it and CI does not run it.
+**Both are gated now (2026-08-24), so this is no longer something to
+remember.** `.github/workflows/notices.yml` runs `scripts/licensecheck.sh` and
+`scripts/notices.sh --check` on push and PR — but **only** when one of
+`Cargo.toml`, `Cargo.lock`, `about.toml`, `about.hbs`, either script, or the
+workflow itself changes, which is the complete set of inputs either check
+reads. It is a separate workflow rather than a job in `ci.yml` because
+`paths:` filters per workflow, not per job, and because those files change on
+2 commits in 635 — running it in the matrix would pay on every push for a
+failure that cannot occur on 99.7% of them.
+
+Run `bash scripts/notices.sh --check` locally anyway when you touch a
+dependency; the gate is the backstop, not the loop.
 
 **Stale in the table above, verified 2026-08-22:** #10 says the default
 branch is `main`, "a 15-byte stub — the project lives on `master`".

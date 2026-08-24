@@ -3001,3 +3001,48 @@ so a dropped step is visible instead of silent; output is byte-identical across
 runs.
 
 Still open: §4b, wiring the file into a packaging step once one exists.
+
+## 2026-08-24 — the licensing checks are gated, path-filtered
+
+`scripts/licensecheck.sh` and `scripts/notices.sh --check` were conventions in
+`PLAN.md`, which is where a check that nobody is forced to run goes to decay.
+Both now run in CI via `.github/workflows/notices.yml`.
+
+**Why gate rather than trust the note.** This failure class has no symptom. A
+new dependency leaves `THIRD-PARTY-NOTICES.txt` describing the old graph and
+the build succeeds, the tests pass, clippy is clean, the game runs identically,
+and the notices file still reads as a plausible 4,668 lines of genuine licence
+text. Nothing goes red until a licence is enforced against a shipped binary.
+`docscheck.sh`'s own header records the general form: *"a check that runs
+catches the third instance; a convention alone did not catch the second."* The
+same argument, at higher stakes.
+
+**Why a separate workflow, not a job in `ci.yml`.** Measured: **2 of the 635
+commits in the available history touch `Cargo.lock` or `Cargo.toml`**, one of
+them being the relicensing commit itself. Neither check can fail on any other
+commit, so `paths:` filtering is the whole design — and GitHub filters `paths:`
+per *workflow*, not per job, so getting it inside `ci.yml`'s nine-job matrix
+would need a third-party action. A separate file is cheaper, and it keeps
+`ci.yml` (a contested file) out of the change entirely. The filter lists every
+input either check reads: both manifests, `about.toml`, `about.hbs`, both
+scripts, and the workflow itself.
+
+Two decisions in that file that look like style and are load-bearing:
+
+- **`cargo-about` is pinned to 0.9.2**, the version that generated the
+  committed file. `--check` compares byte-for-byte, so a floating tool would
+  turn the gate red on a commit that changed nothing — a guard failing for a
+  reason unrelated to its fault, which is precisely how a gate earns the
+  reflex of being ignored. The trap has a local half too, now in `notices.sh`'s
+  header: a plain `cargo install cargo-about` picks up a newer release and
+  hands you a CI failure whose diff is pure formatting.
+- **The two `paths:` lists are duplicated, not shared through a YAML anchor.**
+  Written with an anchor first, and it parsed cleanly under pyyaml. **GitHub
+  Actions does not support YAML anchors or aliases** — the workflow would have
+  been rejected on GitHub while looking correct in the editor, which for a gate
+  is the worst failure shape available: it does not fail, it never runs.
+
+Corrected in the same change: `PLAN.md` and the report both said "nothing else
+in the repo notices — `docscheck.sh` does not know about it and CI does not run
+it", and `licensecheck.sh`'s header said it was deliberately not wired into CI.
+All three were true when written and false the moment the workflow landed.

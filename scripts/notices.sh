@@ -18,6 +18,15 @@
 # Scope is the four desktop targets in about.toml, deliberately narrower than
 # Reports/dependency-license-audit.md's all-targets superset -- see that file's
 # comment. You attribute what you distribute.
+#
+# **KEEP YOUR LOCAL cargo-about AT 0.9.2.** .github/workflows/notices.yml pins
+# it, because `--check` compares byte-for-byte and is therefore sensitive to
+# the tool's own output formatting. So a plain `cargo install cargo-about`
+# locally can pull a newer release, regenerate a file that is perfectly
+# correct, and hand you a CI failure whose diff is pure formatting with no
+# dependency change anywhere in the commit. Upgrading is fine -- but bump the
+# pin in the workflow and regenerate in the same commit, or the two disagree.
+# Install with: cargo install cargo-about --version 0.9.2 --locked --features cli
 set -uo pipefail
 cd "$(dirname "$0")/.."
 

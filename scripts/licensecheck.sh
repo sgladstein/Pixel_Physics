@@ -21,9 +21,14 @@
 # never in the set. A false positive on a permissive crate is the expensive
 # direction here: it trains you to ignore the output.
 #
-# Not wired into CI as a gate, same reasoning as docscheck.sh: run it after
-# touching Cargo.toml or Cargo.lock. It needs network on a cold cache --
-# `cargo metadata` fetches the index.
+# Gated by .github/workflows/notices.yml (2026-08-24), which runs this and
+# `notices.sh --check` on push and PR, path-filtered to the files either check
+# actually reads. That is a departure from docscheck.sh's "run it by hand"
+# posture, and the difference is the failure shape: a stale doc link is visible
+# to the next reader, whereas a copyleft crate arriving in the tree has no
+# symptom at all until the licence is enforced against a shipped binary.
+# Still fine to run by hand. It needs network on a cold cache -- `cargo
+# metadata` fetches the index.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 

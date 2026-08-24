@@ -167,9 +167,21 @@ stays visible in the output.
   as `PLAN.md` §4b. The obligation is that the notice travels with the
   *binary*; a file that ships only inside the source tree does not discharge
   it.
-- **Re-run `bash scripts/notices.sh --check` after any dependency change.** A
-  new crate silently invalidates the committed file, and nothing else notices:
-  `docscheck.sh` does not know about it and CI does not run it.
+- ~~**Re-run `bash scripts/notices.sh --check` after any dependency change.**~~
+  **Gated 2026-08-24** by `.github/workflows/notices.yml`, which runs both this
+  and `licensecheck.sh` on push and PR whenever any input to either changes.
+  Still worth running locally when you touch a dependency — the gate is the
+  backstop, not the loop.
+
+  Two things about that workflow that look like style and are not. Its
+  `cargo-about` version is **pinned to 0.9.2**, the version that generated the
+  committed file: `--check` compares byte-for-byte, so a floating tool would
+  turn the gate red on a commit that changed nothing, and a guard that fails
+  for reasons unrelated to its fault is one people learn to ignore. And its two
+  `paths:` lists are **duplicated rather than shared through a YAML anchor**,
+  because GitHub Actions does not support anchors — the file would parse
+  locally under any YAML library and be rejected on GitHub, so the gate would
+  look correct and simply never run.
 - **A lawyer.** The MIT-grants-selling-rights reading is plain from the licence
   text, but if money is going to ride on this, the relicensing and the notices
   file both deserve a professional read. Nothing here is legal advice.
