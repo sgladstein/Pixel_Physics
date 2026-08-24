@@ -1802,7 +1802,25 @@ impl World {
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
+            contact_root_cells: 0,
             shoot_cells: 0,
+            anchor_cells: 0,
+            anchor_moment: 0.0,
+            crown_moment: 0.0,
+            // **1.0, not 0.0, and the direction is deliberate.** A plant
+            // that has not had an upkeep pass yet reads as *well anchored*,
+            // so the first thing a germinating seedling does is not divert
+            // its whole budget into roots on the strength of a number
+            // nothing has computed. Same bias as `OrganismCell::support`
+            // defaulting to "anchored": a rule with a consequence must
+            // default to the answer that defers.
+            anchor_status: 1.0,
+            slenderness: 0.0,
+            income: 0.0,
+            maintenance_basis: 0.0,
+            maintenance: 0.0,
+            maintenance_unpaid: 0.0,
+            starved_cells: 0,
             collar_y: None,
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.

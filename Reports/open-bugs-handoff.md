@@ -2554,6 +2554,82 @@ the walk seeds its heap from it and drops it — so an anchorage term wanting
 inside that seeding loop, not a new traversal. `OrganismCell::support` is the
 per-cell distance the same walk already writes.
 
+### P2. The economy re-derivation — what moved, what did not, and the six things that were built and withdrawn — **2026-08-24**
+
+Package P2 of the plant implementation split, following P1 and P3. Full
+account with every table in
+`Reports/plant-economy-rederivation-2026-08-23.md`; this section is what the
+*other lanes* need from it.
+
+**What landed.** Superlinear maintenance respiration on `q_peak` (Takenaka's
+1.5) plus a flat mass term on every living cell; the growth pool and
+`break_buds`' `supportable` both net the bill, so growth is NPP rather than
+GPP; night income at `0.25 + 0.75 x daylight_fraction`; water capacity read
+off root cells that **touch soil** rather than off root mass; a whole-plant
+die-back that sheds the most distal abandoned tissue when the bill exceeds
+income; and anchorage as five quantities on `OrganismState`
+(`anchor_cells`, `anchor_moment`, `crown_moment`, `anchor_status`,
+`slenderness`), feeding the root-allocation weight and nothing else.
+
+Eight world seeds, paired against `main`, ensemble medians: a plant is 27%
+smaller at 28,800 frames and 28% smaller at 45,000, foliage share is up 2
+and 4 points, the stem above the base is 13 against 15 and 17, and **8 of 8
+founders establish on every seed at both horizons**, unchanged. Frame cost
+on `ascii`'s tree scene is inside the run-to-run spread of a single binary.
+
+**Three things every other lane should know.**
+
+1. **`anchor_status`, `anchor_moment`, `crown_moment` and `slenderness` are
+   live and free**, computed in walks that already ran. Lane S's wind-throw
+   wants `crown_moment` (unclamped overturning demand) against
+   `anchor_moment`. **Nothing in the plant lane schedules a structural check
+   off any of them**, and §11.7's trap says nothing should.
+2. **§U is not closed and the exit is structurally unreachable.**
+   `ROOT_TIP_POOR` still reads 0 on all four arms with the whole economy in.
+   The fix §U names — gating the amplifier on solvency — was built and
+   withdrawn: under a maintenance economy a plant at its ceiling is
+   insolvent by construction, so the gate shut root re-initiation on every
+   mature plant and produced the death spiral `allocate_to_frontier`
+   documents (6-8 founders of 8 against 8 of 8; median root cells 156
+   against 305). A replacement needs a gate that can tell "at its ceiling"
+   from "in trouble".
+3. **Bug §A is now exactly, rather than approximately, dead — and
+   `max_active_tips` is not the cause.** P1's lead was `ROOT_TIP_AT_CAP` at
+   2 firings against 43 between the two slot-1 draws. With the economy
+   re-derived that exit reads **0 in both arms**, and the two arms produce
+   **byte-identical** root and shoot counts (135 / 2,859). The cap is no
+   longer binding; root extension is carbon-bound. Raising
+   `tree.ron`'s root `max_active_tips` would therefore be a change that
+   moves nothing, and it was not made. A fifth explanation for §A should
+   start from the carbon bound, not from the cap.
+
+**Two negative results, both of which gate downstream work.**
+
+- **Adult mortality has a cause, it fires, and nothing dies.** 5,300-9,950
+  cells shed to starvation per stand over 45,000 frames, and `senescent`
+  reads **0 on every seed at both horizons**, exactly as before. Three
+  blockers, and only the third is a defect: a light- or water-limited plant
+  reaches a genuine small equilibrium rather than dying (correct); dormant
+  buds keep a plant `is_vital` (correct, and P3's own observation); and a
+  compact stump has almost no cells whose removal would not disconnect a
+  neighbour, so the exclusions that make die-back safe on a crown make it
+  nearly inert on a stump. **A2's turnover still has no woody arm.**
+- **Selection throughput moved the wrong way.** Inherited-genome
+  establishments: 1 -> 0 at 28,800 and 2 -> 0 at 45,000 over eight seeds;
+  organisms born 1,067 -> 696. `Reproduce` fires per mature cell, so
+  fecundity is canopy size and every plant is now smaller. **No selection or
+  adaptation claim can be made for trees on this branch.** What moves this
+  number is founder mortality and disturbance, not economy tuning.
+
+**One thing left undone deliberately.** `SecondaryThicken` lays wood for
+free, and that is why upkeep bounds a plant's size without bounding its
+tissue: a starving plant re-lays almost exactly what die-back removes (5,914
+cells shed over 60,000 frames for a net loss of ten). Charging it was built
+and withdrawn — it cost establishment at full pressure and bought nothing
+measurable at the pressure that restored it. In `dead-ends.md` with the
+re-test condition: the charge belongs in the allocation pool, not in the
+thickening cell's own carbon, which transport refills within a tick.
+
 ### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
 
 **Resolution of the two mechanical claims**, with the full account and every

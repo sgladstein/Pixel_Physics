@@ -1514,7 +1514,122 @@ pub struct OrganismState {
     /// (`Reports/plant-genome-design.md` §4.8).
     pub endowment: f32,
     pub root_cells: u32,
+    /// **Root cells that share a face with soil** — the uptake surface, as
+    /// opposed to the mass.
+    ///
+    /// A root cell walled in by its own siblings shares no face with
+    /// anything it could drink from, so it can absorb nothing while still
+    /// costing carbon to build and to run. `Reports/root-blob-and-uptake-
+    /// surface-2026-08-23.md` measured that interior at **33.1% / 36.1% /
+    /// 33.3%** of the root system at 10,800 / 25,200 / 43,200 frames, so
+    /// it is a third of every root system and not a rounding error.
+    ///
+    /// **Read the second finding before treating this as a brake.** The
+    /// interior share does *not* rise with mass — root cells nearly
+    /// quadruple across that table while it holds at about one third — so
+    /// pricing contact is a flat tax on root mass, not a bound on it. What
+    /// it does buy is the thing the owner asked for: per-plant contact
+    /// already spans **51%–79% at comparable mass, same genome, same
+    /// scene**, and nothing was pricing it, so nothing could select on it.
+    ///
+    /// A face, not eight neighbours, for the reason `diffuse_resource`
+    /// stays four-connected while `Grow` places at eight: an exchange
+    /// crosses a shared face, and a diagonal cell shares only a corner.
+    pub contact_root_cells: u32,
     pub shoot_cells: u32,
+    /// **How many of this plant's cells are structural anchors** — the
+    /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
+    /// loop rather than in a walk of its own.
+    ///
+    /// That loop already enumerated the set to seed its heap and then
+    /// dropped it (`open-bugs-handoff.md` §P3, "the anchor *set* itself is
+    /// never materialised"). Counting it costs one increment per cell in a
+    /// pass that was already visiting every cell.
+    pub anchor_cells: u32,
+    /// **The anchor plate's resisting moment**, `Σ|x − x̄|` over the anchor
+    /// set: how many anchors there are *and* how far out they reach,
+    /// in one number, from the same free tally.
+    ///
+    /// Rises with count and with spread, which is what an anchor plate
+    /// actually trades: a hundred anchors under the trunk resist less than
+    /// forty spread across two metres. No constant in it — it is a sum of
+    /// distances, so it needs no calibration to *be* right, only to be
+    /// compared against a demand.
+    pub anchor_moment: f32,
+    /// **How well anchored this plant is for the crown it carries**, 0..1 —
+    /// `anchor_moment` against the overturning demand of the shoot above
+    /// it, clamped.
+    ///
+    /// The counterweight that makes root allocation a trade instead of a
+    /// tax. `physical-trees-design-2026-08-23.md` §11.1: a quantity with a
+    /// cost and no benefit has exactly one optimum, the minimum, and a
+    /// working economy finds it and holds every plant there — the visible
+    /// result being one root morphology everywhere, which is the complaint
+    /// the owner has already made twice.
+    ///
+    /// **A whole-plant number, and that is load-bearing.** §11.7's first
+    /// trap, and `CLAUDE.md`'s "which object does this rule evaluate": the
+    /// quantities here — a crown's mass, its lever arm, an anchor
+    /// half-width — are defined for a plant and undefined for a cell. This
+    /// is read by `allocate_to_frontier`, an allocation decision; nothing
+    /// in the plant lane schedules a structural check off it. Lane S owns
+    /// the storm that collects.
+    /// **The crown's overturning demand**, `Σ (collar − y)` over shoot
+    /// tissue: mass times lever arm, in one sum from the walk
+    /// `organism_upkeep` already runs.
+    ///
+    /// Stored beside `anchor_moment` rather than folded into
+    /// `anchor_status`, for two reasons. The ratio of the two is what
+    /// `ANCHOR_DEMAND` is derived from, and a clamped status cannot be
+    /// divided back out to recover it. And lane S's wind-throw wants the
+    /// unclamped demand directly — a gust delivers a moment, and what it
+    /// has to beat is this.
+    pub crown_moment: f32,
+    pub anchor_status: f32,
+    /// **Height of the shoot above the collar over stem width at the
+    /// base** — read, never assigned (§11.2).
+    ///
+    /// `thicken` already ties width to the leaf mass above it, so a
+    /// slender plant is what happens when the crown flushes faster than the
+    /// stem thickens. Stored so lane S's wind-throw can pick its rung off a
+    /// number the growth model produced rather than one a rule invented.
+    pub slenderness: f32,
+    /// **What this plant's standing tissue cost to run last tick** — the
+    /// maintenance-respiration bill, summed over the walk that charges it.
+    /// **What the plant earned last tick**, in carbon — the income
+    /// `allocate_to_frontier` divides, stored so it can be read against
+    /// `maintenance` without a second derivation of the same expression.
+    ///
+    /// Night-scaled, like the pool it feeds: this is money, not policy.
+    pub income: f32,
+    /// **The bill at unit price** — `Σ (q_peak / L_node)^MAINTENANCE_EXPONENT`
+    /// over shoot tissue, before `MAINTENANCE_PER_NODE` multiplies it.
+    ///
+    /// Stored because a constant has to be *derived* rather than chosen, and
+    /// the only honest way to derive this one is to read the quantity it
+    /// scales on a stand the charge is not yet acting on. With the price at
+    /// zero this and `income` give the price that puts a mature tree at any
+    /// chosen bill-to-income ratio directly, instead of by bisecting a
+    /// feedback loop. Keeping it afterwards means the same derivation can be
+    /// re-run the day anything upstream of `q_peak` moves — which, on this
+    /// quantity's own history (four re-derivations of `pipe_ratio`), it will.
+    pub maintenance_basis: f32,
+    pub maintenance: f32,
+    /// **The part of that bill the plant could not pay**, in carbon.
+    ///
+    /// The continuous quantity `CLAUDE.md` prefers over a count of starving
+    /// cells: counts give knife-edge margins and sums separate cleanly.
+    /// Zero on any plant in surplus, which is most of them for most of
+    /// their lives.
+    pub maintenance_unpaid: f32,
+    /// **Cells lost to starvation, cumulative** — the "did it fire at all"
+    /// counter for crown recession and the root interior.
+    ///
+    /// `CLAUDE.md` is explicit that an image cannot answer this: a collapse
+    /// rendered as coherent falling slabs was read as "chunks are working"
+    /// while the body count was zero for the whole run. Every card this
+    /// mechanism is posted on carries this number in its `meta`.
+    pub starved_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
     /// occupies, refreshed once per organism tick in the walk
     /// `plant::organism_upkeep` is already doing.
@@ -2478,6 +2593,28 @@ pub struct OrganismCell {
     /// mobilising reserves instead of quietly giving up (see
     /// `plant::break_buds`).
     pub q_peak: f32,
+    /// **The support this cell carries *right now*** — the same basipetal
+    /// sum as `q_peak`, before the high-water `max`.
+    ///
+    /// `accumulate_support` has always computed this and thrown it away on
+    /// the line that latches the peak. Keeping it costs one `f32` per cell
+    /// and answers a question the peak provably cannot: **is this cell
+    /// still carrying any living foliage?** The peak says what it once
+    /// carried and, being monotone on purpose, keeps saying so for ever.
+    ///
+    /// That difference is what `organism_upkeep`'s die-back rule is keyed
+    /// on, and the reason it is safe. A cell at `q_now == 0` supports no
+    /// leaf anywhere above it in the plant's own topology, so removing it
+    /// cannot strand foliage: the crown recedes from its abandoned tips
+    /// inward, and the trunk — which carries the whole live crown — is not
+    /// a candidate while a single leaf remains. A rule keyed on the peak
+    /// instead would price the trunk highest *and* make it the first thing
+    /// to die, which is a hole in a stem, not crown recession.
+    ///
+    /// `plant::break_buds`' known defect (`q_peak` remembers, nothing reads
+    /// the difference) wants exactly this pair as well; P5's resprout is
+    /// the other consumer and needs no second field.
+    pub q_now: f32,
     /// The direction this shoot is **actually travelling**, carried forward
     /// with inertia rather than re-derived from the immediate
     /// neighbourhood each step.
@@ -2585,6 +2722,7 @@ impl Default for OrganismCell {
             carbon_conductance: [CONDUCTANCE_MIN; 4],
             order: 0,
             q_peak: 0.0,
+            q_now: 0.0,
             heading: (0.0, 0.0),
             path_len: 0,
             primed: false,
