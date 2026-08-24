@@ -5,7 +5,14 @@ edition = "2021"
 # u64::is_multiple_of (used in update::step and parallel::step) stabilised in
 # 1.87 -- that's the real MSRV, not left implicit (issue #10).
 rust-version = "1.87"
-license = "MIT"
+# Proprietary, all rights reserved -- see LICENSE. Was `license = "MIT"` until
+# 2026-08-24; relicensed because the engine is intended to ship as a paid game
+# and MIT grants everyone the right to sell it (Reports/dependency-license-
+# audit.md holds the reasoning and the third-party inventory). `license-file`
+# rather than an SPDX id because no SPDX identifier describes "no grant".
+license-file = "LICENSE"
+# Belt and braces: proprietary source must never reach crates.io by accident.
+publish = false
 
 [dependencies]
 image = { version = "0.25.10", default-features = false, features = ["png", "gif"] }

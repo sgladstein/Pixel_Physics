@@ -2876,3 +2876,48 @@ Posted for the owner's judgement, board `felling`: cards
 second is the acceptance question, and my own reading of it is that the
 result is a lumpy pile with log-coloured masses in it rather than a trunk
 lying on the ground, since the fall is still straight down until T2.
+
+## 2026-08-24 — MIT reversed to proprietary; third-party tree audited
+
+Occasioned by a question about making the repository private, which turned out
+to have the smaller half of the problem in it. The repository was **MIT
+licensed** (`a729965`, 2026-08-21), and MIT grants every recipient the right to
+*sell* the software — so the licence, not the visibility, was what stood
+against the owner's stated intent to ship this as a paid game. Relicensed to
+all-rights-reserved proprietary: `LICENSE` rewritten, `Cargo.toml` moved to
+`license-file = "LICENSE"` plus `publish = false`, README's licence section
+rewritten, and the two documents that recommended MIT (`Reports/
+pixel-physics-issues.md` §Issue 10, and this log's own Issue #10 entry above)
+now point at the report so nobody restores it as housekeeping.
+
+Checked, not assumed: `git shortlog -sne --all` shows **one human author**
+across three git identities, so there was no contributor to ask; the 421
+`Claude <noreply@anthropic.com>` commits are AI-generated and create no second
+copyright holder. Exposure was three days at 0 forks / 0 stars / 0 watchers.
+The reversal **cannot** revoke MIT for copies taken in that window — `LICENSE`
+names the commit range (`a729965`..`1882dc9`) rather than leaving it to be
+reconstructed.
+
+Third-party audit, `cargo metadata --locked`: **301 packages, all permissive,
+none missing an SPDX field, no GPL/AGPL/MPL/SSPL anywhere.** The single
+GPL-family token is `r-efi` at `MIT OR Apache-2.0 OR LGPL-2.1-or-later`, which
+is inapplicable twice — LGPL is one of three options, and the crate is
+target-gated to `target_os = "uefi"` and cannot compile into a desktop build.
+Because `cargo metadata` resolves *all* targets, the inventory is a strict
+superset of any real build, so a clean superset settles every platform without
+a per-target `cargo tree`.
+
+`scripts/licensecheck.sh` is the re-runnable gate (not in CI, same reasoning as
+`docscheck.sh`). Its first version **reported `unicode-ident` as BLOCKING**:
+the expression parser split top-level `OR`, then `AND`, then looked conjuncts
+up in a set, so `(MIT OR Apache-2.0) AND Unicode-3.0` failed on a conjunct that
+was not a leaf. Now recursive. Verified red per the guard rule by injecting
+four faults into the metadata — `GPL-3.0-only` and `MIT AND AGPL-3.0` both
+BLOCKING, a null licence field MISSING, and `GPL-2.0 OR MIT` correctly passing
+as an election — exit 1 on the first two, exit 0 on the real tree.
+
+Still owed before shipping, and easy to forget because this audit *looks* like
+it discharged them: a generated `THIRD-PARTY-NOTICES.txt` (MIT/BSD/ISC/Apache
+all require notices to travel with the binary; compatibility is not
+attribution), Apache-2.0 §4d NOTICE propagation for the 10 Apache-only crates,
+and a professional read. Report: `Reports/dependency-license-audit.md`.

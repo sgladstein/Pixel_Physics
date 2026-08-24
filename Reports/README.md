@@ -393,6 +393,16 @@ field rework — see `open-bugs-handoff.md`.
   fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
   of owner review including two framing failures of the session's own.
 
+## Licensing and distribution
+
+- [dependency-license-audit.md](dependency-license-audit.md) — **settled
+  2026-08-24.** Why the project's own MIT licence was reversed to proprietary
+  (MIT grants everyone the right to *sell* it, and the game is meant to be
+  sold), what that reversal cannot undo, and the 301-package third-party
+  inventory: all permissive, no copyleft. **Read this before touching
+  `LICENSE` or `Cargo.toml`'s licence fields** — restoring MIT would look like
+  housekeeping and is not. `scripts/licensecheck.sh` is the live re-check.
+
 ## Open working files
 
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
