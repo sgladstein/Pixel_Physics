@@ -358,16 +358,23 @@ field rework — see `open-bugs-handoff.md`.
   as T6. Its three scheduling calls are decided (the economy half moves into
   P2; wind geography is dispatched as W4; plasticity is built as a heritable
   reaction norm), and §11.6a establishes from source that the genome already
-  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
-  been measured or rendered.
+  inherits and mutates — the gate is the slot ceiling. **§11.5 is discharged:**
+  W4 landed terrain-derived exposure, so the sheltered-valley outcome it called
+  unreachable is now reachable, and the section carries what T6 inherits — a
+  world 37% calmer per gust, and the sampling trap that makes an arbitrary
+  frame read flat. The rest of §11 is unmeasured and unrendered.
 - [physical-trees-t1-implementation.md](physical-trees-t1-implementation.md)
-  — **shipped.** The build half of `physical-trees-design-2026-08-23.md`
-  §8's T1 stage: the fragment ladder's floor, the 8-connected flood for
-  organism tissue, the three debris tiers and the `log` material,
-  `BodyCell::organism_id`. Carries the before/after on one cut (1.7% → 44%
-  of severed mass promoted), the cost bars re-measured against `main` in one
-  session, and three defects the new material found that the design could
-  not have known — including a fallen log anchoring the tree it fell off.
+  — **built; does not meet its own acceptance bar, and §4f says why.** The
+  build half of `physical-trees-design-2026-08-23.md` §8's T1 stage: the
+  fragment ladder's floor, the 8-connected flood for organism tissue, the
+  three debris tiers and the `log` material, `BodyCell::organism_id`. The
+  ladder works and is confirmed by the owner in motion (1.7% → 99% of
+  severed mass comes down as pieces); the settled pile still reads as dust,
+  because **`leaf` is 56% of the tree's cells and every one becomes a
+  `Powder`**, which no fragment ladder reaches. Also carries three defects
+  the new material found that the design could not have known — including a
+  fallen log anchoring the tree it fell off — and, in §4c–§4g, three rounds
+  of owner review including two framing failures of the session's own.
 
 ## Open working files
 
