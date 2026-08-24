@@ -559,7 +559,70 @@ numbers.
 
 ---
 
-## 14. Handoff
+## 14. "How long does it take to fill an ideal area" — it does not
+
+The owner's question on the density card, 2026-08-24: ***"patches of grass
+should spread over time and completely fill up an area without trees and the
+correct environment (temp, light, etc.) This is a fine density at the start of
+a game, but how long does it take to fill an ideal area"***. The density is
+accepted; this is the follow-up question, and it is answerable from §9's
+control arm because that arm *is* the treeless case.
+
+Woody layer off (`treedensity=0 mossdensity=0`), two seeds, 2,048-column
+worlds holding **~500 plantable columns each**, `grass_density` 0.50, measured
+on `main` **after** W4's wind geography landed (the earlier 63-from-43 figure
+in §9 predates it and is not comparable):
+
+| frames | seed 1 — plants (sown 64) | cells | seed 2 — plants (sown 63) | cells |
+|---|---|---|---|---|
+| 5,000 | 64 | 1,381 | 61 | 1,072 |
+| 10,000 | 65 | 1,391 | 60 | 1,070 |
+| 20,000 | 70 | 1,458 | 59 | 1,059 |
+| 30,000 | 69 | 1,433 | 60 | 1,064 |
+| **45,000** | **75** | **1,507** | **62** | **1,081** |
+
+**The answer is that it does not fill, and the plateau is immediate.** Grass
+reaches its sown footprint inside 5,000 frames and then holds it: over the next
+**40,000** frames — nine times longer than establishment takes — seed 1 gains
+11 plants (+17%) and seed 2 gains one (+2%). Standing cells move +9% and +1%.
+Organism slots peak at 91 of 4,095 with 0 births refused, so nothing is being
+throttled by the ceiling.
+
+Put in the terms the question asks: full cover of ~500 plantable columns at
+grass's own spacing would be roughly **250 plants**. The faster of the two
+seeds is adding **11 plants per 45,000 frames**. At that rate reaching full
+cover takes on the order of **700,000 frames**, and that extrapolation is
+generous — it assumes a linear trend the flat curve does not support.
+
+### Why, and how confident that is
+
+**Dispersal range is one cell.** `plant::set_seed` places a seed into an empty
+**8-neighbour of the parent cell** (`plant.rs`: "a seed is a falling powder",
+so the neighbour is unchosen), after which it falls and rolls. A grass plant's
+offspring therefore land inside or immediately against the clump that made
+them. **Grass cannot cross a gap**, so the positions the generator sows are
+very close to the positions grass occupies for the rest of the run — which is
+exactly the flat curve above.
+
+That reading has two independent supports — the code says the range is one
+cell, and the measurement says the footprint does not grow — and it is the
+explanation this package puts forward. **It is not isolated**, and saying so
+matters: crowding (`crowding_weight: 30.0`), the seed bank's 18,000-frame
+half-life and soil moisture on marginal ground could each also cap the stand,
+and nothing here separates them. Distinguishing them needs a run this package
+did not make — a single founder on uniformly ideal ground, measuring how far
+its descendants get — which is a scene, not a knob.
+
+**What would change it is already queued.** Review item **A5, dispersal**:
+per-species seed mass, float and carry, so wind and water move seed instead of
+it dropping at the parent's feet. That is the mechanism the owner's mental
+model assumes and the model does not yet have. Raising `grass_density` cannot
+substitute for it: density decides where grass *starts*, and on this evidence
+where it starts is very nearly where it stays.
+
+---
+
+## 15. Handoff
 
 **State: merged.** The first package landed as PR #38 at `f891da7`. The
 density follow-up in §13 is on `w3-grass-density`. All four
@@ -595,6 +658,15 @@ this report carries every number a PR body would.
    window.
 3. **Whether a mature world should be a closed forest** (§9). Not a bug; a
    design call the owner has not been asked.
+4. **A5, dispersal, is now the item with a named consumer.** §14 measures that
+   grass does not spread — one-cell dispersal means the sown footprint is very
+   nearly the final one — and the owner's stated expectation is that patches
+   *"spread over time and completely fill up an area"*. Per-species seed mass,
+   float and carry is what closes that gap; no amount of `grass_density` can.
+   The isolating measurement §14 did *not* make is a single founder on
+   uniformly ideal ground, scored on how far its descendants get: that is one
+   scene, and it would separate dispersal range from crowding, the seed bank's
+   decay and marginal-ground moisture.
 
 ### Pointing the two-patch instrument at wind — the pairing W4 gates
 
