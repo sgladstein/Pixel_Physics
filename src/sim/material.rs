@@ -997,6 +997,108 @@ pub struct MaterialDef {
     #[serde(default = "default_fragment_rungs")]
     pub fragment_rungs: u32,
 
+    /// Which rung the ladder **starts** at — the exponent of the smallest
+    /// fragment `rigid::fracture` will aim for.
+    ///
+    /// `fragment_rungs` says how many doublings the draw spans; this says
+    /// where the span begins. They are genuinely different questions and
+    /// conflating them is what produced sawdust out of a felled tree:
+    /// `wood` took the default ladder of {2, 4, 8, 16, 32}, so **two of its
+    /// five rungs sat below `rigid::MIN_BODY_CELLS`** and could never
+    /// become a piece at all, before shape was even considered. Measured on
+    /// one cut: 2,648 cells severed, 45 promoted (1.7%).
+    ///
+    /// A tree does not want more rungs, it wants the base moved — a log is
+    /// hundreds of cells and a chip of granite is four, and no single
+    /// starting exponent is right for both.
+    /// `Reports/physical-trees-design-2026-08-23.md` §5.1, and
+    /// `prior-art-destruction.md` §2.4 records this as precisely the axis
+    /// Red Faction authors per material.
+    ///
+    /// 1 (the default) is the exponent that shipped before this field
+    /// existed, so every `.ron` that says nothing about it breaks exactly
+    /// as it always has. `wood.ron` sets 5 -> {32, 64, 128, 256, 400}, the
+    /// last capped by `MAX_BODY_CELLS`.
+    #[serde(default = "default_fragment_floor")]
+    pub fragment_floor: u32,
+
+    /// **Load-bearing organism tissue** — wood and rootwood, as against
+    /// foliage, and as against every inert material in the world.
+    ///
+    /// One property with two consequences, because they are the same fact
+    /// read twice:
+    ///
+    /// - **It fragments at eight neighbours.** `Grow` *places* organism
+    ///   cells at eight, so a flood that reads one back at four cuts a
+    ///   crown at every diagonal twig before the size ladder gets a say.
+    ///   That is `CLAUDE.md`'s "a traversal must use the same neighbourhood
+    ///   the writer used", and the writer differs by material — which is
+    ///   exactly why this cannot be a global switch. Rock stays at four on
+    ///   purpose and the reason is tested:
+    ///   `rigid::tests::diagonal_only_contact_does_not_connect_two_components`
+    ///   — two blobs touching at a corner are not one physical body.
+    ///   Measured on one cut, ladder held constant: 45 pieces averaging 23
+    ///   cells at four, 20 averaging 57 at eight, with two over 256.
+    /// - **Severed, it comes away as pieces rather than as scatter.** A
+    ///   crown is roughly a third foliage by cell count, and a leaf is not
+    ///   a small log: it goes down `breaks_into` to litter while the wood
+    ///   goes on the ladder. Three tiers, one per size class, which is what
+    ///   `prior-art-destruction.md` §2.4 says every shipped game stacks
+    ///   rather than derives.
+    ///
+    /// Read at the call site that already holds the `Cell` (a `Vec` index
+    /// on the resolved `Material`), never by `id_of("wood")` on a per-cell
+    /// path — `CLAUDE.md`'s hot-path rule.
+    ///
+    /// `false` by default, so nothing that does not ask for it changes.
+    #[serde(default)]
+    pub woody: bool,
+
+    /// What a **piece** of this material becomes when it lands, as against
+    /// `breaks_into`'s grit.
+    ///
+    /// `rigid::settle` writes a landed body cell back as its own material,
+    /// which is right for rock and wrong for a tree: a promoted limb landed
+    /// as inert, living-looking `wood` — it did not rot, it did not feed
+    /// the litter layer, `decay.rs` would never touch it, and the felling
+    /// census could not see it. Consulted **only for a cell that left the
+    /// grid as organism tissue** (`rigid::BodyCell::organism_id`), so a
+    /// `wood` wall someone painted still lands as the wall it was.
+    ///
+    /// The pair is the whole point: `wood` severs into `log` (a `Solid`
+    /// that lies where it fell) and breaks into `deadwood` (a `Powder` that
+    /// piles at its friction angle). A powder cannot be a log — two
+    /// thousand grains of it make a cone of sawdust, which is what the
+    /// owner saw and called "a tree disintegrating into dust".
+    ///
+    /// Unset means "no separate piece tier": the cell lands as itself, the
+    /// behaviour every material had before this existed.
+    #[serde(default)]
+    pub severs_into: String,
+
+    /// Whether this material counts as **ground** for a plant's structural
+    /// anchor (`plant::is_structural_anchor`).
+    ///
+    /// `true` by default, which is what every `Solid` in the world meant
+    /// before there was any solid that was *debris*. The moment `log`
+    /// arrived that default was wrong and it was wrong immediately: a chip
+    /// the axe knocks off a bole lands beside the stump, and a `Solid`
+    /// neighbour is an anchor, so **the tree was held up by a piece of
+    /// itself**. `scripts/acceptance.sh`'s `fell` case went from 2,360
+    /// cells of tissue severed to **0** -- six bites through the bole, the
+    /// chips flying exactly as intended, and the crown standing there
+    /// perfectly supported by them.
+    ///
+    /// Stated as data rather than inferred from shape, which is
+    /// `CLAUDE.md`'s rule for a predicate that has to tell apart two things
+    /// that look identical: terrain and a fallen log are both immovable
+    /// solid matter and nothing about their geometry says which is which.
+    /// `cell.attached()` was the tempting shortcut and is a different
+    /// claim -- it would also stop a tree anchoring on rock a player
+    /// stacked, which nothing has asked for.
+    #[serde(default = "default_true")]
+    pub anchors_organisms: bool,
+
     /// The pitch of this material's **joint fabric**, in world cells — the
     /// characteristic width of the block it comes apart into. `0.0` (the
     /// default) means *not jointed*, and nothing about
@@ -1073,6 +1175,20 @@ fn default_support_cost() -> u16 {
 /// The ladder that shipped before the field existed: 2, 4, 8, 16, 32.
 fn default_fragment_rungs() -> u32 {
     5
+}
+
+/// 1 — the exponent `rigid::fracture`'s ladder started at before
+/// `fragment_floor` existed, so a `.ron` that says nothing about it draws
+/// exactly the fragment sizes it always did.
+fn default_fragment_floor() -> u32 {
+    1
+}
+
+/// `true` — see `MaterialDef::anchors_organisms`. Every material was ground
+/// for a plant before the flag existed, so the default is what preserves
+/// that.
+fn default_true() -> bool {
+    true
 }
 
 fn default_attached_span_bonus() -> u16 {
@@ -1293,6 +1409,12 @@ pub struct Material {
     pub attached_span_bonus: u16,
     /// See `MaterialDef::fragment_rungs`. Always >= 1.
     pub fragment_rungs: u32,
+    /// See `MaterialDef::fragment_floor`. Always >= 1.
+    pub fragment_floor: u32,
+    /// See `MaterialDef::woody`.
+    pub woody: bool,
+    /// See `MaterialDef::anchors_organisms`.
+    pub anchors_organisms: bool,
     /// See `MaterialDef::joint_spacing`. `0.0` means not jointed; never
     /// negative, and never small enough to divide the world into slivers.
     pub joint_spacing: f32,
@@ -1316,6 +1438,7 @@ pub struct Material {
     burns_into_name: String,
     flame_into_name: String,
     breaks_into_name: String,
+    severs_into_name: String,
     decays_into_name: String,
     reactions_raw: Vec<ReactionDef>,
 
@@ -1333,6 +1456,10 @@ pub struct Material {
     /// See `MaterialDef::flame_chance`.
     pub flame_chance: f32,
     pub breaks_into: Option<MaterialId>,
+    /// See `MaterialDef::severs_into` — the *piece* tier, read only by
+    /// `rigid::settle` and only for a body cell that left the grid as
+    /// living tissue.
+    pub severs_into: Option<MaterialId>,
     /// See `MaterialDef::decays_into`. `Some` is also the **gate `decay.rs`
     /// tests to decide whether a cell is worth scheduling at all**, so it is
     /// what keeps the settle scan proportional to decayable matter rather
@@ -1618,6 +1745,16 @@ impl From<MaterialDef> for Material {
             // At least one rung, or the ladder has no rungs to draw from
             // and `Rng::below(0)` is meaningless.
             fragment_rungs: def.fragment_rungs.max(1),
+            // At least one, for the same reason `fragment_rungs` is: the
+            // ladder's smallest rung is `1 << floor`, and a floor of 0
+            // would aim a fragment at a single cell -- below
+            // `MIN_BODY_CELLS` by construction, so every draw on that rung
+            // would be grit before shape was considered. That is the exact
+            // defect `fragment_floor` exists to fix, and it must not be
+            // reachable from a `.ron` file.
+            fragment_floor: def.fragment_floor.max(1),
+            woody: def.woody,
+            anchors_organisms: def.anchors_organisms,
             // Clamped rather than asserted: this is content, and a
             // hand-edited `.ron` must not be able to panic the simulation.
             // A negative or sub-cell pitch is meaningless, so both read as
@@ -1651,6 +1788,7 @@ impl From<MaterialDef> for Material {
             flame_chance: def.flame_chance,
             decays_into_name: def.decays_into,
             breaks_into_name: def.breaks_into,
+            severs_into_name: def.severs_into,
             reseed_chance: def.reseed_chance,
             decay_chance_damp: def.decay_chance_damp,
             decay_chance_dry: def.decay_chance_dry,
@@ -1663,6 +1801,7 @@ impl From<MaterialDef> for Material {
             flame_into: None,
             decays_into: None,
             breaks_into: None,
+            severs_into: None,
             reactions: Vec::new(),
         }
     }
@@ -1791,7 +1930,18 @@ const EMBEDDED: &[&str] = &[
     // the others. The body of a fire -- W2's answer to the grassfire
     // card's *"just looks like you are cycling colors"*. Addressed only
     // through `flame_into` on other materials, never by number.
+    //
+    // **Both sides of the W2/T1 merge appended here**, the same collision
+    // the plant/destruction and creature/evaporation notes above record.
+    // Neither has a pinned convenience constant, so the tiebreak is the one
+    // those notes already settle -- which side was already trunk. `flame`
+    // was on `main` while `log` was on a branch, so it keeps the lower slot.
     include_str!("../../assets/materials/flame.ron"),
+    // T1's piece tier for broken tree tissue -- `wood.ron`'s `severs_into`,
+    // as against `deadwood`'s `breaks_into`. Addressed by name through
+    // `id_of("log")` and by the resolved `Material::severs_into`, never by
+    // number.
+    include_str!("../../assets/materials/log.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
@@ -1888,6 +2038,10 @@ impl MaterialRegistry {
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            fragment_floor: default_fragment_floor(),
+            woody: false,
+            severs_into: String::new(),
+            anchors_organisms: true,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -1956,6 +2110,10 @@ impl MaterialRegistry {
             blast_resistance: default_blast_resistance(),
             attached_span_bonus: 1,
             fragment_rungs: 5,
+            fragment_floor: default_fragment_floor(),
+            woody: false,
+            severs_into: String::new(),
+            anchors_organisms: true,
             joint_spacing: 0.0,
             joint_band_contrast: 0.0,
             support_cost_below: 1,
@@ -2056,6 +2214,7 @@ impl MaterialRegistry {
             material.burns_into = resolve_if_set(&material.burns_into_name);
             material.flame_into = resolve_if_set(&material.flame_into_name);
             material.breaks_into = resolve_if_set(&material.breaks_into_name);
+            material.severs_into = resolve_if_set(&material.severs_into_name);
             material.decays_into = resolve_if_set(&material.decays_into_name);
             material.reactions = material
                 .reactions_raw

@@ -113,6 +113,7 @@ use super::cell::Cell;
 use super::chunk::{Rect, CHUNK_SIZE};
 use super::material::{self, MaterialId, MaterialKind};
 use super::organism;
+use super::rigid;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
@@ -1002,12 +1003,42 @@ fn organism_structural_tick(world: &mut World, x: i32, y: i32, cell: Cell) -> Ve
     // anchor and becoming deadwood, not rock coming apart, and
     // `shattered_cells` is paired with `promoted_cells` to describe the
     // latter. See `break_free`'s own doc.
+    // **Detached tissue comes off as a piece; over-span tissue snaps one
+    // cell at a time.** The two failure modes above are genuinely different
+    // events and this is where that stops being a distinction without a
+    // difference.
+    //
+    // `detached` means nothing this cell connects to reaches the ground --
+    // the piece it belongs to has *already* come off, and what is left is
+    // to bring it down. So the object the rule evaluates is the piece, not
+    // the cell (`CLAUDE.md`, "which object does this rule evaluate"), and
+    // handing one cell at a time to `break_free` is what turned a felled
+    // tree into a cone of sawdust: 2,648 cells severed, 45 of them (1.7%)
+    // surviving as anything a player could see move.
+    //
+    // `over_span` is a branch bending past what it can hold. That really is
+    // one cell giving way, and the outboard tissue it was carrying becomes
+    // detached on the next `plant::anchor_support` pass -- at which point it
+    // arrives here through the branch above and comes down as a piece. The
+    // graded outcome falls out of the chain rather than being authored into
+    // it.
+    if detached {
+        let region = detached_organism_piece(world, x, y, organism_id);
+        record_damage_reach_over(world, &region);
+        let (severed, as_pieces) = rigid::fell_severed_tissue(world, &region, (x, y));
+        // Counted, where the rock path's grit deliberately is not (see
+        // `FailureCounts::shattered_cells`). This is felling's only "did it
+        // fire" number: an image cannot tell a crown that came down from a
+        // crown that was never asked, and the first `scene=fell` run had a
+        // severed trunk, a growing canopy and zero in every other counter.
+        world.structural_failures.record_severed_organism(severed);
+        world.structural_failures.record_severed_pieces(as_pieces);
+        // Every cell of the piece fans out, not just the one that was
+        // checked: the piece may have been holding up tissue that is still
+        // attached elsewhere, and that tissue is nowhere near `(x, y)`.
+        return region.iter().flat_map(|&(rx, ry)| schedule_organism_neighbours(world, rx, ry, organism_id)).collect();
+    }
     record_damage_reach_over(world, &[(x, y)]);
-    // Counted, where the rock path's grit deliberately is not (see
-    // `FailureCounts::shattered_cells`). This is felling's only "did it
-    // fire" number: an image cannot tell a crown that came down from a
-    // crown that was never asked, and the first `scene=fell` run had a
-    // severed trunk, a growing canopy and zero in every other counter.
     if break_free(world, x, y) {
         world.structural_failures.record_severed_organism(1);
     }
@@ -1060,6 +1091,70 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
     load
 }
 
+/// Every cell of the **piece** that `(x, y)` belongs to: the 8-connected
+/// run of same-organism tissue that has also lost its anchor.
+///
+/// # Eight, and it is the single highest-leverage line in the package
+///
+/// `Grow` places organism cells at eight neighbours, so a crown -- which is
+/// mostly diagonal twigs -- is cut at every diagonal by anything that reads
+/// it back at four. That is `CLAUDE.md`'s "a traversal must use the same
+/// neighbourhood the writer used", and `plant::anchor_support`, which
+/// produces the very `support` value this filters on, already walks eight.
+/// A four-connected walk here would disagree with the pass that decided
+/// which cells are detached in the first place.
+///
+/// # Why detachment is a membership test and not just connectivity
+///
+/// A crown half of which is still held has not come off. Taking the whole
+/// connected run would rip attached tissue out with it -- the amputation
+/// failure in a new costume. `support == u16::MAX` is `anchor_support`'s own
+/// verdict that nothing this cell reaches touches the ground, and a cell
+/// with no sidecar entry at all reads as `0`, which is the deferral the
+/// caller's own doc relies on: an organism that has not been walked yet must
+/// defer, never fail, because the action this decides is destructive.
+///
+/// # Determinism
+///
+/// The output is sorted, and the frontier is a `VecDeque` walked in a fixed
+/// neighbour order; the `HashSet` is only ever asked `contains`/`insert` and
+/// is never iterated. `Reports/physical-trees-design-2026-08-23.md` §2a
+/// names this as the exact shape of issue #7's live violation, so it is
+/// called out rather than left to be read off the code.
+///
+/// Unbounded, deliberately. A cap here would be a cap on *whether* a big
+/// piece comes off, which is the mistake `rigid::fracture_failing_region`'s
+/// own doc records having shipped once already.
+fn detached_organism_piece(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<(i32, i32)> {
+    let mut seen: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::from([(x, y)]);
+    let mut queue = std::collections::VecDeque::from([(x, y)]);
+    let mut out = Vec::new();
+    while let Some((cx, cy)) = queue.pop_front() {
+        out.push((cx, cy));
+        for (dx, dy) in NEIGHBOURS_8 {
+            let next = (cx + dx, cy + dy);
+            if seen.contains(&next) {
+                continue;
+            }
+            let cell = world.get(next.0, next.1);
+            if cell.organism_id() != organism_id || world.materials.kind(cell.material) != MaterialKind::Plant {
+                continue;
+            }
+            // Only tissue that has *also* come off. See the doc above: a
+            // still-anchored neighbour is not part of this piece, and a
+            // cell the organism pass has not reached reads as supported and
+            // is left for a later check rather than destroyed now.
+            if world.organism_cell(next.0, next.1).map_or(0, |c| c.support) != u16::MAX {
+                continue;
+            }
+            seen.insert(next);
+            queue.push_back(next);
+        }
+    }
+    out.sort_unstable();
+    out
+}
+
 /// The organism-owned mirror of `schedule_solid_neighbours` — an organism
 /// cell that just broke free might have been the only thing keeping its
 /// own same-organism `Plant` neighbours anchored, so they need
@@ -1067,7 +1162,18 @@ fn supported_load(world: &World, x: i32, y: i32, organism_id: u16) -> u16 {
 /// cascade for a tree, the same way the aux-cached path already does for
 /// stone.
 fn schedule_organism_neighbours(world: &World, x: i32, y: i32, organism_id: u16) -> Vec<ActiveSite> {
-    NEIGHBOURS_4
+    // **Eight, because `Grow` places at eight.** This walked four, so a
+    // cascade through a crown -- which is mostly diagonal twigs -- skipped
+    // every diagonally-attached neighbour and the chain simply stopped at
+    // the first corner. `Reports/physical-trees-design-2026-08-23.md` §9.2
+    // filed it beside `take_fragment`'s identical defect one function away;
+    // this is the same rule as that one and as `plant::anchor_support`,
+    // which already walks eight and produces the very `support` value this
+    // fan-out exists to get recomputed.
+    //
+    // Guarded by `a_diagonally_attached_twig_is_rescheduled_by_its_
+    // neighbour`, which fails against `NEIGHBOURS_4`.
+    NEIGHBOURS_8
         .iter()
         .filter_map(|&(dx, dy)| {
             let (nx, ny) = (x + dx, y + dy);
@@ -5475,6 +5581,89 @@ mod tests {
     fn organism_wood_cell(w: &mut World, organism_id: u16) -> Cell {
         let wood = w.materials.id_of("wood").unwrap();
         Cell::new(wood, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::MatureBody))
+    }
+
+    /// §9.2 of `Reports/physical-trees-design-2026-08-23.md`, guarded
+    /// rather than filed: `schedule_organism_neighbours` walked
+    /// `NEIGHBOURS_4` while `Grow` places organism cells at **eight**, so a
+    /// cascade through a crown stopped at the first diagonal.
+    ///
+    /// **This fails against the four-neighbour walk** -- the diagonal twig
+    /// is the *only* same-organism neighbour here, so the returned fan-out
+    /// is empty rather than short, which is the difference between a
+    /// cascade that under-reaches and one that does not happen at all.
+    #[test]
+    fn a_diagonally_attached_twig_is_rescheduled_by_its_neighbour() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species).expect("a fresh world has organism slots free");
+        let branch = organism_wood_cell(&mut w, organism_id);
+        w.set(20, 20, branch);
+        // Diagonal only: nothing is orthogonally adjacent to (20, 20).
+        let twig = organism_wood_cell(&mut w, organism_id);
+        w.set(21, 21, twig);
+
+        let sites = schedule_organism_neighbours(&w, 20, 20, organism_id);
+        assert_eq!(
+            sites.iter().map(|s| (s.x, s.y)).collect::<Vec<_>>(),
+            vec![(21, 21)],
+            "a twig attached only at a corner must still be re-asked when its neighbour breaks -- `Grow` placed it there at eight"
+        );
+    }
+
+    /// The other half of the same rule, and the reason it is a *test* and
+    /// not just the eight-ring: a diagonal neighbour belonging to a
+    /// **different** organism, or to no organism, is not part of this
+    /// cascade and must not be dragged into it.
+    #[test]
+    fn schedule_organism_neighbours_ignores_a_diagonal_that_is_not_ours() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let mine = w.push_organism(tree_species).expect("a fresh world has organism slots free");
+        let theirs = w.push_organism(tree_species).expect("a fresh world has organism slots free");
+        let branch = organism_wood_cell(&mut w, mine);
+        w.set(20, 20, branch);
+        let other = organism_wood_cell(&mut w, theirs);
+        w.set(21, 21, other);
+        w.set(19, 19, Cell::new(material::STONE, 0));
+
+        assert!(
+            schedule_organism_neighbours(&w, 20, 20, mine).is_empty(),
+            "neither another organism's tissue nor inert rock is part of this organism's cascade"
+        );
+    }
+
+    /// The piece walk `organism_structural_tick` hands to the fragment
+    /// ladder: 8-connected, same-organism, **and detached**.
+    ///
+    /// The membership test is the part worth guarding. Taking the whole
+    /// connected run instead would rip still-anchored tissue out with the
+    /// piece -- the amputation failure in a new costume -- and a crown half
+    /// of which is still held has not come off.
+    #[test]
+    fn a_detached_piece_walk_takes_the_diagonal_run_and_stops_at_held_tissue() {
+        let mut w = test_world();
+        let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(tree_species).expect("a fresh world has organism slots free");
+        // A diagonal staircase of five cells, plus one orthogonal
+        // neighbour of the last that is still anchored.
+        for i in 0..5 {
+            let cell = organism_wood_cell(&mut w, organism_id);
+            w.set(20 + i, 20 + i, cell);
+        }
+        let held = organism_wood_cell(&mut w, organism_id);
+        w.set(25, 24, held);
+        for i in 0..5 {
+            w.organism_cell_mut(20 + i, 20 + i).expect("sidecar").support = u16::MAX;
+        }
+        w.organism_cell_mut(25, 24).expect("sidecar").support = 3;
+
+        let piece = detached_organism_piece(&w, 20, 20, organism_id);
+        assert_eq!(
+            piece,
+            (0..5).map(|i| (20 + i, 20 + i)).collect::<Vec<_>>(),
+            "the whole diagonal run has come off and must arrive as one piece; the anchored cell beside it has not"
+        );
     }
 
     #[test]

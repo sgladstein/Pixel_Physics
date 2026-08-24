@@ -3583,7 +3583,7 @@ mod tests {
         let mut cells = Vec::new();
         for dx in 0..24 {
             for dy in 0..3 {
-                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0 });
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 });
             }
         }
         world.chunk_bodies.push(ChunkBody::at(cells, 50.0, 60.0));
@@ -3612,7 +3612,7 @@ mod tests {
         let mut cells = Vec::new();
         for dx in 0..24 {
             for dy in 0..3 {
-                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0 });
+                cells.push(BodyCell { dx, dy, material: material::STONE, shade: 0, organism_id: 0 });
             }
         }
         // Already at `rigid`'s fall clamp of 6 — faster than the gnome's

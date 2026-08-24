@@ -5343,6 +5343,68 @@ Blocks the deposition half of §H, which needs ants that travel to have
 anything to measure.
 
 
+### R. An ant put down on open water stands on the surface for ever, and `found_colony` puts them there — **OPEN, found 2026-08-23 while rendering a WP-9 review card**
+
+Found by looking, not by a metric: every attempt to render `scene=colony` for
+a review card came back as a line of ants strung out across a lake.
+
+    cargo run --release --example filmstrip -- scene=colony seed=2 \
+        channel=gutbias start=0 every=4 count=1 cols=1 zoom=8 \
+        crop=230,112,150,30 out=/tmp/water.png
+
+**Frame 0 — before one creature tick has run — already shows it**, as an
+evenly spaced dashed line sitting on the water surface at exactly
+`COLONY_ANT_SPACING`. So the first half of this is placement, not
+locomotion. Re-render the same crop at `start=600` and the same ants are
+still up there, now *irregularly* spaced: they have been walking about on it
+for six hundred frames. Reproduced with `climbs_over_kin: false`, so it is
+not WP-9's climb-over-kin — that change grants footing on a *nestmate*, and
+these ants are alone on open water.
+
+Two independent causes, both in `creature.rs`, and either alone is enough:
+
+1. **`World::found_colony` will plant on water.** Its `surface` closure takes
+   the first cell that is not `Empty` or `Gas` — `Liquid` included — and
+   plants an ant one row above it. The nest-painting loop six lines above it
+   *does* exclude water, and says why in a comment ("painting over water or a
+   creature would be a surprise"); the ant loop never got the same guard.
+
+2. **Nothing makes it fall afterwards.** `step_chain`'s whole-piece support
+   test wants `Solid | Powder | Plant` in the 8-neighbourhood, so an ant over
+   water is correctly judged *unsupported* — but the fall it then attempts
+   requires every cell of the fallen chain to land somewhere `World::is_empty`
+   says is free, and water is not free. The fall is refused and the ant stays
+   exactly where it was. `head_has_foothold` also refuses `Liquid`, which only
+   means water is never *preferred*: footing is a score among three candidates,
+   not a veto, so an ant with water on all sides still steps onto it.
+
+**Why it matters past looking wrong.** `scene=colony` runs the `wetland`
+preset, which has lakes by definition, and on the seeds where the colony
+lands near a shore a large share of the population spends the whole run
+standing on one. Foraging and survival numbers taken from that scene are
+then partly numbers about ants on water. Seeds measured while looking for a
+usable review scene: `seed=2` (35 placed) and `seed=8` (34 placed) are both
+mostly-on-the-lake; `seed=12` (31 placed) and `seed=9` (34) are mostly on
+land; the default seed and `seed=1` panic in the scene's own
+`expect("some dry ground")`.
+
+**Not established, and stated as a guess:** the scene's `would_place` scorer
+uses a *different* surface predicate from the one `found_colony` uses —
+`dry_surface` searches from `y = 0` and demands `Solid | Powder`, while
+`found_colony` searches downward from the cursor row and accepts anything
+solid-or-liquid — so the scene can believe it chose dry ground while
+placement lands on the lake. That the two disagree is a fact about the
+source; that it is the whole explanation for a given seed's count is not
+measured.
+
+**Not fixed here.** The placement half is a one-line guard (match the
+nest-painting loop's `Solid | Powder`). The locomotion half is a design
+question — does an ant drown, float, or swim? — and both are outside
+WP-8/WP-9's scope, so this is filed rather than patched. Whoever takes it
+should do the two halves together: fixing only placement leaves an ant that
+wanders onto a pond still walking on it.
+
+
 ## Closed this session
 
 - **Chunk-seam cliffs** (powders) and **terracing** (liquids), both from the
@@ -5664,3 +5726,280 @@ deleted:** a guard that hashes whole-simulation output is a guard on every
 lane's work, not on yours. When the property is "X changes nothing", the
 checkable form is two arms in one build — not one arm against a number from
 last week.
+
+## Landing notes — lane S, package T1 (fell as pieces), 2026-08-23
+
+Appended by the T1 session; the full account, with every figure, is
+`Reports/physical-trees-t1-implementation.md`. One new open bug, one bug
+closed, and one number now printed rather than remembered.
+
+### T1a. `load::grain_is_footing` reads *attachment* where it means *supported* — **OPEN**
+
+A settled piece resting on loose grit is not recognised as standing on
+anything, once the grit is itself resting on another settled piece.
+
+`grain_is_footing` probes down a column of powder and, on reaching body
+material, returns `cell.attached()`. Attachment means *terrain* — a landed
+`ChunkBody` is deliberately unattached (`rigid::settle`'s own note: "landing
+must not silently re-attach it"). So the probe reads "there is an unattached
+solid under this grain, therefore the grain is on its way down", which is
+right for a piece in flight and wrong for one that stopped moving. In a deep
+pile of alternating piece and grit — which is exactly what a felled tree
+makes — every piece above the first fails as *unsupported*.
+
+**Measured**, `scene=fell fell=7150` at frame 8,750, after the bearing-clamp
+fix in T1: **318 unsupported failures / 1,307 cells**, and `log` standing at
+624 of the **1,191** cells `settle` actually delivered. Before that fix the
+same run read 431 standing, so this is the residue of a bigger problem, not
+the whole of it.
+
+**Downgraded in severity by T1e below, and the correction matters.** The gap
+between "delivered" and "standing" is *not* a decay curve — `log` rises to a
+plateau as bodies land and then holds flat to within three cells over two
+hundred frames. Most of that gap is bodies landing on top of one another and
+overwriting, plus `settle_lost_cells`, not pieces being crushed after they
+arrive. This entry stands as a real modelling defect in the support
+predicate; it is not the reason a felled tree did not look like fallen logs.
+
+**Ruled out by measurement**, so do not re-derive them:
+
+- It is not the overload path. `log` leaves `max_unsupported_span` unset, so
+  `capacity_within` returns `i64::MAX`; after the T1b fix below, `overloaded`
+  on that scene is **0 (0 cells)**, from 275 (711 cells).
+- It is not decay. `log` runs `decay_chance_damp: 0.02`; the settled count
+  drifts 445 → 431 over 1,200 frames while the litter beside it goes 1,232 →
+  510.
+- It is not `insubstantial`. That flag reaches `player.rs` only.
+- Making `log` unbreakable is not a workaround, it is a treadmill: with
+  `breaks_into` removed the same run reported **42,267 unsupported failures
+  / 158,230 cells**, because a failure that cannot convert is rescheduled
+  forever.
+
+**This is not an oversight — it is a named, accepted trade-off whose
+"nobody has reported it" clause has just expired.** `grain_is_footing`'s own
+doc says so in as many words, under *What this gives up, named*:
+
+> a slab resting on rubble resting on a *player-built* (and therefore
+> unattached) platform now reads as unsupported, because the chain out of
+> the powder lands on unattached rock. Solid-on-solid is untouched — only a
+> granular layer sandwiched inside player-built structure loses, **which no
+> scene here builds and nobody has reported.**
+
+A felled tree builds exactly that, every time, at scale: log on grit on log
+is a granular layer sandwiched inside unattached structure. So the clause
+that licensed the trade-off no longer holds, and this entry exists to say so
+rather than to propose a fourth support model.
+
+**The shape of the fix, and why T1 did not attempt it.** The obvious answer
+— ask whether the body-material cell under the grain *reaches an anchor*
+rather than whether it is attached — is what `chain_reaches_anchor` already
+computes, with a memo that `grain_is_footing` does not have, and it closes a
+loop: `rests_on_ground` → `grain_is_footing` → `chain_reaches_anchor` →
+`support_parent` → `is_anchor` → `rests_on_ground`. The other obvious
+answer, reading the cell's stored `aux`, is **already rejected in that
+function's doc** and for a reason that still stands ("here it would be
+circular, since the distance under a swallowed grain is 0 *because of this
+rule*").
+
+What the doc's own framing suggests instead: the case it is protecting
+against is a grain *swallowed inside the asking piece*, and the case that is
+now failing is a grain resting on a **different** piece. That is a
+distinction `evaluate_within` can already make — it holds `section_cells` —
+and it is data rather than shape, which is the axis `CLAUDE.md` says these
+predicates keep getting wrong. Three predicates have failed here by reading
+shape; this needs to be someone's deliberate fourth, with the raft cases
+(`scene=lavadrop`, `scene=rockdrop`) re-run, not a fix bolted on to a
+felling package.
+
+### T1b. The structural opt-out did not hold against bearing — **CLOSED**
+
+`load::capacity_within` returns `i64::MAX` for `max_unsupported_span ==
+u16::MAX` and documents it as "this material does not participate in the
+structural system at all". `evaluate_within` then clamped that to
+`bearing_moment`, and `i64::MAX.min(x)` is `x` — so the opt-out held against
+bending and silently did not hold against the one mode left. Latent until
+`log` arrived, because `log` is the first material to want the opt-out *and*
+to spend its life lying on loose rubble. Fixed by guarding the clamp on the
+opt-out itself; it reaches only `log` and `nest` in the shipped set.
+
+### T1d. `acceptance.sh`'s `lavadrop` sits close enough to its frame budget to flake, and is over it on `main` — **OPEN, not this branch's**
+
+Noticed while gating T1 and measured rather than assumed, because a frame
+budget is exactly the assertion `CLAUDE.md` says never to read against a
+remembered number.
+
+Same command (`scene=lavadrop start=2 every=300 count=4 ... repeat=2
+max_frame_ms=60`), one arm at a time on an otherwise idle machine:
+
+| | worst frame (best of 2) | spread |
+|---|---|---|
+| `main` at `00d1551` | **74.96 ms — over the 60 ms budget** | 74.96-77.74 |
+| `claude/t1-fell-as-pieces` at `8d89b93` | 56.33 ms — under it | **56.33-66.67** |
+
+Two separate things, and they want different remedies:
+
+- **The base branch is over the bar.** Whatever moved it is in `main`'s own
+  recent history, not in a felling package; `lavadrop` builds no plant and
+  the T1 changes it can reach are a comparison that short-circuits *earlier*
+  than the code it guards.
+- **The case is flaky either way.** The branch's own two runs span
+  56.33-66.67, straddling 60, so a green here is a coin toss on this
+  machine. `repeat=2` reports the *best* of two, which hides that. CI's
+  acceptance job has passed on both, so the CI runner is faster than this
+  one — which is the reason a bar this close to the measurement gets
+  rubber-stamped rather than caught.
+
+**First observed contended and nearly misattributed.** The failure surfaced
+on a run sharing the machine with the full test suite and `ascii`, at 66.07
+ms, and it read as a regression from this branch. It is not; the same window
+also reported `ascii` worst at 118.6 ms against 72.6 uncontended. Recorded
+because the misreading is the point: a timing gate measured beside other
+work is measuring the other work.
+
+### T1e. "The pieces hit the ground and turn to dust" was **not** `settle`, and the measurement says so — **CLOSED**
+
+Worth recording because the hypothesis was reasonable, was held by two
+sessions, and was wrong; the cost of not checking it would have been a
+rewrite of `rigid::settle`.
+
+Watching the fall frame by frame the owner reported: *"The branches fall off
+as whole pieces (good), but then hit the ground and turn to dust."* The
+natural suspect is `settle` — `Reports/physical-trees-design-2026-08-23.md`
+§5.5 predicts a landed piece re-rasterizing as inert material and then
+running whatever powder path applies to it.
+
+**It is not, and `log` is stable on landing.** Tracing the settled census
+frame by frame after the fall (`scene=fell fell=7150`, one run, same seed):
+
+| frame | `log` standing | pieces >= 8 cells |
+|---|---|---|
+| 7,175 | 459 | 9 |
+| 7,190 | 644 | 15 |
+| 7,210 | **713** | 18 |
+| 7,250 | 712 | 18 |
+| 7,300 | 711 | 18 |
+| 7,400 | 710 | 18 |
+
+`log` *rises* as bodies land and then holds flat to within three cells over
+two hundred frames. Nothing is converting it. The piece count is likewise
+stable at 18 holding 609 cells.
+
+**What actually turned to dust was the foliage.** At the same frames:
+`litter` **1,652** cells against `log` 710 and `deadwood` 363 — the leaf
+tier outnumbered the piece tier **2.3 to 1**, it is the brightest thing on
+screen, and roughly **1,570 cells of it were created in a single frame** at
+the instant of severance, because `fell_severed_tissue` converted every
+non-woody cell of the region before the ladder ran. The pieces fell through
+that cloud and were buried in it. Rendered at 4x it is unmistakable and it
+is exactly what "turn to dust" describes.
+
+**Fixed by letting foliage ride the piece it hangs on** rather than leaving
+the branch at the moment the branch does: the whole severed region now goes
+to the ladder and only *woody* cells may seed a fragment, so a leafy limb
+comes off with its leaves on and lets go when it lands
+(`leaf.ron`'s `severs_into`). §5.3 is intact where it argues foliage must
+not be *on* the ladder — a leaf still never seeds a fragment and never sizes
+one. Guarded both ways by
+`a_severed_limb_carries_its_own_foliage_down` and
+`foliage_no_piece_reaches_still_scatters_and_never_seeds_one`, the second of
+which fails without the wood-only seed rule.
+
+**The lesson, which is `CLAUDE.md`'s own:** an image says *what* and
+*where*. Two sessions read "turns to dust" as a claim about the material
+that was turning to dust, and the material that was turning to dust was the
+one nobody was looking at. The frame-by-frame census is what separated them,
+and it took one run.
+
+### T1f. **The felled pile is 74% powder because the tree is 56% leaves.** The piece ladder cannot fix this — **OPEN, and it is the acceptance blocker**
+
+The number that should have been taken before any of the earlier hypotheses,
+and the one that decides whether T1's bar is reachable at all.
+
+**Method note first, because it nearly produced a fourth wrong answer.** A
+census of "unattached cells in the fall box" reads **8,308 cells, 78% of them
+a `Powder` kind**, which looks damning and means nothing: run the identical
+census *before the cut* and it reads 8,608 cells, 51% powder, with **soil
+4,384**. The box is mostly the soil bank the tree is standing on. Only the
+delta is the tree. `CLAUDE.md`: sanity-check a new metric against a case you
+know is fine, before trusting it about a case you don't.
+
+**The tree, and only the tree**, `scene=fell fell=7150`:
+
+| | before the cut | 100 frames after landing (7,300) | settled (8,750) |
+|---|---|---|---|
+| `wood` / `log` | 1,280 | **724** | 631 |
+| `leaf` / `litter` | 1,660 | **1,634** | 466 |
+| `deadwood` | — | 382 | 384 |
+| tree debris total | 2,940 | **2,740** | 1,481 |
+| of the log, in coherent pieces >= 8 cells | — | **640 (12 pieces)** | 522 (11 pieces) |
+
+So at the moment a player is looking at it:
+
+- **coherent pieces: 640 of 2,740 = 23%**
+- **loose grain (`litter` + `deadwood`): 2,016 of 2,740 = 74%**
+- scattered single `log` cells: 84 = 3%
+
+**The pile is three-quarters powder, and the dominant powder is the
+foliage.** `leaf` is **1,660 of the tree's 2,940 cells — 56%** — and every
+one of them becomes `litter`, which is a `Powder` with a friction angle.
+Even if every single wood cell came down as a coherent log, over half the
+pile would still be grain.
+
+**This is why the piece ladder cannot reach the bar.** The ladder is working:
+91%+ of *woody* mass promotes, the size distribution is real, and the pieces
+survive landing (T1e). The bar — "logs lying on the ground, visible at
+readable zoom" — is about what dominates the picture, and what dominates the
+picture is leaves.
+
+**One thing that does change it, and it is time.** By frame 8,750 the litter
+has rotted and `log` 631 finally exceeds `litter` 466. The pile becomes
+log-dominant *eventually*. Nobody watches a fall for 1,500 frames.
+
+**What would actually move it**, none of which T1 owns:
+
+- foliage that lands as something which reads as *foliage lying there*
+  rather than as grain — a dead-leaf tier that is not a `Powder`, which is a
+  new material and a new settling question;
+- a less leaf-heavy species, which is worldgen/genome, not felling;
+- rotation, so the wood that *is* there reads as logs lying rather than
+  standing (6 of 11 pieces land upright — §6.1, T2's).
+
+### T1g. A "refixed" claim went out over a settled state that had barely moved
+
+Recorded as a method failure, because the correction is cheap and the cost
+was a wasted review round and the owner's trust.
+
+Foliage riding its branch (T1e) transformed the **fall**: promoted share
+44% -> 99%, peak plant cells in flight 1,211 -> 2,878, pieces over 256 cells
+2 -> 7. It moved the **settled** state by almost nothing:
+
+| at rest | before the ride change | after |
+|---|---|---|
+| `log` | 711 | 724 |
+| `litter` | 1,652 | 1,634 |
+| `deadwood` | ~380 | 382 |
+
+The leaves now arrive attached to the branch and convert to `litter` on
+landing instead of in mid-air. The end state is the same pile. The owner's
+verdict was *"It is still very clearly dust. Did you review the images
+yourself?"* and both halves are fair: the images were reviewed and read as
+"still a mound" — that reading was even written on the *previous* card — but
+the new card was titled as a refix anyway, on the strength of the flight
+numbers, **without putting the two settled tables side by side**.
+
+The rule this breaks is already in `CLAUDE.md` and is one line long: *look
+again after the fix, for what you did not measure*. A fix measured on the
+quantity it obviously improves, and shipped without re-measuring the
+quantity the acceptance bar is written in, is not verified. Print the
+before/after of **the bar's own quantity** or do not claim the fix.
+
+### T1c. §1c's settle loss is now a counter
+
+`FailureCounts::settle_lost_cells` counts every cell `rigid::settle` could
+not place anywhere. It matters more than it did: before T1 a body landed on
+terrain, and now a felled crown's pieces land in a large pile of the same
+crown's own grit, which is where `nearest_free`'s rings come back empty.
+**188 of 1,160** promoted cells on the measured cut. Printed by `filmstrip`
+beside the felling census, per the T1 brief; deliberately not fixed there,
+because fixing it means deciding where a cell with nowhere to go *should*
+end up, which is a settling question rather than a fragmentation one.

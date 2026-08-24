@@ -1,0 +1,130 @@
+// **The piece tier of a broken tree**, as against `deadwood`'s grit tier.
+//
+// `wood` had one debris target and it was a `Powder`, so every outcome of a
+// felled tree — a whole bole, a major limb, a twig — ended as grains that
+// pile at `deadwood`'s 38-degree angle of repose. Two thousand seven hundred
+// of them make a cone of sawdust, and that is literally the same shape
+// `ascii`'s "angle of repose" scene draws on purpose. Reported from play as
+// *"it reads as a tree disintegrating into dust"*; the full account is
+// `Reports/physical-trees-design-2026-08-23.md` §5.5.
+//
+// So the fix is a second target rather than a tuned first one: `wood`
+// `severs_into` this and `breaks_into` deadwood, and which one a cell gets
+// is decided by how big the piece it belonged to was. A log lies where it
+// fell; grit piles. The physics genuinely differ on numbers that already
+// exist -- it does not flow, it can be stood on, it burns and rots on its
+// own schedule -- which is `Reports/design-philosophy.md` §2a's test for
+// when a constant becomes a material rather than a knob.
+//
+// `Solid`, not `Plant`: it is dead. Nothing grows from it, `plant.rs` never
+// walks it, and `decay.rs` is free to take it back to soil in its own time.
+(
+    name: "log",
+    display: "Log",
+    kind: Solid,
+    // Stand on it and climb it, which is half of why this is worth having
+    // as its own material: a felled trunk lying across a gap is terrain the
+    // gnome can use, and a heap of powder is not.
+    climbable: true,
+    // Under living `wood`'s 0.9 -- seasoned timber has lost its water. Above
+    // `deadwood`'s 0.7, since that is loose comminuted debris with air in it
+    // and this is not.
+    density: 0.8,
+    // Paler and greyer than living bark (wood.ron's band 0 starts at
+    // 92,64,40) and than `deadwood` (74,50,30), and deliberately the
+    // *lightest* of the three. The acceptance question for the whole
+    // package is whether a settled fall reads as logs lying on the ground
+    // rather than as a mound, and that is judged by eye at play zoom -- a
+    // piece tier that draws the same colour as the grit it is lying in
+    // cannot be told from it however well the simulation is behaving.
+    //
+    // **The four are deliberately close together, where every other debris
+    // material's four are deliberately far apart.** Palette spread is what
+    // makes a powder read as a powder: `deadwood` runs (64,43,26) to
+    // (96,66,40) and `litter` (132,96,44) to (182,146,78), and a field of
+    // cells drawing randomly across that range is *speckle*, which is
+    // exactly right for grains and exactly wrong for a piece. A log is one
+    // object, so its cells must draw nearly the same colour and render as a
+    // smooth block -- the shape of the fragment is the thing the eye has to
+    // be able to find in the pile, and a 44-unit spread hid it inside the
+    // grit it landed in. Judged by eye at play zoom on the settled
+    // `scene=fell` pile, which is the only way this could have been judged.
+    // **Warm timber, not grey.** The first shipped palette was a
+    // desaturated warm grey, chosen so a piece would stand out against
+    // `litter`'s gold and `deadwood`'s dark brown -- and it did stand out,
+    // as the wrong thing. Watching the fall frame by frame the owner's
+    // words for it were *"the trunk of the tree doesn't move it just turns
+    // gray"*: a bole promoted, landing on its own stump with nowhere to go
+    // and re-rendering in place, read as tissue **dying** rather than as a
+    // log. Grey is what ash and stone are here.
+    //
+    // So: pale, warm, and light enough to separate from everything else in
+    // a debris pile without borrowing gold from `litter` (132,96,44 to
+    // 182,146,78) or dark from `deadwood` (64,43,26 to 96,66,40). Cut
+    // timber is the reference, not bark -- this is the inside of a broken
+    // trunk.
+    // Landed at pale cream-timber after two rejected attempts, and both
+    // rejections are worth keeping because they are the two ways this can
+    // fail. A desaturated **grey** was legible in the pile and read as the
+    // wood *dying* -- the owner's word, watching the fall, was "turns
+    // gray". A warm mid-**brown** read as wood and vanished into `litter`'s
+    // gold, which is the same hue family at nearly the same value. What is
+    // left is the axis neither used: go **light**, and pinker than gold, so
+    // it separates on value from `deadwood` and on hue from `litter` while
+    // still being the colour of the inside of a broken trunk.
+    colors: [
+        (190, 160, 132),
+        (200, 172, 144),
+        (178, 148, 120),
+        (208, 182, 156),
+    ],
+    // Between living wood's 0.25 and deadwood's 0.35: drier than the tree it
+    // came off, less finely divided than the grit. Same burn temperature and
+    // duration as `wood` -- a log burns for a while, which is exactly the
+    // number wood.ron already carries and this is the same timber.
+    flammability: 0.3,
+    ignition_temperature: 400.0,
+    burn_temperature: 700.0,
+    burn_duration: 420,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    // The grit tier: hit a log hard enough, or blast it, and it comes apart
+    // into the same debris a snapped twig makes.
+    // **A fallen log is not ground for a living plant.** Terrain is; this
+    // is the tree's own wreckage. Without this, a chip knocked off a bole
+    // lands beside the stump and anchors the crown that the cut just
+    // detached -- see `MaterialDef::anchors_organisms` for the measurement.
+    anchors_organisms: false,
+    breaks_into: "deadwood",
+    // **A log that gives way breaks into smaller logs, not into sawdust.**
+    // Same two fields `wood.ron` carries and the same argument: this is a
+    // piece, so its own ladder has to start where a piece is possible, or
+    // the first time a settling heap shifts underneath it the whole tier
+    // falls back through `MIN_BODY_CELLS` into grit. Measured on
+    // `scene=fell fell=7150` at frame 8,750, everything else held: log
+    // standing 569 -> **624** cells and deadwood 505 -> 396.
+    //
+    // `woody` here is about the flood, not about severance -- a landed log
+    // has no organism id, so `fell_severed_tissue` never sees it. Eight is
+    // right for the same reason it is right for the wood this came off:
+    // a jumbled pile of pieces is connected the way it was placed.
+    woody: true,
+    fragment_floor: 5,
+    // Rots, slowly. `litter` runs 0.5 damp / 0.1 dry because a leaf is thin;
+    // a log is not, and a forest floor that ate its own deadfall inside a
+    // few hundred frames would undo the thing this material exists to show.
+    decays_into: "soil",
+    decay_chance_damp: 0.02,
+    decay_chance_dry: 0.002,
+    // **No `max_unsupported_span`, so it is opted out of the structural
+    // check** (the field defaults to the u16::MAX "never" sentinel). That is
+    // deliberate and it is the point of the tier: a log that landed is
+    // finished moving. Giving it a finite span puts a settled fall back on
+    // the failure path, where a piece resting on its own rubble is judged
+    // as a knife-edge footing and comes apart into deadwood -- the dust
+    // outcome, arriving one frame later by a different route. If a stack of
+    // logs ever needs to be able to collapse, that is a span *and* a bearing
+    // rule that knows it is looking at a piece rather than a cell
+    // (`CLAUDE.md`, "which object does this rule evaluate"), and it is not
+    // this package.
+)
