@@ -5432,3 +5432,97 @@ world this test looks at. `spring_flow = 0.0` is set too, so the moving
 cells are not a spring either — they are standing water in a `terraced`
 world, which points at the placement or settling of pooled water rather than
 at any live process.
+
+---
+
+## ~~Fragility~~ **FIXED** — the genome stand fingerprint went red on *anyone's* plant change (lane P, genome slot 9, 2026-08-24)
+
+**Not a bug in the engine. A bug in a test's shape**, filed because it has
+already cost one wrong diagnosis within hours of being written and will keep
+costing them until the test is restructured.
+
+`plant::tests::appending_a_genome_slot_leaves_every_existing_genome_untouched`
+asserts a hardcoded FNV-1a fingerprint over a stand grown 8,000 frames. It was
+built to catch a genome slot being renumbered or re-purposed, and it does. But
+it hashes **the whole grown stand**, so it also fails for every legitimate
+change to plant behaviour landing from any lane.
+
+**The worked example.** The slot-9 widening branch was green on its own commit
+`89e50c7`. It then merged 32 commits of `main` — WP-11's leaf-fall rate
+reaching all four woody species, P3's generation loop (abscission at the
+frontier, senescence, `rot_remains`, seed viability as a per-frame hazard),
+W2's grassfire and its new `flame` material. The guard went red at
+`0x74d3fef3d454dd11` against a constant of `0x1a52804a2df78ebc`.
+
+The integrator read that as a bug in the widening — specifically an RNG leak in
+`set_seed` — and sent a fix for code that was, on that point, already correct.
+An hour went into it before the check that settles it was run.
+
+**The check that settles it, and it is one step.** Graft the test onto the
+`main` being merged, with the genome change absent, and run it there. Same
+value => the constant is stale, re-take it. Different => a real perturbation.
+On this incident plain `main` at `GENOTYPE_TRAITS = 9` produced
+`0x74d3fef3d454dd11` — byte-identical to the widened branch — so the constant
+was stale and the widening was exonerated. The assertion message now carries
+this procedure inline.
+
+**Why it is still standing.** The fingerprint is the only guard that covers
+*"some consumer now reads a different slot than it used to"*, which needs a
+grown phenotype to express. The three cheaper guards beside it are all
+drift-immune and cover the rest: `a_genome_slots_draw_is_a_pure_function_of_its
+_own_index` (the mechanical contract, no frames stepped),
+`widening_the_genome_does_not_move_the_breeding_draw_sequence` (200 direct
+`set_seed` calls), and `set_seed_leaves_the_callers_rng_position_alone` (the
+caller's stream position). None of those can be moved by another lane.
+
+**Re-baselining did not work, and that is the part worth keeping.** The
+constant was re-taken once against `main` at `cfee870`, correctly and with the
+reasoning recorded — and went stale again within the hour, when W3's grass
+sowing and W4's wind geography landed. Five lanes were touching plant behaviour
+in one evening. A stored whole-stand number cannot survive that, and each
+re-baseline just moves the failure to whoever merges next.
+
+**Fixed by restructuring the test, not by another re-take.**
+`expressing_the_appended_genome_slot_changes_no_plant` grows the same stand
+twice **inside one process** — once with slot 9's width as shipped, once at
+`0.0` — and asserts the two are identical. Both arms move together under any
+upstream plant change, so nothing another lane lands can reach it, and there is
+no magic number for anyone to decide whether to update. `SpeciesRegistry::
+set_genotype_variance` is the switch, added on the `set_genome` /
+`set_creature_params` harness-setter precedent and per-`World` rather than
+global, because the test binary runs tests on many threads at once.
+
+Confirmed not vacuous — two arms equal *by construction* would pass for ever
+while testing nothing — by pointing the turgor read at slot 9 and watching it
+go red.
+
+The three guards beside it were already immune and stay:
+`a_genome_slots_draw_is_a_pure_function_of_its_own_index` (the mechanical
+contract, no frames stepped), `widening_the_genome_does_not_move_the_breeding_
+draw_sequence` (200 direct `set_seed` calls), and
+`set_seed_leaves_the_callers_rng_position_alone` (the caller's stream
+position). **No genome guard now asserts a stored fingerprint.**
+
+**One more trap this incident exposed, and it is the reason a careful check
+looked conclusive and was not.** The workflow fires on `push:
+['claude/**']` *and* `pull_request: [main]`. A `pull_request` job checks out
+the **merge commit of head into base**, not the head SHA — so reading the
+constant in the file at the head, confirming it matches CI's `right`, and
+concluding "CI measured a different stand on my tree" is a sound-looking
+inference from a tree CI never built. The head was fine; the merge tree had
+W3 and W4 in it.
+
+Reproduced exactly rather than argued: checking out the head, merging
+`origin/main` into it and running the test locally returned
+`14407512503826467350` — the identical value CI reported. There is no
+machine-dependence and no determinism problem here.
+
+**So when a simulation-output golden goes red in CI, the tree to reproduce
+on is `merge(head, base)`, not head.** A local run on head that passes
+proves nothing about a `pull_request` job.
+
+**The general lesson, which is why this entry stays rather than being
+deleted:** a guard that hashes whole-simulation output is a guard on every
+lane's work, not on yours. When the property is "X changes nothing", the
+checkable form is two arms in one build — not one arm against a number from
+last week.
