@@ -432,6 +432,102 @@ Several small things, grouped since none warrants its own issue.
 
 ---
 
+## Issue 12
+
+**Title:** Grass does not spread — a sown patch is the patch you keep
+
+**Labels:** `feature`, `worldgen`, `plants`
+
+**Body:**
+
+Filed from an owner verdict on review card `20260824T030939054Z-088ae6`
+("How long grass takes to fill an area: it doesn't"). His words:
+
+> "patches of grass should spread over time and completely fill up an area
+> without trees and the correct environment (temp, light, etc.). This is a
+> fine density at the start of a game, but how long does it take to fill an
+> ideal area" — and then, once measured: "Grass should spread."
+
+**The measured answer to his question is that it never fills.** Worldgen sows
+grass at a chosen density and that density is the end state; there is no
+vegetative spread, so a patch neither colonises bare ground next to it nor
+closes as the world runs. What ships today is an initial condition wearing the
+appearance of a standing crop.
+
+**Measured, by W3, on a treeless control** — 2,048-column worlds, ~500
+plantable columns, `flora_census seeds=2 w=2047 h=639 treedensity=0
+mossdensity=0 frames=45000`:
+
+| seed | plants @5,000 frames | @45,000 |
+|---|---|---|
+| 1 | 63 | 76 |
+| 2 | 61 | 63 |
+
+Standing cells move under 10%. Grass reaches its sown footprint inside 5,000
+frames and holds it. Full cover of ~500 columns needs ~250 plants, so at the
+observed rate that is on the order of **700,000 frames** — which is the honest
+answer to "how long does it take to fill an ideal area".
+
+**The leading explanation, with two independent supports:** `plant::set_seed`
+places a seed into an empty **8-neighbour of the parent cell**, so offspring
+land inside or against the clump that made them and grass cannot cross a gap —
+the sown positions are very nearly the final ones. The code says one cell, and
+the measurement says the footprint does not grow.
+
+**This is a candidate cause, not an established one, and the distinction is
+load-bearing.** Three other mechanisms could each also cap the stand:
+`crowding_weight: 30.0`, the seed bank's 18,000-frame half-life, and soil
+moisture on marginal ground. Fixing dispersal against the wrong one of these
+buys nothing.
+
+**The run that settles it** — not yet built — is *one founder on uniformly
+ideal ground, scored on how far its descendants get by 45,000 frames*. That is
+a scene rather than a knob: `PlantScene` already takes `soil=` and
+`soil_moisture`, so it is a small addition to `examples/plant_probe.rs` or a
+sibling, not new machinery. **Do that before choosing a fix.**
+
+**The mechanism that would change it is review item A5 (dispersal)** —
+per-species seed mass, float and carry. This issue gives A5 a named consumer
+and a measured motivation rather than leaving it a speculative nicety.
+
+**Why this is a feature and not a density tune.** Raising the sown density was
+tried first and is what the earlier cards were about; the owner accepted it as
+a starting value and then asked the question that density cannot answer. A
+denser sowing still does not spread, so every future complaint of the form
+"this area should have filled in by now" survives it.
+
+**What it has to respect** — the reason this is not a two-line change:
+
+- **Environment must gate it.** The owner named temperature and light
+  explicitly, and "an area without trees" — so shade from a canopy has to
+  suppress it, which means reading the same light channel plants already use.
+  That channel oscillates 20:1 over the day/night cycle by design, so any
+  threshold must go through `field::noon_equivalent_light` rather than
+  sampling raw light at an arbitrary phase (see `CLAUDE.md`, *a channel that
+  oscillates by design must be divided out of decisions*).
+- **It must not become a per-cell sweep cost.** Spread is a low-rate process
+  over a large area, which is the shape that quietly keeps chunks awake and
+  costs the dirty-rect render skip. Guard it at a call site that already holds
+  the cell, per `CLAUDE.md`'s hot-path rule, and say what it costs in
+  `examples/ascii` worst-frame terms when proposing it.
+- **It interacts with fire.** Grassfire landed in W2/W3; a spreading grass and
+  a spreading fire over the same substrate is a feedback loop, and the
+  patchwork burn the owner approved ("the in-between, found") is the state
+  that regrowth would erase. Whatever rate is chosen has to be judged
+  *after* a burn, not only on virgin ground.
+
+**Acceptance is judge-by-eye, not a count.** A bare, well-lit, tree-free area
+adjacent to an existing patch closes over a plausible number of frames, and a
+shaded or hostile one does not. Post a before/after or a GIF; the count of
+newly-grown grass cells goes in the card's `meta`, because "did it fire at
+all" needs a counter and a still cannot show it.
+
+**Explicitly not urgent.** The owner's routing was: "Tell the integrator to
+add it to the to do list, but it doesn't need to hold up you finishing your
+current work."
+
+---
+
 ## Appendix — a note for the milestone docs, not an issue
 
 Two of the findings above (#4, #7) are cases where prose in `README.md` or a module

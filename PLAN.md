@@ -1237,7 +1237,7 @@ the owner, replacing that line:
   undisturbed terrain; pheromone is the one channel with no alternative to
   persisting in full).
 
-### Issues backlog (`Reports/pixel-physics-issues.md`, eleven items, full detail in the file)
+### Issues backlog (`Reports/pixel-physics-issues.md`, twelve items, full detail in the file)
 
 Suggested order from the source doc: **#2 → #3** (one shared root cause,
 largest perf win) → **#5 → #6 → #4** (field grid) → **#9 → #8 → #7** (M16
@@ -1248,7 +1248,9 @@ whenever. Folded into the priority-order list above where they overlap.
 source 2026-08-23 rather than from this table, which had gone stale on all
 three — see each row. What is left of the original eleven is the perf group
 (#2, #4, #5, #6) plus housekeeping (#1, #11); #2's row records why it is
-harder than it reads.
+harder than it reads. **#12 was added 2026-08-24** from an owner verdict and
+is not part of the original eleven's ordering — he routed it explicitly as
+"add it to the to do list, but it doesn't need to hold up your current work".
 
 | # | Title | Kind |
 |---|---|---|
@@ -1263,6 +1265,7 @@ harder than it reads.
 | 9 | ~~Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever~~ **(resolved. `organism_tick`'s *first* check is `cell.organism_id() != organism_id`, which fires the instant the cell stops holding this organism's material, so burning or erasing the trunk stops its tips by construction rather than by a flag anyone has to remember to clear. Guarded by `an_orphaned_growing_tip_stops_growing_instead_of_extending_wood_from_open_air`.)** | bug, M16 |
 | 10 | Housekeeping: ~~default branch is `main` (a 15-byte stub — the project lives on `master`)~~ **(resolved 2026-08-21, the other way round: `master` was copied onto `main` rather than the default being switched, so `main` is now the trunk, CI gates it, and `master` is a lagging mirror kept only until someone deletes it — see the branch-topology note below)**, no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
 | 11 | Reserve a slice-identifier field on `ChunkCoord` before it reaches the save format (see the worldgen redesign above) | chore, architecture, blocks M10 |
+| 12 | Grass does not spread — a sown patch is the patch you keep, so an ideal area never fills in (measured: 63 plants at 5,000 frames, 76 at 45,000; full cover is ~700,000 frames away). Owner-filed 2026-08-24 from a review verdict. Candidate cause is `set_seed`'s one-cell dispersal, **not established** — crowding, seed-bank half-life and soil moisture are untested alternatives, so build the single-founder scene before choosing a fix. Environment (light via `noon_equivalent_light`, temperature, canopy) must gate it, and it has to be judged *after* a burn as well as on virgin ground. Gives review item A5 (dispersal) a named consumer | feature, worldgen, plants |
 
 A note from the same document worth keeping as a standing rule: two of its
 findings (#4, #7) were cases where `README.md` or a module doc claimed a
