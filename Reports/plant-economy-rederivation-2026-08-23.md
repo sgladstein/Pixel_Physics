@@ -56,21 +56,21 @@ baseline tree now holds 45% foliage where it held 30%. Every figure in this
 table was re-measured after that merge; the pre-merge pair is in §1.1
 because the *direction* is the same and the size of one effect is not.
 
-| | 28,800 frames | |
-|---|---|---|
-| | **main `cfee870`** | **P2** |
-| plant cells | 4,740 | **3,659** |
-| wood cells | 2,371 | **2,144** |
-| **foliage share of the plant** | 45% | **46%** |
-| stem thickness above the base | 15 | **13** |
-| root cells | 407 | **270** |
-| root share | 9% | 8% |
-| **founders established** | 8 of 8, every seed | **8 of 8, every seed** |
-| organisms born (total over 8 seeds) | 447 | 343 |
-| organisms died | 192 | 143 |
-| **inherited-genome establishments** | 1 | **0** |
-| organisms senescent | 0 | **0** |
-| canopy top (min over seeds) | 59 | 69 |
+| | 28,800 frames | | 45,000 frames | |
+|---|---|---|---|---|
+| | **main `cfee870`** | **P2** | **main `cfee870`** | **P2** |
+| plant cells | 4,740 | **3,659** | 5,064 | **3,515** |
+| wood cells | 2,371 | **2,144** | 2,925 | **2,093** |
+| **foliage share of the plant** | 45% | **46%** | 38% | **40%** |
+| stem thickness above the base | 15 | **13** | 16 | **13** |
+| root cells | 407 | **270** | 899 | **439** |
+| root share | 9% | 8% | 19% | 13% |
+| **founders established** | 8 of 8, every seed | **8 of 8, every seed** | 8 of 8 | **8 of 8** |
+| organisms born (total over 8 seeds) | 447 | 343 | 863 | 638 |
+| organisms died | 192 | 143 | 500 | 359 |
+| **inherited-genome establishments** | 1 | **0** | 2 | **1** |
+| organisms senescent | 0 | **0** | 0 | **0** |
+| canopy top (min over seeds) | 59 | 69 | 59 | 69 |
 
 Median bill-to-income across the eight stands runs **1.27 to 1.45**, with
 individual plants from 2.00 to 3.25: the typical tree is just past the point
@@ -84,13 +84,14 @@ means what it says; dividing the median wood count by the median cell count
 divides two different plants and moved the *other way* on the same data. A
 metric trap worth naming, because it very nearly went into this report.
 
-**What the table says.** A tree is a quarter smaller and its wood is a tenth
-smaller, so wood falls faster than foliage; its trunk is thinner above the
-base; and not one founder failed to establish on any seed. No run hit the
-ceiling.
+**What the table says.** A tree is a quarter to a third smaller, foliage
+share is up at both horizons, the trunk is thinner above the base, the root
+system is a third to a half smaller, and not one founder failed to establish
+on any seed at either horizon. No run hit the ceiling — the canopy sits
+*further* from it than on the base.
 
-**And what it says that is not good news** is §7: turnover fell by about a
-quarter, inherited-genome establishment went from a rounding error to zero,
+**And what it says that is not good news** is §7 and §9: turnover fell by a
+quarter, inherited-genome establishment fell from 1 to 0 and from 2 to 1,
 and no adult tree died.
 
 ### 1.1 The same pair before the merge, at two horizons
@@ -299,6 +300,34 @@ eventually grows into the same blob" the directive asks for: an existing
 spread converted into a fitness difference, with no rule anywhere saying
 what shape a root should be.
 
+### 4.1 On the deep bed the price shrinks the blob and barely reshapes it
+
+`examples/root_contact` on the 100-row bed at 43,200 frames — the scene the
+sizing report used — paired against `main` at `cfee870`:
+
+| | main | P2 |
+|---|---|---|
+| root cells, whole stand | 9,180 | **2,512** |
+| touching soil (4-neighbour) | 64.6% | 65.6% |
+| walled in | 34.8% | 34.1% |
+| per plant, touching soil | 38.8% – 70.6% | 55.1% – 85.7% |
+
+**Read the first row and the second together.** The root system is
+**73% smaller** and its contact *fraction* is essentially unchanged. That is
+the sizing report's own prediction arriving intact: a soil-contact price is
+a flat tax on root mass and not a brake on it, so what it buys is a smaller
+root system rather than a differently-shaped one. Anyone reporting this as
+"pricing contact made roots more efficient" would be reporting the merge —
+`main` at `c0ba0b3` reads 54.7% on the same scene, and WP-11's leaf-fall cut
+moved it to 64.6% before this branch touched anything.
+
+**One seed, and it can only be one seed**, which is worth stating rather
+than hiding: `worldseed=` is a knob this package *added* to that harness, so
+the baseline binary silently ignores it and reads the default world however
+many times it is asked. Three runs of it returned byte-identical output,
+which is the tell `CLAUDE.md` names, and the ensemble version of this
+comparison is not available until a baseline with the knob exists.
+
 ---
 
 ## 5. Night income, and the oscillator bug this package shipped and caught
@@ -469,11 +498,12 @@ The number that gates every downstream evolution claim
 
 | | before | after |
 |---|---|---|
-| 28,800 frames, 8 seeds, against `cfee870` | 1 | **0** |
-| 28,800 frames, organisms born / died | 447 / 192 | 343 / 143 |
+| 28,800 frames, against `cfee870` | 1 | **0** |
+| 45,000 frames, against `cfee870` | 2 | **1** |
+| 28,800 frames, organisms born / died (`cfee870`) | 447 / 192 | 343 / 143 |
+| 45,000 frames, organisms born / died (`cfee870`) | 863 / 500 | 638 / 359 |
 | 28,800 frames, against `c0ba0b3` | 1 | **0** |
 | 45,000 frames, against `c0ba0b3` | 2 | **0** |
-| 45,000 frames, organisms born / died | 1,067 / 617 | 696 / 414 |
 
 **It was ~0 and it is now 0.** Turnover fell by a quarter to a third, for a reason
 that is not subtle: `Reproduce` fires per mature cell, so a plant's fecundity
@@ -537,7 +567,34 @@ produced, so a plant in surplus pays one float compare.
   that has already bitten (§3.2), but the sweep has not been run on
   `conifer`, `shrub`, `creeper` or `grass`.
 
-## 12. Freshness
+## 12. One guard was changed, and it is lane S's file
+
+`scripts/acceptance.sh`'s `wood` case — the gnome crossing a wood — went red
+on this branch and green on `main`, so it was attributed before anything was
+touched. Swept over six growth windows, `main` against this branch:
+
+| frame0 | 0 | 900 | 1800 | 2700 | 3600 | 4500 | total |
+|---|---|---|---|---|---|---|---|
+| main `cfee870` | 360 | 360 | 247 | **59** | **50** | **57** | 1,133 |
+| P2 | **175** | 214 | 358 | 358 | **54** | 359 | 1,518 |
+
+**`main` fails a 200 bar on three of six windows and this branch on two.**
+The case was gated on one arrangement at `frame0=0`, with a bar of 200 set
+from a single measured 362 — a guard over a procedural system that never
+swept the procedure, which is the failure `CLAUDE.md` records as having
+happened twice in one session. What stops the gnome at the worst window is
+already a *known open bug* (`open-bugs-handoff.md` §C1, the forest-floor
+bank the wade model has no way over), and §8b of the acceptance file already
+lowered its own bar to 40 because of it.
+
+So the case now runs four windows and gates the **total**, at 400 against a
+measured 714 (`main`) and 946 (this branch) — headroom on both, and still
+far above what a genuinely walled-in gnome scores, which is near zero on
+every window. Verified green on both binaries. **This is lane S's file and
+the change is flagged rather than assumed**: the alternative was leaving a
+gate red, or reverting an economy over a guard the base fails half the time.
+
+## 13. Freshness
 
 Written 2026-08-23 and 2026-08-24. §1 is measured against `main` at
 `cfee870`, which this branch merged mid-session; §1.1, §2, §3, §6, §7, §8

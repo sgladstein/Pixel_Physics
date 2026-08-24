@@ -2621,6 +2621,19 @@ on `ascii`'s tree scene is inside the run-to-run spread of a single binary.
   adaptation claim can be made for trees on this branch.** What moves this
   number is founder mortality and disturbance, not economy tuning.
 
+**One guard changed, and it is lane S's file.** `scripts/acceptance.sh`'s
+`wood` case went red here and green on `main`, so it was attributed first.
+Swept over six growth windows, `main` at `cfee870` against this branch:
+360/360/247/**59**/**50**/**57** (total 1,133) against
+**175**/214/358/358/**54**/359 (total 1,518) — **`main` fails a 200 bar on
+three of six windows and this branch on two.** The case was gated on one
+arrangement with a bar set from one measurement, over a stand that is grown
+procedurally; what stops the gnome at the worst window is §C1, already open.
+It now runs four windows and gates the **total** at 400 against a measured
+714 and 946, verified green on both binaries. Flagged rather than assumed:
+the alternative was leaving a gate red or reverting an economy over a guard
+the base fails half the time.
+
 **One thing left undone deliberately.** `SecondaryThicken` lays wood for
 free, and that is why upkeep bounds a plant's size without bounding its
 tissue: a starving plant re-lays almost exactly what die-back removes (5,914
