@@ -321,6 +321,7 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
             world.reindex_organism_cell(x, y, was, now);
         }
         world.phase_changes.merge(outcome.phase_counts);
+        world.energy_ledger.meat_lost += outcome.meat_lost;
         // Summed in whole fill units per worker and converted once here, so
         // a pass credits the same total however the chunks were divided
         // between threads -- see `ChunkView::sky_condensate`.
@@ -417,6 +418,8 @@ struct ChunkOutcome {
     phase_counts: crate::sim::fire::PhaseCounts,
     /// See `ChunkView::sky_condensate`'s own doc.
     sky_condensate: u64,
+    /// See `ChunkView::meat_lost`'s own doc.
+    meat_lost: f64,
 }
 
 /// One active chunk's private workspace during a parallel pass.
@@ -505,6 +508,18 @@ struct ChunkView<'w> {
     /// than cell-equivalents so the merge is an integer sum and no pass can
     /// lose a fraction of a cell to float ordering.
     sky_condensate: u64,
+    /// This worker's private sum of meat destroyed by the sweep
+    /// (`CellSurface::book_meat_lost`), merged into
+    /// `World::energy_ledger.meat_lost` by `run_pass` — only `World` owns
+    /// the ledger, same reasoning as `phase_counts`.
+    ///
+    /// An `f64` sum where `sky_condensate` is an integer one, and the
+    /// difference is deliberate rather than an oversight: fill units are
+    /// countable and stamps are not. Determinism is preserved by the merge
+    /// order, not by exactness of the type — `run_pass` folds chunk
+    /// outcomes in a fixed order, so the same run adds the same partial
+    /// sums in the same sequence. See the `determinism.rs` pair.
+    meat_lost: f64,
 }
 
 impl<'w> ChunkView<'w> {
@@ -527,6 +542,7 @@ impl<'w> ChunkView<'w> {
             organism_moves: Vec::new(),
             phase_counts: crate::sim::fire::PhaseCounts::default(),
             sky_condensate: 0,
+            meat_lost: 0.0,
         }
     }
 
@@ -553,6 +569,7 @@ impl<'w> ChunkView<'w> {
             organism_moves: self.organism_moves,
             phase_counts: self.phase_counts,
             sky_condensate: self.sky_condensate,
+            meat_lost: self.meat_lost,
         }
     }
 
@@ -737,6 +754,47 @@ impl CellSurface for ChunkView<'_> {
         self.field.get_local(lx, ly).moisture
     }
 
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        // **Assembled per sample, and the naive version was silently
+        // wrong.** `field::ground_wetness_at` reads two field blocks -- the
+        // cell's own and the one `FIELD_SCALE` below it -- so unlike
+        // `field_moisture_at` beside it, this cannot simply assert it is
+        // in-chunk: a cell in the bottom eight rows of a chunk reaches into
+        // the chunk below.
+        //
+        // Deferring the whole thing to `self.world` instead does *not*
+        // work, and this cost an afternoon: a worker's own `FieldTile` has
+        // been **moved out** of `world.fields` for the duration of the
+        // pass, so `moisture_source_at` finds no tile at this coordinate
+        // and returns its out-of-world answer, 0.0. Every ignition in a
+        // saturated meadow then read `wetness=0` and the gate passed
+        // everything, while `World::ground_wetness_at` -- the same
+        // function, called from a harness between frames -- correctly read
+        // 1.0 at the identical cells. A read that is right everywhere
+        // except inside the sweep is the worst shape a bug can have here,
+        // because the harness agrees with you.
+        //
+        // So: own tile from `self.field`, anything else from the world,
+        // per sample. The `HashMap` lookup the remote case costs is the
+        // exact cost `fire::diffuse_heat` had removed for paying it once
+        // per visited cell; this one is paid once per *ignition attempt*
+        // -- a flammable cell that already has a burning neighbour, which
+        // is the fire front and nothing else.
+        let source = |wx: i32, wy: i32| {
+            if !self.world.in_bounds(wx, wy) {
+                return 0.0;
+            }
+            let (fx, fy) = field::field_coord_of(wx, wy);
+            let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
+            if tile_coord == self.coord {
+                self.field.moisture_source_local(lx, ly)
+            } else {
+                self.world.moisture_source_at(wx, wy)
+            }
+        };
+        source(x, y).max(source(x, y + field::FIELD_SCALE))
+    }
+
     fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
         let (fx, fy) = field::field_coord_of(x, y);
         let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
@@ -750,6 +808,10 @@ impl CellSurface for ChunkView<'_> {
 
     fn frame(&self) -> u64 {
         self.world.frame
+    }
+
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        self.world.organism_due(base_interval)
     }
 
     fn schedule_active_site(&mut self, site: ActiveSite) {
@@ -791,6 +853,12 @@ impl CellSurface for ChunkView<'_> {
         // Tallied privately and merged by `run_pass` — only `World` owns
         // `phase_changes`, the same reasoning as `pending_active_sites`.
         self.phase_counts.record(event);
+    }
+
+    fn book_meat_lost(&mut self, worth: f64) {
+        // Summed privately and merged by `run_pass` — only `World` owns the
+        // ledger, exactly as for `phase_counts` above.
+        self.meat_lost += worth;
     }
 }
 

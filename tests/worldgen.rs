@@ -19,9 +19,11 @@
 
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material;
+use pixel_physics::sim::organism;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::{parallel, structural};
 use pixel_physics::worldgen::{self, Spec, WorldgenParams, WorldgenPresets};
+use std::collections::BTreeMap;
 
 /// Full sandbox dimensions. Worth the cost here specifically: the base relief
 /// wave has a period of one world width, so a smaller world is a *different*
@@ -151,10 +153,40 @@ fn generated_terrain_is_already_at_rest() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        // **Every life layer, not the two that existed when this was
+        // written.** A seed is a `Powder` and settles, so a sown world has a
+        // live process in it -- the same reason `spring_flow` and the
+        // weather are held still here, and the same rule: a live process is
+        // not a placement defect. Grass landed as a *third* layer with its
+        // own density knob, and the two lines above stopped meaning "no
+        // life" the moment it did: five tests in this file failed at once,
+        // reporting `seed` and `soil` cells leaving their positions, which
+        // is a sward settling and not a terrain defect. Anything added to
+        // `life_scatter` later has to be zeroed in all seven of these
+        // fixtures too.
+        params.grass_density = 0.0;
         params.spring_flow = 0.0;
         let params = &params;
         for seed in SEEDS {
             let mut world = build(params, seed);
+            // **The sky is held still, for the same reason `spring_flow` is
+            // zeroed elsewhere in this file: a live process is not a
+            // placement defect.** `weather::step` runs inside
+            // `parallel::step`, so without this the assertion below reads
+            // "the generated world holds still *while snow falls on it*".
+            // `weather::at` is a pure function of `(seed, frame)` and seed 3
+            // precipitates from frame 0 (Snow, intensity 0.36, 1,786 wet
+            // frames in 12,000) -- which is exactly the seed this and
+            // `generated_terrain_is_already_at_rest` both failed on, while
+            // seeds 1, 2 and 5, which never precipitate at all, passed
+            // (`open-bugs-handoff.md` §M).
+            //
+            // **Not a seed dodge.** Picking quiet seeds would tune the sweep
+            // to the answer; this leaves the seed list alone and removes the
+            // input the claim was never about. `Weather::CLEAR`'s own doc
+            // already named itself "the one every 'does this stay settled'
+            // test asserts against".
+            world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
             let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
             for _ in 0..120 {
                 step(&mut world);
@@ -205,6 +237,7 @@ fn generated_terrain_stops_sweeping_almost_immediately() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.grass_density = 0.0;
         let mut world = build(&params, 1);
         let mut frames = 0;
         while world.active_chunk_count() > 0 && frames < 120 {
@@ -709,6 +742,333 @@ fn the_world_arrives_with_both_moss_and_trees_in_it() {
     assert!(moss_cells > 0, "no moss was planted in any of {} worlds", SEEDS.len());
 }
 
+/// Every woody species this world knows how to grow, and the worst world in
+/// a sweep that may omit one.
+///
+/// Not a list of species files: a species that exists and is never planted
+/// is exactly the bug this guards (`Reports/plant-project-review-2026-08-23.md`
+/// §2.0 — conifer, shrub and creeper shipped for months and had never once
+/// appeared in a generated world, because `life_scatter` sowed the hardcoded
+/// string `"tree"`). Grass is deliberately absent: it is gated behind its own
+/// mortality path, not behind anything in worldgen.
+const WOODY: [&str; 4] = ["conifer", "creeper", "shrub", "tree"];
+
+/// Seeds for the flora sweep, and **why there are sixteen of them rather
+/// than [`SEEDS`]'s five.**
+///
+/// A guard over a procedural system has to sweep the procedure, and it has
+/// to gate an *order statistic* rather than any single world (`CLAUDE.md`):
+/// which seed is worst reshuffles on any legitimate change, so a per-seed
+/// baseline gets rubber-stamped. Measured over these sixteen worlds at
+/// 2048 columns, every woody species is sown in all sixteen, with per-world
+/// medians of conifer 6, creeper 14, shrub 6, tree 15 and per-world minima
+/// of 2/2/1/1 — so the bars below sit well under the medians and one world
+/// is allowed to miss a species outright.
+const FLORA_SEEDS: [u64; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+
+/// Wider than [`BOUNDS`] on purpose. The shipped world is 8,192 columns and
+/// a 512-column sample is a *different composition*: at that width a whole
+/// region can miss the sweep, and four of eight worlds contained no shrub at
+/// all for that reason alone rather than for anything about the rule. 2,048
+/// is a quarter of the shipped width and generates in ~0.3 s, which is what
+/// makes sixteen of them affordable here.
+const FLORA_BOUNDS: (i32, i32) = (2047, 639);
+
+/// Live organisms per species name, counted off the grid.
+///
+/// Off the *grid* rather than off the organism table, because the table is
+/// `pub(crate)` and because a census that reads the same cells the picture
+/// is drawn from cannot disagree with the picture. `established` is the
+/// subset that has any cell of a material other than `seed` — i.e. that
+/// germinated — and the gap between the two is the whole point: a species
+/// sown into country whose soil water never reaches its own
+/// `Germinate::soil_water_threshold` is sown forever and comes up never,
+/// which reads on screen exactly like a species that is merely rare.
+fn flora_census(world: &World) -> (BTreeMap<String, usize>, BTreeMap<String, usize>) {
+    let seed_material = world.materials.id_of("seed");
+    let bounds = world.bounds().expect("bounded world");
+    let mut grown: BTreeMap<u16, bool> = BTreeMap::new();
+    for y in bounds.min_y..=bounds.max_y {
+        for x in bounds.min_x..=bounds.max_x {
+            let cell = world.get(x, y);
+            let id = cell.organism_id();
+            if id == 0 {
+                continue;
+            }
+            *grown.entry(id).or_default() |= Some(cell.material) != seed_material;
+        }
+    }
+    let (mut sown, mut established) = (BTreeMap::new(), BTreeMap::new());
+    for (id, is_grown) in grown {
+        // A stale id whose organism is gone resolves to `None` rather than
+        // to whoever was allocated the slot next — the generational check.
+        let Some(state) = world.organism(id) else { continue };
+        let name = world.species.get(state.species).name.clone();
+        *sown.entry(name.clone()).or_default() += 1;
+        if is_grown {
+            *established.entry(name).or_default() += 1;
+        }
+    }
+    (sown, established)
+}
+
+/// Every woody species declares a palette range, and no two overlap.
+///
+/// **Written because the opposite shipped.** The edit that gave `conifer` its
+/// new bark range replaced the comment above the two fields and did not put
+/// the fields back, so `conifer.ron` went out with no `foliage_bands` and no
+/// `bark_bands` at all. Both are `#[serde(default)]`, so absent parses
+/// cleanly as `count: 0`, and `banded_shade` reads `count: 0` as "this
+/// species never declared a range" and answers with a uniform draw over the
+/// *whole* palette. The species that was supposed to be the blue-green one
+/// was wearing a random mix of all eight hues, on both axes, and a review
+/// card was judged on it before anyone noticed.
+///
+/// Nothing could have caught it: it is not a parse error, not a panic, and
+/// not a behaviour change any existing test looks at -- it is a *default*
+/// doing exactly what it promises. The only signal was the picture, and the
+/// picture had four species in it.
+///
+/// Lives in this file rather than beside the species loader because this is
+/// the file that owns "the world contains the flora it is supposed to", and
+/// a species drawing the wrong colours is the same claim as a species not
+/// being planted -- both are invisible until someone looks at a render.
+#[test]
+fn every_woody_species_declares_a_palette_range_and_they_are_disjoint() {
+    let world = World::new(Rect::new(0, 0, 31, 31));
+    let mut foliage: Vec<(&str, u8, u8)> = Vec::new();
+    let mut bark: Vec<(&str, u8, u8)> = Vec::new();
+    for name in WOODY {
+        let id = world.species.id_of(name).unwrap_or_else(|| panic!("{name} is a compiled-in species"));
+        let sp = world.species.get(id);
+        // `count: 0` is the "undeclared" sentinel, and for a species whose
+        // whole point is a distinct look it is always a mistake.
+        assert!(sp.foliage_bands.count > 0, "{name} declares no foliage_bands -- it will draw over the whole leaf palette");
+        assert!(sp.bark_bands.count > 0, "{name} declares no bark_bands -- it will draw over the whole wood palette");
+        foliage.push((name, sp.foliage_bands.first, sp.foliage_bands.count));
+        bark.push((name, sp.bark_bands.first, sp.bark_bands.count));
+    }
+    // Pairwise disjoint, which is the claim every one of these species files
+    // makes in its own header comment -- and `conifer.ron`'s said so while
+    // overlapping `tree` and `shrub`, which is how this started.
+    for (axis, ranges) in [("foliage", &foliage), ("bark", &bark)] {
+        for (i, &(a_name, a_first, a_count)) in ranges.iter().enumerate() {
+            for &(b_name, b_first, b_count) in ranges.iter().skip(i + 1) {
+                let a = a_first..a_first + a_count;
+                let b = b_first..b_first + b_count;
+                assert!(
+                    a.end <= b.start || b.end <= a.start,
+                    "{a_name} and {b_name} share {axis} bands: {a:?} overlaps {b:?}"
+                );
+            }
+        }
+    }
+    // And the ranges have to fit the palette they index, or a band wraps
+    // modulo the palette length at render time and silently lands on another
+    // species' colour -- the same collision by a different door.
+    let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+    let wood = world.materials.id_of("wood").expect("wood is compiled in");
+    let band = organism::PALETTE_BAND as usize;
+    for (axis, material, ranges) in [("foliage", leaf, &foliage), ("bark", wood, &bark)] {
+        let bands = world.materials.get(material).palette.len() / band;
+        for &(name, first, count) in ranges {
+            assert!(
+                (first + count) as usize <= bands,
+                "{name}'s {axis} range {first}..{} runs past the {bands} bands the palette has",
+                first + count
+            );
+        }
+    }
+}
+
+#[test]
+fn every_woody_species_is_sown_across_a_seed_sweep() {
+    // **The §2.0 guard.** `the_world_arrives_with_both_moss_and_trees_in_it`
+    // counts *materials*, so it passes for a world containing one woody
+    // species as happily as for one containing four — every woody plant is
+    // made of `wood`. This one counts organisms by species, which is the
+    // only reading that can tell those two worlds apart.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut counts: BTreeMap<&str, Vec<usize>> = WOODY.iter().map(|&n| (n, Vec::new())).collect();
+    for seed in FLORA_SEEDS {
+        let mut world = World::new(Rect::new(0, 0, FLORA_BOUNDS.0, FLORA_BOUNDS.1));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        let (sown, _) = flora_census(&world);
+        for name in WOODY {
+            counts.get_mut(name).unwrap().push(sown.get(name).copied().unwrap_or(0));
+        }
+    }
+    for name in WOODY {
+        let mut v = counts.remove(name).unwrap();
+        let present = v.iter().filter(|&&c| c > 0).count();
+        v.sort_unstable();
+        let median = v[v.len() / 2];
+        // One world may miss a species outright — the placement field is
+        // clustered by design, so a world whose stands of one species all
+        // fall in the sea or on rock is a real outcome and not a defect.
+        // Two would mean the niche has narrowed to nothing.
+        assert!(
+            present >= FLORA_SEEDS.len() - 1,
+            "{name} is missing from {} of {} generated worlds (counts {v:?})",
+            FLORA_SEEDS.len() - present,
+            FLORA_SEEDS.len()
+        );
+        // A *continuous* bar under the count, not a knife-edge one: the
+        // medians measured 6/14/6/15, so 3 is at worst half the headroom
+        // and the test still fails long before a species goes to zero.
+        assert!(median >= 3, "{name}'s median world holds only {median} (counts {v:?})");
+    }
+}
+
+#[test]
+fn a_sown_woody_species_also_comes_up() {
+    // **Sowing is not establishing, and only one of the two is visible.**
+    // Only `soil` has a `water_capacity`, so a seed resting on sand, gravel
+    // or stone reads bone dry to `Germinate` however wet the weather is —
+    // and a species sown onto ground it cannot germinate on produces a
+    // world that looks exactly like a world where that species is rare.
+    // The pass is arranged so its niches agree with the germination ladder
+    // (conifer 0.35 > tree 0.25 > shrub 0.20 > creeper 0.15); this is what
+    // says the agreement holds rather than that it was intended.
+    //
+    // Pooled across the sweep rather than per seed, because per seed the
+    // numbers are 1-16 and a rate over a handful of plants is noise.
+    // Measured pooled over these eight worlds: conifer 45/46, creeper
+    // 45/46, shrub 12/16, tree 67/71.
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut pooled_sown, mut pooled_up): (BTreeMap<&str, usize>, BTreeMap<&str, usize>) = Default::default();
+    for seed in FLORA_SEEDS.iter().take(8) {
+        // Smaller and shorter than the sweep above: this asks whether a
+        // seed comes up at all, and germination is complete well inside
+        // 300 frames (identical counts at 300 and 600). The world still
+        // has to be wide enough to contain more than one region.
+        let mut world = World::new(Rect::new(0, 0, 1023, 383));
+        worldgen::generate(&mut world, Spec::Generated { params, seed: *seed });
+        for _ in 0..300 {
+            step(&mut world);
+        }
+        let (sown, up) = flora_census(&world);
+        for name in WOODY {
+            *pooled_sown.entry(name).or_default() += sown.get(name).copied().unwrap_or(0);
+            *pooled_up.entry(name).or_default() += up.get(name).copied().unwrap_or(0);
+        }
+    }
+    for name in WOODY {
+        let (sown, up) = (pooled_sown[name], pooled_up[name]);
+        assert!(up >= 5, "{name} established {up} plants across the whole sweep ({sown} sown)");
+        // Half, against a measured worst case of 0.75. A species that is
+        // sown and mostly fails to come up is being put in the wrong
+        // country, which is a rule bug wearing a rarity costume.
+        assert!(
+            up as f32 / sown.max(1) as f32 >= 0.5,
+            "{name} germinated {up} of {sown} sown — it is being sown where it cannot come up"
+        );
+    }
+}
+
+/// **Grass reaches the world, and comes up when it gets there.**
+///
+/// The grass half of A1, and it is a separate test from the woody sweep
+/// above rather than a fifth entry in [`WOODY`] for the same reason grass is
+/// a separate layer in `life_scatter`: it is sown off its own density knob,
+/// on the columns the woody loop declined, and its counts live on a
+/// different scale (median 24 a world against the woody 6-16). Folding it
+/// into the woody sweep would have meant one bar for two distributions, and
+/// the loose end of that bar is the species it was not set from.
+///
+/// **Measured over these sixteen worlds before the bars were set**: sown
+/// min 7, median 24, max 60, present in 16 of 16. Paired against `main` in
+/// the same session, all four woody species are bit-identical (conifer
+/// 2/6/27, creeper 2/12/23, shrub 1/6/25, tree 1/16/35 on both) — grass
+/// takes its columns from *moss*, whose median goes 20 to 19, which is the
+/// two ground layers competing for the same leftover ground and is the
+/// interaction to expect rather than a defect.
+///
+/// The sweep genuinely sweeps this rule: grass's per-world count runs 7 to
+/// 60 across these sixteen seeds, an 8.6x spread, so the order statistic is
+/// reading a procedure and not a fixed scene (`CLAUDE.md` — all eight
+/// acceptance scenes once stayed green through a change that made one world
+/// lose 26x more material, because `seed=` reached only two of them).
+#[test]
+fn grass_is_sown_across_a_seed_sweep() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut counts: Vec<usize> = Vec::new();
+    for seed in FLORA_SEEDS {
+        let mut world = World::new(Rect::new(0, 0, FLORA_BOUNDS.0, FLORA_BOUNDS.1));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        let (sown, _) = flora_census(&world);
+        counts.push(sown.get("grass").copied().unwrap_or(0));
+    }
+    let present = counts.iter().filter(|&&c| c > 0).count();
+    let mut v = counts.clone();
+    v.sort_unstable();
+    let median = v[v.len() / 2];
+    // One world may miss it outright, exactly as the woody sweep allows: the
+    // placement field is clustered by design and a world whose swards all
+    // fall in the sea is a real outcome.
+    assert!(
+        present >= FLORA_SEEDS.len() - 1,
+        "grass is missing from {} of {} generated worlds (counts {v:?})",
+        FLORA_SEEDS.len() - present,
+        FLORA_SEEDS.len()
+    );
+    // A third of the measured median of 24, so the bar has real headroom and
+    // still fails long before grass goes to zero.
+    assert!(median >= 8, "grass's median world holds only {median} (counts {v:?})");
+    // **And an upper bound, which the woody sweep has no equivalent of.**
+    // Grass is the one species that reproduces fast enough to matter to the
+    // 4,095 organism-slot ceiling, and the failure it walks into is silent id
+    // corruption rather than an ugly picture. This bar is a *sowing* bound at
+    // 2,047 columns and so only a proxy for that — it catches a density or
+    // band change that blankets the world, not a runaway seeding rate. The
+    // standing-organism high-water mark over a long run in the shipped world
+    // is the real measurement and lives in the report, not here, because it
+    // costs minutes rather than seconds.
+    assert!(median <= 72, "grass's median world holds {median} — three times the measured 24, so the sward is blanketing the world (counts {v:?})");
+}
+
+/// Grass is sown where it can actually come up.
+///
+/// The same claim `a_sown_woody_species_also_comes_up` makes, and it needs
+/// making separately for grass because grass's hazard is the opposite one.
+/// A woody species sown into country too dry for its germination bar is sown
+/// forever and comes up never; grass has the *lowest* bar of the five
+/// (`soil_water_threshold: 0.10`) so it germinates almost anywhere it lands
+/// — what kills it is **shade**, which P3 made live. So the rule that would
+/// fail here is sowing a sward under a closed canopy, and this is what says
+/// the weight's reading of the woody sum keeps it out from under one.
+///
+/// Pooled rather than per seed, for the same reason: per world the numbers
+/// are single digits and a rate over a handful of plants is noise. Measured
+/// pooled over these eight worlds at 300 frames: 76 of 79 sown came up.
+#[test]
+fn sown_grass_also_comes_up() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut pooled_sown, mut pooled_up) = (0usize, 0usize);
+    for seed in FLORA_SEEDS.iter().take(8) {
+        let mut world = World::new(Rect::new(0, 0, 1023, 383));
+        worldgen::generate(&mut world, Spec::Generated { params, seed: *seed });
+        for _ in 0..300 {
+            step(&mut world);
+        }
+        let (sown, up) = flora_census(&world);
+        pooled_sown += sown.get("grass").copied().unwrap_or(0);
+        pooled_up += up.get("grass").copied().unwrap_or(0);
+    }
+    assert!(pooled_up >= 20, "grass established {pooled_up} plants across the whole sweep ({pooled_sown} sown)");
+    // Half, against a measured 0.96. Grass that is sown and mostly fails to
+    // come up is being sown under a canopy, which is a weight bug wearing a
+    // rarity costume.
+    assert!(
+        pooled_up as f32 / pooled_sown.max(1) as f32 >= 0.5,
+        "grass germinated {pooled_up} of {pooled_sown} sown — it is being sown where it cannot come up"
+    );
+}
+
 #[test]
 fn planted_life_is_clustered_rather_than_evenly_spaced() {
     // The claim the squared cluster field exists to make. Evenly spaced
@@ -1187,7 +1547,7 @@ fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
     use pixel_physics::worldgen::column::Terrain;
     let presets = presets();
     let base = presets.get("rolling").expect("rolling preset");
-    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, grass_density: 0.0, ..base.clone() };
 
     let mut total_talus_cells = 0usize;
     let mut wrong_family = 0usize;
@@ -1701,6 +2061,7 @@ fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
         vault_min_depth: 40,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         // Off for the same reason as the two above: these worlds are settled
         // and then compared against a control, so anything that is still a
         // *process* after generation shows up as a difference and is read as
@@ -1785,6 +2146,24 @@ fn a_forced_vault_world_is_sealed_and_arrives_at_rest() {
             // is the claim most likely to break if the floor stops being
             // filled flat.
             let mut world = world;
+            // **The sky is held still, for the same reason `spring_flow` is
+            // zeroed elsewhere in this file: a live process is not a
+            // placement defect.** `weather::step` runs inside
+            // `parallel::step`, so without this the assertion below reads
+            // "the generated world holds still *while snow falls on it*".
+            // `weather::at` is a pure function of `(seed, frame)` and seed 3
+            // precipitates from frame 0 (Snow, intensity 0.36, 1,786 wet
+            // frames in 12,000) -- which is exactly the seed this and
+            // `generated_terrain_is_already_at_rest` both failed on, while
+            // seeds 1, 2 and 5, which never precipitate at all, passed
+            // (`open-bugs-handoff.md` §M).
+            //
+            // **Not a seed dodge.** Picking quiet seeds would tune the sweep
+            // to the answer; this leaves the seed list alone and removes the
+            // input the claim was never about. `Weather::CLEAR`'s own doc
+            // already named itself "the one every 'does this stay settled'
+            // test asserts against".
+            world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
             let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
             for _ in 0..120 {
                 step(&mut world);
@@ -2900,6 +3279,7 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         spring_flow: 0.0,
         ..base.clone()
     };
@@ -2981,6 +3361,7 @@ fn a_seated_boulder_stands_at_a_believable_height() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         residual_density: 0.0,
         ..base.clone()
     };
@@ -3886,4 +4267,86 @@ fn standing_depth(world: &World, x: i32, from_y: i32, band: i32, h: i32, water: 
         }
     }
     best
+}
+
+/// **Probe for §M: does the generated water ever come to rest, or never?**
+///
+/// `generated_terrain_is_already_at_rest` steps 120 frames and asserts
+/// nothing left its position. It fails on `terraced` seed 3 with 57 water
+/// cells moved. The handoff's standing instruction is *"do not close this by
+/// widening the settle budget until that has been checked — 0 cells to 57 is
+/// a behaviour change, not a drift past a threshold"*, and this is the check
+/// it names: the same world, sampled at a ladder of frame counts, so a
+/// **slow** settle and an **unsettleable** one can be told apart. A count
+/// that decays toward zero is a budget question; one that plateaus is a
+/// placement or rule defect, and only the second justifies touching the
+/// generator.
+///
+/// Reports displacement against the *original* snapshot, exactly as the
+/// gate does, so the numbers are comparable to the failure message.
+///
+/// ```text
+/// cargo test --release --test worldgen probe_m_does_generated_water_ever_settle -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "§M probe: prints a settle curve rather than asserting; run explicitly"]
+fn probe_m_does_generated_water_ever_settle() {
+    let presets = presets();
+    const LADDER: [usize; 7] = [120, 240, 600, 1200, 2400, 4800, 9600];
+    for (name, params) in &presets.presets {
+        let mut params = params.clone();
+        params.tree_density = 0.0;
+        params.moss_density = 0.0;
+        params.grass_density = 0.0;
+        params.spring_flow = 0.0;
+        for seed in SEEDS {
+            let mut world = build(&params, seed);
+            // The control: the same world with the sky held still. If the
+            // displacement is weather-driven this reads 0 everywhere; if a
+            // placement defect survives it, that is a real generator bug and
+            // the override has just isolated it.
+            if std::env::var("PROBE_M_CLEAR_SKY").is_ok() {
+                world.weather_override = Some(pixel_physics::sim::weather::Weather::CLEAR);
+            }
+            let before: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+            let mut stepped = 0usize;
+            let mut curve = Vec::new();
+            for &target in &LADDER {
+                while stepped < target {
+                    step(&mut world);
+                    stepped += 1;
+                }
+                let after: std::collections::HashSet<_> = snapshot(&world).into_iter().collect();
+                curve.push(before.difference(&after).count());
+            }
+            // Only the worlds that actually move are worth printing.
+            if curve.iter().any(|&n| n > 0) {
+                let cells: Vec<String> = curve.iter().map(|n| n.to_string()).collect();
+                println!("{name} seed {seed}: moved-from-origin at {LADDER:?} = [{}]", cells.join(", "));
+            }
+        }
+    }
+}
+
+/// **§M probe, part two: when does it first rain on each seed?**
+///
+/// `weather::at` is a pure function of `(seed, frame)`, so this needs no
+/// simulation at all — and if the at-rest failures are weather-driven, the
+/// frame each world first precipitates has to line up with the frame its
+/// displacement count starts climbing.
+#[test]
+#[ignore = "§M probe: prints the weather schedule; run explicitly"]
+fn probe_m_when_does_each_seed_first_precipitate() {
+    use pixel_physics::sim::weather;
+    for seed in SEEDS {
+        let first = (0u64..12_000).find(|&f| weather::at(seed, f).is_precipitating());
+        let wet_frames = (0u64..12_000).filter(|&f| weather::at(seed, f).is_precipitating()).count();
+        match first {
+            Some(f) => {
+                let w = weather::at(seed, f);
+                println!("seed {seed}: first precipitation at frame {f} ({:?}, intensity {:.2}); {wet_frames} wet frames in 12000", w.kind, w.intensity);
+            }
+            None => println!("seed {seed}: never precipitates in 12000 frames"),
+        }
+    }
 }

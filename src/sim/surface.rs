@@ -77,6 +77,24 @@ pub trait CellSurface {
     /// reaching into the shared `World` at all.
     fn field_moisture_at(&self, x: i32, y: i32) -> f32;
 
+    /// **How wet the matter at and just below `(x, y)` is, `0..=1`** --
+    /// `fire::try_ignite`'s moisture gate. See `field::ground_wetness_at`
+    /// for why this is a different channel from `field_moisture_at` above
+    /// and not a convenience wrapper on it: the humidity that one returns
+    /// is identically zero at 96.8% of fuel cells at every ground wetness,
+    /// because a field block containing a `Plant` cell is `blocked` and a
+    /// blocked block never diffuses.
+    ///
+    /// Unlike `field_moisture_at`, this reads one field block *below* the
+    /// visited cell as well as its own, so `ChunkView` cannot always
+    /// answer it from its own tile -- a cell in the bottom eight rows of a
+    /// chunk reaches into the next one down. It falls back to the shared
+    /// `World` lookup there, which is affordable for the same reason
+    /// `field_wind_at`'s own note gives about population size: this runs
+    /// only for a flammable cell that has a burning neighbour, which is
+    /// the fire front and nothing else, not once per visited cell.
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32;
+
     /// Ambient wind (the field's own velocity) at `(x, y)`, as `(vx, vy)`.
     ///
     /// `update_gas`'s only caller. Same shape and same justification as
@@ -119,6 +137,19 @@ pub trait CellSurface {
     /// decay). See `World::frame`.
     fn frame(&self) -> u64;
 
+    /// An organism-schedule interval scaled by the world clock's
+    /// `growth_slowdown`, as an absolute frame to be due on — `World::
+    /// organism_due` reached through the trait.
+    ///
+    /// Exists because `fire::tick_burn` schedules a burnout's first ash-decay
+    /// check, and decay rides the growth knob: litter and ash are *produced*
+    /// per organism tick but weathered per real frame, so an unscaled decay
+    /// leaves a slowed forest holding 1/N the standing litter. Computing it
+    /// as `frame() + DECAY_TICK_INTERVAL` here would have quietly opted this
+    /// one scheduling site out of that. See `sim::clock::Clock::
+    /// growth_slowdown`.
+    fn organism_due(&self, base_interval: u64) -> u64;
+
     /// Report that a denser cell just displaced near-full liquid at `(x, y)`
     /// with open air above it — a **candidate** splash site, not a splash.
     ///
@@ -158,6 +189,23 @@ pub trait CellSurface {
     /// tallies privately and `run_pass` merges, the same queue-and-replay
     /// shape as `schedule_active_site`.
     fn count_phase_event(&mut self, event: PhaseEvent);
+
+    /// Book meat destroyed by the sweep into `EnergyLedger::meat_lost` —
+    /// `fire::tick_burn`'s burnout, the one destruction path that runs
+    /// inside a CA rule rather than from a driver holding `&mut World`.
+    ///
+    /// Same queue-and-merge shape as `count_phase_event` directly above, and
+    /// for the same reason: only `World` owns the ledger, so `ChunkView`
+    /// tallies privately and `run_pass` merges. A worker adding into a shared
+    /// `f64` would be a data race, and doing it under a lock would put a
+    /// contended atomic on a CA rule.
+    ///
+    /// **An `f64` sum rather than a count**, unlike its neighbour: what is
+    /// being lost is a *quantity* of energy and two corpses are rarely worth
+    /// the same. Summing per chunk and adding the sums is exact for the
+    /// f64 addition it replaces up to ordering, and the ordering is
+    /// deterministic because `run_pass` merges chunks in a fixed order.
+    fn book_meat_lost(&mut self, worth: f64);
 
     /// Whether `(x, y)` is above this column's frozen ground surface — the
     /// engine's stored definition of "outdoors" (`World::sky_surface`).

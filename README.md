@@ -63,7 +63,8 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
-| `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
+| `O` -> WORLD | **World speed.** How fast the day, the weather, plant growth, creatures and the gnome run — five independent knobs, each a whole multiple of the baseline, none of them the physics clock. The day is named on the title bar at every setting, including the default. Slowing the world does not slow what falls: a *phase* (the sun, the weather) is slowed by feeding it a slower clock, a *schedule* (growth, creature ticks) by a longer interval, and neither can reach the CA sweep. What it is **not** is behaviour-preserving — a slowed plant drinks from soil that still refills at full speed, a slowed organism still burns and collapses at full speed, and the knobs trade with each other; `sim::clock`'s module doc names all three. Saved to `assets/clock.ron`, which the app reads and the harnesses deliberately do not — they take the knobs as arguments instead, so a test's world is always at baseline |
+| `Tab` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER / WORLD), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. `PageUp` / `PageDown` do the same and came first; `Tab` is the primary binding because 60% and many laptop keyboards have no page keys, which left the `WORLD` menu — and so every world-speed knob — unreachable on them. While the panel is open `Tab` does not toggle the palette, the same shadowing the panel already does to `S`. |
 | `↑` / `↓` | Move the tunables selection (only while the panel is open) |
 | `←` / `→` | Adjust the selected tunable's live value by its own step while the panel is open — and with it closed, adjust the **pinned** tunable, so a value under evaluation is one keypress away mid-play |
 | `Enter` | **Pin** the selected tunable for those panel-closed arrow keys (only while the panel is open) |
@@ -193,6 +194,10 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                of "a forest burns and regrows"
   weather.rs   fronts, rain, snow, wind and gusts, lightning -- weather as
                a deterministic property of the world, not an event roll
+  clock.rs     world time: how fast the day, the weather, growth, creatures
+               and the gnome run, each on its own knob and none of them the
+               physics clock -- a phase is slowed by a slower clock, a
+               schedule by a longer interval, and neither reaches the sweep
   structural.rs M17: anchor distance, confinement, the structural check --
                what decides a cell is no longer held up
   load.rs      the load/torque failure criterion on top of it: who carries
@@ -715,6 +720,55 @@ Burning cells render with that flat tint so M14's work is visible at all
 before M6 exists; press `F` over painted material in the live app to ignite it
 (a debug tool — M15 gives explosions a more physical ignition source).
 
+**Fire has a body of its own, and how wet the ground is decides whether it
+spreads** (2026-08-23, lane W package W2 — closes the two mechanical halves
+of `Reports/open-bugs-handoff.md` §G; full account in
+`Reports/grassfire-and-the-desert-2026-08-23.md`).
+
+- **`assets/materials/flame.ron`** is a `Gas` created *already alight*.
+  `fire::tick_burn` licks one into a nearby empty cell while a fuel cell
+  burns, at a per-material rate (`MaterialDef::flame_into` / `flame_chance`,
+  both unset by default, so no existing material changes how it burns).
+  Because a flame is *burning*, every piece of fire machinery already applies
+  to it with no special case: `try_ignite`'s neighbour scan ignites what a
+  lick touches **at no added cost to that scan**, and its own `burns_into`
+  ages it into smoke, so the plume comes off the front. The direction is
+  **rolled** (`FLAME_DIRECTIONS`, up twice in six) — a fixed search order
+  sent every lick straight up and bought no lateral reach at all, which is
+  what a front needs to cross the gaps between tussocks.
+- **`CellSurface::ground_wetness_at`** replaces the old
+  `field_moisture_at`-based moisture gate, which had measured as inert for
+  two milestones. Not because 0.9 was too weak: its input reads **exactly
+  0.000 at 96.8% of fuel cells at every ground wetness, so for those cells
+  the term changed ignition by exactly zero**, because a field
+  block containing a `Plant` cell is `blocked` and a blocked block never
+  diffuses. The new read is the moisture *source* (recomputed from the CA
+  grid, never advected) at the cell's own block and the one below it, and
+  the gate is a cutoff rather than a scale because spread is a percolation.
+  Paired guard: 171 grass cells consumed on dry ground against 4 on
+  saturated.
+- **`examples/fire_probe.rs`** is the instrument. It censuses the sward's
+  4-connected fuel islands (the quantity that explains the old behaviour),
+  the wetness distribution at the fuel, and the front's advance — and it
+  echoes **the fuel constants the binary was built with**, because a sweep
+  killed by a timeout before its restore line ran produced four
+  measurements of a fuel nobody meant to test.
+
+**And fire is orange now, which took a render change and an owner verdict.**
+Every burning thing saturates the heat ramp (400C above ambient; grass burns
+at 520C, a flame at 780C), so every fire in the world draws at whatever
+colour sits at the *top* of that ramp — and that was a pale yellow-white, so
+a burning meadow came out as **straw**. `FIRE_TINT_LOW`/`HIGH` are now
+(150,30,12)/(255,138,36), picked by the owner off a blind A/B rather than
+chosen here, because the same two constants also colour lava, fresh quench
+crust and warm water. Lava and the quench crust both read *better* for it
+(a falling blob goes from sandy cream to molten orange); the warm-water arm
+is **unverified** — the pan has cooled by the time it is worth
+photographing, and at the frames where it is hot the tint barely registers
+against the blue. Widening the ramp instead was tried first and is the wrong
+direction (`Reports/dead-ends.md`, rendering): a lower heat ratio blends the
+tint over the fuel's own colour, and the fire came out olive.
+
 ## M7 status
 
 Free particles, in [`src/sim/particle.rs`](src/sim/particle.rs) — a separate
@@ -964,6 +1018,149 @@ species' knobs fire, and zeroing grass's would have cost 60% of its root
 mat. All of it, with the controls that produced each number, is in
 `Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
 do not trust a plant constant without re-measuring it first.
+
+**Since: a tenth genome slot, and the instrument that can see it move.**
+`GENOTYPE_TRAITS` is 10. Slot 9 is `strain` — the heritable half of a
+reaction norm, how strongly an individual re-allocates away from height
+when it is repeatedly loaded — and it ships as **capacity with no
+consumer**: a width and a draw, so that when the response curve lands,
+how responsive to be is something selection finds rather than something
+an author picked. It was **appended rather than re-purposed** onto a
+measured-dead slot, deliberately: re-purposing costs the measurement
+record its comparability a second time, and the F4 megastudy re-run is
+already queued against the current numbering. Appending costs ~16 KB
+across the full 4,095 organisms and moves nothing — draws are keyed
+`rng::stream(world_seed, x, y, slot)`, so slots 0–8 draw bit-identically,
+which four guard tests in `plant.rs` pin, none of them against a stored
+fingerprint: each slot drawing from its own index, one stand grown twice in
+a run with slot 9 expressed and suppressed, 200 bred children, and the
+caller's own `Rng` position after `set_seed` returns.
+
+`examples/genome_drift` is the readout, and it exists **before** the
+mechanism that will use it: per-slot population mean and spread sampled
+across a long run, beside the generation depth reached, so "does a genome
+slot ever actually move" has an answer. `plant_probe` shows the variation
+standing at the end of a run and structurally cannot show change. Slot 9
+doubles as the harness's own drift control while it has no consumer —
+nothing can be selecting on it, so what it does is what drift alone looks
+like, and every other slot has to beat that before it means anything.
+
+## The generation loop: plants die, seeds expire, slots come back
+
+**Package P3 of the plant implementation split.** Three things that were
+each individually survivable and together meant a plant world could only
+ever accumulate.
+
+**Plants can die of ordinary causes.** Shade and drought abscission both
+gated on `CellType::Leaf`, which is right for every woody species and
+vacuous for one whose photosynthetic surface *is* its shoot: grass has
+`plastochron: [0, 0]`, so it has no `Leaf` cell and therefore had no shade
+death, no drought death and no age death at all
+(`Reports/open-bugs-handoff.md` §F4). The predicate now asks the question
+per *species* — a species with a leaf stage sheds leaves, one without sheds
+shoot tissue that earns — and excludes root tissue, which matters because
+grass retires its root tips into the same `MatureBody` that declares its
+`Photosynthesize`.
+
+**A plant with nothing left that can earn is dead, and its remains rot.**
+Slot reclamation keyed on an empty cell list, so a plant that lost all its
+foliage kept its stem, its roots and its `organism_id` for ever. An organism
+holding no cell that can photosynthesise, germinate or flush a bud is now
+marked `senescent` — one-way — and its remaining cells go to litter at a
+species half-life, from where the existing decay path returns them to soil.
+The flag is deliberately shaped to be gated by a *cause* other than
+starvation, which is what the herb package's post-fruiting annual death will
+set.
+
+**Seeds expire.** A dormant seed was rescheduled for ever: 160 standing at
+60,000 frames on the eight-tree stand and still climbing, every one a slot.
+Viability is now a per-species half-life — a constant hazard rather than a
+lifespan, so the bank *thins* to a level set by how fast seed arrives rather
+than emptying on a cliff, which is the reservoir role
+`Reports/population-dynamics-research.md` §3 asks the seed bank to play.
+Grass seed outlasts tree seed two to one, the ruderal-versus-woody axis
+stated as data.
+
+**The 4,095-slot ceiling is a real check.** `Cell::organism_id` gives 12
+bits to the slot index and the encoder does not mask, so a 4,096th organism
+silently became a live one in release builds; the only guard was a
+`debug_assert`. `World::push_organism` now returns `Option` — refusing the
+birth, counting it in `organisms_refused`, and letting the compiler make
+every caller decide — which is `population-dynamics-research.md` 9g's ask in
+its own words.
+
+**Known limitation.** `drought_death` still cannot fire on a mature grass
+plant: transpirational demand is summed over `Leaf` and `GrowingTip` cells
+only, and a tussock that has retired every tip has demand exactly zero, so
+`settle_water` hands it desiccation 0.0 whatever the soil is doing. Shade is
+grass's live mortality arm. Widening the demand sum is an economy change and
+belongs to the single re-derivation pass, not here. The grass economy is
+written down in full in `assets/species/grass.ron`'s header.
+
+## The economy re-derived: standing tissue costs something
+
+**Package P2 of the plant implementation split**, and one re-derivation
+rather than six changes — the crown and the roots are one carbon economy,
+and tuning them separately produces two half-calibrated models that each
+compensate for the other's error.
+
+**Standing tissue costs carbon.** Every living cell pays a flat mass term,
+and shoot tissue additionally pays a term superlinear in the girth it
+carries (`q_peak`, at Takenaka's exponent of 1.5 — flat respiration is a
+recorded dead end, because cost linear in mass against income linear in leaf
+count balances at any size). The growth pool and the bud-break gate both net
+that bill, so growth is what is *left over* rather than what comes in. Eight
+world seeds, paired against `main`: a tree is a quarter smaller, its wood
+falls faster than its foliage, its trunk is thinner above the base, and 8 of
+8 founders still establish on every seed.
+
+**Night slows growth**, at `0.25 + 0.75 x daylight_fraction` — a 2026-08-17
+owner directive that had never been actioned. It reaches income and nothing
+else: every *decision* stays independent of the hour, because a threshold
+sampled at an arbitrary phase of a designed 20:1 oscillator is a different
+threshold every hour.
+
+**A root cell that touches no soil earns nothing and still costs.** The
+plant's water store was sized off root *mass*, so the interior of a root
+ball — a third of it, measured — was buying storage it could never use.
+Capacity now reads the root cells that share a face with soil. This is a
+flat tax on root mass rather than a brake on it, and it is not briefed as
+one; what it buys is that the 51–79% per-plant contact spread that already
+existed, unpriced and therefore unselectable, now has a consequence. The
+spread survives the pricing, which is the point.
+
+**Roots buy anchorage, which is what makes root investment a trade rather
+than a tax.** How many anchors a plant has and how far they spread are
+recovered free from a walk that already ran; a plant carrying a big crown on
+a narrow root plate diverts growth into roots until it catches up. It is a
+whole-plant allocation term and nothing else — no structural check is
+scheduled from it, and lane S owns the storm that collects.
+
+**A plant that cannot pay sheds, from the outside in.** Die-back removes the
+most distal, most cantilevered abandoned tissue until the book balances, and
+it is a topology-preserving erosion: it never takes foliage, never takes a
+cell with something hanging further out than it, and never takes one whose
+removal would disconnect its neighbours. A plant comes apart into pieces at
+no point, which took three attempts to get right.
+
+**Known limitations, both measured.** Adult mortality now has a cause that
+fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
+kills nothing. A *shaded* plant settling at a stunted size is a suppressed
+tree waiting for a gap and is correct; a *droughted* one doing the same is
+not, and is filed with a reproduction as `open-bugs-handoff.md` §V2 —
+transpirational demand is summed over foliage only, so shedding a leaf
+reduces the very signal that shed it and a plant escapes drought by
+starving. Ninety thousand frames at maximum desiccation leave a tree larger
+than it was twenty thousand frames earlier. The general form is that an
+unpayable deficit has no consequence but shedding: there is starvation
+shedding and no starvation death. And selection
+throughput moved the *wrong way*: fecundity is canopy size, every plant is
+smaller, and inherited-genome establishments went from 1 to 0 over eight
+seeds. No selection claim can be made for trees on this branch. Secondary
+thickening is also still free, which is why upkeep bounds a plant's size
+without bounding its tissue; charging it was built, measured and withdrawn.
+`Reports/plant-economy-rederivation-2026-08-23.md` has all of it, including
+the six mechanisms this package built and reverted.
 
 ## M16 status
 
@@ -1580,8 +1777,43 @@ profile, `forage_reach`. Measured on the foraging scene at 12,000 frames after
 the merge: **98 trips, deepest 18 cells, mean depth 10.3**, profile
 `[3858, 475, 185, 98, 1, 0, 0, 0]`. The bars are set from that with headroom
 (a seventh of the count, under half the depth) because outcome spread here is
-large. `examples/forage_probe.rs` pairs the scene against a sessile control —
+large. These numbers earned their keep once already: the world-scale merge
+collapsed the scene to **2 trips** — the rock-country gate's fallback had
+deleted the residual towers the colony forages over — and `forage_trips` was
+the only counter that said so (`Reports/open-bugs-handoff.md` §L, closed
+2026-08-23; the scene reads 100 trips, mean depth 10.3, with the fixed
+fallback). `examples/forage_probe.rs` pairs the scene against a sessile control —
 one ant, a nest, no food — and neither arm is worth anything alone.
+
+**Ants climb over each other (WP-9 arm 1, `CreatureDef::climbs_over_kin`,
+default on for ants).** A living nestmate counts as a *foothold* — footing
+only, never passability, so two ants still cannot swap places. Measured with
+`forage_probe`, 8 seeds x 24,000 frames, at `COLONY_ANT_SPACING`: deepest
+excursion **46 → 84** cells, excursions past 32 cells **4.5 → 17.5**, past 64
+**0 → 4.5**, blocked moves **0.311 → 0.033**, with deliveries flat (6.5 vs
+6.0 on a per-seed spread of 0–49). Known limitation: falls roughly double on
+uneven ground (deaths stay 0), and on the `ascii` foraging scene — one seed —
+deliveries fall 643 → 270 with range unmoved, which every multi-seed
+instrument contradicts but which is the gated scene; the untested hypothesis
+is that climbing costs carried food to falls. That scene is the outlier
+rather than the rule, though: the double-bridge scene — real terrain, same
+spacing, same paired run — goes forage trips **22 → 233**, deepest **16 →
+74**, ≥32 bucket **0 → 21**, ≥64 **0 → 5**, blocked moves **24,764 → 4,264**,
+and pickups **41 → 218**. Two further costs from the same sweep: the
+excavation scene digs *less* (1,064 → 726 cells, on fewer blocked moves —
+climbing is an alternative to digging past a nestmate), and the double
+bridge's summed channel B on the short route falls 28.42 → 2.00, because a
+colony spread over more ground lays a thinner trail per cell (nothing gates
+on it; that scene already records route selection as undemonstrated).
+
+The probe now takes `climb=0|1` (forces the arm at runtime, so both arms come
+out of one binary and no rebuild can silently produce two identical "arms")
+and `spacing=` (cells between planted ants). The second exists because the
+probe's own 2-cell spacing is the gridlock dead ends 775/829 record: spacing
+alone, flag off, already moves deepest 23.5 → 46 and the ≥32 bucket 0 → 4.5,
+so the "≥32 at zero" baseline this feature's success condition was written
+against described that scene rather than a founded colony
+(`Reports/foraging-range-measurement.md` §3's correction).
 
 **`Material::insubstantial` bought zero cells on `wood`, and the zero is
 recorded.** The gnome runs through leaf litter with no wade drag, on the
@@ -1872,7 +2104,38 @@ with a real vertical profile that thins with slope; a water table with
 standing pools where the land dips below it; buried pockets, scree,
 overhangs; seeded plant cover, clustered rather than scattered. Worlds
 arrive settled and structurally real — nothing moves until something moves
-it. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+it.
+
+**As of 2026-08-23 that plant cover is four woody species rather than one.**
+`life_scatter` sowed the hardcoded string `"tree"` and moss for the whole
+life of the project, so conifer, shrub and creeper had never appeared in a
+generated world at all — they existed only in probe scenes. Each species is
+now a *weight* over terrain the generator already describes (regional
+aridity, regional elevation, blanket depth), with its own offset into the
+same squared cluster noise, and `tree_density` is split between them rather
+than paid four times over. Measured on the shipped world at seed 1, paired
+against `origin/main` at the same seed and frame count: 87 standing plants
+become 135 — conifer 30, creeper 28, shrub 28 and tree 49, where before it
+was 87 trees and nothing else — at 50% more plant cells.
+`tests/worldgen.rs`'s `every_woody_species_is_sown_across_a_seed_sweep` and
+`a_sown_woody_species_also_comes_up` guard it over a sixteen-seed sweep
+(worlds are procedural, so the guard sweeps the procedure and gates an order
+statistic); `examples/flora_census` is the instrument, and
+`Reports/world-flora-sowing-2026-08-23.md` holds the derivation.
+
+**Grass joined them the same day, as a ground layer rather than a fifth
+woody species.** It had waited on a mortality path — a plantable grass that
+cannot die leaks organism slots — and once shade could kill a blade and the
+seed bank could decay, the remaining question was where to put it. Grass is
+sown off its own `grass_density`, on the columns the woody loop declined,
+weighted by `1 - ramp(woody sum, 1.0, 2.0)`: the ground layer of open
+country, where "open" is the whole woody preference summing low rather than
+any one species being absent. Keeping it out of the woody budget is what
+leaves the four species untouched — paired against main over sixteen seeds,
+conifer, creeper, shrub and tree come out bit-identical, and grass takes its
+columns from moss. It reaches 16 of 16 generated worlds (7 / 24 / 60 per
+world at 2,048 columns) and comes up where it lands (96% of sown), guarded
+by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
@@ -2012,6 +2275,47 @@ one. Design, prior art and the measurements in
 [`Reports/sky-light-design.md`](Reports/sky-light-design.md) and
 [`Reports/prior-art-underground-lighting.md`](Reports/prior-art-underground-lighting.md).
 
+## Felling status — the verb exists, what it produces does not
+
+**A tool can damage a plant, and cutting through a bole brings the crown
+down.** Landed 2026-08-23 (`Reports/plant-project-review-2026-08-23.md` D1
+and D2; `Reports/open-bugs-handoff.md` §D1 carries the landing notes and the
+measurements).
+
+- `rigid::strike` and `rigid::mine_swept` tested `MaterialKind::Solid`, so
+  the pick and the chisel could not touch a tree at all — a gnome could bore
+  through granite and not through a sapling. `rigid::is_tool_target`
+  (`Solid | Plant`, bedrock still exempt) is what they ask now. Guarded by
+  `rigid.rs`'s `tool_target_tests`.
+- There was no felling scene and no severance measurement. `filmstrip
+  scene=fell` is the bed (one tree, fixed trunk x, room to fall); `fell=`
+  chops through the subject's own thinnest bole row wherever it currently is;
+  `chop=` aims a blow by hand; the per-tile felling census reports standing
+  tissue, where the bole is, detached-but-standing cells and body cells that
+  are plant material; and `FailureCounts::severed_organism_cells` is the "did
+  it fire" counter — nothing else in that struct moves when a crown comes
+  down. Gated by `acceptance.sh`'s `fell` case.
+
+The third gap this line found — the brush and fire's burnout licensing
+nothing, so an erased or burnt-through trunk left its crown standing — was
+**closed independently and better by the playtest-defaults line** (`CellSurface::
+record_disturbance`, with coalescing and a phase-change caller this branch did
+not have). Two sessions built it in parallel; that one won on the merge.
+
+**Known limitation, judged by the owner and now the head of the queue.** A
+felled crown converts to single `deadwood` powder cells rather than coming
+apart into pieces: measured 2,360 of 2,427 cells that way, with only 67
+leaving as bodies and all of those from the axe's own chip zone. Shown to the
+owner as a GIF, whose verdict was *"it reads as a tree disintegrating into
+dust"* — and, more consequentially, a request to stop and design for
+**physical, partially-rigid trees** (sway in wind, branches breaking under a
+fallen rock) rather than patch the fragment ladder. `ChunkBody` cannot express
+a hinge (`spin` accrues from *speed*, rotation is quarter-turn snaps), so this
+is a redesign and not a constant. Building D3 as originally scoped is
+**on hold** pending that design. A topped tree also does not resprout yet
+(D4). Play-facing:
+[`wiki/plants.md`](wiki/plants.md#cutting-a-plant-down).
+
 ## Performance
 
 Measured by `cargo run --release --example ascii`, which reports the worst
@@ -2138,6 +2442,47 @@ is the one that entry measures: a converged, quiet field skips its whole solve
 the intended answer for the saturated case, and this is the measurement that
 says when it stops being optional. Run the example while nothing else is
 compiling — concurrent cargo processes skew the figure badly.
+
+## World speed — five independent time axes
+
+How fast the world *ages* is five settings, none of which is the physics
+clock: `day_minutes`, `growth_slowdown`, `weather_slowdown`,
+`creature_slowdown`, `gnome_slowdown`. Each is a whole multiple of baseline
+(1 = the behaviour the engine had before `sim::clock` existed), capped at 30,
+adjustable live under `O` → WORLD and persisted to `assets/clock.ron`.
+
+The separation is structural rather than a promise. The engine reads its one
+clock (`World::frame`) three different ways, and only one of them is physics:
+a **phase** (`field::sun_elevation`, `weather::channel`) is a pure function of
+`frame % PERIOD` and is slowed by feeding it a slower clock; a **schedule**
+(organism and creature ticks) is an entry due at `frame + interval` and is
+slowed by a longer interval; the **CA sweep** is neither and is untouched.
+`physics_is_untouched_by_every_world_clock_knob` asserts a bit-identical grid
+across every setting, with a paired non-grid witness so it cannot pass by
+being disconnected.
+
+`DAY_NIGHT_PERIOD_FRAMES` is deliberately *not* raised to lengthen a day.
+`SKY_LIGHT_STEP` and `SKY_TEMPERATURE_QUANTUM` are sized against the per-frame
+rate of change it implies, and field sleeping is an inequality against
+`SETTLE_EPSILON_*` — a slower sky moves less per frame, so a quantum sized for
+the old rate stops registering and the field freezes at the last brightness it
+saw. Feeding a slower clock leaves all of that exact in sky-frame units, and
+measures 3.5x *fewer* field solves per real frame at a four-minute day.
+
+The app loads `assets/clock.ron` (shipped: an eight-minute day, everything
+else baseline); `World::new` does not, so every test, harness and acceptance
+scene stays at baseline. Harnesses take the knobs as explicit arguments
+instead — `filmstrip day=/weather=/growth=/creatures=/gnome=`, `plant_probe
+growth=` — and echo them.
+
+**Known limitation: these are not behaviour-preserving, and the plant one is
+not close.** Each subsystem's internal economy rescales exactly, but every
+exchange it has with a world still running at full speed is per real frame.
+Measured on a paired sweep at matched tick counts across eight seeds, a tree
+at `growth_slowdown: 4` ends between 0.15x and 1.34x its baseline size, median
+0.61x. Soil is ruled out as the cause by measurement (final profiles are
+essentially identical); per-real-frame hazards are the leading suspect and are
+not chased to ground. `sim::clock`'s module doc carries the numbers.
 
 ## Status
 

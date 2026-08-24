@@ -425,20 +425,30 @@ fn gnome_stand(args: &Args) -> World {
     common::PlantScene { trees: plants, start_frame: args.frame0, ..base }.build()
 }
 
-fn build(args: &Args) -> World {
-    let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
-    // Set before the scene is built, because several scenes cut into the
-    // world during construction and the rule has to be in force for that
-    // cut as much as for the run that follows it.
+/// The world-level settings `build` applies from the arguments:
+/// `confine=`, `arch=`, `share=`, `chain_reach=`, `joints=`, `bands=`.
+///
+/// **Applied twice, and the second time is a bug fix.** They are set before
+/// the scene is built because several scenes cut into the world during
+/// construction and the rule has to be in force for that cut as much as for
+/// the run. But five scenes -- `grove`, `wood`, `climb`, `shake` and `fell`
+/// -- build their world through `common::PlantScene` and **`return` it**,
+/// discarding the `w` these were written onto. Every one of those knobs was
+/// therefore silently inert on those scenes.
+///
+/// Caught by `CLAUDE.md`'s own tell rather than by reading the code:
+/// `scene=fell` reported byte-identical output at `chain_reach=spread`,
+/// `local` and `tight` -- 2,360 cells severed in all three -- and identical
+/// output across settings means the knob was never connected. Re-applying
+/// on the world that is actually returned is idempotent for the scenes that
+/// already worked and is the whole fix for the five that did not.
+fn apply_world_settings(w: &mut World, args: &Args) {
     w.crush_confined = args.confine;
     w.arch_relief = args.arch;
     w.section_share = args.share;
     if let Some(reach) = args.chain_reach {
         w.chain_reach = reach;
     }
-    // Before the scene is built, like the three above: `scene=worldgen`
-    // cuts caves during construction, and a material property has to be in
-    // force for that as much as for the run.
     if let Some(spacing) = args.joint_spacing {
         if let Some(stone) = w.materials.id_of("stone") {
             w.materials.get_mut(stone).joint_spacing = spacing.max(0.0);
@@ -449,6 +459,20 @@ fn build(args: &Args) -> World {
             w.materials.get_mut(stone).joint_band_contrast = contrast.clamp(0.0, 0.9);
         }
     }
+}
+
+/// Build the scene, then re-apply the world settings to whatever world came
+/// out -- see `apply_world_settings` for why the second application is not
+/// redundant.
+fn build(args: &Args) -> World {
+    let mut world = build_scene(args);
+    apply_world_settings(&mut world, args);
+    world
+}
+
+fn build_scene(args: &Args) -> World {
+    let mut w = World::new(Rect::new(0, 0, WIDTH - 1, HEIGHT - 1));
+    apply_world_settings(&mut w, args);
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
         // A large body released against the left wall, spreading right across
@@ -1254,6 +1278,7 @@ fn build(args: &Args) -> World {
                 species: args.species.clone(),
                 trees: plants,
                 soil_moisture: args.soil_moisture,
+                soil_depth: args.soil_depth,
                 start_frame: args.frame0,
                 ..base
             }
@@ -2010,8 +2035,54 @@ fn build(args: &Args) -> World {
             }
             pixel_physics::sim::structural::compute_world_distances(&mut w);
         }
+        // **The felling bed: one tree, alone, at a fixed x, with room to
+        // fall.** The instrument `Reports/felling-blockers.md` §3 asks for
+        // first, and `Reports/plant-project-review-2026-08-23.md` D1.
+        //
+        // `grove plants=1` grows the same tree and was the starting point.
+        // It is not enough for this question for one reason: `PlantScene`
+        // spaces its stand as `width / (trees + 1)`, so the trunk moves
+        // every time `plants=` changes, and a `cut=`/`chop=` rectangle
+        // aimed at the trunk in one run lands in open sky in the next --
+        // which reads on a contact sheet as *the cut did nothing* rather
+        // than as *the cut missed by thirty cells*. That is precisely the
+        // confusion `fire_due_cuts` already prints a living-tissue count to
+        // prevent, and a scene whose subject cannot move is the cheaper
+        // half of the same fix.
+        //
+        // So this is `PlantScene` with `trees: 1` and nothing else changed:
+        // the trunk stands at `FELL_TRUNK_X` in every run, at every
+        // species, for as long as the bed is 512 wide. `plants=` is
+        // deliberately ignored here (use `grove` for a stand) -- honouring
+        // it would give the scene back the one property it exists to
+        // remove. `species=`, `moisture=` and `frame0=` pass through.
+        //
+        // The bed itself is built by `common::PlantScene`, not here: the
+        // two plant harnesses may not build their own worlds (see that
+        // module for the drift this ended).
+        "fell" => {
+            let w = common::PlantScene {
+                species: args.species.clone(),
+                trees: 1,
+                soil_moisture: args.soil_moisture,
+                start_frame: args.frame0,
+                ..common::PlantScene::default()
+            }
+            .build();
+            // Asserted, not assumed. The whole value of this scene is that
+            // a coordinate written into a `cut=` keeps working, and a
+            // spacing change in `PlantScene` would break that silently:
+            // the run would still produce a sheet, of an untouched tree,
+            // which is indistinguishable from a support model that does
+            // nothing.
+            assert!(
+                (0..HEIGHT).any(|y| w.get(FELL_TRUNK_X, y).organism_id() != 0),
+                "scene=fell expects its seed at x={FELL_TRUNK_X}; PlantScene's spacing has moved"
+            );
+            return w;
+        }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake, fell"
         ),
     }
     w
@@ -2019,6 +2090,18 @@ fn build(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
+    /// knobs (`sim::clock`), each "N times slower than baseline".
+    ///
+    /// **Explicit here, and deliberately not read from `assets/clock.ron`.**
+    /// The app loads that file and every harness leaves `World::new`'s
+    /// baseline alone, which is what keeps several hundred guards and every
+    /// stored contact sheet valid across a change to the shipped day length.
+    /// The cost of that divergence is that a sheet rendered here is at
+    /// whatever these say, so they are echoed on stdout beside the scene name
+    /// — `CLAUDE.md`'s harness rule, after a 3.5-hour study turned out to be
+    /// three populations wearing 24 logs.
+    clock: pixel_physics::sim::clock::Clock,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
     /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
@@ -2039,6 +2122,22 @@ struct Args {
     /// scale. Field capacity by default; below `SOIL_WILTING_POINT` gives
     /// the dormancy arm, where seeds wait rather than germinate.
     soil_moisture: u16,
+    /// `soil=N` -- how many rows of soil `scene=grove` beds the stand in,
+    /// defaulting to `common::SOIL_DEPTH` (34).
+    ///
+    /// **`plant_probe` has had this knob all along and this file did not**,
+    /// so a root comparison took its numbers at one depth and its picture at
+    /// another. That gap produced a wrong published claim: at 34 rows the
+    /// deep-rooting treatment's deepest individual measured exactly 34 --
+    /// it was standing on the floor of the scene -- and its depth histogram,
+    /// which is normalised to the soil column, read as bottom-heavy for that
+    /// reason alone. Given 100 rows the same treatment reads shallow. The
+    /// owner saw it before the harness did: *"Have you provided enough soil
+    /// under the plant to really test differences."*
+    ///
+    /// `ground_y` is 200 in a 320-row world, so roughly 110 rows are
+    /// available before the bed runs out of world.
+    soil_depth: i32,
     /// `frame0=N` -- the frame the world starts on, which pins the weather
     /// (`weather::at` is pure in seed and frame). Prefer multiples of 3600:
     /// that pins the day phase, the sky and every organism's tick offset at
@@ -2058,6 +2157,23 @@ struct Args {
     /// `ignite=x,y,radius,frame` -- start a fire at a chosen frame, after
     /// the vegetation has had time to grow. Repeatable.
     ignitions: Vec<(i32, i32, i32, usize)>,
+    /// `dry=aux,frame` -- reset every water-holding cell in the world to
+    /// `aux` at `frame`, on `SOIL_SATURATED`'s scale.
+    ///
+    /// **A dry meadow cannot be grown, which is why this is a knob and not
+    /// a scene parameter.** Measured on this branch: a sward started at
+    /// soil 250 finishes 3,000 frames of growth with the ground at 289 and
+    /// climbing, because unplanted soil has three moisture sources and one
+    /// sink (`Reports/open-bugs-handoff.md` §F8, open). Every starting
+    /// value from 250 to 620 therefore grows the *same* sward on damp
+    /// ground, and a burn shot at any of them is a burn on damp ground.
+    ///
+    /// Resetting after growth and before the ignition gives **identical
+    /// fuel and one variable**, which is the paired comparison the burn
+    /// work needs -- the same reason `examples/fire_probe.rs` carries
+    /// `burnmoisture=`. Leave a few hundred frames between this and
+    /// `ignite=` for the moisture field to catch up with the ground.
+    dries: Vec<(u16, usize)>,
     /// `preset=NAME` -- which entry of `assets/worldgen.ron` it uses. Empty
     /// means that file's own `default`.
     preset: String,
@@ -2177,6 +2293,31 @@ struct Args {
     /// never looks at 15 cells of a 17-cell wall reads as "the wall is
     /// fine".
     stress: bool,
+    /// `channel=exposure` -- repaint the sheet with `weather::exposure`, the
+    /// terrain-derived wind shelter every consumer of it will sample.
+    ///
+    /// Not one of `render.rs`'s overlays, for `stress`'s reason one step
+    /// further: exposure is not a stored channel *and never will be*. It is
+    /// a pure read over terrain, deliberately holding no per-tile state,
+    /// because the version of this that kept state in the field was
+    /// measured at a permanent 3.55 ms on every scene and reverted (see
+    /// `weather::exposure`'s own doc). There is nothing to overlay; it has
+    /// to be computed here.
+    ///
+    /// **A full replace on a fixed dark-to-bright ramp**, per `CLAUDE.md`,
+    /// and not a blend into the cell's own colour: a magnitude-scaled blend
+    /// was tried here once and produced a canopy-density sheet that read as
+    /// blank, which would have sent a fix at working code.
+    exposure: bool,
+    /// `wind=` -- which way the wind is blowing for `channel=exposure`.
+    ///
+    /// Exposure is a function of terrain, position *and* wind direction:
+    /// the lee of a ridge is the sheltered side only for as long as the
+    /// wind holds. Defaults to what `weather::at` actually says at this
+    /// world's seed and frame, so the sheet shows the real field rather
+    /// than a hypothetical one, and the value used is printed under the
+    /// tile either way.
+    wind: Option<f32>,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2232,6 +2373,40 @@ struct Args {
     /// which is what isolates the *physiological* response from the
     /// mechanical one.
     cuts: Vec<(i32, i32, i32, i32, usize)>,
+    /// `chop=x,y,radius,force,frame` -- swing `rigid::strike` there, the
+    /// way the player's `C` key does. Repeatable.
+    ///
+    /// **The verb, where `cut=` above is the control.** A rectangle erases;
+    /// a blow delivers a bite, a loosened ring, cracks, a pressure impulse
+    /// and a recorded disturbance, and it is the only one of the two a
+    /// player can actually perform. Keeping both is the paired comparison
+    /// felling needs: if the crown comes down under `cut=` and not under
+    /// `chop=`, the support model is fine and the verb is not reaching the
+    /// tree -- which was exactly the state of things before D2.
+    ///
+    /// `radius` is the brush radius the blow is scaled off (see `strike`'s
+    /// own doc on why it has a floor) and `force` is the impulse handed to
+    /// the fracturer. `chop=256,192,4,6.0,6000` is an axe-sized bite at the
+    /// foot of `scene=fell`'s trunk.
+    chops: Vec<(i32, i32, i32, f32, usize)>,
+    /// `fell=frame[,radius[,force]]` -- at that frame, chop through the
+    /// subject's **own** thinnest bole row, wherever it currently is.
+    ///
+    /// `chop=` above needs three coordinates typed against a particular
+    /// tree at a particular age, and a tree is not a fixed shape: the same
+    /// individual's cheapest cut moved from `x 255..280` at frame 6,000 to
+    /// `x 263..280` after three blows, and a different species or a longer
+    /// run moves it further. A felling harness whose aim has to be
+    /// re-derived by hand every time it is used is one that will quietly be
+    /// used with a stale aim -- which produces a sheet of an untouched tree
+    /// and reads as "the mechanism does nothing".
+    ///
+    /// So this asks `FellCensus` where the bole is and walks the blow
+    /// across it, one bite per `radius`. Seed- and age-independent by
+    /// construction, and the knob lane P's resprout work (D4/P5) wants: a
+    /// cut it can fire at frame 10,000 without knowing the shape of what it
+    /// is cutting.
+    fell: Option<(usize, i32, f32)>,
     /// `depowder=frame` -- erase every `Powder`-kind cell in the world at
     /// the given frame, and say how many.
     ///
@@ -2296,6 +2471,18 @@ struct Args {
     /// `CLAUDE.md`: "prefer a continuous quantity over a count of bad
     /// cells -- counts give knife-edge margins; sums separate cleanly."
     min_failing_cells: Option<u32>,
+    /// `min_severed=N` -- exit non-zero unless the plant-support check
+    /// broke at least N organism cells free
+    /// (`FailureCounts::severed_organism_cells`).
+    ///
+    /// **Felling's own bar, and it has to be its own counter.** Nothing
+    /// else in `FailureCounts` moves when a crown comes down: the
+    /// organism path records neither `overloaded` nor `unsupported`, and
+    /// `min_failing_cells` therefore reads zero through a run that
+    /// dismantled an entire tree. It is a *cell* count rather than an
+    /// event count for `min_failing_cells`'s own recorded reason -- counts
+    /// give knife-edge margins, sums separate cleanly.
+    min_severed: Option<u32>,
     /// `min_overloaded=N` / `max_failures=N` -- exit non-zero unless the
     /// run produced at least / at most that many structural failures. See
     /// `check_expectations`.
@@ -2566,7 +2753,9 @@ fn parse() -> Args {
         frame0: 0,
         // 0 means "leave `PlantScene`'s own default alone".
         plants: 0,
+        soil_depth: common::SOIL_DEPTH,
         ignitions: Vec::new(),
+        dries: Vec::new(),
         preset: String::new(),
         start: 100,
         every: 60,
@@ -2586,17 +2775,22 @@ fn parse() -> Args {
         sky_light: SkyLight::default(),
         daylight: None,
         stress: false,
+        exposure: false,
+        wind: None,
         gif: false,
         explosions: Vec::new(),
         blasts: Vec::new(),
         panels: None,
         cuts: Vec::new(),
+        chops: Vec::new(),
+        fell: None,
         depowder: None,
         pokes: Vec::new(),
         probes: Vec::new(),
         loadmap: false,
         repeat: 1,
         min_failing_cells: None,
+        min_severed: None,
         min_overloaded: None,
         max_unconfined: None,
         max_failures: None,
@@ -2633,6 +2827,7 @@ fn parse() -> Args {
         // acceptance case in ice.ron's note is stated at.
         fall: 90,
         pond: 60,
+        clock: pixel_physics::sim::clock::Clock::default(),
     };
     let mut named_gif = false;
     for arg in std::env::args().skip(1) {
@@ -2646,10 +2841,16 @@ fn parse() -> Args {
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
             "plants" => a.plants = v.parse().expect("plants"),
+            "soil" => a.soil_depth = v.parse().expect("soil=ROWS"),
             "ignite" => {
                 let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("ignite")).collect();
                 assert_eq!(n.len(), 4, "ignite=x,y,radius,frame");
                 a.ignitions.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3] as usize));
+            }
+            "dry" => {
+                let n: Vec<i64> = v.split(',').map(|s| s.parse().expect("dry")).collect();
+                assert_eq!(n.len(), 2, "dry=aux,frame");
+                a.dries.push((n[0] as u16, n[1] as usize));
             }
             "preset" => a.preset = v.into(),
             "start" => a.start = v.parse().expect("start"),
@@ -2730,6 +2931,13 @@ fn parse() -> Args {
                 // one readout that can answer "where is the food" was
                 // unreachable from the harness that judges by eye.
                 "foodvalue" => a.organism_overlay = OrganismOverlay::FoodValue,
+                // Landed *with* the overlay this time, not a stage later:
+                // the readout above was unreachable from here for a whole
+                // milestone because only the render half shipped, and an
+                // unknown `channel=` value is silently ignored rather than
+                // rejected -- so a sheet rendered with a typo'd channel
+                // looks exactly like a mechanism that does nothing.
+                "gutbias" => a.organism_overlay = OrganismOverlay::GutBias,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -2737,10 +2945,16 @@ fn parse() -> Args {
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 "stress" => a.stress = true,
+                "exposure" => a.exposure = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress, exposure"
                 ),
             },
+            "wind" => {
+                let f: f32 = v.parse().expect("wind=<-1.0..1.0>");
+                assert!((-1.0..=1.0).contains(&f), "wind=<-1.0..1.0>, got {f}");
+                a.wind = Some(f);
+            }
             "daylight" => {
                 let f: f32 = v.parse().expect("daylight=<0.0..1.0>");
                 assert!((0.0..=1.0).contains(&f), "daylight=<0.0..1.0>, got {f}");
@@ -2756,6 +2970,7 @@ fn parse() -> Args {
             "fall" => a.fall = v.parse().expect("fall"),
             "pond" => a.pond = v.parse().expect("pond"),
             "min_failing_cells" => a.min_failing_cells = Some(v.parse().expect("min_failing_cells")),
+            "min_severed" => a.min_severed = Some(v.parse().expect("min_severed")),
             "min_overloaded" => a.min_overloaded = Some(v.parse().expect("min_overloaded")),
             "max_unconfined" => a.max_unconfined = Some(v.parse().expect("max_unconfined")),
             "max_failures" => a.max_failures = Some(v.parse().expect("max_failures")),
@@ -2834,6 +3049,16 @@ fn parse() -> Args {
                 assert_eq!(n.len(), 5, "cut=x,y,w,h,frame");
                 a.cuts.push((n[0], n[1], n[2], n[3], n[4] as usize));
             }
+            "fell" => {
+                let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("fell")).collect();
+                assert!((1..=3).contains(&n.len()), "fell=frame[,radius[,force]]");
+                a.fell = Some((n[0] as usize, n.get(1).map_or(FELL_BITE_RADIUS, |&r| r as i32), n.get(2).copied().unwrap_or(FELL_BITE_FORCE)));
+            }
+            "chop" => {
+                let n: Vec<f32> = v.split(',').map(|s| s.parse().expect("chop")).collect();
+                assert_eq!(n.len(), 5, "chop=x,y,radius,force,frame");
+                a.chops.push((n[0] as i32, n[1] as i32, n[2] as i32, n[3], n[4] as usize));
+            }
             "depowder" => a.depowder = Some(v.parse().expect("depowder")),
             "poke" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("poke")).collect();
@@ -2844,6 +3069,37 @@ fn parse() -> Args {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
                 a.crop = Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1);
+            }
+            "day" | "weather" | "growth" | "creatures" | "gnome" => {
+                let n: u32 = v.parse().unwrap_or_else(|_| panic!("{k}= wants a whole number, got {v:?}"));
+                a.clock.set_rates(0, |c| match k {
+                    "day" => c.day_minutes = n,
+                    "weather" => c.weather_slowdown = n,
+                    "growth" => c.growth_slowdown = n,
+                    "creatures" => c.creature_slowdown = n,
+                    _ => c.gnome_slowdown = n,
+                });
+                // A value out of range clamps silently, and a knob whose
+                // stored value is not what was asked for is a knob nobody can
+                // tell is disconnected -- the failure `Args::clock` records.
+                //
+                // Compares the *specific* knob rather than asking whether the
+                // whole clock is still at baseline, which was the first
+                // version and rejected `day=1` -- a perfectly legitimate way
+                // to name the default explicitly, and exactly what a paired
+                // comparison against a slowed day needs on its other arm.
+                let stored = match k {
+                    "day" => a.clock.day_minutes,
+                    "weather" => a.clock.weather_slowdown,
+                    "growth" => a.clock.growth_slowdown,
+                    "creatures" => a.clock.creature_slowdown,
+                    _ => a.clock.gnome_slowdown,
+                };
+                assert_eq!(
+                    stored, n,
+                    "{k}={v} was clamped to {stored}: the range is 1..={}",
+                    pixel_physics::sim::clock::MAX_SLOWDOWN
+                );
             }
             other => panic!("unknown argument {other:?}"),
         }
@@ -3042,6 +3298,41 @@ fn solid_surface_y(world: &World, x: i32) -> i32 {
 /// "Did the fire start in the grass" is a counter question: an ignition two
 /// rows above a sward looks identical on a contact sheet to one inside it,
 /// and it would smoulder out while reading as a fire that failed to spread.
+/// Apply every scheduled `dry=` whose frame has arrived. Same drain-based
+/// shape as `fire_due_ignitions` below and called from the same places,
+/// for the same reason: this has to land *after* the vegetation has grown,
+/// and growth is what makes the ground damp in the first place.
+///
+/// Reports the cell count it changed and what the ground was before, not
+/// just what it was set to. "Did the reset reach the bed" is a counter
+/// question -- a `dry=` aimed at a scene with no water-holding material in
+/// it changes nothing and looks, on a contact sheet, exactly like a dry
+/// meadow that refused to burn for some other reason.
+fn fire_due_dries(world: &mut World, pending: &mut Vec<(u16, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].1 <= now {
+            let (aux, _) = pending.remove(i);
+            let Some(b) = world.bounds() else { continue };
+            let (mut changed, mut before) = (0usize, 0u64);
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = world.get(x, y);
+                    if world.materials.get(c.material).water_capacity > 0 {
+                        before += u64::from(pixel_physics::sim::update::soil_moisture(c));
+                        changed += 1;
+                        world.set(x, y, c.with_aux(aux));
+                    }
+                }
+            }
+            let mean = if changed == 0 { 0 } else { before / changed as u64 };
+            println!("  dry: {changed} water-holding cells set to aux {aux} at frame {now} -- they averaged {mean} before");
+        } else {
+            i += 1;
+        }
+    }
+}
+
 fn fire_due_ignitions(world: &mut World, pending: &mut Vec<(i32, i32, i32, usize)>, now: usize) {
     let mut i = 0;
     while i < pending.len() {
@@ -3874,6 +4165,94 @@ fn paint_stress(world: &World, frame: &mut [u8]) {
     }
 }
 
+/// Repaint `frame` with `weather::exposure` for the *ground* of each column.
+///
+/// **A column wash, and the first version was not.** Exposure is defined at
+/// any point, so the obvious sheet paints every cell with its own value --
+/// and that sheet is worthless. A cell inside rock has every upwind surface
+/// above it and reads ~0.0; a cell in the sky has every upwind surface below
+/// it and reads ~1.0; so the picture comes out a straw sky over a navy solid,
+/// split on the ground line, and the terrain-driven variation that the
+/// channel exists to show is a one-pixel band nobody can see. Rendered, it
+/// is exactly the "reads as blank" failure `CLAUDE.md` warns produces a fix
+/// aimed at working code -- the numbers under that same sheet were healthy
+/// (spread 0.941), which is the whole argument for printing them.
+///
+/// What is painted instead is `weather::ground_exposure` for the column,
+/// down the full height: the quantity `weather::gust` actually samples, and
+/// the one that answers "is this a sheltered place". The surface row is
+/// marked in a fixed cyan that is nowhere on the ramp, so the terrain
+/// profile can be read against the wash without tinting it.
+///
+/// A **full replace on a fixed dark-to-bright ramp**, per `CLAUDE.md`, at
+/// alpha 1.0: deep navy is sheltered, mid slate is level open ground
+/// (`weather::NEUTRAL_EXPOSURE`), pale straw is fully exposed. Fixed rather
+/// than normalised to the frame's own range -- a per-frame rescale makes a
+/// world with no relief look exactly like one with plenty, which is the
+/// failure this channel exists to catch, and the `preset=flat` control
+/// would stop being a control.
+fn paint_exposure(world: &World, frame: &mut [u8], wind: f32) {
+    for x in 0..WIDTH {
+        let surface = (0..HEIGHT).find(|&y| world.get(x, y).material != material::EMPTY);
+        let e = pixel_physics::sim::weather::ground_exposure(world, x, wind)
+            .unwrap_or(pixel_physics::sim::weather::NEUTRAL_EXPOSURE);
+        // Two straight segments through the neutral point, so the ramp stays
+        // monotone in exposure while level ground still lands on a
+        // recognisable colour rather than an arbitrary grey.
+        let colour = if e <= 0.5 {
+            let t = e / 0.5;
+            [(14.0 + 76.0 * t) as u8, (16.0 + 84.0 * t) as u8, (34.0 + 78.0 * t) as u8, 255]
+        } else {
+            let t = (e - 0.5) / 0.5;
+            [(90.0 + 155.0 * t) as u8, (100.0 + 140.0 * t) as u8, (112.0 + 63.0 * t) as u8, 255]
+        };
+        for y in 0..HEIGHT {
+            let dst = (((y * WIDTH) + x) * 4) as usize;
+            let px = if Some(y) == surface { [0, 200, 220, 255] } else { colour };
+            frame[dst..dst + 4].copy_from_slice(&px);
+        }
+    }
+}
+
+/// Which wind `channel=exposure` was drawn for, and the census that says
+/// whether the channel is doing anything at all.
+///
+/// Printed next to the sheet because a picture cannot report its own
+/// inputs, and an exposure sheet drawn at `wind = 0.02` on a world with no
+/// relief is indistinguishable from a broken one. The spread in particular
+/// is the "did it fire at all" counter `CLAUDE.md` asks for: a channel that
+/// is working on rolling terrain has a wide one, and a flat world must
+/// report ~0.000 with a mean at `NEUTRAL_EXPOSURE`.
+fn report_exposure(world: &World, wind: f32) {
+    let (mut lo, mut hi, mut sum, mut n) = (f32::MAX, f32::MIN, 0.0f64, 0u32);
+    let (mut lo_x, mut hi_x) = (0, 0);
+    for x in 0..WIDTH {
+        let Some(s) = (0..HEIGHT).find(|&y| world.get(x, y).material != material::EMPTY) else { continue };
+        let v = pixel_physics::sim::weather::exposure(world, x, s, wind);
+        if v < lo {
+            lo = v;
+            lo_x = x;
+        }
+        if v > hi {
+            hi = v;
+            hi_x = x;
+        }
+        sum += v as f64;
+        n += 1;
+    }
+    if n == 0 {
+        println!("    exposure: no ground anywhere in this world");
+        return;
+    }
+    println!(
+        "    exposure (wind {wind:+.2}): ground columns {n}, mean {:.3}, sheltered {:.3} at x={lo_x}, exposed {:.3} at x={hi_x}, spread {:.3}",
+        sum / n as f64,
+        lo,
+        hi,
+        hi - lo
+    );
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -4024,6 +4403,15 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             ok = false;
         }
     }
+    if let Some(min) = args.min_severed {
+        if f.severed_organism_cells < min {
+            println!(
+                "  FAIL: expected the support check to sever at least {min} cells of living tissue, it severed {}",
+                f.severed_organism_cells
+            );
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_overloaded {
         if f.overloaded < min {
             println!("  FAIL: expected at least {min} overload failures, got {}", f.overloaded);
@@ -4064,6 +4452,7 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             || args.max_rock_above.is_some()
             || args.min_overloaded.is_some()
             || args.min_failing_cells.is_some()
+            || args.min_severed.is_some()
             || args.max_failures.is_some()
             || args.max_unconfined.is_some()
             || args.max_frame_ms.is_some()
@@ -4078,6 +4467,16 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
 
 fn main() {
     let args = parse();
+    // **Echo the world clock, always.** `CLAUDE.md`'s harness rule: a knob
+    // whose value you cannot see is a knob you cannot tell is disconnected,
+    // and a contact sheet that does not name its own clock was rendered by a
+    // binary that may never have had one. Printed even at the baseline, so a
+    // sheet whose caption is missing this line is from an older build.
+    let c = &args.clock;
+    println!(
+        "filmstrip: scene={} clock(day={} weather={} growth={} creatures={} gnome={})",
+        args.scene, c.day_minutes, c.weather_slowdown, c.growth_slowdown, c.creature_slowdown, c.gnome_slowdown
+    );
     // Repeated runs are for the *timing* only -- the image and the
     // expectations come from the last one, which is a full run like any
     // other. Deliberately re-simulated from scratch rather than reusing a
@@ -4239,12 +4638,65 @@ impl PanelSheet {
     }
 }
 
+/// **What the animals actually did, printed beside the picture.**
+///
+/// `CLAUDE.md`'s house rule for the review queue is that the discrete event
+/// count goes in the card's `meta`, because two very different mechanisms
+/// look identical at the zoom a contact sheet is read at -- a collapse once
+/// read as "chunks are working" came from a run whose body count was zero
+/// throughout. This example rendered creature scenes for months while
+/// printing no creature counter at all, so a colony card's `meta` had to be
+/// copied from some *other* harness's run of a *different* world, which is
+/// the same defect one level up.
+///
+/// **Called from the GIF branch too**, which is the one that matters: the
+/// GIF branch is what produces the animation a review card is built from,
+/// and it returns before the contact-sheet path. Its comment says it
+/// "reports neither" timing nor body samples, and that stays true -- this
+/// is not a measurement of the run, it is the label on the picture.
+///
+/// **Silent unless the scene actually has animals**, and `live_organism_count`
+/// is not that test: it counts plants too, so gating on it printed
+/// `colony: 10 live | moves 0` under a *tree* sheet -- a counter that reports
+/// on something the scene does not contain is the same defect as a metric that
+/// counts droplets and calls them films. Creature activity is the tell; a
+/// colony scene that placed ants always moves, and one that placed none is
+/// caught by the scene's own assertion rather than by this line.
+fn report_colony(world: &World, render: bool) {
+    if !render || world.creature_stats.moves == 0 {
+        return;
+    }
+    let st = world.creature_stats;
+    let blocked_frac = if st.moves > 0 { st.moves_blocked as f64 / st.moves as f64 } else { 0.0 };
+    println!(
+        "  creatures: {} live organism(s) | moves {} blocked {} ({blocked_frac:.3}) falls {} | pickups {} drops {} deliveries {} deaths {}",
+        world.live_organism_count(),
+        st.moves,
+        st.moves_blocked,
+        st.falls,
+        st.pickups,
+        st.drops,
+        st.deliveries,
+        st.deaths
+    );
+    println!(
+        "  creatures: forage trips {} (bar {}) deepest {} | reach {:?}",
+        st.forage_trips,
+        pixel_physics::sim::creature::FORAGE_TRIP_MIN,
+        st.forage_depth_max,
+        st.forage_reach
+    );
+}
+
 /// One full run. Returns its worst frame in ms, the finished world, the
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
 /// not need an image and should not pay for one.
 fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
     let mut world = build(args);
+    // After `build`, which may construct the world several different ways --
+    // one place to set it means a scene cannot silently opt out.
+    world.clock = args.clock;
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
     // Taken here rather than in `build` so it includes whatever the scene
@@ -4287,10 +4739,13 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // so it opts in on its own.
     let per_charge_reports = !args.blasts.is_empty() || args.explosions.len() > 1;
     let mut pending_cuts = args.cuts.clone();
+    let mut pending_chops = args.chops.clone();
+    let mut pending_fell = args.fell;
     let mut pending_depowder = args.depowder;
     let mut depowder_first = true;
     let mut pending_pokes = args.pokes.clone();
     let mut pending_ignitions = args.ignitions.clone();
+    let mut pending_dries = args.dries.clone();
     let mut blasts = explosion::Blasts::new();
     if let Some(v) = args.joint_reach {
         blasts.tuning.joint_reach = v;
@@ -4351,21 +4806,31 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             while step_no < target {
                 fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
                 fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+                fire_due_chops(&mut world, &mut pending_chops, step_no);
+                fire_due_fell(&mut world, &mut pending_fell, step_no);
                 fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
                 fire_due_pokes(&mut world, &mut pending_pokes, step_no);
+                fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
                 advance(&mut world, &mut particles, &mut blasts, args.parallel_driver, step_no, &mut gnome, per_charge_reports);
                 step_no += 1;
             }
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_chops(&mut world, &mut pending_chops, step_no);
+            fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+            fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             let touched: HashSet<_> = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
             if args.stress {
                 paint_stress(&world, &mut frame);
+            }
+            if args.exposure {
+                let wind = args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind);
+                paint_exposure(&world, &mut frame, wind);
             }
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
@@ -4386,6 +4851,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
         drop(encoder);
         println!("animated gif ({tile_w}x{tile_h}, {} frames): {}", args.count, args.out);
+        report_colony(&world, render);
         // The gif branch is for watching motion, not for measuring; it has
         // no per-frame timing of its own and `repeat`/expectations do not
         // apply to it.
@@ -4466,6 +4932,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
     // the standing total. `None` on the first tile, which prints +0.00 rather
     // than a delta against a number that does not exist.
     let mut last_bank: Option<f64> = None;
+    // **The floor's depth, which is the quantity the abscission complaint
+    // actually named** -- "creating a giant pile of soil". Soil has no exit
+    // channel (§O), so every soil cell decay writes is still there, and the
+    // rise since the first sample IS the manufactured floor. Counted as an
+    // absolute, deliberately: the neighbouring census records that an
+    // earlier *exposed*-soil version was confounded because a leafier world
+    // covers more ground, moving the denominator with the treatment. A bare
+    // count has no denominator to move.
+    let mut first_soil: Option<usize> = None;
     // Cross-tile state for the ice churn readout -- see the `ice:` line.
     let mut last_ice: Option<(u32, u32, i64)> = None;
     while captured < args.count {
@@ -4473,9 +4948,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         while step_no < target {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_chops(&mut world, &mut pending_chops, step_no);
+            fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-            fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+            fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
             // Outside the timed region below on purpose: a panel capture is
             // harness cost, and folding it into the worst-frame number would
             // make the sheet's own instrument report the sheet.
@@ -4525,9 +5003,12 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_chops(&mut world, &mut pending_chops, step_no);
+        fire_due_fell(&mut world, &mut pending_fell, step_no);
         fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
         fire_due_pokes(&mut world, &mut pending_pokes, step_no);
-        fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
+        fire_due_dries(&mut world, &mut pending_dries, step_no);
+                fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
         if let Some(p) = panels.as_mut() {
             p.capture(&world, &particles, &fired, step_no);
         }
@@ -4546,6 +5027,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
         if args.stress {
             paint_stress(&world, &mut frame);
+        }
+        if args.exposure {
+            let wind = args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind);
+            paint_exposure(&world, &mut frame, wind);
         }
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
@@ -4689,6 +5174,17 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         println!(
             "    body sizes: <8:{} 8-15:{} 16-31:{} 32-63:{} 64-127:{} 128-255:{} 256+:{}",
             sz[0], sz[1], sz[2], sz[3], sz[4], sz[5], sz[6]
+        );
+        // The rotation fit probe, printed because it spent the whole life of
+        // the mechanism answering "clear" unconditionally and nothing on a
+        // contact sheet could show it (`open-bugs-handoff.md` bug K). A
+        // refusal count of zero on a scene with walls in it is the tell that
+        // it has gone vacuous again.
+        println!(
+            "    quarter turns: {} asked, {} refused by the fit probe ({}%)",
+            f.rotations_asked,
+            f.rotations_refused,
+            if f.rotations_asked == 0 { 0 } else { f.rotations_refused * 100 / f.rotations_asked }
         );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
@@ -5180,11 +5676,86 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             .filter(|&(x, y)| world.get(x, y).organism_id() != 0)
             .count();
         println!("    living plant tissue: {living} cells");
+        // **The felling census, printed beside the tile it describes.**
+        // `living` above is one number for the whole world and cannot say
+        // whether a severed crown is still attached, still standing while
+        // detached, or already coming apart -- three states that look
+        // identical on a contact sheet and have three different causes.
+        // Gated on there being tissue at all so the destruction scenes,
+        // which have none, do not grow three blank lines.
+        if living > 0 {
+            FellCensus::of(&world).print(&world);
+        }
         println!(
             "    decay: {} damp + {} dry = {} events; of {decayable} decayable cells standing, {above} are above the {gate} damp gate ({pct:.0}%)",
             world.decayed_damp,
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
+        );
+        // The decay events above are downstream of leaf fall, and leaf fall
+        // has three causes with separate knobs. The retune's lever question
+        // -- "which pressure is filling the floor" -- needs the split.
+        let soil_id = world.materials.id_of("soil");
+        if let Some(soil_id) = soil_id {
+            let mut soil_now = 0usize;
+            for x in 0..WIDTH {
+                for y in 0..HEIGHT {
+                    if world.get(x, y).material == soil_id {
+                        soil_now += 1;
+                    }
+                }
+            }
+            let base = *first_soil.get_or_insert(soil_now);
+            // **Net, not manufactured, and the difference is not pedantry.**
+            // The first version of this line called the rise "manufactured by
+            // decay" and clamped the negative case to zero. Then the retuned
+            // arm ran -171, -265, -201, -114 before ending at +120: soil is
+            // leaving as well as arriving, so decay's writes are only the
+            // gross inflow and this column has never been able to see them
+            // separately. `world.decayed_damp + decayed_dry` on the line
+            // above IS the gross inflow; read the two together and the
+            // difference between them is whatever is consuming soil.
+            println!(
+                "    floor: {soil_now} soil cells, {:+} net since the first sample",
+                soil_now as i64 - base as i64,
+            );
+        }
+        // **Leaf against wood, because that is what sets a silhouette.**
+        // `Reports/plant-appearance-design.md` is the reason this is a
+        // separate line from the living-tissue total: three architectural
+        // levers all fired, all printed their counters, and the owner still
+        // read the sheets as unchanged, because every species was ~90% wood
+        // and ~5% leaf and a lever that relabels a cell cannot move a
+        // silhouette that composition sets. Any question of the form "does
+        // the crown read differently" needs this ratio beside the picture,
+        // not the cell count.
+        if let (Some(leaf_id), Some(wood_id)) =
+            (world.materials.id_of("leaf"), world.materials.id_of("wood"))
+        {
+            let (mut leaf, mut wood) = (0usize, 0usize);
+            for x in 0..WIDTH {
+                for y in 0..HEIGHT {
+                    let m = world.get(x, y).material;
+                    if m == leaf_id {
+                        leaf += 1;
+                    } else if m == wood_id {
+                        wood += 1;
+                    }
+                }
+            }
+            let total = (leaf + wood).max(1);
+            println!(
+                "    composition: {leaf} leaf + {wood} wood = {} ({:.1}% leaf)",
+                leaf + wood,
+                100.0 * leaf as f64 / total as f64,
+            );
+        }
+        println!(
+            "    shed: {} shade + {} drought + {} stranded = {} leaves",
+            world.shed_shade,
+            world.shed_drought,
+            world.shed_stranded,
+            world.shed_shade + world.shed_drought + world.shed_stranded,
         );
         // **How much of the failure became grit rather than pieces.** The
         // mean region size cannot answer this and was misread as answering
@@ -5327,6 +5898,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         if render {
             println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
             report_loads(&world, args);
+            if args.exposure {
+                report_exposure(&world, args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind));
+            }
             dump_materials(&world, args);
         }
         captured += 1;
@@ -5340,6 +5914,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         while step_no < limit {
             fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
             fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+            fire_due_chops(&mut world, &mut pending_chops, step_no);
+            fire_due_fell(&mut world, &mut pending_fell, step_no);
             fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
             if let Some(p) = panels.as_mut() {
                 p.capture(&world, &particles, &fired, step_no);
@@ -5356,6 +5932,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         }
         fire_due_explosions(&mut world, &mut particles, &mut blasts, &mut pending, &mut pending_blasts, &mut fired, step_no);
         fire_due_cuts(&mut world, &mut pending_cuts, step_no);
+        fire_due_chops(&mut world, &mut pending_chops, step_no);
+        fire_due_fell(&mut world, &mut pending_fell, step_no);
         fire_due_depowder(&mut world, &mut pending_depowder, &mut depowder_first, step_no);
         if let Some(p) = panels.as_mut() {
             p.capture(&world, &particles, &fired, step_no);
@@ -5367,6 +5945,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             println!("  panels: ran on to frame {step_no}; worst frame over the whole run {worst_ms:.2} ms (frame {worst_frame})");
         }
     }
+
+    report_colony(&world, render);
 
     if render {
         image::save_buffer(&args.out, &sheet, sheet_w as u32, sheet_h as u32, image::ColorType::Rgba8)
@@ -5807,4 +6387,308 @@ fn cracked_census(world: &World, cx: i32, cy: i32, radius: i32) -> u32 {
         }
     }
     n
+}
+
+/// How far above its collar `FellCensus` looks for a row to cut.
+///
+/// A person felling a tree cuts it within reach of the ground, and the
+/// number has to be bounded for a duller reason too: the thinnest row of
+/// any tree is its topmost twig, so an unbounded search would report a
+/// one-cell cut that severs nothing. 15 rows is about a gnome and a half
+/// (`player::PLAYER_HEIGHT` is 14).
+const BOLE_REACH: i32 = 15;
+
+/// Where the felling bed puts its one trunk. See `scene=fell`.
+///
+/// `PlantScene` spaces a stand as `width / (trees + 1)`, so a single tree
+/// in a 512-wide bed stands at 256 and stays there across species, seeds
+/// and runs. Asserted rather than assumed by `FellCensus::of`, because a
+/// documented coordinate that has quietly drifted is worse than none: a
+/// `cut=` written against this number would then remove nothing and the
+/// sheet would show an untouched tree, which is the exact failure the
+/// scene exists to make impossible.
+const FELL_TRUNK_X: i32 = 256;
+
+/// **The felling census: what is still standing, what has come off, and
+/// whether the mechanism that takes a severed crown down ever ran.**
+///
+/// `Reports/felling-blockers.md` §3 step 0 and review item D1. Three
+/// separate questions, none of which a contact sheet can answer, and the
+/// project has already been fooled by two of them:
+///
+/// - **Did the cut land?** `fire_due_cuts` prints what it removed, which
+///   covers a `cut=`; a `chop=` goes through `rigid::strike` and can only
+///   be read off the standing census either side of it.
+/// - **Did the support pass notice?** A crown whose cells are all still
+///   `support < u16::MAX` is a crown that is *genuinely still attached* by
+///   some path -- a very different bug from one that is detached and
+///   standing there anyway, and the two are the same picture.
+/// - **Did anything then fire?** `FailureCounts::severed_organism_cells`,
+///   which exists for this line. The first `scene=fell` run had a trunk
+///   with 83 cells removed, a canopy that *grew* from 2,823 to 2,911 over
+///   the next 210 frames, and zero in every counter the harness had.
+///
+/// Deadwood is counted beside the living tissue because the two are one
+/// budget: a felled tree's mass has to turn up somewhere, and "standing
+/// living tissue fell by 400" plus "deadwood rose by 12" is the sawdust
+/// failure (`Reports/design-philosophy.md` §0a) stated numerically. It is
+/// a `Powder`, so it also drains away downward -- read the fall, not the
+/// level.
+struct FellCensus {
+    /// Live organism cells in the grid, and the shoot/root split. Roots are
+    /// the tissue whose material `reinforces_powder` -- the same test
+    /// `plant::is_structural_anchor` uses to decide what may anchor in
+    /// soil, so the two halves of this line are the two halves of the
+    /// support question.
+    standing: usize,
+    shoot: usize,
+    root: usize,
+    /// Live organisms with at least one cell in the grid.
+    organisms: usize,
+    /// Cells `plant::anchor_support` could not reach from any anchor:
+    /// `OrganismCell::support == u16::MAX`. **Detached and still standing
+    /// is the interesting state**, because it is the one the structural
+    /// check is supposed to consume and the one a picture cannot show.
+    detached: usize,
+    /// The largest *finite* support distance in the world, against which
+    /// `wood.ron`'s `max_cantilever_reach` of 96 can be read. A crown that
+    /// is attached only by a path costing more than the span is about to
+    /// come apart for the cantilever reason rather than the attachment one.
+    furthest: u16,
+    /// **Where to aim the axe**, for the largest live organism: the
+    /// cheapest row to cut through within `BOLE_REACH` of its collar, as
+    /// `(y, x_lo, x_hi, cells)`.
+    ///
+    /// This exists because the first `scene=fell` cut missed. A 16-wide
+    /// rectangle centred on `FELL_TRUNK_X` looked like a felling cut and
+    /// left the tree standing, and the census said why in one line where
+    /// the sheet could not say it at all: the crown was **still attached**
+    /// (one detached cell in the whole world, furthest finite distance 62),
+    /// because `tree` at this age is not a pole with a crown on it -- it is
+    /// a fan of stems spanning x 240..283 at the rows just above the
+    /// ground, and the cut took the middle of it.
+    ///
+    /// So the number a felling harness has to print is not "where is the
+    /// trunk" but "how wide is the narrowest thing an axe could sever", and
+    /// that is a property of the individual, changes as it grows, and is
+    /// invisible at contact-sheet zoom. Searched within reach of the collar
+    /// rather than over the whole plant, because the thinnest row of *any*
+    /// tree is the topmost twig and cutting it fells nothing.
+    ///
+    /// `None` when nothing has a collar yet (no shoot, or an organism that
+    /// has not ticked).
+    collar: Option<(i32, i32, i32, usize)>,
+    /// Debris standing in the grid: the `deadwood` every plant material
+    /// `breaks_into`, and the `litter` it decays to.
+    deadwood: usize,
+    litter: usize,
+    /// Cells riding in `ChunkBody`s, and how many of them are plant
+    /// material. **The second number is zero by construction today** --
+    /// `rigid::promote` and `loosen_shell` both decline organism-owned
+    /// cells, so a severed limb cannot become a body at all; carrying the
+    /// organism id through promotion is package S2. Printed anyway, and
+    /// printed as a pair, because that is the number S2 has to move and a
+    /// zero here is the honest statement of where this stands.
+    body_cells: usize,
+    body_plant_cells: usize,
+}
+
+impl FellCensus {
+    fn of(world: &World) -> Self {
+        let deadwood_id = world.materials.id_of("deadwood");
+        let litter_id = world.materials.id_of("litter");
+        let (mut standing, mut shoot, mut root) = (0usize, 0usize, 0usize);
+        let (mut detached, mut furthest) = (0usize, 0u16);
+        let (mut deadwood, mut litter) = (0usize, 0usize);
+        let mut ids: HashSet<u16> = HashSet::new();
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let cell = world.get(x, y);
+                if Some(cell.material) == deadwood_id {
+                    deadwood += 1;
+                }
+                if Some(cell.material) == litter_id {
+                    litter += 1;
+                }
+                if cell.organism_id() == 0 {
+                    continue;
+                }
+                standing += 1;
+                ids.insert(cell.organism_id());
+                if world.materials.get(cell.material).reinforces_powder {
+                    root += 1;
+                } else {
+                    shoot += 1;
+                }
+                // `support` is `0` for a cell the organism has not walked
+                // yet, which reads as perfectly anchored. That is the
+                // deferral `structural::organism_structural_tick` relies on
+                // and it is honest here for the same reason: a cell with no
+                // sidecar has not been asked, and counting it as detached
+                // would report a severance that has not happened.
+                let support = world.organism_cell(x, y).map_or(0, |c| c.support);
+                if support == u16::MAX {
+                    detached += 1;
+                } else {
+                    furthest = furthest.max(support);
+                }
+            }
+        }
+        // The largest organism, not "the only one": a felling bed grows
+        // moss and drops seeds, so `scene=fell` reports two or three live
+        // organisms within a few thousand frames and an "exactly one" test
+        // silently gave up on the tree it was planted for.
+        let subject = ids
+            .iter()
+            .copied()
+            .filter_map(|id| Some((world.organism(id)?.cells.len(), id)))
+            .max()
+            .map(|(_, id)| id);
+        let collar = subject.and_then(|id| {
+            let state = world.organism(id)?;
+            let collar_y = state.collar_y?;
+            // Rows are scanned from the collar upward, and the *lowest*
+            // qualifying row wins ties, because a cut low on the bole is
+            // what fells a tree -- a tie broken the other way would report
+            // a row near the top of the reach that severs a third of the
+            // crown.
+            (collar_y - BOLE_REACH..=collar_y)
+                .filter_map(|y| {
+                    let xs: Vec<i32> = state.cells.keys().filter(|&&(_, cy)| cy == y).map(|&(x, _)| x).collect();
+                    Some((xs.len(), y, *xs.iter().min()?, *xs.iter().max()?))
+                })
+                .min_by_key(|&(n, y, _, _)| (n, std::cmp::Reverse(y)))
+                .map(|(n, y, lo, hi)| (y, lo, hi, n))
+        });
+        let plant_kind = |m| world.materials.kind(m) == MaterialKind::Plant;
+        Self {
+            standing,
+            shoot,
+            root,
+            organisms: ids.len(),
+            detached,
+            furthest,
+            collar,
+            deadwood,
+            litter,
+            body_cells: world.chunk_bodies.iter().map(|b| b.cells.len()).sum(),
+            body_plant_cells: world.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| plant_kind(c.material)).count(),
+        }
+    }
+
+    fn print(&self, world: &World) {
+        let aim = match self.collar {
+            Some((y, lo, hi, n)) => format!("thinnest bole row y={y}: {n} cells spanning x {lo}..{hi}, so cut={lo},{y},{},1", hi - lo + 1),
+            None => "no collar yet -- nothing has a bole to cut".to_string(),
+        };
+        println!("    felling: standing {} cells (shoot {}, root {}) in {} organism(s); {aim}", self.standing, self.shoot, self.root, self.organisms);
+        println!(
+            "      support: detached (unreached) {} cells, furthest finite {} of wood's 96; severed by the support check {} cells so far",
+            self.detached, self.furthest, world.structural_failures.severed_organism_cells,
+        );
+        println!(
+            "      debris: deadwood {} cells, litter {}; bodies carrying plant material {} of {} body cells",
+            self.deadwood, self.litter, self.body_plant_cells, self.body_cells,
+        );
+    }
+}
+
+/// Swing `rigid::strike` at every `chop=` whose frame has arrived --
+/// **the verb, as opposed to the eraser**.
+///
+/// `cut=` was the starting point and it is deliberately not enough.
+/// `Reports/design-philosophy.md` §0a's original sin is that destruction
+/// could only be provoked by *erasing* support, "which delivers no load and
+/// no impulse, so nothing ever failed from being struck": a rectangle
+/// removes exactly what it names and asks the structural model a question
+/// no player can ask. `strike` is the player's own `C` key -- it takes a
+/// bite, loosens what is around it, scores cracks, shoves the air and
+/// records a disturbance -- so a `chop=` is the thing that actually has to
+/// work, and a `cut=` is the control that isolates the support model from
+/// the verb.
+///
+/// Reports the living-tissue count either side of the blow, because that
+/// is the only way to read whether it landed: `strike` returns nothing, and
+/// a swing that missed the trunk by three cells and one that took half of
+/// it out are the same picture at contact-sheet zoom.
+fn fire_due_chops(world: &mut World, pending: &mut Vec<(i32, i32, i32, f32, usize)>, now: usize) {
+    let mut i = 0;
+    while i < pending.len() {
+        if pending[i].4 <= now {
+            let (x, y, radius, force, _) = pending.remove(i);
+            let before = FellCensus::of(world);
+            pixel_physics::sim::rigid::strike(world, x, y, radius, force);
+            let after = FellCensus::of(world);
+            println!(
+                "  chop: ({x}, {y}) r{radius} force {force} at frame {now} -- living tissue {} -> {} ({} cells taken), deadwood {} -> {}",
+                before.standing,
+                after.standing,
+                before.standing as i64 - after.standing as i64,
+                before.deadwood,
+                after.deadwood,
+            );
+        } else {
+            i += 1;
+        }
+    }
+}
+
+/// The bite and the swing `fell=` uses when it is not told otherwise.
+///
+/// Radius 5 is `strike`'s own arithmetic at its most axe-like: a core of 1
+/// and a chip of 3, so one bite pulverizes about five cells and loosens
+/// twenty-four. Measured on `scene=fell` at frame 6,000, that is 34-37
+/// cells of living tissue per blow against a bole 26 cells wide -- three
+/// blows to sever it, which is about what swinging an axe at a tree ought
+/// to cost. A radius that took it in one would make the verb a delete key
+/// again (`Reports/design-philosophy.md` §0a).
+const FELL_BITE_RADIUS: i32 = 5;
+
+/// Force 6.0, the same order as `scene=worked`'s repeated blows. It sets
+/// how hard what comes loose is thrown, not whether the cut lands.
+const FELL_BITE_FORCE: f32 = 6.0;
+
+/// Walk a blow across the subject's own bole once `fell=`'s frame arrives.
+///
+/// Aim is taken from `FellCensus` rather than from the arguments -- see
+/// `Args::fell` for why a typed coordinate goes stale. Fires bites from the
+/// left edge of the bole to its right, stepping by the bite radius so the
+/// bites overlap rather than leaving uncut columns between them (the same
+/// scalloping reason `mine_swept` sweeps a capsule instead of stamping
+/// discs).
+///
+/// **Every blow lands in the same frame**, which is not how a player fells
+/// a tree and is deliberate here: a harness that spread the cut over
+/// several frames would let the support pass run mid-cut, so the run would
+/// be measuring "what does a half-severed tree do" on a boundary nobody
+/// chose. `chop=` is the arg for staging blows by hand.
+///
+/// Reports the whole cut as one line, including the count that says whether
+/// it landed: living tissue either side of it.
+fn fire_due_fell(world: &mut World, pending: &mut Option<(usize, i32, f32)>, now: usize) {
+    let Some((frame, radius, force)) = *pending else { return };
+    if frame > now {
+        return;
+    }
+    *pending = None;
+    let census = FellCensus::of(world);
+    let Some((y, lo, hi, cells)) = census.collar else {
+        println!("  fell: at frame {now} -- nothing has a bole to cut; the scene has no standing shoot");
+        return;
+    };
+    let mut x = lo;
+    let mut bites = 0;
+    loop {
+        pixel_physics::sim::rigid::strike(world, x, y, radius, force);
+        bites += 1;
+        if x >= hi {
+            break;
+        }
+        x = (x + radius).min(hi);
+    }
+    let after = FellCensus::of(world);
+    println!(
+        "  fell: {bites} bite(s) of r{radius} across the bole at y={y}, x {lo}..{hi} ({cells} cells of tissue in that row) at frame {now} -- living tissue {} -> {}, deadwood {} -> {}",
+        census.standing, after.standing, census.deadwood, after.deadwood,
+    );
 }

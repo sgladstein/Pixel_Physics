@@ -484,11 +484,28 @@ pub enum Behavior {
         /// tree wants the written numbers and not a draw around them.
         /// Indexed by trait — **`GENOTYPE_TRAITS`' own doc holds the slot
         /// map and is the contract.** All zeroes disables jitter. The
-        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7 are borrowed
-        /// from the same vector by the passes that consume them — one
-        /// plant, one genotype); the root's `Grow` reads 1/5/8 from the
-        /// RootTip entry's own vector, which is what lets root and shoot
-        /// diverge within one individual.
+        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7/9 are
+        /// borrowed from the same vector by the passes that consume them
+        /// — one plant, one genotype); the root's `Grow` reads 1/5/8 from
+        /// the RootTip entry's own vector, which is what lets root and
+        /// shoot diverge within one individual.
+        ///
+        /// **Slot 9's width is provisional and is not from measurement**,
+        /// which is a gap left visible rather than relabelled away
+        /// (`CLAUDE.md`: set bars from measurement, and where the number
+        /// cannot be had yet, record both and leave the gap). The trait
+        /// has no consumer, so there is no outcome to regress a width
+        /// against; what it must not be is `0.0`, because a slot at zero
+        /// width is a slot no population can explore and this one exists
+        /// precisely to give selection something to act on. So each
+        /// species carries its **own widest in-service width** there —
+        /// the same number as its `pipe_ratio` slot, 0.7 where the others
+        /// run wide and 0.5 on conifer, whose whole vector is tighter.
+        /// That is a defensible default rather than a measured value: it
+        /// invents no new number, it spans better than 5x between the
+        /// extreme individuals, and it is wide enough that a mean moving
+        /// under selection will clear the drift the readout shows on an
+        /// unselected control. Re-derive it once the response curve lands.
         ///
         /// **Slots are positional and must never be renumbered** — the slot
         /// index selects which stored draw a trait reads, so moving a trait
@@ -876,6 +893,41 @@ pub struct SpeciesDef {
     pub root_material: String,
     #[serde(default = "default_leaf_material")]
     pub leaf_material: String,
+    /// **How long this species' seeds stay viable**, as a half-life in
+    /// frames: the number of frames over which half a dormant seed bank
+    /// disappears. `0.0` means immortal, which is what every seed was
+    /// before this field existed.
+    ///
+    /// **A half-life rather than a lifespan, and that is the design call,
+    /// not a convenience.** `Reports/population-dynamics-research.md` §3
+    /// wants the seed bank to be the ecology's *reservoir* — the thing that
+    /// carries a species through a trough where an individual-based grid
+    /// otherwise hits the absorbing state at zero. A fixed lifespan empties
+    /// a cohort all at once and gives that reservoir a cliff; a constant
+    /// per-frame hazard gives it an exponential tail, so a bank fed at any
+    /// rate at all settles at `input x 1.443 x half_life` and *thins rather
+    /// than empties*. It is also the model seed-bank ecology actually uses,
+    /// and it is memoryless, so it needs no per-seed age counter.
+    ///
+    /// **Per species because the real axis is real.** Large-seeded woody
+    /// plants run transient banks (a season) and small-seeded ruderals run
+    /// persistent ones (years) — so a herb should out-*wait* a tree here,
+    /// not out-breed it only. That difference is what makes a seed bank a
+    /// strategy rather than a delay.
+    #[serde(default = "default_seed_half_life")]
+    pub seed_half_life: f32,
+    /// **How fast a dead individual's remains disappear**, as a half-life
+    /// in frames — the counterpart of `seed_half_life` at the other end of
+    /// the life cycle. See `plant::step_organisms`' senescence pass for
+    /// what "dead" means here (nothing left that can earn or restart), and
+    /// `OrganismState::senescent` for why the flag is one-way.
+    ///
+    /// The value differs by an order of magnitude between a sod and a
+    /// trunk for the obvious reason, so it is data rather than a constant.
+    /// `0.0` leaves remains standing for ever, which is the behaviour every
+    /// species had before this field existed.
+    #[serde(default = "default_remains_half_life")]
+    pub remains_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// Everything only a *creature* species needs. `#[serde(default)]` so
     /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
@@ -1027,14 +1079,67 @@ pub struct CreatureDef {
     /// nest, and it belongs in species data because that trade-off is what
     /// separates a solitary forager from a social one.
     pub hunger_fraction: f32,
-    /// Materials this species will eat and carry, by name.
+    /// **The ancestral value of every heritable body trait**, indexed by
+    /// `CREATURE_TRAITS`' slot map. Slot 0 is `gut_bias`.
     ///
-    /// Owner open question #2: herbivory on live plants from day one, or
-    /// detritus only until the plant-damage interaction has been watched
-    /// once? The difference is one string in this list — herbivory works
-    /// with no new code at all, because a `Leaf` cell is just a cell and
-    /// the plant finds out through its own connectivity check.
-    pub food: Vec<String>,
+    /// Authored per species because two ancestors one number apart, living
+    /// in different parts of the world and coloured differently, *is* the
+    /// first half of guided divergence — no reproduction required for the
+    /// stage to be worth shipping (`creature-evolution-plan.md` §2.5).
+    #[serde(default)]
+    pub traits: [f32; CREATURE_TRAITS],
+    /// Per-trait mutation width, same indexing as `traits`.
+    ///
+    /// **Read by nothing until S6**, exactly as `MaterialDef::food_class`
+    /// was authored one stage ahead of the gut that reads it. It is here
+    /// now because the width is a *species* property — how far a lineage's
+    /// gut can wander in one birth — and authoring it beside the ancestral
+    /// value is what keeps the two from drifting apart in separate commits.
+    ///
+    /// Per-trait rather than one global step, on the same measurement that
+    /// retired the global brain step (E6, §13l): one width across traits of
+    /// different scales either never moves the wide one or shreds the
+    /// narrow one. This vector is the body-side half of that call.
+    #[serde(default)]
+    pub trait_variance: [f32; CREATURE_TRAITS],
+    /// Whether a **living nestmate counts as ground** — an ant walks over
+    /// another ant the way it walks over terrain.
+    ///
+    /// **Footing only, never passability**, and the asymmetry is the whole
+    /// design: a creature cell stays something you cannot *enter*, so two
+    /// chains never swap through each other. See `creature::Kin`.
+    ///
+    /// Default off, and opted into on the species rather than tested in the
+    /// footing loop — the dispatch site already holds the def, and the
+    /// alternative is a `bool` re-resolved for each of twenty-four
+    /// neighbour cells per step.
+    ///
+    /// This is the deliberate re-test of dead ends 775/829, which gridlocked
+    /// a shoulder-to-shoulder colony at 27,386 blocked ticks against a
+    /// single pickup and whose condition line reads *"re-test if creatures
+    /// gain pass-through or climb-over"*.
+    #[serde(default)]
+    pub climbs_over_kin: bool,
+    /// Whether this species will bite a **living** member of its own
+    /// species.
+    ///
+    /// **Data, because the diet axis cannot express it.** `ant` material is
+    /// `food_class: 1.0` worth 120 and a starved ant's corpse cell is
+    /// `food_class: 1.0` worth 120 — the same point on the axis and the
+    /// same number — so no `gut_bias` and no threshold tells a nestmate
+    /// from carrion. See `creature::is_living_kin`, which holds the full
+    /// account; this is the species-side opt-in, defaulting to the answer
+    /// that keeps a colony from eating itself.
+    ///
+    /// It replaces what `CreatureDef::food`'s name list was *really* doing
+    /// by the end. That list carried two separate claims — what is
+    /// nutritious, and whom it is acceptable to bite — and only the first
+    /// is a gut. S5 takes the first (`gut_bias` and the matched filter) and
+    /// this takes the second, which is why the list could finally go: the
+    /// plan's §2.3 note "the list stays as the selectivity gate until that
+    /// trait exists" was one trait short, not one stage short.
+    #[serde(default)]
+    pub eats_kin: bool,
     /// The material a nest is built from — what `AtNest` senses.
     pub nest: String,
     /// How hard this species can dig, against a material's
@@ -1075,6 +1180,28 @@ fn default_leaf_material() -> String {
     "leaf".to_string()
 }
 
+/// Set against the measured bank rather than from a target. On the
+/// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
+/// still climbing** — 42 at 28,800, so it was accelerating, not settling —
+/// and the whole point of a clock is that it should stop. See
+/// `SpeciesDef::seed_half_life`. 9,000 frames is 2.5 in-world days against
+/// a tree that reaches full size in about eight, so a seed outlives a dry
+/// spell and does not outlive the tree that dropped it; at the stand's own
+/// late-run seeding rate that predicts a bank settling near 50, which is a
+/// reservoir rather than a leak.
+fn default_seed_half_life() -> f32 {
+    9_000.0
+}
+
+/// See `SpeciesDef::remains_half_life`. The woody default: a dead sapling
+/// stands for a while and then goes, rather than either vanishing on the
+/// tick it dies (the all-or-nothing outcome `CLAUDE.md`'s ethos section
+/// rules out) or standing for ever holding a slot (the behaviour this
+/// replaces).
+fn default_remains_half_life() -> f32 {
+    6_000.0
+}
+
 pub struct Species {
     pub name: String,
     pub foliage_bands: PaletteBands,
@@ -1084,6 +1211,10 @@ pub struct Species {
     pub shoot_material: String,
     pub root_material: String,
     pub leaf_material: String,
+    /// See `SpeciesDef::seed_half_life`.
+    pub seed_half_life: f32,
+    /// See `SpeciesDef::remains_half_life`.
+    pub remains_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
     pub creature: Option<CreatureDef>,
     /// The authored genome, expanded once at load rather than per spawn.
@@ -1101,6 +1232,78 @@ impl Species {
             .map(|(_, b)| b.as_slice())
             .unwrap_or(&[])
     }
+
+    /// Whether this species grows a separate `Leaf` stage at all.
+    ///
+    /// **This is the question `plastochron` answers from the wrong end.** A
+    /// species with `plastochron: [0, 0]` places no leaves, so it has no
+    /// `Leaf` cells — but reading the plastochron means reading a `Grow`
+    /// entry that may not exist, per *order*, from whichever cell type you
+    /// happened to ask about. Whether the file declares a `Leaf` cell type
+    /// is the same fact stated once, and it is what `plant.rs`'s abscission
+    /// rules need: a species whose photosynthetic surface *is* its shoot
+    /// (this file's own `plastochron` doc anticipates exactly that case)
+    /// sheds shoot, because it has nothing else to shed.
+    pub fn has_leaf_stage(&self) -> bool {
+        self.cell_types.iter().any(|(ct, _)| *ct == CellType::Leaf)
+    }
+
+    /// Whether a cell of this type earns carbon for this species.
+    pub fn photosynthesises(&self, cell_type: CellType) -> bool {
+        self.behaviors(cell_type).iter().any(|b| matches!(b, Behavior::Photosynthesize { .. }))
+    }
+
+    /// **Does this species have a carbon economy at all** — i.e. is there
+    /// any cell type in it that earns?
+    ///
+    /// The gate on the senescence rule in `plant::step_organisms`, and it
+    /// is there because that rule is *starvation-shaped*: "nothing left
+    /// that can earn" is not a statement about a species that never earns.
+    /// `moss.ron` is exactly that — one cell type, `Divide` at `cost: 0.0`,
+    /// no `Photosynthesize` anywhere, and its own file records that giving
+    /// it a budget "would be a bigger behavioural change than this rewrite
+    /// is meant to make silently" (the moss overhaul is call 4, deliberately
+    /// deferred).
+    ///
+    /// **Found by the guard test, not by reading.** `organism_tick` retires
+    /// a stale `GrowingTip` to `MatureBody`, and moss declares no
+    /// `MatureBody`, so a retired moss cell has no behaviours whatsoever —
+    /// which read as a corpse and would have quietly made moss patches rot
+    /// away. That is a moss behaviour change wearing a plant-mortality
+    /// change's clothes, and it is out of scope twice over.
+    pub fn has_economy(&self) -> bool {
+        self.cell_types.iter().any(|(ct, _)| self.photosynthesises(*ct))
+    }
+
+    /// **Whether a cell of this type can keep its organism alive** — the
+    /// cell-type half of the senescence test in `plant::step_organisms`.
+    /// The other two halves are per *cell* (root tissue is never vital,
+    /// whatever its type declares) and per *species* (`has_economy` above).
+    ///
+    /// Three behaviours, and each is a distinct way of not being dead:
+    ///
+    /// - `Photosynthesize` — it earns.
+    /// - `Germinate` — it has not started yet. A seed is a *dormant* stage,
+    ///   which is the one thing the reservoir role turns on; treating "no
+    ///   foliage" as death here would kill the seed bank the same day it
+    ///   was given a decay clock.
+    /// - `BudBreak` — it can restart a shoot from nothing, which is exactly
+    ///   what makes a topped tree not a dead one.
+    ///
+    /// `Grow` is deliberately **not** on the list, and that is the whole
+    /// discrimination: a `RootTip` grows, and a root system with no shoot
+    /// left above it cannot ever earn the carbon its growth spends. Roots
+    /// are the remains, not the survivor.
+    ///
+    /// Neither is `Divide`, and that is the same call read from the other
+    /// side: a `Divide` economy needs no carbon, so a species running on one
+    /// is exempt at the species level (`has_economy`) rather than being
+    /// carried case by case here.
+    pub fn is_vital(&self, cell_type: CellType) -> bool {
+        self.behaviors(cell_type)
+            .iter()
+            .any(|b| matches!(b, Behavior::Photosynthesize { .. } | Behavior::Germinate { .. } | Behavior::BudBreak { .. }))
+    }
 }
 
 impl From<SpeciesDef> for Species {
@@ -1114,6 +1317,8 @@ impl From<SpeciesDef> for Species {
             shoot_material: def.shoot_material,
             root_material: def.root_material,
             leaf_material: def.leaf_material,
+            seed_half_life: def.seed_half_life,
+            remains_half_life: def.remains_half_life,
             cell_types: def.cell_types,
             creature: def.creature,
             genome,
@@ -1326,7 +1531,122 @@ pub struct OrganismState {
     /// (`Reports/plant-genome-design.md` §4.8).
     pub endowment: f32,
     pub root_cells: u32,
+    /// **Root cells that share a face with soil** — the uptake surface, as
+    /// opposed to the mass.
+    ///
+    /// A root cell walled in by its own siblings shares no face with
+    /// anything it could drink from, so it can absorb nothing while still
+    /// costing carbon to build and to run. `Reports/root-blob-and-uptake-
+    /// surface-2026-08-23.md` measured that interior at **33.1% / 36.1% /
+    /// 33.3%** of the root system at 10,800 / 25,200 / 43,200 frames, so
+    /// it is a third of every root system and not a rounding error.
+    ///
+    /// **Read the second finding before treating this as a brake.** The
+    /// interior share does *not* rise with mass — root cells nearly
+    /// quadruple across that table while it holds at about one third — so
+    /// pricing contact is a flat tax on root mass, not a bound on it. What
+    /// it does buy is the thing the owner asked for: per-plant contact
+    /// already spans **51%–79% at comparable mass, same genome, same
+    /// scene**, and nothing was pricing it, so nothing could select on it.
+    ///
+    /// A face, not eight neighbours, for the reason `diffuse_resource`
+    /// stays four-connected while `Grow` places at eight: an exchange
+    /// crosses a shared face, and a diagonal cell shares only a corner.
+    pub contact_root_cells: u32,
     pub shoot_cells: u32,
+    /// **How many of this plant's cells are structural anchors** — the
+    /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
+    /// loop rather than in a walk of its own.
+    ///
+    /// That loop already enumerated the set to seed its heap and then
+    /// dropped it (`open-bugs-handoff.md` §P3, "the anchor *set* itself is
+    /// never materialised"). Counting it costs one increment per cell in a
+    /// pass that was already visiting every cell.
+    pub anchor_cells: u32,
+    /// **The anchor plate's resisting moment**, `Σ|x − x̄|` over the anchor
+    /// set: how many anchors there are *and* how far out they reach,
+    /// in one number, from the same free tally.
+    ///
+    /// Rises with count and with spread, which is what an anchor plate
+    /// actually trades: a hundred anchors under the trunk resist less than
+    /// forty spread across two metres. No constant in it — it is a sum of
+    /// distances, so it needs no calibration to *be* right, only to be
+    /// compared against a demand.
+    pub anchor_moment: f32,
+    /// **How well anchored this plant is for the crown it carries**, 0..1 —
+    /// `anchor_moment` against the overturning demand of the shoot above
+    /// it, clamped.
+    ///
+    /// The counterweight that makes root allocation a trade instead of a
+    /// tax. `physical-trees-design-2026-08-23.md` §11.1: a quantity with a
+    /// cost and no benefit has exactly one optimum, the minimum, and a
+    /// working economy finds it and holds every plant there — the visible
+    /// result being one root morphology everywhere, which is the complaint
+    /// the owner has already made twice.
+    ///
+    /// **A whole-plant number, and that is load-bearing.** §11.7's first
+    /// trap, and `CLAUDE.md`'s "which object does this rule evaluate": the
+    /// quantities here — a crown's mass, its lever arm, an anchor
+    /// half-width — are defined for a plant and undefined for a cell. This
+    /// is read by `allocate_to_frontier`, an allocation decision; nothing
+    /// in the plant lane schedules a structural check off it. Lane S owns
+    /// the storm that collects.
+    /// **The crown's overturning demand**, `Σ (collar − y)` over shoot
+    /// tissue: mass times lever arm, in one sum from the walk
+    /// `organism_upkeep` already runs.
+    ///
+    /// Stored beside `anchor_moment` rather than folded into
+    /// `anchor_status`, for two reasons. The ratio of the two is what
+    /// `ANCHOR_DEMAND` is derived from, and a clamped status cannot be
+    /// divided back out to recover it. And lane S's wind-throw wants the
+    /// unclamped demand directly — a gust delivers a moment, and what it
+    /// has to beat is this.
+    pub crown_moment: f32,
+    pub anchor_status: f32,
+    /// **Height of the shoot above the collar over stem width at the
+    /// base** — read, never assigned (§11.2).
+    ///
+    /// `thicken` already ties width to the leaf mass above it, so a
+    /// slender plant is what happens when the crown flushes faster than the
+    /// stem thickens. Stored so lane S's wind-throw can pick its rung off a
+    /// number the growth model produced rather than one a rule invented.
+    pub slenderness: f32,
+    /// **What this plant's standing tissue cost to run last tick** — the
+    /// maintenance-respiration bill, summed over the walk that charges it.
+    /// **What the plant earned last tick**, in carbon — the income
+    /// `allocate_to_frontier` divides, stored so it can be read against
+    /// `maintenance` without a second derivation of the same expression.
+    ///
+    /// Night-scaled, like the pool it feeds: this is money, not policy.
+    pub income: f32,
+    /// **The bill at unit price** — `Σ (q_peak / L_node)^MAINTENANCE_EXPONENT`
+    /// over shoot tissue, before `MAINTENANCE_PER_NODE` multiplies it.
+    ///
+    /// Stored because a constant has to be *derived* rather than chosen, and
+    /// the only honest way to derive this one is to read the quantity it
+    /// scales on a stand the charge is not yet acting on. With the price at
+    /// zero this and `income` give the price that puts a mature tree at any
+    /// chosen bill-to-income ratio directly, instead of by bisecting a
+    /// feedback loop. Keeping it afterwards means the same derivation can be
+    /// re-run the day anything upstream of `q_peak` moves — which, on this
+    /// quantity's own history (four re-derivations of `pipe_ratio`), it will.
+    pub maintenance_basis: f32,
+    pub maintenance: f32,
+    /// **The part of that bill the plant could not pay**, in carbon.
+    ///
+    /// The continuous quantity `CLAUDE.md` prefers over a count of starving
+    /// cells: counts give knife-edge margins and sums separate cleanly.
+    /// Zero on any plant in surplus, which is most of them for most of
+    /// their lives.
+    pub maintenance_unpaid: f32,
+    /// **Cells lost to starvation, cumulative** — the "did it fire at all"
+    /// counter for crown recession and the root interior.
+    ///
+    /// `CLAUDE.md` is explicit that an image cannot answer this: a collapse
+    /// rendered as coherent falling slabs was read as "chunks are working"
+    /// while the body count was zero for the whole run. Every card this
+    /// mechanism is posted on carries this number in its `meta`.
+    pub starved_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
     /// occupies, refreshed once per organism tick in the walk
     /// `plant::organism_upkeep` is already doing.
@@ -1385,6 +1705,20 @@ pub struct OrganismState {
     /// different view of the same one. A body follows its head by each
     /// segment stepping into its predecessor's old position, which is a
     /// question about order that a `HashMap` cannot answer.
+    /// **This individual's heritable body traits** — `CREATURE_TRAITS`
+    /// holds the slot map, and `TRAIT_GUT_BIAS` is the only live slot.
+    ///
+    /// A byte-copy of `CreatureDef::traits` at spawn today: nothing
+    /// reproduces, so every creature is its species' ancestral value and
+    /// the only way to move one is to author it. S6 is where a child takes
+    /// its *parent's* vector jittered by `CreatureDef::trait_variance`,
+    /// and the storage is here now because the trait has to change
+    /// behaviour before it can be worth inheriting.
+    ///
+    /// **Not in `genome`.** See `CREATURE_TRAITS` — a gut is not a synapse,
+    /// and a body block that grows independently is what keeps S8 from
+    /// shifting brain offsets.
+    pub traits: [f32; CREATURE_TRAITS],
     pub chain: Vec<(i32, i32)>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.
@@ -1540,6 +1874,26 @@ pub struct OrganismState {
     /// dormancy do anything here. The count of *deferrals* would be a
     /// property of the polling interval, not of the mechanic.
     pub deferred_germination: bool,
+    /// **This individual is dead and what is left of it is rotting.** Set
+    /// by `plant::organism_upkeep` the tick an organism is found holding no
+    /// vital cell (see `Species::is_vital`), and never cleared.
+    ///
+    /// **One-way, deliberately.** Nothing that reaches this state can leave
+    /// it — the test is "no cell that could earn, grow for free, germinate
+    /// or flush", so there is no path back by construction, and a flag that
+    /// could flicker would let a plant rot halfway and then recover, which
+    /// is neither a plant nor a corpse. It is also what makes the flag a
+    /// safe gate for a *cause* of death that is not starvation: the herb
+    /// package's post-fruiting annual death sets this and the same rot pass
+    /// carries it out, with no second mechanism and no second tuning
+    /// (`Reports/plant-morphology-reach-2026-08-23.md` §7 call 3).
+    ///
+    /// Distinct from having an empty cell list, which is what
+    /// `World::free_organism` keys on: this is the state *between* dying
+    /// and the last cell going, and before this existed there was no such
+    /// state — an organism was live until its cells were gone, so a dead
+    /// trunk held its slot for ever.
+    pub senescent: bool,
 }
 
 /// How many independently-jittered traits a genotype carries — the width of
@@ -1551,13 +1905,44 @@ pub struct OrganismState {
 /// signed off 2026-08-18). Slots 0/2/3 are read by the shoot's `Grow`,
 /// 1/5/8 by the root's `Grow` (from the RootTip entry's own vector — that
 /// separation is what lets root and shoot diverge within one individual),
-/// 4/6/7 by whole-plant passes that borrow the shoot vector:
+/// 4/6/7/9 by whole-plant passes that borrow the shoot vector:
 ///
 ///   0 shoot branch chance        5 root tropism gain
 ///   1 root branch chance         6 root:shoot allocation bias
 ///   2 shoot plastochron          7 stomatal closure point
 ///   3 turgor per cell            8 root penetration force
-///   4 pipe ratio
+///   4 pipe ratio                 9 strain-response gain
+///
+/// **Slot 9 is capacity, not yet a trait: it has a width and a draw and
+/// no consumer.** It is the heritable half of a reaction norm — how
+/// strongly *this individual* re-allocates carbon away from height and
+/// into root and stem when it is repeatedly loaded (thigmomorphogenesis,
+/// in the botany). The point of spending a slot rather than a constant is
+/// that a constant makes plasticity something the author decided and a
+/// slot makes it something selection can act on: the population can
+/// discover how responsive it should be, and different lineages can
+/// settle differently. The response curve itself is a later package.
+///
+/// **Appended, not re-purposed, and that was a deliberate call.** Slots
+/// 1 and 5 set the precedent for re-purposing a measured-dead slot, and
+/// re-purposing here would have cost nothing in bytes. It would have cost
+/// the measurement record a second time — only slots 0/2/3/4 survived the
+/// last re-map comparable, and the F4 megastudy re-run is already queued
+/// against the current numbering. Appending is exempt from the
+/// never-renumber rule for a mechanical reason rather than a stylistic
+/// one: `plant::seed_genotype` keys each draw on `rng::stream(world_seed,
+/// x, y, slot)`, so a slot's value is a function of its own index and
+/// nothing else, and adding one draws a stream nobody had drawn before.
+/// `plant::tests::a_genome_slots_draw_is_a_pure_function_of_its_own_index`
+/// asserts exactly that, and
+/// `plant::tests::expressing_the_appended_genome_slot_changes_no_plant`
+/// grows one stand twice in a run -- slot 9 expressed, then at zero
+/// width -- and requires the two to be identical.
+///
+/// The one place appending is *not* automatically free is the mutation
+/// loop in `plant::set_seed`, which draws one jitter per slot from a
+/// shared `Rng` — a tenth slot consumes a tenth draw and would shift
+/// every draw after it. See that function for how the sequence is held.
 ///
 /// Slots 1 and 5 were `upward_weight` and `light_weight`, measured inert
 /// across 1,024 genomes at ±40% / ±50% and held at zero width in every
@@ -1567,11 +1952,42 @@ pub struct OrganismState {
 /// phenotype, which is the property the never-renumber rule below exists
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
-pub const GENOTYPE_TRAITS: usize = 9;
+pub const GENOTYPE_TRAITS: usize = 10;
+
+/// How many heritable **body traits** a creature carries — the width of
+/// both `CreatureDef::traits` (the authored ancestral values) and
+/// `OrganismState::traits` (what this individual actually got).
+///
+/// **A separate block from the 584-slot brain genome, by design.** The
+/// genome is a wiring matrix laid out from reserved dimensions
+/// (`brain::GENOME_LEN`), and every one of its slots is a synapse weight;
+/// a gut is not a synapse. Keeping traits out of it means S8 can grow the
+/// body block without moving a single brain offset — the exact failure
+/// `brain.rs`'s reserved-dimension layout exists to prevent, and the one
+/// the "re-lay the genome output-major" dead end walks into
+/// (`creature-evolution-plan.md` §6).
+///
+///   0 gut_bias — where this animal's digestion sits on the diet axis
+///
+/// **Positional forever, on the same terms as `GENOTYPE_TRAITS`**: a slot
+/// dead by measurement in every species may be re-purposed once with the
+/// measurement record re-baselined; a live slot, never.
+pub const CREATURE_TRAITS: usize = 1;
+
+/// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
+/// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
+/// on the same axis through `creature::diet_yield`'s matched filter.
+///
+/// One scalar rather than a per-class vector, and that is a measured call
+/// (E4, `creature-evolution-plan.md` §2.5): a normalised vector's overall
+/// magnitude is a free dimension with nothing selecting on it, so a
+/// histogram of its alleles measures its own drift and reads as a result.
+/// A scalar on a bounded axis has no such dimension.
+pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
-/// `genotype_draws` jitters nine scalars around a species mean. Run a
+/// `genotype_draws` jitters ten scalars around a species mean. Run a
 /// population on that and you get a Gaussian cloud — *a spectrum*, by
 /// construction, however long it runs and however hard selection pushes.
 /// There is no setting of a continuous genome that yields two clumps.
@@ -1852,6 +2268,38 @@ impl SpeciesRegistry {
     /// everything else fixed.
     pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
         self.species[id.0 as usize].genome = genome;
+    }
+
+    /// Overwrite one `Grow` arm's `genotype_variance` — **harness only**,
+    /// same caveat as `set_genome`, and it exists for one specific test
+    /// shape worth naming.
+    ///
+    /// The guard on appending a genome slot has to answer "does the new
+    /// slot change anything about the plants?", and the honest form of
+    /// that question is a **comparison, not a stored number**: grow the
+    /// same stand twice in one process, once with the slot expressed and
+    /// once with its width at `0.0`, and check the two are identical.
+    /// A hardcoded fingerprint answers it too, and then goes stale every
+    /// time any lane touches plant behaviour — which cost two wrong
+    /// diagnoses in one evening (`Reports/open-bugs-handoff.md`).
+    ///
+    /// Per-`World` rather than a global switch on purpose: the test
+    /// binary runs tests on many threads at once, so a process-wide
+    /// "effective genome width" would leak into whatever else happened
+    /// to be running. Widths are read live at every use (see
+    /// `Behavior::Grow::genotype_variance`), so setting one before a run
+    /// is enough and nothing needs redrawing.
+    ///
+    /// A no-op if the species has no `Grow` on that cell type.
+    pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
+        let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
+            return;
+        };
+        for b in behaviors.iter_mut() {
+            if let Behavior::Grow { genotype_variance, .. } = b {
+                *genotype_variance = variance;
+            }
+        }
     }
 
     /// Overwrite a species' creature parameters — **harness only**, same
@@ -2225,6 +2673,28 @@ pub struct OrganismCell {
     /// mobilising reserves instead of quietly giving up (see
     /// `plant::break_buds`).
     pub q_peak: f32,
+    /// **The support this cell carries *right now*** — the same basipetal
+    /// sum as `q_peak`, before the high-water `max`.
+    ///
+    /// `accumulate_support` has always computed this and thrown it away on
+    /// the line that latches the peak. Keeping it costs one `f32` per cell
+    /// and answers a question the peak provably cannot: **is this cell
+    /// still carrying any living foliage?** The peak says what it once
+    /// carried and, being monotone on purpose, keeps saying so for ever.
+    ///
+    /// That difference is what `organism_upkeep`'s die-back rule is keyed
+    /// on, and the reason it is safe. A cell at `q_now == 0` supports no
+    /// leaf anywhere above it in the plant's own topology, so removing it
+    /// cannot strand foliage: the crown recedes from its abandoned tips
+    /// inward, and the trunk — which carries the whole live crown — is not
+    /// a candidate while a single leaf remains. A rule keyed on the peak
+    /// instead would price the trunk highest *and* make it the first thing
+    /// to die, which is a hole in a stem, not crown recession.
+    ///
+    /// `plant::break_buds`' known defect (`q_peak` remembers, nothing reads
+    /// the difference) wants exactly this pair as well; P5's resprout is
+    /// the other consumer and needs no second field.
+    pub q_now: f32,
     /// The direction this shoot is **actually travelling**, carried forward
     /// with inertia rather than re-derived from the immediate
     /// neighbourhood each step.
@@ -2332,6 +2802,7 @@ impl Default for OrganismCell {
             carbon_conductance: [CONDUCTANCE_MIN; 4],
             order: 0,
             q_peak: 0.0,
+            q_now: 0.0,
             heading: (0.0, 0.0),
             path_len: 0,
             primed: false,
@@ -2993,6 +3464,38 @@ mod tests {
         assert_eq!(reg.len(), EMBEDDED.len(), "a species failed to load");
     }
 
+    /// **The authored gut arrives, and is not the serde default.**
+    ///
+    /// `traits` carries `#[serde(default)]`, so a species that misspells
+    /// the field, or a RON tuple form that does not deserialize into a
+    /// fixed array, loads *silently* at `[0.0; N]` -- and neutral is a
+    /// perfectly plausible-looking gut. That is the disconnected-knob
+    /// failure `CLAUDE.md` records twice (the `include_str!` sweep whose
+    /// arms came back byte-identical, and the megastudy whose eight logs
+    /// were one population): the tell in both was output that could not
+    /// distinguish "set" from "defaulted". The beetle is what makes this
+    /// test able to fail -- the ant's authored value *is* the default, so
+    /// asserting on the ant alone would pass against a field that never
+    /// parsed.
+    #[test]
+    fn the_authored_gut_bias_survives_the_ron_round_trip() {
+        let reg = SpeciesRegistry::builtin();
+        let beetle = reg.get(reg.id_of("beetle").expect("beetle.ron should define \"beetle\""));
+        let beetle = beetle.creature.as_ref().expect("beetle is a creature");
+        assert_eq!(beetle.traits[TRAIT_GUT_BIAS], 1.0, "beetle.ron authors a carnivore gut; a 0.0 here means the field did not parse");
+        assert_eq!(beetle.trait_variance[TRAIT_GUT_BIAS], 0.15, "beetle.ron authors a mutation width; 0.0 means the field did not parse");
+
+        let ant = reg.get(reg.id_of("ant").expect("ant.ron should define \"ant\""));
+        let ant = ant.creature.as_ref().expect("ant is a creature");
+        // Back to neutral: the owner's verdict on review card
+        // 20260823T104411499Z-963f8d was "An omnivore should be viable",
+        // and the economy was widened to make it so rather than the animal
+        // narrowed to fit the economy. Note this assertion cannot fail for
+        // a *parse* error any more -- 0.0 is the serde default again --
+        // which is exactly why the beetle above carries this test.
+        assert_eq!(ant.traits[TRAIT_GUT_BIAS], 0.0, "ant.ron authors an omnivore gut -- see that file for the food-scale sweep behind the value");
+    }
+
     #[test]
     fn moss_is_present_with_its_growing_tip_behaviors() {
         let reg = SpeciesRegistry::builtin();
@@ -3063,7 +3566,7 @@ mod tests {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
         let wood = w.materials.id_of("wood").expect("wood is compiled in");
         let species = w.species.id_of("tree").expect("tree is compiled in");
-        let organism_id = w.push_organism(species);
+        let organism_id = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::GrowingTip)));
 
         let slot = w.organism_cell_mut(5, 5).expect("set should have registered the cell");
@@ -3084,8 +3587,8 @@ mod tests {
         let mut w = World::new(crate::sim::chunk::Rect::new(0, 0, 31, 31));
         let wood = w.materials.id_of("wood").expect("wood is compiled in");
         let species = w.species.id_of("tree").expect("tree is compiled in");
-        let first = w.push_organism(species);
-        let second = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
+        let second = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(first).with_aux(pack_cell_type(CellType::GrowingTip)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = 3.0;
 
@@ -3119,12 +3622,12 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 31, 31));
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let first = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
         assert!(w.organism(first).is_some());
         w.free_organism(first);
         assert!(w.organism(first).is_none(), "a freed id must stop resolving");
 
-        let second = w.push_organism(species);
+        let second = w.push_organism(species).expect("an organism slot is free");
         assert!(w.organism(second).is_some());
         assert_ne!(first, second, "the reused slot must hand back a *different* encoded id -- same index, bumped generation");
         // The slot index is the low 12 bits; the reuse must be a genuine
@@ -3144,12 +3647,12 @@ mod tests {
         let mut w = World::new(Rect::new(0, 0, 31, 31));
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let first = w.push_organism(species);
+        let first = w.push_organism(species).expect("an organism slot is free");
         w.free_organism(first);
         w.free_organism(first);
 
-        let a = w.push_organism(species);
-        let b = w.push_organism(species);
+        let a = w.push_organism(species).expect("an organism slot is free");
+        let b = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(a, b, "a double free must not hand the same slot to two live organisms");
         assert_ne!(a & 0x0FFF, b & 0x0FFF, "a double free must not put one slot index on the free list twice");
         assert!(w.organism(a).is_some() && w.organism(b).is_some());
@@ -3164,9 +3667,9 @@ mod tests {
         w.free_organism(0); // "no organism" -- must not touch slot 0's storage
         w.free_organism(1234); // never allocated
 
-        let live = w.push_organism(species);
+        let live = w.push_organism(species).expect("an organism slot is free");
         w.free_organism(live);
-        let reused = w.push_organism(species);
+        let reused = w.push_organism(species).expect("an organism slot is free");
         // The stale handle for the previous generation must not be able to
         // free the organism that now holds the slot.
         w.free_organism(live);
@@ -3186,11 +3689,11 @@ mod tests {
         let moss_material = w.materials.id_of("moss").expect("moss is compiled in");
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
-        let doomed = w.push_organism(species);
+        let doomed = w.push_organism(species).expect("an organism slot is free");
         w.set(5, 5, Cell::new(moss_material, 0).with_organism_id(doomed).with_aux(pack_cell_type(CellType::GrowingTip)));
         w.free_organism(doomed);
 
-        let heir = w.push_organism(species);
+        let heir = w.push_organism(species).expect("an organism slot is free");
         assert_eq!(doomed & 0x0FFF, heir & 0x0FFF, "the test needs the heir to actually inherit the slot");
 
         w.schedule_active_site(ActiveSite { x: 5, y: 5, kind: ActiveKind::Organism { organism: doomed, stale_ticks: 0, plastochron: 0 }, next_frame: 1 });
@@ -3215,11 +3718,11 @@ mod tests {
         let species = w.species.id_of("moss").expect("moss is compiled in");
 
         assert_eq!(w.organism_generation_wraps, 0);
-        let first = w.push_organism(species); // generation 0
+        let first = w.push_organism(species).expect("an organism slot is free"); // generation 0
         w.free_organism(first);
         // Generations 1..=15: fifteen reuses, none of them a wrap.
         for _ in 0..15 {
-            let id = w.push_organism(species);
+            let id = w.push_organism(species).expect("an organism slot is free");
             assert_ne!(id, first, "generations 1..15 must all encode differently from generation 0");
             w.free_organism(id);
         }
@@ -3228,7 +3731,7 @@ mod tests {
         // The sixteenth reuse is the wrap -- and the aliasing it warns
         // about is real, which is exactly why it is worth counting: the
         // very first id reads live again.
-        let wrapped = w.push_organism(species);
+        let wrapped = w.push_organism(species).expect("an organism slot is free");
         assert_eq!(w.organism_generation_wraps, 1, "the sixteenth reuse of one slot should have wrapped its generation exactly once");
         assert_eq!(first, wrapped, "after sixteen reuses the encoded id repeats -- the accepted limitation, asserted so it stays known");
     }
@@ -3242,7 +3745,7 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_id = w.push_organism(SpeciesId(0));
+        let organism_id = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
@@ -3266,8 +3769,8 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_a = w.push_organism(SpeciesId(0));
-        let organism_b = w.push_organism(SpeciesId(0));
+        let organism_a = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
+        let organism_b = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_a).with_aux(pack_cell_type(CellType::MatureBody)));
         w.set(6, 5, Cell::new(wood, 0).with_organism_id(organism_b).with_aux(pack_cell_type(CellType::MatureBody)));
         w.organism_cell_mut(5, 5).expect("registered").carbon = RESOURCE_SCALE;
@@ -3302,7 +3805,7 @@ mod tests {
 
         let mut w = World::new(Rect::new(0, 0, 15, 15));
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
-        let organism_id = w.push_organism(SpeciesId(0));
+        let organism_id = w.push_organism(SpeciesId(0)).expect("an organism slot is free");
         w.set(5, 5, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         {
             let slot = w.organism_cell_mut(5, 5).expect("registered");
@@ -3328,7 +3831,7 @@ mod tests {
     fn polarity_organism(w: &mut World, cells: &[(i32, i32)]) -> u16 {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let species = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(species);
+        let organism_id = w.push_organism(species).expect("an organism slot is free");
         for &(x, y) in cells {
             w.set(x, y, Cell::new(wood, 0).with_organism_id(organism_id).with_aux(pack_cell_type(CellType::MatureBody)));
         }

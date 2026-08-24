@@ -430,8 +430,30 @@ const HEAT_GLOW_RANGE: f32 = 400.0;
 /// orange regardless of intensity. A cooling coal and an actively raging
 /// fire should not read as the identical colour just because both cross
 /// `is_burning()`'s own threshold.
-const FIRE_TINT_LOW: [f32; 3] = [180.0, 55.0, 20.0];
-const FIRE_TINT_HIGH: [f32; 3] = [255.0, 210.0, 110.0];
+///
+/// **Re-picked 2026-08-23, by the owner, off a blind A/B** — the card
+/// *"Fire colour: straw or orange?"*, which put the old pair against this
+/// one on an identical grassfire with the panes reversed. The old
+/// `FIRE_TINT_HIGH` was a pale yellow-white, and because *everything* that
+/// burns saturates `HEAT_GLOW_RANGE` (it tops out 400C above ambient;
+/// grass burns at 520C, a flame at 780C), every fire in the world drew at
+/// that one colour. Over green grass it came out as **straw**, which is
+/// most of what the standing grassfire verdict — *"Just looks like you are
+/// cycling colors"* — was actually describing.
+///
+/// **Widening the ramp instead was tried first and is the wrong
+/// direction** (`Reports/dead-ends.md`, rendering): at a lower heat ratio
+/// the tint sits near `FIRE_TINT_LOW` and is *blended over the fuel's own
+/// colour*, so a grassfire came out murky olive. The fix had to be the
+/// colour at the top of the ramp, because that is where everything sits.
+///
+/// **This pair is not fire's alone**, which is why it went to the owner
+/// rather than being changed in passing: the same two constants colour
+/// lava, fresh quench crust, and warm water. See
+/// `Reports/grassfire-and-the-desert-2026-08-23.md` §6 for what each of
+/// those three looks like on both pairs.
+const FIRE_TINT_LOW: [f32; 3] = [150.0, 30.0, 12.0];
+const FIRE_TINT_HIGH: [f32; 3] = [255.0, 138.0, 36.0];
 /// Frames per flicker step for an actively burning cell — a real flame's
 /// visible flicker rate is on the order of 10-15Hz, not a 60fps repaint, so
 /// re-rolling every single frame would read as noise, not fire. `jitter3`
@@ -912,6 +934,23 @@ pub enum OrganismOverlay {
     /// a sheet that read as blank because the ramp was red and the material
     /// brown.
     FoodValue,
+    /// **The heritable gut**, `-1` (plant matter) through `+1` (flesh),
+    /// over every cell of every creature.
+    ///
+    /// **Built before anything reads the trait for a decision**, the same
+    /// house law `FoodValue` above was built under: `gut_bias` is a
+    /// per-organism scalar that decides what an animal can even see as
+    /// food, and a channel that decides behaviour and cannot be looked at
+    /// is a channel whose failures all look identical. The palette lerp
+    /// that ships beside it is *not* this readout — two pixels cannot
+    /// carry a quantity (the corpse-shade ramp spans 84..104 in red and
+    /// the owner judged a widened version "pretty minor"), so the colour
+    /// says "not all the same" and this says how much.
+    ///
+    /// Signed, so the ramp floor is a *herbivore* and not a missing value;
+    /// a cell that is not part of a creature returns `base` untouched, so
+    /// the two are still told apart by whether the cell is painted at all.
+    GutBias,
 }
 
 impl OrganismOverlay {
@@ -923,7 +962,8 @@ impl OrganismOverlay {
             OrganismOverlay::CanopyDensity => OrganismOverlay::VeinConductance,
             OrganismOverlay::VeinConductance => OrganismOverlay::SoilMoisture,
             OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
-            OrganismOverlay::FoodValue => OrganismOverlay::Off,
+            OrganismOverlay::FoodValue => OrganismOverlay::GutBias,
+            OrganismOverlay::GutBias => OrganismOverlay::Off,
         }
     }
 
@@ -936,6 +976,7 @@ impl OrganismOverlay {
             OrganismOverlay::VeinConductance => "VEIN CONDUCTANCE",
             OrganismOverlay::SoilMoisture => "SOIL MOISTURE",
             OrganismOverlay::FoodValue => "FOOD VALUE",
+            OrganismOverlay::GutBias => "GUT BIAS",
         }
     }
 }
@@ -989,6 +1030,80 @@ const SCALAR_RAMP_VEIN: [f32; 3] = [255.0, 210.0, 90.0];
 /// moss and leaf, which are already green, and against corpse, which is
 /// already dull red.
 const SCALAR_RAMP_FOOD: [f32; 3] = [120.0, 255.0, 240.0];
+/// **The two halves of the signed gut ramp**, plant end and flesh end —
+/// the same shape as the temperature pair above and for the same reason,
+/// which this channel learned the hard way.
+///
+/// It shipped first as *one* ramp with `(bias + 1) / 2` mapped onto it, on
+/// the reasoning that "the floor is a herbivore, not a missing value". The
+/// shipped ant is authored at exactly `-1.0`, so the entire colony landed
+/// on `t == 0` — `SCALAR_RAMP_FLOOR`, 18% brightness — and rendered as
+/// dark specks against dark soil. The overlay built to prove the mechanism
+/// fires showed a world in which nothing had. That is `CLAUDE.md`'s
+/// ramp-floor misreading arriving one step earlier than usual: not an
+/// overlay misread as blank, an overlay that genuinely *was*.
+///
+/// Signed instead, so **both ends of the axis are bright and only a
+/// generalist is dim** — which is the honest picture, because a gut at
+/// zero is the one that has committed to nothing. Green for plant matter,
+/// red for flesh, matching the palette lerp below so the overlay and the
+/// creature's own colour cannot tell different stories.
+/// **And the midpoint has to be bright too**, which is the second time this
+/// channel has learned the same lesson from the opposite side. The signed
+/// version above fixed a `-1.0` ant rendering at the ramp floor; the owner
+/// then put the ant back at `0.0`, and `|bias| = 0` walked it straight into
+/// the floor again. A magnitude ramp makes *specialists* bright and
+/// *generalists* dim, and the only animal that ships is a generalist.
+///
+/// So it is a true **diverging** ramp: a visible neutral at the middle,
+/// green and red at the ends, and `|bias|` chooses how far from neutral
+/// rather than how bright. Every creature is now legible whatever its gut,
+/// which is the property a readout for "where are the animals and what do
+/// they eat" actually needs — the alternative is a channel that can only
+/// see the animals nobody has built yet.
+const SCALAR_RAMP_GUT_NEUTRAL: [f32; 3] = [225.0, 225.0, 215.0];
+const SCALAR_RAMP_GUT_PLANT: [f32; 3] = [110.0, 245.0, 90.0];
+const SCALAR_RAMP_GUT_FLESH: [f32; 3] = [255.0, 90.0, 70.0];
+
+/// **What a specialised gut looks like from across the world**, herbivore
+/// and carnivore ends of `OrganismState::traits[TRAIT_GUT_BIAS]`.
+///
+/// Green and red rather than two browns, and pulled 45% of the way rather
+/// than a few bytes, **because the subtle version has already been tried
+/// and judged**: the corpse-worth ramp moves red from 84 to 104 over the
+/// whole range, the owner's verdict on widening it was "pretty minor", and
+/// the canopy-density sheet that shifted one colour byte by 16 read as
+/// blank. Two pixels cannot carry a *quantity* -- that is
+/// `OrganismOverlay::GutBias`'s job -- but they can carry an *identity*,
+/// and telling two ancestors apart on sight is the whole visible payload of
+/// S5 shipping before reproduction does.
+///
+/// The lerp is signed and anchored at zero, so a **neutral gut is drawn
+/// exactly as it always was**: the shipped ant does not change colour, and
+/// only an animal that has actually specialised is tinted. That keeps this
+/// from being a repaint of existing content.
+///
+/// **The hue pair is provisional, and the owner has already judged it
+/// once against.** Review card `20260823T104342401Z-25ec88` posted a blind
+/// A/B of an untinted colony against this tint at full strength on a
+/// `-1.0` ant; the verdict was **A, untinted**. The reason is recorded in
+/// `assets/materials/ant.ron` and was in the card: an ant is one or two
+/// cells at play zoom, the readable signal at that size is *contrast
+/// against the ground rather than hue*, and green ants sink into a world
+/// whose dominant colour is already green.
+///
+/// Nothing ships tinted today — the ant is authored neutral, so `t` is 0
+/// and the colony draws exactly as the owner chose. What is unresolved is
+/// what a *specialised* ancestor should look like, and that animal is
+/// gated on the E5 card. When it ships, the thing to try is a
+/// **brightness** axis rather than a hue axis (brightness being the one
+/// channel that reads at 1–2 px), posted as its own blind A/B rather than
+/// argued. Do not simply turn this up.
+const GUT_TINT_PLANT: [f32; 3] = [90.0, 200.0, 90.0];
+const GUT_TINT_FLESH: [f32; 3] = [210.0, 70.0, 70.0];
+/// How far toward the tint a fully specialised gut is pulled. See above:
+/// judged too strong at this value on a fully specialised ant.
+const GUT_TINT_STRENGTH: f32 = 0.45;
 
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
@@ -2177,7 +2292,7 @@ impl Renderer {
         // precipitation below, so the two cannot disagree about what the
         // sky is doing -- a downpour drawn against a clear blue gradient
         // being the obvious way that goes wrong.
-        let weather = crate::sim::weather::at(world.seed, world.frame);
+        let weather = world.weather();
         // **The drawn storm and the landing storm have to be the same
         // storm.** Falling precipitation is drawn straight from
         // `weather::at` and is never simulated -- `weather::step` puts water
@@ -2192,7 +2307,7 @@ impl Renderer {
         // Both the gradient and the ambient tint come from the same frame, so
         // a pin moves them together -- half-pinning would light the ground at
         // noon under a midnight sky.
-        let lit_at = self.pinned_light.unwrap_or(world.frame);
+        let lit_at = self.pinned_light.unwrap_or(world.sky_frame());
         self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(lit_at);
@@ -2328,8 +2443,8 @@ impl Renderer {
             // A strike lifts every pixel in the frame, so the frame after one
             // has to be repainted or the flash sticks around as a permanently
             // brightened world.
-            || crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some()
-            || crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some()
+            || world.lightning_at(world.frame).is_some()
+            || world.lightning_at(world.frame.wrapping_sub(1)).is_some()
             || !particles.is_empty();
 
         // Where the gnome is on screen this frame. Tracked through *both*
@@ -2444,7 +2559,7 @@ impl Renderer {
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
         self.draw_precipitation(weather, storm_supply, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
-        if let Some(s) = crate::sim::weather::strike(world.seed, world.frame, world.bounds()) {
+        if let Some(s) = world.lightning_at(world.frame) {
             self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
         }
         self.draw_particles(world, particles, frame, width, height);
@@ -3559,6 +3674,24 @@ impl Renderer {
         // Modulo keeps any shade value valid, so a palette can shrink on hot
         // reload in M3 without invalidating cells already in the world.
         let mut base = palette[cell.shade as usize % palette.len()];
+        // **A specialised gut wears its diet.** Gated in three widening
+        // steps so the cost lands only on the cells it is about: an
+        // `organism_id` bit test (every cell), a cell-type decode (organism
+        // cells only -- and it must come *after* the id test, because `aux`
+        // is a tagged union and a soil cell's water would decode as a
+        // nonsense cell type), and only then the organism lookup. A tree is
+        // thousands of cells and pays the two bit tests; the ~150 creature
+        // cells in a colony pay the lookup.
+        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+            if let Some(state) = world.organism(cell.organism_id()) {
+                let bias = state.traits[organism::TRAIT_GUT_BIAS].clamp(-1.0, 1.0);
+                let tint = if bias < 0.0 { GUT_TINT_PLANT } else { GUT_TINT_FLESH };
+                let t = bias.abs() * GUT_TINT_STRENGTH;
+                for (c, target) in base.iter_mut().take(3).zip(tint) {
+                    *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
         // Fractured rock draws dark along the break. Cracks are edge state
         // (`FLAG_CRACK_RIGHT`), and at 1:1 an edge has no pixels of its own
         // to draw into -- so the *cell* owning the crack is darkened
@@ -4036,6 +4169,38 @@ impl Renderer {
             }
             return out;
         }
+        if self.organism_overlay == OrganismOverlay::GutBias {
+            // Asks the *organism*, not the cell: `gut_bias` is a property of
+            // the animal, and every cell of a chain carries the same one.
+            // A plant organism has the neutral vector and would paint at
+            // mid-ramp, which would read as "this tree has a gut" -- so the
+            // creature test is `chain`, the field only a creature fills.
+            let Some(state) = world.organism(cell.organism_id()) else {
+                return base;
+            };
+            if state.chain.is_empty() {
+                return base;
+            }
+            // **Diverging from a visible neutral** -- see
+            // `SCALAR_RAMP_GUT_NEUTRAL`. `|bias|` is how far from the middle
+            // to travel, not how bright to be, so a generalist reads as pale
+            // and a specialist as green or red. Nothing lands on the ramp
+            // floor, because there is no ramp floor on this channel.
+            let bias = state.traits[organism::TRAIT_GUT_BIAS];
+            let end = if bias >= 0.0 { SCALAR_RAMP_GUT_FLESH } else { SCALAR_RAMP_GUT_PLANT };
+            let t = bias.abs().clamp(0.0, 1.0);
+            let ramp = [
+                SCALAR_RAMP_GUT_NEUTRAL[0] + (end[0] - SCALAR_RAMP_GUT_NEUTRAL[0]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[1] + (end[1] - SCALAR_RAMP_GUT_NEUTRAL[1]) * t,
+                SCALAR_RAMP_GUT_NEUTRAL[2] + (end[2] - SCALAR_RAMP_GUT_NEUTRAL[2]) * t,
+            ];
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(ramp) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
+
         if cell.organism_id() == 0 {
             return base;
         }
@@ -4047,7 +4212,7 @@ impl Renderer {
             // about every cell in the world -- a fallen leaf and a corpse
             // are food and belong to no organism, which is exactly the case
             // the tissue guard below would drop.
-            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue => return base,
+            OrganismOverlay::Off | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
@@ -6715,7 +6880,7 @@ mod tests {
         let species = world.species.id_of("tree").expect("tree is compiled in");
         // Find an organism whose hash puts it in front of him.
         let organism = (0..64)
-            .map(|_| world.push_organism(species))
+            .map(|_| world.push_organism(species).expect("an organism slot is free"))
             .find(|&id| TreeDepth::Weave.in_front(id as u32))
             .expect("some organism id hashes to the front");
         for y in 20..50 {

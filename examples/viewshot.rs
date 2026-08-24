@@ -380,7 +380,7 @@ fn main() {
             .filter(|&f| noonish(f))
             .filter(|&f| weather::at(world.seed, end(f)).is_precipitating() == want_wet)
             .filter(|&f| want_kind.is_none_or(|k| weather::at(world.seed, end(f)).kind == k))
-            .filter(|&f| a.rain != "bolt" || weather::strike(world.seed, end(f), world.bounds()).is_some_and(|s| s.age <= 2))
+            .filter(|&f| a.rain != "bolt" || world.lightning_at(end(f)).is_some_and(|s| s.age <= 2))
             .max_by(|&x, &y| {
                 let (a, b) = (weather::at(world.seed, end(x)).intensity, weather::at(world.seed, end(y)).intensity);
                 if want_wet { a.total_cmp(&b) } else { b.total_cmp(&a) }
@@ -840,7 +840,7 @@ fn main() {
         // Aimed at the strike when there is one: a bolt lands anywhere in a
         // world sixteen screens wide, so a shot framed anywhere else is a
         // render of a flash with the interesting part outside it.
-        let aimed = pixel_physics::sim::weather::strike(world.seed, world.frame, world.bounds()).map(|s| s.x);
+        let aimed = world.lightning_at(world.frame).map(|s| s.x);
         let x = match (a.vault || a.boulder, a.mine, aimed) {
             _ if a.aim.is_some() => a.aim.expect("checked"),
             (true, _, _) => vault_at

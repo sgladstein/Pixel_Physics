@@ -1,11 +1,13 @@
 # Ants
 
-*Current as of: 2026-08-23, when the leaf-litter work (S4) merged. The colony
-forages, digs, builds and carries food home; food is worth what it is rather
-than a flat rate to whatever eats it, and a wood now drops food onto its own
-floor — where it rots back into the ground instead of piling up forever. The
-colony is still not good at finding food far away, and now has less reason to
-try: see "What is not finished" at the bottom.*
+*Current as of: 2026-08-23, when ants learned to climb over each other. The
+colony forages, digs, builds and carries food home; food is worth what it is
+rather than a flat rate to whatever eats it, and a wood now drops food onto its
+own floor — where it rots back into the ground instead of piling up forever.
+Ants now range a good deal further than they used to, because a nestmate is
+something to walk over rather than a wall to wait behind. They are still not
+especially good at finding food far away, and a well-fed floor gives them less
+reason to try: see "What is not finished" at the bottom.*
 
 An ant is a small dark creature, one or two cells long, that walks on
 surfaces. Ants come in colonies: fifty of them looks like a colony, five
@@ -48,7 +50,8 @@ Whether they can *reach* the leaves is a different question, and it used to
 be the thing a colony lived or died on: leaves grow in the canopy and ants
 walk on the ground. What they could reach was **moss**, which grows on damp
 stone at exactly ant height and spreads on its own, so a wet map fed a
-colony and a dry one did not.
+colony and a dry one did not. On dry ground moss sits where it is and never
+spreads, and a colony there lives much closer to the edge.
 
 **Now the canopy drops its own food.** A leaf a tree gives up on — because
 it has been shaded out by the branches above it, which is the ordinary fate
@@ -59,12 +62,14 @@ drifted against trunks and deeper in hollows, and that is where a colony
 under trees now does most of its foraging. Measured against the same colony
 with the same trees and no litter, ants get about a third more food home.
 
-One thing to know, because it is visible over a long game: litter does not
-yet rot away. Real leaf litter breaks down into the soil beneath it, and the
-machinery for that exists — burnt ash already turns back into soil the same
-way — but it does not reach litter properly yet, so a very old forest will
-sit under a deeper mat than it should. On dry ground moss sits where it is and never spreads, and a
-colony there lives much closer to the edge.
+One thing to know, because it is what makes the floor a food *supply* rather
+than a growing pile: litter **rots back into the soil beneath it**, the same
+way burnt ash does, and faster where the ground is damp than where it is dry.
+So a standing wood settles at a floor of roughly constant depth instead of
+burying itself, and an old forest does not sit under a mat any deeper than a
+young one. For a colony this cuts both ways — the floor is refilled from
+above, so it does not run out; but a drift left alone long enough goes back
+into the ground, so a colony that ignores a patch loses it.
 
 **They dig.** Ants chew through soil and stop at anything harder. This is
 not a list of what ants may dig; it is a contest between how hard the ant
@@ -93,6 +98,13 @@ killed with energy still in the bank is better eating than one that starved,
 and a bigger animal is worth more than a smaller one. A body burnt to a
 cinder is worth the least of all, because nothing was left to record what it
 had been.
+
+That worth now survives being **thrown**, which it did not before. A body
+caught in an explosion and flung across the map lands still worth what the
+animal was made of, instead of arriving as anonymous meat — so a blast that
+scatters a colony's dead leaves the same dinner, in a different place. It
+does not survive being *destroyed*: a body inside the heart of a blast is
+gone, and what the blast throws clear is what is left to eat.
 
 You can see a little of this — corpses are shaded by what they are worth,
 dark for a starved one and pale for a fresh kill, and a body burnt to a
@@ -128,14 +140,23 @@ and stops and turns on the spot when it is not. Watch one long enough and
 you will see it wander, catch the scent, and then travel in a fairly
 straight line back.
 
-What a colony is still bad at is **finding food in the first place**. Ants
-do not range far from home, so a food pile well away from the nest may
-simply never be discovered. Put food within reach of the colony and the
-whole loop runs; put it across the map and they will not find it.
+What a colony is still not especially good at is **finding food in the first
+place**. A pile a long way off may take a while to be discovered, and one
+right across the map may never be. Put food within reach of the colony and
+the whole loop runs.
 
-One thing worth knowing: ants cannot walk through each other, and cannot
-stand on each other either. A colony packed shoulder to shoulder jams
-solid — which is why **Y** spaces them out.
+They are better at it than they were, though, and the reason is worth
+knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —
+two ants still cannot swap places — but a nestmate is something to stand on,
+the same as a rock. Before that, a crowd was its own wall: a colony packed
+shoulder to shoulder jammed solid, which is why **Y** still spaces them out,
+and spacing them out is still most of what keeps a colony moving. Climbing is
+what lets the ones at the back get past the ones at the front instead of
+queueing.
+
+The visible cost is that ants fall more. An ant standing on a nestmate that
+walks away has further to drop. They pick themselves up and carry on, and
+nothing dies of it.
 
 Digging, building, eating, burning and trail-laying all work as described.
 Colonies do not yet have queens, eggs or new ants — the ants you place are

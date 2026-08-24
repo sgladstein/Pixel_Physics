@@ -334,7 +334,7 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
             // real source"; it was the half that never landed.
     let organism_id = world.get(x, y).organism_id();
     let (stock, _) = world.water_at(x, y);
-    let capacity = world.organism(organism_id).map_or(0.0, |st| water_capacity_of(st.root_cells));
+    let capacity = world.organism(organism_id).map_or(0.0, |st| water_capacity_of(st.contact_root_cells));
     let mut water = stock;
             // `Reports/tree-rewrite-design.md` §5: only the passive,
             // stationary drink-in-place mechanic -- the second
@@ -350,10 +350,49 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                 let (nx, ny) = (x + dx, y + dy);
                 let n = world.get(nx, ny);
                 match world.materials.kind(n.material) {
+                    // **A drink takes what it drinks and leaves the rest —
+                    // `Reports/open-bugs-handoff.md` §F3.**
+                    //
+                    // This arm used to write `Cell::EMPTY` and credit at
+                    // most `rate`, so a full water cell (1,000 fill) was
+                    // deleted to pay for 1.5 units of plant water: about
+                    // 96% of it destroyed, silently, because nothing tallies
+                    // held water. It was tuned on branches where ponds never
+                    // evaporated; main added evaporation drawing down the
+                    // same ponds.
+                    //
+                    // The exchange rate is not a new constant. The Powder
+                    // arm below already prices a drink — `rate` of plant
+                    // water costs `SOIL_UPTAKE_PER_TICK` of the cell's
+                    // 0..1,000 store — and a `Liquid`'s fill is on that same
+                    // scale (`material::LIQUID_FULL` and `SOIL_SATURATED`
+                    // are both 1,000). Reusing it makes the two arms one
+                    // currency instead of two, which is the property that
+                    // was actually missing.
+                    //
+                    // **Income is unchanged**, and that is the point: the
+                    // plant still gains at most `rate` per tick per wet
+                    // neighbour, exactly as before. What changes is how fast
+                    // the *pond* goes down — 17 drinks to empty a full cell
+                    // rather than one — so this is a conservation fix, not
+                    // an economy change.
+                    //
+                    // `aux == 0` on a `Liquid` means FULL, so a drained cell
+                    // must be written as `Cell::EMPTY` and never as
+                    // `with_aux(0)` (`material::LIQUID_FULL`'s own doc).
                     MaterialKind::Liquid => {
-                        world.set(nx, ny, Cell::EMPTY);
-                        water = (water + rate).min(capacity);
-                        world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                        let want = rate.min(capacity - water);
+                        if want > 0.0 {
+                            let fill = update::liquid_fill(n);
+                            let asked = (want / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                            let taken = asked.min(fill);
+                            if taken > 0 {
+                                water += taken as f32 / SOIL_UPTAKE_PER_TICK as f32 * rate;
+                                let left = fill - taken;
+                                world.set(nx, ny, if left == 0 { Cell::EMPTY } else { n.with_aux(left) });
+                                world.deplete_moisture(nx, ny, 1, ROOT_MOISTURE_DEPLETION);
+                            }
+                        }
                     }
                     // **Drink from damp soil** -- Decision 3's §4d path
                     // 2, and the fix for a gap `PLAN.md` recorded and
@@ -469,20 +508,38 @@ fn wood_density_mult(world: &World, organism_id: u16) -> f32 {
     world.organism(organism_id).map_or(1.0, |s| organism::wood_density(&s.alleles))
 }
 
-/// How much water a plant can hold, **proportional to its root mass**.
+/// How much water a plant can hold, **proportional to the root cells that
+/// touch soil** — its uptake surface, not its root mass.
 ///
 /// This is the whole reason root depth and spread buy anything: the stock
 /// is what carries a plant through a dry spell, and only roots make it
 /// bigger. A shallow-rooted individual runs on whatever it drew this tick;
-/// a deep-rooted one has a buffer. It is also the quantity anchorage will
-/// read when "weak roots topple" lands, which is the coupling that makes
-/// root mass one number with two consequences.
+/// a deep-rooted one has a buffer.
+///
+/// **It used to read root *mass*, and that is the leak the owner named.** A
+/// root cell walled in by its own siblings shares no face with soil, so it
+/// can absorb nothing — `absorb_water` finds no wet neighbour and credits
+/// it nothing, which was already true — and yet it was still buying the
+/// plant a full cell of storage. Interior root tissue was earning for free.
+/// It now costs (`MAINTENANCE_PER_CELL`) and earns nothing, which is the
+/// directive in two lines of code.
+///
+/// **What this is not.** `Reports/root-blob-and-uptake-surface-2026-08-23.md`
+/// measured the interior at a *flat* third of the root system across a
+/// four-fold change in mass, so this is a ~33% tax on roots and not a brake
+/// on them; anything that bounds root mass has to be scale-dependent and is
+/// not this. What it does buy is that the 51%–79% per-plant contact spread
+/// that already existed, unpriced and therefore unselectable, now has a
+/// fitness consequence — without forcing any shape.
+///
+/// Anchorage (`OrganismState::anchor_status`) is the second consequence,
+/// which is what makes root mass one quantity with two of them.
 ///
 /// A floor of one root cell's worth so a seedling that has just germinated,
 /// with no root system at all yet, still has somewhere to put its first
 /// drink.
-fn water_capacity_of(root_cells: u32) -> f32 {
-    organism::WATER_SCALE * root_cells.max(1) as f32
+fn water_capacity_of(contact_root_cells: u32) -> f32 {
+    organism::WATER_SCALE * contact_root_cells.max(1) as f32
 }
 
 /// Settle one organism's water balance for this tick — the arithmetic
@@ -523,7 +580,11 @@ fn settle_water(stock: f32, capacity: f32, demand: f32, reserve: f32) -> (f32, f
 /// Add to the organism's water stock, bounded by `water_capacity_of`.
 fn credit_water(world: &mut World, organism_id: u16, amount: f32) {
     if let Some(state) = world.organism_mut(organism_id) {
-        let cap = water_capacity_of(state.root_cells);
+        // The same surface `organism_upkeep` settles against — a root
+        // cell walled in by its own siblings buys no storage, so the two
+        // must read the same count or the stock would be capped by one
+        // number and spent against another.
+        let cap = water_capacity_of(state.contact_root_cells);
         let before = state.water;
         state.water = (state.water + amount).min(cap);
         state.water_uptake_acc += state.water - before;
@@ -739,6 +800,30 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 /// population runs long enough to measure allele spread per generation.
 const MUTATION_SIGMA: f32 = 0.08;
 
+/// **How many genome slots `set_seed` mutates before it rolls the discrete
+/// loci** — the frozen prefix of the inherited-mutation draw order.
+///
+/// Deliberately a literal and deliberately *not* `organism::GENOTYPE_TRAITS`,
+/// which is the whole point of it existing. `set_seed` takes one draw from a
+/// shared `Rng` per slot, so the number of slots is part of the random
+/// sequence: had this tracked the constant, appending slot 9 would have
+/// inserted a draw ahead of the allele rolls and quietly re-bred every
+/// individual in every study taken before it. Pinning the prefix at the
+/// width the record was measured at costs one `take`/`skip` pair and keeps
+/// bred genomes bit-identical across the widening.
+///
+/// Raise it only alongside a deliberate re-baseline of the breeding record.
+const SEQUENCED_TRAITS: usize = 9;
+
+/// Salt for the appended slots' mutation substream in `set_seed`, so it
+/// cannot collide with `seed_genotype`'s founding draws.
+///
+/// Those are keyed `rng::stream(world_seed, x, y, slot)`. A run has one
+/// world seed, so XOR-ing a fixed salt into the first argument puts the
+/// mutation jitter on streams no founding draw can ever reach, whatever
+/// the coordinates.
+const APPENDED_JITTER_SALT: u64 = 0x5361_6C74_4A69_7472;
+
 /// Set one seed from `(x, y)`, carrying this parent's genome forward.
 ///
 /// **This is the heredity channel, and until now there was none.** Every
@@ -763,6 +848,8 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
     let Some(seed_material) = world.materials.id_of("seed") else {
         return false;
     };
+    // Read before the `organism_mut` borrow below, which holds `world`.
+    let world_seed = world.seed;
     // Somewhere open beside the parent cell. Deliberately *any* free
     // neighbour rather than a chosen direction: a seed is a falling powder,
     // so where it ends up is the world's business, not the plant's.
@@ -776,7 +863,13 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         (sp.foliage_bands.first, sp.foliage_bands.count, sp.bark_bands)
     };
 
-    let child = world.push_organism(species);
+    // **A seed that cannot get a slot is not set**, and the refusal is
+    // counted in `World::organisms_refused`. Before the parent pays: the
+    // caller debits `seed_cost` only on a `true` return, so refusing here
+    // costs the plant nothing and leaves nothing half-written.
+    let Some(child) = world.push_organism(species) else {
+        return false;
+    };
     let shades = world.materials.get(seed_material).palette.len().max(1) as u32;
     let shade = rng.below(shades) as u8;
     if let Some(state) = world.organism_mut(child) {
@@ -784,7 +877,25 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         // dial: two offspring of one parent can differ on branching and
         // agree on height, which is what lets a population explore corners
         // of the trait space rather than sliding along one diagonal.
-        for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()) {
+        //
+        // **Only the slots that existed when this sequence was measured,
+        // and the rest after the loci below.** This is the one place
+        // widening `GENOTYPE_TRAITS` is not free. Every other consumer of
+        // a genome indexes a slot; this one *consumes* a draw per slot
+        // from a shared `Rng`, so a tenth slot spliced into the middle of
+        // the sequence shifts the allele rolls that follow it and every
+        // bred individual in the engine becomes a different plant —
+        // silently, and in exactly the way appending a slot was chosen
+        // over re-purposing one to avoid.
+        //
+        // Splitting the loop is the cheap fix and the boundary is
+        // deliberately a stated constant rather than a bare literal: it
+        // is the width the record was taken at, it does not move when
+        // `GENOTYPE_TRAITS` does, and the next slot appended lands after
+        // the loci for the same reason this one did. The alternative —
+        // one substream per slot — would have given every *existing* slot
+        // a different jitter and broken the thing this protects.
+        for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()).take(SEQUENCED_TRAITS) {
             let jitter = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
             *dst = (*src + jitter).clamp(-1.0, 1.0);
         }
@@ -798,6 +909,50 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
                 let n = organism::LOCUS_ALLELES[locus].max(1);
                 *allele = rng.below(n as u32) as u8;
             }
+        }
+        // **The appended slots, from their own keyed substream rather
+        // than the shared `Rng`** -- and the substream is the whole
+        // point, not an implementation detail.
+        //
+        // An earlier version of this drew them from `rng` too, just
+        // after the loci, on the reasoning that nothing reads `rng`
+        // afterwards. That reasoning was wrong in a way worth recording:
+        // `rng` is `&mut`, borrowed from the caller, and it **outlives
+        // this call**. Consuming one extra draw here leaves the caller's
+        // stream one position further along on return, so every draw it
+        // makes afterwards shifts. Whether that is observable depends on
+        // the *behavior order in the species file* -- `Reproduce`
+        // happens to be last among the `rng` users for the shipped
+        // species, which is exactly the kind of accident that holds
+        // until someone reorders a `.ron` and cannot see why a stand
+        // changed.
+        //
+        // Drawing from a substream keeps the shared stream's consumption
+        // count **identical to pre-widening**, unconditionally, so the
+        // caller's position on return does not depend on how many genome
+        // slots exist. Slots 0-8 and the loci above are untouched, and
+        // this is safe here where it would not be for them: they have a
+        // measured record keyed to their draw order, and slot 9 has
+        // never been drawn before, so it has nothing to preserve.
+        //
+        // Keyed off the world seed salted, so it cannot collide with
+        // `seed_genotype`'s `(world_seed, x, y, slot)` streams within a
+        // run; and off the parent's `(generation, slot)` packed
+        // together, so a lineage that keeps re-seeding the same cell
+        // still mutates rather than drawing one frozen jitter for ever.
+        // Position and generation both survive save/load and neither
+        // depends on iteration order, which is what determinism needs
+        // (`PLAN.md`, same-build).
+        // NB: the *parent's* `generation`, destructured at the top of
+        // this function -- deliberately not a fresh binding off `state`,
+        // which is the child and whose generation is not written until
+        // the end of this block. Shadowing it here set every child to
+        // generation 1 for ever and flattened lineage depth outright;
+        // the stand guard caught it, which is what it is for.
+        for (slot, (dst, src)) in state.genotype_draws.iter_mut().zip(draws.iter()).enumerate().skip(SEQUENCED_TRAITS) {
+            let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
+            let jitter = (jrng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
+            *dst = (*src + jitter).clamp(-1.0, 1.0);
         }
         // Both colours derive from the (possibly just-mutated) alleles.
         // Foliage has worked this way since the discrete-loci change;
@@ -889,7 +1044,7 @@ fn deposit_canopy(world: &mut World, x: i32, y: i32, density: f32) {
 /// old `MOSS_TICK_INTERVAL` — not yet a per-species value, since moss is
 /// the only caller; a second species needing a different cadence is the
 /// actual trigger to make this data instead of a constant.
-const ORGANISM_TICK_INTERVAL: u64 = 45;
+pub const ORGANISM_TICK_INTERVAL: u64 = 45;
 
 /// Upper bound on how many behaviors one cell type may carry, sized so the
 /// dispatch buffer above never allocates. Raise it if a species file needs
@@ -907,7 +1062,32 @@ const MAX_BEHAVIORS_PER_CELL_TYPE: usize = 8;
 /// is within a handful and `relocated_seed` can find it. A seed is also
 /// exactly one cell that exists only briefly, so the extra checks cost
 /// nothing worth measuring.
-const SEED_TICK_INTERVAL: u64 = 4;
+pub const SEED_TICK_INTERVAL: u64 = 4;
+
+/// Per-check probability that turns a **half-life in frames** into a roll
+/// this dispatch can make, for a mechanism checked every `interval` frames.
+///
+/// `1 - 0.5^(interval / half_life)` — so the outcome is a property of the
+/// half-life and not of how often the check happens. That independence is
+/// the reason this is a function rather than two authored chances: seed
+/// decay is polled every `SEED_TICK_INTERVAL` (4) frames and rot every
+/// `ORGANISM_TICK_INTERVAL` (45), an 11x difference, and a species file
+/// that authored raw per-check chances would silently mean two different
+/// things in the two places. It also survives either interval being
+/// retuned, which `SEED_TICK_INTERVAL`'s own doc says is a bookkeeping
+/// number rather than a biological one.
+///
+/// `0.0` half-life means "never", which is the pre-clock behaviour and the
+/// opt-out every species keeps.
+fn half_life_chance(half_life: f32, interval: u64) -> f32 {
+    // `<=` rather than `!(> 0.0)` so clippy is happy about partial order;
+    // a NaN half-life falls through to the `powf` below and yields NaN,
+    // which `Rng::chance` treats as never -- the same answer as 0.0.
+    if half_life <= 0.0 {
+        return 0.0;
+    }
+    1.0 - 0.5f32.powf(interval as f32 / half_life)
+}
 
 // `SEED_FALL_SEARCH` lived here and is gone with the search cone it
 // bounded -- `relocated_seed` reads the organism's own cell list now, which
@@ -1058,7 +1238,7 @@ fn is_damp(world: &World, x: i32, y: i32) -> bool {
 /// economy. `phototropism_dir` deliberately stays raw: it compares two
 /// readings, so the phase factor cancels.
 pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
-    super::field::noon_equivalent_light(world.field_at(x, y).light, world.frame)
+    super::field::noon_equivalent_light(world.field_at(x, y).light, world.sky_frame())
 }
 
 /// Lower ambient light reads as more shaded, which favours spreading —
@@ -1206,6 +1386,45 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // not redraw the same numbers; `(x, y)` so two cells of one organism
     // ticking on the same frame diverge.
     let mut rng = rng::stream(organism_id as u64, x as u64, y as u64, world.frame);
+    // Once per tick rather than once per `is_foliage` call -- see that
+    // function's own note.
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
+
+    // **Seed decay — the seed bank stops being immortal here.**
+    //
+    // Before this, a seed that never met its germination conditions sat on
+    // the ground and was rescheduled for ever: the not-ready branch of
+    // `Behavior::Germinate` sets `found_candidate`, so a waiting seed never
+    // even reaches the staleness limit. Measured on the eight-tree stand,
+    // that is **168 standing `OrganismState`s at 60,000 frames and still
+    // climbing** -- 160 of them seeds, against 50 standing at 28,800, so
+    // the curve was steepening -- every one a slot off a budget of 4,095
+    // (`Reports/roots-and-breakage-handoff.md` item 7, `Reports/open-bugs-
+    // handoff.md` §F4).
+    //
+    // Rolled **before** the behaviour loop and on every seed tick, not only
+    // on the deferred ones. A seed decaying in the same tick it could have
+    // germinated is correct — viability is a race against the conditions,
+    // and making germination win by construction would put a floor under
+    // the bank that the half-life is supposed to set.
+    //
+    // **It becomes litter, not nothing.** A seed is one cell of real
+    // material; deleting it would be the silent-disappearance failure this
+    // file's ethos section rules out, and the mass belongs back in the
+    // ground where `decay` can rot it into soil.
+    if cell_type == CellType::Seed {
+        let half_life = world.species.get(species_id).seed_half_life;
+        if rng.chance(half_life_chance(half_life, SEED_TICK_INTERVAL)) {
+            shed_to_litter(world, x, y);
+            // No reschedule: the organism now owns no cells, and
+            // `step_organisms`' existing empty-cell-list check returns its
+            // slot within one organism tick. Nothing new has to decide the
+            // organism is dead -- losing its last cell is what does it, and
+            // that is the one liveness rule that cannot orphan a standing
+            // cell.
+            return Vec::new();
+        }
+    }
 
     let mut next = Vec::new();
     let mut found_candidate = false;
@@ -1262,7 +1481,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     write_path_len(world, tx, ty, own_path);
                     resource -= cost;
                     write_carbon(world, x, y, resource);
-                    next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                    next.push(reschedule_organism(tx, ty, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
                 }
             }
             // `Reports/tree-rewrite-design.md` §0/§2/§3: direction-biased,
@@ -1941,7 +2160,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 if prime_due {
                     write_primed(world, x, y, true);
                 }
-                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.frame + ORGANISM_TICK_INTERVAL));
+                next.push(reschedule_organism(tx, ty, organism_id, 0, lineage_step, world.organism_due(ORGANISM_TICK_INTERVAL)));
 
                 // §3's branching: a second successful `Grow`, in a
                 // different direction, this same tick -- gated by the
@@ -2129,7 +2348,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             resource -= branch_step_cost;
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
-                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
 
                             // **A sympodial tier forks instead of
                             // decorating: the fork replaces the axis.** The
@@ -2277,7 +2496,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             write_order(world, cx, cy, order);
                             write_path_len(world, cx, cy, own_path);
                             deposit_canopy(world, cx, cy, GROW_CANOPY_DEPOSIT);
-                            next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+                            next.push(reschedule_organism(cx, cy, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
                         }
                     }
                 }
@@ -2290,10 +2509,52 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // arm's own child-creation code.
                 cell_type = self_type_after_grow;
             }
-            // Abscission runs from the upkeep pass, which visits every
-            // leaf; a live tip photosynthesises but is not foliage to shed.
-            Behavior::Photosynthesize { rate, shade_death: _, transpiration, drought_death: _ } => {
+            // **Abscission runs here too, and only for a species whose
+            // shoot *is* its foliage.**
+            //
+            // It used to run solely in the upkeep pass, on the reasoning in
+            // the line this replaces: "a live tip photosynthesises but is
+            // not foliage to shed". True of a tree, whose tips make leaves
+            // and whose leaves are what die. False of grass, where the
+            // blade is the tip, and the upkeep pass never even reaches it
+            // -- upkeep `continue`s on every frontier cell, so a grass
+            // `GrowingTip` was unreachable by *both* rules at once.
+            //
+            // `is_foliage` is what keeps this from changing any woody
+            // species: for anything with a `Leaf` stage it is false on a
+            // `GrowingTip` by construction, so this arm is inert on `tree`,
+            // `conifer`, `shrub` and `creeper` exactly as before.
+            Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
                 let light = ambient_light_above(world, x, y);
+                if is_foliage(world, x, y, cell_type, species_id, has_leaf_stage) {
+                    // Cubed, and checked before the credit, for the same two
+                    // reasons the upkeep arm gives: a graded pressure rather
+                    // than a threshold, and a cell being shed does not also
+                    // earn on the tick it dies.
+                    let mut shed = false;
+                    if shade_death > 0.0 {
+                        let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
+                        shed = rng.chance(shade_death * darkness * darkness * darkness);
+                    }
+                    if !shed && drought_death > 0.0 {
+                        let thirst = world.desiccation_at(x, y).clamp(0.0, 1.0);
+                        shed = rng.chance(drought_death * thirst * thirst * thirst);
+                    }
+                    if shed {
+                        shed_to_litter(world, x, y);
+                        // No `shed_stranded_leaves`: that walk is over
+                        // *leaves*, and a species reaching this arm has
+                        // none. A shoot cell that loses its neighbour is a
+                        // structural question, and `anchor_support` already
+                        // owns it.
+                        //
+                        // Returning `next` rather than an empty vector keeps
+                        // any sites earlier behaviours on this same cell
+                        // already produced -- a `Grow` child created this
+                        // tick is a real cell and must stay scheduled.
+                        return next;
+                    }
+                }
                 // **Spend water, then earn carbon in proportion to what is
                 // left.** The order is the physical one: stomata open, water
                 // goes out, and carbon comes in only while they are open.
@@ -2437,7 +2698,19 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     // 45 frames after it lands. No longer a *correctness* requirement:
     // `relocated_seed` reads the cell list and finds a seed wherever it
     // went, however long it fell.
-    let interval = if cell_type == CellType::Seed { SEED_TICK_INTERVAL } else { ORGANISM_TICK_INTERVAL };
+    // **The seed cadence is deliberately *not* scaled by `growth_slowdown`,
+    // and the organism one is.** See this constant's own doc: 4 frames is not
+    // a statement about how fast a seed grows, it is bookkeeping against how
+    // fast a seed *falls* -- about a cell a frame, which is the physics rate
+    // and does not slow down when growth does. Scaling it was written and
+    // reverted: at `growth_slowdown: 8` a falling seed is 32 cells from where
+    // its `ActiveSite` says it is, which is the exact drift the 4 was chosen
+    // to avoid.
+    let due = if cell_type == CellType::Seed {
+        world.frame + SEED_TICK_INTERVAL
+    } else {
+        world.organism_due(ORGANISM_TICK_INTERVAL)
+    };
     // **A cell that is no longer a frontier leaves the schedule.** Its
     // upkeep runs from `step_organisms` over the organism's own cell list.
     // This is what makes the active-site heap track the number of *growing*
@@ -2453,9 +2726,9 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // roll succeeded) -- reset the staleness counter, mirroring
         // `moss_tick`'s old reasoning: staleness tracks "had somewhere to
         // try", not "successfully grew".
-        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + interval));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, due));
     } else if stale_ticks + 1 < ORGANISM_STALE_LIMIT {
-        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, world.frame + interval));
+        next.push(reschedule_organism(x, y, organism_id, stale_ticks + 1, plastochron, due));
     } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
         // `Reports/tree-rewrite-design.md` §4: the staleness-limit
         // transition to `MatureBody` made real, not just asserted -- an
@@ -2488,7 +2761,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
         // at the standard interval, so it doesn't just go permanently
         // silent the instant it transitions.
-        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y, organism_id, 0, plastochron, world.organism_due(ORGANISM_TICK_INTERVAL)));
     }
     // Otherwise (any other cell type, e.g. a permanently enclosed
     // `RootTip`): permanently enclosed -- stop checking, matching the old
@@ -2528,9 +2801,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 /// Organisms are staggered by id so they do not all fall due on one frame.
 pub fn step_organisms(world: &mut World) {
     for organism_id in world.live_organism_ids() {
+        // Which kind of organism this is, resolved *before* the cadence gate
+        // rather than after it -- see the long note below for what the
+        // distinction means, and this paragraph for why it has to be known
+        // this early.
+        //
+        // **A creature is gated on the creature knob, a plant on the growth
+        // knob**, because this one loop does two jobs: the plant economy
+        // inside the guard below, and organism-slot reclamation outside it,
+        // which is genuinely for every organism. Gating the whole loop on
+        // `growth_slowdown` -- as the first version did -- meant the *plant*
+        // knob throttled how fast a dead ant's slot came back. At
+        // `growth_slowdown: 30` a colony's slots would return every 1,350
+        // frames, which with a busy nest is a slot-exhaustion path opened by
+        // a knob that has nothing to do with creatures. Found by review, not
+        // by a test; there is no guard that would have shown it.
+        let is_creature =
+            world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         // Spread the load: each organism keeps the same cadence as the
         // active-site schedule, on its own offset.
-        if !(world.frame + organism_id as u64).is_multiple_of(ORGANISM_TICK_INTERVAL) {
+        //
+        // Scaled, exactly like the active-site reschedules -- for a plant
+        // this pass *is* the economy (photosynthesis, transport, upkeep,
+        // thickening), so running it on a different cadence from the growth
+        // rolls it funds would make a slowed tree a rich one rather than a
+        // slow one. See `sim::clock::Clock::growth_slowdown`, which is the
+        // whole argument for one knob per subsystem.
+        let interval = if is_creature {
+            world.clock.creature_interval(ORGANISM_TICK_INTERVAL)
+        } else {
+            world.clock.organism_interval(ORGANISM_TICK_INTERVAL)
+        };
+        if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
         }
         // **The plant passes are for plants.** Creatures share this
@@ -2560,7 +2862,6 @@ pub fn step_organisms(world: &mut World) {
         // `collar_y`/`shoot_cells`/`shoot_top_y` onto the creature's own
         // state. A `collar_y` guard would switch itself off on the second
         // tick and look like it was working.
-        let is_creature = world.organism(organism_id).is_some_and(|s| world.species.get(s.species).creature.is_some());
         if !is_creature {
             // Transport first, then upkeep. The order matters and is the same
             // order the two had before this pass existed: transport ran on the
@@ -2623,8 +2924,79 @@ pub fn step_organisms(world: &mut World) {
         // `push_organism` and the `World::set` that gives it its first
         // cell happen inside one call (`plant_tree_species`, `set_seed`),
         // and this pass only runs between frames.
+        //
+        // **The standing-dead case, which the paragraph above used to hand
+        // to somebody else.** It said the dead trunk was "left, deliberately
+        // and visibly, to whoever decides what a dead tree's wood should
+        // *be*", and until it was decided the empty-list rule could not
+        // reach it: a plant that loses every leaf keeps its stem, its roots
+        // and its slot for ever. Measured, that is what a mis-sited
+        // seedling does -- germinate in a crown, shed leaf by leaf on
+        // `drought_death` exactly as the deleted germination guard's
+        // replacement argument promised, and then stand there as a bare
+        // stem that nothing will ever clear.
+        //
+        // The decision taken here is the small one: dead plant tissue
+        // **rots**, at a species half-life, into the litter the decay pass
+        // already turns back into soil. It does not become powder, it does
+        // not fall, and it does not schedule a structural check -- all
+        // three are `structural.rs`/`rigid.rs` questions and belong to the
+        // felling work, which will want a *severed* piece to behave quite
+        // differently from a *starved* one.
+        //
+        // **Graded rather than all-at-once**, per this repo's ethos rule: a
+        // dead sapling thins away over a few thousand frames instead of
+        // blinking out on the tick its last leaf goes. The slot comes back
+        // through the same empty-cell-list rule as before -- this pass only
+        // makes the list actually reach empty.
+        //
+        // Guarded at the call site on a flag the upkeep walk already
+        // computed, so a live organism pays one `bool` test and no
+        // traversal.
+        //
+        // **Outside the creature guard, and harmless there**: nothing sets
+        // `senescent` on a creature, because only `organism_upkeep` writes
+        // it and that runs inside the guard. Placed here anyway so the flag
+        // and the reclamation it feeds stay one block.
+        if world.organism(organism_id).is_some_and(|s| s.senescent) {
+            rot_remains(world, organism_id);
+        }
         if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) {
             world.free_organism(organism_id);
+        }
+    }
+}
+
+/// Shed a dead organism's remaining cells to litter, one roll per cell per
+/// organism tick at the species' `remains_half_life`.
+///
+/// See the senescence block in `step_organisms` for why this exists and
+/// what it deliberately does *not* do. Two details worth keeping:
+///
+/// - **A per-cell roll, not a whole-body timer.** The plant comes apart in
+///   pieces of varying size over a spread of frames, which is the
+///   distribution the ethos section asks for, and it costs nothing extra:
+///   the roll is already per cell.
+/// - **Deterministic under both drivers.** The stream is keyed on
+///   `(organism, cell, frame)` exactly as `organism_tick`'s is, so the
+///   outcome does not depend on which chunk the sweep reached first.
+fn rot_remains(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    let chance = half_life_chance(world.species.get(state.species).remains_half_life, ORGANISM_TICK_INTERVAL);
+    if chance <= 0.0 {
+        return;
+    }
+    // Row-major, for the same determinism reason `relocated_seed` sorts:
+    // `cells` is a `HashMap` and `PLAN.md` requires same-build determinism.
+    let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+    cells.sort_unstable_by_key(|&(x, y)| (y, x));
+    for (x, y) in cells {
+        if world.get(x, y).organism_id() != organism_id {
+            continue; // burned, erased or overwritten since the list was taken
+        }
+        let mut rng = rng::stream(organism_id as u64, x as u64, y as u64, world.frame);
+        if rng.chance(chance) {
+            shed_to_litter(world, x, y);
         }
     }
 }
@@ -2702,6 +3074,262 @@ const INCOME_PER_NODE: f32 = 0.08;
 /// what makes them survive light-model and cluster-size changes.
 fn l_node(leaf_cluster: u8) -> f32 {
     crate::sim::field::MAX_LIGHT * leaf_cluster.max(1) as f32
+}
+
+/// **Maintenance respiration, per cell per organism tick, per node of
+/// foliage that cell carries** — the price of *standing there*, which this
+/// economy did not charge at all until now.
+///
+/// Denominated in the same `L_node` currency as `INCOME_PER_NODE`, so the
+/// two are directly comparable: income is `0.08` carbon per fully-lit node
+/// per tick, and this is what a cell carrying one node's worth of foliage
+/// pays back per tick. That makes the ratio readable without a conversion,
+/// which is exactly why `INCOME_PER_NODE` was re-denominated in the first
+/// place — and it means this constant survives changes to `MAX_LIGHT`,
+/// `leaf_cluster` and the light model the way its predecessor did not.
+///
+/// Derived, not chosen: see `MAINTENANCE_EXPONENT` for the shape and
+/// `Reports/plant-economy-rederivation-2026-08-23.md` for the sweep this
+/// value came off.
+const MAINTENANCE_PER_NODE: f32 = 2.0e-5;
+
+/// **The exponent, and it is the whole mechanism.**
+///
+/// `Reports/dead-ends.md` is explicit that *flat* per-cell maintenance
+/// respiration was tried and rejected: "cost linear in mass against income
+/// linear in leaf count balances at any size, so a flat upkeep bounds
+/// nothing (Takenaka's exponent is 1.5)", with the recorded re-test
+/// condition being "only with superlinear upkeep — cheapest is upkeep
+/// proportional to girth, which Phase 3 already computes". Phase 3 computes
+/// it: `OrganismCell::q_peak`, the monotone basipetal high-water mark of
+/// the foliage a cell carries, which is what `pipe_ratio` already turns
+/// into a stem width.
+///
+/// 1.5 is Takenaka's cited anchor and it is not arbitrary in the biology
+/// either: sapwood volume grows as crown cross-section times the height it
+/// has to be carried through, so the maintenance burden of supporting a
+/// crown of mass `M` goes as `M^{3/2}` rather than as `M`.
+///
+/// **Charged on `q_peak`, spent against `q_now`.** The peak is monotone by
+/// design — "a trunk does not get thinner in autumn" — so a branch that has
+/// *lost* foliage keeps paying for the width it once built while its income
+/// has gone. That asymmetry is crown recession, and it is also the ratchet
+/// that eventually kills an adult: every crown loss permanently raises the
+/// plant's bill-to-income ratio, so a tree that is shaded or droughted
+/// hard enough never gets back to where it was.
+const MAINTENANCE_EXPONENT: f32 = 1.5;
+
+/// **What any living cell costs to run, per organism tick** — the mass
+/// term of maintenance respiration, charged on root and shoot alike.
+///
+/// The owner's directive, card `20260823T163504317Z-3cef7b`: *"If the root
+/// cell isn't touching soil it cannot benefit the plant and has a cost."*
+/// This is the cost half; `OrganismState::contact_root_cells` is the
+/// benefit half, and the two together are the whole of it — a walled-in
+/// root cell pays this and earns nothing.
+///
+/// **Flat, and that is not the recorded dead end.** `dead-ends.md` rejects
+/// *flat respiration on its own*, because "cost linear in mass against
+/// income linear in leaf count balances at any size, so a flat upkeep
+/// bounds nothing". Nothing is being bounded by this term:
+/// `MAINTENANCE_PER_NODE` beside it does the bounding, and what this does
+/// is make tissue that carries nothing still cost something. Without it,
+/// abandoned wood and blob interiors — which have `q_peak ≈ 0` — would be
+/// free to keep standing for ever, and the die-back would have nothing to
+/// remove.
+///
+/// It is also why roots need no bespoke constant. A root cell costs what
+/// any cell costs; roots simply have no girth term, because
+/// `accumulate_support` gives almost every root cell `q ≈ 0` (the
+/// basipetal walk is seeded at every cell below the collar, so a root cell
+/// accumulates only its own leafless subtree) and a superlinear root arm
+/// would have priced the entire root system at nothing — live-looking code
+/// doing nothing, the shape `CLAUDE.md` files under "a change that moves
+/// *nothing* is different evidence from one that moves a little".
+const MAINTENANCE_PER_CELL: f32 = 1.5e-4;
+
+/// **Most of a plant that one tick of die-back may remove**, as a fraction
+/// of its cells.
+///
+/// A bound on *work and pace*, never a gate on whether die-back happens —
+/// `CLAUDE.md` is explicit that "any `if too_big { return }` is a claim
+/// that the largest cases deserve the least behaviour". The plant still
+/// sheds every tick it is short; this only stops a tree whose income has
+/// gone to zero from blinking out in one tick instead of thinning away
+/// over a few thousand frames, which is the graded outcome the ethos
+/// section asks for and the same pace `rot_remains` shows for a plant that
+/// is already dead.
+const MAX_DIEBACK_FRACTION: f32 = 0.02;
+
+/// **Floor on income at the darkest point of night.**
+///
+/// The owner's directive of 2026-08-17, unactioned until now: income runs
+/// at `NIGHT_INCOME_FLOOR + (1 - NIGHT_INCOME_FLOOR) x daylight_fraction`,
+/// and decisions stay noon-normalised. Not zero, because respiration and
+/// stored-carbon export do not stop at dusk and a hard zero would make
+/// every economic quantity a function of which side of the tick the plant's
+/// 45-frame offset landed on.
+///
+/// **Income only — never a decision.** `field::noon_equivalent_light`
+/// exists precisely because a threshold sampled at an arbitrary phase of a
+/// designed 20:1 oscillator is a different threshold every hour: the live
+/// tip count measured 71 at noon against 28 at night on the same stand.
+/// Every gate — the bud-break `supportable`, abscission, germination, `q` —
+/// keeps reading noon-equivalent light and is untouched here. What changes
+/// is only how much carbon actually arrives, which is what "night slows
+/// growth" means.
+const NIGHT_INCOME_FLOOR: f32 = 0.25;
+
+/// Overturning demand per shoot cell per row of lever arm — what
+/// `OrganismState::anchor_moment` is measured against to give
+/// `anchor_status`.
+///
+/// The only calibrated number in the anchorage term, and it is a *scale*
+/// rather than a physical constant: `anchor_moment` is a sum of cell
+/// distances and the demand is a mass times a lever arm, so one factor has
+/// to set where the two meet. Set from measurement so that today's median
+/// tree sits mid-range rather than pinned at either end — a term that reads
+/// 1.0 on every plant is a term nothing can select on, which is the failure
+/// `CLAUDE.md` records as a lever that fires and changes nothing.
+///
+/// **Not a third cost.** `physical-trees-design-2026-08-23.md` §11.4 is
+/// explicit: the costs on large roots and large trunks already exist (this
+/// package's root maintenance, and `pipe_ratio` tying width to the crown it
+/// serves), and adding a price for anchorage would be double-charging. This
+/// is the *benefit* — what paying those prices buys.
+const ANCHOR_DEMAND: f32 = 0.04;
+
+/// **The eight neighbours in ring order** — clockwise from the top-left,
+/// so consecutive entries are adjacent on the ring.
+///
+/// `NEIGHBOURS_8` is in raster order, which is right for a scan and wrong
+/// for the connectivity question `removal_would_disconnect_a_neighbour`
+/// asks: that one needs to walk *around* a cell, and raster order jumps
+/// across the middle.
+const RING_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0)];
+
+/// **Would taking this cell out break the plant into more pieces?** —
+/// answered from the 3x3 around it, in the standard way.
+///
+/// This is the *simple point* test from topology-preserving thinning: if
+/// every same-organism neighbour sits in one unbroken arc around the ring,
+/// they are still joined to each other after the centre goes, and removal
+/// cannot disconnect anything locally. Two or more arcs means the centre is
+/// the join, and taking it splits them.
+///
+/// **It is here because the failure it prevents is the one the ethos
+/// section forbids outright.** Die-back without it left a tree in bits:
+/// connectivity fell to 52% of a 1,601-cell plant and stayed there
+/// (`print_crown_recession_trajectory`), and even with the `path_len`
+/// exclusion in place seven cells of 1,321 came adrift, because a
+/// thickened cell *inherits* its neighbour's `path_len` rather than
+/// incrementing it — so girth beside a shed cell was not protected by the
+/// path rule and had no other route home. A receding crown and a tree
+/// coming apart look identical in a cell count; this is what keeps them
+/// different.
+///
+/// Conservative in the safe direction: a neighbourhood it cannot resolve
+/// reads as "would disconnect" and the cell stays. `CLAUDE.md` — a rule
+/// whose action is destructive has to be biased toward the answer that
+/// defers.
+///
+/// Local only. Two neighbour groups that rejoin somewhere far away read as
+/// a split here and the cell is kept, which costs a little recession and
+/// never costs a fragment.
+fn removal_would_disconnect_a_neighbour(world: &World, x: i32, y: i32, organism_id: u16) -> bool {
+    let mut on = [false; 8];
+    for (i, (dx, dy)) in RING_8.into_iter().enumerate() {
+        on[i] = world.get(x + dx, y + dy).organism_id() == organism_id;
+    }
+    let count = on.iter().filter(|&&b| b).count();
+    if count == 0 {
+        return false; // nothing to disconnect
+    }
+    if count == 8 {
+        return true; // fully enclosed: interior, and removal punches a hole
+    }
+    // Arcs = transitions from off to on around the ring. One arc is safe.
+    let arcs = (0..8).filter(|&i| on[i] && !on[(i + 7) % 8]).count();
+    arcs != 1
+}
+
+/// **How well anchored a crown is for the plate under it**, 0..1.
+///
+/// Pulled out of `organism_upkeep` so the arithmetic can be asserted
+/// directly rather than inferred from a grown stand — the same reason
+/// `settle_water` is its own function.
+///
+/// `ANCHOR_DEMAND == 0` switches the term off *exactly* rather than
+/// approximately — the `VEIN_GAIN = 0` discipline — and that is what made
+/// deriving the constant possible at all: the reach ratio has to be
+/// measured on a stand the term is not yet acting on, or the number is
+/// fitted to its own feedback.
+fn anchor_status_of(anchor_moment: f32, crown_moment: f32) -> f32 {
+    if crown_moment <= 0.0 || ANCHOR_DEMAND <= 0.0 {
+        1.0
+    } else {
+        (anchor_moment / (ANCHOR_DEMAND * crown_moment)).clamp(0.0, 1.0)
+    }
+}
+
+/// How much of full income a plant earns at this frame — see
+/// `NIGHT_INCOME_FLOOR`.
+///
+/// **`world.sky_frame()`, never `world.frame`** — the sky runs on its own
+/// clock since `sim::clock` landed, and the shipped world is an eight-minute
+/// day. Passing the real frame would swing income eight times faster than
+/// the sun it is supposed to be following, which is a day/night term that
+/// does not match the day or the night. `ambient_light_above` reads the sky
+/// clock for the same reason one line over.
+///
+/// `pub` for one reason: `examples/plant_probe.rs` has to divide it back
+/// out of any income it reports, or the number it prints is that run's
+/// phase rather than that plant's economy. See
+/// `MEAN_NIGHT_INCOME_FACTOR`.
+pub fn night_income_factor(frame: u64) -> f32 {
+    NIGHT_INCOME_FLOOR + (1.0 - NIGHT_INCOME_FLOOR) * crate::sim::field::daylight_fraction(frame)
+}
+
+/// **A day's mean of `night_income_factor`** — the factor that turns a
+/// noon-equivalent income into the income a plant actually collects over a
+/// whole cycle.
+///
+/// Not a tuning knob: it is the integral of the function above over
+/// `DAY_NIGHT_PERIOD_FRAMES`, and
+/// `income_runs_at_a_night_floor_and_reaches_full_at_noon` asserts this
+/// constant against the summed value so the two cannot drift.
+///
+/// **It exists because a decision must not be a function of the hour, and
+/// this package shipped that bug before catching it.** Die-back compares a
+/// plant's standing bill against its income; income is night-scaled and the
+/// bill is not, so the comparison read four times worse at midnight than at
+/// noon and a stand shed on a nightly cycle. That is
+/// `field::noon_equivalent_light`'s own failure arriving in a new place —
+/// the live tip count that measured 71 at noon against 28 at night.
+///
+/// The tell was in the numbers before it was in the code: the sweep at
+/// 28,800 frames (exactly 8 days, so noon) reported a median bill-to-income
+/// of **0.6**, and the same stand at 45,000 (12.5 days, so midnight) read
+/// **2.6 to 5.6**. Two figures four-fold apart from one build, because one
+/// horizon happened to be a whole number of days and the other did not.
+pub const MEAN_NIGHT_INCOME_FACTOR: f32 = 0.49;
+
+/// What one standing cell owes per organism tick.
+///
+/// Two terms, not two rules. Every living cell pays the mass term
+/// (`MAINTENANCE_PER_CELL`); shoot tissue additionally pays the
+/// superlinear girth term that does the bounding. The split is by material
+/// rather than by cell type for the reason `organism_upkeep` already does
+/// it that way: a retired root and a retired branch are both `MatureBody`,
+/// and only the material tells them apart.
+fn maintenance_cost(q_peak: f32, l_node: f32, root_tissue: bool) -> f32 {
+    MAINTENANCE_PER_CELL + if root_tissue { 0.0 } else { MAINTENANCE_PER_NODE * maintenance_basis(q_peak, l_node) }
+}
+
+/// A shoot cell's bill **at unit price** — see
+/// `OrganismState::maintenance_basis`, which is this summed over the plant.
+fn maintenance_basis(q_peak: f32, l_node: f32) -> f32 {
+    (q_peak / l_node).max(0.0).powf(MAINTENANCE_EXPONENT)
 }
 
 /// Flush at most one dormant bud into a `GrowingTip`, if the light the
@@ -2877,11 +3505,35 @@ fn anchor_support(world: &mut World, organism_id: u16) {
 
     let mut dist = vec![u16::MAX; cells.len()];
     let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(u16, i32, i32, usize)>> = std::collections::BinaryHeap::new();
+    // **The anchor set, kept this time.** This loop has always enumerated
+    // it to seed the heap and then dropped it, which is exactly what
+    // `open-bugs-handoff.md` §P3 records as the thing an anchorage term
+    // would need and would not have to pay a traversal for. Two integers
+    // and a running sum, inside a loop that was already visiting every
+    // cell.
+    let mut anchor_xs: Vec<i32> = Vec::new();
     for (i, &(x, y)) in cells.iter().enumerate() {
         if is_structural_anchor(world, x, y, organism_id) {
             dist[i] = 0;
             heap.push(std::cmp::Reverse((0, y, x, i)));
+            anchor_xs.push(x);
         }
+    }
+    // **`Σ|x − x̄|`, not a half-width.** A span is set by its two extreme
+    // anchors and says nothing about what is between them, so a plant with
+    // one stray root forty cells out would read as well plated as one with
+    // forty. Summed lever arms rise with *both* count and reach, which is
+    // what an anchor plate actually trades, and the quantity needs no
+    // constant to be right — it is a sum of distances.
+    let anchor_moment = if anchor_xs.is_empty() {
+        0.0
+    } else {
+        let mean = anchor_xs.iter().map(|&x| x as f32).sum::<f32>() / anchor_xs.len() as f32;
+        anchor_xs.iter().map(|&x| (x as f32 - mean).abs()).sum::<f32>()
+    };
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.anchor_cells = anchor_xs.len() as u32;
+        state.anchor_moment = anchor_moment;
     }
     while let Some(std::cmp::Reverse((d, _, _, i))) = heap.pop() {
         if d > dist[i] {
@@ -3012,9 +3664,86 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
             // Max-accumulate: the high-water mark never falls. See
             // `OrganismCell::q_peak`.
             slot.q_peak = slot.q_peak.max(q[i]);
+            // **And the live value beside it**, which this pass computed
+            // and threw away on the line above for as long as it has
+            // existed. One store, no traversal: `q[i]` is already in hand.
+            // `organism_upkeep`'s die-back rule reads it to answer "does
+            // this cell still carry a leaf", which the peak cannot — see
+            // `OrganismCell::q_now`.
+            slot.q_now = q[i];
         }
     }
 }
+
+/// **Where `break_root_tips` stops, counted — the instrument bug §A asked
+/// for, and the one bug §U needs too.**
+///
+/// `Reports/open-bugs-handoff.md` §A infers that main's field model
+/// switched this amplifier off, from a *mean* stomatal term crossing
+/// `ROOT_REINITIATION_STATUS` (0.90 -> 0.96). Its own closing note says
+/// that inference is not a measurement: "a mean can cross while the
+/// distribution that matters does not". §U's likely mechanism is the same
+/// function seen from the other side — water stress *triggers* root
+/// re-initiation and nothing throttles the carbon that pays for it, so
+/// scarcity buys extra tissue at no cost.
+///
+/// Both questions are "did this fire, and if not, which line turned it
+/// back", which `CLAUDE.md` says wants a counter rather than a picture or
+/// an aggregate. The exits are counted separately because they mean
+/// opposite things: `GATED` is the plant saying *I am not thirsty*, while
+/// `NO_CANDIDATE` and `POOR` are a thirsty plant that cannot act — and
+/// §U's diagnosis is precisely a claim about which of those dominates.
+///
+/// `#[cfg(test)]` on the `S8E` pattern beside it: this is per-organism
+/// per-upkeep-tick work in the sweep's shadow, and both consumers (the §A
+/// seed sweep, the §U paired bed) are tests. `note_root_tip_exit` compiles
+/// to nothing in a release build.
+#[cfg(test)]
+pub(crate) static ROOT_TIP_EXITS: [std::sync::atomic::AtomicU64; 6] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+/// Entered the function at all — one per organism per upkeep tick.
+pub(crate) const ROOT_TIP_CALLS: usize = 0;
+/// Left at the `status >= ROOT_REINITIATION_STATUS` gate: demand met.
+pub(crate) const ROOT_TIP_GATED: usize = 1;
+/// Thirsty, but already at `max_active_tips` — the cap, not the economy.
+pub(crate) const ROOT_TIP_AT_CAP: usize = 2;
+/// Thirsty and under the cap, but no mature root cell has soil to grow into.
+pub(crate) const ROOT_TIP_NO_CANDIDATE: usize = 3;
+/// Thirsty, under the cap, sites available — and no cell holds `cost`.
+/// **The exit §U's "scarcity buys tissue for free" reading predicts should
+/// be large.**
+pub(crate) const ROOT_TIP_POOR: usize = 4;
+/// A `MatureBody` cell became a `RootTip`. The only exit that does anything.
+pub(crate) const ROOT_TIP_FIRED: usize = 5;
+
+/// Read and clear. `[calls, gated, at_cap, no_candidate, poor, fired]` —
+/// read `fired` first, then whichever exit swallowed the rest.
+#[cfg(test)]
+pub(crate) fn take_root_tip_exits() -> [u64; 6] {
+    let mut out = [0u64; 6];
+    for (o, c) in out.iter_mut().zip(ROOT_TIP_EXITS.iter()) {
+        *o = c.swap(0, std::sync::atomic::Ordering::Relaxed);
+    }
+    out
+}
+
+#[cfg(test)]
+#[inline]
+fn note_root_tip_exit(which: usize) {
+    ROOT_TIP_EXITS[which].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(test))]
+#[inline(always)]
+fn note_root_tip_exit(_which: usize) {}
+
 /// Re-initiate a root tip from mature root tissue when the plant is short
 /// of water — **the root analogue of `break_buds`, and the mechanism whose
 /// absence made the whole water economy unstable.**
@@ -3044,9 +3773,11 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
 /// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
 fn break_root_tips(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
+    note_root_tip_exit(ROOT_TIP_CALLS);
     let species_id = state.species;
     let status = state.water_status;
     if status >= ROOT_REINITIATION_STATUS {
+        note_root_tip_exit(ROOT_TIP_GATED);
         return; // demand met -- nothing to fix, and canopy is the better buy
     }
     let Some((cost, max_active_tips)) =
@@ -3111,11 +3842,50 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
             _ => {}
         }
     }
-    if tips >= max_active_tips as usize || candidates.is_empty() {
+    if tips >= max_active_tips as usize {
+        note_root_tip_exit(ROOT_TIP_AT_CAP);
         return;
     }
+    if candidates.is_empty() {
+        note_root_tip_exit(ROOT_TIP_NO_CANDIDATE);
+        return;
+    }
+    // **The exit §U hangs on, and it still reads zero.**
+    //
+    // A thirsty plant that cannot afford the tip it wants is water stress
+    // costing carbon, which is what real drought does. A thirsty plant that
+    // can always afford it is scarcity buying tissue for free, which is
+    // what §U measured — and P1's counter read this exit at **0 in every
+    // arm**: both beds, both moistures, both slot draws. Charging
+    // maintenance respiration did not change that; re-measured with the
+    // whole economy in, it is still 0 on all four arms.
+    //
+    // The reason is structural rather than a matter of degree. The bill is
+    // paid out of the **richest standing cell**, and a mature trunk sits at
+    // `RESOURCE_SCALE` whatever the plant's book says; draining it takes
+    // far longer than a tick, so this test cannot fire on a plant with any
+    // wood at all.
+    //
+    // **Gating the amplifier on whole-plant solvency was built and
+    // withdrawn**, and the reason is worth having at the call site rather
+    // than only in `dead-ends.md`. Under this economy a plant at its
+    // maximum sustainable size is insolvent *by construction* — that is
+    // what the equilibrium is — so the gate shut root re-initiation on
+    // essentially every mature plant, and the result was the exact death
+    // spiral `allocate_to_frontier` documents ten lines up: water-limited
+    // income starves the roots that would fix it. Measured over four seeds
+    // at 28,800 frames, gate on against gate off: **6-8 founders
+    // established of 8 against 8 of 8 on every seed**, median root cells
+    // 156 against 305, median plant 1,979 cells against 2,729.
+    //
+    // Where the penalty actually lives now: `water_status` multiplies
+    // income, income nets maintenance, and the growth pool is what is left.
+    // A thirsty plant is poorer at the pool rather than at the till. That
+    // is a different place from the one §U names, and it is the one that
+    // does not spiral.
     let Some((rx, ry, held)) = richest else { return };
     if held < cost {
+        note_root_tip_exit(ROOT_TIP_POOR);
         return;
     }
 
@@ -3133,8 +3903,9 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
     // before any income.
     let stake = world.carbon_at(bx, by).max(cost);
     write_carbon(world, bx, by, stake);
-    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
     world.schedule_active_site(site);
+    note_root_tip_exit(ROOT_TIP_FIRED);
 }
 
 
@@ -3235,8 +4006,25 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // capped below what it could afford, which cancels the half of the
     // density trade that is supposed to make cheap wood grow faster.
     let step_cost = cost * wood_density_mult(world, organism_id);
-    let supportable =
-        ((intercepted / l_node(leaf_cluster) * INCOME_PER_NODE / step_cost).floor() as usize).min(max_active_tips as usize);
+    // **Net of maintenance, and noon-normalised.** Two adjustments that
+    // pull in opposite directions and are both deliberate.
+    //
+    // The bill is subtracted because `supportable` is Palubicki's `n = ⌊v⌋`
+    // — income over what one tip costs — and a plant whose standing tissue
+    // eats its whole income can support no tips at all. Without this a
+    // receding crown would keep flushing buds into a deficit, which is the
+    // rich-get-richer economy this function's own defect note describes,
+    // pointed the other way.
+    //
+    // The *income* here keeps no night factor, unlike
+    // `allocate_to_frontier`'s pool: this is a policy, and a policy sampled
+    // at an arbitrary phase of a 20:1 designed oscillator is a different
+    // policy every hour — the failure `field::noon_equivalent_light` exists
+    // to end. The bill is not phase-dependent, so netting it here is
+    // comparing two noon-equivalent quantities.
+    let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
+    let surplus = (intercepted / l_node(leaf_cluster) * INCOME_PER_NODE - maintenance).max(0.0);
+    let supportable = ((surplus / step_cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
     }
@@ -3302,7 +4090,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     if let Some(slot) = world.organism_cell_mut(bx, by) {
         slot.heading = (0.0, 0.0);
     }
-    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+    let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
     world.schedule_active_site(site);
 }
 
@@ -3370,6 +4158,20 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
             None => {}
         }
     }
+    // **Recorded before the early return, and that is not tidiness.** A
+    // plant that has stopped extending has no frontier at all, which is
+    // exactly the state crown recession produces — so returning first left
+    // `income` frozen at whatever the plant last earned while it was still
+    // growing, and the one number the whole re-derivation is read against
+    // would have been stale on precisely the plants it is about.
+    // **Stored noon-equivalent**, and scaled only where carbon actually
+    // moves. `OrganismState::income` is read by decisions — the die-back
+    // trigger and every readout — and a decision may not be a function of
+    // the hour. See `MEAN_NIGHT_INCOME_FACTOR`.
+    let income_noon = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.income = income_noon;
+    }
     if frontier.is_empty() || donors.is_empty() {
         return;
     }
@@ -3398,9 +4200,49 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // leaves shrinks every tip's share until none can afford `cost`, and
     // extension stops without anything being killed or capped. Shed a limb
     // and the survivors' share rises again.
-    let income = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+    // **Scaled by the hour, and only here and at the photosynthetic
+    // credit.** `break_buds` computes the identical expression for
+    // `supportable` and deliberately does *not* scale it: this is the
+    // plant's money and that is the plant's policy. The comment below on
+    // the pool warns that charging a *deficit* in one place and not the
+    // other makes the two gates disagree about what the plant can afford —
+    // a time-of-day factor is a different animal, because it is the same
+    // number sampled at a different phase of a designed oscillator, and
+    // `CLAUDE.md` is explicit that such an oscillator must be divided out
+    // of decisions and only out of decisions. A `supportable` that fell at
+    // dusk would retire the frontier every night, which is the exact shape
+    // of the nightly extinction event `noon_equivalent_light` exists to
+    // end. See `NIGHT_INCOME_FLOOR`.
+    // ...and here is the one place the hour enters the budget: this is
+    // money, not policy.
+    let income = income_noon * night_income_factor(world.sky_frame());
     let stock: f32 = donors.iter().map(|&(x, y)| world.carbon_at(x, y)).sum();
-    let pool = income.min(stock);
+    // **The growth pool is the *surplus*, not the income** — gross
+    // photosynthesis minus what the standing tissue costs to run, which is
+    // NPP against GPP and is the whole point of charging maintenance at
+    // all.
+    //
+    // Charging cells their bill in `organism_upkeep` and leaving the pool
+    // gross was tried first and is the wrong half of the mechanism: the
+    // plant kept funding new frontier at full rate while its own tissue
+    // starved, because `stock` is thousands of cells near
+    // `RESOURCE_SCALE` and takes a very long time to notice. Measured, a
+    // stand ran at bill/income **2.10** and was still building. Growth has
+    // to slow as the bill rises, or the only thing superlinear upkeep
+    // produces is a bigger tree that is dying.
+    //
+    // This is **not** a double charge. `organism_upkeep` destroys the
+    // carbon (respiration is real consumption); this decides what the
+    // frontier is allowed to draw. One is the cost, the other is the
+    // budget, and a plant needs both.
+    //
+    // **Last tick's bill, by one tick.** `step_organisms` runs this before
+    // `organism_upkeep`, the same ordering that already has upkeep reading
+    // an already-diffused carbon field. A tick is 45 frames against a bill
+    // that moves with `q_peak`, which is monotone and slow; and reading it
+    // fresh would mean running the whole upkeep walk twice.
+    let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
+    let pool = (income - maintenance).max(0.0).min(stock);
     // **Functional balance: the plant invests in whatever is limiting it.**
     //
     // The pool used to be split evenly across every frontier cell, root tips
@@ -3439,7 +4281,29 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
             })
         })
         .unwrap_or(0.0);
-    let root_weight = (ROOT_BIAS_AT_FULL_WATER + (1.0 - status)) * genotype(world, organism_id, 6, alloc_variance);
+    // **Anchorage is the second thing roots buy, and it is what makes root
+    // allocation a trade rather than a tax.**
+    //
+    // `physical-trees-design-2026-08-23.md` §11.1: this package ships the
+    // owner's root-blob *cost*, and a quantity with a cost and no
+    // counterweight has exactly one optimum — the minimum — which a working
+    // economy will find and hold every plant at. The visible result is one
+    // root morphology everywhere, which is the complaint already made twice
+    // about levers that fired and changed nothing.
+    //
+    // Exactly parallel to the water term beside it, and deliberately so:
+    // functional balance says allocate to the organ that captures the
+    // scarcer resource, and mechanical stability is the second scarce
+    // thing a root supplies. A plant whose crown has outgrown its anchor
+    // plate spends on roots; a squat one with a wide plate does not. §11.4
+    // is explicit that this must be a *benefit* and never a third cost —
+    // the costs on large roots and large trunks already exist.
+    //
+    // The two stresses add rather than multiply, so a plant short of both
+    // is more root-biased than one short of either — and either alone still
+    // moves it, which a product would not.
+    let anchor_stress = 1.0 - world.organism(organism_id).map_or(1.0, |s| s.anchor_status);
+    let root_weight = (ROOT_BIAS_AT_FULL_WATER + (1.0 - status) + anchor_stress) * genotype(world, organism_id, 6, alloc_variance);
     let total_weight: f32 = frontier_is_root.iter().map(|&r| if r { root_weight } else { 1.0 }).sum();
     if total_weight <= 0.0 {
         return;
@@ -3543,11 +4407,30 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // The leaf-economy multipliers, once for the whole walk -- the demand
     // sum below and the credit arm both read them, and they must agree.
     let (leaf_rate_mult, leaf_transp_mult) = leaf_econ_mults(world, organism_id);
+    // Once per organism per tick -- see `is_foliage`.
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
+    // The species-level gate on the senescence rule below -- see
+    // `Species::has_economy`.
+    let has_economy = world.species.get(species_id).has_economy();
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
     let mut leaves_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
+    // Shoot cells per row, for the base width `slenderness` divides by.
+    // Same shape and the same cost as `leaves_in_row` beside it, and read
+    // after the walk because the collar row is not known until it ends.
+    let mut shoot_in_row: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let (mut root_cells, mut shoot_cells) = (0u32, 0u32);
+    // **The root system as an uptake surface rather than a mass** — see
+    // `OrganismState::contact_root_cells`. Four-neighbour, because an
+    // exchange crosses a face.
+    let mut contact_root_cells = 0u32;
+    // The crown's overturning demand, accumulated as `Σ y` and turned into
+    // `Σ (collar − y)` once the collar is known. A mass times a lever arm,
+    // in one sum, from the walk that is already running.
+    let mut shoot_y_sum = 0i64;
+    // See the senescence block below, and `Species::is_vital`.
+    let mut vital_cells = 0u32;
     let mut demand = 0.0f32;
     // Primed lateral sites that can afford themselves this tick, and the
     // root tips already standing -- both gathered in the walk below so the
@@ -3604,8 +4487,44 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // Root or shoot, tallied in the walk that is already happening.
         // `rootwood` is the discriminator rather than cell type, because a
         // retired root and a retired branch are both `MatureBody`.
-        if world.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip) {
+        let root_tissue = world.materials.get(c.material).reinforces_powder || ty == Some(CellType::RootTip);
+        // **Can this organism still be alive?** One `bool` per cell, in the
+        // walk that is already happening rather than in a liveness search
+        // of its own -- see `step_organisms`' senescence block for what the
+        // count is used for and `Species::is_vital` for what each arm of it
+        // means. Root tissue is excluded here and not inside `is_vital`,
+        // because vitality is a property of the *cell* and `is_vital` can
+        // only see the cell type: grass retires root tips into the same
+        // `MatureBody` that declares its `Photosynthesize`, so a cell-type
+        // test alone would read a bare root mat as a living plant.
+        //
+        // **Short-circuited on the count, which is the whole hot-path
+        // story.** The question is only ever "is this zero", so the first
+        // vital cell found ends the work for the rest of the walk -- a
+        // healthy tree pays one integer compare per cell after its first
+        // leaf, instead of a species-table scan per cell per tick. The full
+        // scan is paid only by a plant that really has nothing left, which
+        // is rare and about to stop existing.
+        if vital_cells == 0 && !root_tissue && ty.is_some_and(|t| world.species.get(species_id).is_vital(t)) {
+            vital_cells += 1;
+        }
+        if root_tissue {
             root_cells += 1;
+            // **Does this root cell touch anything it could drink from?**
+            // The same four-neighbour look `absorb_water` and the primed
+            // check below already make, asked of every root cell rather
+            // than only of the ones with a behaviour to run — a cell walled
+            // in by its own siblings shares no face with soil, so it can
+            // absorb nothing and buys the plant no storage either.
+            //
+            // `water_capacity > 0` rather than a material name: soil, sand
+            // and litter-turned-soil all hold water, stone and wood do not,
+            // and free water is drinkable too. `absorb_water` discriminates
+            // on exactly this field, so the surface counted here is the
+            // surface that actually earns.
+            if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.materials.get(world.get(cx + dx, cy + dy).material).water_capacity > 0) {
+                contact_root_cells += 1;
+            }
             // **The primed site's own affordability check**, in the walk
             // that is already happening rather than in a traversal of its
             // own. A site marked by a passing tip becomes a lateral once
@@ -3661,6 +4580,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             }
         } else {
             shoot_cells += 1;
+            shoot_y_sum += cy as i64;
+            *shoot_in_row.entry(cy).or_insert(0) += 1;
             // The collar is the *lowest* shoot cell -- where the shoot
             // meets the root system. Taken from shoot tissue rather than
             // from the organism's overall extent, which would sit at the
@@ -3672,11 +4593,72 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             shoot_top_y = Some(shoot_top_y.map_or(cy, |c: i32| c.min(cy)));
         }
     }
+    // **Anchorage, decided once for the whole plant.** Every quantity here
+    // — the crown's mass, its lever arm about the collar, the anchor
+    // plate's reach — is defined for a plant and undefined for a cell, and
+    // `physical-trees-design-2026-08-23.md` §11.7 files getting that wrong
+    // as *the* trap that would turn this mechanic into a catastrophe. This
+    // reads two sums and writes one number that `allocate_to_frontier`
+    // spends; it schedules nothing, and nothing structural reads it.
+    //
+    // `Σ (collar − y)` over shoot tissue is mass times lever arm in one
+    // pass — a broad low shrub and a slender tall stem of the same mass
+    // come out very differently, which is the distinction the owner's brief
+    // is about ("very top heavy with a skinny trunk ... could cause the
+    // tree to fall over").
+    let crown_moment = match collar_y {
+        Some(collar) if shoot_cells > 0 => ((collar as i64 * shoot_cells as i64 - shoot_y_sum) as f32).max(0.0),
+        _ => 0.0,
+    };
+    let anchor_moment = world.organism(organism_id).map_or(0.0, |s| s.anchor_moment);
+    // A plant with no crown to overturn is perfectly anchored, which is
+    // the deferring answer and the right one: a seedling should not spend
+    // its first carbon on a root plate for a shoot it does not have.
+    let anchor_status = anchor_status_of(anchor_moment, crown_moment);
+    // **Read, never assigned** (§11.2): `thicken` already ties width to the
+    // leaf mass above it, so a slender plant is what happens when the crown
+    // flushes faster than the stem thickens. Base width is the shoot's own
+    // run at the collar row, not the whole organism's extent, which would
+    // sit in the root mat.
+    let slenderness = match (collar_y, shoot_top_y) {
+        (Some(collar), Some(top)) if collar > top => {
+            let base = shoot_in_row.get(&collar).copied().unwrap_or(1).max(1) as f32;
+            (collar - top) as f32 / base
+        }
+        _ => 0.0,
+    };
     if let Some(state) = world.organism_mut(organism_id) {
         state.root_cells = root_cells;
+        state.contact_root_cells = contact_root_cells;
         state.shoot_cells = shoot_cells;
         state.collar_y = collar_y;
         state.shoot_top_y = shoot_top_y;
+        state.crown_moment = crown_moment;
+        state.anchor_status = anchor_status;
+        state.slenderness = slenderness;
+        // **Death, declared once and never taken back.** Nothing left that
+        // could earn carbon, germinate or flush a bud -- so no sequence of
+        // events reaches income from here, and the remains are remains.
+        // `step_organisms` rots them.
+        //
+        // Gated on the species having an economy at all, because the rule
+        // is starvation-shaped and moss does not earn: see
+        // `Species::has_economy`, which records how the guard test caught
+        // this turning every retired moss cell into a corpse.
+        //
+        // **The `cells.is_empty()` guard is not defensive.** An organism
+        // between `push_organism` and the `World::set` that gives it its
+        // first cell has no cells and no vital cell either, and marking
+        // *that* senescent would kill every plant at the moment it was
+        // created. The empty case is already handled, correctly and
+        // separately, by `free_organism`'s own liveness rule.
+        //
+        // Set here rather than in a pass of its own because this walk has
+        // already visited every cell; a separate pass would be a second
+        // traversal per organism per tick for one boolean.
+        if vital_cells == 0 && !cells.is_empty() && has_economy {
+            state.senescent = true;
+        }
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
     let mut running = 0u32;
@@ -3685,7 +4667,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         running += leaves_in_row.get(&y).copied().unwrap_or(0);
     }
 
-    for (cx, cy) in cells {
+    // The tick's maintenance book, summed in the loop that charges it.
+    // Continuous quantities rather than counts of starving cells, per
+    // `CLAUDE.md`: counts give knife-edge margins and sums separate
+    // cleanly. `starved_cells` is the one count, and it is there because
+    // "did this fire at all" is the question an image provably cannot
+    // answer.
+    let (mut maintenance, mut maintenance_unpaid) = (0.0f32, 0.0f32);
+    let mut basis = 0.0f32;
+    let mut starved_cells = 0u32;
+    for &(cx, cy) in &cells {
         let cell = world.get(cx, cy);
         if cell.organism_id() != organism_id {
             continue; // burned, erased, or overwritten since the list was taken
@@ -3761,9 +4752,12 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // a forest floor never accumulated anything and there
                     // was nothing for the creature side to eat. See
                     // `shed_to_litter`.
-                    if shade_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                    if shade_death > 0.0
+                        && organism::cell_type(world.get(cx, cy).aux()).is_some_and(|t| is_foliage(world, cx, cy, t, species_id, has_leaf_stage))
+                    {
                         let darkness = (1.0 - light / crate::sim::field::MAX_LIGHT).clamp(0.0, 1.0);
                         if rng.chance(shade_death * darkness * darkness * darkness) {
+                            world.shed_shade += 1;
                             shed_to_litter(world, cx, cy);
                             // Reclaim any spray this stranded. NOT a
                             // structural check -- see
@@ -3786,7 +4780,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // and dies rather than standing there inert. Checked
                     // before the credit, like the shade rule, so a leaf
                     // being shed does not also earn on the tick it dies.
-                    if drought_death > 0.0 && organism::cell_type(world.get(cx, cy).aux()) == Some(CellType::Leaf) {
+                    if drought_death > 0.0
+                        && organism::cell_type(world.get(cx, cy).aux()).is_some_and(|t| is_foliage(world, cx, cy, t, species_id, has_leaf_stage))
+                    {
                         // Desiccation, not the stomatal term: a leaf dies
                         // of drying out, not of its plant's prudence. The
                         // two are identical until a species sets
@@ -3795,12 +4791,23 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // trade-inversion this split prevents.
                         let thirst = world.desiccation_at(cx, cy).clamp(0.0, 1.0);
                         if rng.chance(drought_death * thirst * thirst * thirst) {
+                            world.shed_drought += 1;
                             shed_to_litter(world, cx, cy);
                             shed_stranded_leaves(world, cx, cy, organism_id);
                             continue;
                         }
                     }
-                    resource = (resource + rate * leaf_rate_mult * light * status).min(organism::RESOURCE_SCALE);
+                    // **Night slows growth** — the 2026-08-17 directive, on
+                    // the credit and on nothing else. `light` here is
+                    // noon-equivalent, which is what makes every *decision*
+                    // above (abscission, `q`, the bud gate) independent of
+                    // the hour; that independence is why income had to be
+                    // scaled explicitly rather than by letting the
+                    // oscillator back into the reads. See
+                    // `NIGHT_INCOME_FLOOR`.
+                    resource =
+                        (resource + rate * leaf_rate_mult * light * status * night_income_factor(world.sky_frame()))
+                            .min(organism::RESOURCE_SCALE);
                 }
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
@@ -3835,6 +4842,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // Hoisted out of the call: `genotype` borrows the world
                     // and `thicken` takes it mutably.
                     let jittered_ratio = pipe_ratio * genotype(world, organism_id, 4, pipe_variance);
+                    // **Secondary growth is still free, and that is a
+                    // known hole rather than an oversight.** Charging it
+                    // was built and measured in this package and reverted:
+                    // `Reports/dead-ends.md`, and §8 of
+                    // `Reports/plant-economy-rederivation-2026-08-23.md`
+                    // for the numbers. It closes a real treadmill — a
+                    // starving plant re-lays almost exactly what die-back
+                    // removes — and it cost establishment (6-8 founders of
+                    // 8 against 8 of 8) and made trees *woodier*, which is
+                    // the opposite of what crown recession is for.
                     thicken(world, cx, cy, organism_id, jittered_ratio, carried, bud_survival, &mut rng);
                 }
                 // Frontier behaviours never run here -- a mature cell has
@@ -3866,11 +4883,230 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 | Behavior::StructuralAnchor => {}
             }
         }
+        // **Maintenance respiration — the price of standing there.**
+        //
+        // After the behaviour loop, so a leaf pays out of the income it
+        // just earned rather than out of last tick's; before the write-back
+        // below, so one store covers both. Frontier cells never reach here
+        // (`is_frontier` returns above), which is correct: a tip is being
+        // funded, not maintained, and `allocate_to_frontier` already
+        // decides what it gets.
+        //
+        // The two terms and why they differ are on `MAINTENANCE_PER_NODE`
+        // and `MAINTENANCE_PER_CELL`. What matters at the call site is that
+        // the shoot's girth term is charged on `q_peak` — the *monotone*
+        // memory of the foliage a cell carries. A branch that has lost its
+        // leaves keeps its bill and loses its income, and that asymmetry is
+        // crown recession.
+        let root_tissue = world.materials.get(cell.material).reinforces_powder || cell_type == CellType::RootTip;
+        let q_peak = world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak);
+        let bill = maintenance_cost(q_peak, l_node(upkeep_leaf_cluster), root_tissue);
+        if !root_tissue {
+            basis += maintenance_basis(q_peak, l_node(upkeep_leaf_cluster));
+        }
+        if bill > 0.0 && world.get(cx, cy).organism_id() == organism_id {
+            maintenance += bill;
+            let paid = resource.min(bill);
+            resource -= paid;
+            maintenance_unpaid += bill - paid;
+        }
         // Re-checked: a behaviour above may have destroyed this cell (fire,
         // a collapse) since it was sampled, and writing carbon into a slot
         // that has since changed hands would credit the wrong organism.
         if world.get(cx, cy).organism_id() == organism_id {
             write_carbon(world, cx, cy, resource);
+        }
+    }
+
+    // **Die-back: the plant sheds what its income cannot carry, from the
+    // outside in.**
+    //
+    // A **whole-plant** decision, and that is the load-bearing part. The
+    // first version of this rule was per cell — a graded starvation roll on
+    // any cell that could not meet its own bill, gated on `q_now == 0` to
+    // keep it off tissue that still carried foliage — and it took a stand
+    // apart. Measured over four world seeds at 28,800 frames: **4 to 6 of 8
+    // founders established against 8 of 8 with the charge off**, median
+    // plant 704 cells against 3,437, and one seed ending at 94% root mass
+    // because the shoots had gone.
+    //
+    // The cause is worth recording, because it is one of this repo's named
+    // traps wearing a new costume. `accumulate_support` walks a **spanning
+    // tree** over what is, for a thickened trunk, a blob of cells rather
+    // than a tree graph — its own doc says so. So `q_now == 0` does not
+    // mean "carries no foliage"; it means "is not on the arbitrary path the
+    // walk happened to take", which is true of most of a trunk's girth and
+    // shifts as the plant grows. The rule was reading a traversal artifact
+    // as a biological fact and eating trunks with it. `CLAUDE.md`: *which
+    // object does this rule evaluate — a cell, a section, or a whole
+    // piece?* Not a cell.
+    //
+    // So the plant decides **how much**, and two per-cell quantities that
+    // are properties of the plant's real geometry decide **where**:
+    //
+    // - `path_len` — hydraulic distance from the collar, stamped at
+    //   creation and never recomputed, so it is exact and is not a function
+    //   of any traversal;
+    // - `support` — the cantilever reach `anchor_support` already writes.
+    //
+    // Shedding the most distal, most cantilevered tissue first is what
+    // makes this crown recession rather than damage: an abandoned branch
+    // unravels from its tip inward and strands nothing behind it, the bole
+    // (`support == 0`, `path_len` small) is the last thing to go, and in
+    // the root system the cells furthest from any anchor are precisely the
+    // interior of a blob — so the same rule prunes a root ball from the
+    // inside without a word in it about roots.
+    //
+    // Candidates exclude anything touching live tissue, which is what keeps
+    // the rule off a working crown: wood with a leaf or a tip beside it is
+    // not abandoned, whatever the book says.
+    //
+    // `shed_to_litter`, never a structural check. The 26x amputation
+    // measurement is `shed_stranded_leaves`' own doc, and what a mid-crown
+    // check costs is a property of the support model rather than of the
+    // disturbance. What comes off here is starved tissue rotting where it
+    // stood; a *severed* piece behaves quite differently and belongs to
+    // lane S.
+    //
+    // **The trigger is the plant's own book, not the sum of its cells'
+    // shortfalls**, and that distinction cost a red test to find.
+    // `maintenance_unpaid` counts every cell that could not meet its bill
+    // out of the carbon standing *in it*, and `organism::transport` is
+    // deliberately slow — undifferentiated parenchyma conducts at 0.008
+    // against the flat 0.2 it replaced — so distal cells in a perfectly
+    // healthy tree run momentarily short all the time. Keyed on that sum,
+    // this rule chewed a growing tree continuously and left its stem in
+    // pieces: `shedding_every_leaf_does_not_disconnect_the_stem` measured
+    // **90 of 1,124 cells still reachable from the base**. Whether a plant
+    // is starving is `maintenance > income`, which is a property of the
+    // plant. `maintenance_unpaid` stays, as the readout of how well the
+    // vasculature is keeping up, which is a different and useful question.
+    // Against what the plant collects over a whole day, not against what it
+    // is collecting at this instant — `MEAN_NIGHT_INCOME_FACTOR`, and the
+    // bug it records. The bill is charged every tick and does not care what
+    // time it is, so the income it is compared with must not either.
+    let deficit = maintenance - world.organism(organism_id).map_or(0.0, |s| s.income) * MEAN_NIGHT_INCOME_FACTOR;
+    // **A living plant trims; a dead one rots**, and the two mechanisms get
+    // disjoint domains rather than racing.
+    //
+    // `senescent` is set a few lines above, in this same walk, the moment a
+    // plant holds nothing that could earn, germinate or flush — at which
+    // point `rot_remains` owns it and thins it at the species' own
+    // half-life, which is the graded pace P3 chose and the ethos section
+    // asks for. Without this guard the two overlapped and die-back was much
+    // the faster, which took apart four `structural.rs` fixtures whose
+    // subject is the support model: a hand-built beam of six wood cells has
+    // no foliage by construction, so it reads as a plant in total deficit
+    // and was eroded inside four organism ticks.
+    //
+    // The sequence a dying tree actually follows is unchanged and is the
+    // point of the split: income falls, die-back trims it back toward what
+    // it can carry, the last foliage goes, and only then does it stop being
+    // a plant that is shrinking and start being remains.
+    let senescent = world.organism(organism_id).is_some_and(|s| s.senescent);
+    if deficit > 0.0 && !senescent {
+        // Guarded at the call site on two numbers this tick already
+        // produced, so a plant in surplus — which is most plants for most
+        // of their lives — pays one float compare and no neighbourhood
+        // scan.
+        let mut candidates: Vec<(u16, u16, i32, i32, f32)> = Vec::new();
+        for &(cx, cy) in &cells {
+            let cell = world.get(cx, cy);
+            if cell.organism_id() != organism_id {
+                continue;
+            }
+            let Some(ty) = organism::cell_type(cell.aux()) else { continue };
+            if is_frontier(ty) {
+                continue; // a tip is being funded, not maintained
+            }
+            // **Die-back never takes foliage.** Shedding foliage is
+            // abscission's job and it already has two graded rules for it
+            // (`shade_death`, `drought_death`); a third would double-charge
+            // the same event, and for a species with no `Leaf` stage it is
+            // fatal. `is_foliage` asks the *species*, which is exactly the
+            // §F4-shaped trap P3 recorded: grass photosynthesises from
+            // `MatureBody`, so a cell-type test would have read every blade
+            // of a sward as inert structure and eaten it. Measured before
+            // the fix: **0 of 12 blades standing** where the guard expects
+            // 12, and the grass sod that holds a bank went with it (+5%
+            // crest retention against a recorded +27%).
+            if is_foliage(world, cx, cy, ty, species_id, has_leaf_stage) {
+                continue;
+            }
+            let (path_len, support) = world.organism_cell(cx, cy).map_or((0, 0), |c| (c.path_len, c.support));
+            // Two exclusions, both from one eight-neighbour pass. Eight,
+            // because `Grow` places at eight and a four-neighbour read
+            // would see a diagonally-borne spray as absent — the traversal
+            // rule `CLAUDE.md` records, applied to a neighbourhood test
+            // rather than to a walk.
+            //
+            // 1. **Live tissue beside it**: structure with foliage or a
+            //    tip next to it is not abandoned, whatever the book says.
+            //    Foliage is `is_foliage`, per species, never
+            //    `CellType::Leaf` — see the exclusion above.
+            // 2. **Anything hanging further out than it.** `path_len` is
+            //    stamped at creation as parent + 1 and never recomputed, so
+            //    a neighbour with a strictly greater value is something
+            //    this cell carries. Shedding a cell with one would strand
+            //    it, and a stranded piece is not crown recession — it is a
+            //    tree in bits.
+            //
+            // The second exclusion is not belt-and-braces; it is the fix
+            // for a measured failure. Without it, a bare branch with a
+            // leafy twig on the end is all candidates *behind* the twig,
+            // so the plant shed the branch and left the twig floating:
+            // connectivity fell to **52%** of a 1,601-cell tree and stayed
+            // there for four thousand frames (`print_crown_recession_
+            // trajectory`, individual 2). With it, the branch is held
+            // until the twig itself peels, which is both safe and the
+            // right biology — a limb dies back from its tip.
+            //
+            // Thickened cells inherit their neighbour's `path_len` rather
+            // than incrementing it (`thicken`), so girth does not block
+            // itself: the test is strictly greater.
+            let mut blocked = false;
+            for (dx, dy) in NEIGHBOURS_8 {
+                let n = world.get(cx + dx, cy + dy);
+                if n.organism_id() != organism_id {
+                    continue;
+                }
+                if organism::cell_type(n.aux())
+                    .is_some_and(|t| is_frontier(t) || is_foliage(world, cx + dx, cy + dy, t, species_id, has_leaf_stage))
+                {
+                    blocked = true;
+                    break;
+                }
+                if world.organism_cell(cx + dx, cy + dy).is_some_and(|c| c.path_len > path_len) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if blocked {
+                continue;
+            }
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
+                continue;
+            }
+            let root_tissue = world.materials.get(cell.material).reinforces_powder || ty == CellType::RootTip;
+            let bill = maintenance_cost(world.organism_cell(cx, cy).map_or(0.0, |c| c.q_peak), l_node(upkeep_leaf_cluster), root_tissue);
+            candidates.push((path_len, support, cx, cy, bill));
+        }
+        // Most distal first, then most cantilevered, then row-major so the
+        // choice is a property of the world and not of the hasher's seed.
+        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((a.3, a.2).cmp(&(b.3, b.2))));
+        let cap = (((cells.len() as f32) * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
+        let mut recovered = 0.0f32;
+        for &(_, _, cx, cy, bill) in candidates.iter().take(cap) {
+            if recovered >= deficit {
+                break;
+            }
+            if world.get(cx, cy).organism_id() != organism_id {
+                continue;
+            }
+            shed_to_litter(world, cx, cy);
+            shed_stranded_leaves(world, cx, cy, organism_id);
+            recovered += bill;
+            starved_cells += 1;
         }
     }
 
@@ -3918,7 +5154,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 // fresh frontier cell reads its carbon before any income.
                 let stake = world.carbon_at(bx, by).max(root_step_cost);
                 write_carbon(world, bx, by, stake);
-                let site = reschedule_organism(bx, by, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL);
+                let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
                 world.schedule_active_site(site);
             }
         }
@@ -3954,7 +5190,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // "desiccation is exactly `1 - status` until a species opts in"
         // identity is asserted -- the seam the water economy's
         // `drought_death` tuning rests on.
-        let capacity = water_capacity_of(state.root_cells);
+        state.maintenance_basis = basis;
+        state.maintenance = maintenance;
+        state.maintenance_unpaid = maintenance_unpaid;
+        state.starved_cells = state.starved_cells.saturating_add(starved_cells);
+        // **Capacity is bought by the root cells that touch soil, not by
+        // root mass.** The owner's directive in one line: a root cell not
+        // touching soil earns the plant nothing. `water_capacity_of` keeps
+        // its one-cell floor, so a seedling with no root system still has
+        // somewhere to put its first drink.
+        let capacity = water_capacity_of(state.contact_root_cells);
         #[cfg(test)]
         {
             // **Where closure actually fires**, bucketed by shoot size.
@@ -4050,6 +5295,54 @@ const LITTER_FALL_REACH: i32 = 512;
 /// almost no leaf in a dense crown qualifies, litter fell to 157 cells and
 /// the mat disappeared from the picture entirely. That filter removed the
 /// mechanic rather than its waste.
+/// **Is this cell foliage** — the thing the shade and drought abscission
+/// rules are allowed to shed.
+///
+/// This is `CLAUDE.md`'s recurring question — *which cell does this rule
+/// actually evaluate?* — asked of a predicate that had the wrong answer
+/// written into it. Both rules used to test `cell_type == Leaf` directly,
+/// which is right for every woody species and vacuous for one whose
+/// photosynthetic surface *is* its shoot. `grass.ron` says so in its own
+/// header, and `Reports/open-bugs-handoff.md` §F4 is the consequence: with
+/// `plastochron: [0, 0]` grass has no `Leaf` cell, so it had no shade
+/// death, no drought death, and **no mortality path of any kind**.
+///
+/// Two clauses, and the second one is the fix:
+///
+/// - A species with a `Leaf` stage sheds leaves. Bit-identical to the old
+///   predicate for `tree`, `conifer`, `shrub` and `creeper` — the whole
+///   point of keying on the *species* rather than widening the cell-type
+///   test for everyone. Widening it would have made a tree shed its
+///   `GrowingTip`s (they photosynthesise too), which is a different and
+///   much larger change wearing this one's clothes.
+/// - A species with no `Leaf` stage sheds any **shoot** tissue that earns.
+///   For grass that is `GrowingTip` and the `MatureBody` blades it retires
+///   into — the cells that are its canopy.
+///
+/// **The root exclusion is load-bearing, not defensive.** Grass root tips
+/// retire to `MatureBody` exactly as its blades do, and `MatureBody`
+/// declares `Photosynthesize` for grass, so without it the shade rule
+/// would evaluate every buried root cell — where light is zero and
+/// `darkness` is 1 — and delete each plant's entire root system within a
+/// few ticks. Discriminated by `reinforces_powder`, which is how
+/// `organism_upkeep` and `is_structural_anchor` already tell a retired root
+/// from a retired branch.
+/// `has_leaf_stage` is passed in rather than looked up, because both
+/// callers already know it once per organism per tick and this predicate
+/// runs once per photosynthetic cell — `CLAUDE.md`'s "guard hot-path work
+/// at the call site that already has the data", applied to a species-level
+/// fact that would otherwise be re-derived per leaf.
+fn is_foliage(world: &World, x: i32, y: i32, cell_type: CellType, species_id: organism::SpeciesId, has_leaf_stage: bool) -> bool {
+    if has_leaf_stage {
+        return cell_type == CellType::Leaf;
+    }
+    if !world.species.get(species_id).photosynthesises(cell_type) {
+        return false;
+    }
+    let cell = world.get(x, y);
+    !world.materials.get(cell.material).reinforces_powder && cell_type != CellType::RootTip
+}
+
 fn shed_to_litter(world: &mut World, x: i32, y: i32) {
     let Some(litter) = world.materials.id_of("litter") else {
         world.set(x, y, Cell::EMPTY);
@@ -4165,6 +5458,7 @@ pub(crate) fn shed_stranded_leaves(world: &mut World, x: i32, y: i32, organism_i
         }
         if !anchored && !overflowed {
             for &(lx, ly) in &component {
+                world.shed_stranded += 1;
                 shed_to_litter(world, lx, ly);
             }
         }
@@ -4256,7 +5550,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     if stake > 0.0 {
         write_carbon(world, x, y, stake);
     }
-    let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL)];
+    let mut next = vec![reschedule_organism(x, y, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL))];
     // The companion root starts wherever this species' own `RootTip` could
     // *grow*, which since Decision 1(ii) includes penetrable soil and not
     // just open air.
@@ -4296,7 +5590,7 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
         let root_cell = Cell::new(root_material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::RootTip));
         displace_soil_water(world, x, y + 1);
         world.set(x, y + 1, root_cell);
-        next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.frame + ORGANISM_TICK_INTERVAL));
+        next.push(reschedule_organism(x, y + 1, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
     }
     next
 }
@@ -4626,7 +5920,12 @@ impl World {
         }
         let shades = self.materials.get(moss_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
-        let organism_id = self.push_organism(moss_species);
+        // At the slot ceiling nothing is planted -- see `push_organism`.
+        // After the emptiness check above, so a refusal and an occupied
+        // cell are the same silent no-op from the caller's side.
+        let Some(organism_id) = self.push_organism(moss_species) else {
+            return;
+        };
         let aux = organism::pack_cell_type(CellType::GrowingTip);
         self.set(x, y, Cell::new(moss_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Moss skips the `Seed` stage entirely, so it has no germination to
@@ -4634,7 +5933,7 @@ impl World {
         // `genotype_variance` is all zeroes, and correct the moment a
         // species with a `Divide` economy wants individuality.
         seed_genotype(self, organism_id, x, y);
-        let site = reschedule_organism(x, y, organism_id, 0, 0, self.frame + ORGANISM_TICK_INTERVAL);
+        let site = reschedule_organism(x, y, organism_id, 0, 0, self.organism_due(ORGANISM_TICK_INTERVAL));
         self.schedule_active_site(site);
     }
 
@@ -4673,7 +5972,12 @@ impl World {
         }
         let shades = self.materials.get(seed_material).palette.len().max(1) as u32;
         let shade = self.rng.below(shades) as u8;
-        let organism_id = self.push_organism(tree_species);
+        // At the slot ceiling nothing is planted -- see `push_organism`.
+        // `false` is the same answer this already gives for an occupied
+        // cell, so every caller's existing handling covers it.
+        let Some(organism_id) = self.push_organism(tree_species) else {
+            return false;
+        };
         let aux = organism::pack_cell_type(CellType::Seed);
         self.set(x, y, Cell::new(seed_material, shade).with_organism_id(organism_id).with_aux(aux));
         // Checked often while it is still falling -- see SEED_TICK_INTERVAL.
@@ -4769,6 +6073,612 @@ mod tests {
         }
     }
 
+    /// **A root cell walled in by its own siblings buys the plant
+    /// nothing** — the owner's directive, as a unit.
+    ///
+    /// Card `20260823T163504317Z-3cef7b`: *"If the root cell isn't touching
+    /// soil it cannot benefit the plant and has a cost."* The cost half is
+    /// `MAINTENANCE_PER_CELL`; this asserts the benefit half, which is the one
+    /// that was quietly false — `absorb_water` already credited a walled-in
+    /// cell nothing, and `water_capacity_of` was still buying it a full
+    /// cell of storage off root *mass*.
+    ///
+    /// A 3x3 block of root, so the centre cell is enclosed on all four
+    /// faces by its own tissue and the other eight touch soil. Paired
+    /// against the count, not measured against a remembered number.
+    #[test]
+    fn a_root_cell_walled_in_by_its_own_siblings_buys_no_water_capacity() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let organism = 7u16;
+        w.plant_tree(100, 100); // gives the world a real tree species registered
+        for y in 100..112 {
+            for x in 90..112 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let rootwood = {
+            let id = w.organism(1).map(|st| w.species.get(st.species).root_material.clone()).expect("the planted tree registered");
+            w.materials.id_of(&id).expect("the species' root material is compiled in")
+        };
+        // The organism the assertions are about, placed by hand so the
+        // geometry is the thing under test rather than whatever grew.
+        let mut placed = 0u32;
+        for y in 104..107 {
+            for x in 104..107 {
+                place(&mut w, (x, y), rootwood, organism, CellType::MatureBody, (0.0, 0.0));
+                placed += 1;
+            }
+        }
+        let mut contact = 0u32;
+        for y in 104..107 {
+            for x in 104..107 {
+                if NEIGHBOURS_4.iter().any(|&(dx, dy)| w.materials.get(w.get(x + dx, y + dy).material).water_capacity > 0) {
+                    contact += 1;
+                }
+            }
+        }
+        assert_eq!(placed, 9, "the scene has to be the 3x3 this test is about");
+        assert_eq!(
+            contact, 8,
+            "exactly the centre of a 3x3 root block is walled in; {contact} of 9 read as touching soil. \
+A scene that contradicts the code looks exactly like a broken mechanism"
+        );
+        assert!(
+            water_capacity_of(contact) < water_capacity_of(placed),
+            "the walled-in cell must buy no storage: capacity off contact ({}) must be under capacity off mass ({})",
+            water_capacity_of(contact),
+            water_capacity_of(placed)
+        );
+        assert_eq!(
+            water_capacity_of(contact),
+            organism::WATER_SCALE * 8.0,
+            "capacity is one cell's worth per *contacting* root cell, and nothing for the interior"
+        );
+    }
+
+    /// **Crown recession picks the most distal abandoned tissue, and never
+    /// tissue with a leaf beside it** — the paired comparison the die-back
+    /// rule has to survive.
+    ///
+    /// The ranking is the whole safety argument. Shedding the most distal,
+    /// most cantilevered abandoned cell first means an abandoned branch
+    /// unravels from its tip inward and strands nothing behind it, and the
+    /// bole — `support == 0`, small `path_len` — is the last thing to go.
+    /// The first version of this rule ranked nothing and keyed on
+    /// `q_now == 0` instead; `q_now` is a spanning-tree artifact for a
+    /// thickened trunk, and the rule ate trunks (4–6 of 8 founders
+    /// establishing against 8 of 8). See the die-back block in
+    /// `organism_upkeep`.
+    ///
+    /// Asserted on the ordering directly, because that is the property: a
+    /// scene grown to the point of recession would test the whole economy
+    /// at once and could not say which half failed.
+    #[test]
+    fn dieback_takes_the_most_distal_abandoned_cell_and_leaves_the_bole_for_last() {
+        // (path_len, support, x, y) — a bole cell, a mid-limb cell, and a
+        // twig at the end of a long lateral.
+        let mut candidates: Vec<(u16, u16, i32, i32)> = vec![(4, 0, 50, 90), (60, 22, 70, 40), (30, 8, 60, 60)];
+        candidates.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((a.3, a.2).cmp(&(b.3, b.2))));
+        assert_eq!(
+            candidates.first().map(|c| (c.2, c.3)),
+            Some((70, 40)),
+            "the twig at the end of the longest lateral must go first; anything else means the crown recedes from the trunk outward, \
+which is a hole in a stem rather than a receding crown"
+        );
+        assert_eq!(
+            candidates.last().map(|c| (c.2, c.3)),
+            Some((50, 90)),
+            "the bole must be last: `support == 0` because standing is free, and a short hydraulic path from the collar"
+        );
+        // Ties on both keys fall back to row-major, or the shape of a
+        // dying tree would be a property of the hasher's seed.
+        let mut tied: Vec<(u16, u16, i32, i32)> = vec![(9, 0, 51, 30), (9, 0, 50, 30), (9, 0, 50, 29)];
+        tied.sort_unstable_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then((a.3, a.2).cmp(&(b.3, b.2))));
+        assert_eq!(tied.first().map(|c| (c.2, c.3)), Some((50, 29)), "ties must break deterministically, row-major");
+    }
+
+    /// **A wide root plate reads better anchored than a narrow one under
+    /// the same crown** — the paired comparison anchorage has to survive,
+    /// and the reason root allocation is a trade rather than a tax.
+    ///
+    /// `physical-trees-design-2026-08-23.md` §11.1: this package ships the
+    /// owner's root-blob *cost*, and a quantity with a cost and no
+    /// counterweight has exactly one optimum — the minimum. The failure
+    /// this guards is not "anchorage is wrong", it is "anchorage does not
+    /// move", which reads as one root morphology everywhere.
+    ///
+    /// Paired on the plate alone: the same shoot, the same collar, the same
+    /// number of root cells, laid out narrow against wide. Anything that
+    /// makes both arms agree makes the term inert.
+    #[test]
+    fn a_wide_root_plate_reads_better_anchored_than_a_narrow_one() {
+        fn scene(spread: i32) -> (f32, f32, u32) {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            let id = w.push_organism(tree).expect("an organism slot is free");
+            let (shoot, root) = {
+                let st = w.organism(id).expect("just pushed");
+                let sp = w.species.get(st.species);
+                (sp.shoot_material.clone(), sp.root_material.clone())
+            };
+            let (shoot, root) = (w.materials.id_of(&shoot).expect("shoot material"), w.materials.id_of(&root).expect("root material"));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for y in 101..108 {
+                for x in 40..160 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            // One stem, 40 rows of it, collar at y = 100.
+            for y in 61..=100 {
+                place(&mut w, (100, y), shoot, id, CellType::MatureBody, (0.0, 0.0));
+            }
+            // Sixteen root cells, laid out at the same depth in both arms
+            // and differing only in how far they reach.
+            for i in 0..16i32 {
+                let x = 100 + (i - 8) * spread.max(1) / 2;
+                place(&mut w, (x, 101), root, id, CellType::MatureBody, (0.0, 0.0));
+            }
+            anchor_support(&mut w, id);
+            organism_upkeep(&mut w, id);
+            let st = w.organism(id).expect("still alive");
+            (st.anchor_moment, st.anchor_status, st.anchor_cells)
+        }
+        let (narrow_moment, narrow_status, narrow_anchors) = scene(1);
+        let (wide_moment, wide_status, wide_anchors) = scene(8);
+        // **Did it fire at all** -- a term computed off an empty anchor set
+        // reads 0 in both arms and "narrow < wide" would be 0 < 0.
+        assert!(
+            narrow_anchors > 0 && wide_anchors > 0,
+            "neither arm found any structural anchors ({narrow_anchors} and {wide_anchors}); the scene is not the one this test is about"
+        );
+        assert!(
+            wide_moment > narrow_moment * 2.0,
+            "spreading the same sixteen roots eight times as wide must raise the anchor moment: {narrow_moment:.1} against {wide_moment:.1}"
+        );
+        assert!(
+            wide_status > narrow_status,
+            "...and that has to reach `anchor_status`, or root spread buys nothing and the economy has a cost with no counterweight: \
+narrow {narrow_status:.3} against wide {wide_status:.3}"
+        );
+        assert!(
+            narrow_status < 1.0,
+            "the narrow arm reads {narrow_status:.3}; a term pinned at 1.0 on every plant is a term nothing can select on, which is \
+the failure ANCHOR_DEMAND is derived from a measured distribution to avoid"
+        );
+    }
+
+    /// The anchorage arithmetic on its own, including the two answers that
+    /// have to be the deferring ones.
+    #[test]
+    fn anchorage_defers_when_there_is_no_crown_and_saturates_rather_than_exceeding_one() {
+        assert_eq!(
+            anchor_status_of(0.0, 0.0),
+            1.0,
+            "a plant with no crown to overturn is perfectly anchored -- a seedling must not spend its first carbon on a root plate \
+for a shoot it does not have"
+        );
+        let big = anchor_status_of(1e9, 1.0);
+        assert!((big - 1.0).abs() < 1e-6, "the term is a 0..1 status and must clamp, not run away: got {big}");
+        // Chosen inside the unsaturated band on purpose: a pair that both
+        // clamp to 1.0 compares nothing, which is how the first version of
+        // this assertion managed to be vacuous and red at the same time.
+        let (heavy, light) = (anchor_status_of(1.0, 100.0), anchor_status_of(1.0, 50.0));
+        assert!(heavy < 1.0 && light < 1.0, "the comparison has to happen below the clamp: {heavy} and {light}");
+        assert!(heavy < light, "the same plate under twice the crown must read worse anchored: {heavy} against {light}");
+    }
+
+    /// **What a tree does when its light goes — the adult-mortality
+    /// question, printed rather than asserted, because the honest answer is
+    /// not a pass/fail.**
+    ///
+    /// P3 built the plumbing (`senescent`, `rot_remains`) and handed the
+    /// cause to this package: *"Nothing kills a healthy tree; a mature tree
+    /// always holds dormant buds, so it is never senescent, which is
+    /// correct. The cause arrives with P2's superlinear maintenance
+    /// respiration."*
+    ///
+    /// The cause is here and it fires. What it does **not** do at any
+    /// horizon measured is finish: a plant with no income sheds its way
+    /// down to a stump and then holds, because a stump is compact — almost
+    /// none of its cells are erodible without disconnecting something — and
+    /// because dormant buds keep it `is_vital` indefinitely. See
+    /// `Reports/plant-economy-rederivation-2026-08-23.md` §7 for the
+    /// ensemble figures and for what would move it.
+    ///
+    /// Kept as a probe rather than a guard, deliberately. A guard here
+    /// would have to assert either something that is not true yet (the tree
+    /// dies) or something that is not about this mechanism (the shaded tree
+    /// is smaller, which `shade_death` already did) — and this repo has a
+    /// standing rule against tests that pass while exercising nothing.
+    ///
+    /// Run alone: `cargo test --release a_shaded_tree -- --ignored
+    /// --nocapture --test-threads=1`.
+    ///
+    /// P3 built the plumbing (`senescent`, `rot_remains`) and said so
+    /// explicitly: *"Nothing kills a healthy tree; a mature tree always
+    /// holds dormant buds, so it is never senescent, which is correct. The
+    /// cause arrives with P2's superlinear maintenance respiration."* This
+    /// is that cause, end to end: income goes, the bill does not, die-back
+    /// trims the crown back toward what it can carry, the last foliage and
+    /// the last bud go with it, and the plant is then remains.
+    ///
+    /// **Paired, and the lit arm is the half that matters.** A rule that
+    /// kills a shaded tree and also kills a lit one is not mortality, it is
+    /// a timer — and this repo has a recorded case of exactly that
+    /// (`ORGANISM_STALE_LIMIT` implementing meristem senescence, which
+    /// grafting experiments falsify). Both arms are the same tree grown the
+    /// same way for the same number of frames; the only difference is a
+    /// stone lid.
+    #[test]
+    #[ignore]
+    fn print_a_shaded_tree_against_a_lit_one() {
+        fn run_arm(lid: bool) -> (usize, usize, u32) {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            // Individual 2 -- the one `print_crown_recession_trajectory`
+            // uses, and the reason is the same: the plastochron is jittered
+            // per organism and most draws grow nothing at all in this
+            // scene, so an arm pointed at individual 0 would compare two
+            // empty worlds and pass for the wrong reason.
+            for _ in 0..2 {
+                w.push_organism(tree).expect("an organism slot is free");
+            }
+            // **A deep, wide bed low in the world, and every word of that
+            // is a scene error already paid for.**
+            //
+            // The usual `plant_tree_on_ground` bed is 17 wide and 8 deep,
+            // and a tree in it is **water**-limited: both arms settle at
+            // the same stump with the same 113 leaves whatever the light
+            // is doing, which is the "identical output across settings"
+            // tell for a knob that was never connected. And the usual
+            // ground row leaves twenty rows of sky, so the crown reaches
+            // row 0 by frame 2,000 and there is nowhere to put a lid that
+            // is not already inside the tree — writing one there cuts the
+            // crown and the run reads as the rule shattering it.
+            //
+            // 61 wide by 30 deep, at row 120, is the bed `root_slot_run`
+            // uses, with a hundred and twenty rows of sky over it.
+            {
+                let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                let (px, py) = (100, 120);
+                const HALF: i32 = 30;
+                const ROWS: i32 = 30;
+                for fx in (px - HALF - 1)..=(px + HALF + 1) {
+                    w.set(fx, py + ROWS + 1, Cell::new(material::STONE, 0));
+                }
+                for dy in 1..=ROWS {
+                    w.set(px - HALF - 1, py + dy, Cell::new(material::STONE, 0));
+                    w.set(px + HALF + 1, py + dy, Cell::new(material::STONE, 0));
+                    for fx in (px - HALF)..=(px + HALF) {
+                        w.set(fx, py + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                    }
+                }
+                w.plant_tree(px, py);
+            }
+            run_with_fields(&mut w, 8_000);
+            let id = {
+                let b = w.bounds().expect("bounded");
+                (b.min_y..=b.max_y)
+                    .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                    .map(|(x, y)| w.get(x, y).organism_id())
+                    .find(|&id| id != 0)
+                    .expect("test setup: nothing grew, so neither arm is measuring the rule")
+            };
+            let grown = w.organism(id).map_or(0, |st| st.cells.len());
+            assert!(grown > 200, "test setup: the tree reached only {grown} cells, which is too small to be about a crown");
+            if lid {
+                // A stone lid across the whole sky above the stand. Light
+                // is cast down each column, so this takes the income to
+                // zero without touching the plant.
+                // Above the apex, not at a fixed row: `apply_sky` casts
+                // down each column, so a lid the crown pokes through is
+                // not a lid at all -- every plugged column stays lit and
+                // the plant lives on the trickle indefinitely (income
+                // floored at 0.042 for thirty thousand frames, measured).
+                let top = {
+                    let b = w.bounds().expect("bounded");
+                    (b.min_y..=b.max_y)
+                        .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                        .find(|&(x, y)| w.get(x, y).organism_id() != 0)
+                        .map(|(_, y)| y)
+                        .expect("the tree exists")
+                };
+                assert!(top > 6, "test setup: the crown reached row {top}, so there is no sky left to put a lid in");
+                for x in 0..200 {
+                    w.set(x, top - 4, Cell::new(material::STONE, 0));
+                }
+            }
+            run_with_fields(&mut w, 24_000);
+            let cells = w.organism(id).map_or(0, |st| st.cells.len());
+            let leaves = w.organism(id).map_or(0, |st| {
+                st.cells.keys().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count()
+            });
+            let shed = w.organism(id).map_or(0, |st| st.starved_cells);
+            (cells, leaves, shed)
+        }
+        let (lit_cells, lit_leaves, lit_shed) = run_arm(false);
+        let (dark_cells, dark_leaves, dark_shed) = run_arm(true);
+        println!("lit  {lit_cells} cells, {lit_leaves} leaves, {lit_shed} shed to starvation");
+        println!("dark {dark_cells} cells, {dark_leaves} leaves, {dark_shed} shed to starvation");
+        // The one thing this *can* assert without over-claiming: the lid
+        // reached the plant at all. Both arms reading the same numbers is
+        // the "identical output across settings" tell, and it happened for
+        // real here — on the 17x8 bed both arms settled at the same stump
+        // with the same 113 leaves, because that bed is water-limited and
+        // the light never mattered.
+        assert!(
+            dark_leaves * 2 < lit_leaves,
+            "the shaded arm kept {dark_leaves} leaves against the lit arm's {lit_leaves}; the lid is not reaching the plant, \
+so nothing below this line would be about shade"
+        );
+    }
+
+    /// **Water withheld from a grown tree — the reproduction for "drought
+    /// cannot kill a plant", filed as an open bug rather than fixed here.**
+    ///
+    /// The owner's push-back on the economy report's §7, 2026-08-24:
+    /// *"but economics should be able to cause tree death right. if a tree
+    /// doesn't get watered, it will eventually die."* He is right, and the
+    /// report's §7 was wrong to fold the water case in with the light case:
+    /// a shaded tree holding as a stump is a tree waiting for a gap, but a
+    /// tree that is never watered is a tree that should die.
+    ///
+    /// **It cannot, and the loop is closed and self-extinguishing.** Three
+    /// sites, all on `main` and none of them this package's:
+    ///
+    /// 1. transpirational demand is summed **over foliage only** — the walk
+    ///    above gates on `matches!(ty, Leaf | GrowingTip)`, and wood and
+    ///    root declare no `Photosynthesize`, so they ask for no water;
+    /// 2. `settle_water` returns `desiccation = if demand > 0.0 { 1.0 −
+    ///    open_drawn / demand } else { 0.0 }` — an explicit zero at zero
+    ///    demand;
+    /// 3. `drought_death` is a field on `Behavior::Photosynthesize`, so
+    ///    drought only ever sheds *foliage*.
+    ///
+    /// So shedding a leaf reduces the very signal that shed it. Drought is
+    /// a negative feedback on itself, and a plant escapes it by starving:
+    /// at zero foliage demand is zero, desiccation is exactly zero, and
+    /// nothing about being bone dry can touch the trunk or the roots ever
+    /// again. This probe prints the four columns that show it — watch
+    /// `demand` and `desiccation` fall *together* with `leaves` while
+    /// `cells` holds.
+    ///
+    /// Run alone: `cargo test --release print_a_tree_with_the_water -- \
+    /// --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn print_a_tree_with_the_water_withheld() {
+        let individual: u16 = 2;
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for _ in 0..individual {
+            w.push_organism(tree).expect("an organism slot is free");
+        }
+        plant_tree_on_ground(&mut w, 100, 20);
+        run_with_fields(&mut w, 8_000);
+        let b = w.bounds().expect("bounded");
+        let id = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .map(|(x, y)| w.get(x, y).organism_id())
+            .find(|&id| id != 0)
+            .expect("test setup: nothing grew, so there is no crown to dry out");
+        assert!(w.organism(id).is_some_and(|st| st.cells.len() > 200), "test setup: too small to be about a crown");
+
+        // **The water goes, and stays gone.** Every soil cell in the bed
+        // drops to the permanent wilting point, where
+        // `plant_available_fraction` is exactly zero. Re-applied at every
+        // sample because the plant's own root tissue keeps converting soil
+        // and the bed would otherwise creep back up.
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // The default is short enough to run in a coffee break and long
+        // enough to show the direction; `DROUGHT_EPOCHS=80` runs it out to
+        // where demand collapses and takes desiccation with it.
+        let epochs: usize = std::env::var("DROUGHT_EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+        println!("frame  cells leaves    water  demand  desicc  status  senescent");
+        for epoch in 0..epochs {
+            let bounds = w.bounds().expect("bounded");
+            for y in bounds.min_y..=bounds.max_y {
+                for x in bounds.min_x..=bounds.max_x {
+                    let c = w.get(x, y);
+                    if c.material == soil {
+                        w.set(x, y, c.with_aux(material::SOIL_WILTING_POINT));
+                    }
+                }
+            }
+            run_with_fields(&mut w, 1_000);
+            let cells: Vec<(i32, i32)> = (bounds.min_y..=bounds.max_y)
+                .flat_map(|y| (bounds.min_x..=bounds.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).organism_id() == id)
+                .collect();
+            let leaves = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count();
+            let Some(st) = w.organism(id) else {
+                println!("{:>5}  the organism is gone -- which would be the bug fixed", (epoch + 1) * 1_000 + 8_000);
+                break;
+            };
+            println!(
+                "{:>5} {:>6} {:>6} {:>8.2} {:>7.3} {:>7.3} {:>7.2}  {}",
+                (epoch + 1) * 1_000 + 8_000,
+                cells.len(),
+                leaves,
+                st.water,
+                st.water_demand,
+                st.water_desiccation,
+                st.water_status,
+                st.senescent
+            );
+        }
+    }
+
+    /// **The recession trajectory, printed — is this a receding crown or a
+    /// tree coming apart?**
+    ///
+    /// The two look identical in a cell count and in a still image, and
+    /// this repo has already paid for that confusion twice (`CLAUDE.md`: a
+    /// collapse read as "chunks are working" from a picture whose body
+    /// count was zero). What separates them is whether the plant stays *one
+    /// connected piece* while it sheds, so that is printed beside the book
+    /// that drives the shedding.
+    ///
+    /// Run alone: `cargo test --release print_crown_recession -- --ignored
+    /// --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn print_crown_recession_trajectory() {
+        // **The individual has to be hunted for**, exactly as
+        // `shedding_every_leaf_does_not_disconnect_the_stem` hunts: the
+        // plastochron is jittered per organism and in this scene most draws
+        // grow nothing at all. A probe pointed at individual 0 prints
+        // twelve rows of zeroes and reads as "the mechanism killed it".
+        let individual: u16 = std::env::var("RECESSION_INDIVIDUAL").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for _ in 0..individual {
+            w.push_organism(tree).expect("an organism slot is free");
+        }
+        plant_tree_on_ground(&mut w, 100, 20);
+        // `RECESSION_LID=8000` drops a stone lid across the sky at that
+        // frame -- the controlled way to ask what a tree does when its
+        // income goes and stays gone, which is the mortality question.
+        let lid_at: u64 = std::env::var("RECESSION_LID").ok().and_then(|v| v.parse().ok()).unwrap_or(u64::MAX);
+        let epochs: usize = std::env::var("RECESSION_EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(12);
+        println!("individual {individual}");
+        println!("frame  cells leaves   income    bill  deficit  starved  connected");
+        for epoch in 0..epochs {
+            if w.frame < lid_at && (epoch as u64 + 1) * 1000 >= lid_at {
+                // **Two rows above the crown, not at a fixed height, and
+                // both halves of that matter.** A lid written at a fixed
+                // row cuts whatever crown has already reached it -- 4%
+                // connected, which reads as the die-back shattering the
+                // tree when what happened is that the scene amputated it.
+                // And a lid with the crown's own apex cells poking through
+                // it is not a lid: `apply_sky` casts down each column, so
+                // every column the tree plugged stayed lit and the plant
+                // lived on the trickle indefinitely (income floored at
+                // 0.042 for thirty thousand frames). Above the apex, the
+                // sky is empty and the cover is total.
+                let top = w
+                    .bounds()
+                    .and_then(|b| {
+                        (b.min_y..=b.max_y)
+                            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                            .find(|&(x, y)| w.get(x, y).organism_id() != 0)
+                            .map(|(_, y)| y)
+                    })
+                    .unwrap_or(4);
+                for x in 0..200 {
+                    w.set(x, (top - 2).max(0), Cell::new(material::STONE, 0));
+                }
+            }
+            run_with_fields(&mut w, 1000);
+            let b = w.bounds().expect("bounded");
+            let id = (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .map(|(x, y)| w.get(x, y).organism_id())
+                .find(|&id| id != 0)
+                .unwrap_or(0);
+            if id == 0 {
+                println!("{:>5}  nothing owned by an organism -- the scene, not the mechanism", (epoch + 1) * 1000);
+                continue;
+            }
+            let cells: Vec<(i32, i32)> =
+                (b.min_y..=b.max_y).flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y))).filter(|&(x, y)| w.get(x, y).organism_id() == id).collect();
+            let leaves = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count();
+            let is_plant = |c: Cell| c.organism_id() == id && w.materials.kind(c.material) == MaterialKind::Plant;
+            let reached = if cells.is_empty() { 0 } else { organism::reachable_from_anchors(&w, [cells[0]], is_plant, 200_000).len() };
+            let (income, bill, starved) = w.organism(id).map_or((0.0, 0.0, 0), |st| (st.income * MEAN_NIGHT_INCOME_FACTOR, st.maintenance, st.starved_cells));
+            let buds = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::DormantBud)).count();
+            let dead = w.organism(id).is_some_and(|st| st.senescent);
+            let top = cells.iter().map(|&(_, y)| y).min().unwrap_or(-1);
+            print!("top {top:>3} buds {buds:>4} senescent {dead:<5} | ");
+            println!(
+                "{:>5} {:>6} {:>6} {income:>8.3} {bill:>7.3} {:>8.3} {starved:>8}  {:>3}% of {}",
+                (epoch + 1) * 1000,
+                cells.len(),
+                leaves,
+                (bill - income).max(0.0),
+                if cells.is_empty() { 0 } else { 100 * reached / cells.len() },
+                cells.len()
+            );
+        }
+    }
+
+    /// **A cell with live tissue beside it is never a die-back candidate**,
+    /// and the neighbourhood is eight because `Grow` places at eight.
+    ///
+    /// `CLAUDE.md`: "a traversal must use the same neighbourhood the writer
+    /// used" — a four-neighbour read would see a diagonally-borne spray as
+    /// absent and shed the wood carrying it. Stated as its own test because
+    /// the failure is silent: the rule would still look like it worked, and
+    /// would be quietly removing exactly the wood that holds foliage up.
+    #[test]
+    fn a_cell_with_foliage_on_a_diagonal_is_not_abandoned() {
+        let mut w = test_world();
+        let organism = 9u16;
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        place(&mut w, (50, 50), wood, organism, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (51, 49), leaf, organism, CellType::Leaf, (0.0, 0.0)); // diagonal
+        let alive_beside = |w: &World, cx: i32, cy: i32, nbrs: &[(i32, i32)]| {
+            nbrs.iter().any(|&(dx, dy)| {
+                let n = w.get(cx + dx, cy + dy);
+                n.organism_id() == organism && organism::cell_type(n.aux()).is_some_and(|t| matches!(t, CellType::Leaf) || is_frontier(t))
+            })
+        };
+        assert!(
+            alive_beside(&w, 50, 50, &NEIGHBOURS_8),
+            "wood carrying a diagonally-placed leaf must read as alive; at eight neighbours it does"
+        );
+        assert!(
+            !alive_beside(&w, 50, 50, &NEIGHBOURS_4),
+            "and at four it does not -- which is why this test exists and why the rule may not use four"
+        );
+    }
+
+    /// **Starvation die-back must not schedule a structural check** — the
+    /// same prohibition `shedding_a_leaf_schedules_decay_and_never_a_
+    /// structural_check` asserts for abscission, restated for the second
+    /// mechanism that removes standing tissue.
+    ///
+    /// It needs restating rather than inheriting: abscission removes a
+    /// *leaf*, and this removes *wood*, which is exactly the kind of change
+    /// that invites a helpful "shouldn't the structure hear about this?".
+    /// `CLAUDE.md`'s measured precedent is a stand going from 20,213 living
+    /// cells to 772 from a single check, and it "masqueraded as 'the
+    /// mechanism is wrong' through eight settings".
+    #[test]
+    fn starvation_dieback_sheds_to_litter_and_never_schedules_a_structural_check() {
+        let mut w = test_world();
+        let organism = 9u16;
+        for x in 40..70 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let abandoned = [(50, 50), (51, 50), (52, 50)];
+        for &pos in &abandoned {
+            place(&mut w, pos, wood, organism, CellType::MatureBody, (0.0, 0.0));
+        }
+        let before = w.active_site_count();
+        for &(x, y) in &abandoned {
+            shed_to_litter(&mut w, x, y);
+            shed_stranded_leaves(&mut w, x, y, organism);
+        }
+        let litter = w.materials.id_of("litter").expect("litter is compiled in");
+        let landed = (40..70).flat_map(|x| (40..60).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == litter).count();
+        assert_eq!(
+            landed,
+            abandoned.len(),
+            "the die-back has to have actually happened for the zero below to mean anything; {landed} of {} became litter",
+            abandoned.len()
+        );
+        let added = w.active_site_count() - before;
+        assert_eq!(
+            added, 0,
+            "shedding {} starved cells added {added} active sites; it must add none. Anything here is a structural check fanning out",
+            abandoned.len()
+        );
+    }
+
     /// **Shedding must not schedule a structural check**, and this is the one
     /// guard standing between S4 and a measured 26x collapse.
     ///
@@ -4829,6 +6739,127 @@ mod tests {
             "shedding {} leaves added {added} active sites; it should add none. Anything here is a structural check fanning out, which amputates a crown -- see the doc on this test",
             spray.len()
         );
+    }
+
+    /// **Superlinear, and the test has to be able to fail for the flat
+    /// rule that is a recorded dead end.**
+    ///
+    /// `Reports/dead-ends.md`: flat per-cell maintenance respiration "was
+    /// tried and impoverished rather than shaped: cost linear in mass
+    /// against income linear in leaf count balances at any size, so a flat
+    /// upkeep bounds nothing (Takenaka's exponent is 1.5)". A bar of
+    /// "doubling the load raises the bill" would pass for the flat rule's
+    /// linear successor as well and assert nothing about the property that
+    /// matters, so the bar is the exponent itself: `2^1.5 = 2.83`, checked
+    /// with margin on both sides. Flat scores 1.0 and linear scores 2.0;
+    /// both fail here.
+    #[test]
+    fn maintenance_is_superlinear_in_the_foliage_a_cell_carries() {
+        let l = l_node(10);
+        // The *girth* term, not the whole bill: `MAINTENANCE_PER_CELL` is
+        // deliberately flat and would dilute the ratio being asserted here
+        // into meaninglessness. The property under test belongs to
+        // `maintenance_basis`, and the two terms are checked separately
+        // rather than through a sum that hides both.
+        let one = maintenance_basis(l, l);
+        let two = maintenance_basis(l * 2.0, l);
+        let four = maintenance_basis(l * 4.0, l);
+        assert!(one > 0.0, "a cell carrying one node's foliage must owe something; got {one}");
+        let doubling = two / one;
+        assert!(
+            (2.5..3.2).contains(&doubling),
+            "doubling the carried foliage must raise the bill by about 2^{MAINTENANCE_EXPONENT} = 2.83, not by {doubling:.2}. \
+1.0 is flat respiration and 2.0 is linear -- both are the recorded dead end this exponent exists to avoid"
+        );
+        // ...and it keeps compounding, which is what bounds a big tree
+        // rather than merely taxing it.
+        assert!(four / two > doubling * 0.9, "the exponent must not flatten out at scale: {} against {doubling:.2}", four / two);
+        // The root arm carries only the mass term -- see
+        // `MAINTENANCE_PER_CELL`.
+        assert_eq!(
+            maintenance_cost(0.0, l, true),
+            maintenance_cost(l * 100.0, l, true),
+            "a root cell's bill must not read `q_peak` at all: the basipetal walk gives almost every root cell q = 0, \
+so a superlinear root arm would price the whole root system at nothing and look live while doing nothing"
+        );
+        // ...and every living cell owes the mass term, or abandoned wood
+        // and blob interiors would be free to stand for ever and the
+        // die-back would have nothing to remove.
+        assert!(maintenance_cost(0.0, l, true) > 0.0, "a root cell carrying nothing must still cost something -- that is the owner's directive");
+        assert!(maintenance_cost(0.0, l, false) > 0.0, "so must a shoot cell that carries nothing");
+    }
+
+    /// **Night slows growth, and the floor is a floor.**
+    ///
+    /// The 2026-08-17 owner directive. Asserted over a whole day rather
+    /// than at two hand-picked frames, so it does not encode the sun's
+    /// current phase convention -- `sky_light_amplitude` has been
+    /// re-derived once already and a test pinned to frame numbers would
+    /// have gone quietly wrong rather than red.
+    #[test]
+    fn income_runs_at_a_night_floor_and_reaches_full_at_noon() {
+        let day = crate::sim::field::DAY_NIGHT_PERIOD_FRAMES;
+        let (mut lo, mut hi, mut sum) = (f32::INFINITY, f32::NEG_INFINITY, 0.0f64);
+        for f in 0..day {
+            let v = night_income_factor(f);
+            lo = lo.min(v);
+            hi = hi.max(v);
+            sum += v as f64;
+        }
+        assert!((lo - NIGHT_INCOME_FLOOR).abs() < 1e-5, "the darkest point of night must earn exactly the floor, got {lo}");
+        assert!((hi - 1.0).abs() < 1e-3, "noon must earn full income, got {hi}");
+        let mean = sum / day as f64;
+        assert!(
+            (0.35..0.65).contains(&mean),
+            "a day's mean income factor of {mean:.3} means this is not the directive it implements -- near 1.0 is night doing nothing, \
+near the floor is a permanent eclipse. The clipped-hump sun spends over half the cycle at the floor."
+        );
+        // **And the constant every decision divides by has to be that
+        // mean.** Asserted rather than commented, because the two drifting
+        // apart is not a visible failure -- it is a stand that sheds on a
+        // nightly cycle, which reads as the mechanism being too harsh.
+        assert!(
+            (mean - MEAN_NIGHT_INCOME_FACTOR as f64).abs() < 0.01,
+            "MEAN_NIGHT_INCOME_FACTOR is {MEAN_NIGHT_INCOME_FACTOR}, the actual day mean is {mean:.4}"
+        );
+    }
+
+    /// **A decision must not move with the hour, and this is the pair that
+    /// proves the split.**
+    ///
+    /// `CLAUDE.md`'s "a channel that oscillates by design must be divided
+    /// out of decisions": the live tip count measured 71 at noon against 28
+    /// at night on the same stand, and every fixed threshold on raw light
+    /// was a nightly extinction event. `field::noon_equivalent_light` fixed
+    /// the reads; the night factor deliberately puts an oscillation back
+    /// into *income*, so the guard that the reads stayed flat has to be
+    /// stated rather than assumed.
+    #[test]
+    fn the_night_factor_reaches_income_and_never_a_light_read() {
+        let day = crate::sim::field::DAY_NIGHT_PERIOD_FRAMES;
+        let mut w = test_world();
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        // Open sky above an unoccluded cell: the noon-equivalent read must
+        // be the same number at every hour, which is the property every
+        // economic gate depends on.
+        let mut reads: Vec<f32> = Vec::new();
+        for f in (0..day).step_by(300) {
+            w.frame = f;
+            field::step(&mut w);
+            reads.push(ambient_light_above(&w, 50, 59));
+        }
+        let (lo, hi) = (reads.iter().cloned().fold(f32::INFINITY, f32::min), reads.iter().cloned().fold(0.0f32, f32::max));
+        assert!(
+            hi - lo < 0.35,
+            "noon-equivalent light over one day spans {lo:.2}..{hi:.2}; a gate reading this is a different gate every hour. \
+The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
+        );
+        // ...while income over the same day does move, and by a lot.
+        let factors: Vec<f32> = (0..day).step_by(300).map(night_income_factor).collect();
+        let span = factors.iter().cloned().fold(0.0f32, f32::max) - factors.iter().cloned().fold(f32::INFINITY, f32::min);
+        assert!(span > 0.5, "income barely moved across a day (span {span:.2}); the directive is that night slows growth");
     }
 
     /// Plant a seed **on ground**, which every tree test now needs.
@@ -5179,7 +7210,7 @@ mod tests {
         let material = w.materials.id_of("costtest").unwrap();
         let species = w.species.id_of("costtest").unwrap();
 
-        let organism_id = w.push_organism(species);
+        let organism_id = w.push_organism(species).expect("an organism slot is free");
         let start_resource = 3.0;
         place(&mut w, (50, 50), material, organism_id, CellType::GrowingTip, (start_resource, 0.0));
 
@@ -5283,6 +7314,385 @@ mod tests {
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
     }
 
+    /// **The property, rather than two instants fitted to one trajectory**
+    /// (`CLAUDE.md`) — and the reason appending a genome slot is safe at
+    /// all, asserted directly instead of inferred from a grown stand.
+    ///
+    /// Every founding draw is `rng::stream(world_seed, x, y, slot)`, so
+    /// **slot N's value is a function of N and the germination site and
+    /// nothing else** — not of how many slots exist beside it, not of the
+    /// order they are filled in, not of anything downstream. That is the
+    /// whole licence for appending, and it is the sentence
+    /// `GENOTYPE_TRAITS`' doc makes the contract.
+    ///
+    /// This recomputes each slot's expected draw from the documented key
+    /// and checks the stored vector against it, slot by slot. It calls
+    /// `seed_genotype` directly rather than growing anything, which is
+    /// the point: it steps no frames, reads no species file and touches
+    /// no plant behaviour, so **nothing any other lane lands in `main`
+    /// can move it**. The stand fingerprint below is the complement —
+    /// broader, and fragile for exactly that reason (see its own note).
+    ///
+    /// Fails for a renumbering, a re-purposing, or any change to how a
+    /// draw is derived — the three things that silently rewrite every
+    /// genome ever measured.
+    #[test]
+    fn a_genome_slots_draw_is_a_pure_function_of_its_own_index() {
+        let mut w = test_world();
+        w.seed = 909_090;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
+        let (x, y) = (73, 41);
+        seed_genotype(&mut w, organism_id, x, y);
+
+        let draws = w.organism(organism_id).expect("live organism").genotype_draws;
+        for (slot, got) in draws.iter().enumerate() {
+            // The documented key, written out here on purpose: if this
+            // line and `seed_genotype` ever disagree, that is the bug
+            // this test is for, and a shared helper would hide it.
+            let mut rng = rng::stream(w.seed, x as u64, y as u64, slot as u64);
+            let want = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
+            assert_eq!(
+                *got, want,
+                "slot {slot} did not draw from `rng::stream(world_seed, x, y, {slot})`. A slot's \
+                 value must depend on its own index and nothing else -- that is what makes \
+                 appending a slot safe and renumbering one catastrophic. See `GENOTYPE_TRAITS`."
+            );
+        }
+
+        // Not vacuous: an all-zero vector would satisfy a broken
+        // derivation that returned a constant, and would pass the loop
+        // above if `seed_genotype` were gutted the same way.
+        assert!(draws.iter().any(|&d| d != 0.0), "a germinated plant should have drawn a real genotype");
+        assert!(
+            draws.iter().any(|&d| d != draws[0]),
+            "the slots should differ from each other -- one stream reused for every slot would \
+             make the whole genome a single number wearing ten labels"
+        );
+    }
+
+    /// **The append-only guard on the genome layout: does slot 9 change
+    /// any plant?** Asked as a comparison inside one process, which is
+    /// the only form of the question that holds still.
+    ///
+    /// Grows the same stand twice in one run — once with slot 9's width
+    /// as the species ships it, once with that width at `0.0` — and
+    /// asserts the two are identical, cell for cell and genome for
+    /// genome. Slot 9 is capacity with no consumer
+    /// (`organism::GENOTYPE_TRAITS`), so expressing it or not must make
+    /// no difference to anything. The day it does, either a consumer has
+    /// been wired to it or a slot has been renumbered onto it, and both
+    /// arms of this test disagree.
+    ///
+    /// **This replaced a hardcoded whole-stand fingerprint, and the
+    /// reason is worth keeping.** That version asserted
+    /// `h == 0x1a52804a2df78ebc`, which was true of the tree the day it
+    /// was written and false the moment any lane touched plant
+    /// behaviour. Inside one evening it went stale twice — WP-11's
+    /// leaf-fall reaching four species, P3's generation loop, W2's
+    /// grassfire, then W3's grass sowing and W4's wind geography — and
+    /// each staleness looked exactly like a genome fault. It cost two
+    /// wrong diagnoses, one of which nearly "fixed" correct code. Both
+    /// arms here move together under all of that, so none of it can
+    /// reach this test, and **there is no magic number for anyone to
+    /// decide whether to update.** `CLAUDE.md`: assert the property, not
+    /// two instants fitted to one trajectory. The full incident is in
+    /// `Reports/open-bugs-handoff.md`.
+    ///
+    /// **Confirmed not vacuous**, which matters more here than usual
+    /// because two arms that are equal *by construction* would pass for
+    /// ever while testing nothing: pointing the turgor read at slot 9
+    /// (one character, `genotype(world, organism_id, 9, ...)`) makes the
+    /// arms disagree and the test red. Re-run that if this is rewritten.
+    ///
+    /// What it deliberately does **not** cover, because each has a
+    /// cheaper guard that cannot go stale either: slots 0–8 drawing from
+    /// their own index (`a_genome_slots_draw_is_a_pure_function_of_its_own_index`),
+    /// the breeding draw order (`widening_the_genome_does_not_move_the_
+    /// breeding_draw_sequence`), and `set_seed`'s consumption of the
+    /// caller's `Rng` (`set_seed_leaves_the_callers_rng_position_alone`).
+    #[test]
+    fn expressing_the_appended_genome_slot_changes_no_plant() {
+        const FOUNDERS: usize = 4;
+        const APPENDED: usize = 9;
+
+        /// FNV-1a, written out rather than pulled from `DefaultHasher`,
+        /// which is explicitly not stable across releases. Nothing is
+        /// stored across runs here, but a hash that changes shape
+        /// mid-comparison would be its own bug.
+        fn fingerprint(w: &World) -> (u64, usize, usize) {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            let mut eat = |bytes: &[u8]| {
+                for &b in bytes {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            };
+            let b = w.bounds().expect("the test world has bounds");
+            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            let mut cells = 0usize;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    owners.insert(c.organism_id());
+                    cells += 1;
+                    eat(&x.to_le_bytes());
+                    eat(&y.to_le_bytes());
+                    eat(&c.material.0.to_le_bytes());
+                    eat(&c.aux().to_le_bytes());
+                    eat(&c.organism_id().to_le_bytes());
+                }
+            }
+            for id in &owners {
+                let Some(s) = w.organism(*id) else { continue };
+                // Slots 0..9 only. Slot 9 itself is *expected* to differ
+                // between the arms in the draw vector -- the arms differ
+                // in its width, and the point is that no plant changes,
+                // not that the unread number matches.
+                for d in &s.genotype_draws[..APPENDED] {
+                    eat(&d.to_bits().to_le_bytes());
+                }
+                eat(&s.alleles);
+                eat(&s.generation.to_le_bytes());
+            }
+            (h, owners.len(), cells)
+        }
+
+        fn grow(slot_nine_width: f32) -> (u64, usize, usize) {
+            let mut w = test_world();
+            w.seed = 4242;
+            let tree = w.species.id_of("tree").expect("tree species is compiled in");
+            // The shoot vector, which is where slot 9 lives -- 4/6/7/9
+            // are borrowed from it by the whole-plant passes.
+            let mut shoot = w
+                .species
+                .get(tree)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                    _ => None,
+                })
+                .expect("tree's shoot has a Grow");
+            assert!(shoot[APPENDED] > 0.0, "tree should ship a live width on the appended slot, or both arms are the same run");
+            shoot[APPENDED] = slot_nine_width;
+            w.species.set_genotype_variance(tree, CellType::GrowingTip, shoot);
+
+            // Four individuals, not one: the draws are position-keyed,
+            // so a single tree exercises a single column of the slot map.
+            for x in [40, 70, 100, 130] {
+                plant_tree_on_ground(&mut w, x, 60);
+            }
+            // 8,000 and not 2,000 because at 2,000 nothing has bred, and
+            // a guard over a genome that never inherited is watching half
+            // the machinery. Measured: at 2,000 this scene did not even
+            // notice the turgor read moving from slot 3 to slot 4.
+            run_with_fields(&mut w, 8_000);
+            fingerprint(&w)
+        }
+
+        let expressed = grow(0.7);
+        let suppressed = grow(0.0);
+
+        // **Not a vacuous comparison.** An empty stand, or one that never
+        // bred, fingerprints identically in both arms and watches
+        // nothing. More owners than founders is what says `set_seed` ran.
+        assert!(expressed.2 > 400, "the stand should have actually grown, got {} organism cells", expressed.2);
+        assert!(
+            expressed.1 > FOUNDERS,
+            "the stand must breed within the budget or this guard never exercises `set_seed`; got {} owners",
+            expressed.1
+        );
+
+        assert_eq!(
+            expressed, suppressed,
+            "expressing genome slot {APPENDED} changed the stand. It is capacity with no consumer, so \
+             nothing should read it and nothing should move: either a consumer has been wired to it, \
+             or a slot has been renumbered onto it (which rewrites every genome ever measured -- see \
+             `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a comparison between two arms of \
+             the same build, so an unrelated plant change landing in `main` cannot cause it. Both arms \
+             move together. This is a real fault."
+        );
+    }
+
+    /// **The breeding half of the append-only guard**, and the one the
+    /// stand fingerprint above cannot reach.
+    ///
+    /// `set_seed` is the only consumer of a genome that spends the shared
+    /// `Rng` *per slot* rather than indexing by slot, so the number of
+    /// slots is itself part of the random sequence: a tenth jitter drawn
+    /// inline would push every allele roll after it one draw along, and
+    /// every bred individual in every study taken before the widening
+    /// would come out a different plant. `SEQUENCED_TRAITS` is what holds
+    /// the prefix; this is what proves it holds.
+    ///
+    /// **Two hundred children rather than the stand test's three, and
+    /// that is the entire reason this test exists separately.** The
+    /// discrete loci mutate at 3% across 6 loci, so a shifted sequence
+    /// only shows where a roll actually crosses the threshold —
+    /// ~0.18 flips per seed. The four-tree stand breeds three times, and
+    /// so it passes the naive all-slots-inline loop perfectly happily:
+    /// measured, not assumed. At this sample the expected flip count is
+    /// ~36, and the naive loop is red.
+    ///
+    /// A fresh `Rng` per call, keyed the way `Behavior::Reproduce` keys
+    /// it in production (organism, cell, frame), so the sensitivity this
+    /// measures is the sensitivity the engine actually has and not an
+    /// artifact of threading one stream through every birth.
+    #[test]
+    fn widening_the_genome_does_not_move_the_breeding_draw_sequence() {
+        const LEGACY_TRAITS: usize = 9;
+        const CHILDREN: usize = 200;
+
+        struct Fnv(u64);
+        impl Fnv {
+            fn eat(&mut self, bytes: &[u8]) {
+                for &b in bytes {
+                    self.0 ^= b as u64;
+                    self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+
+        let mut w = test_world();
+        w.seed = 77;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let parent = w.push_organism(tree).expect("an organism slot is free");
+        // A parent whose draws are spread across the legacy range rather
+        // than all one value: a uniform genome would let a slot-order bug
+        // copy the wrong slot and still produce the right number.
+        if let Some(s) = w.organism_mut(parent) {
+            for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
+                *d = (slot as f32) / 9.0 - 0.5;
+            }
+            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.generation = 3;
+        }
+
+        let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+        let mut born = 0usize;
+        for i in 0..CHILDREN {
+            // Spread out, so every call finds the free neighbour it needs
+            // and the seeds it already dropped are not what refuses the
+            // next one -- a refused `set_seed` returns early and would
+            // quietly shrink the sample.
+            let (x, y) = (4 + (i as i32 % 48) * 4, 4 + (i as i32 / 48) * 4);
+            let mut rng = rng::stream(parent as u64, x as u64, y as u64, i as u64);
+            if !set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+                continue;
+            }
+            born += 1;
+        }
+        // Every child, in id order, over the slots and loci that existed
+        // when this value was taken.
+        let mut ids: Vec<u16> = Vec::new();
+        let b = w.bounds().expect("the test world has bounds");
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let id = w.get(x, y).organism_id();
+                if id != 0 && id != parent {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        for id in &ids {
+            let Some(s) = w.organism(*id) else { continue };
+            for d in &s.genotype_draws[..LEGACY_TRAITS] {
+                h.eat(&d.to_bits().to_le_bytes());
+            }
+            h.eat(&s.alleles);
+            h.eat(&s.generation.to_le_bytes());
+        }
+
+        assert_eq!(born, CHILDREN, "every call should have set a seed, or the sample is smaller than it reads");
+        assert_eq!(ids.len(), CHILDREN, "every child should own its seed cell");
+        // Not vacuous: the loci have to have actually mutated somewhere,
+        // or this fingerprint is 200 copies of the parent's alleles and
+        // is blind to exactly the shift it exists to catch.
+        let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0])).count();
+        assert!(mutated >= 5, "the discrete loci should have mutated in a few children, got {mutated}");
+
+        assert_eq!(
+            h.0, 0x2197_04fe_f1c7_3b67,
+            "the breeding draw sequence moved. `set_seed` spends one draw per genome slot from a \
+             shared `Rng`, so this fails if a new slot was mutated inline instead of after the \
+             discrete loci -- see `SEQUENCED_TRAITS`. Every bred genome ever measured is downstream \
+             of this sequence."
+        );
+    }
+
+    /// **`set_seed` must leave the caller's `Rng` where it found it**,
+    /// however many genome slots exist — the property neither guard
+    /// above can see.
+    ///
+    /// `rng` is `&mut`, borrowed from `Behavior::Reproduce`, and it
+    /// outlives the call. Drawing one jitter per slot from it means the
+    /// *number of genome slots* decides where the caller's stream sits
+    /// on return, so widening the genome shifts every draw the caller
+    /// makes afterwards. Whether that is observable depends on the
+    /// behavior order in the species file — `Reproduce` is currently
+    /// last among the `rng` users for the shipped species, which is an
+    /// accident that holds until someone reorders a `.ron`.
+    ///
+    /// **This test exists because the other two provably cannot catch
+    /// it**, and that was measured rather than assumed: with the
+    /// appended-slot loop moved back onto the shared stream, both the
+    /// stand fingerprint and the 200-child breeding fingerprint stay
+    /// **green**. The stand scene is insensitive to it, and the breeding
+    /// test builds a fresh `Rng` per call precisely to model production,
+    /// so it never observes a caller that continues. A fix nothing can
+    /// fail for is a fix that will be quietly undone.
+    ///
+    /// So this asserts the one thing that actually moves: the caller's
+    /// *next* draw after `set_seed` returns. Confirmed able to fail by
+    /// drawing the appended slots from `rng` instead of their substream,
+    /// which is exactly the regression it guards.
+    #[test]
+    fn set_seed_leaves_the_callers_rng_position_alone() {
+        let mut w = test_world();
+        w.seed = 4242;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let parent = w.push_organism(tree).expect("an organism slot is free");
+        if let Some(s) = w.organism_mut(parent) {
+            for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
+                *d = (slot as f32) / 9.0 - 0.5;
+            }
+            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.generation = 2;
+        }
+
+        // One `Rng`, threaded through several births exactly as a caller
+        // that keeps using it would -- which is the situation the
+        // property is about. A fresh stream per call cannot express it.
+        let mut rng = rng::stream(1, 2, 3, 4);
+        let mut born = 0;
+        for i in 0..8 {
+            let (x, y) = (10 + i * 6, 20);
+            if set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+                born += 1;
+            }
+        }
+        assert_eq!(born, 8, "every call should have set a seed, or the stream is not being advanced");
+
+        // The caller's next draw. This is a pure function of how many
+        // draws `set_seed` took, so it pins the consumption count
+        // without needing to observe it directly.
+        let next = rng.below(1_000_000);
+        assert_eq!(
+            next, 471_168,
+            "`set_seed` consumed a different number of draws from the caller's `Rng` than it used \
+             to, so every draw the caller makes after it now differs. Almost certainly a new genome \
+             slot being mutated from the shared `rng` instead of its own substream -- see \
+             `SEQUENCED_TRAITS` and `APPENDED_JITTER_SALT`. This value was taken on `main` at \
+             `GENOTYPE_TRAITS = 9` and must not move when the genome widens."
+        );
+    }
+
     /// **Crowding must reorder choices, never veto all of them.** Under
     /// the subtractive score this tip had no candidates at all — every
     /// direction's score went negative against the ring's density, the tip
@@ -5296,7 +7706,7 @@ mod tests {
         let mut w = test_world();
         let wood = w.materials.id_of("wood").unwrap();
         let tree = w.species.id_of("tree").expect("tree species is compiled in");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // A tip walled in by its own maximum-density tissue on seven of
         // eight sides. The one opening's own neighbourhood still reads the
@@ -5327,7 +7737,7 @@ mod tests {
         let mut w = test_world();
         let wood = w.materials.id_of("wood").unwrap();
         let tree = w.species.id_of("tree").expect("tree species is compiled in");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // A trunk cell at the cap (the richest), a bud holding real
         // carbon, and enough sunlit foliage that the whole-plant gate
@@ -5625,6 +8035,91 @@ mod tests {
 
 
 
+    /// **A root drinks what it drinks and leaves the rest —
+    /// `Reports/open-bugs-handoff.md` §F3.**
+    ///
+    /// `absorb_water`'s `Liquid` arm wrote `Cell::EMPTY` and credited at
+    /// most `rate`, so a full 1,000-fill water cell was destroyed to pay
+    /// for 1.5 units of plant water — about 96% of it annihilated, and
+    /// silently, because nothing tallies held water. It was tuned on
+    /// branches where ponds never evaporated; main added evaporation
+    /// drawing down the same ponds.
+    ///
+    /// This is §F3's "conservation tally on that arm", driven directly
+    /// rather than through a scene. **Its 2x2 (tree/no-tree x
+    /// weather/no-weather over pond volume) was built first and does not
+    /// work here**, and the reason is worth keeping: free water standing
+    /// against unsaturated soil *infiltrates*, so any pond placed within
+    /// reach of a root system drains into the bank at a rate that dwarfs
+    /// drinking, and the scene measures infiltration wearing absorption's
+    /// clothes. Three geometries were tried (tank under a stone shelf, tank
+    /// under a punched shelf, sealed pocket inside the bed) and each
+    /// measured zero or nothing at all — the first because the root stops a
+    /// row short of the water, the second because a seed is a `Powder` and
+    /// falls through the hole, the third because the pocket infiltrated
+    /// away to nothing inside 1,500 frames. Driving the arm is the honest
+    /// measure.
+    ///
+    /// Paired against the exchange rate the `Powder` arm already uses:
+    /// `rate` of plant water costs `SOIL_UPTAKE_PER_TICK` of a cell's
+    /// 0..1,000 store, and `LIQUID_FULL` and `SOIL_SATURATED` are the same
+    /// 1,000. Measured, one drink from one full cell, same build:
+    ///
+    /// | | fill taken | water credited | fill per unit of water |
+    /// |---|---|---|---|
+    /// | before | **1,000** | 1.50 | **667** |
+    /// | after | 60 | 1.50 | **40** |
+    ///
+    /// 40 is `SOIL_UPTAKE_PER_TICK / rate` exactly — the two arms are one
+    /// currency now, which is the property that was missing. Income is
+    /// unchanged in both rows, which is what makes this a conservation fix
+    /// and not an economy change.
+    #[test]
+    fn a_root_leaves_the_water_it_did_not_drink() {
+        const RATE: f32 = 1.5;
+        let mut w = test_world();
+        // A real organism, because `absorb_water` reads its capacity from
+        // `root_cells` and credits through `credit_water`. Planted and then
+        // hand-posed rather than grown: what is under test is one arm of
+        // one function, and a grown plant would bring soil uptake, upkeep
+        // and transpiration in with it.
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+        w.organism_mut(id).expect("just planted").root_cells = 200;
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        place(&mut w, (60, 60), rootwood, id, CellType::MatureBody, (0.0, 0.0));
+        w.set(61, 60, Cell::new(material::WATER, 0));
+
+        let fill_before = update::liquid_fill(w.get(61, 60));
+        assert_eq!(fill_before, material::LIQUID_FULL, "test setup: a freshly painted water cell reads as full");
+        let water_before = w.organism(id).expect("alive").water;
+        absorb_water(&mut w, 60, 60, RATE);
+        let after = w.get(61, 60);
+        let fill_after = if after.material == material::WATER { update::liquid_fill(after) } else { 0 };
+        let credited = w.organism(id).expect("alive").water - water_before;
+        let taken = fill_before - fill_after;
+        println!(
+            "one drink: fill {fill_before} -> {fill_after} (took {taken}), water credited {credited:.2}, \
+{:.0} fill per unit of water (the soil arm's rate is {:.0})",
+            taken as f32 / credited.max(f32::EPSILON),
+            SOIL_UPTAKE_PER_TICK as f32 / RATE
+        );
+        assert!(credited > 0.0, "test setup: the root should have drunk something");
+        // The whole of §F3 in one line: what left the cell is what the
+        // plant got, at the engine's own soil-to-plant exchange rate.
+        let expected = credited / RATE * SOIL_UPTAKE_PER_TICK as f32;
+        assert!(
+            (taken as f32 - expected).abs() <= 1.0,
+            "the drink is not conserved: {taken} of fill left the cell for {credited:.2} of plant water, \
+where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of fill for 1.50 of water)"
+        );
+        assert!(
+            after.material == material::WATER,
+            "one drink emptied a full water cell; the remainder is being destroyed rather than left as partial fill"
+        );
+    }
+
     #[test]
     fn roots_consume_adjacent_water() {
         let mut w = test_world();
@@ -5761,7 +8256,7 @@ mod tests {
         let mut w = test_world();
         let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
         for _ in 0..individual {
-            w.push_organism(tree);
+            w.push_organism(tree).expect("an organism slot is free");
         }
         plant_tree_on_ground(&mut w, 100, 20);
         let organism_id = w.get(100, 20).organism_id();
@@ -5802,7 +8297,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         place(&mut w, (50, 50), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
         // Erase the tip out from under itself -- standing in for either
@@ -5830,7 +8325,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         place(&mut w, (50, 50), wood, organism_id, CellType::RootTip, (2.0, 0.0));
 
         w.set(50, 50, Cell::EMPTY);
@@ -5900,7 +8395,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         let aux = organism::pack_cell_type(CellType::GrowingTip);
         // **Standing on stone, which it did not need to be until
         // `anchor_support` landed.** This is a lone wood cell in open sky,
@@ -5976,7 +8471,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         // A same-organism neighbour immediately left of the candidate,
         // carrying a real deposited canopy density.
         place(&mut w, (49, 50), wood, organism_id, CellType::GrowingTip, (0.0, 2.0));
@@ -6012,8 +8507,8 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let this_organism = w.push_organism(tree_species);
-        let other_organism = w.push_organism(tree_species);
+        let this_organism = w.push_organism(tree_species).expect("an organism slot is free");
+        let other_organism = w.push_organism(tree_species).expect("an organism slot is free");
         let _ = this_organism;
         place(&mut w, (49, 50), wood, other_organism, CellType::GrowingTip, (0.0, 3.0));
 
@@ -6037,7 +8532,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (1.0, GROW_CANOPY_DEPOSIT));
 
         // One full organism_tick cycle on this cell itself -- the same
@@ -6058,7 +8553,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         place(&mut w, (100, 20), wood, organism_id, CellType::MatureBody, (1.0, organism::CANOPY_DENSITY_SCALE));
 
         for _ in 0..20 {
@@ -6089,7 +8584,7 @@ mod tests {
         let mut w = test_world();
         let tree_species = w.species.id_of("tree").expect("tree species must be loaded");
         let wood = w.materials.id_of("wood").unwrap();
-        let organism_id = w.push_organism(tree_species);
+        let organism_id = w.push_organism(tree_species).expect("an organism slot is free");
         // Comfortably above tree.ron's GrowingTip `Grow` cost (0.2), in
         // open space on every side, so this call is guaranteed to find a
         // positive-scoring candidate and actually grow.
@@ -6400,7 +8895,7 @@ mod tests {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let rootwood = w.materials.id_of("rootwood").unwrap_or(wood);
         let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // An organism that is overwhelmingly root, so the allometry gate
         // blocks its tip every tick.
@@ -6447,7 +8942,7 @@ mod tests {
         let mut w = test_world();
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // A five-cell horizontal run, open air on both ends.
         for x in 50..55 {
@@ -6491,7 +8986,7 @@ mod tests {
         let mut w = test_world();
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // The trunk: three cells at x=20..23.
         for x in 20..23 {
@@ -6524,7 +9019,7 @@ mod tests {
         let wood = w.materials.id_of("wood").expect("wood is a compiled-in material");
         let leaf = w.materials.id_of("leaf").expect("leaf is a compiled-in material");
         let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-        let organism_id = w.push_organism(tree);
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
 
         // Three cells of trunk, then five leaves continuing the same run.
         for x in 20..23 {
@@ -6679,7 +9174,7 @@ mod tests {
                 let mut w = test_world();
                 let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
                 for _ in 0..individual {
-                    w.push_organism(tree);
+                    w.push_organism(tree).expect("an organism slot is free");
                 }
                 plant_tree_on_ground(&mut w, 100, 20);
                 run_with_fields(&mut w, 8000);
@@ -6826,7 +9321,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
-            let organism_id = w.push_organism(tree);
+            let organism_id = w.push_organism(tree).expect("an organism slot is free");
             let (base, variance, juvenile_plastochron) = w
                 .species
                 .get(tree)
@@ -6924,9 +9419,9 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
             let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
             // Burn ids so each pass is a genuinely different genotype --
             // `genotype` is keyed on the organism id and nothing else.
-            let mut organism_id = w.push_organism(tree);
+            let mut organism_id = w.push_organism(tree).expect("an organism slot is free");
             for _ in 0..individual {
-                organism_id = w.push_organism(tree);
+                organism_id = w.push_organism(tree).expect("an organism slot is free");
             }
             place(&mut w, (100, 100), wood, organism_id, CellType::GrowingTip, (2.0, 0.0));
 
@@ -7225,7 +9720,7 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
 
         // One scene, two plants: same shape, same row, open sky over both.
         let mut build = |x: i32, economy: u8| -> u16 {
-            let id = w.push_organism(tree);
+            let id = w.push_organism(tree).expect("an organism slot is free");
             place(&mut w, (x, 50), wood, id, CellType::MatureBody, (1.0, 0.0));
             for dx in -2..=2 {
                 place(&mut w, (x + dx, 49), leaf, id, CellType::Leaf, (1.0, 0.0));
@@ -7337,47 +9832,114 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         stat("shoot mature", &mut shoot_mature);
     }
 
-    /// **Root and shoot branching read different slots, and slot 1 finally
-    /// reaches the world.**
+    /// **Slot 1 is a root locus, not a shoot one — the half of bug §A's
+    /// guard that is still true, swept over seeds rather than run on one.**
     ///
-    /// The guard the genome re-map promised and could not write. Slot 1 was
-    /// wired correctly from the day it landed and produced a *bit-identical*
-    /// stand at every draw, because its consumer sat behind a gate that
-    /// demanded a second step's carbon in the tick the first was paid: 351
-    /// root growth steps, 2 affordable, 0 fired
-    /// (`Reports/plant-genome-design.md` §8a). The economy was not the
-    /// defect and was not changed; the shape of the purchase was
-    /// (`OrganismCell::primed`).
+    /// The original guard asserted two things at once off a **single seed**:
+    /// that root mass orders with the draw, and that shoot mass does not.
+    /// The first is dead (see `root_and_shoot_branching_read_different_slots`
+    /// below, now the `#[ignore]`d reproduction). The second is not, and it
+    /// is not vacuous either: what it catches is the draw reaching *slot 0's*
+    /// consumer, which is a real way for a genome re-map to go wrong and the
+    /// reason slot 1 exists separately from slot 0 at all.
     ///
-    /// Both halves of the claim are asserted. **Root mass must order with
-    /// the draw** — that is the lever working. **Shoot mass must not** —
-    /// that is the lever being a *root* lever, which is the whole point of
-    /// slot 1 existing separately from slot 0.
+    /// Four seeds and an order statistic, per `CLAUDE.md` — a guard over a
+    /// system whose twelve identical trees span 31 to 153 cells cannot be one
+    /// seed per arm, and that is precisely how §A came to flip red and green
+    /// on unrelated changes to ground cover. Four rather than eight is a CI
+    /// cost decision; see `GUARD_FRAMES` for what was measured and rejected.
     ///
-    /// Bars are set from the measured pairing with headroom, per house
-    /// convention, never sitting on it: measured 336 / 386 / 448 root cells
-    /// at draws −1 / 0 / +1 (a 33% spread) against shoot 2418 / 2380 / 2432
-    /// (2%). The bars below are 10% and 20% — comfortably inside the
-    /// measured effect and comfortably outside the measured noise, so the
-    /// test fails on the mechanism dying rather than on a re-tune.
+    /// Two bars, both set from the sweep with headroom and neither sitting on
+    /// it.
     ///
-    /// Two runs rather than three: the endpoints carry the claim and the
-    /// midpoint costs another 12,000 frames.
-    /// `print_root_branch_slot_pairing` keeps the full reproduction.
+    /// `SHOOT_SPREAD_BAR` stays at the original guard's 20% — what changes is
+    /// that it now stands on a sweep instead of one seed. Measured over all
+    /// eight: per-seed spreads 1, 3, 0, 8, 2, 0, 0, 13 %, mean **4.8%, SE
+    /// 1.8%**. Over this guard's own four: **mean 3.2%, worst seed 8.5%**. So
+    /// the bar is far above the quantity it tests on either reading, and clear
+    /// of the worst seed in the whole population — which is what stops it
+    /// flaking the way §A's root half did.
+    ///
+    /// `ROOT_INVERSION_BAR` is the *other* side of the dead lever. The mean
+    /// ratio measures **0.994, SE 0.046** over eight seeds (1.022 over this
+    /// guard's four) — 0.1 SE from exactly no effect — so a two-sided bar is
+    /// impossible and a *forward* bar is unreachable. A floor at 0.85 catches
+    /// slot 1 coming back **backwards** (three SE below the measurement)
+    /// without punishing anyone who revives it forwards. One-sided is the only
+    /// honest shape when the measured value is no effect at all.
     #[test]
-    fn root_and_shoot_branching_read_different_slots() {
-        let (root_low, shoot_low) = root_slot_run(1, 1, -1.0, 12_000);
-        let (root_high, shoot_high) = root_slot_run(1, 1, 1.0, 12_000);
-
-        assert!(
-            root_high as f32 > root_low as f32 * 1.10,
-            "slot 1 must order root mass: draw -1 grew {root_low} root cells, draw +1 grew {root_high}              (measured 336 against 448; before the primed-site repair both were 352, bit-identical)"
+    fn slot_1_is_a_root_locus_and_not_a_shoot_one() {
+        const SHOOT_SPREAD_BAR: f32 = 0.20;
+        const ROOT_INVERSION_BAR: f32 = 0.85;
+        let sweep = root_branch_slot_sweep(GUARD_SEEDS, GUARD_FRAMES);
+        let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+        let shoot = mean(sweep.iter().map(|r| r.shoot_spread()).collect());
+        let root = mean(sweep.iter().map(|r| r.root_ratio()).collect());
+        let worst = sweep.iter().map(|r| r.shoot_spread()).fold(0.0f32, f32::max);
+        println!(
+            "slot 1 over {GUARD_SEEDS} seeds at {GUARD_FRAMES} frames: mean root ratio {root:.3}, \
+mean shoot spread {:.1}% (worst seed {:.1}%)",
+            100.0 * shoot,
+            100.0 * worst
         );
-        let shoot_spread = (shoot_high as f32 - shoot_low as f32).abs() / shoot_low.max(1) as f32;
         assert!(
-            shoot_spread < 0.20,
-            "slot 1 is a ROOT slot and must not move the shoot: {shoot_low} against {shoot_high} is {:.0}%              (measured 2%). A shoot moving with it means the draw is reaching slot 0's consumer.",
-            shoot_spread * 100.0
+            shoot < SHOOT_SPREAD_BAR,
+            "slot 1 is moving the shoot: mean spread over {GUARD_SEEDS} seeds is {:.1}%, bar {:.1}%. A shoot that moves \
+with a ROOT draw means the draw is reaching slot 0's consumer.",
+            100.0 * shoot,
+            100.0 * SHOOT_SPREAD_BAR
+        );
+        assert!(
+            root > ROOT_INVERSION_BAR,
+            "slot 1 is ordering root mass BACKWARDS: mean of per-seed ratios is {root:.3} over {GUARD_SEEDS} seeds, \
+floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- see \
+`root_and_shoot_branching_read_different_slots` for why the forward claim is not asserted."
+        );
+    }
+
+    /// **Bug §A's reproduction, and it fails — `#[ignore]`d, not deleted.**
+    ///
+    /// The claim: slot 1 orders *root* mass with the draw. That is what makes
+    /// it the root-branching gene, and it is what Arc B's heritable root form
+    /// is meant to be built on.
+    ///
+    /// Three measurements of the same pairing, and the arc is the whole
+    /// story. Ratio is `root(+1) / root(-1)`; the guard's bar was 1.10.
+    ///
+    /// | when | mean of per-seed ratios | seeds clearing 1.10 |
+    /// |---|---|---|
+    /// | at calibration, one seed (336 against 448) | **1.33** | — |
+    /// | 2026-08-22, 8 seeds (`open-bugs-handoff.md` §A) | 0.92, SE 0.056 | 1/8 |
+    /// | 2026-08-23, 8 seeds, after the P1 water fixes | **0.994, SE 0.046** | 2/8 |
+    ///
+    /// **0.1 SE from exactly no effect.** `CLAUDE.md` says to set a bar from
+    /// measurement with headroom and, where a report asks for a number the
+    /// engine cannot hit, to *record both and leave the gap visible rather
+    /// than relabelling it away*. There is no bar with headroom over data
+    /// consistent with 1.0, so this is the gap, left visible: the claim
+    /// stands here, asserted, failing, and runnable by name. The half that is
+    /// still true was split out into
+    /// `slot_1_is_a_root_locus_and_not_a_shoot_one` above, which runs in CI.
+    ///
+    /// Note what the P1 water fixes did to the number: 0.92 -> 0.994. The
+    /// small apparent *inversion* was an artifact of the water book and is
+    /// gone; what is left is flat.
+    ///
+    /// Not deleted, per the revert convention: the reproduction is the thing
+    /// that says whether a future change revived the lever.
+    /// `print_root_branch_slot_seed_sweep` prints the full table.
+    #[test]
+    #[ignore = "bug A: the slot-1 root lever measures dead (0.994, SE 0.046 over 8 seeds). Reproduction kept."]
+    fn root_and_shoot_branching_read_different_slots() {
+        let sweep = root_branch_slot_sweep(8, 12_000);
+        let ratios: Vec<f32> = sweep.iter().map(|r| r.root_ratio()).collect();
+        let mean = ratios.iter().sum::<f32>() / ratios.len() as f32;
+        let cleared = sweep.iter().filter(|r| r.ordered()).count();
+        println!("slot 1 root ordering over 8 seeds: mean ratio {mean:.3}, {cleared}/8 clear the 1.10 bar");
+        assert!(
+            mean > 1.10,
+            "slot 1 does not order root mass: mean of per-seed ratios is {mean:.3} over 8 seeds and only \
+{cleared}/8 clear 1.10 (calibrated at 1.33 on one seed; measured 0.92 on 2026-08-22 and 0.994 on 2026-08-23)"
         );
     }
 
@@ -7772,24 +10334,279 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
     #[test]
     #[ignore]
     fn print_root_branch_slot_seed_sweep() {
-        let (mut lows, mut highs, mut agree) = (Vec::new(), Vec::new(), 0usize);
-        println!("seed   root(-1)  root(+1)   ratio  ordered");
-        for seed in 1u64..=8 {
-            let (low, _) = root_slot_run(seed, 1, -1.0, 12_000);
-            let (high, _) = root_slot_run(seed, 1, 1.0, 12_000);
-            let ratio = high as f32 / low.max(1) as f32;
-            let ok = high as f32 > low as f32 * 1.10;
-            if ok {
-                agree += 1;
-            }
-            println!("{seed:>4}   {low:>8}  {high:>8}   {ratio:>5.2}  {}", if ok { "yes" } else { "NO" });
-            lows.push(low as f32);
-            highs.push(high as f32);
+        let s = root_branch_slot_sweep(8, 12_000);
+        println!("seed   root(-1)  root(+1)   ratio  ordered | shoot(-1) shoot(+1)  spread");
+        for (i, r) in s.iter().enumerate() {
+            println!(
+                "{:>4}   {:>8}  {:>8}   {:>5.2}  {:>7} | {:>9} {:>9}  {:>5.0}%",
+                i + 1,
+                r.root_low,
+                r.root_high,
+                r.root_ratio(),
+                if r.ordered() { "yes" } else { "NO" },
+                r.shoot_low,
+                r.shoot_high,
+                100.0 * r.shoot_spread()
+            );
         }
-        let mean = |v: &Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
-        let (ml, mh) = (mean(&lows), mean(&highs));
-        println!("mean   {ml:>8.1}  {mh:>8.1}   {:>5.2}", mh / ml.max(1.0));
-        println!("seeds where +1 beat -1 by the guard's 10%: {agree}/8");
+        let stat = |v: Vec<f32>| {
+            let m = v.iter().sum::<f32>() / v.len() as f32;
+            let var = v.iter().map(|x| (x - m) * (x - m)).sum::<f32>() / (v.len() as f32 - 1.0);
+            (m, (var / v.len() as f32).sqrt())
+        };
+        let (rm, rse) = stat(s.iter().map(|r| r.root_ratio()).collect());
+        let (sm, sse) = stat(s.iter().map(|r| r.shoot_spread()).collect());
+        println!("mean of per-seed root ratios   {rm:.3}  SE {rse:.3}   ({:.1} SE from 1.0)", ((rm - 1.0) / rse).abs());
+        println!("mean of per-seed shoot spreads {:.1}%  SE {:.1}%   max {:.1}%", 100.0 * sm, 100.0 * sse, 100.0 * s.iter().map(|r| r.shoot_spread()).fold(0.0, f32::max));
+        println!("seeds where +1 beat -1 by the guard's 10%: {}/8", s.iter().filter(|r| r.ordered()).count());
+    }
+
+    /// What the guard's shorter arm costs it — the measurement `GUARD_FRAMES`
+    /// was chosen from. Prints the same two statistics at both lengths.
+    #[test]
+    #[ignore]
+    fn print_root_branch_slot_guard_length() {
+        for frames in [GUARD_FRAMES, 12_000] {
+            let s = root_branch_slot_sweep(8, frames);
+            let mean = |v: Vec<f32>| v.iter().sum::<f32>() / v.len() as f32;
+            let shoot: Vec<f32> = s.iter().map(|r| r.shoot_spread()).collect();
+            println!(
+                "{frames:>6} frames: mean root ratio {:.3}, mean shoot spread {:.1}%, worst seed {:.1}%",
+                mean(s.iter().map(|r| r.root_ratio()).collect()),
+                100.0 * mean(shoot.clone()),
+                100.0 * shoot.iter().copied().fold(0.0, f32::max)
+            );
+        }
+    }
+
+    /// One seed's pairing of slot 1 at draws -1 and +1.
+    struct SlotPair {
+        root_low: u32,
+        root_high: u32,
+        shoot_low: u32,
+        shoot_high: u32,
+    }
+
+    impl SlotPair {
+        fn root_ratio(&self) -> f32 {
+            self.root_high as f32 / self.root_low.max(1) as f32
+        }
+        /// The guard's original ordering test: +1 beats -1 by a tenth.
+        fn ordered(&self) -> bool {
+            self.root_high as f32 > self.root_low as f32 * 1.10
+        }
+        /// How far the *shoot* moved — slot 1 is a root locus, so this is
+        /// the number that must stay small.
+        fn shoot_spread(&self) -> f32 {
+            (self.shoot_high as f32 - self.shoot_low as f32).abs() / self.shoot_low.max(1) as f32
+        }
+    }
+
+    /// The 8-seed pairing both the guard and the probe read. One place, so
+    /// the bar and the number it was set from cannot drift apart.
+    fn root_branch_slot_sweep(seeds: u64, frames: usize) -> Vec<SlotPair> {
+        (1..=seeds)
+            .map(|seed| {
+                let (root_low, shoot_low) = root_slot_run(seed, 1, -1.0, frames);
+                let (root_high, shoot_high) = root_slot_run(seed, 1, 1.0, frames);
+                SlotPair { root_low, root_high, shoot_low, shoot_high }
+            })
+            .collect()
+    }
+
+    /// How long a `root_slot_run` arm is given inside the *live* guard, and
+    /// how many seeds it pairs.
+    ///
+    /// **A shorter arm was tried and is vacuous — do not retry it.** Eight
+    /// seeds at 12,000 frames is 16 runs and **181 s** in release, so 4,000
+    /// was measured as a cheaper length. At 4,000 the two draws produce
+    /// *identical* plants: mean root ratio **1.000**, mean shoot spread
+    /// **0.0%**, worst seed 0.0%. Nothing has diverged yet, so a guard there
+    /// would pass because the mechanism had not run — the bit-identical state
+    /// §A explicitly warns about, and `CLAUDE.md`'s "a test can pass because
+    /// the code under it is dead". The length is not the lever.
+    ///
+    /// The seed count is. §A's whole record is measured at 12,000 frames, so
+    /// the guard stays there and pays for the sweep with seeds instead: four
+    /// rather than eight, and still an order statistic rather than the single
+    /// seed that let this guard flip red and green on unrelated changes to
+    /// ground cover. The reproduction and `print_root_branch_slot_seed_sweep`
+    /// keep all eight.
+    ///
+    /// Measured cost, so the next person does not have to guess before
+    /// widening it: **108 s in a debug build, ~90 s in release** (the 8-seed
+    /// sweep is 181 s release). Debug is only 1.2x release here rather than
+    /// the usual multiple, which is why this can run in *both* CI test jobs
+    /// — and it must, because the debug job is the only place this repo's
+    /// `debug_assert!` invariants are compiled at all.
+    const GUARD_FRAMES: usize = 12_000;
+    const GUARD_SEEDS: u64 = 4;
+
+    /// **Does `break_root_tips` fire at all in this world — bug §A's own
+    /// named "measurement that would do it".**
+    ///
+    /// §A's third explanation is that main's field model raised uptake by
+    /// 67%, pushing the mean stomatal term from 0.90 to 0.96 and so over
+    /// `ROOT_REINITIATION_STATUS`, which shuts the root amplifier and
+    /// collapses the slot-1 spread. That is inferred from an aggregate
+    /// mean, and §A says so itself: "a mean can cross while the
+    /// distribution that matters does not. Counting the firings is a
+    /// `#[cfg(test)]` counter at `plant.rs:3017` and one paired run".
+    ///
+    /// This is that paired run. The two arms are the guard's own draws, so
+    /// the histogram is directly comparable to
+    /// `print_root_branch_slot_seed_sweep`'s root counts.
+    ///
+    /// **Run alone** — the counter is a process-global atomic, so a
+    /// concurrently-running test that grows a plant lands in this
+    /// histogram: `cargo test --release break_root_tip_firings --
+    /// --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn print_break_root_tip_firings_by_slot_draw() {
+        println!("draw   root  shoot |    calls    gated   at_cap  no_cand     poor    FIRED");
+        for draw in [-1.0f32, 1.0] {
+            let _ = take_root_tip_exits();
+            let (root, shoot) = root_slot_run(1, 1, draw, 12_000);
+            let e = take_root_tip_exits();
+            println!(
+                "{draw:>4.1} {root:>6} {shoot:>6} | {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                e[ROOT_TIP_CALLS], e[ROOT_TIP_GATED], e[ROOT_TIP_AT_CAP], e[ROOT_TIP_NO_CANDIDATE], e[ROOT_TIP_POOR], e[ROOT_TIP_FIRED]
+            );
+        }
+    }
+
+    /// **Bug §U's reproduction, with the counter beside it.**
+    ///
+    /// §U measured one bed over 12,000 frames with only the soil moisture
+    /// differing: nearly dry (aux 310) grew **982** cells and 428 wood
+    /// against field capacity's (620) **734** and 299. Drought made the
+    /// tree bigger, which inverts dendrochronology.
+    ///
+    /// Its unproven mechanism is this function: water stress *triggers*
+    /// root re-initiation, and nothing appears to throttle the carbon that
+    /// pays for it — "a compensation response with the penalty missing".
+    /// That is a claim about which exit dominates, so it is answerable by
+    /// counting rather than by arguing. `FIRED` high and `poor` near zero
+    /// on the dry arm is the missing penalty. `FIRED` equal on both arms
+    /// says the extra mass is not coming from here at all and §U's
+    /// candidate mechanism is wrong.
+    ///
+    /// Paired by construction — one scene, one seed, one number differing —
+    /// which is the comparison `CLAUDE.md` asks for over a run against a
+    /// remembered figure. Run alone, per the note on the probe above.
+    #[test]
+    #[ignore]
+    fn print_drought_grows_bigger_with_root_tip_counter() {
+        println!("bed      moisture  cells   wood   root  shoot |    calls    gated   at_cap  no_cand     poor    FIRED");
+        // **Both beds, because the bed is a candidate cause.** §U's figures
+        // (982 cells) are an order of magnitude under what the deep walled
+        // bed grows, so they were taken on the 17x8 `plant_tree_on_ground`
+        // scene. Running only the deep bed would answer a different
+        // question and read as "§U does not reproduce".
+        for shallow in [true, false] {
+            for moisture in [310u16, material::SOIL_FIELD_CAPACITY] {
+                let _ = take_root_tip_exits();
+                let (cells, wood, root, shoot) = drought_run(1, moisture, 12_000, shallow);
+                let e = take_root_tip_exits();
+                let bed = if shallow { "17x8   " } else { "61x30  " };
+                println!(
+                    "{bed} {moisture:>8} {cells:>6} {wood:>6} {root:>6} {shoot:>6} | {:>8} {:>8} {:>8} {:>8} {:>8} {:>8}",
+                    e[ROOT_TIP_CALLS], e[ROOT_TIP_GATED], e[ROOT_TIP_AT_CAP], e[ROOT_TIP_NO_CANDIDATE], e[ROOT_TIP_POOR], e[ROOT_TIP_FIRED]
+                );
+            }
+        }
+    }
+
+    /// **§U's claim as an order statistic, not one run.** Eight seeds, the
+    /// bed §U's own cell counts point at, dry against field capacity.
+    ///
+    /// `CLAUDE.md`: "Compare two runs, not one run against a remembered
+    /// number" — and §U *is* a remembered number (982 against 734, one bed,
+    /// one seed, 2026-08-22). Twelve identical trees from one genome span
+    /// 31 to 153 cells here, so a single pairing cannot tell a claim about
+    /// the economy from a seed that reshuffled. The count of seeds on which
+    /// dry beats wet is the answer; a 4/8 is noise and an 8/8 is §U.
+    ///
+    /// Run alone, per the note on the firing probe above.
+    #[test]
+    #[ignore]
+    fn print_drought_size_seed_sweep() {
+        println!("seed   dry cells  wet cells   dry wood  wet wood   dry>wet?");
+        let (mut dry_bigger, mut wood_bigger) = (0usize, 0usize);
+        let (mut dc, mut wc, mut dw, mut ww) = (0f64, 0f64, 0f64, 0f64);
+        for seed in 1u64..=8 {
+            let (d_cells, d_wood, _, _) = drought_run(seed, 310, 12_000, true);
+            let (w_cells, w_wood, _, _) = drought_run(seed, material::SOIL_FIELD_CAPACITY, 12_000, true);
+            if d_cells > w_cells {
+                dry_bigger += 1;
+            }
+            if d_wood > w_wood {
+                wood_bigger += 1;
+            }
+            dc += d_cells as f64;
+            wc += w_cells as f64;
+            dw += d_wood as f64;
+            ww += w_wood as f64;
+            println!(
+                "{seed:>4}   {d_cells:>9}  {w_cells:>9}   {d_wood:>8}  {w_wood:>8}   {}",
+                if d_cells > w_cells { "YES (bug U)" } else { "no" }
+            );
+        }
+        println!("mean   {:>9.0}  {:>9.0}   {:>8.0}  {:>8.0}", dc / 8.0, wc / 8.0, dw / 8.0, ww / 8.0);
+        println!("seeds where drought grew a BIGGER plant: {dry_bigger}/8   more wood: {wood_bigger}/8");
+        println!("(bug U as filed predicts 8/8 on both. Real drought predicts 0/8 on wood.)");
+    }
+
+    /// A bed with the soil moisture as the free variable and the genome
+    /// left alone — §U's comparison. `shallow` picks
+    /// `plant_tree_on_ground`'s 17x8 bed (§U's own, by its cell counts)
+    /// over `root_slot_run`'s deep walled 61x30 one. Returns total cells,
+    /// wood cells, and the sidecar's own root/shoot split.
+    fn drought_run(seed: u64, moisture: u16, frames: usize, shallow: bool) -> (usize, usize, u32, u32) {
+        let mut w = test_world();
+        w.seed = seed;
+        let (x, y) = (100, 40);
+        if shallow {
+            plant_tree_on_ground_with_moisture(&mut w, x, y, moisture);
+        } else {
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const HALF: i32 = 30;
+            const ROWS: i32 = 30;
+            for fx in (x - HALF - 1)..=(x + HALF + 1) {
+                w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+            }
+            for dy in 1..=ROWS {
+                w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+                w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+                for fx in (x - HALF)..=(x + HALF) {
+                    w.set(fx, y + dy, Cell::new(soil, 0).with_aux(moisture));
+                }
+            }
+            w.plant_tree(x, y);
+        }
+        let id = w.get(x, y).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its own cell");
+        run_with_fields(&mut w, frames);
+        let b = w.bounds().unwrap();
+        let (mut cells, mut wood) = (0usize, 0usize);
+        for cy in b.min_y..=b.max_y {
+            for cx in b.min_x..=b.max_x {
+                let c = w.get(cx, cy);
+                if c.organism_id() == 0 {
+                    continue;
+                }
+                cells += 1;
+                // Wood in §U's sense: the woody stem, not the root wood
+                // that `reinforces_powder` marks and not the foliage.
+                if !w.materials.get(c.material).reinforces_powder && organism::cell_type(c.aux()) != Some(CellType::Leaf) {
+                    wood += 1;
+                }
+            }
+        }
+        let state = w.organism(id);
+        let (root, shoot) = state.map_or((0, 0), |s| (s.root_cells, s.shoot_cells));
+        (cells, wood, root, shoot)
     }
 
     /// A deep, wide, walled soil bed — root branching needs somewhere to
@@ -7834,4 +10651,443 @@ scheduler::step is currently dispatching (open-bugs-handoff.md §3)"
         let state = w.organism(id).expect("the organism should still be alive");
         (state.root_cells, state.shoot_cells)
     }
+
+    // --- P3, the generation loop: mortality, seed decay, slot hygiene ----
+
+    /// A handmade sod: one blade per column resting on `root_rows` of root
+    /// tissue threaded into the soil beneath it, all one organism.
+    /// `surface_y` is the first *soil* row.
+    ///
+    /// Handmade rather than grown, deliberately. Whether a *particular*
+    /// tussock happens to reach N cells in M frames is a question about
+    /// grass geometry; these tests are about which cells a rule evaluates,
+    /// and a grown plant would put that question in front of this one.
+    ///
+    /// **The root column under every blade is not decoration, and the first
+    /// version of this helper did not have it.** `is_structural_anchor`
+    /// anchors root tissue threaded through water-holding `Powder`; a blade
+    /// is neither, so a shoot that does not *connect* to root tissue is
+    /// unreached by `anchor_support`, schedules its own structural check,
+    /// and comes down as deadwood. With a one-row gap between blade and
+    /// root, both arms of the paired test below read **0 of 12** and the
+    /// mechanism under test never got a look in — `CLAUDE.md`'s "a scene
+    /// that contradicts the code will look like a bug in the code", exactly
+    /// as advertised. The setup assertion in that test is what turns the
+    /// same mistake into a setup failure next time.
+    fn place_grass(w: &mut World, x0: i32, surface_y: i32, blades: i32, root_rows: i32) -> u16 {
+        let species = w.species.id_of("grass").expect("grass is compiled in");
+        let blade = w.materials.id_of("grassblade").expect("grassblade is compiled in");
+        let root = w.materials.id_of("grassroot").expect("grassroot is compiled in");
+        let id = w.push_organism(species).expect("an organism slot is free");
+        for i in 0..blades {
+            for r in 0..root_rows {
+                place(w, (x0 + i, surface_y + r), root, id, CellType::MatureBody, (1.0, 0.0));
+            }
+            place(w, (x0 + i, surface_y - 1), blade, id, CellType::MatureBody, (1.0, 0.0));
+        }
+        id
+    }
+
+    /// **Which cell does the abscission rule actually evaluate?**
+    ///
+    /// `CLAUDE.md`'s recurring question, asked of the predicate whose wrong
+    /// answer is `Reports/open-bugs-handoff.md` §F4. Two claims, and the
+    /// second is the one that would have cost a session:
+    ///
+    /// 1. Widening the gate must be **inert on every woody species**. A
+    ///    tree's `GrowingTip` photosynthesises, so a naive "shed anything
+    ///    that earns" would start shedding tree tips — a different and much
+    ///    larger change wearing this one's clothes.
+    /// 2. It must not reach **root tissue**. Grass retires its root tips
+    ///    into the same `MatureBody` that declares its `Photosynthesize`,
+    ///    and underground `darkness` is 1, so a cell-type-only test would
+    ///    delete every grass plant's root mat within a few ticks — the
+    ///    mechanism reading as "grass dies instantly" rather than as a bug.
+    #[test]
+    fn abscission_evaluates_grass_blades_and_never_grass_roots_or_tree_tips() {
+        let mut w = test_world();
+        let grass = w.species.id_of("grass").expect("grass is compiled in");
+        let tree = w.species.id_of("tree").expect("tree is compiled in");
+        let blade = w.materials.id_of("grassblade").expect("grassblade");
+        let grassroot = w.materials.id_of("grassroot").expect("grassroot");
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let wood = w.materials.id_of("wood").expect("wood");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood");
+        let id = 9u16;
+
+        assert!(!w.species.get(grass).has_leaf_stage(), "test setup: grass must have no Leaf cell type");
+        assert!(w.species.get(tree).has_leaf_stage(), "test setup: tree must have a Leaf cell type");
+
+        // Grass: the blade is foliage whether it is a live tip or a retired
+        // body, because for this species those are the same tissue.
+        place(&mut w, (10, 10), blade, id, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (11, 10), blade, id, CellType::GrowingTip, (0.0, 0.0));
+        // ...and the root mat is not, by either route into it.
+        place(&mut w, (12, 10), grassroot, id, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (13, 10), grassroot, id, CellType::RootTip, (0.0, 0.0));
+        assert!(is_foliage(&w, 10, 10, CellType::MatureBody, grass, false), "a retired grass blade is foliage");
+        assert!(is_foliage(&w, 11, 10, CellType::GrowingTip, grass, false), "a live grass blade is foliage");
+        assert!(!is_foliage(&w, 12, 10, CellType::MatureBody, grass, false), "a retired grass root is NOT foliage");
+        assert!(!is_foliage(&w, 13, 10, CellType::RootTip, grass, false), "a grass root tip is NOT foliage");
+
+        // Tree: a leaf and nothing else. `GrowingTip` earns carbon and is
+        // still not shed, which is the whole point of keying on the species.
+        place(&mut w, (20, 10), leaf, id, CellType::Leaf, (0.0, 0.0));
+        place(&mut w, (21, 10), wood, id, CellType::GrowingTip, (0.0, 0.0));
+        place(&mut w, (22, 10), wood, id, CellType::MatureBody, (0.0, 0.0));
+        place(&mut w, (23, 10), rootwood, id, CellType::RootTip, (0.0, 0.0));
+        assert!(is_foliage(&w, 20, 10, CellType::Leaf, tree, true), "a tree leaf is foliage");
+        assert!(!is_foliage(&w, 21, 10, CellType::GrowingTip, tree, true), "a tree tip earns and is still not shed");
+        assert!(!is_foliage(&w, 22, 10, CellType::MatureBody, tree, true), "tree wood is not foliage");
+        assert!(!is_foliage(&w, 23, 10, CellType::RootTip, tree, true), "a tree root is not foliage");
+    }
+
+    /// **A shaded sward thins; a lit one does not.** §F4's headline, paired.
+    ///
+    /// The two arms differ in exactly one thing — whether `field::step` has
+    /// ever run, so whether sky light has reached the blades at all. Same
+    /// plant, same frames, same seed. Nothing else in the scene can move:
+    /// the blades are `MatureBody`, so there is no frontier, and with no
+    /// frontier there is no transpirational demand, so `settle_water`
+    /// returns desiccation 0.0 and the *drought* arm of abscission is
+    /// inert by construction. Shade is the only actor, which is what makes
+    /// this a measurement of the rule rather than of the scene.
+    ///
+    /// Before this package both arms read 12: grass has no `Leaf` cell, and
+    /// both rules gated on `CellType::Leaf`.
+    #[test]
+    fn a_shaded_sward_thins_and_a_lit_one_does_not() {
+        const BLADES: i32 = 12;
+        const FRAMES: usize = 13_500; // 300 organism ticks
+
+        fn build(lit: bool) -> usize {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..64 {
+                w.set(x, 40, Cell::new(material::STONE, 0));
+                for y in 32..40 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let id = place_grass(&mut w, 10, 32, BLADES, 3);
+            let blade = w.materials.id_of("grassblade").expect("grassblade");
+            let standing = |w: &World| {
+                let b = w.bounds().expect("a non-empty world");
+                let mut n = 0;
+                for y in b.min_y..=b.max_y {
+                    for x in b.min_x..=b.max_x {
+                        let c = w.get(x, y);
+                        if c.material == blade && c.organism_id() == id {
+                            n += 1;
+                        }
+                    }
+                }
+                n
+            };
+            // **The setup assertion, and it earns its keep.** A sod whose
+            // shoot does not connect to its own roots is torn down by the
+            // structural pass in a few hundred frames, which reads as "the
+            // abscission rule ate everything" -- see `place_grass`.
+            run(&mut w, 600);
+            assert_eq!(
+                standing(&w),
+                BLADES as usize,
+                "test setup: the sod came apart before the measurement started -- check it is anchored, not that shedding is wrong"
+            );
+            if lit {
+                run_with_fields(&mut w, FRAMES);
+            } else {
+                run(&mut w, FRAMES);
+            }
+            standing(&w)
+        }
+
+        let lit = build(true);
+        let dark = build(false);
+        println!("grass blades standing after {FRAMES} frames: lit {lit}, dark {dark} (of {BLADES})");
+        assert_eq!(lit as i32, BLADES, "a fully lit sward must lose nothing: {lit} of {BLADES}");
+        // 300 ticks at `shade_death` 0.004 leaves 12 x 0.996^300 = 3.6
+        // expected. The bar is set with headroom against that rather than
+        // on it, and it is one-sided: the claim is "shade now reaches
+        // grass", not "it reaches it at exactly this rate".
+        assert!(dark <= 8, "a sward in the dark must thin: {dark} of {BLADES} still standing");
+        assert!(dark < lit, "the dark arm must lose more than the lit one: {dark} against {lit}");
+    }
+
+    /// **A plant that cannot earn again is dead, its remains rot, and its
+    /// slot comes back.**
+    ///
+    /// This is the case `step_organisms` used to hand to somebody else:
+    /// reclamation keyed on an *empty* cell list, so a plant that lost all
+    /// its foliage kept its roots, its stem and its slot for ever. §F4's
+    /// mis-sited grass seedling is the same shape, and so is every seedling
+    /// that germinates in a crown and sheds itself bare.
+    ///
+    /// Run under **both drivers**, because the two sweep the grid
+    /// differently and `shed_to_litter` writes a falling `Powder`:
+    /// `update::step` is serial and `parallel::step` is the four-pass
+    /// checkerboard the app actually runs.
+    #[test]
+    fn a_plant_with_no_foliage_left_rots_and_gives_its_slot_back() {
+        fn build(parallel: bool) -> (bool, bool, usize) {
+            let mut w = World::new(Rect::new(0, 0, 63, 63));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..64 {
+                w.set(x, 40, Cell::new(material::STONE, 0));
+                for y in 32..40 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let id = place_grass(&mut w, 10, 32, 3, 5);
+            let (slots_before, _) = w.organism_slot_usage();
+
+            // Whatever killed the blades is not this test's subject -- fire,
+            // a grazing animal, a player's tool, or the shade rule above.
+            // Erase them and ask what happens to the *rest* of the plant.
+            for i in 0..3 {
+                w.set(10 + i, 31, Cell::EMPTY);
+            }
+
+            let step = |w: &mut World| {
+                if parallel {
+                    super::super::parallel::step(w);
+                } else {
+                    update::step(w);
+                }
+                w.step_active_sites();
+            };
+            // One organism tick is enough to notice; the rot needs longer.
+            for _ in 0..(ORGANISM_TICK_INTERVAL as usize * 2) {
+                step(&mut w);
+            }
+            let noticed = w.organism_state(id).is_some_and(|s| s.senescent);
+            for _ in 0..8_000 {
+                step(&mut w);
+            }
+            let released = w.organism_state(id).is_none();
+            (noticed, released, slots_before)
+        }
+
+        for parallel in [false, true] {
+            let driver = if parallel { "parallel" } else { "serial" };
+            let (noticed, released, _) = build(parallel);
+            assert!(noticed, "{driver}: a plant with no vital cell left must be marked senescent");
+            assert!(released, "{driver}: a senescent plant's remains must rot away and return its slot");
+        }
+    }
+
+    /// **A living plant is never mistaken for a corpse.**
+    ///
+    /// The other half of the rule above, and the one that would fail loudly
+    /// if `Species::is_vital` were wrong: a growing tree carries leaves,
+    /// tips and dormant buds, and moss carries neither leaves nor buds nor
+    /// seeds — it lives on `Divide` alone, which is exactly the arm that
+    /// exists so a moss patch does not read as dead on its first tick.
+    #[test]
+    fn a_growing_tree_and_a_moss_patch_are_never_senescent() {
+        let mut w = test_world();
+        plant_tree_on_ground(&mut w, 60, 40);
+        for x in 100..110 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+            w.plant_moss_seed(x, 59);
+        }
+        run_with_fields(&mut w, 6_000);
+
+        let mut trees = 0;
+        let mut mosses = 0;
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism_state(id) else { continue };
+            let name = w.species.get(state.species).name.clone();
+            assert!(!state.senescent, "a live {name} was marked senescent (cells {})", state.cells.len());
+            match name.as_str() {
+                "tree" => trees += 1,
+                "moss" => mosses += 1,
+                _ => {}
+            }
+        }
+        // The did-it-fire counter: a run where nothing established would
+        // pass the assertion above by having nothing to assert about.
+        assert!(trees > 0, "test setup: no tree organism exists to check");
+        assert!(mosses > 0, "test setup: no moss organism exists to check");
+    }
+
+    /// **The seed bank thins and does not empty** — WP-D item 2.
+    ///
+    /// Seeds were immortal: the not-ready branch of `Behavior::Germinate`
+    /// sets `found_candidate`, so a waiting seed never even reaches the
+    /// staleness limit and is rescheduled for ever. Measured on the
+    /// eight-tree stand that is 160 standing seeds at 60,000 frames, still
+    /// climbing, every one of them a slot.
+    ///
+    /// The bar is two-sided on purpose. `Reports/population-dynamics-
+    /// research.md` §3 wants the bank to be the ecology's **reservoir** —
+    /// the thing that carries a species through a trough an individual-based
+    /// grid otherwise turns into an absorbing state — so a clock that
+    /// cleared it would trade one bug for a worse one. At one half-life the
+    /// survivors must be *near half*, not near zero and not near all.
+    #[test]
+    fn a_dormant_seed_bank_halves_over_a_half_life_and_does_not_empty() {
+        const SEEDS: usize = 60;
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // Below the wilting point, so `plant_available_fraction` is exactly
+        // zero and nothing germinates: this measures decay, not attrition
+        // through sprouting.
+        for x in 0..200 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+            for y in 52..60 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_WILTING_POINT));
+            }
+        }
+        for i in 0..SEEDS {
+            assert!(w.plant_tree_species(2 + i as i32 * 3, 51, "tree"), "test setup: seed {i} should have been planted");
+        }
+        let half_life = w.species.get(w.species.id_of("tree").expect("tree")).seed_half_life;
+        assert!(half_life > 0.0, "test setup: tree seeds must have a decay clock");
+
+        let standing = |w: &World| {
+            let b = w.bounds().expect("a non-empty world");
+            let mut n = 0;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(CellType::Seed) {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        assert_eq!(standing(&w), SEEDS, "test setup: every seed should be standing before any frames run");
+
+        run_with_fields(&mut w, half_life as usize);
+        let after = standing(&w);
+        let (_, live) = w.organism_slot_usage();
+        println!("dormant seeds after one half-life ({half_life} frames): {after} of {SEEDS}, {live} organisms live");
+
+        // 60 seeds, p = 0.5: sd is 3.9, so +-12 is three standard
+        // deviations either way. A bar tighter than that would flake on the
+        // draw rather than on the mechanism.
+        assert!((18..=42).contains(&after), "one half-life should leave near half the bank: {after} of {SEEDS}");
+        // The slot is the point: a decayed seed must not leave a live
+        // organism behind holding one.
+        assert_eq!(live, after, "every standing seed and no more should still hold a slot: {live} live against {after} standing");
+    }
+
+    /// **The 4,095-slot ceiling refuses a birth instead of corrupting an
+    /// identity.**
+    ///
+    /// `Cell::organism_id` gives 12 bits to the slot index and
+    /// `encode_organism_id` does not mask, so a 4,096th slot set bit 12 —
+    /// the *generation*'s low bit — and the new organism silently became a
+    /// live one that already existed. It was guarded only by a
+    /// `debug_assert`, so release builds took the corruption in silence
+    /// (`Reports/open-bugs-handoff.md` §F4;
+    /// `Reports/population-dynamics-research.md` 9g asks for exactly this
+    /// fix, in these words: "Add a release-mode check, not a
+    /// `debug_assert`").
+    #[test]
+    fn the_organism_slot_ceiling_refuses_a_birth_rather_than_aliasing_a_live_one() {
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is compiled in");
+        let grass = w.species.id_of("grass").expect("grass is compiled in");
+
+        // Fill the table. The first organism is a different *species* from
+        // the rest, which is what makes the aliasing assertion below able to
+        // fail: a corrupted id would resolve to something, and only the
+        // species says whether it resolved to the right something.
+        let first = w.push_organism(grass).expect("the first slot must be free");
+        let mut ids = std::collections::HashSet::new();
+        ids.insert(first);
+        while let Some(id) = w.push_organism(tree) {
+            assert!(ids.insert(id), "the allocator handed out {id} twice");
+        }
+        let (slots, _) = w.organism_slot_usage();
+        let (high_water, ceiling) = w.organism_slot_high_water();
+        assert_eq!(slots, ceiling, "the table should fill to exactly the ceiling: {slots} against {ceiling}");
+        assert_eq!(high_water, ceiling, "the high-water mark is the table length");
+        assert_eq!(ids.len(), ceiling, "every id handed out must be distinct: {} of {ceiling}", ids.len());
+
+        assert_eq!(w.organisms_refused(), 1, "the push that failed must be counted exactly once");
+        assert!(w.push_organism(tree).is_none(), "a full table must keep refusing");
+        assert_eq!(w.organisms_refused(), 2, "each refusal counts");
+
+        // Nothing was aliased: the identity that a wrapping index would have
+        // collided with still reads as itself.
+        let survivor = w.organism_state(first).expect("the first organism must still resolve");
+        assert_eq!(survivor.species, grass, "a refused birth must not have overwritten a live organism's state");
+
+        // And a freed slot lets the world breathe again.
+        w.free_organism(first);
+        let reborn = w.push_organism(tree).expect("a freed slot must be reusable");
+        assert_ne!(reborn, first, "the reused slot must hand out a different id");
+        assert_eq!(w.organisms_refused(), 2, "a successful push must not count as a refusal");
+    }
+
+
+    /// **§F4's own named case, reproduced before anything was built for
+    /// it — and the reproduction moved the diagnosis.**
+    ///
+    /// §F4 says "a grass seed landing on a branch, a stone, a litter drift
+    /// or a nest roof would germinate, never root, and stand forever,
+    /// holding an organism slot", and shade abscission cannot help: the
+    /// thing is standing on a rock in open sky, the brightest place in the
+    /// world. The obvious reading is that grass needs a *drought* death and
+    /// that the way to get one is to widen the transpirational-demand sum
+    /// (a tussock that has retired every tip has demand exactly zero, so
+    /// `drought_death` is inert on it).
+    ///
+    /// **It never germinates.** `Behavior::Germinate` gates on
+    /// `plant_available_fraction` of the cell below and on that cell
+    /// declaring `water_capacity > 0` first — stone does not, litter does
+    /// not, wood does not — so the seed-dormancy work already made §F4's
+    /// *premise* unreachable, and the entry predates it. What was really
+    /// leaking was the ungerminated seed, sitting on the rock for ever
+    /// because the not-ready branch reschedules it indefinitely. The seed
+    /// clock is what closes it.
+    ///
+    /// Recorded at this length because the fix the first reading pointed at
+    /// — widening the demand sum — would have been a speculative economy
+    /// change to grass with no live case behind it. It stays P2's.
+    #[test]
+    fn a_grass_seed_on_bare_rock_never_germinates_and_does_not_stand_for_ever() {
+        let mut w = test_world();
+        // Bare stone in open sky: nothing for a root to enter, so
+        // `germinate`'s `growable` check refuses the companion root and the
+        // plant is a shoot with no water supply at all.
+        for x in 40..60 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        assert!(w.plant_tree_species(50, 59, "grass"), "test setup: the seed should have been planted");
+        let id = w.get(50, 59).organism_id();
+        assert_ne!(id, 0, "test setup: the seed should own its cell");
+
+        run_with_fields(&mut w, 1_000);
+        assert!(w.organism_state(id).is_some(), "test setup: it should still be standing at 1,000 frames");
+        let stage = w
+            .organism_state(id)
+            .and_then(|s| s.cells.keys().next().copied())
+            .and_then(|(x, y)| organism::cell_type(w.get(x, y).aux()));
+        println!("on bare rock at 1,000 frames the grass organism is a {stage:?}");
+        // The half that says §F4's premise is superseded rather than fixed.
+        assert_eq!(
+            stage,
+            Some(CellType::Seed),
+            "germinating on a surface that holds no water is what §F4 describes; if this ever passes as a \
+GrowingTip again, the rootless-plant case is live and grass needs a drought death, not just a shade one"
+        );
+
+        run_with_fields(&mut w, 45_000);
+        let state = w.organism_state(id);
+        println!(
+            "the same seed at 46,000 frames: {}",
+            match state {
+                None => "gone".to_string(),
+                Some(s) => format!("still standing, {} cells, senescent {}", s.cells.len(), s.senescent),
+            }
+        );
+        // And the half that says the leak it named is closed anyway.
+        assert!(state.is_none(), "a seed with nowhere to go must not hold its slot for ever");
+    }
+
 }

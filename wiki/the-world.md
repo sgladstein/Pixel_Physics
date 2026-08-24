@@ -1,6 +1,8 @@
 # The World
 
-*Current as of: 2026-08-22.*
+*Current as of: 2026-08-23. Updated when worldgen started sowing four
+woody species instead of one, and again when grass joined them as a ground
+layer.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -220,22 +222,50 @@ again.
 
 ## Life arrives with the world
 
-A new world already has moss and tree seeds in it, so it grows in on its own
-rather than staying bare until you plant something. They are **seeds**, not
-finished plants: what comes up, how tall it gets and where it leans are the
-plant's own business, so a world looks sparse at first and fills in as it
-runs.
+A new world already has seeds in it, so it grows in on its own rather than
+staying bare until you plant something. They are **seeds**, not finished
+plants: what comes up, how tall it gets and where it leans are the plant's
+own business, so a world looks sparse at first and fills in as it runs.
+
+**Four woody plants and moss**, and where each one turns up is decided by
+the ground rather than by chance. Trees take the damp country with a real
+depth of soil, and are the plant you see most of. Conifers hold the high
+ground — they arrive as a belt of country several stands wide, not as
+scattered individuals, so crossing into their band is something you notice.
+Shrubs take the dry margin, where the soil is thinning and the country is
+on its way to desert. Creepers take the places nothing else can root in: a
+skin of soil a few cells deep over bare rock. Where two of those conditions
+overlap you get a mixed stand, which is most of the interesting ground.
+
+None of them will grow on sand, gravel or bare stone — soil is the only
+thing in the world that holds water, so a seed anywhere else simply sits
+there. That is what keeps a desert a desert without a rule saying so. Moss
+is the exception: it takes rock as well, and spreads where the ground is
+damp and shaded, which in practice means it favours the ground near standing
+water.
 
 Placement is **clustered, not scattered** — stands with clearings between
 them, rather than one plant every so often. Even spacing is what a world
 populated by a loop looks like, and it is the thing this most carefully
-avoids. Trees want soil to root in, so bare rock and steep faces stay bare;
-moss will take rock as well, and spreads where the ground is damp and shaded,
-which in practice means it favours the ground near standing water.
+avoids. Each species clusters *separately*, so one species' clearings are
+often where another's thicket sits.
 
-How much life a world starts with is a preset property. **Wetland** is
-thickest, **arid** has none at all, and **flat** — the structural test bed —
-is deliberately empty so that nothing is standing on it.
+How much life a world starts with is a preset property, and it is a budget
+for all of them together rather than per species: a stretch of country that
+suits three plants carries about as many as a stretch that suits only one,
+made of three different things. **Wetland** is thickest, **arid** has none
+at all, and **flat** — the structural test bed — is deliberately empty so
+that nothing is standing on it.
+
+**Grass comes with a new world too, and it grows where the woody plants
+thin out.** It is a separate layer rather than a fifth kind of tree: the
+budget above is for the woody plants, and grass takes the ground between
+them. Where that ground is open — the dry margin, a thin skin of soil over
+rock, anywhere the country supports woody cover poorly — a sward comes up.
+Where the country carries forest, grass mostly does not, and what would
+happen to it there is the same thing that happens to it under a closed
+canopy: it is shaded out. A grass seed on sand does not come up at all,
+which is why a desert stays a desert.
 
 ## Worlds arrive settled
 

@@ -631,6 +631,28 @@ rather than all at once; a stone arch spans less than a steel one; editing
 
 ### M18 — Creatures ✅ Phase 1 done
 
+> **Where the live creature line actually is, 2026-08-23.** This section is
+> the M18 *roadmap* and predates the work that shipped. The creature line
+> now runs through three documents, and where any of them disagrees with
+> the text below, **they win**:
+>
+> - `Reports/creature-direction.md` — the direction agreed 2026-08-17
+>   (cell-chain ants, the caged brain, the heritable genome). **§13 is the
+>   record of what actually happened and overrides §§1–12 where they
+>   differ.**
+> - `Reports/creature-evolution-plan.md` — the staged route from a scripted
+>   ant to an evolving one (S1–S8). §0 holds decisions E1–E7, §4 the
+>   standing guards, §6 the dead-end register.
+> - `README.md` "M18 S1–S4: the creature economy, and an edible forest
+>   floor" — the shipped status: the 584-slot genome, food worth living on
+>   the material rather than on the eater, corpse worth in `Cell::aux`, and
+>   the edible forest floor.
+>
+> Phase 1 below shipped and then kept going: the worm is still the only
+> burrower, but a creature is no longer "a cell with a named behaviour" —
+> it is an **organism** like a plant, with a chain of cells, an energy
+> budget and a genome (`creature-direction.md` §3a).
+
 **Phase 1 — cell-based (now).** A creature is a cell with a `Creature` kind and
 a named behaviour, scheduled on the M16 active-site list: worms that burrow
 through powder, slimes, spreading fungus. Fits the data-driven material model
@@ -663,6 +685,24 @@ Two things to get right early:
   rate as one combined stability parameter, measured rather than guessed.
 
 ### M18 Phase 2's species set: a cycle, not a chain
+
+> **SUPERSEDED by `Reports/creature-evolution-plan.md`, 2026-08-23 — unless
+> the owner revives it.** This proposal asks for owner sign-off on the
+> species identities (see the bold paragraph below); **no sign-off is
+> recorded, and the creature line went a different way in the meantime.**
+> What shipped is one animal getting *better*, not three animals in a
+> non-transitive cycle: an ant colony with a heritable genome, food worth
+> carried on the material, and selection arriving via S5's `gut_bias` and
+> S6's reproduction. The worm survives as the only burrower and has no
+> `creature:` block; the binder and borer were never built.
+>
+> **What is superseded is the species *identities*, not the reasoning.**
+> Everything the `population-dynamics-research.md` findings below say about
+> why a chain goes extinct and a cycle does not, about dispersal, mobility
+> caps, density-dependent mortality and ensemble acceptance, is unaffected
+> by which animals fill the roles — and the ensemble rule in particular is
+> already house law. Reviving this means re-opening the sign-off question,
+> not re-deriving the ecology.
 
 **Re-shaped from `Reports/population-dynamics-research.md` before any creature
 `.ron` is written, because it determines what they contain (§12).** The original
@@ -741,17 +781,46 @@ failure will be attributed to whatever shipped most recently.
   `creature.rs` drew from the single shared `World::rng`, whose real defect is
   *order coupling*: every organism's sequence depends on how many draws every
   other caller made first. The recommendation (a per-organism stream) was right
-  for the wrong reason. **Done for plants** (`rng::stream`); `creature.rs` still
-  draws from `World::rng` and should move the same way before Phase 2 breeding.
+  for the wrong reason. **Done for plants** (`rng::stream`); ~~`creature.rs` still
+  draws from `World::rng` and should move the same way before Phase 2 breeding.~~
+  **Done for creatures too, 2026-08-23** — `creature.rs` draws through
+  `rng::stream(seed, organism, frame, slot)` throughout, with `RNG_SLOT_*`
+  as the fourth key. Nothing here is outstanding.
 
-**§7c is real and still open:** `World::push_creature` guards a `u16` overflow
+**§7c is real and still open — but not at the address written here.**
+~~`World::push_creature` guards a `u16` overflow
 with a `debug_assert`, and CI runs `--release` exclusively, so it is never checked
 anywhere; in release the assert vanishes and `(len - 1) as u16` silently wraps, so
 creature 65,536 *becomes* creature 0 — two creatures sharing one state slot,
 presenting as a creature behaving erratically. `creatures` never shrinks, so with
 breeding this is a hard limit on **cumulative births**, not live population. Fix
 with the same free-list `free_organism` needs, and do them together (§7c) — the
-plant work's Decision 2 is the pass that builds it.
+plant work's Decision 2 is the pass that builds it.~~
+
+**CORRECTED 2026-08-23.** Two of the three premises above are gone and the
+hazard is not: `creatures: Vec<CreatureState>` and `push_creature` **no
+longer exist** (`world.rs:438` records their removal — a creature is an
+organism, so its state lives in `organisms` with everything else's), the
+free-list this asked for **was built** (`free_organism_slots`, generation
+bumped on reuse, so a stale id resolves to `None` rather than to a
+different organism), and CI **no longer runs `--release` exclusively** —
+`ci.yml` has a `test-debug` job, so the `debug_assert`s are compiled and
+run somewhere. Do not go looking for `push_creature`.
+
+What survives, at a different number and a different function:
+`push_organism` range-checks the slot with a `debug_assert`
+(`world.rs:47`) and `encode_organism_id` does **not** mask, so at the
+ceiling the index bleeds into the generation bits — silent organism
+identity corruption, and still invisible in **release play**, which is
+where a breeding run would actually hit it. The ceiling is
+**4,095 concurrently live organisms**, not 65,536 cumulative births — a
+sixteen-fold tighter bar against a live population that now includes every
+plant, and reclamation means it bounds concurrency rather than history.
+A **release-mode** guard on that ceiling is a precondition of S6
+reproduction (`Reports/creature-evolution-plan.md`; population-dynamics
+acceptance 9g), and `Reports/open-bugs-handoff.md` §F4 records the live
+route to it: a grass seed germinating somewhere it can never root holds a
+slot forever.
 
 **Verify:** a worm burrows through sand and cannot enter stone; a creature flees
 a fire it senses through the temperature field; killing one leaves a destructible
@@ -1175,17 +1244,23 @@ largest perf win) → **#5 → #6 → #4** (field grid) → **#9 → #8 → #7**
 correctness before the forest gets bigger) → #1 and #10 as housekeeping
 whenever. Folded into the priority-order list above where they overlap.
 
+**The M16 correctness group (#7, #8, #9) is done**, re-confirmed against the
+source 2026-08-23 rather than from this table, which had gone stale on all
+three — see each row. What is left of the original eleven is the perf group
+(#2, #4, #5, #6) plus housekeeping (#1, #11); #2's row records why it is
+harder than it reads.
+
 | # | Title | Kind |
 |---|---|---|
 | 1 | Commit `Cargo.lock` — gitignored on a binary crate, so builds aren't reproducible | chore |
-| 2 | `touch_neighbours`'s fast-path guard is unreachable (`MAX_REACH..CHUNK_SIZE-MAX_REACH` is an empty range at today's constants) — every `World::set` pays the full neighbour-wake loop | perf |
+| 2 | `touch_neighbours`'s fast-path guard is unreachable (`MAX_REACH..CHUNK_SIZE-MAX_REACH` is an empty range at today's constants) — every `World::set` pays the full neighbour-wake loop | perf |  <!-- still open, re-confirmed 2026-08-23: `world.rs`'s guard carries its own comment saying it is a no-op at today's constants and is kept as documentation of that fact. Narrowing it needs `parallel.rs`'s cross-chunk write-safety proof re-derived from an equality to an inequality. -->
 | 3 | `SURFACE_SEARCH == MAX_REACH` (32) sets the sweep-region widening for *every* material via one read-only liquid lookahead, though real movement reach tops out at 5 — decouple them, track actual reach per chunk | perf |
 | 4 | `field::step` runs 5 whole-world passes every frame with no sleeping, contradicting `README.md`'s own "a quiet field costs almost nothing" claim | perf, blocks M10 |
 | 5 | `rebuild_blocked` does ~164k hashed `World::get` calls per frame (open air is the worst case and the common case) — index the chunk directly instead | perf |
 | 6 | Seven un-hoisted loop-invariant `next.get(&coord)`/`get_mut` calls inside `field.rs`'s inner loops | perf, good first issue |
-| 7 | `scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak | perf, correctness, M16 |
-| 8 | `World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime | bug, M16 |
-| 9 | Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever | bug, M16 |
+| 7 | ~~`scheduler::step` is O(all pending sites), reallocates the whole schedule every frame, and its `HashMap` drain order is the engine's one real determinism violation (§8b) — rewrite onto a `BinaryHeap` with a deterministic tiebreak~~ **(resolved 2026-08-23, both halves. `scheduler.rs` stores a `BinaryHeap<Reverse<ActiveSite>>` and `ActiveSite: Ord` orders `next_frame` first, then `(x, y, kind)` purely as a stable tiebreak, so `step` stops at the first not-yet-due site instead of rebuilding the whole map and same-frame sites resolve identically run to run.)** **This closes the §8b violation and does *not* close `open-bugs-handoff.md` §P** (re-lettered from §L at the 2026-08-23 lane landing) — `scene=worldcrack` still varies 53% across identical runs, from a per-process source nobody has attributed yet, so §8b can no longer be quoted as its explanation. | perf, correctness, M16 |
+| 8 | ~~`World::trees` never shrinks — a fully-dead tree's `TreeState` (attractors, tips, roots) leaks for the process lifetime~~ **(resolved. `TreeState` no longer exists — the tree rewrite replaced it — and organisms live in a generational slot vec, `World::organisms`, whose `free_organism` clears the slot and pushes it to `free_organism_slots` while `push_organism` bumps the generation on reuse. `plant::step_organisms` is the production caller, releasing organisms whose cell list has gone empty.)** | bug, M16 |
+| 9 | ~~Tree/root tips check only their own `alive` flag, never whether their cell still exists — burn a tree or erase its trunk and orphaned tips keep extending wood from open air forever~~ **(resolved. `organism_tick`'s *first* check is `cell.organism_id() != organism_id`, which fires the instant the cell stops holding this organism's material, so burning or erasing the trunk stops its tips by construction rather than by a flag anyone has to remember to clear. Guarded by `an_orphaned_growing_tip_stops_growing_instead_of_extending_wood_from_open_air`.)** | bug, M16 |
 | 10 | Housekeeping: ~~default branch is `main` (a 15-byte stub — the project lives on `master`)~~ **(resolved 2026-08-21, the other way round: `master` was copied onto `main` rather than the default being switched, so `main` is now the trunk, CI gates it, and `master` is a lagging mirror kept only until someone deletes it — see the branch-topology note below)**, no LICENSE, no CI, no `rustfmt.toml`/clippy config/`[lints]`, no `rust-version` (real MSRV is ≥1.87 for `u64::is_multiple_of`) | chore |
 | 11 | Reserve a slice-identifier field on `ChunkCoord` before it reaches the save format (see the worldgen redesign above) | chore, architecture, blocks M10 |
 

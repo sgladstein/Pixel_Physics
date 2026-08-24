@@ -13,11 +13,31 @@
 // zero is a mislabelled poplar.
 (
     name: "conifer",
-    // The blue-green end of the foliage axis on dark red-brown bark -- the
+    // The blue-green end of the foliage axis on rust-red bark -- the
     // fir/spruce reading, and disjoint from `tree`'s range so the two
     // species never draw the same colour however the individuals fall.
+    //
+    // **Bark moved 1-2 -> 4-5 on 2026-08-23, and the comment above was
+    // wrong before it.** It claimed disjointness while band 1 was shared
+    // with `tree` and band 2 with `shrub`: two of the three woody species
+    // in the world could draw a conifer's exact trunk colour, which is
+    // half of what "I cannot identify individual trees" was about. Bands
+    // 4-5 are new and are pine's own warm plated bark rather than a
+    // borrowed brown -- see `wood.ron`, where the axis went from four
+    // bands to eight for this.
+    //
+    // **These two lines were dropped by the edit that wrote the note above
+    // them, and shipped missing.** Both fields are `#[serde(default)]`, so
+    // absent means `count: 0`, which `banded_shade` reads as "undeclared"
+    // and answers with a uniform draw over the *whole* palette -- conifer
+    // was wearing a random mix of all eight hues on both axes, which is the
+    // exact opposite of what this range is for. It also pinned every
+    // conifer's founding `LOCUS_LEAF_ECONOMY` allele to 0, because that
+    // locus is derived from the foliage band. Restored 2026-08-23; the
+    // guard against a silent repeat is that a species asserting a disjoint
+    // range should be tested for one, which nothing does yet.
     foliage_bands: (first: 0, count: 2),
-    bark_bands: (first: 1, count: 2),
+    bark_bands: (first: 4, count: 2),
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,
@@ -82,6 +102,11 @@
                 // ratio against `tree`'s is what carries that, so both moved
                 // together when foliage volume was raised (see tree.ron's
                 // note on why this is now a pure appearance knob). 3 -> 6.
+                //
+                // **Unchanged, and now the tall end of an explicit axis**
+                // (item C2, 2026-08-23): 6 here at a 150-row height budget
+                // against creeper's 14 at eight rows, with tree and shrub
+                // between. See shrub.ron for the trade this states.
                 leaf_cluster: 6,
                 juvenile_size: 60,
                 juvenile_plastochron: 0.25,
@@ -89,7 +114,7 @@
                 // Slots 6-8 appended and 1/5 re-purposed to the root
                 // vector at the 2026-08-18 re-map -- tree.ron carries the
                 // full note.
-                genotype_variance: (0.4, 0.0, 0.3, 0.15, 0.5, 0.0, 0.4, 0.5, 0.0),
+                genotype_variance: (0.4, 0.0, 0.3, 0.15, 0.5, 0.0, 0.4, 0.5, 0.0, 0.5),
                 sympodial: [false],
                 // The lever this species exists for: an orthotropic trunk
                 // under plagiotropic everything-else.
@@ -148,7 +173,7 @@
                 penetration_force: 1.2,
                 // The root's own genome vector, slots 1/5/8 -- tree.ron's
                 // RootTip entry carries the full derivation of the widths.
-                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
             ),
         ]),
         (MatureBody, [
@@ -182,7 +207,23 @@
             SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+            // **Leaf fall, at the rate the owner picked for `tree`.** This
+            // line was byte-identical across conifer, shrub, creeper and
+            // pre-retune `tree`: the three specialists inherited tree's
+            // leaf economics wholesale and none was ever tuned on its own.
+            // So when the owner chose the quarter rate on card
+            // `20260823T161006584Z-6ecbab` ("C is best") he was choosing
+            // this number, for the one woody species worlds sowed at the
+            // time. PR #20 then started sowing all four, which left his
+            // verdict covering a quarter of the world's woody flora and
+            // the floor still filling from the rest -- measured on the
+            // colony scene at 12,000 frames, soil-writing decay events ran
+            // 5,061 with none of them cut, 2,954 with `tree` alone cut,
+            // and 1,532 with all four. Carrying his rate across is
+            // executing the answer he already gave, not a new call; if a
+            // species should shed faster than the others that is a
+            // separate, per-species decision and wants its own card.
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
         ]),
     ],
 )

@@ -25,11 +25,25 @@
 // deliverable, not a failure to fix.
 (
     name: "creeper",
-    // Borrowed from shrub's range: this is a probe and the palette is not
-    // what it is testing. A real ground layer gets its own materials
-    // (WP-B3), which is the axis a recolour cannot reach.
-    foliage_bands: (first: 4, count: 2),
-    bark_bands: (first: 2, count: 2),
+    // **Its own range at last.** This file shipped declaring `(first: 4,
+    // count: 2)` on both axes -- byte-identical to `shrub.ron` -- with the
+    // note below explaining that a probe does not need a palette. It stopped
+    // being a probe the day worldgen started sowing it
+    // (`Reports/plant-project-review-2026-08-23.md` A1), and a ground-runner
+    // that is the same colour as the bush above it is the single cheapest
+    // way to make a mixed world read as one species.
+    //
+    // Pale sage over a green-grey stem: desaturated where every other
+    // species is saturated, which separates it from all four greens at a
+    // glance rather than by hue alone. Bands 6-7 of both palettes are new
+    // and are creeper's -- see `leaf.ron` for why the leaf axis steps off
+    // its own hue ordering to make room.
+    //
+    // The original note still stands as far as it goes: a real ground layer
+    // gets its own *materials* (WP-B3), which is an axis a recolour cannot
+    // reach. This is the recolour, not that.
+    foliage_bands: (first: 6, count: 2),
+    bark_bands: (first: 6, count: 2),
     stomatal_reserve: 0.2,
     cell_types: [
         (Seed, [
@@ -80,11 +94,19 @@
                 // does not have.
                 branch_angle: [80.0, 75.0],
                 internode: [2, 2],
-                leaf_cluster: 8,
+                // **The far end of the leaf-area-per-node axis** (item C2,
+                // 2026-08-23): 8 -> 14, against conifer's 6 at nineteen
+                // times this species' height budget. A runner spends nothing
+                // on height, so the node it does build carries the broadest
+                // leaf of the four -- which is also the only way a plant
+                // eight rows tall reads as anything at all next to a stand
+                // of conifers. See shrub.ron for why cluster size is
+                // affordable to move and what it costs.
+                leaf_cluster: 14,
                 juvenile_size: 20,
                 juvenile_plastochron: 0.5,
                 juvenile_branch: 1.3,
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
                 sympodial: [false],
                 tropism: [Orthotropic],
             ),
@@ -104,7 +126,7 @@
                 plastochron: [0],
                 heading_inertia: 0.75,
                 penetration_force: 1.2,
-                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
             ),
         ]),
         (MatureBody, [
@@ -123,7 +145,23 @@
             SecondaryThicken(pipe_ratio: 5.5),
         ]),
         (Leaf, [
-            Photosynthesize(rate: 0.35, shade_death: 0.003, transpiration: 0.05, drought_death: 0.003),
+            // **Leaf fall, at the rate the owner picked for `tree`.** This
+            // line was byte-identical across conifer, shrub, creeper and
+            // pre-retune `tree`: the three specialists inherited tree's
+            // leaf economics wholesale and none was ever tuned on its own.
+            // So when the owner chose the quarter rate on card
+            // `20260823T161006584Z-6ecbab` ("C is best") he was choosing
+            // this number, for the one woody species worlds sowed at the
+            // time. PR #20 then started sowing all four, which left his
+            // verdict covering a quarter of the world's woody flora and
+            // the floor still filling from the rest -- measured on the
+            // colony scene at 12,000 frames, soil-writing decay events ran
+            // 5,061 with none of them cut, 2,954 with `tree` alone cut,
+            // and 1,532 with all four. Carrying his rate across is
+            // executing the answer he already gave, not a new call; if a
+            // species should shed faster than the others that is a
+            // separate, per-species decision and wants its own card.
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
         ]),
     ],
 )

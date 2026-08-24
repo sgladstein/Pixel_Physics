@@ -290,7 +290,7 @@
                 // remains true of slots 0/2/3/4, whose meanings did not
                 // move; nothing else survives the re-map and the
                 // megastudy re-baselines.
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
@@ -403,7 +403,7 @@
                 // at 0.9 -- above soil's 0.8, so no individual is locked
                 // out of ordinary ground -- while the strongest reaches
                 // 1.5, past sand's 1.4.
-                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
             ),
         ]),
         (MatureBody, [
@@ -529,9 +529,31 @@
             // (target/filmstrips/p13-shed-grove.png): bare boles, foliage
             // tufted at the crown, the first sheet where wood reads as
             // wood.
+            //
+            // Then re-swept twice more, each time because the number's job
+            // had changed under it. To 0.003 when four other mechanisms
+            // took over crown separation (fusion is flat 0.03 -> 0.003 and
+            // breaks only at 0.0; the commit that moved it has the table).
+            // To 0.00075 in the WP-11 economy retune, because by then the
+            // number's main output was not the crown but the FLOOR: with
+            // litter and decay landed, leaf fall manufactures soil, and
+            // the owner's verdict was "leaves are just falling too fast
+            // ... creating a giant pile of soil". A cause counter
+            // (`World::shed_shade`) showed this pressure is ~89% of all
+            // leaf fall, so it is the lever. Swept 0.003 / 0.0015 /
+            // 0.00075 on the colony scene at 12,000 frames: soil-writing
+            // decay events 6,331 / 3,443 / 1,800, standing litter 1,081 /
+            // 569 / 321, and crown separation held by eye at all three.
+            // The owner picked the quarter rate on a three-arm card
+            // (`20260823T161006584Z-6ecbab`: "C is best"). Two cautions
+            // for the next retune: colony-band food *energy* does not drop
+            // with the rate (retained foliage becomes low standing leaf --
+            // medians 70k/82k/91k across the arms), and 0.00075 sits in
+            // the previously unswept gap above 0.0 where fusion returns,
+            // so a further cut needs the fused-run column re-measured.
             Photosynthesize(
                 rate: 0.35,
-                shade_death: 0.003,
+                shade_death: 0.00075,
                 // **Transpirational demand -- the charge that makes a root
                 // worth having.** Before it, `Absorb` credited the same
                 // pool `Photosynthesize` filled, so a rootless plant ran no
@@ -549,7 +571,7 @@
                 // cannot reach soil thin out and die rather than stand
                 // there inert -- the epiphyte's own death, from the economy
                 // instead of from a germination guard.
-                drought_death: 0.003,
+                drought_death: 0.00075,
             ),
         ]),
     ],

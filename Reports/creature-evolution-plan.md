@@ -605,6 +605,23 @@ sealed-box guards run on an ant-only colony, where ants do not eat ants, so the
 bound is tight there. Closing it means a sink for a stamp destroyed without
 becoming a corpse, and it belongs with S6, when a parent starts paying stamps.
 
+> **Update 2026-08-23 (WP-6): the sink now exists, and this seam is still
+> open on purpose.** `EnergyLedger::meat_lost` was added for the *other*
+> gap named in the same breath — meat destroyed by fire, an explosion or the
+> brush, which nothing booked, and which is why `max_standing_meat` was an
+> upper bound rather than a bound. It is exactly the shape this paragraph
+> asks for: an account for worth that leaves the world without being eaten.
+>
+> **It was deliberately not pointed at living flesh, and the reason is the
+> one this paragraph already gives.** The living-flesh gap is not a missing
+> account, it is a missing *transaction*: the stamp is not destroyed, it is
+> still standing in `stamped` against a body that has been partly eaten, and
+> booking it as lost would be a second wrong entry rather than the correction
+> of the first. What it waits on is a parent paying stamps for a child, so
+> that the stamp has somewhere to come *from* as well as somewhere to go.
+> Close it with S6, as written. `meat_lost`'s own doc carries a pointer back
+> here so the two are found together.
+
 ### 2.4 S4 — Litter: the canopy's production falls to where ants walk
 
 **The binding quantity is the fraction of animals that find food** (§13o's
@@ -932,6 +949,184 @@ filter is the wrong shape and an asymmetric penalty is the next thing to try.
 **Cost.** 4 bytes per organism; the predicate is cheaper than the string scan
 it replaces.
 
+#### As built (2026-08-23), and two things this section got wrong
+
+*(A third verdict landed the same day and is recorded at the mechanism
+rather than here: the spec's "render.rs lerps the creature palette by it"
+went to a blind A/B and lost — **A, untinted** — matching `ant.ron`'s
+standing note that contrast, not hue, is the readable signal at 1–2 px.
+`render.rs`'s gut-tint constants carry the verdict and the card id; the
+readout for the trait is the signed `GutBias` overlay, not the body
+colour.)*
+
+Recorded here rather than silently deviated from, per the implementation
+handoff's own instruction: *if a WP's measurement contradicts this document,
+the measurement wins.* Both were found by arithmetic and by the suite, before
+anything depended on them.
+
+**1. The cannibal trap cannot be closed by `gut_bias` and a threshold.** The
+handoff asks for the ant's gut and the eat threshold to be set "so ant-flesh
+yield for ants lands below threshold". They cannot be: `ant` material is
+`food_class: 1.0` worth 120, and a **starved** ant's corpse cell is
+`food_class: 1.0` worth `body_energy + 0/cells` — also exactly 120. Same point
+on the axis, same number. Any threshold that hides a living nestmate hides the
+starved corpse with it, and the starved corpse is precisely what §2.3's
+structural stamp exists to keep edible ("a starved animal still leaves meat").
+
+So the difference is stated as data instead, per `CLAUDE.md`, and the data was
+already in the world: `creature_dies` writes a corpse **without** an organism
+id. Edibility is `diet_yield > threshold` **and not a living member of my own
+species**, behind `CreatureDef::eats_kin`, default off. Beetle-eats-ant
+predation survives by construction — a beetle's kin is a beetle. It also stops
+an animal eating its own tail, which the name list had been preventing by the
+accident of "ant" not being on the ant's own menu.
+
+**2. There was no viable omnivore at the shipped economy, and the fix was to
+widen the economy rather than narrow the animal — the owner's call, not
+this document's.** Measured on the one scene that can answer it — one
+animal, an inexhaustible wall of leaf, nothing to do but eat
+(`creature::tests::print_grazer_viability_against_gut_bias`):
+
+| gut | leaf yield | intake/cost | survived |
+|---|---|---|---|
+| **−1.0** | 120.0 | 0.946 | **yes** |
+| −0.9 | 108.3 | 0.993 | yes |
+| −0.8 | 97.2 | 0.781 | no |
+| −0.5 | 67.5 | 0.793 | no |
+| 0.0 | 30.0 | 0.706 | no |
+
+A **perfectly matched** grazer already runs at 0.95 — *below* the 1.0 that
+would pay for its own existence. The margin is negative before the filter is
+applied at all, so every point of digestive mismatch comes straight out of a
+deficit, and the viable band is one tenth of the axis wide. That is a fact
+about the economy, not about the matched filter, and it makes §2.4's third
+coupled call (the abundance retune) a prerequisite for the two-humped survival
+curve this section asks for: **the carnivore hump cannot exist while no gut
+off the axis ends can feed an animal at all.** The falsifier note above
+anticipates a single hump and blames carrion scarcity; the measurement says
+the first cause is upstream of that.
+
+The first landing took that as a constraint and authored the ant at −1.0, a
+detritivore — which kept the plant economy bit-identical and cost the colony
+its scavenging. Card `20260823T104411499Z-963f8d` put the trade to the owner,
+whose verdict was, in full: **"An omnivore should be viable."**
+
+So the economy widened. The factor is measured
+(`print_omnivore_viability_against_food_scale`) rather than chosen: at **4x**
+face value a neutral gut draws 120 a mouthful and reaches intake/cost 0.946 —
+the *identical* ratio a perfectly matched gut had at the old scale, because
+the filter's 0.25 at neutral is exactly what 4x cancels. The shipped ant is
+therefore economically the pre-S5 ant: `ascii` is bit-identical to `main` at
+12,000 frames, and the only line that moves is the `food stock` census, which
+reads face values and so reads 4x while no animal extracts more.
+
+Not taken higher, deliberately: past 4x the shipped ant is *richer* than
+before, and a richer floor is §13i's sit-still attractor. Specialising is
+what pays now — a gut at −1.0 draws 480 from a leaf against the shipped
+ant's 120.
+
+**What this resolves for §2.5's own measurement plan.** The two-humped
+survival curve this section asks for was unreachable at the old scale,
+because no gut off the axis ends could feed an animal at all; the falsifier
+note above blames carrion scarcity, and the first cause was upstream of it.
+At 4x the curve is measurable — which is what makes the sweep worth running
+when Lane A's instruments land.
+
+#### As measured (2026-08-23, WP-11 part 3): still one hump, and the retune was the wrong lever for it
+
+`creature_space mode=diet seeds=8 frames=18000`, **both halves in one
+session on one machine on one tree** — this branch's merge of `main` at
+`7cd1357`, with the abscission retune at `0.00075` on all four woody
+species. One binary per arm, verified distinct with `strings` before
+either was run.
+
+> **The ant is the pre-WP-9 ant** (`climbs_over_kin: false`). `main` took
+> it to `true` at `00d1551`, after these runs. Do not pair anything below
+> against a post-`00d1551` tree.
+
+**Survival vs `gut_bias`, mixed litter+carrion — the two-humped test:**
+
+| gut | before the retune | after |
+|---|---|---|
+| −1.0 | 0.862 | 0.877 |
+| −0.5 | 0.869 | 0.873 |
+| **0.0** | **0.901** | **0.911** |
+| +0.5 | 0.865 | 0.883 |
+| +1.0 | 0.609 | 0.614 |
+
+**Single-peaked, before and after — the falsifier this section names,
+holding for the second attempt.** The peak is the *generalist*, and the
+retune moved nothing about that: every paired delta is ≤ 0.018 against a
+seed spread that runs 0.52–0.99 within a single cell.
+
+**Litter-only control:** 0.903 / 0.898 / 0.889 / 0.804 / 0.299 before,
+0.886 / 0.882 / 0.880 / 0.826 / 0.276 after. Single-peaked at the
+herbivore end with a plateau collapsing off the end, in both — **the
+control passes its spec on both trees**, so the mixed arm's single peak
+is a fact about the world and not a bug in the sweep.
+
+**Carrion is doing something, and it is not enough.** At gut +1.0, paired
+across the two scenes: 0.609 mixed against 0.299 litter-only before the
+retune, 0.614 against 0.276 after. Meat roughly **doubles** a carnivore's
+survival in both worlds. The meat niche exists as a paired difference; it
+simply loses to a generalist that eats everything.
+
+**Why the retune could not have fixed this, which the part-2 pair
+explains.** The hypothesis was that a thinner floor would make the meat
+niche relatively worth more. It cannot, because slowing abscission does
+not reduce the plant food an animal can reach — **it relocates it**, from
+litter on the floor to leaf retained on the plant. §4's paired economy
+guard measures exactly that: advantage moves ≤ 0.010 and `ants fed` ≤
++0.01, while the colony-band food census *rises*. The plant side of the
+ledger never got smaller, so the generalist's edge never got smaller.
+**Abundance of litter was the wrong ecological lever for the second
+hump.** What is untried is the one this section actually prescribes:
+raising carrion — a richer structural stamp, or something that preys.
+
+**Separation, with the bar set against the both-at-0 arm as this section
+requires:**
+
+| | ±0.8 cohorts | both-at-0 null |
+|---|---|---|
+| before | 57.3 (5.9..91.3) | 10.6 (0.4..39.7) |
+| after | 50.4 (4.6..104.0) | 11.9 (3.5..33.9) |
+
+Means separate by roughly 5x on both trees. **The distributions do not
+cleanly separate**: the worst ±0.8 seed (5.9 before, 4.6 after) sits
+inside the null's range on both. Quote the distribution, never the mean
+alone. The null behaves as specified — two identical animals mix.
+
+**`both-alive (min)` reads 750 in all four separation arms**, which is
+what makes those means readable at all. Until this session the column did
+not exist and `diet_separation` divided by `sep_n.max(1.0)`, so a run
+where the cohorts were never alive together returned **0.0 — identically
+the value the null arm exists to produce**. The failure wore the
+control's face, and `placed_a`/`placed_b` could not catch it because both
+are counted at spawn and never fall.
+
+**Instrument caveats that stand, unchanged by the retune.** `foodcols`
+reads 73 of the 104 asked in every arm — the colony band runs out of
+empty columns — and it is the same 73 in every arm, so paired
+comparisons hold. The separation scene places 15+14 of 26+26 and its west
+litter bank is as thin as 4 cells; its absolute numbers still want a
+drier placement rule. `corpse@end` counts every corpse standing at the
+end **including ants that died during the run**, so it reads 6–74 even in
+the litter-only control: read it as "meat present", never as "meat
+seeded". Note that at gut +1.0 the litter-only control reads
+corpse@end 67–74 and survival 0.276–0.299 — emergent corpses demonstrably
+do *not* rescue a carnivore, which is the control working.
+
+**`EAT_YIELD_THRESHOLD`'s 12.0 cannot be re-derived from this sweep**,
+and its own comment's request for that should be read as unmet rather
+than satisfied. The bar must sit below a generalist's 30 and above a
+specialist's 1.2, and this sweep confirms the predicate fires — `eats`
+runs 0.90/0.90/0.92/0.22/0.19 across the litter-only axis, so meat-guts
+really do stop seeing leaves. But *every* value in the (1.2, 30) gap
+produces that same blindness pattern, so the survival curve is insensitive
+to where in the gap the bar sits. Pinning it needs a sweep over the
+threshold itself — five arms, each a rebuild, since it is a compiled
+constant.
+
 ### 2.6 S6 — Reproduction, inheritance, mutation
 
 **The first milestone in which evolution exists, and it is cheap:**
@@ -1158,6 +1353,105 @@ normalise against: `ascii`'s parallel stress scene at **14.066 ms** worst and
 the field-stress scene at **14.435 ms**. The within-session worst-frame
 spread is visible even in two back-to-back runs (55.6 against 60.0), which is
 why only the mean is quoted.
+
+**Re-run after the §L fix (2026-08-23, same day, cloud container), because
+the table above was re-baselined on the sessile world** — the world-scale
+merge had deleted the residual towers from the foraging scene's home range
+(`open-bugs-handoff.md` §L, closed) and these guards were measured against
+that world. Recorded, not tuned:
+
+| Guard | On the sessile world (above) | With the §L fix |
+|---|---|---|
+| Foraging pays | +0.460 / +0.479 | **+0.474 / +0.466** |
+| Ants fed | 0.73 / 0.78 | **0.75 / 0.75** |
+| Frame cost (colony mean) | 3.929 / 3.908 ms | **3.488 / 3.491 ms** (worst 40.8 / 55.1; proxies parallel-stress 15.9 ms, field-stress 18.3 ms vs 14.1 / 14.4 above — a slower machine reading a cheaper scene) |
+| Determinism | identical | **identical** (two full 31-scene runs, timing lines aside) |
+| Reference genomes | 0.709 / 0.298 | **0.690 / 0.297** |
+
+Every delta sits inside the seed-scale spread (outcome sd here is ~0.1; the
+`zero` control is stable to the third digit), so the guards did not move
+with the world in the way the fed-fraction jump above did — which is itself
+worth knowing: the sessile world and the restored world feed a
+`creature_space` colony about equally, because that harness's own scene
+never lost its terrain. The two-instruments-one-story paragraph above stays
+true, but its `ascii`-side witness is now the *closed* §L rather than a
+live red.
+
+**Re-run paired for the abscission retune (2026-08-23, evening, one cloud
+container, one session, both halves on the same merged tree — WP-11 part
+2).**
+
+> **The ant these numbers describe is the pre-WP-9 ant.** This branch has
+> `ant.ron`'s `climbs_over_kin: false`; `main` took it to `true` at
+> `00d1551`, after these runs. An ant that can cross a nestmate ranges
+> further, and this guard is a measurement of ranging, so **do not pair
+> any figure below against one taken on a post-`00d1551` tree** — re-take
+> both halves instead. The same caveat applies to WP-11 part 3's diet
+> sweep, taken on the same tree in the same session.
+
+The tree is this branch's merge of `main` at `7cd1357`, which carries
+the §L rock-country fix and PR #20's flora sowing; both change generated
+worlds, so the pre-merge figures above are *not* the right baseline for the
+retune and a fresh baseline half was measured beside the retuned one rather
+than quoted across trees. `creature_space mode=economy seeds=4
+frames=18000`, one binary per arm (assets are `include_str!`ed; the two
+binaries were checked distinct with `strings` before either was run).
+
+| arm | baseline (all four at 0.003) | retuned (all four at 0.00075) | delta |
+|---|---|---|---|
+| no moss, eat 120 | +0.468 (fed 0.74) | **+0.477** (fed 0.74) | +0.009 |
+| no moss, eat 700 | +0.485 (fed 0.74) | **+0.489** (fed 0.74) | +0.004 |
+| moss, eat 120 | +0.504 (fed 0.80) | **+0.513** (fed 0.81) | +0.009 |
+| moss, eat 700 | +0.540 (fed 0.80) | **+0.547** (fed 0.81) | +0.007 |
+
+*(An intermediate half was measured against the retune on `tree` alone —
++0.474 / +0.489 / +0.514 / +0.541 — before the rate was carried to the
+other three species. It is recorded here and not in the table because the
+tree it describes is no longer in the branch, and a guard row naming a
+build nobody can check out is the cross-tree quoting this section exists
+to prevent. It changes nothing: the two retuned arms differ by at most
+0.006, itself inside the spread.)*
+
+`placed` reads 52 of 52 in all eight cells, and the immobile control reads
+**0.296 in all eight** — bit-stable across both trees, which is what rules
+the harness out as the source of any delta.
+
+**Reference genomes, same pairing** (`creature_space genomes=1 seeds=8
+frames=18000`, so `authored` and `zero` are over the same eight seeds the
+recorded figures used):
+
+| genome | baseline | retuned | recorded before (§4 above) |
+|---|---|---|---|
+| `authored` | 0.699 | **0.703** | 0.709, then 0.690 after §L |
+| `zero` | 0.298 | **0.298** | 0.298, then 0.297 after §L |
+
+**`zero` is identical across the two trees to three digits, and that is
+the strongest control in this work package.** An immobile animal never
+eats and never pays a move cost, so its survival is a pure function of
+the world it is sitting in — the same reasoning this section used to
+attribute 0.300 → 0.298 to the scene rather than the instrument. Had the
+abscission change altered the world in any way a stationary animal could
+feel, `zero` would have moved. It did not.
+
+So all three guards agree on the same statement: advantage ≤ 0.010,
+`ants fed` ≤ +0.01, `authored` +0.004, `zero` 0.000. **The retune changes
+the floor without changing the economy.**
+
+**The retune does not move this guard, and that is the intended result
+rather than a null one.** Every delta is at most 0.010 against a seed-scale
+sd of ~0.1. Slowing leaf fall changes *where* the food is, not how much
+there is: a leaf that is not shed stays on the plant as standing leaf within
+an ant's reach, which is why the original card's own colony-band census rose
+(70,080 → 90,720 median) while the floor fell. The retune fixes the soil
+pile without touching whether foraging pays — so §13o's binding quantity,
+the fed fraction, moves by at most +0.01.
+
+**Also worth recording: the world changing did not move it either.** The
+baseline half above (+0.468/+0.485 no-moss) sits inside the spread of the
+pre-merge +0.470/+0.481, the post-§L +0.474/+0.466 and the original
++0.460/+0.479 — so neither the terrain fix nor four-species sowing shifted
+this guard, even though both demonstrably shifted the leaf-fall economy.
+That is what makes the retuned delta attributable to the retune.
 
 **Not re-derived here, deliberately:** the scarcity band. WP-4's step 4 —
 the target is a game-feel call (§2.4's third coupled call) and is on the

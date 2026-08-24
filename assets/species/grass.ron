@@ -30,6 +30,76 @@
 // plan. They are swept at landing, rebuilt between every sweep point
 // (`.ron` is `include_str!`; identical output across settings means the
 // knob was never connected).
+//
+// ---------------------------------------------------------------------
+// THE GRASS ECONOMY, WRITTEN DOWN
+// ---------------------------------------------------------------------
+//
+// `plant-project-review-2026-08-23.md` §3 filed this file as running "an
+// undocumented economy": `plastochron: [0,0]` means no nodes, no leaves,
+// "income permanently zero, `BudBreak` unreachable -- grass works by a
+// path nobody wrote down". Read against the code (package P3), **one of
+// those three is wrong and the other two are right for reasons worth
+// naming**, so here is the path, in full.
+//
+// **Income is NOT zero.** `Photosynthesize` sits on `GrowingTip` and on
+// `MatureBody`, and both are dispatched: a tip through `plant.rs`'s
+// `organism_tick` (the active-site path) and a retired blade through
+// `organism_upkeep`'s walk over the cell list. A grass plant earns from
+// every blade it owns, at `rate` x light x stomatal term, exactly like a
+// leaf. What is zero is every quantity **derived from `Leaf` cells**, and
+// that is a different statement:
+//
+//   - `break_buds` sums intercepted light over `CellType::Leaf` only, so
+//     `supportable` is `floor(0 / ...) = 0` and no bud could ever flush.
+//   - `accumulate_support` sums leaf light into `q_peak`, so every grass
+//     cell carries 0 and would never thicken.
+//   - `organism_upkeep` sums transpirational demand over `Leaf` and
+//     `GrowingTip`. A grass plant that has retired every tip therefore
+//     has **demand exactly zero**, and `settle_water` returns status 1.0
+//     and desiccation 0.0 for a zero demand -- so a mature tussock is
+//     drought-proof by construction, and `drought_death` below cannot
+//     fire on one however dry the ground is. Measured: the 8-founder
+//     45,000-frame ensemble ends with 252 `MatureBody` cells and **zero**
+//     `GrowingTip`s.
+//
+// **`BudBreak` is unreachable, twice over, and the second reason is the
+// real one.** Even with the light gate aside, nothing ever creates a
+// `DormantBud` cell for this species: buds are made by `thicken`, which
+// runs from `SecondaryThicken`, which this file does not declare. The
+// `DormantBud` block below is therefore dead data. It is **kept** rather
+// than deleted, because it is what the species would want the day either
+// gate opens, and deleting it would silently make grass a species that
+// declines to bud rather than one that never gets the chance.
+//
+// **So what actually runs, end to end:** a seed germinates, throws
+// tillers from `Grow` on `GrowingTip` until crowding and the turgor bound
+// stop it, every tip retires to `MatureBody` at the staleness limit, and
+// the plant then stands as a static photosynthetic mat that earns carbon
+// and spends it on `Reproduce`. There is no maintenance cost anywhere in
+// the engine yet, so a retired mat cannot starve; superlinear maintenance
+// respiration is package P2's, and the senescence plumbing added in P3
+// (see below) is what will carry a starved grass plant away when it
+// lands.
+//
+// **Mortality, which did not exist at all until P3.**
+// `Reports/open-bugs-handoff.md` §F4: both abscission rules gated on
+// `CellType::Leaf`, so a species with no leaf stage had no shade death,
+// no drought death and no age death -- a grass seedling that germinated
+// on a stone, a branch or a nest roof stood there for ever holding an
+// organism slot. `plant::is_foliage` now asks the question the right way
+// round: a species **with** a leaf stage sheds leaves (bit-identical to
+// the old rule for every woody species), and a species **without** one
+// sheds any shoot tissue that photosynthesises -- which for grass is the
+// blade, tip and retired body alike. Root tissue is excluded by
+// `reinforces_powder`, and that exclusion is load-bearing rather than
+// tidy: grass retires its root tips into the same `MatureBody` that
+// declares `Photosynthesize`, and underground `darkness` is 1, so without
+// it the shade rule would delete every plant's root mat in a few ticks.
+//
+// Given the zero-demand finding above, **the live arm for grass is shade,
+// not drought**: a sward thins where a canopy closes over it, which is
+// the succession story this file's own note said did not work.
 (
     name: "grass",
     // Its own tissue, top and bottom -- and shoot and leaf are the same
@@ -49,6 +119,16 @@
     // the ramp than its tip.
     bark_bands: (first: 0, count: 3),
     stomatal_reserve: 0.2,
+    // **The pioneer's bank outlasts the pioneer.** Twice the woody default
+    // (9,000), the way a small-seeded ruderal's persistent seed bank
+    // outlasts a large-seeded tree's transient one -- so grass's answer to
+    // a bad patch is to *wait* as well as to breed, which is what makes the
+    // bank a strategy rather than a delay. See `SpeciesDef::seed_half_life`.
+    seed_half_life: 18000.0,
+    // **A sod browns off and is gone**, where a dead sapling stands a
+    // while: an order of magnitude under the woody default, because there
+    // is no wood here to rot. See `SpeciesDef::remains_half_life`.
+    remains_half_life: 900.0,
     cell_types: [
         (Seed, [
             Germinate(
@@ -119,28 +199,31 @@
                 // Non-zero on the same slots a tree varies, per call 8 --
                 // grass must be able to respond to selection through the
                 // shared genome, not a private one.
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
                 sympodial: [false],
                 tropism: [Orthotropic],
             ),
             // On the tip itself, because the tip *is* photosynthetic
             // tissue here.
             //
-            // **`shade_death` and `drought_death` are INERT on this species
-            // and are left in deliberately, at the values they would want.**
-            // Both abscission rules in `plant.rs` are gated on the cell
-            // being `CellType::Leaf`, and a `plastochron: 0` species has no
-            // `Leaf` cells by construction -- so the whole succession story
-            // (a sward thinning where a canopy closes over it) does not
-            // work for grass, and neither does drought shedding. This was
-            // caught by asking CLAUDE.md's own question -- *which cell does
-            // this rule actually evaluate?* -- before the sheet, not after.
+            // **`shade_death` is LIVE on this species as of P3;
+            // `drought_death` is still inert, for a different reason.**
             //
-            // Not fixed here: WP-B3 is specified as pure data, and widening
-            // the gate to photosynthetic tips and bodies is a `plant.rs`
-            // change with its own blast radius (every species' shed
-            // behaviour reads that predicate). Left as data so the day the
-            // gate widens, grass already says what it wants.
+            // These two were authored as the values grass would want on the
+            // day the abscission gate stopped being `cell_type == Leaf`,
+            // and that day has come: `plant::is_foliage` sheds shoot tissue
+            // on a species with no leaf stage, so a blade in deep shade now
+            // dies and a shaded sward thins. See the economy block in this
+            // file's header.
+            //
+            // `drought_death` reads the desiccation term, and a grass plant
+            // that has retired every tip has **zero transpirational demand**
+            // -- `organism_upkeep` sums demand over `Leaf` and `GrowingTip`
+            // and grass ends a run with neither -- so `settle_water` hands
+            // it desiccation 0.0 whatever the soil is doing. The value is
+            // right and the channel that feeds it is empty. Widening the
+            // demand sum to a photosynthetic `MatureBody` is an economy
+            // change and belongs to P2's single re-derivation, not here.
             Photosynthesize(rate: 0.55, shade_death: 0.004, transpiration: 0.05, drought_death: 0.002),
         ]),
         (RootTip, [
@@ -186,7 +269,7 @@
                 // rather than a rule. Trees sit at 1.2 and are also barred
                 // from sand, so this costs grass nothing against them.
                 penetration_force: 1.0,
-                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
             ),
         ]),
         (MatureBody, [

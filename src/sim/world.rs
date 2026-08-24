@@ -28,9 +28,13 @@ use super::surface::CellSurface;
 
 /// Bits of `Cell::organism_id` given to the slot index (the rest, high 4
 /// bits, are generation). 4095 concurrently-live organisms — generous for
-/// anything this engine plays at real-time rates, and `push_organism`'s
-/// own debug assertion catches the day that stops being true rather than
-/// silently wrapping into a valid-looking but wrong id.
+/// anything this engine plays at real-time rates.
+///
+/// **The bound is enforced in release, not by a debug assertion.** It used
+/// to be the latter, and `encode_organism_id` below does not mask, so a
+/// 4,096th slot index set bit 12 — the generation's low bit — and the new
+/// organism silently *became* an existing live one. `push_organism` now
+/// refuses the birth and counts it (`World::organisms_refused`) instead.
 const ORGANISM_INDEX_BITS: u32 = 12;
 const ORGANISM_INDEX_MASK: u16 = (1 << ORGANISM_INDEX_BITS) - 1;
 /// 4 bits: a slot wraps back to generation 0 after 16 reuses, at which
@@ -199,12 +203,17 @@ pub struct CreatureStats {
 /// evolution actually needs (P-20): **no lineage may extract unbounded
 /// energy from a cycle it controls.**
 ///
-/// `meat_lost` is not an account here, because nothing hooks the seam a
-/// corpse is destroyed through (decay, fire, an explosion, the brush).
-/// The meat identity is therefore an **upper bound**, not an equality, and
+/// `meat_lost` **is** an account here as of 2026-08-23. It was not, and the
+/// meat identity was an upper bound rather than an equality because nothing
+/// hooked the seam a corpse is destroyed through. Three of the four paths
+/// that entry named are now booked — fire burning a corpse to ash, an
+/// explosion consuming one, the brush erasing one — and the fourth (decay)
+/// does not exist: `corpse.ron` declares no `decays_into`, so a corpse does
+/// not rot, and the day it does is the day that hook is needed.
 /// `creature::tests::the_standing_meat_never_exceeds_what_was_put_into_it`
-/// asserts it as one. In a sealed box where nothing eats corpses but the
-/// ants, it is tight.
+/// still asserts a `<=`, because meat riding a `Particle` between a throw
+/// and a landing is standing nowhere; what closes exactly is
+/// `a_destroyed_corpse_is_booked_rather_than_forgotten`.
 #[derive(Default, Clone, Copy, Debug)]
 pub struct EnergyLedger {
     /// **Source.** Metabolic energy created at spawn — a creature's
@@ -251,6 +260,33 @@ pub struct EnergyLedger {
     /// by a tick is honest behaviour and pretending it did not is how a
     /// counterweight constant gets born.
     pub overdrawn: f64,
+    /// **Sink.** Meat destroyed rather than eaten: the worth stamped into a
+    /// `worth_in_aux` cell that something removed from the world without an
+    /// animal getting it. Fire burning a corpse to ash, an explosion
+    /// consuming one, the brush erasing one.
+    ///
+    /// Booked at the few call sites that destroy such a cell, **never in
+    /// `World::set`** — that is per-cell hot-path work on the sweep's
+    /// busiest seam, and `CLAUDE.md`'s "guard hot-path work at the call site
+    /// that already has the data" applies exactly: each of those sites has
+    /// already read the outgoing cell for its own reasons, so the hook costs
+    /// a `Vec` index on a branch that was taken anyway.
+    ///
+    /// **This is what turns `max_standing_meat` from a hope into a bound.**
+    /// Before it existed, meat could quietly go missing and every guard
+    /// passed: the meat identity was a `<=`, and `creature_biomass` is
+    /// asserted monotone non-increasing, which a loss also satisfies.
+    ///
+    /// **The other seam is still open and is deliberately not this one.**
+    /// Living flesh carries a stamp that nothing pays for, because its sink
+    /// — a parent paying stamps for a child — does not exist until S6
+    /// reproduction (`Reports/creature-evolution-plan.md` §2.3, "One seam
+    /// left open"; `creature.rs`'s `food_value` and `ant.ron`'s
+    /// `food_energy == body_energy` equality are the load-bearing pieces).
+    /// Close that one *with* S6, not here: without the sink there is nothing
+    /// for the booking to balance against. The two are recorded together on
+    /// purpose so whoever finds one finds the other.
+    pub meat_lost: f64,
 }
 
 impl EnergyLedger {
@@ -265,10 +301,38 @@ impl EnergyLedger {
             + self.overdrawn
     }
 
-    /// The most meat that can be standing in the world. An **upper bound**,
-    /// not an equality — see the type doc on `meat_lost`.
+    /// The most meat that can be standing in the world.
+    ///
+    /// **Was an upper bound and is now a real one**, because `meat_lost`
+    /// books the destruction paths that used to make it a hope: every joule
+    /// of meat was either stamped in, eaten out, or destroyed, and all three
+    /// are now accounts. Two things keep it a `<=` rather than an `==`, and
+    /// they arrived on different branches, so neither's author saw the
+    /// other's: meat in flight — a corpse cell riding a `Particle` between
+    /// the throw and the landing is standing nowhere — and S5's digestive
+    /// loss, where a mismatched gut removes a full cell of meat from the
+    /// world while `harvested_corpse` is credited only the filtered yield
+    /// (`creature.rs`'s `diet_yield`). Both are one-directional, so the
+    /// bound stays sound; do not tighten it to an equality without a sink
+    /// for each.
     pub fn max_standing_meat(&self) -> f64 {
-        self.stamped + self.stored_in_meat - self.harvested_corpse
+        self.stamped + self.stored_in_meat - self.harvested_corpse - self.meat_lost
+    }
+
+    /// The worth of a cell about to be destroyed, or `None` if destroying it
+    /// loses no meat.
+    ///
+    /// The shared predicate behind every `meat_lost` booking, so the four
+    /// call sites cannot drift apart on what counts. Deliberately mirrors
+    /// `creature::food_value`'s gate — `worth_in_aux` **and** a non-zero
+    /// stamp — because the quantity being destroyed has to be the same
+    /// quantity an animal would have eaten. An unstamped corpse (`aux == 0`,
+    /// which `fire.rs`'s burnout writes deliberately) is worth the material
+    /// fallback to an eater but books nothing here: it never had a stamp to
+    /// lose, and charging the fallback would invent a sink out of a
+    /// material default.
+    pub fn meat_worth_of(materials: &MaterialRegistry, cell: Cell) -> Option<f64> {
+        (materials.get(cell.material).worth_in_aux && cell.aux() != 0).then(|| cell.aux() as f64)
     }
 }
 
@@ -282,6 +346,14 @@ pub struct World {
     /// instead of returning the out-of-bounds sentinel.
     bounds: Option<Rect>,
     pub frame: u64,
+    /// **World time**, and deliberately not the same thing as `frame`.
+    ///
+    /// `frame` is the physics clock: one tick, one CA sweep, and the
+    /// definition of how fast anything falls. `clock` is how fast the world
+    /// *ages* — the length of a day and the pace of growth — and both of its
+    /// knobs default to the historical behaviour exactly. See
+    /// `sim::clock`'s module doc for why the two are separable at all.
+    pub clock: crate::sim::clock::Clock,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -561,6 +633,43 @@ pub struct World {
     pub energy_ledger: EnergyLedger,
     organisms: Vec<OrganismSlot>,
     free_organism_slots: Vec<u16>,
+    /// **Cumulative organism births and deaths — the lineage turnover
+    /// readout the plant plan of record's Phase 0d asks for and nothing
+    /// printed.**
+    ///
+    /// `Reports/plant-evolution-design.md` §5: "the count of
+    /// inherited-genome establishments per run is the plant equivalent of
+    /// births-per-generation, and if it reads ~0 at 30k frames, every
+    /// evolution claim at that horizon is about founders". A standing
+    /// count cannot answer that — `organism_slot_usage` reports how many
+    /// slots are live *now*, and slot reuse makes a flat live count
+    /// consistent with both a frozen stand and a fast cycle. Only a
+    /// cumulative pair separates them.
+    ///
+    /// Always-on rather than `#[cfg(test)]`, on the same reasoning
+    /// `organism_generation_wraps` above already records: a `u64` add on
+    /// the allocation path is free beside the `HashMap` that call just
+    /// built, and a counter that exists only in test builds cannot say
+    /// anything about a long run, which is the only place the number gets
+    /// interesting.
+    organisms_born: u64,
+    organisms_died: u64,
+    /// **Germinations refused because every organism slot was live** — the
+    /// other half of making the 4,095 ceiling a real check rather than a
+    /// `debug_assert` (see `push_organism`).
+    ///
+    /// A counter rather than a panic because refusing one birth is a
+    /// recoverable, in-world outcome — a seed that finds no room is a seed
+    /// that does not sprout — while a panic would take the session down for
+    /// a condition a dense world can legitimately reach. But a refusal that
+    /// nobody counts is indistinguishable from a world where nothing
+    /// happened to breed this frame, which is the *other* half of `§F4`'s
+    /// severity: the corruption was silent and so would the fix be.
+    ///
+    /// Always-on, on the same reasoning as `organisms_born` above: this
+    /// number only gets interesting in a long release run, which is exactly
+    /// where a `#[cfg(test)]` counter cannot see.
+    organisms_refused: u64,
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -601,6 +710,18 @@ pub struct World {
     pub decayed_damp: u32,
     /// Counterpart to `decayed_damp`; see it for why these are separate.
     pub decayed_dry: u32,
+    /// Leaves shed by the graded shade pressure (`tree.ron`'s
+    /// `shade_death`), the upstream half of §O's decay count. Split by
+    /// *cause* for the same reason the decay counters are split by rate:
+    /// the abscission retune has three levers -- shade, drought, and the
+    /// stranded-spray reclaim that rides on both -- and the decay total
+    /// cannot say which one manufactured the litter it rotted.
+    pub shed_shade: u32,
+    /// Counterpart to `shed_shade`: the drought pressure (`drought_death`).
+    pub shed_drought: u32,
+    /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
+    /// fired -- consequential fall, not a lever of its own.
+    pub shed_stranded: u32,
     /// M13/issue #4: whether the field grid has already converged to a
     /// fixed point (every cell within `field::step`'s settle epsilon of its
     /// previous value). `field::step` skips its whole five-pass solve when
@@ -658,6 +779,29 @@ pub struct World {
     /// How often evaporation found the air above a surface already
     /// saturated, split by surface kind -- see `evaporation::DrynessCounts`.
     pub dryness_counts: crate::sim::evaporation::DrynessCounts,
+    /// Holds the sky at one state instead of reading `weather::at(seed,
+    /// frame)`. `None` in play, and in every test that is not *about*
+    /// holding it still.
+    ///
+    /// **Exists because a live sky silently invalidated a placement
+    /// claim.** `tests/worldgen.rs`'s `generated_terrain_is_already_at_rest`
+    /// asserts that generation emits a world which does not slump. It
+    /// already switches off the live processes it knew about — plants, moss,
+    /// `spring_flow`, each with a comment saying a growing thing is "a live
+    /// process, not a placement defect". Weather arrived afterwards and got
+    /// no such treatment, so on any seed whose sky is busy the test was
+    /// asserting that terrain holds still *while snow falls on it*. Seed 3
+    /// precipitates from frame 0 (`Snow`, intensity 0.36, 1,786 wet frames
+    /// in 12,000) and is the seed both at-rest tests failed on
+    /// (`open-bugs-handoff.md` §M); seeds 1, 2 and 5 never precipitate at
+    /// all in that window, and passed.
+    ///
+    /// `Weather::CLEAR`'s own doc already called itself "the one every 'does
+    /// this stay settled' test asserts against". This is what lets a test
+    /// actually do that, on the seed it was given rather than on a seed
+    /// picked for having a quiet sky — which would be tuning the sweep to
+    /// the answer.
+    pub weather_override: Option<crate::sim::weather::Weather>,
     /// **The atmosphere's water, in liquid-water cell-equivalents** — the
     /// credit half of the outer water cycle, and the one number that closes
     /// it.
@@ -1035,6 +1179,45 @@ pub struct FailureCounts {
     /// Seven `u32`s on a struct that is copied per tile, which is the
     /// cheapest thing that can answer a distribution question at all.
     pub promoted_sizes: [u32; 7],
+    /// Quarter turns a falling body asked for, and how many the fit probe
+    /// refused.
+    ///
+    /// **These exist because the probe they measure was dead for the life
+    /// of the mechanism and nothing could tell.** `rigid::rotation_fits`
+    /// used to compare every cell against its own position, so it answered
+    /// "clear" unconditionally and every body rotated through whatever was
+    /// beside it (`Reports/open-bugs-handoff.md` bug K). A probe that always
+    /// says yes and a probe that works produce the same tumbling on a
+    /// contact sheet at the zoom one is read at; only the refusal count
+    /// separates them, which is `CLAUDE.md`'s "did it fire at all needs a
+    /// counter, not a picture" in its purest form.
+    ///
+    /// `refused` at exactly zero over a scene with walls in it is the tell
+    /// that the probe has gone vacuous again — a *ratio* is a tuning
+    /// question, but a zero is a wiring one.
+    pub rotations_asked: u32,
+    pub rotations_refused: u32,
+    /// Organism cells the plant-support check broke free — a limb that lost
+    /// its anchor becoming deadwood.
+    ///
+    /// **The "did it fire at all" counter for felling**, and it exists
+    /// because none of the fields above can answer it. `shattered_cells`
+    /// deliberately excludes this conversion (see its own doc, and
+    /// `structural::break_free`), `unsupported` is only recorded on the
+    /// inert path, and a crown that came down and a crown that was never
+    /// asked are the same handful of brown pixels on a contact sheet. A
+    /// coherent-looking collapse with a body count of zero has fooled this
+    /// project once already (`CLAUDE.md`), and a severed tree that quietly
+    /// kept growing has now fooled it a second time: measured on
+    /// `scene=fell cut=248,186,16,6`, 83 cells of trunk removed and living
+    /// tissue going *up* from 2,823 to 2,911 over the next 210 frames,
+    /// with every counter in this struct reading zero.
+    ///
+    /// Kept out of `shattered_cells` for that field's own stated reason,
+    /// and reported beside it rather than folded in: a tree shedding
+    /// deadwood on its own schedule and a tree being chopped down are the
+    /// same conversion and different events.
+    pub severed_organism_cells: u32,
 }
 
 /// Inclusive lower bounds of `FailureCounts::size_buckets`. 6 is
@@ -1055,6 +1238,13 @@ impl FailureCounts {
         self.max_damage_reach = self.max_damage_reach.max(reach.max(0) as u32);
     }
 
+    /// See `severed_organism_cells`. One call per cell the organism path
+    /// actually converted -- a declined conversion (no `breaks_into`) must
+    /// not be counted, for the same reason `break_free` reports it.
+    pub fn record_severed_organism(&mut self, cells: u32) {
+        self.severed_organism_cells = self.severed_organism_cells.saturating_add(cells);
+    }
+
     pub fn record_confined(&mut self, cells: usize, depth: u32) {
         self.confined += 1;
         self.confined_cells += cells as u32;
@@ -1064,6 +1254,15 @@ impl FailureCounts {
     pub fn record_staged(&mut self, cells: usize) {
         self.staged_slices += 1;
         self.staged_cells += cells as u32;
+    }
+
+    /// One quarter turn offered to the fit probe, and whether it fitted.
+    /// See `rotations_asked`.
+    pub fn record_rotation(&mut self, fits: bool) {
+        self.rotations_asked = self.rotations_asked.saturating_add(1);
+        if !fits {
+            self.rotations_refused = self.rotations_refused.saturating_add(1);
+        }
     }
 
     /// One body, `cells` cells, actually lifted off the grid. See
@@ -1146,6 +1345,7 @@ impl World {
             fields: HashMap::new(),
             bounds: Some(bounds),
             frame: 0,
+            clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
@@ -1171,10 +1371,16 @@ impl World {
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
+            organisms_born: 0,
+            organisms_died: 0,
+            organisms_refused: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
             decayed_dry: 0,
+            shed_shade: 0,
+            shed_drought: 0,
+            shed_stranded: 0,
             fields_settled: false,
             touched_chunks: std::collections::HashSet::new(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -1203,6 +1409,7 @@ impl World {
             // water cycle, it is a drought with a cycle bolted on.
             atmospheric_bank: crate::sim::weather::STORM_RESERVE,
             dryness_counts: crate::sim::evaporation::DrynessCounts::default(),
+            weather_override: None,
             splash_sites: Vec::new(),
             splashes_thrown: 0,
             seed: DEFAULT_WORLD_SEED,
@@ -1237,7 +1444,8 @@ impl World {
     /// `PHEROMONE_INTERVAL` gate lives inside, so no caller has to know
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
-        self.pheromones.step(self.frame);
+        let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
+        self.pheromones.step(self.frame, interval);
     }
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
@@ -1569,8 +1777,45 @@ impl World {
     /// a reference to a slot between the free and the reuse that the free
     /// alone would have invalidated.
     ///
-    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`.
-    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> u16 {
+    /// Returns the encoded `organism_id` to stamp onto `Cell::organism_id`,
+    /// or **`None` when the 4,095 slots are all live** — see
+    /// `organisms_refused`. Every caller has a refusal path already (they
+    /// all check the target cell is free first and return early when it is
+    /// not); the `Option` is what makes the compiler insist they use it,
+    /// which is the whole reason the signature changed rather than a
+    /// sentinel being returned. A sentinel `0` would stamp an *ownerless*
+    /// organism cell onto the grid at the ceiling — softer than corrupting
+    /// an identity, still a leak of exactly the kind this allocator exists
+    /// to end.
+    pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<u16> {
+        // **The ceiling is a real check now, not a `debug_assert`.**
+        //
+        // `Cell::organism_id` gives 12 bits to the slot index, so there are
+        // 4,095 of them, and `encode_organism_id` does not mask: a 4,096th
+        // slot index would set bit 12, which is the *generation*'s low bit.
+        // In a release build that is silent — the new organism reads as a
+        // different, live organism, and every cell that already pointed at
+        // that identity now points at this one. `Reports/open-bugs-
+        // handoff.md` §F4 names it "silent organism identity corruption in
+        // release"; `Reports/population-dynamics-research.md` 9g asks for
+        // exactly this fix in exactly these words ("Add a release-mode
+        // check, not a `debug_assert`").
+        //
+        // **The failure mode is refusal, and refusal is counted.** A
+        // germination that cannot get a slot simply does not happen, which
+        // is a bounded, visible loss of one seed; nothing on the grid is
+        // written, so nothing is left half-allocated. `organisms_refused`
+        // is what stops that being invisible — a world quietly refusing
+        // every birth and a world where nothing is breeding look identical
+        // in every other readout.
+        //
+        // Checked before `organisms_born` is incremented so the born count
+        // stays "organisms that exist", not "attempts".
+        if self.free_organism_slots.is_empty() && self.organisms.len() >= ORGANISM_INDEX_MASK as usize {
+            self.organisms_refused += 1;
+            return None;
+        }
+        self.organisms_born += 1;
         let state = OrganismState {
             water: 0.0,
             water_status: 1.0,
@@ -1582,13 +1827,41 @@ impl World {
             species,
             cells: std::collections::HashMap::new(),
             root_cells: 0,
+            contact_root_cells: 0,
             shoot_cells: 0,
+            anchor_cells: 0,
+            anchor_moment: 0.0,
+            crown_moment: 0.0,
+            // **1.0, not 0.0, and the direction is deliberate.** A plant
+            // that has not had an upkeep pass yet reads as *well anchored*,
+            // so the first thing a germinating seedling does is not divert
+            // its whole budget into roots on the strength of a number
+            // nothing has computed. Same bias as `OrganismCell::support`
+            // defaulting to "anchored": a rule with a consequence must
+            // default to the answer that defers.
+            anchor_status: 1.0,
+            slenderness: 0.0,
+            income: 0.0,
+            maintenance_basis: 0.0,
+            maintenance: 0.0,
+            maintenance_unpaid: 0.0,
+            starved_cells: 0,
             collar_y: None,
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.
             genotype_draws: [0.0; organism::GENOTYPE_TRAITS],
             // Creature fields: a plant is a chainless, headingless organism
             // with no energy budget of its own, and stays at these.
+            //
+            // `traits` is the *neutral* vector rather than any species'
+            // authored one, because `push_organism` does not know whether
+            // it is allocating a plant or a creature. `plant_creature_seed`
+            // overwrites it from `CreatureDef::traits` one line after this
+            // returns; a creature that reached the world without going
+            // through that seam would eat as a generalist rather than
+            // silently as a carnivore, which is the failure direction to
+            // prefer.
+            traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
             heading: 0,
             energy: 0.0,
@@ -1608,6 +1881,7 @@ impl World {
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
             departure_angle_sum: 0.0,
@@ -1631,14 +1905,19 @@ impl World {
                 self.organism_generation_wraps += 1;
             }
             slot.state = Some(state);
-            encode_organism_id(slot_index, slot.generation)
+            Some(encode_organism_id(slot_index, slot.generation))
         } else {
+            // The guard at the top of this function is what makes the index
+            // below in range; this assertion is the second pair of eyes on
+            // it, and it is the only thing left that a `debug_assert` is
+            // the right tool for -- an internal invariant, not a runtime
+            // condition the world can reach.
             debug_assert!(
                 self.organisms.len() < ORGANISM_INDEX_MASK as usize,
                 "organism index would overflow the 12 bits Cell::organism_id reserves for it"
             );
             self.organisms.push(OrganismSlot { generation: 0, state: Some(state) });
-            encode_organism_id(self.organisms.len() as u16, 0)
+            Some(encode_organism_id(self.organisms.len() as u16, 0))
         }
     }
 
@@ -1721,6 +2000,18 @@ impl World {
         }
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+        // Counted here rather than at either call site: this is the one
+        // function that decides a release really happened (both callers can
+        // fire twice for one death, and the guards above are what stop the
+        // second one).
+        self.organisms_died += 1;
+    }
+
+    /// Organisms ever allocated, and ever released — see
+    /// `World::organisms_born`. The pair a turnover rate is computed from;
+    /// their difference is the live count `organism_slot_usage` reports.
+    pub fn organism_turnover(&self) -> (u64, u64) {
+        (self.organisms_born, self.organisms_died)
     }
 
     /// How many organism slots are currently allocated, and how many of
@@ -1733,6 +2024,30 @@ impl World {
     /// later is exactly the kind of drift nobody would think to check.
     pub fn organism_slot_usage(&self) -> (usize, usize) {
         (self.organisms.len(), self.live_organism_count())
+    }
+
+    /// **The high-water mark of concurrently-live organisms**, and it is
+    /// the *same number* as `organism_slot_usage`'s first element rather
+    /// than a second tally — which is worth stating, because it looks like
+    /// it should need one.
+    ///
+    /// `push_organism` pops `free_organism_slots` before it ever grows
+    /// `organisms`, so the vector lengthens only on a birth that found no
+    /// free slot — i.e. only when the live count is about to exceed every
+    /// value it has ever held. `organisms.len()` is therefore exactly
+    /// max-over-time of the live count, for free, with no per-frame
+    /// bookkeeping. The `ceiling` it is judged against is the 12-bit slot
+    /// index's own bound.
+    pub fn organism_slot_high_water(&self) -> (usize, usize) {
+        (self.organisms.len(), ORGANISM_INDEX_MASK as usize)
+    }
+
+    /// Births refused at the slot ceiling — see `organisms_refused`. Zero
+    /// on every world that has not reached 4,095 live organisms, which is
+    /// every world measured to date; a non-zero reading means the ceiling
+    /// is now a live design constraint and not a footnote.
+    pub fn organisms_refused(&self) -> u64 {
+        self.organisms_refused
     }
 
     // --- Liquid heightfield bodies (`Reports/liquid-heightfield-
@@ -1982,6 +2297,26 @@ impl World {
         crate::sim::weather::supply(self.atmospheric_bank)
     }
 
+    /// The sky this frame: `weather::at(seed, weather_frame)` unless
+    /// [`Self::weather_override`] is holding it.
+    ///
+    /// **One resolution point, read by both the simulation and the
+    /// renderer**, for the same reason `storm_supply` above is a method
+    /// rather than a local: the storm that is drawn and the storm that lands
+    /// have to be the same storm, and an override honoured by only one of
+    /// them would draw snow that never settles on anything.
+    ///
+    /// **Read on the *weather* clock**, which is independent of the day's
+    /// (`sim::clock::Clock::weather_slowdown`) and identical to `frame` at
+    /// the default. This method and the override arrived on separate
+    /// branches and merged into one body without conflicting -- the clock
+    /// half is the half a textual merge drops, because the override is the
+    /// line that moved.
+    #[inline]
+    pub fn weather(&self) -> crate::sim::weather::Weather {
+        self.weather_override.unwrap_or_else(|| crate::sim::weather::at(self.seed, self.weather_frame()))
+    }
+
     /// Register every chunk `body`'s current full footprint touches in
     /// `body_index`, without duplicating an already-present entry. Called
     /// after anything that can move a body's footprint — `absorb_liquid`'s
@@ -2030,6 +2365,20 @@ impl World {
     /// same `FIELD_SCALE`-sided block reads the same cell.
     pub fn field_at(&self, world_x: i32, world_y: i32) -> FieldCell {
         field::sample(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// See `field::ground_wetness_at` -- how wet the matter at and just
+    /// below `(x, y)` is, `0..=1`. `fire::try_ignite`'s moisture gate.
+    pub fn ground_wetness_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::ground_wetness_at(&self.fields, self.bounds, world_x, world_y)
+    }
+
+    /// How strongly the field block at `(x, y)` sources moisture, `0..=1`.
+    /// `ChunkView`'s half of `ground_wetness_at` above -- it has to
+    /// assemble the two samples itself, because during a parallel pass one
+    /// of them may live in its own detached tile rather than in `self`.
+    pub(crate) fn moisture_source_at(&self, world_x: i32, world_y: i32) -> f32 {
+        field::moisture_source_at(&self.fields, self.bounds, world_x, world_y)
     }
 
     /// Bilinear-interpolated field read at a fractional world position —
@@ -2853,7 +3202,25 @@ impl World {
                 // protection as `Solid` -- a grown tree is exactly as
                 // deliberately placed as a stone wall, and without this the
                 // brush could erase it cell by cell same as any loose powder.
-                let existing_material = self.get(x, y).material;
+                let existing = self.get(x, y);
+                let existing_material = existing.material;
+                // **The brush is a destruction path like any other.** Erasing
+                // a stamped corpse takes real meat out of the world, and
+                // before `meat_lost` existed it did so silently -- so a
+                // player tidying up a battlefield could make
+                // `max_standing_meat` a lie. Free here: the outgoing cell was
+                // already read on the line above for the solid-terrain guard.
+                //
+                // Only on an erase. Painting over a corpse is blocked for
+                // `Solid`/`Plant` and permitted otherwise, and that permitted
+                // case destroys meat too -- but it is a *replacement*, and
+                // charging it here would double-book against whatever the
+                // replacement is worth. Erasing is the unambiguous half.
+                if material == material::EMPTY {
+                    if let Some(worth) = EnergyLedger::meat_worth_of(&self.materials, existing) {
+                        self.energy_ledger.meat_lost += worth;
+                    }
+                }
                 if material != material::EMPTY
                     && existing_material != material::EMPTY
                     && matches!(
@@ -3076,6 +3443,64 @@ impl World {
         self.freeze_underground_map();
         self.freeze_ground_datum();
         self.frame = self.frame.wrapping_add(1);
+        // No world-time bookkeeping here on purpose. The phase clocks are
+        // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
+        // beside it -- an earlier version incremented a counter from this
+        // very line and thereby ignored the 27 places that assign
+        // `World::frame` directly to select a time of day or a weather
+        // window. See that function's own doc; the invariant it restores is
+        // what makes "every knob defaults to today's behaviour" true.
+    }
+
+    /// **The clock every day/night reader takes, in place of [`World::frame`].**
+    ///
+    /// `field::sun_elevation` and everything downstream of it — the painted
+    /// sky, the light channel, the temperature swing, the weather epoch —
+    /// are pure functions of a frame number modulo
+    /// `field::DAY_NIGHT_PERIOD_FRAMES`. Feeding them a slower clock is what
+    /// lengthens a day; the period itself must not move (`sim::clock`'s
+    /// module doc has the full reasoning, and it is a field-sleeping
+    /// argument, not a preference).
+    ///
+    /// Identical to `frame` at the default `day_minutes: 1`.
+    pub fn sky_frame(&self) -> u64 {
+        self.clock.sky_frame(self.frame)
+    }
+
+    /// [`World::sky_frame`] as of the previous real frame — the comparison
+    /// point for "has the sky moved", which is not `sky_frame() - 1` under a
+    /// slowed clock. See `clock::Clock::prev_sky_frame`.
+    pub fn prev_sky_frame(&self) -> u64 {
+        self.clock.prev_sky_frame(self.frame)
+    }
+
+    /// The weather's own clock — independent of [`World::sky_frame`]. See
+    /// `clock::Clock::weather_slowdown`.
+    pub fn weather_frame(&self) -> u64 {
+        self.clock.weather_frame(self.frame)
+    }
+
+    /// A creature-schedule interval scaled by `clock.creature_slowdown`, as an
+    /// absolute frame to be due on — the creature twin of
+    /// [`World::organism_due`].
+    pub fn creature_due(&self, base_interval: u64) -> u64 {
+        self.frame + self.clock.creature_interval(base_interval)
+    }
+
+    /// The lightning lit at `frame`, if any, with this world's own two
+    /// clocks supplied — `weather::strike` needs both, and its doc says why.
+    /// `frame` is a *real* frame, so a caller wanting last frame's still-lit
+    /// flash passes `world.frame.wrapping_sub(1)` exactly as it always did.
+    pub fn lightning_at(&self, frame: u64) -> Option<crate::sim::weather::Strike> {
+        crate::sim::weather::strike(self.seed, frame, |f| self.clock.weather_frame(f), self.bounds())
+    }
+
+    /// An organism-schedule interval scaled by `clock.growth_slowdown`, as
+    /// an absolute frame to be due on. Every `world.frame + INTERVAL` in the
+    /// plant subsystem goes through here, which is what makes growth pace a
+    /// single knob rather than a sweep of constants.
+    pub fn organism_due(&self, base_interval: u64) -> u64 {
+        self.frame + self.clock.organism_interval(base_interval)
     }
 
     /// Record where the ground starts in each column, once. See
@@ -3358,7 +3783,7 @@ impl World {
         // that settles repeatedly stacking sites and turning the decay rate
         // into a function of how often the ground was disturbed.
         for (x, y) in settled_decayables {
-            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.organism_due(decay::DECAY_TICK_INTERVAL) });
         }
     }
 
@@ -3428,6 +3853,11 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        World::ground_wetness_at(self, x, y)
+    }
+
+    #[inline]
     fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
         let f = World::field_at(self, x, y);
         (f.vx, f.vy)
@@ -3436,6 +3866,10 @@ impl CellSurface for World {
     #[inline]
     fn frame(&self) -> u64 {
         self.frame
+    }
+
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        World::organism_due(self, base_interval)
     }
 
     #[inline]
@@ -3461,6 +3895,10 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn book_meat_lost(&mut self, worth: f64) {
+        self.energy_ledger.meat_lost += worth;
+    }
+
     fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
         self.phase_changes.record(event);
     }
@@ -3510,6 +3948,164 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    // --- meat_lost: the destruction seam ---------------------------------
+
+    /// A world with a corpse slab in it, every cell stamped `worth`.
+    fn meat_world(worth: u16) -> (World, MaterialId, Rect) {
+        let mut w = World::new(Rect::new(0, 0, 127, 127));
+        for x in 0..128 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+        }
+        let corpse = w.materials.id_of("corpse").expect("corpse material");
+        let slab = Rect::new(50, 100, 77, 107);
+        for y in slab.min_y..=slab.max_y {
+            for x in slab.min_x..=slab.max_x {
+                w.set(x, y, Cell::new(corpse, 0).with_aux(worth));
+            }
+        }
+        (w, corpse, Rect::new(0, 0, 127, 127))
+    }
+
+    /// **Meat that leaves the world is booked, not forgotten.**
+    ///
+    /// The guard for `EnergyLedger::meat_lost`. Before it, a corpse burnt,
+    /// blasted or erased simply stopped existing and nothing recorded it —
+    /// which is what made `max_standing_meat` an upper bound rather than a
+    /// bound, and it could not be caught by any existing guard: the meat
+    /// identity was asserted as `<=`, and `creature_biomass` is asserted
+    /// monotone non-increasing, so a *loss* satisfied both.
+    ///
+    /// Asserted as **conservation across each arm** — meat standing
+    /// afterwards plus meat booked lost equals meat standing before — rather
+    /// than against the ledger's source terms, because this scene places its
+    /// corpses by hand rather than through `creature_dies`, so `stamped` is
+    /// legitimately 0 here and an identity built on it would be measuring
+    /// the wrong thing.
+    ///
+    /// **The control arm is the point of the test as much as the other
+    /// three.** A hook that fires when nothing is being destroyed is exactly
+    /// as wrong as one that never fires, and it is the failure a
+    /// conservation assertion alone cannot see.
+    #[test]
+    fn a_destroyed_corpse_is_booked_rather_than_forgotten() {
+        use crate::sim::creature::standing_meat;
+        const WORTH: u16 = 1_020;
+
+        // --- control: nothing destroys anything ---------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            for _ in 0..200 {
+                crate::sim::update::step(&mut w);
+            }
+            assert_eq!(
+                w.energy_ledger.meat_lost, 0.0,
+                "meat was booked lost in a world where nothing burns, blasts or erases"
+            );
+            assert!(
+                (standing_meat(&w, all) - before).abs() < 1.0,
+                "the control arm lost meat on its own ({before} -> {})",
+                standing_meat(&w, all)
+            );
+        }
+
+        // --- fire, on both drivers ---------------------------------------
+        // `corpse.ron` is flammable and burns into ash, so a body in a
+        // grassfire takes its stamp out of the world. Run under both drivers
+        // because this is the one destruction path that happens *inside* the
+        // CA sweep: the serial one books straight into the ledger and the
+        // parallel one tallies per chunk and merges in `run_pass`, and a
+        // merge that was dropped would show up here and nowhere else.
+        for parallel in [false, true] {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.ignite_circle(63, 103, 20);
+            for _ in 0..2_000 {
+                if parallel {
+                    crate::sim::parallel::step(&mut w);
+                } else {
+                    crate::sim::update::step(&mut w);
+                }
+            }
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            let driver = if parallel { "parallel" } else { "serial" };
+            assert!(lost > 0.0, "the {driver} driver burnt corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "{driver}: {before} of meat became {after} standing and {lost} booked lost — \
+                 {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- the brush ----------------------------------------------------
+        {
+            let (mut w, _corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            w.paint_circle(63, 103, 10, material::EMPTY);
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the brush erased corpses and booked nothing ({before} -> {after})");
+            assert!(
+                (before - after - lost).abs() < 1.0,
+                "brush: {before} of meat became {after} standing and {lost} booked lost — {} unaccounted for",
+                before - after - lost
+            );
+        }
+
+        // --- an explosion -------------------------------------------------
+        // The arm with two halves: a cell the blast *consumes* is meat
+        // destroyed, and a cell it *throws* is meat in flight, whose stamp
+        // rides `Particle::aux` (bug Z, fixed alongside this). Booking the
+        // throw would put `max_standing_meat` below the truth, so the
+        // identity here has to include what is still in the air — which is
+        // also the sharpest way to state that the two fixes are halves of
+        // one thing.
+        {
+            let (mut w, corpse, all) = meat_world(WORTH);
+            let before = standing_meat(&w, all);
+            let mut ps = crate::sim::particle::ParticleSystem::new();
+            crate::sim::explosion::trigger(&mut w, &mut ps, 63, 103, 20, 180.0);
+            let in_flight: f64 = ps
+                .iter()
+                .filter(|p| p.material == corpse && p.aux != 0)
+                .map(|p| p.aux as f64)
+                .sum();
+            let after = standing_meat(&w, all);
+            let lost = w.energy_ledger.meat_lost;
+            assert!(lost > 0.0, "the blast consumed corpses and booked nothing ({before} -> {after})");
+            assert!(in_flight > 0.0, "test setup: the blast threw no stamped corpse, so the in-flight half is untested");
+            assert!(
+                (before - after - lost - in_flight).abs() < 1.0,
+                "blast: {before} of meat became {after} standing, {lost} booked lost and {in_flight} in flight — \
+                 {} unaccounted for",
+                before - after - lost - in_flight
+            );
+
+            // And once it lands, the in-flight half is standing again and
+            // nothing further is booked.
+            let lost_before_landing = w.energy_ledger.meat_lost;
+            for _ in 0..600 {
+                if ps.is_empty() {
+                    break;
+                }
+                ps.step(&mut w);
+            }
+            assert!(ps.is_empty(), "{} particles never landed", ps.len());
+            assert_eq!(
+                w.energy_ledger.meat_lost, lost_before_landing,
+                "landing a particle booked meat as lost — a throw is not a destruction"
+            );
+            let landed = standing_meat(&w, all);
+            assert!(
+                (before - landed - lost).abs() < 1.0,
+                "after landing: {before} of meat became {landed} standing and {lost} booked lost — {} unaccounted for",
+                before - landed - lost
+            );
+        }
     }
 
     // --- §11: touched_chunks --------------------------------------------
@@ -3563,7 +4159,7 @@ mod tests {
     fn organism_ids_round_trip_and_encode_a_nonzero_generation() {
         let mut w = test_world();
         let species = SpeciesId(0);
-        let id = w.push_organism(species);
+        let id = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(id, 0, "0 is reserved for \"no organism\"");
         assert_eq!(w.organism(id).unwrap().species, species);
     }
@@ -3585,8 +4181,8 @@ mod tests {
         let mut w = test_world();
         let species_a = SpeciesId(0);
         let species_b = SpeciesId(1);
-        let a = w.push_organism(species_a);
-        let b = w.push_organism(species_b);
+        let a = w.push_organism(species_a).expect("an organism slot is free");
+        let b = w.push_organism(species_b).expect("an organism slot is free");
         assert_ne!(a, b, "two live organisms must not share an id");
         assert_eq!(w.organism(a).unwrap().species, species_a);
         assert_eq!(w.organism(b).unwrap().species, species_b);

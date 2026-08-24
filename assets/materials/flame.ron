@@ -1,0 +1,119 @@
+// **The body of a fire.** The one material in the world that is created
+// already alight and does nothing else.
+//
+// The owner's standing verdict on the grassfire card was *"The fire looks
+// bad. Just looks like you are cycling colors"* -- and that was a literally
+// accurate reading of the code. A burning cell's only visual was
+// `render.rs` blending the cell's *own* colour toward a fire tint with a
+// flicker, so fire was confined to the silhouette of whatever was burning:
+// grass that went orange and then grey. No flame stood above the fuel,
+// nothing rose off it, and the front had no shape of its own.
+//
+// This is the flame. `fire.rs`'s `tick_burn` licks one of these into an
+// empty cell near a burning one; it is `Gas`, so it rises and leans with
+// the wind like any other; it is spawned **burning**, which is what makes
+// every existing piece of fire machinery apply to it without a special
+// case:
+//
+//   - it renders with the fire tint and flicker, at the top of the range;
+//   - `Material::glow` makes it a real light source, so a fire lights the
+//     ground around it at night rather than being a bright patch on a dark
+//     screen;
+//   - `is_burning()` is what `try_ignite`'s neighbour scan already tests,
+//     so a flame lick ignites fuel it touches -- which is how a front
+//     crosses the gaps between tussocks that killed every earlier
+//     grassfire (measured: a 160-founder sward is 71 separate 4-connected
+//     islands, and contact-only spread burns exactly one of them);
+//   - `burns_into` runs its burnout, so a flame ages into smoke and the
+//     plume comes off the front rather than being emitted separately.
+//
+// **Only `grassblade` opts in today, and that is deliberate.** `wood` and
+// `leaf` are the obvious next candidates -- the wiki calls a canopy tinder
+// and a forest fire mostly a leaf fire -- and giving them a flame would
+// change how fast a fire crosses a crown *and* when a burning trunk's base
+// gives way, which is `structural.rs`'s
+// `burning_a_trees_base_collapses_the_rest_of_the_trunk` and the
+// acceptance cases. That is a measurement somebody has to take, not a line
+// somebody adds while passing; W2's remit was the grassfire. Left off, and
+// recorded here rather than in a report nobody greps.
+//
+// **`flammability: 0` and no `flame_into` of its own, both load-bearing.**
+// A flame is never *caught*, it is placed already alight, so nothing needs
+// it to be catchable -- and a flame that could lick more flames is an
+// exponential fire that fills the world in a few hundred frames. The one
+// omission is the safety rail.
+(
+    name: "flame",
+    display: "Flame",
+    kind: Gas,
+    // Below smoke's 0.1: hot flame is the lightest thing in the world and
+    // must rise *through* its own smoke, or a fire draws with the plume
+    // underneath it.
+    density: 0.05,
+    // Below smoke's 3. A flame leans in wind but does not billow sideways
+    // the way cold smoke does; the difference is most of what separates
+    // the two on screen when both are present.
+    dispersion: 1,
+    // No `dissipation`: a flame ends by burning out, not by thinning, and
+    // two lifetime knobs on one material is one knob too many. See
+    // `burn_duration` below.
+    //
+    // Yellow-white heart through orange to a dull red edge. Ordered
+    // brightest-first so the random shade a lick draws is biased toward
+    // nothing in particular -- what gives the body its gradient is the
+    // heat tint `render.rs` lays over it, which is a function of
+    // temperature, and the palette is what keeps a flame from being the
+    // exact same four pixels every time.
+    colors: [
+        (255, 214, 122),
+        (252, 176, 58),
+        (238, 128, 34),
+        (206, 84, 28),
+    ],
+    // **Zero, and this is a finding rather than a preference.** Fire
+    // *should* light the world, and `Material::glow` is the field that
+    // says so -- it was set to 0.9 here first, for exactly that reason.
+    // Rendered, it washed the whole fire white.
+    //
+    // The glow render path is built for a crystal geode in a dark cave and
+    // does two things a fire in open daylight must not: it lifts a lit
+    // cell multiplicatively (`rgb * (1 + glow * GLOW_SOLID_LIFT)`, so
+    // smoke's grey 84 comes out at 160) and it blends the *air* around it
+    // toward `GLOW_AIR_TINT`, which is (226, 222, 208) -- near white. A
+    // grassfire's plume then draws as bright specks on a bleached sky and
+    // reads as a snow flurry: the fire looked worse with a light source
+    // than without one. There is a cost argument too -- `near_glow`
+    // splats a disc of radius 14 per glowing *cell*, and a front carries
+    // hundreds of them, where a geode has a lining that never moves.
+    //
+    // Left at zero, and filed: fire as a light source wants a glow path
+    // that knows about daylight and about sources that move, which is
+    // `render.rs`'s to give and not this material's to force. See
+    // `Reports/open-bugs-handoff.md` §G.
+    glow: 0.0,
+    // Never catches: it arrives alight. See the note above.
+    flammability: 0.0,
+    // Hot enough to read at the top of `render.rs`'s heat ramp and to warm
+    // what it drifts past, and hot enough that fuel with a finite
+    // `ignition_temperature` can catch off it without a contact roll.
+    burn_temperature: 780.0,
+    // ~0.23 s at 60 Hz. A flame rises roughly a cell a frame, so this is
+    // also how tall a flame body stands: 14 over a 6-row sward reads as
+    // flames about twice the height of the grass, which is what a
+    // grassfire looks like. Longer was tried and the fire climbed out of
+    // the scene -- a column of fire standing thirty cells over ankle-high
+    // grass, which reads as a chimney rather than a burn.
+    burn_duration: 14,
+    // The plume comes off the flame, not off the fuel. A separate smoke
+    // emission was tried first and drew a puff wherever a cell was burning
+    // -- including inside the sward, under the flame -- so the smoke read
+    // as ground fog. Ageing the flame into it puts the smoke where the
+    // flame got to, which is where a plume actually starts.
+    burns_into: "smoke",
+    // Low. A flame is a thin hot gas, not a hot brick: this is what stops
+    // a drifting lick from cooking a whole rock face, and keeping it small
+    // is what `lavapour`'s "any material that can inherit a temperature
+    // and has zero conductivity is a permanent radiator" note asks for
+    // without going so far that flame becomes a heat pump.
+    heat_conductivity: 0.15,
+)

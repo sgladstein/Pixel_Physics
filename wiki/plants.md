@@ -3,11 +3,26 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-23. Written when water became a real currency and
+*Current as of: 2026-08-24 (standing tissue costs something to keep, and a
+plant that cannot pay sheds it; grass is sown into generated worlds; a dry
+meadow carries fire, a wet one stops it, and a damp one burns in patches).
+Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
-stopped all being made of the same stuff. One plant-economy number is unsettled and
-its cause is still open — see `Reports/open-bugs-handoff.md`.*
+stopped all being made of the same stuff; again when roots stopped
+destroying the water they did not drink and the forest floor stopped
+keeping rain off the ground under it; and again when worlds started arriving
+with four woody species in them instead of one. Updated again the same day,
+when the pick and the chisel started being able to touch a tree at all — see
+**Cutting a plant down**, which is new and is the part most worth playing;
+again when plants started dying of ordinary causes and seeds stopped lasting
+for ever; and again when leaf fall was slowed to a quarter across all four
+woody species, so the floor stopped burying the world. Updated most recently
+when standing wood started costing carbon to keep, night started slowing
+growth, and a root buried inside its own root ball stopped counting for
+anything — see **What a plant pays for**, which is new. One plant-economy
+number is unsettled and its cause is still open — see
+`Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
 
@@ -17,17 +32,30 @@ paid for. It sends a shoot up and a root down, and everything above and below
 ground is the same organism sharing one economy.
 
 Plants are made of ordinary cells like everything else in the world. You can
-dig them, burn them, bury them, and cut them.
+dig them, burn them, bury them, and cut them — and that sentence has only
+been true of *all four* since this build. See **Cutting a plant down**.
 
 ## The two things a plant needs
 
 **Light**, caught by foliage. A leaf in open sky earns well; a leaf buried
 inside its own canopy, or under a taller neighbour, earns almost nothing.
 
+Light earns most at midday and least at night, so growth visibly slows after
+dark and picks up again in the morning. What a plant *decides* — whether a
+leaf is too shaded to keep, whether to open a new shoot — does not swing with
+the hour; only how much it actually earns does.
+
 **Water**, drawn from damp soil by roots. Foliage spends water continuously —
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
+
+A root beside open water drinks from it at the same rate it drinks from
+damp ground, and **takes only what it drinks**: the cell it is drinking
+from goes down a little at a time and is still there afterwards, rather
+than disappearing whole. A tree on a bank is a slow, visible drain on the
+pond over a long dry spell — not something that empties it in an afternoon,
+which is what used to happen and what nothing in the world was counting.
 
 Neither substitutes for the other. A plant in blazing sun with nothing to
 drink earns nothing at all, and this is the single most visible rule in the
@@ -48,15 +76,49 @@ dense for them.
 
 Root mass does two jobs, and they are the same number:
 
-- **It sets how much water the plant can draw and store.** A big root system
-  keeps drinking through a dry spell; a small one lives tick to tick.
+- **It sets how much water the plant can draw and store** — but only the
+  roots that actually touch soil count. A root cell walled in on every side
+  by the plant's own roots has nothing to drink from, so it buys the plant
+  nothing at all, while still costing food to keep alive. Growing a solid
+  ball of root is therefore a waste of a third of it, and two plants of the
+  same root mass can differ by nearly two to one in how much of it is
+  earning.
 - **It anchors the plant.** A root threaded through soil holds, and holds the
-  soil too — root-bound ground keeps a slope that bare soil would lose.
+  soil too — root-bound ground keeps a slope that bare soil would lose. How
+  well anchored a plant is depends on how far its roots *spread*, not only on
+  how many there are, and a plant carrying a big crown on a narrow root plate
+  puts its growth into roots until it catches up. So a tall plant in the open
+  builds a wide plate and a squat one does not.
 
 A plant that is short of water spends its growth on roots instead of canopy,
 and switches back once it is comfortable. So a thirsty plant looks
 root-heavy, and a well-watered one looks top-heavy. Root systems are branched
 tangles, not single taproots, and they reach most of the way down a deep bed.
+
+## What a plant pays for
+
+**Everything a plant is standing up in costs food to keep, every day, whether
+or not it is earning.** A leaf earns; the wood holding it up does not, and
+the thicker that wood is the more it costs — disproportionately, so a big
+plant pays far more per unit of trunk than a small one. This is what stops a
+plant simply filling in for ever, and it is why an old plant is not just a
+bigger young one.
+
+The visible consequences:
+
+- **A branch that stops earning is abandoned.** When a limb loses its leaves
+  to shade or drought, the wood behind it is a pure cost, and the plant lets
+  it go from the tip inward. The litter falls where it stood.
+- **Plants trim from the outside in, never from the middle.** A plant never
+  comes apart into floating pieces; the outermost, longest-reaching tissue
+  goes first and the trunk is the last thing to go.
+- **Growth is what is left over.** A plant grows on the difference between
+  what it earns and what its standing tissue costs, so a big plant grows
+  slowly and a stressed one not at all.
+- **A plant that cannot pay at all shrinks.** It sheds its way down toward a
+  size it can carry, and a plant in a genuinely poor spot — a thin pocket of
+  soil, deep shade — settles at a stunted size and stays there rather than
+  dying.
 
 ## What a healthy stand looks like
 
@@ -98,14 +160,27 @@ Three consequences follow from that, and none of them is a rule about grass:
 - It is the **most flammable thing that grows** — cell for cell a fire runs
   through grass about a quarter faster than through a tree canopy, and bare
   soil will not carry one at all. The roots survive underground.
-  Fire steps from one plant to the one touching it, so a thin, patchy sward
-  is a firebreak and a thick closed one is a fuse. Nothing says so anywhere;
-  it falls out of the gaps. **In practice a grassfire is currently a slow,
-  local smoulder rather than a front sweeping a meadow** — see
-  `Reports/plant-implementation-plan.md` for the measurement and the two
-  fire-side changes that would be needed.
+  **A dry meadow now burns end to end**, as a front you can watch cross it,
+  throwing flames and trailing smoke and leaving a black scar; a
+  well-watered one takes light where the fire was set and goes out within a
+  few paces; and a **damp** one in between burns in patches, leaving
+  scorched ground and standing green interleaved. That difference is how
+  wet the ground under the grass is, and it is the single thing that
+  decides whether a meadow burns — see [Fire & Heat](fire-and-heat.md).
+  What used to happen instead was a local smoulder at any wetness: fire
+  could only step between blades actually touching, and a sward that looks
+  continuous is really a scatter of separate tufts, so a fire burnt the
+  tuft it was lit in and stopped. That same patchiness is what makes the
+  in-between outcome a patchwork rather than a half-crossed field.
 - It **breeds far faster than a tree** — it is cheap to build, it sets seed
   young, and it will colonise bare ground long before anything woody does.
+- And it **keeps a different set of books**. Because the blade is the whole
+  plant, a grass tussock finishes growing early and then simply stands
+  there: it earns from every blade, spends the proceeds on seed, and — for
+  now — has no running costs to fall behind on. What kills it is shade. A
+  sward is thinned by whatever grows over it and not by drought, which is
+  the reverse of what a tree faces, and it is why grass and trees are not
+  competing for the same thing.
 
 Grass cannot get into dry sand, though, and neither can a tree: sand is
 simply harder to push a root through than either of them can manage.
@@ -115,6 +190,26 @@ strongly they reach for light, how far apart their leaves sit, whether they
 fork repeatedly into a mound or hold a single leader. Each species has its own
 range of foliage and bark colours, so two species never draw the same colour
 however their individuals fall.
+
+**The four woody plants are points on a trade rather than four sizes of the
+same thing.** What a plant cannot spend on height it spends on leaf area at
+each node it does make, so the tallest of them — the conifer — carries the
+smallest, tightest sprays, and the ground-runner, which gets nowhere near
+knee height, carries the broadest leaf clusters of any of them. In between,
+a tree makes larger clusters than a conifer and a shrub larger still. That
+is the quickest way to tell two of them apart at a distance when the
+silhouettes are both just "green mass": count how coarse the foliage is.
+
+Where each one grows is decided by the ground — trees in damp deep soil,
+conifers on the high ground, shrubs on the dry margin, creepers on a skin of
+soil over rock. `wiki/the-world.md` has that half.
+
+**Grass now comes with a new world**, on the open ground the woody plants
+leave. What it waited on was a way to die: grass that could not be cleared
+would have piled up in a world that kept seeding it. Now shade kills a blade
+and a buried seed loses half its viability every few thousand frames, so a
+sward thins where a canopy closes over it and thickens where the light
+holds. `wiki/the-world.md` has where it goes.
 
 Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be
@@ -165,16 +260,79 @@ against trunks and piles into hollows. Litter is lighter than water, so it
 rafts on a pond rather than sinking, and it mats rather than slumping flat:
 a drift under a tree reads as a drift, not as a brown line across the world.
 
-It does not pile up forever. Litter **rots back into soil**, faster where the
-ground is damp, so a standing wood reaches a floor of roughly constant depth
-instead of burying itself. That is what makes the floor a cycle rather than an
-accumulator — and it is why a wood costs no more to simulate the longer it
-stands.
+Rain goes **through** it. A litter blanket is loose stuff lying on the
+ground, not a roof, so the soil beneath a deep forest floor still takes the
+weather — and because litter also rots into soil, a wooded floor ends up
+holding rather more water after a storm than bare ground does, which is
+what mulch is for. It used to do the opposite and seal the ground it lay
+on, and the blanket is deepest exactly where the roots are.
+
+The *litter* does not pile up forever: it **rots back into soil**, faster
+where the ground is damp, so the visible drift under a standing wood stays
+roughly constant depth. The soil it rots into is a slower story — nothing
+carries soil away yet, so a very old stand does slowly raise the ground it
+lives on. A mature tree sheds sparingly (a leaf has to be deep in shade or
+drying out before it goes), which keeps that rise to a creep rather than
+the burial it once was; a wood should read as standing *on* its floor, not
+sinking into it.
+
+That is currently true of **the tree and not yet of its neighbours**. Worlds
+arrive with four woody species in them, and only the tree has had its leaf
+fall slowed so far, so a conifer belt, a scrub margin or a run of creeper
+still drops leaves at the older, faster rate and still builds floor under
+itself the way the whole world used to. Expect the burial look to survive in
+those stands until the same change reaches them.
 
 Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the
 one part of a canopy's production that ends up where a walking animal can
 reach it. See `ants.md`.
+
+## Cutting a plant down
+
+**New this build, and the honest half of it is in the second paragraph.**
+Until now a tree was the one thing in the world a tool could not touch. The
+pick and the chisel both asked "is this rock?" before they cut, and a trunk
+is not rock — so you could bore through a mountain and not through a
+sapling, and the only thing in the game that could damage a tree was a
+blast. Now they cut wood the way they cut anything else, and so does the
+eraser.
+
+**Cut through the foot of a trunk and the tree comes down.** A plant holds
+itself up from its roots outward, so severing the bottom of it leaves
+everything above with nothing to reach, and the whole crown lets go a
+second or so later. It is not one blow: a grown tree's base is twenty-odd
+cells across and each swing takes a bite of about a third of that, so it is
+three or four swings and then a pause before anything happens. The pause is
+real and is the tree standing on nothing.
+
+**What comes down is, for now, sawdust.** The crown dies where it stands,
+browns, and then dissolves into a cone of loose deadwood — a handful of
+pieces come away as pieces, near where you actually hit, and the other
+ninety-odd per cent does not. That is the known and next thing to fix, it
+is the exact failure this project has rejected before ("a uniform dissolve
+into powder"), and it is written here rather than left to be discovered:
+the tree *falling* works, the tree *coming apart* does not yet.
+
+**Burning a trunk out from under a crown** now brings the crown down too,
+which it did not before at the tighter `F9` settings — the fire licenses
+the collapse the same way a blow does. So does erasing a trunk with the
+brush. See `structural-collapse.md` for what that setting does.
+
+**How much of the tree comes down depends on `F9`**, and at the tight end
+that is visible rather than academic. Cutting the same tree at each setting:
+at SPREAD and LOCAL the whole crown goes; at TIGHT about half of it does and
+the top stays up, standing on nothing; at NONE nothing comes down at all and
+you are left with a cut trunk holding its whole canopy in the air. That is
+the setting doing exactly what it says — NONE means only what you struck
+ever fails — and it is the same trade the rock pages describe, now visible
+on trees too. If a half-fallen tree reads worse than a slowly-unravelling
+one, the setting is the lever.
+
+**A stump is left, and it stays alive.** The roots and the last row or two
+of trunk are still anchored, so they are still the plant. What they do not
+yet do is regrow — a topped tree sits there indefinitely rather than
+resprouting, which is a separate piece of work.
 
 ## Fire and death
 
@@ -185,3 +343,36 @@ would be a chance at a new tree and a stand would carpet itself.
 
 Dead and broken plant tissue becomes deadwood, which falls and piles like any
 other loose material.
+
+**Plants also die of nothing dramatic at all.** Foliage that sits in deep
+shade, or that a plant cannot supply with water, is let go of a leaf at a
+time — so a sapling that came up under a closed canopy thins away instead of
+standing there for ever, and a sward under a spreading crown goes back to
+bare ground. This is gradual and it is graded: something a little shaded is
+effectively permanent, something in the dark is on its way out, and there is
+no moment where a shadow arrives and a shelf of foliage is swept off at
+once.
+
+**A plant with nothing left that can earn is a dead plant, and dead plants
+rot.** Once the last of a plant's green is gone there is no route back to
+income, so what remains — the bare stem, the root mat — goes to litter over
+the following while and from there into the soil, the same path a shed leaf
+takes. A tussock browns off and is gone quickly; a woody stem stands a good
+deal longer before it goes. A plant with dormant buds, or one still in its
+seed, is not dead by this reckoning and is left alone.
+
+## The seed bank
+
+Seeds that land somewhere too dry to germinate do not die on the spot — they
+**wait**, sometimes for a long time, and sprout when rain finally wets the
+ground under them. That waiting bank is what carries a species through a
+season it could not otherwise survive: even where every standing plant of a
+kind is gone, the ground may still be full of them.
+
+But a seed does not wait for ever. Viability runs out gradually, so a bank
+that is not being topped up thins away and a bank that is settles at a depth
+set by how fast seed is arriving. The two ends of that trade are a real
+difference between species: **grass seed outlasts tree seed by about
+double**, which is a large part of why grass is the thing that comes back
+first on ground where nothing is currently growing. A seed whose time runs
+out rots where it lies, like anything else.

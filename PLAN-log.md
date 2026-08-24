@@ -2498,3 +2498,318 @@ identical at the baseline commit in a separate worktree, with identical
 counters — pre-existing, alongside
 `plant::root_and_shoot_branching_read_different_slots` and acceptance's
 `wood` case.
+
+#### §L closed: the sessile colony was a worldgen argmax, not a movement rule (2026-08-23)
+
+The bisect said scene, and the scene said it in one look: the creature
+parent's foraging world has two residual stone towers standing inside the
+nest patch (x≈42–68), and the merge's world does not. The rock-country
+guarantee's fallback (`region.rs`) set its gate to the best country draw
+exactly, which admits only the argmax region — on the 512-column scene
+world that is a choice between 0.4141 and 0.4691, two samples of a field
+whose period is 1700 columns. The towers went, the freed soil columns grew
+worldgen trees, and the canopy edge moved from x≈88 to x≈64, inside the
+nest patch. Ablations (one build, same seed): towers alone 35 trips,
+doorstep food cleared alone 30 trips and 9 deliveries, both 245 trips and
+0 deliveries — no single lever restores the parent's 92; the balance of
+vertical home terrain plus food at the patch edge is what the bar
+measured.
+
+The fix widens the fallback from an argmax to a country: regions within
+half a `ROCK_COUNTRY_SCALE` of the best draw's centre belong to it. The
+scene reads 100 trips (bar 14, set from 98), nest-visits 3,792 against
+the parent's 3,598, mean depth 10.3 against 10.3, and its 2,000-frame
+counters are identical to the parent's run. On the gated path (best ≥
+0.70) nothing changes; a shipped-size fallback world (1 in 16 seeds) gets
+one country-sized band instead of one sub-screen cluster — the cluster
+shape is the exact failure `FORMATION_BARREN`'s comment records the owner
+rejecting. `known-red-ascii` and its `skip=foraging` exclusion are gone
+per that job's own instruction. Not §M: springs place zero in this
+scene's world (0 cliff candidates, measured), and §M's water-at-rest reds
+stand — though their counts move with the terrain (wetland seed 3: 87
+cells now fails first, was terraced 57 / rolling 47), recorded there.
+
+#### §G's two mechanical halves closed; the desert decision costed (W2, 2026-08-23)
+
+The owner's grassfire verdict is three claims and only one of them was
+about tuning. **It doesn't spread** was not slow spread: `try_ignite` scans
+four neighbours, so a front reaches one 4-connected component of fuel, and
+a 160-founder sward that reads as continuous by a column census (one empty
+column in 484) is **71 separate islands**, largest 16%. Measured before the
+fix: 14 grass cells consumed and `alight 0` by frame 300 — a fire going out,
+which at contact-sheet zoom is indistinguishable from a fire creeping, and
+is where the old 0.12 c/f figure came from.
+
+**`MOISTURE_IGNITION_RESISTANCE` changes nothing** was true and neither
+standing suspect caused it — not the 0.9, not the `include_str!` trap. Its
+input reads **exactly 0.000 at 96.8% of fuel cells at every ground wetness
+from the wilting point to saturated**, because `step_diffusion` skips a
+blocked block and `rebuild_blocked` blocks any block holding a `Plant` cell:
+the presence of fuel is what makes a block read bone dry, and a denser sward
+reads drier. For 96.8% of fuel cells the term reduced ignition by **exactly zero**;
+averaged over all of them it reduced it by 2.9% at saturation, all of that
+from the 3.2% of blades sitting in the soil's own block. A
+band mean hides this completely (0.041 / 0.142 / 0.230, monotone, plausible,
+and describing blocks the fuel is not in).
+
+Both fixed by one mechanism each. `flame.ron` is a `Gas` created already
+alight, licked out by `tick_burn` at a per-material rate; being *burning* is
+what makes the existing neighbour scan spread it at zero added cost to that
+scan, and what makes its own `burns_into` produce the plume. The
+load-bearing detail is that the direction is **rolled** — a fixed search
+order sent every lick straight up, because the cell above a blade is nearly
+always empty, and the fire looked much better while spreading exactly as
+badly as before. `ground_wetness_at` reads the moisture *source* at the
+cell's block and the one below, and gates as a **cutoff**, because spread
+here is a percolation and a gate that shaves 10% does nothing until it does
+everything.
+
+Paired guard: **171 grass cells consumed on dry ground against 4 on
+saturated**. Swept over 12 procedurally different swards (4 founder counts x
+3 weather windows, `PlantScene` has no seed): at field capacity no sward
+loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
+Fronts run 67–489 cells dry and never past 74 damp. Neither arm's worst
+frame is the fire — both land in the growth phase, before the ignition.
+
+**Not shipped, and it is render's:** every burning thing saturates the heat
+ramp, whose top is a pale yellow-white, so the meadow draws as straw. Two
+constants fix it and also move lava, quench crust and warm water; the A/B is
+with the owner. Two attempts that made it worse (flame `glow`, a widened
+`HEAT_GLOW_RANGE`) are in `dead-ends.md`.
+
+**E6 is a card, not code.** Two of §X's three lever costs had changed: (a)'s
+named prerequisite is already paid (the water ledger keys on
+`water_capacity > 0`, not a material name) but a *small* capacity is
+worthless, because the wilting point is an absolute aux value — 180 before a
+plant gets one drop; and (b) is not a root-reach problem at all, because
+`arid` sets `table_offset: 4000.0` and has no water table inside the world
+to reach. That makes (b) a worldgen decision taken with Arc B4.
+
+### WP-11, the abscission half: leaf fall slowed to a quarter, chosen by the owner from a three-arm card (2026-08-23)
+
+The owner's diagnosis was taken at its word — *"leaves are just falling
+too fast which creates too much food and is creating a giant pile of
+soil"* — and the first move was to make the lever visible rather than to
+guess at it: three new shed-cause counters (`World::shed_shade` /
+`shed_drought` / `shed_stranded`, printed by `filmstrip` beside §O's
+decay line) put ~89% of all leaf fall on `shade_death`. Not litter decay:
+§O had already measured faster rot making the floor *worse*.
+
+Swept 0.003 / 0.0015 / 0.00075 on the colony scene (wetland seed 0,
+12,000 frames, one binary per arm — assets are `include_str!`ed), posted
+as one three-arm card with soil-writing decay events (6,331 / 3,443 /
+1,800), standing litter, living tissue and the colony-band food census in
+each pane's `meta`. Verdict: **"C is best"** — the quarter rate landed.
+Verified on the tree it landed on (post-water-book `main`): decay events
+1,862 against 6,653 paired baseline, −72%; standing litter 1,024 → 344;
+living tissue +10%; crowns still separate by eye.
+
+Two things the card said out loud rather than hiding: colony-band food
+*energy* does not fall with the rate (70k → 91k medians — retained
+foliage becomes low standing leaf within ant reach), so this fixes the
+floor, not total abundance; and 0.00075 sits in the previously unswept
+fusion gap above 0.0, so any further cut must re-measure the fused-run
+column. Soil still has no exit channel — the floor now creeps instead of
+burying, it does not stop (§O stays open, updated).
+
+The S5 diet sweep and the scarcity-band/guard re-derivation run on this
+retuned world next, paired against same-session baselines on the same
+merged tree — the pre-merge baselines were deliberately discarded when
+PR #19 (the water book) landed mid-session and changed the water economy
+under them.
+
+### WP-11, part 1 completed: the owner's leaf-fall rate reaches all four woody species (2026-08-23)
+
+The abscission cut landed earlier today on `tree.ron` alone, chosen by the
+owner from a three-arm card (`20260823T161006584Z-6ecbab`: "C is best").
+Merging `main` before measuring anything showed that verdict had quietly
+been reduced to a quarter of its subject: PR #20 began sowing **four**
+woody species — creeper, shrub, conifer, tree, each into its own country —
+and `flora_census -- frames=4000` reads all four established in **8 of 8
+seeds**. `strings` on the built binary confirmed the other three still
+carried the pre-retune `0.003`.
+
+Measured on the colony scene, wetland seed 0, 12,000 frames, one binary
+per arm: soil-writing decay events **5,061** with none cut, **2,954** with
+`tree` alone cut, **1,532** with all four. So the lever the owner judged at
+−72% delivered −42% on the world PR #20 made, and about half the floor
+manufacture left after his retune came from species it never reached.
+
+**Carried to all four rather than treated as a new decision**, because the
+three specialists' `Photosynthesize` line was byte-identical to pre-retune
+`tree`'s (verified against `05a13f0^`): they inherited tree's leaf
+economics wholesale and not one had ever been tuned on its own, so the
+number he changed is the number they carry.
+
+**The card that asked him to confirm it failed, and the failure is the
+useful part.** Three stills of a stand, three arms, counters in `meta`
+exactly as the house rules demand — and the answer was *"What am i
+supposed to be looking at. I don't see an obvious difference between the
+images."* His complaint had been "a giant pile of soil": a **depth that
+accumulates**, which no grid of single moments can show. Two instruments
+were missing and are now in `filmstrip`: `floor:` (soil cells, and net
+change since the first sample — the standing depth, where the existing
+decay line counts only the writing events) and `composition:` (leaf
+against wood, because a silhouette is set by composition, not by which
+cell gets a label — `plant-appearance-design.md`'s recorded trap).
+
+Re-asked as an animation cropped to the ground line
+(`20260823T204413045Z-25c85d`): the floor runs 3,470 → **6,971** soil
+cells at the old rate and 3,429 → **3,358** at the new one. The cost went
+to its own card (`20260823T204815827Z-ffc290`): leaf share 50.2% → 58.7%
+with wood essentially unchanged, so every cell the change adds is leaf,
+and whether the crowns still read as separate stands is the owner's to
+say. Both cards were open at the time of writing and **both were answered
+2026-08-24, both "after"**: the floor card confirms the fix, and on the
+crowns the owner picked the quarter rate on all four — the denser canopy
+is what he wants, so the standing contingency (conifer/shrub/creeper to
+`0.0015` if the crowns read as one mass) is retired rather than pending.
+
+One correction worth keeping: the first version of `floor:` called the
+rise "manufactured by decay" and clamped negatives away. The retuned arm
+then ran −171, −265, −201, −114 before ending at +120 — soil leaves as
+well as arrives, and the column could never see decay's writes separately
+from whatever consumes them. Renamed to "net"; what removes soil is
+unidentified and is not this branch's to chase.
+
+---
+
+
+### World speed: five independent time axes (2026-08-23)
+
+The day/night cycle was 3,600 frames — one minute at the fixed 60 Hz — and
+unchangeable without a rebuild. It is now one of five knobs on
+`sim::clock::Clock`, living on `World`: `day_minutes`, `growth_slowdown`,
+`weather_slowdown`, `creature_slowdown`, `gnome_slowdown`. Each is a whole
+multiple of baseline, capped at 30, live under `O` → WORLD, saved to
+`assets/clock.ron` (shipped: an eight-minute day, the rest baseline). The app
+reads that file; `World::new` does not, which is what keeps several hundred
+guards and every stored contact sheet valid across a change to it.
+
+**The complaint was resolved before anything was built.** "Too fast" has two
+readings and they want different fixes. Measured off the curve: of a 60 s
+cycle the sun is up 30 s, night sits at a flat floor 30 s, and each dawn/dusk
+transition is 4.4 s. The owner's answer was "the cycle repeats too often", so
+a uniform rate slowdown is the mechanism and the proportionally longer flat
+night (four minutes at eight) is an accepted cost. Reshaping the curve so the
+transitions take a larger share is a separate change to `sun_elevation`'s
+*shape* and is not this.
+
+**Three mechanisms, and only one of them is physics.** A phase
+(`sun_elevation`, `weather::channel`) is a pure function of `frame % PERIOD`
+and is slowed by feeding it a slower clock; a schedule (organism, creature
+ticks) is `frame + interval` and is slowed by a longer interval; the CA sweep
+is neither and is untouched. `DAY_NIGHT_PERIOD_FRAMES` is deliberately not
+raised — `SKY_LIGHT_STEP` and `SKY_TEMPERATURE_QUANTUM` are sized against the
+per-frame rate it implies and field sleeping is an inequality against
+`SETTLE_EPSILON_*`, so a slower sky under a raised period would stop
+registering as a change and freeze the field at its last brightness. Measured
+instead: 3.5x fewer field solves per real frame at a four-minute day.
+
+**Two independent reviews found three defects in the first implementation**,
+all of which are recorded in the commits and in `Reports/dead-ends.md`:
+
+1. The sky clock was a counter advanced from `begin_step`, which ignored the
+   27 places that assign `World::frame` directly to pick a time of day or a
+   weather window. Seven guards would have failed and four more would have
+   passed while testing nothing. Replaced by a form derived from `frame` and
+   anchored at the last rate change.
+2. A per-frame rain-budget divisor, drafted as "required", inverts the water
+   balance — and the obvious guard for it passes for the broken version.
+3. `weather::strike` ran a third clock, on the day knob, under a design that
+   had already made weather independent.
+
+**Withdrawn claim, then measured.** "One knob rebalances nothing" was true
+only of each subsystem's *internal* economy. A paired `plant_probe` sweep at
+matched tick counts across eight seeds puts a `growth_slowdown: 4` tree
+between 0.15x and 1.34x its baseline size, median 0.61x. Soil is ruled out by
+measurement (final profiles essentially identical, mean 633 against 627);
+chunk sleeping is ruled out by construction. Per-real-frame hazards are the
+leading suspect — `CLAUDE.md`'s hop-bounded structural check is a named one —
+and this is left as an open question rather than dressed up as a mechanism.
+
+**Two guards were built and thrown away** rather than shipped, because
+neither could fail: water deposited per real frame is invisible at world
+level (standing water passed unchanged with a 4x divisor deliberately
+injected; the atmospheric bank is a net ledger). What ships guards the
+premise instead, and says plainly what is argued rather than guarded.
+
+Also fixed along the way: `plant_probe`'s awake-chunk line claimed to be
+reporting how often `diffuse_resource` ran "since it is dispatched from the
+CA sweep" — that function no longer exists and transport runs on the organism
+tick, so the line was an architecture out of date, and it cost a wrong
+diagnosis before it was caught.
+
+---
+---
+
+## P2 — the economy re-derivation (2026-08-24)
+
+Package P2 of the plant implementation split, run as one re-derivation
+rather than six changes: superlinear maintenance respiration on `q_peak`,
+night income, drought's income gating, the owner's root-blob economy,
+anchorage as what root investment buys, and adult mortality's cause. Full
+account and every table in
+`Reports/plant-economy-rederivation-2026-08-23.md`; the landing notes other
+lanes need are `open-bugs-handoff.md` §P2.
+
+**The headline, eight world seeds paired against `main` at `cfee870`, at
+28,800 frames:** median plant 4,740 → 3,659 cells, wood 2,371 → 2,144,
+foliage share 45% → 46%, stem above the base 15 → 13, root cells 407 → 270,
+and **8 of 8 founders establishing on every seed**, unchanged. Die-back
+sheds 6,595 and 6,886 cells per stand on the two seeds inspected, so it is
+not cosmetic. Frame cost on `ascii`'s tree scene is inside the run-to-run
+spread of a single binary.
+
+**Most of the session was spent building things and taking them out again,
+which is the part worth logging.** Six mechanisms were built, measured and
+withdrawn, each with its `dead-ends.md` entry:
+
+1. Per-cell die-back gated on `q_now == 0` — 4–6 of 8 founders establishing
+   against 8 of 8, one seed at 94% root mass. `accumulate_support` walks a
+   *spanning tree*, so `q_now == 0` means "not on this tick's arbitrary
+   path", which is most of a trunk's girth. A traversal artifact read as a
+   biological fact.
+2. Die-back triggered on the summed per-cell shortfall — 90 of 1,124 cells
+   still reachable from the base. Transport is slow by design, so distal
+   cells in a healthy plant run momentarily short constantly.
+3. Die-back without its two connectivity exclusions — 52% connected for four
+   thousand frames, then seven cells of 1,321 adrift.
+4. Excluding foliage by `CellType::Leaf` — deleted a grass sward, 0 of 12
+   blades against 12, and the sod that holds a bank with it.
+5. Comparing the bill against instantaneous night-scaled income — a stand
+   shedding on a nightly cycle, spotted because one build reported
+   bill/income 0.6 at 28,800 frames and 2.6–5.6 at 45,000, one horizon being
+   a whole number of days and the other not.
+6. Gating root re-initiation on solvency, which is the fix §U names — under
+   a maintenance economy a plant at its ceiling is insolvent by
+   construction, so it shut the root amplifier on every mature plant and
+   produced the death spiral `allocate_to_frontier` documents.
+
+Charging secondary thickening was built and withdrawn too: it removes a real
+treadmill (a starving plant re-laying almost exactly what die-back removes —
+5,914 cells shed over 60,000 frames for a net loss of ten) and cost
+establishment at full pressure while buying nothing measurable at the
+pressure that restored it.
+
+**Two negative results, reported rather than worked around.** Adult
+mortality has a cause that fires and kills nothing — `senescent` reads 0 on
+every seed at both horizons, exactly as before — because a light- or
+water-limited plant settles at a stunted size rather than dying (correct),
+dormant buds keep it vital (correct), and a compact stump has almost no
+cells a topology-preserving erosion may take (a defect). And selection
+throughput moved the *wrong way*: inherited-genome establishments 1 → 0,
+organisms born 447 → 343, because fecundity is canopy size and every plant
+is smaller. No selection claim is made for trees on this branch.
+
+**Bug §A is now exactly dead rather than approximately.** The two slot-1
+draws produce byte-identical root and shoot counts and `ROOT_TIP_AT_CAP`
+reads 0 in both arms, so P1's cap lead is answered — root extension is
+carbon-bound, and `tree.ron`'s root `max_active_tips` was deliberately left
+alone rather than changed to move nothing.
+
+**One instrument the plant lane did not have.** `scripts/plantsweep.sh`
+sweeps the economy over world seeds and gates order statistics, the way
+`seedsweep.sh` does for destruction. It was built before the model changed,
+which is the only reason the first design's collapse was caught as a
+collapse rather than as a tuning problem.

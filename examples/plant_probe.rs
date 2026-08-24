@@ -91,6 +91,12 @@ fn main() {
     if let Some(seed) = std::env::args().find_map(|a| a.strip_prefix("worldseed=").map(|v| v.parse().expect("worldseed"))) {
         w.seed = seed;
     }
+    // `growth=N` -- the world clock's plant knob (`sim::clock`). Applied
+    // before any stepping, like `worldseed=`, and named on the echo line
+    // below for the same reason that line exists at all.
+    let growth: u32 =
+        std::env::args().find_map(|a| a.strip_prefix("growth=").map(|v| v.parse().expect("growth"))).unwrap_or(1);
+    w.clock.set_rates(0, |c| c.growth_slowdown = growth);
 
     // **Echo what this run was actually given, first line of every log.**
     //
@@ -108,17 +114,60 @@ fn main() {
     // defence is not discipline, it is this line: a log that does not name
     // its own seed was written by a binary that never had one.
     println!(
-        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={}",
-        scene.species, w.seed, scene.soil_depth
+        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={} growth={}",
+        scene.species,
+        w.seed,
+        scene.soil_depth,
+        w.clock.growth_slowdown
     );
 
+    // **`census=N` -- the standing organism count every N frames.**
+    //
+    // A final count cannot answer the question a decay clock is judged on.
+    // "The seed bank falls" and "the seed bank falls and then *plateaus*"
+    // are the difference between a clock that thins a reservoir and one
+    // that is on its way to emptying it, and both look identical at any
+    // single frame. `CLAUDE.md`'s settling rule from the other end: read
+    // the quantity across consecutive tiles and check it has stopped
+    // moving.
+    //
+    // Off by default, so no existing invocation changes.
+    let census: u64 = std::env::args().find_map(|a| a.strip_prefix("census=").map(|v| v.parse().expect("census"))).unwrap_or(0);
+    if census > 0 {
+        println!("census (frame: live organisms / slots, standing seeds, senescent, born, died):");
+    }
+
     let mut awake_frames = 0u64;
-    for _ in 0..frames {
+    for f in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
         w.step_fields();
         if w.active_chunk_count() > 0 {
             awake_frames += 1;
+        }
+        if census > 0 && (f + 1).is_multiple_of(census) {
+            let (slots, live) = w.organism_slot_usage();
+            let (born, died) = w.organism_turnover();
+            let mut seeds = 0usize;
+            // One scan for both: the seed cells, and the distinct organisms
+            // that own any cell at all -- `live_organism_ids` is
+            // crate-private, and a set built from the grid is the same
+            // question asked from the side a harness can see.
+            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            for y in 0..height {
+                for x in 0..width {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    owners.insert(c.organism_id());
+                    if organism::cell_type(c.aux()) == Some(organism::CellType::Seed) {
+                        seeds += 1;
+                    }
+                }
+            }
+            let senescent = owners.iter().filter(|id| w.organism_state(**id).is_some_and(|s| s.senescent)).count();
+            println!("  {:>7}: {live} / {slots}, {seeds} seeds, {senescent} senescent, {born} born, {died} died", f + 1);
         }
     }
 
@@ -145,9 +194,22 @@ fn main() {
             );
         }
     }
+    // **This used to claim it was "how often `diffuse_resource` ran at all,
+    // since it is dispatched from the CA sweep".** That function no longer
+    // exists -- resource transport moved into `plant::step_organisms` and now
+    // runs on the organism tick, not on sweep visits -- so the line was
+    // describing an architecture that had been gone for some time. It cost a
+    // wrong diagnosis: a `growth=` sweep showed a slowed tree reaching a
+    // fraction of its size at matched tick counts, and this line pointed
+    // straight at a sleeping-chunk explanation that cannot be the cause.
+    // `CLAUDE.md`'s own warning, one level up from the assets: the harness is
+    // as stale-able as the thing it reports on.
+    //
+    // What it measures is still worth printing -- it is the sweep's own duty
+    // cycle, and therefore how much of the frame budget the scene is actually
+    // spending -- so it stays, saying what it is.
     println!(
-        "chunks were awake on {awake_frames}/{frames} frames ({:.1}%) -- this is how often `diffuse_resource` ran at all, \
-since it is dispatched from the CA sweep and the sweep skips settled chunks",
+        "chunks were awake on {awake_frames}/{frames} frames ({:.1}%) -- the CA sweep's duty cycle for this scene",
         100.0 * awake_frames as f32 / frames as f32
     );
 
@@ -482,12 +544,20 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // Slots follow `organism::GENOTYPE_TRAITS`' map (positional
         // forever): 0 shoot branch, 1 root branch, 2 plastochron, 3
         // turgor, 4 pipe, 5 root tropism gain, 6 allocation bias, 7
-        // stomatal closure, 8 penetration. Each column's variance comes
-        // from the vector its consumer actually reads -- the shoot Grow
-        // for 0/2/3/4/6/7, the RootTip Grow for 1/5/8 -- and from the
-        // run's own species: this used to hardcode "tree", so every
-        // conifer and shrub table printed multipliers scaled by the
-        // wrong widths.
+        // stomatal closure, 8 penetration, 9 strain response. Each
+        // column's variance comes from the vector its consumer actually
+        // reads -- the shoot Grow for 0/2/3/4/6/7/9, the RootTip Grow
+        // for 1/5/8 -- and from the run's own species: this used to
+        // hardcode "tree", so every conifer and shrub table printed
+        // multipliers scaled by the wrong widths.
+        //
+        // Slot 9 has no consumer yet, so its column is a multiplier
+        // nothing multiplies -- present so the table matches the genome
+        // rather than a subset of it, which is how a widening goes
+        // unnoticed. For whether a slot *moves*, this table is the wrong
+        // instrument in principle: it is one snapshot of who is standing
+        // at the end of a run. `examples/genome_drift` is the one that
+        // samples the population mean across generations.
         let table_species = w.species.id_of(&scene.species).expect("species is compiled in");
         let vector_of = |ct: organism::CellType| {
             w.species
@@ -507,15 +577,15 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         println!("
   per-tree genotype and outcome (variance {variance:?}):");
         println!(
-            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
-            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "cells", "leaves", "height", "stem"
+            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
+            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "strain", "cells", "leaves", "height", "stem"
         );
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
-                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
                 g(0),
                 g(1),
                 g(2),
@@ -525,6 +595,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
                 g(6),
                 g(7),
                 g(8),
+                g(9),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
@@ -578,6 +649,297 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
             })
             .collect();
         println!("  architecture events  [{}]", counters.join(", "));
+    }
+
+    // **Can a number say what the owner's eye says? — §Z / review item C4.**
+    //
+    // The standing verdict on the stand is "everything has merged together
+    // into a big mass. I cannot identify individual trees", and the metric
+    // that reported success on the same picture was the widest unbroken run
+    // of plant cells: 39 against a 56-cell founder spacing, i.e. no row is
+    // continuous across two crowns. That number was correct and the
+    // conclusion drawn from it was wrong -- crowns interleave with one- and
+    // two-cell gaps, so every row breaks and the eye still reads one mass.
+    // A contiguous-run metric measures whether crowns *touch*; it cannot
+    // measure whether they are *distinguishable*.
+    //
+    // §Z names two candidates and neither had been built. Both are here,
+    // because they fail differently: components can merge through a single
+    // shared block, and a gap census cannot see a crown that is separate
+    // but hidden behind another.
+    //
+    // **Calibration, and it is the whole point.** These are not reported as
+    // good or bad; they are reported against the two answered cards. On the
+    // default 8-tree stand at the frame the absolute card was taken, a
+    // metric that tracks the eye must read *materially fewer than 8*. A
+    // metric that reports 8 has reproduced the contiguous-run failure and
+    // must be said so of, not tuned until it agrees.
+    {
+        // The field's own resolution (`field::FIELD_SCALE`), which is
+        // §Z's proposal: at cell resolution two crowns a single empty
+        // column apart are two components, and the eye does not see them
+        // that way.
+        const BLOCK: i32 = 8;
+        let ground = ground_y();
+        let (bw, bh) = ((width + BLOCK - 1) / BLOCK, (ground + BLOCK - 1) / BLOCK);
+        let mut foliage = vec![0u32; (bw * bh) as usize];
+        for y in 0..ground {
+            for x in 0..width {
+                let c = w.get(x, y);
+                if c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(organism::CellType::Leaf) {
+                    foliage[((y / BLOCK) * bw + x / BLOCK) as usize] += 1;
+                }
+            }
+        }
+        // Threshold swept rather than chosen. One leaf in an 8x8 block is
+        // the literal reading of "at field resolution", and it is also the
+        // most fusible; if the count only drops below the founder count at
+        // a threshold nobody can justify, that is the metric failing and
+        // the sweep is what shows it.
+        let components = |min_leaves: u32| -> (usize, usize) {
+            let solid: Vec<bool> = foliage.iter().map(|&n| n >= min_leaves).collect();
+            let mut seen = vec![false; solid.len()];
+            let (mut n, mut largest) = (0usize, 0usize);
+            for start in 0..solid.len() {
+                if !solid[start] || seen[start] {
+                    continue;
+                }
+                n += 1;
+                let mut size = 0usize;
+                let mut stack = vec![start];
+                seen[start] = true;
+                while let Some(i) = stack.pop() {
+                    size += 1;
+                    let (bx, by) = ((i as i32) % bw, (i as i32) / bw);
+                    // 8-connected: a crown touching another only at a
+                    // corner is one mass to the eye, and 4-connectivity
+                    // would call it two.
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            let (nx, ny) = (bx + dx, by + dy);
+                            if nx < 0 || ny < 0 || nx >= bw || ny >= bh {
+                                continue;
+                            }
+                            let j = (ny * bw + nx) as usize;
+                            if solid[j] && !seen[j] {
+                                seen[j] = true;
+                                stack.push(j);
+                            }
+                        }
+                    }
+                }
+                largest = largest.max(size);
+            }
+            (n, largest)
+        };
+        let blocks_with_any = foliage.iter().filter(|&&n| n > 0).count();
+        println!("\ndistinguishability (§Z / C4), {trees} founders planted:");
+        for t in [1u32, 2, 4, 8] {
+            let (n, largest) = components(t);
+            println!(
+                "  canopy components at field resolution, >= {t:>2} leaf/block: {n:>3}   largest holds {:>3}% of canopy blocks",
+                100 * largest / blocks_with_any.max(1)
+            );
+        }
+
+        // **The sky-gap census, §Z's other candidate.**
+        //
+        // **Foliage, not any organism cell, and the first version got this
+        // wrong.** Counting any plant cell in the column reported *zero*
+        // interior gaps on a 4-founder stand whose render plainly shows sky
+        // between three of its four crowns -- because the shed litter and
+        // root mound at the foot of a stand is continuous across every
+        // column, so the census was measuring the forest floor. `CLAUDE.md`:
+        // look at the artifact before trusting the number, and ask what a
+        // metric counts when nothing is wrong. Sky between crowns is a
+        // question about crowns.
+        //
+        // Interior gaps only: the open world either side of the stand is
+        // not a gap between trees, and counting it would put a floor of two
+        // under every reading.
+        let occupied: Vec<bool> = (0..width)
+            .map(|x| {
+                (0..ground).any(|y| {
+                    let c = w.get(x, y);
+                    c.organism_id() != 0 && organism::cell_type(c.aux()) == Some(organism::CellType::Leaf)
+                })
+            })
+            .collect();
+        let first = occupied.iter().position(|&o| o);
+        let last = occupied.iter().rposition(|&o| o);
+        let mut gaps: Vec<usize> = Vec::new();
+        if let (Some(a), Some(b)) = (first, last) {
+            let mut run = 0usize;
+            for &o in &occupied[a..=b] {
+                if o {
+                    if run > 0 {
+                        gaps.push(run);
+                    }
+                    run = 0;
+                } else {
+                    run += 1;
+                }
+            }
+        }
+        gaps.sort_unstable();
+        let spacing = width / (trees as i32 + 1);
+        println!(
+            "  interior sky gaps: {} (a fully separate stand of {trees} shows {}), widths {gaps:?}",
+            gaps.len(),
+            trees.saturating_sub(1)
+        );
+        // **A one-cell gap is not a gap, and the threshold must not scale
+        // with spacing.** §Z's own lesson is the first half: "crowns
+        // interleave with one- and two-cell gaps: every row breaks, and the
+        // eye still reads one mass". The raw count above duly finds a 1-cell
+        // gap in the fused 8-founder stand.
+        //
+        // **CALIBRATED AGAINST THE OWNER'S EYE, 2026-08-23, AND IT FAILED.
+        // These numbers are descriptive. They are not a substitute for a
+        // card, and §Z stays judged by eye.**
+        //
+        // Three stands were rendered at frame 28,800 and put to the owner
+        // with the founder counts withheld, asking only "how many separate
+        // trees can you count?" (cards `20260823T092919055Z-ac816a` and
+        // `...-87b3f5`, answered identically). Ground truth against every
+        // reading this block computes:
+        //
+        //   founders  spacing | raw gaps (widths) | +1 | >=8-cell gaps +1 | fusion | OWNER
+        //      8        56    |   1  ([1])        |  2 |        1         |   99%  |   2
+        //      4       102    |   1  ([4])        |  2 |        1         |  100%  |   4
+        //      3       128    |   2  ([1, 32])    |  3 |        2         |   38%  |   3
+        //      2       170    |   1  ([13])       |  2 |        2         |   58%  |   -
+        //
+        // **The 4-founder stand is the case that settles it.** The owner
+        // counts *all four*. Fusion reads **100%** — the strongest possible
+        // "this is one mass" — and the gap census finds one 4-cell gap where
+        // the eye finds three separations. The claim this block used to
+        // make, that fusion "splits cleanly and in one place", is false: the
+        // split it draws puts a stand the owner reads as four distinct trees
+        // on the *fused* side.
+        //
+        // **Why the census misses it: guessed, then asked, and the guess
+        // was wrong.** This block used to argue that no column census can
+        // ever fix this -- a gap is a fully empty column, these crowns touch
+        // at 102 cells apart, so the eye must be reading trunk position and
+        // crown outline. Card 20260823T150917441Z-d236fd asked the owner
+        // what his eye was using. He said: "The gaps of sky. The two on the
+        // left are starting to merge but still read seperate. The two on the
+        // right are clearly seperated with no touching. I think the piles of
+        // soil are making it hard to read."
+        //
+        // So the cue *is* sky and that argument is withdrawn. The census is
+        // not doomed, it is reading the wrong rows: it kills a gap on any
+        // occupied cell anywhere in the column, which asks "is this column
+        // clear from the ground to the sky" where the eye asks "is there sky
+        // between these two crowns". The next thing to try is a canopy-band
+        // restriction -- census only the rows the foliage occupies -- scored
+        // against the owner's 2, 4, 3. Do NOT add a third gap-width
+        // threshold; both of those made it worse. Reasoning in §Z.
+        //
+        // **The raw gap count is the least bad of the three and is still
+        // wrong.** Gaps + 1 scores 2, 2, 3 against the owner's 2, 4, 3 —
+        // exact on two of three, short by two on the fourth. Fusion misses
+        // the same case worse. Reported for whoever picks this up; not
+        // trusted.
+        //
+        // **A threshold made it strictly worse, twice, and both times I
+        // invented it to explain away a reading I doubted.** First as a
+        // quarter of the founder spacing, which scored two obviously
+        // separate trees at zero because a quarter of 170 is 42. Then as an
+        // absolute 8 cells, which scores **0 of 3** against the owner where
+        // the unthresholded count scores 2 of 3 — because the 1-cell gap at
+        // 8 founders that I discarded as noise is exactly the separation the
+        // owner saw when they answered "2". Both thresholds were reasoning
+        // about the picture instead of asking about it. The constant is kept
+        // at 8 only so the printed line is comparable with the record above;
+        // read the raw widths.
+        //
+        // What survives intact is the *negative* result, and it is worth
+        // keeping: `thickest contiguous run` — the metric §Z records as
+        // having been believed once and overturned — reads **36 to 51 across
+        // this entire range**, and is *highest* on the stand the owner
+        // counts as 2 of 8. It cannot tell a fused stand from a separate
+        // one in either direction.
+        //
+        // Do **not** read the component count on its own either: it goes
+        // above the founder count on a widely spaced stand, because a sparse
+        // crown breaks into separate blocks.
+        const CROWN_GAP: usize = 8;
+        let real_gaps = gaps.iter().filter(|&&g| g >= CROWN_GAP).count();
+        println!("  founder spacing is {spacing} cells; gaps at least {CROWN_GAP} cells wide: {real_gaps}");
+        let largest_share = 100 * components(1).1 / blocks_with_any.max(1);
+        println!(
+            "  --> canopy fusion {largest_share}%, {} raw sky gaps ({real_gaps} at least {CROWN_GAP} cells) \
+-- so this run reads {} distinguishable crowns of {trees} founders",
+            gaps.len(),
+            gaps.len() + 1
+        );
+        println!(
+            "  (CALIBRATION FAILED against the owner's eye, 2026-08-23: on the three stands he counted,\n   \
+these read 2 / 2 / 3 where he read 2 / 4 / 3, and fusion called the 4-founder stand 100% ONE MASS\n   \
+when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z has the table.\n   \
+   He later said the cue IS sky gaps, read at canopy level -- so census the canopy band next, not the whole column.)"
+        );
+    }
+
+    // **Lineage turnover — the plan of record's Phase 0d, still unprinted
+    // until now.**
+    //
+    // `Reports/plant-evolution-design.md` §5: "the count of
+    // inherited-genome establishments per run is the plant equivalent of
+    // births-per-generation, and if it reads ~0 at 30k frames, every
+    // evolution claim at that horizon is about founders". A standing
+    // population count cannot answer that -- slots are reused, so a flat
+    // live count is equally consistent with a frozen stand and a fast
+    // cycle. Births and deaths are cumulative (`World::organism_turnover`)
+    // and separate them.
+    //
+    // Two different quantities, printed together because reading either
+    // alone has already misled once: **births** counts every seed that ever
+    // took a slot, most of which never grow; **establishments** counts the
+    // ones that reached a plant, which is what selection can act on.
+    {
+        let (born, died) = w.organism_turnover();
+        let (slots, live) = w.organism_slot_usage();
+        let per_k = |n: u64| 1_000.0 * n as f64 / frames.max(1) as f64;
+        println!(
+            "\nlineage turnover over {frames} frames: {born} born, {died} died ({:.2} and {:.2} per 1,000 frames); \
+{live} live in {slots} slots",
+            per_k(born),
+            per_k(died)
+        );
+        // **The slot ceiling, printed rather than assumed.** `slots` above
+        // *is* the high-water mark of concurrently-live organisms -- see
+        // `World::organism_slot_high_water` for why that falls out of the
+        // allocator's reuse-before-growth ordering for free -- and
+        // `refused` is the number of births the 4,095 ceiling turned away.
+        // A world at the ceiling and a world where nothing is breeding read
+        // identically in every other line of this probe, which is exactly
+        // the failure the counter exists to end.
+        let (high_water, ceiling) = w.organism_slot_high_water();
+        let refused = w.organisms_refused();
+        println!(
+            "  organism slots: high-water {high_water} of {ceiling} ({:.1}%), {refused} births refused at the ceiling",
+            100.0 * high_water as f64 / ceiling as f64
+        );
+        // **Standing seeds and standing dead, separately.** The seed bank
+        // is the reservoir a decay clock is supposed to *thin*, and a
+        // senescent plant is a corpse mid-rot; both are "organisms that are
+        // not plants" and lumping them hides which of the two a falling
+        // live count came from.
+        let senescent = per_organism.keys().filter(|id| w.organism_state(**id).is_some_and(|s| s.senescent)).count();
+        // From the cell list this probe already built, not a second world
+        // scan.
+        let standing_seeds = cells.iter().filter(|(_, _, ty, _, _)| *ty == Some(organism::CellType::Seed)).count();
+        println!("  standing seed bank: {standing_seeds} seeds; {senescent} organisms senescent (dead, remains rotting)");
+        let descendants = per_organism.keys().filter(|id| w.organism_state(**id).is_some_and(|s| s.generation >= 1)).count();
+        let deepest = per_organism.keys().filter_map(|id| w.organism_state(*id).map(|s| s.generation)).max().unwrap_or(0);
+        println!(
+            "  established plants carrying an inherited genome: {descendants} of {} (deepest generation {deepest}) \
+-- at ~0 every claim from this run is about founders",
+            per_organism.len()
+        );
     }
 
     println!("\n{} organism cells", cells.len());
@@ -834,6 +1196,94 @@ water balance, per established plant:");
                 let (dmin, dmed, dmax, dmean) = q(&mut demands);
                 println!("  uptake/tick    min {umin:>7.2} median {umed:>7.2} max {umax:>7.2} mean {umean:>7.2}");
                 println!("  demand/tick    min {dmin:>7.2} median {dmed:>7.2} max {dmax:>7.2} mean {dmean:>7.2}");
+            }
+
+            // **The carbon book, per plant — income against the bill.**
+            //
+            // This is the pair the whole P2 re-derivation turns on, and
+            // neither half was readable before: income was recomputed
+            // inside `allocate_to_frontier` and dropped, and there was no
+            // bill at all. `CLAUDE.md` wants the discrete event count next
+            // to the picture, and `starved` is that count — a crown that
+            // *looks* receded and a crown that simply grew that way are the
+            // same picture, and only the number says which happened.
+            //
+            // `bill/income` is the quantity to read across a change: above
+            // 1.0 the plant is running down its stock and is on the ratchet
+            // that ends in `senescent`.
+            let mut incomes: Vec<f32> = Vec::new();
+            let mut bases: Vec<f32> = Vec::new();
+            let mut reaches: Vec<f32> = Vec::new();
+            let mut bills: Vec<f32> = Vec::new();
+            let mut unpaid: Vec<f32> = Vec::new();
+            let mut ratios: Vec<f32> = Vec::new();
+            let mut starved: u64 = 0;
+            let mut anchors: Vec<f32> = Vec::new();
+            let mut slender: Vec<f32> = Vec::new();
+            let mut contact: Vec<f32> = Vec::new();
+            for id in per_plant.keys() {
+                if let Some(st) = w.organism_state(*id) {
+                    // `OrganismState::income` is stored noon-equivalent, so
+                    // what a plant actually collects over a cycle is that
+                    // times the day's mean factor. Printed that way because
+                    // the bill it is read against is charged every tick and
+                    // does not care what time it is -- and because the
+                    // alternative produced two figures four-fold apart from
+                    // one build, purely because one horizon was a whole
+                    // number of days and the other was not.
+                    let collected = st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR;
+                    incomes.push(collected);
+                    bases.push(st.maintenance_basis);
+                    // The raw anchorage reach — `Σ|x−x̄|` over the anchor
+                    // set against the crown's own moment about the collar,
+                    // unclamped and unpriced. `ANCHOR_DEMAND` has to be set
+                    // from *this* distribution: a saturated `anchor status`
+                    // column cannot say where to put it, and a term that
+                    // reads 1.00 on every plant is a term nothing can
+                    // select on.
+                    if st.crown_moment > 0.0 {
+                        reaches.push(st.anchor_moment / st.crown_moment);
+                    }
+                    bills.push(st.maintenance);
+                    unpaid.push(st.maintenance_unpaid);
+                    ratios.push(if collected > 0.0 { st.maintenance / collected } else { f32::INFINITY });
+                    starved += st.starved_cells as u64;
+                    anchors.push(st.anchor_status);
+                    slender.push(st.slenderness);
+                    if st.root_cells > 0 {
+                        contact.push(100.0 * st.contact_root_cells as f32 / st.root_cells as f32);
+                    }
+                }
+            }
+            if !bills.is_empty() {
+                let q = |v: &mut Vec<f32>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    (v[0], v[v.len() / 2], v[v.len() - 1], v.iter().sum::<f32>() / v.len() as f32)
+                };
+                let (imin, imed, imax, imean) = q(&mut incomes);
+                let (bmin, bmed, bmax, bmean) = q(&mut bills);
+                let (_, rmed, rmax, _) = q(&mut ratios);
+                let (_, umed, umax, _) = q(&mut unpaid);
+                let (nmin, nmed, nmax, _) = q(&mut bases);
+                println!("\ncarbon book, per established plant (per organism tick):");
+                println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                println!("  maintenance    min {bmin:>7.3} median {bmed:>7.3} max {bmax:>7.3} mean {bmean:>7.3}");
+                println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
+                println!("  cells shed to starvation, cumulative: {starved}");
+                println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");
+                if !reaches.is_empty() {
+                    let (hmin, hmed, hmax, _) = q(&mut reaches);
+                    println!("  anchor reach ratio  min {hmin:>8.4} median {hmed:>8.4} max {hmax:>8.4}   (anchor moment / crown moment; ANCHOR_DEMAND is set from this)");
+                }
+                let (amin, amed, amax, _) = q(&mut anchors);
+                let (lmin, lmed, lmax, _) = q(&mut slender);
+                println!("  anchor status  min {amin:>7.2} median {amed:>7.2} max {amax:>7.2}   (1.0 = crown fully anchored)");
+                println!("  slenderness    min {lmin:>7.1} median {lmed:>7.1} max {lmax:>7.1}   (shoot height / base width)");
+                if !contact.is_empty() {
+                    let (cmin, cmed, cmax, _) = q(&mut contact);
+                    println!("  root soil contact  min {cmin:>5.1}% median {cmed:>5.1}% max {cmax:>5.1}%   (the rest earns nothing and still respires)");
+                }
             }
 
             // **What `support` actually reads on a healthy tree.** The
