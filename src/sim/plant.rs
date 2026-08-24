@@ -6326,6 +6326,102 @@ so nothing below this line would be about shade"
         );
     }
 
+    /// **Water withheld from a grown tree — the reproduction for "drought
+    /// cannot kill a plant", filed as an open bug rather than fixed here.**
+    ///
+    /// The owner's push-back on the economy report's §7, 2026-08-24:
+    /// *"but economics should be able to cause tree death right. if a tree
+    /// doesn't get watered, it will eventually die."* He is right, and the
+    /// report's §7 was wrong to fold the water case in with the light case:
+    /// a shaded tree holding as a stump is a tree waiting for a gap, but a
+    /// tree that is never watered is a tree that should die.
+    ///
+    /// **It cannot, and the loop is closed and self-extinguishing.** Three
+    /// sites, all on `main` and none of them this package's:
+    ///
+    /// 1. transpirational demand is summed **over foliage only** — the walk
+    ///    above gates on `matches!(ty, Leaf | GrowingTip)`, and wood and
+    ///    root declare no `Photosynthesize`, so they ask for no water;
+    /// 2. `settle_water` returns `desiccation = if demand > 0.0 { 1.0 −
+    ///    open_drawn / demand } else { 0.0 }` — an explicit zero at zero
+    ///    demand;
+    /// 3. `drought_death` is a field on `Behavior::Photosynthesize`, so
+    ///    drought only ever sheds *foliage*.
+    ///
+    /// So shedding a leaf reduces the very signal that shed it. Drought is
+    /// a negative feedback on itself, and a plant escapes it by starving:
+    /// at zero foliage demand is zero, desiccation is exactly zero, and
+    /// nothing about being bone dry can touch the trunk or the roots ever
+    /// again. This probe prints the four columns that show it — watch
+    /// `demand` and `desiccation` fall *together* with `leaves` while
+    /// `cells` holds.
+    ///
+    /// Run alone: `cargo test --release print_a_tree_with_the_water -- \
+    /// --ignored --nocapture --test-threads=1`.
+    #[test]
+    #[ignore]
+    fn print_a_tree_with_the_water_withheld() {
+        let individual: u16 = 2;
+        let mut w = test_world();
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for _ in 0..individual {
+            w.push_organism(tree).expect("an organism slot is free");
+        }
+        plant_tree_on_ground(&mut w, 100, 20);
+        run_with_fields(&mut w, 8_000);
+        let b = w.bounds().expect("bounded");
+        let id = (b.min_y..=b.max_y)
+            .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+            .map(|(x, y)| w.get(x, y).organism_id())
+            .find(|&id| id != 0)
+            .expect("test setup: nothing grew, so there is no crown to dry out");
+        assert!(w.organism(id).is_some_and(|st| st.cells.len() > 200), "test setup: too small to be about a crown");
+
+        // **The water goes, and stays gone.** Every soil cell in the bed
+        // drops to the permanent wilting point, where
+        // `plant_available_fraction` is exactly zero. Re-applied at every
+        // sample because the plant's own root tissue keeps converting soil
+        // and the bed would otherwise creep back up.
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // The default is short enough to run in a coffee break and long
+        // enough to show the direction; `DROUGHT_EPOCHS=80` runs it out to
+        // where demand collapses and takes desiccation with it.
+        let epochs: usize = std::env::var("DROUGHT_EPOCHS").ok().and_then(|v| v.parse().ok()).unwrap_or(20);
+        println!("frame  cells leaves    water  demand  desicc  status  senescent");
+        for epoch in 0..epochs {
+            let bounds = w.bounds().expect("bounded");
+            for y in bounds.min_y..=bounds.max_y {
+                for x in bounds.min_x..=bounds.max_x {
+                    let c = w.get(x, y);
+                    if c.material == soil {
+                        w.set(x, y, c.with_aux(material::SOIL_WILTING_POINT));
+                    }
+                }
+            }
+            run_with_fields(&mut w, 1_000);
+            let cells: Vec<(i32, i32)> = (bounds.min_y..=bounds.max_y)
+                .flat_map(|y| (bounds.min_x..=bounds.max_x).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).organism_id() == id)
+                .collect();
+            let leaves = cells.iter().filter(|&&(x, y)| organism::cell_type(w.get(x, y).aux()) == Some(CellType::Leaf)).count();
+            let Some(st) = w.organism(id) else {
+                println!("{:>5}  the organism is gone -- which would be the bug fixed", (epoch + 1) * 1_000 + 8_000);
+                break;
+            };
+            println!(
+                "{:>5} {:>6} {:>6} {:>8.2} {:>7.3} {:>7.3} {:>7.2}  {}",
+                (epoch + 1) * 1_000 + 8_000,
+                cells.len(),
+                leaves,
+                st.water,
+                st.water_demand,
+                st.water_desiccation,
+                st.water_status,
+                st.senescent
+            );
+        }
+    }
+
     /// **The recession trajectory, printed — is this a receding crown or a
     /// tree coming apart?**
     ///

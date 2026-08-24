@@ -1119,9 +1119,15 @@ no point, which took three attempts to get right.
 
 **Known limitations, both measured.** Adult mortality now has a cause that
 fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
-kills nothing: a plant at a light- or water-limited ceiling settles at a
-stunted size rather than dying, which is correct, and a compact stump has
-almost no cells the erosion is allowed to take, which is not. And selection
+kills nothing. A *shaded* plant settling at a stunted size is a suppressed
+tree waiting for a gap and is correct; a *droughted* one doing the same is
+not, and is filed with a reproduction as `open-bugs-handoff.md` §V2 —
+transpirational demand is summed over foliage only, so shedding a leaf
+reduces the very signal that shed it and a plant escapes drought by
+starving. Ninety thousand frames at maximum desiccation leave a tree larger
+than it was twenty thousand frames earlier. The general form is that an
+unpayable deficit has no consequence but shedding: there is starvation
+shedding and no starvation death. And selection
 throughput moved the *wrong way*: fecundity is canopy size, every plant is
 smaller, and inherited-genome establishments went from 1 to 0 over eight
 seeds. No selection claim can be made for trees on this branch. Secondary

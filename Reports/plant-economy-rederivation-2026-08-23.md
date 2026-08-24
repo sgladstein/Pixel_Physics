@@ -428,36 +428,112 @@ stand over 45,000 frames. **Nothing dies.** `senescent` reads **0 on every
 one of eight seeds at both 28,800 and 45,000 frames**, exactly as it did
 before this package.
 
-Three things block it, and only the third is a defect:
+Four things block it, and the first version of this section got the second
+one wrong.
 
-1. **A plant at a light- or water-limited ceiling reaches a genuine small
-   equilibrium rather than dying, and that is correct.** Traced with a lid
-   dropped over a grown tree (`print_a_shaded_tree_against_a_lit_one`,
-   `print_crown_recession_trajectory` with `RECESSION_LID=`): a tree with no
-   light sheds its way down to a stump — 1,848 cells and 512 leaves lit
-   against 836 and 163 dark — and then holds. A tree in a pot stays small;
-   it does not die of being in a pot.
-2. **Dormant buds keep a plant `is_vital` indefinitely**, which is P3's own
-   observation and is right. A stump with 120 buds is a plant waiting for a
-   good year, not a corpse.
-3. **A compact stump has almost no erodible cells.** Die-back is a
-   topology-preserving erosion (§3.2), so a dense blob loses only cells
-   whose removal cannot disconnect a neighbour, and a stump is nearly all
-   interior. This is the defect: the exclusions that make die-back safe on a
-   crown make it nearly inert on a stump.
+### 7.1 A light-limited plant holding as a stump is correct
+
+Traced with a lid dropped over a grown tree
+(`print_a_shaded_tree_against_a_lit_one`, and
+`print_crown_recession_trajectory` with `RECESSION_LID=`): a tree with no
+light sheds its way down to a stump — 1,848 cells and 512 leaves lit against
+836 and 163 dark — and then holds. That is a suppressed tree waiting for a
+gap, which is what a suppressed tree does, and nothing here is asking for it
+to die.
+
+### 7.2 A water-limited plant holding as a stump is **not** correct, and the
+loop that produces it is closed and self-extinguishing
+
+**The first version of this report folded the water case in with the light
+case and concluded "a tree in a pot stays small; it does not die of being in
+a pot".** The owner's push-back, 2026-08-24: *"but economics should be able
+to cause tree death right. if a tree doesn't get watered, it will eventually
+die."* He is right, and the two cases are not the same one — **a potted tree
+is still watered.**
+
+Three sites, all on `main` and none of them this package's:
+
+1. **Transpirational demand is summed over foliage only.** The upkeep walk
+   gates on `matches!(ty, Some(CellType::Leaf) | Some(CellType::GrowingTip))`;
+   wood and root declare no `Photosynthesize`, so they ask for no water at
+   all.
+2. **`settle_water` returns `desiccation = if demand > 0.0 { 1.0 −
+   open_drawn / demand } else { 0.0 }`** — an explicit zero at zero demand.
+3. **`drought_death` is a field on `Behavior::Photosynthesize`**, so drought
+   only ever sheds *foliage*.
+
+So **shedding a leaf reduces the very signal that shed it.** Drought is a
+negative feedback on itself, and the plant escapes it by starving: the
+endpoint is zero foliage, zero demand, zero desiccation and a trunk and root
+system that being bone dry can never touch again.
+
+**And it does not even have to reach that endpoint.** Reproduced —
+`print_a_tree_with_the_water_withheld`, a grown tree with every soil cell in
+its bed pinned to `SOIL_WILTING_POINT` (where `plant_available_fraction` is
+exactly zero) and re-pinned every thousand frames so it stays there:
+
+| frame | cells | leaves | water | demand | desiccation | status | senescent |
+|---|---|---|---|---|---|---|---|
+| 9,000 | 2,844 | 1,748 | 0.00 | 64.3 | 0.94 | 0.06 | false |
+| 18,000 | 2,545 | 1,353 | 0.00 | 55.7 | **1.00** | 0.00 | false |
+| 38,000 | 2,103 | 833 | 0.00 | 39.7 | **1.00** | 0.00 | false |
+| 58,000 | 1,765 | 511 | 0.00 | 27.1 | **1.00** | 0.00 | false |
+| 78,000 | 1,555 | 323 | 0.00 | 18.2 | **1.00** | 0.00 | false |
+| 88,000 | 1,503 | 260 | 4.63 | 15.3 | 0.15 | 0.55 | false |
+| 98,000 | **1,570** | 226 | 0.04 | 13.1 | 0.99 | 0.00 | false |
+
+**Ninety thousand frames at maximum desiccation, and the tree is bigger at
+the end of that table than it was twenty thousand frames earlier.** Demand
+falls in lock-step with foliage — 64.3 to 13.1 — until what is left fits
+inside the trickle a wilting-point bed still yields, at which point the
+water stock comes off the floor, the stomatal term lifts, and the plant
+*resumes growing* in ground that is by definition unable to supply a plant.
+It never reaches zero foliage because it never needs to: the loop closes
+long before the degenerate case.
+
+Filed as an open bug with this reproduction in
+`Reports/open-bugs-handoff.md`. **Not fixed here** — see §8 for what a
+second economy change stacked on an unmerged one costs, in this package's
+own measurements.
+
+### 7.3 Dormant buds keep a plant `is_vital` indefinitely
+
+P3's own observation, and right. A stump with 120 buds is a plant waiting
+for a good year, not a corpse.
+
+### 7.4 A compact stump has almost no erodible cells — and the general form
+of that is that an unpayable deficit has no consequence at all
+
+Die-back is a topology-preserving erosion (§3.2), so a dense blob loses only
+cells whose removal cannot disconnect a neighbour, and a stump is nearly all
+interior. That is a defect in the die-back rule.
+
+**The general statement is worse and is the one to carry forward.**
+Everything a deficit does in this model is *shed*: the pool goes to zero,
+`supportable` goes to zero, and die-back trims what it is allowed to trim.
+There is starvation **shedding** and there is no starvation **death**. A
+plant whose bill has permanently exceeded its income is frozen, not dying —
+and §7.2 is the same hole seen through the water channel rather than the
+carbon one.
 
 **What would move it**, in the order the evidence supports:
 
+- **A sustained unpayable deficit should kill the plant outright.** One rule
+  that closes §7.2 and §7.4 together, and the hook exists: P3 shaped
+  `senescent` to be gated by a cause other than starvation.
+- **Living non-foliage tissue should carry a small water demand.** Real
+  trees lose water through bark and respire in wood and root; they do not
+  stop needing water when the leaves drop. This alone breaks the
+  self-extinguishing loop, because demand would floor at the plant's own
+  mass rather than at zero.
+- **A drought consequence for wood and root.** The real mechanism is
+  cavitation, which kills conducting tissue rather than leaves.
 - **The free-thickening treadmill, §8.** A starving plant re-lays almost
-  exactly what die-back removes. Until secondary growth costs something,
-  standing tissue is not really bounded.
-- **Disturbance rather than economics.** Wind-throw (lane S, T5) and
-  grassfire (W2) kill trees where they stand. §4 of the physical-trees
-  addendum already calls wind-throw "a selective *death*, which is the
-  strongest kind of pressure and the one this model has been short of".
-- **Competitive exclusion**, which needs recruitment into the understorey,
-  which needs seeds establishing — see §9, where the number went the wrong
-  way.
+  exactly what die-back removes.
+- **Disturbance rather than economics.** Wind-throw (lane S, T6) and
+  grassfire (W2) kill trees where they stand. §11.6a of the physical-trees
+  addendum calls wind-throw "a selective *death*, which is the strongest
+  kind of pressure and the one this model has been short of".
 
 ---
 
@@ -602,7 +678,7 @@ every window. Verified green on both binaries. **This is lane S's file and
 the change is flagged rather than assumed**: the alternative was leaving a
 gate red, or reverting an economy over a guard the base fails half the time.
 
-## 13. Two things the merges brought, and what they mean here
+## 13. Three things the merges brought, and what they mean here
 
 **`sim::clock` gives the sky its own frame counter.** `night_income_factor`
 now reads `world.sky_frame()`, not `world.frame` — the shipped world is an
@@ -611,6 +687,13 @@ faster than the sun it is meant to follow. Every harness, test and
 acceptance scene is unaffected: `World::new` leaves the clock at baseline,
 where the two counters are the same number, which is why every figure above
 still stands. It matters in the app, and only there.
+
+**W3 sowed grass into generated worlds, and it does not reach these
+numbers.** `scripts/plantsweep.sh` drives `plant_probe`, which builds
+`common::PlantScene` — a hand-placed soil bed that plants one species by
+name and never runs `worldgen`'s `life_scatter`. So no figure in this report
+is perturbed by grass sowing, and none was re-baselined for it. Named rather
+than assumed, because the merge landed after the last ensemble ran.
 
 **The owner's WP-11 verdict points the same way this package does.** Card
 `20260823T204815827Z-ffc290`, answered 2026-08-24: leaf share 50.2% → 58.7%
