@@ -1127,7 +1127,18 @@ reduces the very signal that shed it and a plant escapes drought by
 starving. Ninety thousand frames at maximum desiccation leave a tree larger
 than it was twenty thousand frames earlier. The general form is that an
 unpayable deficit has no consequence but shedding: there is starvation
-shedding and no starvation death. And selection
+shedding and no starvation death.
+
+The second is visible and is this package's: **die-back's shed tissue feeds
+a pile of soil that grows up through the canopy.** `shed_to_litter` stops at
+the first non-air cell that is not organism-owned, so every shed cell stacks
+on what is already lying there and the accumulation has no bound. Censused
+against `main` at one seed and 28,800 frames, mid-canopy soil is 301 cells
+against **1,890** — and against the same branch with die-back switched off,
+193 against 1,890, which is the isolation. The pile is pre-existing (`main`
+carries 4,817 cells of it) and this makes it 71% larger and nine rows
+taller. `open-bugs-handoff.md` §V3, with three ranked candidate fixes and
+`examples/crown_census.rs` as the instrument. And selection
 throughput moved the *wrong way*: fecundity is canopy size, every plant is
 smaller, and inherited-genome establishments went from 1 to 0 over eight
 seeds. No selection claim can be made for trees on this branch. Secondary

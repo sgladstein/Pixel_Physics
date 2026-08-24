@@ -2554,6 +2554,76 @@ the walk seeds its heap from it and drops it — so an anchorage term wanting
 inside that seeding loop, not a new traversal. `OrganismCell::support` is the
 per-cell distance the same walk already writes.
 
+### V3. Die-back's shed tissue feeds a pile that grows up through the canopy — **OPEN, isolated to P2's die-back, 2026-08-24**
+
+The owner, on card `20260824T014630073Z-a10698`: *"the soil build-up in
+between the branches is horrible."* Attached to the arm he was otherwise
+praising, so it is this package's.
+
+**Not a colour misreading — it is literal soil.** At contact-sheet zoom
+soil, litter, deadwood and thickened wood are all mid-brown speckle and are
+indistinguishable by eye, which is the case `CLAUDE.md` says wants a counter
+rather than a picture. `examples/crown_census.rs` (new, and how this was
+established) censuses every material above the ground line by height band.
+One seed, 8 founders, 28,800 frames, ground line at y=200:
+
+| band | rows | `main` `fcaa3d0` | P2, die-back **off** | P2, die-back **on** |
+|---|---|---|---|---|
+| 0 | y 160–200 | 4,503 | 4,122 | **6,285** |
+| 1 | y 120–160 | 301 | **193** | **1,890** |
+| 2 | y 80–120 | 13 | 4 | 72 |
+| | **total above ground** | **4,817** | — | **8,247** |
+| | **reaches up to** | y 98 | — | **y 89** |
+
+**Isolated to the die-back, one variable, same seed.** With the die-back
+block switched off, this branch sits *at or below* `main` (193 against 301
+in mid-canopy). With it on, mid-canopy soil is **9.8x the die-back-off arm
+and 6.3x `main`**. Nothing else in the package moves it.
+
+**It is a pile, not lodged blobs**, and the row profile is what says so:
+soil occupies **104 of the 111 rows** between y 89 and y 199, thinning from
+thousands of cells per row at the bottom to one or two at the top. That is
+material stacking upward from the forest floor, not material stranded in a
+crown.
+
+**Mechanism.** `shed_to_litter` probes downward for air and **stops at the
+first non-air cell that is not organism-owned** — which includes litter
+already lying there, and the soil that litter rots into. So every shed cell
+stacks on the pile, and the pile grows without bound while shedding
+continues. Die-back sheds 6,595–6,886 cells per stand at 28,800 frames on
+top of what abscission already sheds, and it sheds from *high in the crown*
+(most distal first), so its material has the furthest to fall and the most
+chances to land on something.
+
+**Pre-existing, and made substantially worse.** `main` already carries 4,817
+cells of it reaching to y 98 — this is the same defect the owner named
+during WP-11 (*"leaves are just falling too fast … creating a giant pile of
+soil"*), which WP-11 addressed by cutting leaf fall to a quarter. P2 re-opens
+it through a second source: **+71% total and +6.3x in mid-canopy.**
+
+**Not fixed here, and the reason is in this package's own measurements.**
+Every candidate touches `shed_to_litter`, which abscission, `rot_remains`
+and the decay/ant/fire consumers all share, on top of an unmerged 2,800-line
+diff — the half-calibrated-model failure `plant-economy-rederivation-2026-08-23.md`
+opens by warning against. Ranked candidates, none started:
+
+1. **Let shed tissue fall through what is already lying there**, to the
+   first *solid* rest rather than the first non-organism cell. It is the
+   narrowest description of the bug and it fixes abscission's contribution
+   too. Wants care: the existing early-return exists so a leaf low over the
+   ground is not deleted, and `CLAUDE.md` records that as a bound that must
+   never gate whether the thing happens at all.
+2. **Cap the standing litter/soil column above the original ground line**,
+   so the floor rises and then stops. Cruder, but it is a bound on an
+   accumulation that currently has none, and `filmstrip`'s `floor:` counter
+   already measures the quantity.
+3. **Give die-back its own disposal** that is not `shed_to_litter`. Least
+   attractive — it splits one mechanism into two and the litter layer is
+   exactly what the decay, ant and fire layers want fed.
+
+`examples/crown_census.rs` is the instrument for any of them, and the
+die-back-off arm is the control.
+
 ### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **OPEN, reproduced 2026-08-24**
 
 Raised by the owner against `plant-economy-rederivation-2026-08-23.md` §7,
@@ -2767,6 +2837,20 @@ amount of economy tuning reaches it: a stand of eight immortal founders at
 57-cell spacing has no gap for a seedling whatever its seed rain. That
 bears directly on the owner's question about plasticity deriving itself
 from selection — selection cannot act until something dies.
+
+**Both review cards came back, and the bole card needs its blinding applied
+before it is read.** Root card `20260824T014648426Z-e32fca`: both arms
+better, this branch chosen. Bole card `20260824T014630073Z-a10698` reads as
+a contradiction and is not one — it was posted `--blind`, and
+`review_page.html` labels a blind pane by *display slot*
+(`"Option " + String.fromCharCode(65 + slot)`), not by the poster's item
+label, with `blind_was` recording the permutation. This card's is `[1, 0]`,
+so the owner's "A" is item 1 (`stand-p2`, this branch) and his "B" is item 0
+(`main`). **"A looks better in that regard" is this branch reading as
+separate trees; the stored choice is the same arm; click and comment agree.**
+Anyone acting on that card must re-derive the mapping from `blind_was`
+rather than from the letters — the trap applies to every blind card in this
+repo. The rest of that sentence is §V3 above, and it is this branch's.
 
 **If there were one more session, I would take §V2's fix 1 and 2 together,
 in that order.** A sustained unpayable deficit killing the plant closes the
