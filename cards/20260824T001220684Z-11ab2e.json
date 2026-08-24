@@ -1,0 +1,64 @@
+{
+  "id": "20260824T001220684Z-11ab2e",
+  "created": "2026-08-24T00:12:20Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/t1-fell-as-pieces",
+    "commit": "d1b03fe",
+    "agent": null,
+    "session_id": "1dd924db-c71d-54e9-b304-88330b2df69d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The dust was the leaves, not the pieces — refixed, and re-posted",
+  "question": "Same two questions as before, on a changed build. (1) In the GIF, does what comes down still turn to dust, or does it now come down as branches with their leaves on? (2) In the still, the pieces are a pale cut-timber colour now instead of grey — can you find them lying there, and does that colour read as wood to you? I have changed that colour twice on my own judgement and been wrong once, so I would rather be told than guess a third time.",
+  "context_md": "**Your frame-by-frame reading found it, and it was not what either of us thought.** You said the branches fall off as whole pieces (good) but then hit the ground and turn to dust. The obvious suspect was the landing — that a landed piece was being crushed back into powder. **I measured it and that is not what was happening.** Tracing the settled census frame by frame, the piece tier *rises* as bodies land and then holds flat: 713 cells at frame 7,210, 712 at 7,250, 711 at 7,300, 710 at 7,400. Nothing was eating it.\n\n**What turned to dust was the foliage.** At the same moment there were 1,652 cells of leaf litter against 710 of log — the leaves outnumbered the pieces 2.3 to 1, and about 1,570 cells of that powder were created *in a single frame*, at the instant of the cut. The pieces fell through it and were buried in it. That is the cloud you were watching.\n\nThe cause was mine: I was converting every leaf to litter the moment the branch was severed. A leafy limb comes off a real tree **with its leaves on** and they let go later. So now the foliage rides down on the piece it hangs from, and turns to litter when that piece lands. A leaf still never starts a fragment and never decides one's size — that part of the plan was right and is unchanged, and there is a test that fails if a clump of pure foliage ever flies as a piece.\n\n**What it did to the numbers**, same cut, same seed:\n\n| | before | now |\n|---|---|---|\n| severed mass coming down as pieces | 44% | **99%** |\n| pieces over 256 cells | 2 | **7** |\n| largest piece | 244 cells, 26 wide x 41 tall | **321 cells, 35 x 38** |\n\n**What I have not fixed, so you know what you are looking at:** the tree still does not topple — it drops straight down and lands where it stood, and that is the next package, not this one. And the pieces still mostly land upright rather than lying flat (6 upright, 2 lying, 3 square), because a piece cut out of a standing tree is a vertical piece and nothing rotates it on the way down. If that is the thing still stopping it reading as fallen logs, say so and it becomes the next work.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "The fall, now — cut to rest",
+      "files": [
+        "20260824T001220684Z-11ab2e/000-fall-v2.gif"
+      ],
+      "caption": "frames 7146-7233, every 3rd, real speed",
+      "meta": {
+        "cells severed": 2838,
+        "came down as pieces": "2820 (99%)",
+        "peak bodies in flight": 26,
+        "peak plant cells riding in bodies": 2878,
+        "pieces over 256 cells": 7,
+        "crumbled to grit": "24% of failed cells"
+      },
+      "focus": null,
+      "gif_frames": 30
+    },
+    {
+      "label": "Settled, 5x — pale timber, dark grit, gold litter",
+      "files": [
+        "20260824T001220684Z-11ab2e/001-set-v2.png"
+      ],
+      "caption": "frame 8750, settled",
+      "meta": {
+        "settled pieces (8+ cells)": 11,
+        "lying": 2,
+        "upright": 6,
+        "square": 3,
+        "largest piece": "310 cells, 37 x 36",
+        "log cells standing": 631,
+        "deadwood grit": 384,
+        "leaf litter": 466,
+        "log tier 100 frames after landing": "724 cells, flat to within 3 over 200 frames"
+      },
+      "focus": "center"
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
