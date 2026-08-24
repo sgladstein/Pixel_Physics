@@ -2554,6 +2554,238 @@ the walk seeds its heap from it and drops it — so an anchorage term wanting
 inside that seeding loop, not a new traversal. `OrganismCell::support` is the
 per-cell distance the same walk already writes.
 
+### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **OPEN, reproduced 2026-08-24**
+
+Raised by the owner against `plant-economy-rederivation-2026-08-23.md` §7,
+which had folded the water case in with the light case: *"but economics
+should be able to cause tree death right. if a tree doesn't get watered, it
+will eventually die."* He is right. A shaded tree holding as a stump is a
+suppressed tree waiting for a gap; **a potted tree is still watered**, and
+the two cases have different mechanisms.
+
+**The loop, three sites, all pre-existing and none of them P2's:**
+
+1. `plant.rs`, the upkeep walk — transpirational demand is summed **over
+   foliage only**: `if matches!(ty, Some(CellType::Leaf) |
+   Some(CellType::GrowingTip))`. Wood and root declare no
+   `Photosynthesize`, so they ask for no water at all.
+2. `plant.rs::settle_water` — `let desiccation = if demand > 0.0 { 1.0 -
+   open_drawn / demand } else { 0.0 };`. An explicit zero at zero demand.
+3. `organism.rs`, `Behavior::Photosynthesize::drought_death` — drought only
+   ever sheds **foliage**. There is no drought path to wood or root.
+
+So drought sheds leaves, fewer leaves means less demand, less demand means
+less desiccation. **Drought is a negative feedback on itself and a plant
+escapes it by starving.**
+
+**Reproduction: `plant::tests::print_a_tree_with_the_water_withheld`**
+(`#[ignore]`d; `cargo test --release print_a_tree_with_the_water --
+--ignored --nocapture --test-threads=1`, `DROUGHT_EPOCHS=90` for the full
+table). A grown tree, every soil cell in its bed pinned to
+`SOIL_WILTING_POINT` — where `plant_available_fraction` is exactly zero —
+and re-pinned every thousand frames so it stays there:
+
+| frame | cells | leaves | water | demand | desiccation | status | senescent |
+|---|---|---|---|---|---|---|---|
+| 9,000 | 2,844 | 1,748 | 0.00 | 64.3 | 0.94 | 0.06 | false |
+| 18,000 | 2,545 | 1,353 | 0.00 | 55.7 | **1.00** | 0.00 | false |
+| 38,000 | 2,103 | 833 | 0.00 | 39.7 | **1.00** | 0.00 | false |
+| 58,000 | 1,765 | 511 | 0.00 | 27.1 | **1.00** | 0.00 | false |
+| 78,000 | 1,555 | 323 | 0.00 | 18.2 | **1.00** | 0.00 | false |
+| 88,000 | 1,503 | 260 | 4.63 | 15.3 | 0.15 | 0.55 | false |
+| 98,000 | **1,570** | 226 | 0.04 | 13.1 | 0.99 | 0.00 | false |
+
+**Ninety thousand frames at maximum desiccation, and the tree is larger at
+the end of that table than twenty thousand frames earlier.** It does not
+need to reach the degenerate zero-foliage case: demand falls in lock-step
+with foliage until what is left fits inside the trickle a wilting-point bed
+still yields, at which point the stock comes off the floor, the stomatal
+term lifts and the plant **resumes growing in ground that by definition
+cannot supply a plant**.
+
+**The general form, which is the one to carry forward.** Everything a
+deficit does in this model is *shed* — the growth pool goes to zero,
+`supportable` goes to zero, and die-back trims what it is allowed to trim
+(and is nearly inert on a compact stump, because it is a topology-preserving
+erosion). **There is starvation shedding and no starvation death.** A plant
+whose bill has permanently exceeded its income is frozen, not dying, and
+this entry is that hole seen through the water channel rather than the
+carbon one.
+
+**Candidate fixes, ranked, none started** — P2 deliberately did not stack a
+second economy change on an unmerged one, which is the half-calibrated-model
+failure its own report opens by warning against:
+
+1. **A sustained unpayable deficit kills the plant outright.** One rule
+   closing both this entry and the stump case. The hook exists: P3 shaped
+   `senescent` to be gated by a cause other than starvation, and
+   `rot_remains` already carries the remains out at a species half-life. The
+   design question is what "sustained" is measured over — a whole-plant
+   quantity with hysteresis, not a per-tick test, or a bad afternoon kills a
+   healthy tree.
+2. **Living non-foliage tissue carries a small water demand.** Breaks the
+   self-extinguishing loop at its root, because demand would floor at the
+   plant's own mass rather than at zero. It is also the biology: trees lose
+   water through bark and respire in wood and root, and do not stop needing
+   water when the leaves drop. Cheapest of the three, and it re-derives the
+   water constants, so it wants the `plantsweep.sh` ensemble before and
+   after.
+3. **A drought consequence for wood and root.** The real mechanism is
+   cavitation, which kills conducting tissue rather than leaves. The most
+   faithful and the most work; it needs a per-cell channel that does not
+   exist.
+
+**Do not read this as P2 having caused it.** All three sites predate the
+package, and P2's contact-only water capacity makes the *stock* smaller,
+which makes drought bite marginally harder rather than softer. What P2 did
+was give the model a carbon deficit that had nowhere to go, which is what
+made the shape of the hole visible.
+
+### P2. The economy re-derivation — what moved, what did not, and the six things that were built and withdrawn — **2026-08-24**
+
+Package P2 of the plant implementation split, following P1 and P3. Full
+account with every table in
+`Reports/plant-economy-rederivation-2026-08-23.md`; this section is what the
+*other lanes* need from it.
+
+**What landed.** Superlinear maintenance respiration on `q_peak` (Takenaka's
+1.5) plus a flat mass term on every living cell; the growth pool and
+`break_buds`' `supportable` both net the bill, so growth is NPP rather than
+GPP; night income at `0.25 + 0.75 x daylight_fraction`; water capacity read
+off root cells that **touch soil** rather than off root mass; a whole-plant
+die-back that sheds the most distal abandoned tissue when the bill exceeds
+income; and anchorage as five quantities on `OrganismState`
+(`anchor_cells`, `anchor_moment`, `crown_moment`, `anchor_status`,
+`slenderness`), feeding the root-allocation weight and nothing else.
+
+Eight world seeds, paired against `main`, ensemble medians: a plant is 27%
+smaller at 28,800 frames and 28% smaller at 45,000, foliage share is up 2
+and 4 points, the stem above the base is 13 against 15 and 17, and **8 of 8
+founders establish on every seed at both horizons**, unchanged. Frame cost
+on `ascii`'s tree scene is inside the run-to-run spread of a single binary.
+
+**Three things every other lane should know.**
+
+1. **`anchor_status`, `anchor_moment`, `crown_moment` and `slenderness` are
+   live and free**, computed in walks that already ran. Lane S's wind-throw
+   wants `crown_moment` (unclamped overturning demand) against
+   `anchor_moment`. **Nothing in the plant lane schedules a structural check
+   off any of them**, and §11.7's trap says nothing should.
+2. **§U is not closed and the exit is structurally unreachable.**
+   `ROOT_TIP_POOR` still reads 0 on all four arms with the whole economy in.
+   The fix §U names — gating the amplifier on solvency — was built and
+   withdrawn: under a maintenance economy a plant at its ceiling is
+   insolvent by construction, so the gate shut root re-initiation on every
+   mature plant and produced the death spiral `allocate_to_frontier`
+   documents (6-8 founders of 8 against 8 of 8; median root cells 156
+   against 305). A replacement needs a gate that can tell "at its ceiling"
+   from "in trouble".
+3. **Bug §A is now exactly, rather than approximately, dead — and
+   `max_active_tips` is not the cause.** P1's lead was `ROOT_TIP_AT_CAP` at
+   2 firings against 43 between the two slot-1 draws. With the economy
+   re-derived that exit reads **0 in both arms**, and the two arms produce
+   **byte-identical** root and shoot counts (135 / 2,859). The cap is no
+   longer binding; root extension is carbon-bound. Raising
+   `tree.ron`'s root `max_active_tips` would therefore be a change that
+   moves nothing, and it was not made. A fifth explanation for §A should
+   start from the carbon bound, not from the cap.
+
+**Two negative results, both of which gate downstream work.**
+
+- **Adult mortality has a cause, it fires, and nothing dies.** 5,300-9,950
+  cells shed to starvation per stand over 45,000 frames, and `senescent`
+  reads **0 on every seed at both horizons**, exactly as before. Four
+  blockers now, and **the first version of this list got one of them
+  wrong**: a *light*-limited plant holding as a stump is a suppressed tree
+  waiting for a gap (correct), but a *water*-limited one is §V2 above and is
+  a real bug — a potted tree is still watered. Dormant buds keeping a plant
+  `is_vital` is correct and is P3's own observation. And a compact stump has
+  almost no cells whose removal would not disconnect a neighbour, so the
+  exclusions that make die-back safe on a crown make it nearly inert on a
+  stump — whose general form is that **an unpayable deficit has no
+  consequence but shedding.** **A2's turnover still has no woody arm.**
+- **Selection throughput moved the wrong way.** Inherited-genome
+  establishments: 1 -> 0 at 28,800 and 2 -> 0 at 45,000 over eight seeds;
+  organisms born 1,067 -> 696. `Reproduce` fires per mature cell, so
+  fecundity is canopy size and every plant is now smaller. **No selection or
+  adaptation claim can be made for trees on this branch.** What moves this
+  number is founder mortality and disturbance, not economy tuning.
+
+**One guard changed, and it is lane S's file.** `scripts/acceptance.sh`'s
+`wood` case went red here and green on `main`, so it was attributed first.
+Swept over six growth windows, `main` at `cfee870` against this branch:
+360/360/247/**59**/**50**/**57** (total 1,133) against
+**175**/214/358/358/**54**/359 (total 1,518) — **`main` fails a 200 bar on
+three of six windows and this branch on two.** The case was gated on one
+arrangement with a bar set from one measurement, over a stand that is grown
+procedurally; what stops the gnome at the worst window is §C1, already open.
+It now runs four windows and gates the **total** at 400 against a measured
+714 and 946, verified green on both binaries. Flagged rather than assumed:
+the alternative was leaving a gate red or reverting an economy over a guard
+the base fails half the time.
+
+**Anchorage, in the shape lane S inherits it.** Five quantities on
+`OrganismState`, all recovered free from walks that already ran:
+`anchor_cells` and `anchor_moment` (`Sum |x - mean_x|` over the anchor set,
+tallied in `anchor_support`'s seeding loop, which enumerated it and dropped
+it), `crown_moment` (`Sum (collar - y)` over shoot tissue — mass times lever
+arm, from `organism_upkeep`'s existing walk), `anchor_status` (the clamped
+ratio, `ANCHOR_DEMAND` derived from the measured reach distribution) and
+`slenderness` (shoot height over stem width at the base — read, never
+assigned, per §11.2).
+
+On a typical plant at 28,800 frames, eight seeds: **`anchor_status` median
+0.34-0.55 by seed, min 0.02, max 1.00**; **`slenderness` median 25-52, range
+4.4-127**. Both are live across the population rather than saturated, which
+is the property `ANCHOR_DEMAND` was set from a measured distribution to get
+— a term reading 1.00 on every plant is one nothing can select on.
+
+**What T6 needs beyond this.** `crown_moment` is stored *unclamped* on
+purpose, because a gust delivers a moment and what it has to beat is that
+number against `anchor_moment`; `anchor_status` is the clamped economic
+form and is the wrong input for a physical test. Three things are not here
+and are lane S's to decide: the **conversion** from a gust's impulse to a
+moment about the root plate (nothing in the plant lane has an opinion on
+it); the **rung** — §11.3's uproot / snap / limb-off / shed ladder needs
+`slenderness` read against a threshold that has never been measured; and a
+**per-plant exposure** term, which W4 has now made possible and §11.5's
+"cannot emerge today" no longer applies to. Nothing in the plant lane
+schedules a structural check off any of these, and §11.7's trap says
+nothing should.
+
+**What blocks recruitment, since §9 measured it going backwards.** Asked
+directly, and this is the one place I am reasoning past the measurement, so
+it is flagged as such. Inherited-genome establishment needs three things and
+this package moved two of them the wrong way: seeds set (down, because
+`Reproduce` fires per mature cell and every plant is a quarter smaller),
+somewhere to germinate (unchanged), and **a founder dying to make room**
+(still zero). The first is a *consequence* of the economy and would reverse
+if trees were larger; the third is the one that matters, and it is not an
+economy problem at all — it is §V2 plus the stump case. My reading is that
+recruitment is gated on mortality rather than on fecundity, and that no
+amount of economy tuning reaches it: a stand of eight immortal founders at
+57-cell spacing has no gap for a seedling whatever its seed rain. That
+bears directly on the owner's question about plasticity deriving itself
+from selection — selection cannot act until something dies.
+
+**If there were one more session, I would take §V2's fix 1 and 2 together,
+in that order.** A sustained unpayable deficit killing the plant closes the
+stump case and the drought case with one rule and uses P3's existing hook;
+non-foliage water demand is the cheap complement that makes the drought
+signal stop lying. I would *not* start with the free-thickening charge
+(§8) — it is measured, it is real, and it is third, because it changes what
+tissue costs and would want the whole ensemble re-derived again on top of a
+mortality change that already does.
+
+**One thing left undone deliberately.** `SecondaryThicken` lays wood for
+free, and that is why upkeep bounds a plant's size without bounding its
+tissue: a starving plant re-lays almost exactly what die-back removes (5,914
+cells shed over 60,000 frames for a net loss of ten). Charging it was built
+and withdrawn — it cost establishment at full pressure and bought nothing
+measurable at the pressure that restored it. In `dead-ends.md` with the
+re-test condition: the charge belongs in the allocation pool, not in the
+thickening cell's own carbon, which transport refills within a tick.
+
 ### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
 
 **Resolution of the two mechanical claims**, with the full account and every
