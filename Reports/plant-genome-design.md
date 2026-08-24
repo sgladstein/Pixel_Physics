@@ -479,9 +479,15 @@ comparable), the F4 megastudy re-run is queued against the current
 numbering, and there is no dead slot left to spend anyway. Appending is
 exempt from the never-renumber rule mechanically rather than by
 convention — draws are keyed `rng::stream(world_seed, x, y, slot)`, so a
-slot's value does not depend on how many slots exist — and two guard
-tests in `plant.rs` pin that with fingerprints over a grown, breeding
-stand, both confirmed able to fail.
+slot's value does not depend on how many slots exist — and four guard
+tests in `plant.rs` pin it, all confirmed able to fail and **none of them
+against a stored fingerprint**: each slot drawing from its own index, one
+stand grown twice in a single run with slot 9 expressed and then
+suppressed, 200 bred children, and the caller's `Rng` position after
+`set_seed` returns. An earlier version did assert a whole-stand
+fingerprint and had to be withdrawn — it went stale twice in one evening
+as other lanes moved plant behaviour, and cost two wrong diagnoses;
+`Reports/open-bugs-handoff.md` carries that incident.
 
 The one place appending was *not* free: `set_seed`'s mutation loop spends
 one draw per slot from a shared `Rng`, so a tenth slot drawn inline would

@@ -1031,9 +1031,10 @@ record its comparability a second time, and the F4 megastudy re-run is
 already queued against the current numbering. Appending costs ~16 KB
 across the full 4,095 organisms and moves nothing — draws are keyed
 `rng::stream(world_seed, x, y, slot)`, so slots 0–8 draw bit-identically,
-which three guard tests in `plant.rs` pin: a fingerprint over a grown,
-breeding stand, one over 200 bred children, and one over the caller's own
-`Rng` position after `set_seed` returns.
+which four guard tests in `plant.rs` pin, none of them against a stored
+fingerprint: each slot drawing from its own index, one stand grown twice in
+a run with slot 9 expressed and suppressed, 200 bred children, and the
+caller's own `Rng` position after `set_seed` returns.
 
 `examples/genome_drift` is the readout, and it exists **before** the
 mechanism that will use it: per-slot population mean and spread sampled

@@ -5177,7 +5177,7 @@ at any live process.
 
 ---
 
-## Fragility — the genome stand fingerprint goes red on *anyone's* plant change (lane P, genome slot 9, 2026-08-24)
+## ~~Fragility~~ **FIXED** — the genome stand fingerprint went red on *anyone's* plant change (lane P, genome slot 9, 2026-08-24)
 
 **Not a bug in the engine. A bug in a test's shape**, filed because it has
 already cost one wrong diagnosis within hours of being written and will keep
@@ -5217,18 +5217,36 @@ _own_index` (the mechanical contract, no frames stepped),
 `set_seed` calls), and `set_seed_leaves_the_callers_rng_position_alone` (the
 caller's stream position). None of those can be moved by another lane.
 
-**The fix when someone has the room.** Assert the property inside one binary
-instead of against a stored constant: grow the stand twice in the same run,
-identical but for the appended slot's expression, and assert the two
-fingerprints match. `SpeciesRegistry` already has the harness-only setter
-precedent for this (`set_genome`, `set_creature_params`) — a
-`set_genotype_variance` equivalent would let arm B zero slot 9's width while
-everything else is held fixed. That version is immune to WP-11, P3, W2 and
-whatever lands next, and it fails for exactly the reason the test is named for.
-Not done here: the owner's directive at the time was to finish the package
-without widening it.
+**Re-baselining did not work, and that is the part worth keeping.** The
+constant was re-taken once against `main` at `cfee870`, correctly and with the
+reasoning recorded — and went stale again within the hour, when W3's grass
+sowing and W4's wind geography landed. Five lanes were touching plant behaviour
+in one evening. A stored whole-stand number cannot survive that, and each
+re-baseline just moves the failure to whoever merges next.
 
-**Until then:** a red fingerprint after a merge is stale until proven
-otherwise, and the proof is one command. Do not read a changed magic number in
-a diff as a silent capitulation — the commit that changes it should say which
-`main` it was re-taken against and why.
+**Fixed by restructuring the test, not by another re-take.**
+`expressing_the_appended_genome_slot_changes_no_plant` grows the same stand
+twice **inside one process** — once with slot 9's width as shipped, once at
+`0.0` — and asserts the two are identical. Both arms move together under any
+upstream plant change, so nothing another lane lands can reach it, and there is
+no magic number for anyone to decide whether to update. `SpeciesRegistry::
+set_genotype_variance` is the switch, added on the `set_genome` /
+`set_creature_params` harness-setter precedent and per-`World` rather than
+global, because the test binary runs tests on many threads at once.
+
+Confirmed not vacuous — two arms equal *by construction* would pass for ever
+while testing nothing — by pointing the turgor read at slot 9 and watching it
+go red.
+
+The three guards beside it were already immune and stay:
+`a_genome_slots_draw_is_a_pure_function_of_its_own_index` (the mechanical
+contract, no frames stepped), `widening_the_genome_does_not_move_the_breeding_
+draw_sequence` (200 direct `set_seed` calls), and
+`set_seed_leaves_the_callers_rng_position_alone` (the caller's stream
+position). **No genome guard now asserts a stored fingerprint.**
+
+**The general lesson, which is why this entry stays rather than being
+deleted:** a guard that hashes whole-simulation output is a guard on every
+lane's work, not on yours. When the property is "X changes nothing", the
+checkable form is two arms in one build — not one arm against a number from
+last week.

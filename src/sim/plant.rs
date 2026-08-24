@@ -5889,150 +5889,150 @@ mod tests {
         );
     }
 
-    /// **The append-only guard on the genome layout.** Widening
-    /// `GENOTYPE_TRAITS` must leave every genome that already exists
-    /// bit-identical; this pins that with a fingerprint over a grown
-    /// stand.
+    /// **The append-only guard on the genome layout: does slot 9 change
+    /// any plant?** Asked as a comparison inside one process, which is
+    /// the only form of the question that holds still.
     ///
-    /// Appending is safe where renumbering is not, and the reason is
-    /// mechanical rather than a convention anyone has to remember:
-    /// `seed_genotype` keys each draw on `rng::stream(world_seed, x, y,
-    /// slot)`, so slot N's value is a function of the slot index alone
-    /// and does not depend on how many slots exist beside it. Widening
-    /// the array appends a stream nobody drew before and moves nothing.
+    /// Grows the same stand twice in one run — once with slot 9's width
+    /// as the species ships it, once with that width at `0.0` — and
+    /// asserts the two are identical, cell for cell and genome for
+    /// genome. Slot 9 is capacity with no consumer
+    /// (`organism::GENOTYPE_TRAITS`), so expressing it or not must make
+    /// no difference to anything. The day it does, either a consumer has
+    /// been wired to it or a slot has been renumbered onto it, and both
+    /// arms of this test disagree.
     ///
-    /// Worth an assertion because **the failure mode is silent**. A
-    /// perturbed slot map does not panic and does not fail any other
-    /// test in this file: it rewrites what every stored draw *means*,
-    /// which shows up as a study that no longer compares to the one
-    /// before it, months later and with no way back.
+    /// **This replaced a hardcoded whole-stand fingerprint, and the
+    /// reason is worth keeping.** That version asserted
+    /// `h == 0x1a52804a2df78ebc`, which was true of the tree the day it
+    /// was written and false the moment any lane touched plant
+    /// behaviour. Inside one evening it went stale twice — WP-11's
+    /// leaf-fall reaching four species, P3's generation loop, W2's
+    /// grassfire, then W3's grass sowing and W4's wind geography — and
+    /// each staleness looked exactly like a genome fault. It cost two
+    /// wrong diagnoses, one of which nearly "fixed" correct code. Both
+    /// arms here move together under all of that, so none of it can
+    /// reach this test, and **there is no magic number for anyone to
+    /// decide whether to update.** `CLAUDE.md`: assert the property, not
+    /// two instants fitted to one trajectory. The full incident is in
+    /// `Reports/open-bugs-handoff.md`.
     ///
-    /// The fingerprint covers the **grown stand**, not just the draw
-    /// vectors, and that is the point. Draws surviving while the
-    /// phenotype moves is exactly what a mis-indexed consumer looks
-    /// like -- the draw is intact, and something downstream read the
-    /// wrong slot. Cells and genomes both, or the guard only watches
-    /// half the failure.
+    /// **Confirmed not vacuous**, which matters more here than usual
+    /// because two arms that are equal *by construction* would pass for
+    /// ever while testing nothing: pointing the turgor read at slot 9
+    /// (one character, `genotype(world, organism_id, 9, ...)`) makes the
+    /// arms disagree and the test red. Re-run that if this is rewritten.
     ///
-    /// **Confirmed able to fail** (`CLAUDE.md`: a guard whose inputs do
-    /// not vary what it guards is not a guard) by pointing the turgor
-    /// read at the appended slot instead of slot 3 -- one character --
-    /// which takes the fingerprint to a different
-    /// value and the assertion red. Re-run that perturbation if this
-    /// test is ever rewritten.
+    /// What it deliberately does **not** cover, because each has a
+    /// cheaper guard that cannot go stale either: slots 0–8 drawing from
+    /// their own index (`a_genome_slots_draw_is_a_pure_function_of_its_own_index`),
+    /// the breeding draw order (`widening_the_genome_does_not_move_the_
+    /// breeding_draw_sequence`), and `set_seed`'s consumption of the
+    /// caller's `Rng` (`set_seed_leaves_the_callers_rng_position_alone`).
     #[test]
-    fn appending_a_genome_slot_leaves_every_existing_genome_untouched() {
-        // **Deliberately a literal, and deliberately not
-        // `GENOTYPE_TRAITS`.** This is the width the measurement record
-        // was taken at, not the current width; tracking the constant
-        // would make the guard re-baseline itself on the very change it
-        // exists to catch, which is the "superseded test keeps passing
-        // while testing nothing" shape from `CLAUDE.md`.
-        const LEGACY_TRAITS: usize = 9;
-
-        // FNV-1a, written out rather than pulled from `DefaultHasher`:
-        // the standard library's hasher is explicitly not stable across
-        // releases, and a golden value has to outlive a toolchain bump.
-        struct Fnv(u64);
-        impl Fnv {
-            fn eat(&mut self, bytes: &[u8]) {
-                for &b in bytes {
-                    self.0 ^= b as u64;
-                    self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
-                }
-            }
-        }
-
-        let mut w = test_world();
-        w.seed = 4242;
-        // Four individuals, not one: the draws are position-keyed, so a
-        // single tree exercises a single column of the slot map and a
-        // renumbering that happened to leave that one genome alone would
-        // pass. Spread across the bed for four independent draw vectors.
+    fn expressing_the_appended_genome_slot_changes_no_plant() {
         const FOUNDERS: usize = 4;
-        for x in [40, 70, 100, 130] {
-            plant_tree_on_ground(&mut w, x, 60);
-        }
-        run_with_fields(&mut w, 8_000);
+        const APPENDED: usize = 9;
 
-        let mut h = Fnv(0xcbf2_9ce4_8422_2325);
-        let b = w.bounds().expect("the test world has bounds");
-        let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
-        let mut organism_cells = 0usize;
-        for y in b.min_y..=b.max_y {
-            for x in b.min_x..=b.max_x {
-                let c = w.get(x, y);
-                if c.organism_id() == 0 {
-                    continue;
+        /// FNV-1a, written out rather than pulled from `DefaultHasher`,
+        /// which is explicitly not stable across releases. Nothing is
+        /// stored across runs here, but a hash that changes shape
+        /// mid-comparison would be its own bug.
+        fn fingerprint(w: &World) -> (u64, usize, usize) {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            let mut eat = |bytes: &[u8]| {
+                for &b in bytes {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x0000_0100_0000_01b3);
                 }
-                owners.insert(c.organism_id());
-                organism_cells += 1;
-                h.eat(&x.to_le_bytes());
-                h.eat(&y.to_le_bytes());
-                h.eat(&c.material.0.to_le_bytes());
-                h.eat(&c.aux().to_le_bytes());
-                h.eat(&c.organism_id().to_le_bytes());
+            };
+            let b = w.bounds().expect("the test world has bounds");
+            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            let mut cells = 0usize;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    owners.insert(c.organism_id());
+                    cells += 1;
+                    eat(&x.to_le_bytes());
+                    eat(&y.to_le_bytes());
+                    eat(&c.material.0.to_le_bytes());
+                    eat(&c.aux().to_le_bytes());
+                    eat(&c.organism_id().to_le_bytes());
+                }
             }
-        }
-        for id in &owners {
-            let Some(s) = w.organism(*id) else { continue };
-            // Only the slots that existed when this value was taken.
-            // Slot 9 and anything after it is new capacity and is
-            // *supposed* to differ from the record -- hashing it in
-            // would make this test fail for the one reason it must not.
-            for d in &s.genotype_draws[..LEGACY_TRAITS] {
-                h.eat(&d.to_bits().to_le_bytes());
+            for id in &owners {
+                let Some(s) = w.organism(*id) else { continue };
+                // Slots 0..9 only. Slot 9 itself is *expected* to differ
+                // between the arms in the draw vector -- the arms differ
+                // in its width, and the point is that no plant changes,
+                // not that the unread number matches.
+                for d in &s.genotype_draws[..APPENDED] {
+                    eat(&d.to_bits().to_le_bytes());
+                }
+                eat(&s.alleles);
+                eat(&s.generation.to_le_bytes());
             }
-            h.eat(&s.alleles);
-            h.eat(&s.generation.to_le_bytes());
+            (h, owners.len(), cells)
         }
 
-        // **Not a vacuous guard.** An empty stand fingerprints
-        // perfectly stably and watches nothing; these bounds are what
-        // stop a scene error (a bed that avalanched, a seed that never
-        // germinated) from reading as a pass.
-        //
-        // The third one is the load-bearing one and it is why the frame
-        // budget is 8,000 rather than the 2,000 that grows a stand:
-        // **more owners than founders means `set_seed` ran.** That is
-        // the path where widening the array is not automatically free
-        // -- the mutation loop draws once per slot from a shared `Rng`,
-        // so a tenth slot consumes a tenth draw and shifts every
-        // subsequent draw in that call unless something holds the
-        // sequence. At 2,000 frames nothing has bred, and this guard
-        // watched only the founding draws while reading as though it
-        // covered heredity.
-        assert!(organism_cells > 400, "the stand should have actually grown, got {organism_cells} organism cells");
+        fn grow(slot_nine_width: f32) -> (u64, usize, usize) {
+            let mut w = test_world();
+            w.seed = 4242;
+            let tree = w.species.id_of("tree").expect("tree species is compiled in");
+            // The shoot vector, which is where slot 9 lives -- 4/6/7/9
+            // are borrowed from it by the whole-plant passes.
+            let mut shoot = w
+                .species
+                .get(tree)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                    _ => None,
+                })
+                .expect("tree's shoot has a Grow");
+            assert!(shoot[APPENDED] > 0.0, "tree should ship a live width on the appended slot, or both arms are the same run");
+            shoot[APPENDED] = slot_nine_width;
+            w.species.set_genotype_variance(tree, CellType::GrowingTip, shoot);
+
+            // Four individuals, not one: the draws are position-keyed,
+            // so a single tree exercises a single column of the slot map.
+            for x in [40, 70, 100, 130] {
+                plant_tree_on_ground(&mut w, x, 60);
+            }
+            // 8,000 and not 2,000 because at 2,000 nothing has bred, and
+            // a guard over a genome that never inherited is watching half
+            // the machinery. Measured: at 2,000 this scene did not even
+            // notice the turgor read moving from slot 3 to slot 4.
+            run_with_fields(&mut w, 8_000);
+            fingerprint(&w)
+        }
+
+        let expressed = grow(0.7);
+        let suppressed = grow(0.0);
+
+        // **Not a vacuous comparison.** An empty stand, or one that never
+        // bred, fingerprints identically in both arms and watches
+        // nothing. More owners than founders is what says `set_seed` ran.
+        assert!(expressed.2 > 400, "the stand should have actually grown, got {} organism cells", expressed.2);
         assert!(
-            owners.len() > FOUNDERS,
-            "the stand must breed within the budget or this guard never exercises `set_seed`; \
-             got {} owners from {FOUNDERS} founders",
-            owners.len()
+            expressed.1 > FOUNDERS,
+            "the stand must breed within the budget or this guard never exercises `set_seed`; got {} owners",
+            expressed.1
         );
-        h.eat(&(owners.len() as u64).to_le_bytes());
 
-        // **Re-baselined 2026-08-24 for upstream plant changes**, from
-        // 0x1a52804a2df78ebc, when 32 commits of `main` (W2 grassfire,
-        // WP-11 leaf-fall reaching all four species) landed underneath
-        // this branch. That re-baseline was justified by *measurement*,
-        // not by the test being inconvenient: the same fingerprint was
-        // taken on `main` itself, at `GENOTYPE_TRAITS = 9` with this
-        // change absent, and came out 0x74d3fef3d454dd11 -- identical.
-        // Read the failure message below before touching this number.
         assert_eq!(
-            h.0, 0x74d3_fef3_d454_dd11,
-            "the grown stand moved, and there are two very different reasons it can, so find out \
-             which before doing anything.\n\
-             (1) A GENOME FAULT -- a slot renumbered or re-purposed (which rewrites every genome \
-             ever measured, see `GENOTYPE_TRAITS`), or a consumer reading a different slot than it \
-             did. This is the failure this guard exists for and the number must NOT be updated.\n\
-             (2) AN UPSTREAM PLANT CHANGE -- anything on `main` that legitimately alters how a \
-             stand grows moves this fingerprint too, because it is taken over the whole grown \
-             stand. Then the number SHOULD be updated.\n\
-             THE TEST THAT SEPARATES THEM: graft this test onto the `main` you are merging, with \
-             the genome change absent, and run it there. Same value as here => (2), re-baseline \
-             and say so. Different => (1), fix the code. Do not guess -- a session already \
-             misdiagnosed exactly this as an RNG leak in `set_seed` and nearly fixed working code."
+            expressed, suppressed,
+            "expressing genome slot {APPENDED} changed the stand. It is capacity with no consumer, so \
+             nothing should read it and nothing should move: either a consumer has been wired to it, \
+             or a slot has been renumbered onto it (which rewrites every genome ever measured -- see \
+             `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a comparison between two arms of \
+             the same build, so an unrelated plant change landing in `main` cannot cause it. Both arms \
+             move together. This is a real fault."
         );
     }
 

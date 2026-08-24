@@ -1818,8 +1818,11 @@ pub struct OrganismState {
 /// one: `plant::seed_genotype` keys each draw on `rng::stream(world_seed,
 /// x, y, slot)`, so a slot's value is a function of its own index and
 /// nothing else, and adding one draws a stream nobody had drawn before.
-/// `plant::tests::appending_a_genome_slot_leaves_every_existing_genome_untouched`
-/// pins that with a fingerprint over a grown, breeding stand.
+/// `plant::tests::a_genome_slots_draw_is_a_pure_function_of_its_own_index`
+/// asserts exactly that, and
+/// `plant::tests::expressing_the_appended_genome_slot_changes_no_plant`
+/// grows one stand twice in a run -- slot 9 expressed, then at zero
+/// width -- and requires the two to be identical.
 ///
 /// The one place appending is *not* automatically free is the mutation
 /// loop in `plant::set_seed`, which draws one jitter per slot from a
@@ -2150,6 +2153,38 @@ impl SpeciesRegistry {
     /// everything else fixed.
     pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
         self.species[id.0 as usize].genome = genome;
+    }
+
+    /// Overwrite one `Grow` arm's `genotype_variance` — **harness only**,
+    /// same caveat as `set_genome`, and it exists for one specific test
+    /// shape worth naming.
+    ///
+    /// The guard on appending a genome slot has to answer "does the new
+    /// slot change anything about the plants?", and the honest form of
+    /// that question is a **comparison, not a stored number**: grow the
+    /// same stand twice in one process, once with the slot expressed and
+    /// once with its width at `0.0`, and check the two are identical.
+    /// A hardcoded fingerprint answers it too, and then goes stale every
+    /// time any lane touches plant behaviour — which cost two wrong
+    /// diagnoses in one evening (`Reports/open-bugs-handoff.md`).
+    ///
+    /// Per-`World` rather than a global switch on purpose: the test
+    /// binary runs tests on many threads at once, so a process-wide
+    /// "effective genome width" would leak into whatever else happened
+    /// to be running. Widths are read live at every use (see
+    /// `Behavior::Grow::genotype_variance`), so setting one before a run
+    /// is enough and nothing needs redrawing.
+    ///
+    /// A no-op if the species has no `Grow` on that cell type.
+    pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
+        let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
+            return;
+        };
+        for b in behaviors.iter_mut() {
+            if let Behavior::Grow { genotype_variance, .. } = b {
+                *genotype_variance = variance;
+            }
+        }
     }
 
     /// Overwrite a species' creature parameters — **harness only**, same
