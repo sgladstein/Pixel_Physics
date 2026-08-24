@@ -23,24 +23,40 @@ tried?"*.
 - [emergent-world-architecture.md](emergent-world-architecture.md) —
   **direction agreed.** Thin agents, rich world; the priority reshuffle; §8
   is where determinism was reversed to *required*.
-- [documentation-audit.md](documentation-audit.md) — **executed.** What the
-  docs told an agent that wasn't true, re-ranked for the agent consumer;
-  carries the in-flight doc inventory. Every headline finding was re-verified
-  against `1882dc9` and is fixed — the architecture map, the Controls table
-  and the wiki freshness notes — and its three recurring defect classes are
-  carried by `scripts/docscheck.sh` rather than by the report. Read it as
-  history; do not re-execute it.
+- [documentation-audit.md](documentation-audit.md) — **executed
+  2026-08-21/22.** What the docs told an agent that wasn't true, re-ranked
+  for the agent consumer; carries the in-flight doc inventory, and the
+  cold-agent benchmark that verified the outcome — 3/3 in 8 file-opens, no
+  source reads, one stale work order correctly refused. Re-run that before
+  claiming a later docs pass improved routing.
+- [documentation-overhaul-plan.md](documentation-overhaul-plan.md) —
+  **executed; four CLAUDE.md items deferred.** The plan the audit's findings
+  were executed against: the agent-consumer framing, read-cost measurements,
+  the drift protocol, and the two refusals that leave no trace in the tree
+  (no README reorder, no `Reports/archive/` — both had been chosen the other
+  way first).
+- [claude-md-recommendations.md](claude-md-recommendations.md) — **nine
+  landed, four open.** The thirteen-recommendation review of `CLAUDE.md` as
+  always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
+  **Two of the three branches they were deferred behind are discharged** —
+  `load-share` is merged into `main` (and is deletable clutter),
+  `plant-branch-angle` is gone. The third, `perf-lock`, exists on **no
+  remote branch**, and neither does the `scripts/perf.sh` it carries; see
+  `agent-documentation-audit-2026-08-24.md` §5e. So these four are blocked
+  on work nobody can reach, not on a merge anyone is waiting for.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
-  call.** The companion to the above, asking the other question: not *is the
-  documentation true* but *can an agent find what it needs, and what does
-  looking cost*. Carries the corpus measurements (~1.08M tokens; the six
-  routed documents are ~306k), the CLAUDE.md append-drift figure (5,475 lines
-  added against 56 ever removed) and its section budget, and the bug
-  register's open/closed split. **§4b lists three live identifier collisions
-  in `open-bugs-handoff.md` — §Z already resolves to two different bugs in two
-  different reports — and §5a records that the repo version-controls none of
-  its Claude Code configuration.**
+  call.** The companion to the three above, asking the other question: not *is
+  the documentation true* but *what does an agent pay to find what it needs*.
+  Carries the corpus measurements (~1.08M tokens; the six routed documents are
+  ~306k), the `CLAUDE.md` append-drift figure (5,475 lines added against 56
+  ever removed) and its section budget, the bug register's open/closed split,
+  and a re-run of the cold-agent benchmark above against today's tree. **§4b
+  lists three live identifier collisions in `open-bugs-handoff.md` — §Z already
+  resolves to two different bugs in two different reports — §5a records that
+  the repo version-controls none of its Claude Code configuration, and §5e that
+  two in-flight reports and `perf-lock` exist on none of the 49 remote
+  branches.**
 - [pixel-physics-issues.md](pixel-physics-issues.md) — **mostly closed.**
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does

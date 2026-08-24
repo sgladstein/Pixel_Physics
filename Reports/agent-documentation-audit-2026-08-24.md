@@ -11,12 +11,48 @@ does looking cost?* The owner's framing, 2026-08-24: "we have a lot of
 documentation so agents may be missing important information or required to
 use a lot of tokens to find the relevant documentation."
 
-**Audited against:** `1882dc9` (merge of #47). Working tree clean apart from
-this line of work; no other branch existed on the remote at audit time, which
-is worth stating because it is the reason the register edits below were safe
-to make at all.
+**Audited against:** `e20e338` (`main`), after merging it in mid-pass. The
+first half of this audit was taken against `1882dc9` — one commit behind — and
+that one commit is `e20e338`, *the recovery of the previous documentation
+review's method*. The irony is the finding: `CLAUDE.md` warns "know how far
+behind you are, before you trust anything you measured on it", and a one-commit
+drift was enough to make this report's first draft wrong about its own subject.
+
+**A correction to this report's own first draft.** It stated that no other
+branch existed on the remote. That was false, and instructively so: the
+container's clone had fetched only `main`, so `git branch -r` showed two refs.
+A full `git fetch --prune` shows **49**. Nothing else in the report depended on
+it, but the claim was made from a tool's default rather than from a
+measurement, which is the error this repo's method section is largely about.
 
 ---
+
+## 0. Read the previous review's method before forming findings
+
+The 2026-08-19/22 overhaul shipped, and its **method** was recovered onto
+`main` only on 2026-08-24 (`e20e338`) out of one machine's session state. Four
+artifacts, none of which existed in the tree when this audit began:
+
+| File | What it is for |
+|---|---|
+| [`documentation-audit.md`](documentation-audit.md) | the 21 findings, the agent-consumer re-ranking, **and the cold-agent benchmark at its end** |
+| [`documentation-overhaul-plan.md`](documentation-overhaul-plan.md) | what was *done*, in what order, and what was **refused** |
+| [`claude-md-recommendations.md`](claude-md-recommendations.md) | 13 recommendations on `CLAUDE.md` as always-loaded infrastructure; nine landed, four open |
+| `.claude/workflows/doc-audit-agent-framing.js` | the ten-agent census harness that produced `dead-ends.md`; three of its inputs are stale 2026-08-19 snapshots |
+
+**Two proposals were considered, approved, and then reversed. Do not
+re-propose either without new argument** (`documentation-overhaul-plan.md`
+items 11 and 17):
+
+- **A wholesale README milestone reorder** — agents navigate by grep, the
+  reorder is a huge diff on a contested file, and *a table of contents buys
+  the same navigation for 3% of the churn*.
+- **`Reports/archive/`** — with per-report status in the index an agent routes
+  by index, not by directory browsing, and the `git mv` breaks `Reports/`
+  paths held in other sessions' uncommitted worktrees.
+
+This report honours both. §5c proposes the **TOC**, which is the approved
+substitute and was never executed — not the reorder.
 
 ## 1. The earlier audit is done, not pending — check this before re-running it
 
@@ -29,6 +65,7 @@ current tree and **has been fixed**:
 | R2 — Controls table wrong in 3 places, 6 keys missing | Fixed. `F3`/`F4`/`F2`, `S`, `Enter`, `Y`, `F6`–`F9`, `L` all correct and present. |
 | W1/W2 — wiki not as fresh as it claims | Fixed. All 11 pages' claimed dates match their last commit date **exactly**. |
 | Link integrity | Still clean; `docscheck.sh` check 1 gates it. |
+| Its *method* was unrecorded | Fixed by `e20e338` — see §0. This was the real gap, and it was outside the audit's own scope. |
 
 **`Reports/README.md:26` still describes it as "findings, being executed."**
 That line is now itself the stale artifact. Proposed correction: mark it
@@ -37,6 +74,58 @@ That line is now itself the stale artifact. Proposed correction: mark it
 
 This matters beyond tidiness: an agent that reads that line spends a session
 re-executing work that landed.
+
+## 1b. The cold-agent benchmark, re-run — 6 file-opens against a baseline of 8
+
+`documentation-audit.md`'s benchmark was re-run **verbatim** against this
+tree (`e20e338` plus this branch's additive changes), fresh `Explore` agent,
+search breadth medium, as its own instructions specify.
+
+| | 2026-08-21 baseline | 2026-08-24 re-run |
+|---|---|---|
+| Questions correct | 3/3 | **3/3** |
+| Distinct files opened | 8 | **6** |
+| Source files read | 0 | **0** |
+| Traps refused | 1/1 | **1/1** |
+
+The six were `CLAUDE.md`, `README.md`, `PLAN.md`, `Reports/README.md`,
+`Reports/dead-ends.md`, `Reports/load-model-handoff.md`. Routing has **not**
+regressed across the 258 commits and ~14 new reports since the overhaul; on
+this instrument it improved. The trap was refused for both of the intended
+reasons — the index marks `load-model-handoff.md` superseded by landing
+(`7e13e42`), and its §3 side-table instruction is a recorded dead end — plus a
+third the baseline run did not report: the report's *own* header still reads
+"**Status:** not started", which is the stale half the index corrects.
+
+**This is the number that answers "are agents missing important information".**
+On this instrument, they are not. The token cost of the corpus (§2) and the
+always-loaded budget (§3) are real problems, but they are *cost* problems, not
+*findability* problems, and the two should not be argued as one.
+
+### 1c. The benchmark is now contaminated by its own recording — OPEN
+
+`e20e338` recorded the benchmark into `documentation-audit.md`, which is
+inside the corpus the benchmark measures. The questions are there verbatim,
+and so is the **graded per-question analysis** — including the sentence that
+says the trap was refused and why.
+
+The re-run agent hit it and said so unprompted: *"flagging it because it makes
+this benchmark non-blind on repeat runs."* It reported deriving nothing from
+it, and its answers carry detail the recorded analysis does not, so this run is
+credible. The next one is not guaranteed to be.
+
+This is the repo's own rule — *a debug readout must not be a function of the
+thing it debugs* (`CLAUDE.md`, Method) — with the instrument as the readout.
+
+**Proposed fix, minimal and preserving the exact questions:** the *questions*
+can stay (the runner pastes them in anyway; reading them is not an advantage).
+Move the **result and the per-question analysis** to a non-markdown sidecar
+under `.claude/workflows/`, which the benchmark prompt already places out of
+bounds — it restricts the agent to `README.md`, `CLAUDE.md`, `PLAN.md`,
+`PLAN-log.md`, `wiki/` and `Reports/`. Leave the three headline numbers and
+the method in the report, and cite the sidecar. Not executed here: it edits a
+report that landed hours ago, and the owner may prefer rotating the questions
+instead.
 
 ## 2. The corpus, measured
 
@@ -126,7 +215,10 @@ sections. That table is a routing layer written because the content is too big
 to read — which is the argument for the content being loaded on demand.
 
 **Nothing here says the content is wrong.** Every measurement in it is real
-and most were expensive. The finding is about *container*, not *value*.
+and most were expensive. The finding is about *container*, not *value* — and
+the remedy is not this report's to design: `claude-md-recommendations.md`
+already specifies it passage by passage and the owner already approved it. See
+**§5b**, which supersedes what this report first proposed here.
 
 ## 4. The bug register — fixed this pass
 
@@ -242,30 +334,68 @@ Candidates, in leverage order:
 4. **`.claude/commands/`** — `/gates` (run the suite exactly as CI does,
    `--skip` included), `/land`, `/docs-check`.
 
-### 5b. Move the situational half of CLAUDE.md into skills
+### 5b. Three approved CLAUDE.md recommendations are now unblocked — execute them
 
-Method, Conventions and Gotchas — 50.6% of the file — are consulted by
-situation, and `CLAUDE.md`'s own routing table already names the situations.
-Skills load on description match, which is exactly that routing, done by the
-harness instead of by prose.
+**This supersedes what this report's first draft proposed here.** It argued for
+moving Method/Conventions/Gotchas into skills, having not seen
+`claude-md-recommendations.md`. That document already specifies the same idea
+more precisely, at passage granularity, and **the owner already approved it**.
+Re-deriving it would have been exactly the waste §1 warns about.
 
-**The tradeoff, stated honestly:** an always-loaded rule is read every time; a
-skill is read when its description matches. For lessons this expensive, a miss
-is costly, and several of these gotchas are the kind an agent does not know it
-needs until after it has paid. **Recommend splitting conservatively** — move
-`Running a program of sessions` (13.4%, coordinator-only, and a lane genuinely
-never needs it) and the longest Method case studies, keep every "never" and
-every one-line trap in `CLAUDE.md`. That is roughly a third of the budget back
-at low risk. **Do not do this without an owner call**; the content is the
-project's memory.
+Nine of its thirteen landed. Four are open, and their blocking branches were
+re-checked against the remote:
 
-### 5c. README's status sections
+| Rec | What it moves | Deferred behind | State now |
+|---|---|---|---|
+| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNBLOCKED** — branch gone |
+| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED** — merged into `main` |
+| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **UNBLOCKED** |
+| 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **BLOCKED — `perf-lock` exists on no remote** (§5e) |
 
-2,626 lines, ~42,800 tokens. It carries **25 milestone status sections in the
-order they were written, not numeric order**, plus a final `## Status` that
-partially restates them. The file's own `## Finding things` section admits it:
-*"find them by search."* An index with line numbers — the `bugindex.py`
-treatment — would cost one commit and no restructuring.
+**5, 6 and 7 are executable today.** Together they are ~350–400 tokens off
+every session, each keeping the operative rule inline and moving only the
+narrative. That is small, and it is also the *approved, specified, reviewed*
+version of the change — worth more than a larger unreviewed one.
+
+Rec 12 is blocked on a branch nobody can reach. Either `perf-lock` gets pushed,
+or the block is declared void and 12 executed against `main` — an owner call,
+not a merge anyone is waiting for.
+
+**What this report adds that the recommendations do not cover.** They were
+written against a `CLAUDE.md` of ~869 lines. The file is now **1,081**, and the
+single largest addition — `## Running a program of sessions (coordinator ↔
+lane)`, **145 lines, 13.4% of the budget** — landed 2026-08-24 in `fccc6ee`,
+*after* that review. It has never been through one. It is also the section with
+the sharpest audience split in the file: a lane pays for it every session and
+never uses it, and by its own account a lane woken by a trigger has no MCP tools
+and so cannot act on most of it. **Recommend it be the next candidate**, on the
+same move-the-narrative-keep-the-rule pattern as recs 5–7.
+
+Stated honestly, because it cuts against the recommendation: an always-loaded
+rule is read every time, a skill only on description match, and several of
+these lessons are ones an agent does not know it needs until after it has paid.
+That is the argument for moving *narrative* and never the "nevers" — which is
+precisely what recs 5–7 do, and why they are the right shape to follow.
+
+### 5c. README's table of contents — approved in 2026-08, never executed
+
+README is 2,626 lines / ~42,800 tokens with **25 milestone status sections in
+the order they were written**, plus a final `## Status` that partly restates
+them.
+
+**The wholesale reorder was proposed, approved, then reversed** — churn on a
+contested file, and agents navigate by grep
+(`documentation-overhaul-plan.md` item 11). **This report does not re-propose
+it.**
+
+The same item names the substitute — *"a TOC buys the same navigation for 3% of
+the churn"* — and ships it as part of R7. **The status sections landed; the TOC
+did not.** `## Finding things` still resolves to prose ending *"find them by
+search"* and an inline list of milestone numbers.
+
+So this is not a new proposal but an **unexecuted half of an approved one**.
+The `bugindex.py` treatment applies directly: generated, line-numbered,
+additive, no reordering. Cheap, and it discharges the item.
 
 ### 5d. The report index's status vocabulary is uncontrolled
 
@@ -278,22 +408,45 @@ agent cannot filter for "still true." A small controlled vocabulary
 *prefix*, with the existing prose kept after it, would make the index
 greppable without losing anything.
 
-### 5e. Two in-flight reports may be lost work
+### 5e. Three pieces of work exist on none of the 49 remote branches — CONFIRMED
 
-`Reports/README.md`'s in-flight section names `performance-audit.md`
-(worktree `perf-audit`, *untracked*) and `measurement-under-contention.md`
-(worktree `perf-lock`, *untracked, with a CLAUDE.md edit adding
-`scripts/perf.sh`*). Neither file exists in this clone, and the remote holds
-only `main` and this branch.
+The first draft said "may be lost". With a full `git fetch --prune` it can be
+stated flatly. Searched across **all 49 remote branches**:
 
-An untracked worktree is pushed nowhere by definition. **If those containers
-are gone, so is that work.** Worth confirming with the owner before the
-entries are removed — and worth noting as the general risk: `CLAUDE.md`'s
-"handoffs are committed, not replied" applies to reports in progress too.
+| Missing | Named by | Found on |
+|---|---|---|
+| `Reports/performance-audit.md` | `Reports/README.md` in-flight, worktree `perf-audit` (*untracked*) | **no branch** |
+| `Reports/measurement-under-contention.md` | `Reports/README.md` in-flight, worktree `perf-lock` (*untracked*) | **no branch** |
+| `scripts/perf.sh` + 91 lines of `CLAUDE.md` | `e20e338`'s message, branch `perf-lock` | **no branch** |
+
+`perf-lock` is not merely unmerged — **it is unpushed**, and it is the sole
+remaining blocker on recommendation 12 (§5b). An untracked worktree is pushed
+nowhere by definition; if that machine is gone, so is all three.
+
+This is the same failure `e20e338` had just finished repairing for the
+overhaul's method, one layer out, and it is `CLAUDE.md`'s own rule — *handoffs
+are committed, not replied* — applied to work in progress rather than to
+handoff prose.
+
+**Action for the owner, and it is time-sensitive if the machine is still
+around:** push `perf-lock` and `perf-audit`, or confirm they are gone so the
+in-flight entries can be removed and rec 12 unblocked. Nobody else can do this;
+the work is not reachable from any session.
+
+### 5f. Branch hygiene: 49 remote branches, and `branchcheck.sh` cannot see most of them
+
+Incidental but cheap to state. `load-share` is fully merged into `main` and
+still standing, and it is not alone — `CLAUDE.md` records twelve such at the
+2026-08-22 census. Worth a prune pass. Noted also because this report's first
+draft asserted the remote held two branches, on a container clone that had
+fetched only `main`: **`branchcheck.sh`'s UNLANDED report is only as complete
+as the refs the local clone has fetched**, which is a real blind spot for a
+fresh remote session and is not mentioned where the script is documented.
 
 ## 6. What this pass changed
 
-`fbc10e6` — additive only, 156 insertions, 0 deletions:
+`fbc10e6` and `10fa69e`, plus the merge of `e20e338`. Additive only — no
+documentation prose was rewritten or deleted:
 
 - `scripts/bugindex.py` (new) — the register's status index, with `--check`.
 - `scripts/docscheck.sh` — check 6 (index current, identifiers unique) and
@@ -301,19 +454,41 @@ entries are removed — and worth noting as the general risk: `CLAUDE.md`'s
 - `README.md` — the four bindings check 8 found undocumented: `F10`/`;`
   (terrain light), `F11`/`0` (void reveal), `F12` (sky light).
 - `Reports/open-bugs-handoff.md` — the generated index.
+- `Reports/README.md` — this report indexed; the `documentation-audit.md` line
+  corrected from "being executed" to executed; the
+  `claude-md-recommendations.md` line corrected to say which of its blocking
+  branches are discharged and that `perf-lock` is unreachable.
 
-`docscheck.sh` now exits 1, reporting the three identifier collisions in §4b.
-That is the intended behaviour — the script is deliberately not a CI gate, and
-its findings are a work order.
+`docscheck.sh` exits 1, reporting the three identifier collisions in §4b. That
+is the intended behaviour — it is deliberately not a CI gate and its findings
+are a work order.
+
+**Nothing in `CLAUDE.md`, `PLAN.md` or any `wiki/` page was touched.**
 
 ## 7. Verification
 
 Every number above is reproducible:
 
 ```
+# corpus size, and CLAUDE.md's add/remove ratio and section budget
 find . -name '*.md' -not -path './target/*' -not -path './.git/*' -printf '%s\n' | awk '{s+=$1} END {print s, NR}'
 git log --numstat --format='' --follow -- CLAUDE.md | awk 'NF==3 {a+=$1; d+=$2} END {print a, d}'
 awk '/^## /{if(n)printf "%-52s %5d\n", n, NR-s; n=$0; s=NR} END{printf "%-52s %5d\n", n, NR-s}' CLAUDE.md
+
+# the register's split, the index, and the identifier collisions
 python3 scripts/bugindex.py --check
 bash scripts/docscheck.sh
+
+# §5e -- the three unreachable artifacts, across every remote branch
+git fetch origin --prune
+for b in $(git branch -r --format='%(refname:short)'); do
+  git cat-file -e "$b:scripts/perf.sh" 2>/dev/null && echo "perf.sh on $b"
+done
 ```
+
+The cold-agent benchmark (§1b) re-runs by pasting the prompt in
+`documentation-audit.md`'s final section into a fresh `Explore` agent with no
+project context, search breadth medium. Compare **files opened**, **source
+files read**, and **traps refused** — 8 / 0 / 1-of-1 in 2026-08-21, 6 / 0 /
+1-of-1 here. Read §1c first: the instrument now lives inside the corpus it
+measures.
