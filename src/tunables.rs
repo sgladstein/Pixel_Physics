@@ -27,6 +27,7 @@
 //! starting point, and registering it would either silently clamp to a
 //! misleadingly-finite value or need its own special-cased UI.
 
+use crate::sim::clock::{Clock, MAX_SLOWDOWN};
 use crate::sim::explosion::Tuning as Explosion;
 use crate::sim::material::{MaterialKind, MaterialRegistry};
 use crate::sim::player::Tuning as Player;
@@ -53,6 +54,14 @@ pub enum TunableGroup {
     /// `sim::player::Tuning` — how the gnome runs, jumps and falls, all
     /// judged in the hand and therefore all sweepable live.
     Player,
+    /// **World time** (`sim::clock`) — how fast the day, the weather, growth
+    /// and creatures run, each independently, and none of them the physics
+    /// clock. Here rather than in a key binding because every key in the app
+    /// is already bound, and because this panel's pin (`Enter`, then the
+    /// arrows with the panel closed) is exactly the right shape for a knob
+    /// whose effect is judged by watching the world rather than by reading a
+    /// number.
+    World,
 }
 
 impl TunableGroup {
@@ -62,6 +71,7 @@ impl TunableGroup {
             TunableGroup::Visual => "VISUAL",
             TunableGroup::Explosion => "EXPLOSION",
             TunableGroup::Player => "PLAYER",
+            TunableGroup::World => "WORLD",
         }
     }
 
@@ -70,21 +80,37 @@ impl TunableGroup {
             TunableGroup::Physics => TunableGroup::Visual,
             TunableGroup::Visual => TunableGroup::Explosion,
             TunableGroup::Explosion => TunableGroup::Player,
-            TunableGroup::Player => TunableGroup::Physics,
+            TunableGroup::Player => TunableGroup::World,
+            TunableGroup::World => TunableGroup::Physics,
         }
     }
 
+    /// **Kept an exact inverse of [`Self::next`], and guarded as one.** This
+    /// read `Physics => Player` for as long as `World` existed: the world-speed
+    /// menu was added to `next` and to `all`, and this direction was missed.
+    /// Nothing caught it because `prev` has no caller yet -- an unused `pub fn`
+    /// is not dead code to clippy -- so the bug was waiting for whoever first
+    /// wired a "previous menu" key, which is exactly the reader least able to
+    /// tell a wrong answer from a right one. `next_and_prev_are_inverses`
+    /// fails now if a new variant updates only one direction.
     pub fn prev(self) -> Self {
         match self {
-            TunableGroup::Physics => TunableGroup::Player,
+            TunableGroup::Physics => TunableGroup::World,
             TunableGroup::Visual => TunableGroup::Physics,
             TunableGroup::Explosion => TunableGroup::Visual,
             TunableGroup::Player => TunableGroup::Explosion,
+            TunableGroup::World => TunableGroup::Player,
         }
     }
 
-    pub fn all() -> [TunableGroup; 4] {
-        [TunableGroup::Physics, TunableGroup::Visual, TunableGroup::Explosion, TunableGroup::Player]
+    pub fn all() -> [TunableGroup; 5] {
+        [
+            TunableGroup::Physics,
+            TunableGroup::Visual,
+            TunableGroup::Explosion,
+            TunableGroup::Player,
+            TunableGroup::World,
+        ]
     }
 }
 
@@ -94,6 +120,9 @@ pub const EXPLOSION_CATEGORY: &str = "explosion";
 
 /// Likewise for [`TunableGroup::Player`].
 pub const PLAYER_CATEGORY: &str = "player";
+
+/// Likewise for [`TunableGroup::World`].
+pub const WORLD_CATEGORY: &str = "world";
 
 /// One live-adjustable value. `value` is a live snapshot at the moment
 /// the registry was built, not a handle back into the registry it came
@@ -368,6 +397,63 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
     }
 }
 
+/// Every world-time knob (`sim::clock`), in the order the panel lists them:
+/// the two the owner asked about first, then the rest.
+///
+/// **All integers, all "N times slower than baseline", all stepping by 1.**
+/// The panel's arrow keys do not auto-repeat (`main.rs` filters
+/// `event.repeat`), so a fine float step across a wide span would take
+/// hundreds of presses; one press being one meaningful unit is what makes
+/// this sweepable by hand at all. `day_minutes` is named in minutes rather
+/// than as a bare multiplier because minutes is the quantity anyone actually
+/// thinks in — the two are the same number only because the baseline day
+/// happens to be one minute long.
+///
+/// Ranges run to [`MAX_SLOWDOWN`], which is set from what breaks rather than
+/// from an aspiration — see that constant.
+pub fn from_clock(c: &Clock) -> Vec<Tunable> {
+    let g = TunableGroup::World;
+    let cat = WORLD_CATEGORY;
+    let max = MAX_SLOWDOWN as f32;
+    vec![
+        Tunable::integer(g, cat, "day_minutes", c.day_minutes as f32, 1.0, max, 1.0),
+        Tunable::integer(g, cat, "growth_slowdown", c.growth_slowdown as f32, 1.0, max, 1.0),
+        Tunable::integer(g, cat, "weather_slowdown", c.weather_slowdown as f32, 1.0, max, 1.0),
+        Tunable::integer(g, cat, "creature_slowdown", c.creature_slowdown as f32, 1.0, max, 1.0),
+        Tunable::integer(g, cat, "gnome_slowdown", c.gnome_slowdown as f32, 1.0, max, 1.0),
+    ]
+}
+
+/// Apply one adjusted world-time value back onto the live clock.
+///
+/// **Goes through `Clock::set_rates`, never straight at the field**, and that
+/// is the whole reason this takes a `frame`. The phase clocks are derived by
+/// dividing elapsed frames by the rate, so writing a rate on its own
+/// reinterprets the entire history at the new one: dragging the day length
+/// from 1 to 4 an hour in would move the sun to wherever that hour lands
+/// under the new divisor. Re-anchoring first pins the current sky and weather
+/// frames, so the value at this instant is unchanged and only the slope
+/// moves — which is the behaviour a live slider has to have.
+///
+/// Matched-pair contract with `from_clock`, the same one
+/// `from_explosion`/`apply_explosion` document and
+/// `every_registered_world_knob_can_be_written_back` asserts.
+pub fn apply_clock(c: &mut Clock, frame: u64, name: &str, value: f32) {
+    let v = value.max(1.0).round() as u32;
+    c.set_rates(frame, |c| match name {
+        "day_minutes" => c.day_minutes = v,
+        "weather_slowdown" => c.weather_slowdown = v,
+        "growth_slowdown" => c.growth_slowdown = v,
+        "creature_slowdown" => c.creature_slowdown = v,
+        "gnome_slowdown" => c.gnome_slowdown = v,
+        // `from_clock` is the only source of entries, so every name it can
+        // produce is handled above. A defensive floor against the two lists
+        // drifting, not a reachable case -- and the test named above is what
+        // keeps it unreachable.
+        _ => {}
+    });
+}
+
 /// Apply one adjusted explosion value back onto the live tuning struct.
 ///
 /// Kept next to `from_explosion` on purpose: the two are a matched pair of
@@ -569,6 +655,39 @@ mod tests {
     use super::*;
     use crate::sim::material;
 
+    /// **`next` and `prev` must be exact inverses, in both directions and
+    /// over every variant.** The bug this replaces is the one a `match` over
+    /// an enum invites: `World` was added, `next` and `all` were updated, and
+    /// `prev` was left mapping `Physics` to `Player` -- correct before the
+    /// variant existed, silently skipping it after. It survived because
+    /// nothing calls `prev` yet, so no test and no lint had any reason to
+    /// look at it.
+    ///
+    /// Asserted as a round trip rather than as a table of expected pairs: a
+    /// table has to be edited when a variant is added, which is the very
+    /// thing that went wrong, whereas a round trip over `all()` simply grows.
+    #[test]
+    fn next_and_prev_are_inverses() {
+        for g in TunableGroup::all() {
+            assert_eq!(g.next().prev(), g, "{:?}.next().prev() left the cycle", g);
+            assert_eq!(g.prev().next(), g, "{:?}.prev().next() left the cycle", g);
+        }
+        // ...and `next` alone must visit every group, or a menu exists that
+        // no amount of pressing the cycle key can reach. `WORLD` is the one
+        // that matters today: every world-speed knob lives behind it.
+        let mut seen = vec![TunableGroup::Physics];
+        let mut g = TunableGroup::Physics;
+        for _ in 1..TunableGroup::all().len() {
+            g = g.next();
+            assert!(!seen.contains(&g), "cycling revisited {:?} before covering every group", g);
+            seen.push(g);
+        }
+        assert_eq!(g.next(), TunableGroup::Physics, "the cycle must close");
+        for want in TunableGroup::all() {
+            assert!(seen.contains(&want), "{:?} is unreachable by cycling the panel key", want);
+        }
+    }
+
     #[test]
     fn every_group_is_reachable_and_visual_changes_nothing_in_the_simulation() {
         let registry = MaterialRegistry::builtin();
@@ -581,6 +700,7 @@ mod tests {
         let mut all = from_materials(&registry);
         all.extend(from_explosion(&Explosion::default()));
         all.extend(from_player(&Player::default()));
+        all.extend(from_clock(&Clock::default()));
         for group in TunableGroup::all() {
             assert!(
                 all.iter().any(|t| t.group == group),
@@ -593,6 +713,48 @@ mod tests {
         // here forces a decision about which side it belongs on.
         for t in all.iter().filter(|t| t.group == TunableGroup::Visual) {
             assert_eq!(t.name, "fill_dimming", "unexpected entry {} in the VISUAL menu", t.name);
+        }
+    }
+
+    /// Every world-time knob must round-trip: listed by `from_clock`,
+    /// written back by `apply_clock`, and *observable* afterwards.
+    ///
+    /// The observability half is the point. `apply_clock` writes through
+    /// `Clock::set_rates`, which clamps — so a typo'd name would silently
+    /// write nothing while the row still displayed and still appeared to
+    /// adjust, the exact failure the explosion pair's own doc describes. This
+    /// checks the value actually moved, and that the exhaustive destructuring
+    /// below refuses to compile past a new field.
+    #[test]
+    fn every_registered_world_knob_can_be_written_back() {
+        let base = Clock::default();
+        // The *exhaustiveness* half of this contract lives in `clock.rs`'s
+        // own tests (`every_settable_knob_is_registered_in_the_panel`),
+        // because the anchor fields are private to that module and a
+        // destructure here cannot name them -- which is the right way round:
+        // they are running state, not settings, and the panel has no business
+        // seeing them.
+        for t in from_clock(&base) {
+            let mut c = Clock::default();
+            apply_clock(&mut c, 0, &t.name, 3.0);
+            let listed = from_clock(&c).into_iter().find(|x| x.name == t.name).expect("still listed");
+            assert_eq!(listed.value, 3.0, "{} listed but not written back by apply_clock", t.name);
+            // ...and nothing else moved with it.
+            for other in from_clock(&c).iter().filter(|x| x.name != t.name) {
+                assert_eq!(other.value, 1.0, "adjusting {} also moved {}", t.name, other.name);
+            }
+        }
+    }
+
+    /// Every knob is an integer stepping by 1, and the reason is a UI
+    /// constraint rather than a preference — see `from_clock`.
+    #[test]
+    fn every_world_knob_is_an_integer_stepping_by_one() {
+        for t in from_clock(&Clock::default()) {
+            assert!(t.integral, "{} must be integral: the clock knobs are whole multiples", t.name);
+            assert_eq!(t.step, 1.0, "{} must step by 1: the panel's arrows do not auto-repeat", t.name);
+            assert_eq!(t.min, 1.0, "{} must floor at 1: 0 would divide the world by zero", t.name);
+            assert_eq!(t.max, MAX_SLOWDOWN as f32, "{} must not exceed the measured cap", t.name);
         }
     }
 
