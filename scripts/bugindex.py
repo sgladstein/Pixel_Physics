@@ -12,10 +12,20 @@ half from the archive without reading all of it.
 
 Moving the closed entries was the obvious fix and is the wrong one: the file is
 co-owned by every lane, `union` merges do not apply to it, and reordering 5,000
-lines turns any concurrent edit into a conflict. An index is additive, costs no
-merge surface, and answers the question the reader actually has -- *which of
-these is still live, and what line is it on* -- for a few hundred tokens
-instead of eighty thousand.
+lines turns any concurrent edit into a conflict. An index answers the question
+the reader actually has -- *which of these is still live, and what line is it
+on* -- for a few hundred tokens instead of eighty thousand.
+
+**It does not cost zero merge surface, and an earlier version of this docstring
+claimed it did.** The line numbers are the useful part and they are also the
+expensive part: inserting an entry shifts every row below it, so two lanes that
+both file a bug and regenerate produce conflicting hunks in this one block, in
+a file `.gitattributes` deliberately denies a `union` merge. What makes that
+cheap is that the block is *derived*: a conflict here is never hand-merged.
+Take either side whole and re-run the generator -- the output is a pure
+function of the headings, so the regenerated block is correct by construction
+whichever side you started from. That instruction is printed into the block
+itself, where whoever hits the conflict will see it.
 
 Status is derived from the heading, never stored separately: a heading is the
 one place the verdict is already written, so an index built from anything else
@@ -32,19 +42,27 @@ DOC = Path(__file__).resolve().parent.parent / "Reports" / "open-bugs-handoff.md
 BEGIN = "<!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->"
 END = "<!-- END GENERATED INDEX -->"
 
-# A verdict written into the heading. `~~strikethrough~~` is the file's other
-# convention for the same thing and is treated identically.
-CLOSED = re.compile(
-    r"FIXED|CLOSED|RESOLVED|RETIRED|DUPLICATE|DOES NOT REPRODUCE|~~", re.I
-)
-# Not closed and not actionable either: parked on someone's judgement.
+# Status is read from the heading's **bold verdict clause** and its
+# strikethrough -- never from the whole heading. Searching the whole heading
+# was the first implementation and it was wrong in both directions: `### P3.
+# The generation loop -- §F4 closed, ...` matched CLOSED on the words "§F4
+# closed" in its *title* and filed a live bug as closed, and any future entry
+# titled "the frame budget is not fixed" would do the same.
+CLOSED = re.compile(r"FIXED|CLOSED|RESOLVED|RETIRED|DUPLICATE|DOES NOT REPRODUCE", re.I)
 DECIDED = re.compile(
     r"DECISION CARD|SEQUENCING DECIDED|DESIGN DIRECTION|JUDGED", re.I
 )
+# A verdict that says any part of the entry is still live wins over a closed
+# word in the same clause. `### G. Grassfire ... **SPREAD AND MOISTURE FIXED
+# ...; the *colour* is open and is render's**` is half-done, and filing it as
+# closed hides the live half. False-open is the safe direction here: it costs a
+# reader one heading, where false-closed costs them the bug.
+STILL_OPEN = re.compile(r"\bopen\b", re.I)
+# Deliberately superseded headings, kept beside their live successors as
+# history. They carry no verdict, so without this they render as **OPEN** and
+# tell a reader that a fixed bug is live -- measured: three of them did.
+HISTORIC = re.compile(r"^\(was\)|\(original\)")
 
-# The sections that hold the register proper. Everything else in the file is
-# narrative -- landing notes, closed-out review batches -- whose `###` headings
-# are enumerated sub-items, not bugs anyone references by identifier.
 REGISTER_SECTIONS = {"Open", "Closed this session", "Awaiting a decision"}
 
 
@@ -82,13 +100,19 @@ def entries(lines):
         title = re.split(r"\s+—\s+|\s+--\s+", title)[0].strip()
         if len(title) > 92:
             title = title[:89] + "..."
+        verdict = " ".join(re.findall(r"\*\*(.+?)\*\*", head))
         if not is_bug:
             status = "note"
-        elif CLOSED.search(head):
+        elif HISTORIC.search(head):
+            status = "historic"
+        elif STILL_OPEN.search(verdict):
+            status = "**OPEN**"
+        elif "~~" in head or CLOSED.search(verdict):
             status = "closed"
-        elif DECIDED.search(head):
+        elif DECIDED.search(verdict):
             status = "decided"
         else:
+            # No verdict clause at all -- an entry nobody has ruled on.
             status = "**OPEN**"
         yield ident, status, title, i, is_bug
 
@@ -106,6 +130,11 @@ def render(rows):
         "close (the file is co-owned and reordering it conflicts with every open",
         "branch), so **this table, not the `## Open` heading, is what says whether a",
         "bug is live.** Jump by line number.",
+        "",
+        "**Merge conflict in this block?** Do not hand-merge it. Take either side",
+        "whole, then run `python3 scripts/bugindex.py` -- the table is derived from",
+        "the headings, so the regenerated block is correct from either starting",
+        "point.",
         "",
         "| § | Status | Line | What it is |",
         "|---|---|---|---|",
@@ -166,13 +195,32 @@ def duplicates(rows):
 
 
 def main():
-    text = DOC.read_text(encoding="utf-8")
+    # `"--check" in sys.argv` was the first version, and it fails the way this
+    # repo has already paid for: "an unknown argument is silently ignored"
+    # (CLAUDE.md). `--chekc` or `--check=1` missed the membership test and fell
+    # through to the *write* path, rewriting a 343 KB co-owned file for someone
+    # who meant to verify it. Unrecognised argv is now an error.
+    args = set(sys.argv[1:])
+    check = "--check" in args
+    unknown = args - {"--check"}
+    if unknown:
+        print(f"bugindex: unrecognised argument(s): {' '.join(sorted(unknown))}")
+        print("usage: bugindex.py [--check]")
+        return 2
+
+    # Explicit newline="" on read and "\n" on write. `Path.read_text` grew a
+    # `newline` argument only in 3.13, so both go through `open`. Without this,
+    # `write_text` translates to CRLF on Windows -- and this repo's gotchas are
+    # written for a Windows dev box -- so one run there would rewrite all
+    # ~5,700 lines of the register and conflict with every open branch.
+    with open(DOC, encoding="utf-8", newline="") as fh:
+        text = fh.read()
     updated = build(text)
     rows = list(entries(updated.split("\n")))
 
     dups = duplicates(rows)
 
-    if "--check" in sys.argv:
+    if check:
         bad = 0
         if updated != text:
             print(
@@ -191,9 +239,20 @@ def main():
             print("bugindex: index current, identifiers unique")
         return bad
 
-    DOC.write_text(updated, encoding="utf-8")
+    with open(DOC, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(updated)
     live = sum(1 for r in rows if r[1] == "**OPEN**")
     print(f"bugindex: wrote {len(rows)} entries ({live} open)")
+    # The person regenerating is the one most likely to have just introduced a
+    # collision, and discarding `dups` here meant they were the last to hear
+    # about it -- via a docscheck run that is already red for other reasons and
+    # so gets skimmed. Close the loop where the collision is created.
+    for ident, lines_at in sorted(dups.items()):
+        at = ", ".join(str(n) for n in lines_at)
+        print(
+            f"bugindex: WARNING identifier '{ident}' is used by "
+            f"{len(lines_at)} entries (lines {at})"
+        )
     return 0
 
 

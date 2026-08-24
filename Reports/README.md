@@ -38,12 +38,12 @@ tried?"*.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **nine
   landed, four open.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
-  **Two of the three branches they were deferred behind are discharged** —
-  `load-share` is merged into `main` (and is deletable clutter),
-  `plant-branch-angle` is gone. The third, `perf-lock`, exists on **no
-  remote branch**, and neither does the `scripts/perf.sh` it carries; see
-  `agent-documentation-audit-2026-08-24.md` §5e. So these four are blocked
-  on work nobody can reach, not on a merge anyone is waiting for.
+  Only **rec 6** is provably unblocked: `load-share` is merged into `main`
+  (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
+  have no remote ref at all**, so recs 5, 7 and 12 are blocked on work that
+  cannot be tested for merge — absence is equally consistent with "merged
+  and deleted" and with "unpushed on one machine". One owner question
+  settles all three; see `agent-documentation-audit-2026-08-24.md` §5b/§5e.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
   call.** The companion to the three above, asking the other question: not *is

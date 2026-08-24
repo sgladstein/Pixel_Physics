@@ -124,29 +124,61 @@ if [ -f scripts/bugindex.py ]; then
     [ -z "$line" ] && continue
     note "${line#bugindex: }"
   done < <(python3 scripts/bugindex.py --check 2>&1 | grep -v 'index current')
+else
+  note "scripts/bugindex.py missing -- the bug register's status index and its duplicate-identifier guard are both unenforced"
 fi
 
-# --- 8. Every keybinding must appear in the README Controls table ------------
+# --- 7. Every user-facing key must appear in the README Controls table ------
 # Same shape as the architecture-map check: the Controls table is the only
 # index of what the app can do, and a key missing from it is a feature no
-# session can discover. `Y` (the whole ant-colony feature) was once missing
-# this way. One direction only -- a documented key that no longer binds is
-# caught by reading, an undocumented binding is not.
-if [ -f src/main.rs ] && [ -f README.md ]; then
-  ctl=$(sed -n '/^## Controls/,/^## Materials/p' README.md)
-  for code in $(grep -oE 'KeyCode::(F[0-9]+|Key[A-Z]|Digit[0-9]|Semicolon|Comma|Period|Enter|Tab|Escape)' src/main.rs \
-      | sed 's/KeyCode:://' | sort -u); do
-    case "$code" in
-      # Bound only as gnome movement (A/D/W/S) or handled in the held-key
-      # branch; the table documents them as a group rather than per key.
-      KeyA|KeyD|KeyW|KeyS) continue ;;
-      # The table documents these as a range (`1`-`9`), not one row each.
-      Digit[1-9]) continue ;;
-    esac
-    disp=$(printf '%s' "$code" | sed -E 's/^Key//; s/^Digit//; s/^Semicolon$/;/; s/^Comma$/,/; s/^Period$/./; s/^Escape$/Esc/')
-    printf '%s' "$ctl" | grep -qF "\`$disp\`" \
-      || note "README Controls table: $code (\`$disp\`) is bound in src/main.rs but has no row"
-  done
+# session can discover -- `Y`, the entry point to the whole ant colony, was
+# once missing this way.
+#
+# **Driven off `App::help_columns`, not off `KeyCode::` arms in `main.rs`.**
+# The first version scanned match arms through a hand-written variant list and
+# was wrong twice over: the list omitted `Backquote`, `Backslash` and `Quote`
+# -- three keys bound today, on the app's own help page, and absent from the
+# README -- and scanning arms also sweeps in movement and modifier keys the
+# table documents as groups. `help_columns` is the curated user-facing list:
+# what the player is shown is exactly what the README owes a row.
+#
+# The table is delimited by the next `## ` heading, never by naming the
+# section that follows it. Anchoring on `## Materials` made the check vacuous
+# the moment that heading moved: `sed` printed to EOF, so any key mentioned
+# anywhere in README's 2,600 lines counted as documented.
+if [ -f src/app.rs ] && [ -f README.md ]; then
+  ctl=$(awk '/^## Controls/{f=1; next} f && /^## /{exit} f' README.md)
+  if [ -z "$ctl" ]; then
+    note "README.md: no '## Controls' section found -- check 8 cannot run"
+  else
+    for tok in $(sed -n '/fn help_columns/,/fn draw_help/p' src/app.rs \
+        | grep -oE 'Key\("[^"]+"' | sed 's/Key("//; s/"$//' | tr ' ' '\n' | sort -u); do
+      # Rust source escapes the backslash key as "\\"; the README documents the
+      # character itself, so unescape before comparing.
+      tok="${tok//\\\\/\\}"
+      case "$tok" in
+        # Mouse and spelled-out companions to a punctuation key, plus the
+        # digit range and movement/modifier groups the table documents as one
+        # row rather than per key.
+        LMB|RMB|LMB/RMB|TICK|QUOTE|1-9|A|D|W|S) continue ;;
+        ESC)   disp="Esc" ;;
+        TAB)   disp="Tab" ;;
+        SPACE) disp="Space" ;;
+        SHIFT) disp="Shift" ;;
+        # Rust source escapes the backslash key as "\\"; the README documents
+        # the character itself.
+        '\\\\') disp='\\' ;;
+        *)     disp="$tok" ;;
+      esac
+      # A literal backtick cannot sit inside single backticks; markdown spells
+      # it `` ` ``, so that is what the table is checked for.
+      if [ "$disp" = '`' ]; then pat='`` ` ``'; else pat="\`$disp\`"; fi
+      printf '%s' "$ctl" | grep -qF -- "$pat" \
+        || note "README Controls table: \`$disp\` is on the app's help page (App::help_columns) but has no row"
+    done
+  fi
+else
+  note "src/app.rs or README.md missing -- check 8 (keys vs Controls table) did not run"
 fi
 
 # --- result -----------------------------------------------------------------

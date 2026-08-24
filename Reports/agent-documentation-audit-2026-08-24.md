@@ -242,8 +242,15 @@ stored, because the heading is the one place the verdict is already written.
 
 **Why not simply move the closed entries** (recorded so it is not re-proposed):
 the file is co-owned by every lane, has no `union` merge in `.gitattributes`,
-and reordering 5,000 lines turns every concurrent edit into a conflict. The
-index is additive and costs no merge surface.
+and reordering 5,000 lines turns every concurrent edit into a conflict.
+
+**The index is not free of merge surface either, and this report first claimed
+it was.** The line numbers are the useful part and the expensive one: inserting
+an entry shifts every row below it, so two lanes that both file and regenerate
+conflict inside the block. What makes it cheap is that the block is *derived* —
+a conflict there is never hand-merged. Take either side whole and re-run the
+generator; the output is a pure function of the headings. That instruction is
+now printed into the block itself.
 
 Two traps the generator had to survive, both recorded in its docstrings:
 
@@ -347,19 +354,51 @@ re-checked against the remote:
 
 | Rec | What it moves | Deferred behind | State now |
 |---|---|---|---|
-| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNBLOCKED** — branch gone |
-| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED** — merged into `main` |
-| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **UNBLOCKED** |
+| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNVERIFIABLE** — no remote ref; see below |
+| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED, proved** — `git merge-base --is-ancestor origin/load-share origin/main` succeeds |
+| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **inherits 5's uncertainty** |
 | 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **BLOCKED — `perf-lock` exists on no remote** (§5e) |
 
-**5, 6 and 7 are executable today.** Together they are ~350–400 tokens off
-every session, each keeping the operative rule inline and moving only the
-narrative. That is small, and it is also the *approved, specified, reviewed*
-version of the change — worth more than a larger unreviewed one.
+**A correction this report had to make against itself.** Its first version read
+`plant-branch-angle`'s absence from the remote as "merged, therefore
+discharged" and `perf-lock`'s absence as "unpushed, therefore possibly lost" —
+**the same evidence, two opposite readings, chosen to suit the conclusion each
+supported.** That is the error §1c and the Method section are about, and it was
+caught by an independent review rather than by this report.
 
-Rec 12 is blocked on a branch nobody can reach. Either `perf-lock` gets pushed,
-or the block is declared void and 12 executed against `main` — an owner call,
-not a merge anyone is waiting for.
+What can actually be proved:
+
+- **`load-share` is merged** — `git merge-base --is-ancestor` against
+  `origin/main` returns true. Rec 6 is genuinely unblocked.
+- **`plant-branch-angle` cannot be tested either way.** It has no remote ref,
+  so the ancestor test cannot run. The only evidence it merged is `e20e338`'s
+  own commit message — a relayed claim, and `CLAUDE.md`'s rule is to verify
+  what a lane relays. Its absence is *equally consistent* with the `perf-lock`
+  story: unpushed on one machine.
+
+So **rec 6 is safe to execute now. Recs 5 and 7 need the same owner
+confirmation as `perf-lock`** — one question covers all three: *do
+`plant-branch-angle` and `perf-lock` still exist on your machine?* If they do
+not, all four are unblocked and the in-flight entries come out.
+
+Each keeps the operative rule inline and moves only the narrative; together the
+four are ~350–400 tokens off every session. Small — and also the *approved,
+specified, already-reviewed* version of the change, worth more than a larger
+unreviewed one.
+
+All four passages were confirmed to still exist and were relocated by their
+quoted sentences (`e20e338` records that the recommendations' `LNNN` references
+are rotted and none survives the pre-`0efeb24` file): rec 5 at `CLAUDE.md:374`,
+rec 6 at `:677`, rec 7 at `:1060` and `:1078`, rec 12's Conventions at
+`:839-948`. Rec 5 also names a destination report,
+`Reports/concurrent-sessions.md`, which does not exist and must be created.
+
+**One sequencing hazard.** Rec 7 files two new entries into
+`open-bugs-handoff.md`, and §4b's collisions may need up to three renames.
+Only **S** and **T** are free as single letters, so demand is up to five
+against a supply of two: **the suffix convention (`V2`/`P2`/`H3`, already used
+in the file) is forced, not optional.** Settle it once, before either job
+starts, or they race for the last two letters.
 
 **What this report adds that the recommendations do not cover.** They were
 written against a `CLAUDE.md` of ~869 lines. The file is now **1,081**, and the
@@ -443,29 +482,106 @@ fetched only `main`: **`branchcheck.sh`'s UNLANDED report is only as complete
 as the refs the local clone has fetched**, which is a real blind spot for a
 fresh remote session and is not mentioned where the script is documented.
 
-## 6. What this pass changed
+## 6. This pass was itself reviewed, and the review found real defects
 
-`fbc10e6` and `10fa69e`, plus the merge of `e20e338`. Additive only — no
-documentation prose was rewritten or deleted:
+Recorded because the findings are the argument for doing it. An independent
+review of this branch's own diff returned 15 findings; every one checked here
+held up. The ones that mattered:
+
+**In the tooling this pass added** — the thing that now gates other sessions'
+work:
+
+- `bugindex.py` derived status by matching the **whole heading**, so
+  `### P3. The generation loop — §F4 closed, …` filed a live bug as *closed*
+  on the words "§F4 closed" in its own title. Any future entry titled "the
+  frame budget is not fixed" would have done the same. Status now reads only
+  the bolded verdict clause, and a verdict naming a live half (`§G`) wins over
+  a closed word in the same clause — false-open is the safe direction.
+- Three deliberately-superseded headings (`(was) 1h.`, `G (original).`)
+  carried no verdict, so they rendered **OPEN** beside their FIXED successors
+  — telling readers that fixed bugs were live and inflating the open count.
+- `"--check" in sys.argv` meant `--chekc` fell through to the **write** path
+  and rewrote a 343 KB co-owned file for someone who meant to verify it. This
+  is `CLAUDE.md`'s own "an unknown argument is silently ignored", paid for
+  again; unrecognised argv is now an error.
+- `Path.write_text` would have rewritten all ~5,700 lines as CRLF on the
+  Windows box this repo's gotchas are written for.
+
+**In `docscheck` check 8** — a guard that could not fail:
+
+- It bounded the Controls table with a hardcoded `## Materials` end-anchor, so
+  renaming that heading made `sed` print to EOF and any key mentioned anywhere
+  in README's 2,600 lines counted as documented. It now stops at the next
+  `## ` heading, whatever it is.
+- It scanned `KeyCode::` arms through a hand-written variant list that omitted
+  `Backquote`, `Backslash` and `Quote` — **three keys bound today, on the app's
+  own help page, and absent from the README**. It now drives off
+  `App::help_columns`, the curated user-facing list, so what the player is
+  shown is exactly what the README owes a row.
+
+**In the README rows this pass added** — two rationales asserted without
+reading the source comment that gives the real one:
+
+- The `;` alias was explained as "60% keyboards have no function row". The
+  source says the real reason is that **macOS owns F9–F12** (F11 is Show
+  Desktop, F10 often Exposé) and ends "keep any future binding off F9–F12 for
+  the same reason". The invented rationale would have licensed exactly the
+  binding mistake the source forbids — and `CLAUDE.md` says source comments
+  are load-bearing precisely for this.
+- `F12` was documented as a two-way toggle. It is a **four-way cycle** whose
+  last mode costs ~4.4 ms and is, by its own doc, "far too slow for a frame —
+  kept as the bar, not as a shipping option".
+- `README.md:158` named `,` and `;` for the boiling and gas selectors; both
+  are wrong (they are `` ` `` and `\`), and this pass added a `;` row directly
+  contradicting it without noticing.
+
+**And one methodological error in this report**, §5b: it read
+`plant-branch-angle`'s absence from the remote as *discharged* and `perf-lock`'s
+identical absence as *possibly lost*. Same evidence, opposite readings, each
+chosen to suit its conclusion. Corrected in §5b.
+
+**What this says about the pass generally.** The tooling was written by the
+same session that wrote the audit criticising unverified claims, and it
+shipped four classes of defect the audit's own source documents name by name.
+Two of them (`bugindex`'s section allowlist, check 8's key list) had *already*
+been caught and fixed once during the session, which was evidence the code was
+trap-prone and was read as evidence it was now clean. **`docscheck` also caught
+a regression this repair introduced** — restoring the `F12` row deleted the `K`
+row, and check 8 named it on the next run.
+
+## 7. What this pass changed
+
+Additive to the documentation — no prose was rewritten or deleted, and
+`CLAUDE.md`, `PLAN.md` and `wiki/` are untouched:
 
 - `scripts/bugindex.py` (new) — the register's status index, with `--check`.
-- `scripts/docscheck.sh` — check 6 (index current, identifiers unique) and
-  check 8 (every `KeyCode::` binding has a README Controls row).
-- `README.md` — the four bindings check 8 found undocumented: `F10`/`;`
-  (terrain light), `F11`/`0` (void reveal), `F12` (sky light).
-- `Reports/open-bugs-handoff.md` — the generated index.
-- `Reports/README.md` — this report indexed; the `documentation-audit.md` line
-  corrected from "being executed" to executed; the
-  `claude-md-recommendations.md` line corrected to say which of its blocking
-  branches are discharged and that `perf-lock` is unreachable.
+  Status reads only the bolded verdict clause; historical `(was)` / `(original)`
+  headings are marked `historic` rather than open; unrecognised argv is an
+  error rather than a silent write; newlines are pinned to LF; collisions are
+  warned about on write as well as under `--check`.
+- `scripts/docscheck.sh` — check 6 (index current, identifiers unique, with an
+  else-note if the generator goes missing) and check 7 (every key on
+  `App::help_columns` has a README Controls row, table bounded by the next
+  `## ` heading).
+- `README.md` — seven corrections: rows added for `F10`/`;`, `F11`/`0`, `F12`,
+  `` ` ``, `\` and `'`; the `;` rationale corrected to the macOS one the source
+  actually gives; `F12` documented as the four-way cycle it is, with its costs;
+  and line 158's boiling/gas key names fixed.
+- `Reports/open-bugs-handoff.md` — the generated index, carrying its own
+  conflict-resolution instruction.
+- `Reports/README.md` — this report indexed; `documentation-audit.md` corrected
+  from "being executed" to executed; the `claude-md-recommendations.md` line
+  corrected to say which blocker is *provably* discharged and which two cannot
+  be tested.
 
-`docscheck.sh` exits 1, reporting the three identifier collisions in §4b. That
-is the intended behaviour — it is deliberately not a CI gate and its findings
-are a work order.
+`docscheck.sh` exits 1, reporting only the three identifier collisions in §4b.
+Every other check is green. That residue is deliberate — the script is not a CI
+gate and its findings are a work order — but it is also a **cost**: while it
+stands, `docscheck: clean` is unreachable, an acceptance line some PR bodies
+use, and a genuinely new finding arrives alongside three standing ones. That
+raises the priority of the §4b call rather than lowering it.
 
-**Nothing in `CLAUDE.md`, `PLAN.md` or any `wiki/` page was touched.**
-
-## 7. Verification
+## 8. Verification
 
 Every number above is reproducible:
 
