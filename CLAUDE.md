@@ -328,6 +328,29 @@ those lanes did not exist. **Before writing into a file another lane owns,
 re-list the branches.** It costs one command, and the roster you were handed
 is a claim about the past, not evidence about who is running now.
 
+**The roster is the narrow case; the general one is that a shared append-only
+file must be *read* before it is appended to.** Re-listing branches fixes
+staleness of the roster, and two collisions the same day had no roster
+confusion in them at all — both were single-owner filings by sessions that
+knew exactly who else was running. `Reports/open-bugs-handoff.md` is where
+they land, because it is append-only, lettered, and written into by every
+line at once:
+
+- Two different bugs were filed as **§Q** — one branch's colony-scene panic
+  against `main`'s owner-reported debris needles, which already carried three
+  inbound references. Landing them naively would have left two §Q headings in
+  one document with those references silently resolving to whichever sorted
+  first. The newcomer was renamed §R, its self-references repointed.
+- A branch carried a stale copy of **§M still headed OPEN** which `main` had
+  since closed. Resolved keep-both, that merge would have re-opened a fixed
+  bug and sent the next reader at a generator with nothing to do with it —
+  which is the failure §M's own entry opens by warning about.
+
+So before adding a section: **grep the file for the thing you are about to
+file, and check the letter is not taken.** And when a merge conflicts there,
+ask which side is *newer* rather than which is yours — a stale copy of an
+entry the other side has since closed looks exactly like your own work.
+
 **Check the split is self-consistent before trusting it, too.** The same
 document gave Lane A everything under `examples/*` and told Lane C to add a
 `creature_space` mode — a file under `examples/*`. Two lanes were directed
