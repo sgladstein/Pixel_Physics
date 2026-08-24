@@ -2628,7 +2628,19 @@ fn step_velocity(
     // now holds, so it falls back to the old map — the same state the
     // full-map clone used to carry forward for it.
     let new_pressure: HashMap<ChunkCoord, FieldTile> = read
-        .iter()
+        // **Built in parallel**, because this clone is the serial half of an
+        // otherwise threaded pass. `read` is the solve set plus one ring --
+        // ~1,500 tiles at 8192x2560 -- and a `FieldTile` owns six boxed
+        // slices, so this is on the order of 9,000 allocations per pass and
+        // 18,000 per frame, all of it on one worker while the rest wait.
+        // It is what held `par_solve_tiles`' speedup to 2-2.8x rather than
+        // 4x on this machine.
+        //
+        // Contents are identical: the map is keyed by `ChunkCoord` and every
+        // key in `read` is distinct, so no entry can collide and the finished
+        // map does not depend on the order entries were inserted in. Only the
+        // *build* order changes, and nothing reads that.
+        .par_iter()
         .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
         .collect();
 
@@ -2943,7 +2955,19 @@ fn step_advection(
     // for why the ring falls back to the old map now that `next` holds only
     // the solved subset.
     let pre_advection: HashMap<ChunkCoord, FieldTile> = read
-        .iter()
+        // **Built in parallel**, because this clone is the serial half of an
+        // otherwise threaded pass. `read` is the solve set plus one ring --
+        // ~1,500 tiles at 8192x2560 -- and a `FieldTile` owns six boxed
+        // slices, so this is on the order of 9,000 allocations per pass and
+        // 18,000 per frame, all of it on one worker while the rest wait.
+        // It is what held `par_solve_tiles`' speedup to 2-2.8x rather than
+        // 4x on this machine.
+        //
+        // Contents are identical: the map is keyed by `ChunkCoord` and every
+        // key in `read` is distinct, so no entry can collide and the finished
+        // map does not depend on the order entries were inserted in. Only the
+        // *build* order changes, and nothing reads that.
+        .par_iter()
         .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
         .collect();
 
