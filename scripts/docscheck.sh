@@ -104,6 +104,51 @@ else
   note "Reports/instruments.md missing -- the instruments index is referenced by CLAUDE.md"
 fi
 
+# --- 6. The bug register: status index current, identifiers unique ----------
+# `CLAUDE.md` tells every session to read the register before touching a listed
+# area. It is ~86k tokens across 93 entries, append-only, and a bug's verdict is
+# written into its own heading rather than by moving the entry -- so a large
+# share of what sits under `## Open` is closed, and a reader cannot tell the
+# live half from the archive without reading all of it.
+#
+# `scripts/bugindex.py` generates the status table at the top of the file from
+# those headings, so the question costs a few hundred tokens instead of eighty
+# thousand. This check keeps it from decaying into one more index nobody
+# updates -- the same reason the instruments index above is a check rather than
+# a convention. It also reports duplicate identifiers: references are textual
+# ("see §Z"), so a repeated letter resolves to whichever heading the reader
+# reaches first. CLAUDE.md records that happening once (two bugs filed as §Q);
+# it has happened three more times since, which is the argument for a check.
+if [ -f scripts/bugindex.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#bugindex: }"
+  done < <(python3 scripts/bugindex.py --check 2>&1 | grep -v 'index current')
+fi
+
+# --- 8. Every keybinding must appear in the README Controls table ------------
+# Same shape as the architecture-map check: the Controls table is the only
+# index of what the app can do, and a key missing from it is a feature no
+# session can discover. `Y` (the whole ant-colony feature) was once missing
+# this way. One direction only -- a documented key that no longer binds is
+# caught by reading, an undocumented binding is not.
+if [ -f src/main.rs ] && [ -f README.md ]; then
+  ctl=$(sed -n '/^## Controls/,/^## Materials/p' README.md)
+  for code in $(grep -oE 'KeyCode::(F[0-9]+|Key[A-Z]|Digit[0-9]|Semicolon|Comma|Period|Enter|Tab|Escape)' src/main.rs \
+      | sed 's/KeyCode:://' | sort -u); do
+    case "$code" in
+      # Bound only as gnome movement (A/D/W/S) or handled in the held-key
+      # branch; the table documents them as a group rather than per key.
+      KeyA|KeyD|KeyW|KeyS) continue ;;
+      # The table documents these as a range (`1`-`9`), not one row each.
+      Digit[1-9]) continue ;;
+    esac
+    disp=$(printf '%s' "$code" | sed -E 's/^Key//; s/^Digit//; s/^Semicolon$/;/; s/^Comma$/,/; s/^Period$/./; s/^Escape$/Esc/')
+    printf '%s' "$ctl" | grep -qF "\`$disp\`" \
+      || note "README Controls table: $code (\`$disp\`) is bound in src/main.rs but has no row"
+  done
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"
