@@ -45,6 +45,44 @@ python3 scripts/review.py ab --board fracture --blind \
 Use it whenever you have a stake in the answer — which is most of the time.
 The stored verdict records the real label, so blinding costs you nothing.
 
+**But it costs you something when you read the answer back, and this has already
+produced one wrong instruction to a working session.** On a blind card the
+owner's *prose* and the stored `choice_label` are in **different namespaces**:
+
+| | refers to |
+|---|---|
+| `choice_label` | the **stored** item — the page sends the card index and `review_server.py::_respond` resolves it, so this is always the real label |
+| the owner's comment ("A looks better…") | the **displayed** pane, which `--blind` may have swapped |
+
+`blind_was` is the map, and it is stored on the response: `[1, 0]` means
+displayed pane 0 showed stored item 1 and displayed pane 1 showed stored item 0.
+**Translate the prose through it before believing a word of it**, and never
+"reconcile" prose against `choice_label` without doing so — they will look like
+they contradict each other when they agree perfectly.
+
+Worked example, card `20260824T014630073Z-a10698`, `blind_was: [1, 0]`, with
+`choice: 1 → B`:
+
+> *"I think B looks like a mass of trees instead of separate. A looks better in
+> that regard, but the soil build-up in between the branches is horrible."*
+
+Read raw, that says B is bad while the click says B — an apparent contradiction,
+and it was relayed to the authoring session as one. Read through `blind_was`,
+his "B" is stored **A** and his "A" is stored **B**, so both his sentence and his
+click say **B**, and the incidental complaint attaches to B as well. The owner
+confirmed it independently: *"I selected the correct image B… the images were
+switched around when shown to me, so I wrote it right and selected it right."*
+
+Two consequences worth carrying:
+
+- **The prose is where the incidental findings live** — the sentence above is
+  the only record that anything was wrong with the winning arm — so mapping it
+  correctly matters more than mapping the click, which the server already did
+  for you.
+- **A blind card with free text is a card you must decode twice.** If you want
+  a verdict you can read at a glance, blind the panes *and* ask a question whose
+  answer is the choice alone; save prose for un-blinded cards.
+
 Pass several files to `--a`/`--b` and they become **frame sequences** sharing one
 scrubber, so both sides step to the same instant.
 
@@ -304,6 +342,14 @@ python3 scripts/review.py list --status open  # what is still waiting on the own
 
 Run `inbox` when you pick a thread back up, including at the start of a later
 session — that is where an answer from yesterday is waiting.
+
+**`inbox` shows only *answered* cards, and only yours.** An empty `inbox` reads
+exactly like "nothing was posted" and means nothing of the sort — a coordinator
+told a worker its cards were unposted when they had been up for ten minutes.
+Use `list --status open` for what is still waiting on the owner, and
+`inbox --all` when you are collecting for someone else's cards as well as your
+own. From a worktree, plain `inbox` filters to "mine" by branch and can come
+back empty while other lanes' answers sit unread.
 
 Set `PIXEL_PHYSICS_REVIEW_AGENT` to a stable name if you want `--mine` to track
 you specifically; otherwise it matches on branch and worktree.

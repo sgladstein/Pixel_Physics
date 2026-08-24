@@ -4285,7 +4285,33 @@ of the colony's food is leaf on standing trees and the stock triples over the
 run while the ants eat none, which is on the owner's queue as
 `20260823T091259637Z-9a41e4`.
 
-### H3. Both worldgen at-rest tests are red on `main`, and both are water — **OPEN, inherited, 2026-08-23**
+### H3. ~~Both worldgen at-rest tests are red on `main`, and both are water~~ — **CLOSED 2026-08-24. Superseded by §M: it was the sky, not the water.**
+
+> **Read §M instead.** Both tests pass on `main`. `45ba304` scoped them to the
+> claim they are named for by holding the sky still
+> (`World::weather_override = Some(Weather::CLEAR)`, at both at-rest tests in
+> `tests/worldgen.rs`) — they had been asserting that a generated world holds
+> still *while snow falls on it*. Seed 3 precipitates from frame 0 and is the
+> seed both failed on; seeds 1, 2 and 5 never precipitate and always passed.
+>
+> **Verified on `main` at `fcaa3d0`** by the plant integrator, by re-running
+> rather than taking a report's word for it:
+> `cargo test --release --locked --test worldgen` → **44 passed, 0 failed**.
+>
+> **This entry is left standing rather than deleted, because the way its
+> diagnosis was wrong is the useful part.** It identified the moving cells
+> correctly — material 6, water — and then concluded "a liquid-at-rest failure
+> wearing a worldgen test's name". The identification was right and the
+> conclusion did not follow: the water was moving because something was landing
+> on it, and no census of *which* cells moved can separate "this liquid will not
+> settle" from "this liquid is being rained on". Only §M's control — the same
+> binary with the sky held still — could, which is the shape of control this
+> file keeps asking for and the reason a correct measurement can still support a
+> wrong story.
+>
+> Everything below is the record as it stood while the entry was open. Its
+> measurements remain true of the trees they were taken on; its framing does
+> not. **Do not start a liquid-at-rest investigation from it.**
 
 Not a new bug — `plant-implementation-split-2026-08-23.md` already warns that
 main is red here. Recorded because the *content* of the failure was not, and
