@@ -154,6 +154,18 @@ tried?"*.
   is built: a third of every root system is walled in, but the share does
   not rise with mass, so the cost is a flat tax rather than a brake. The
   argument that survives is the unpriced 51-79% per-plant contact spread.
+- [plant-economy-rederivation-2026-08-23.md](plant-economy-rederivation-2026-08-23.md)
+  — **shipped, package P2.** The single economy re-derivation: superlinear
+  maintenance respiration on `q_peak`, night income, the root-blob economy
+  (a root cell not touching soil earns nothing and costs something),
+  anchorage as what root investment buys, and whole-plant die-back. Carries
+  the paired eight-seed before/after at two horizons — a quarter smaller,
+  foliage share up, 8 of 8 founders still establishing — and, more usefully,
+  the **six mechanisms it built, measured and withdrew**, including the
+  per-cell die-back that read a spanning-tree artifact as biology and the
+  §U solvency gate that produced a death spiral. §7 and §9 are the two
+  negative results: adult mortality has a cause that fires and still kills
+  nothing, and selection throughput moved the wrong way.
 - [world-flora-sowing-2026-08-23.md](world-flora-sowing-2026-08-23.md) —
   **implemented.** Worldgen sows four woody species instead of the
   hardcoded `"tree"`, by weights over terrain facts that already existed;

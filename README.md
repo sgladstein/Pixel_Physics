@@ -1019,6 +1019,32 @@ mat. All of it, with the controls that produced each number, is in
 `Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
 do not trust a plant constant without re-measuring it first.
 
+**Since: a tenth genome slot, and the instrument that can see it move.**
+`GENOTYPE_TRAITS` is 10. Slot 9 is `strain` — the heritable half of a
+reaction norm, how strongly an individual re-allocates away from height
+when it is repeatedly loaded — and it ships as **capacity with no
+consumer**: a width and a draw, so that when the response curve lands,
+how responsive to be is something selection finds rather than something
+an author picked. It was **appended rather than re-purposed** onto a
+measured-dead slot, deliberately: re-purposing costs the measurement
+record its comparability a second time, and the F4 megastudy re-run is
+already queued against the current numbering. Appending costs ~16 KB
+across the full 4,095 organisms and moves nothing — draws are keyed
+`rng::stream(world_seed, x, y, slot)`, so slots 0–8 draw bit-identically,
+which four guard tests in `plant.rs` pin, none of them against a stored
+fingerprint: each slot drawing from its own index, one stand grown twice in
+a run with slot 9 expressed and suppressed, 200 bred children, and the
+caller's own `Rng` position after `set_seed` returns.
+
+`examples/genome_drift` is the readout, and it exists **before** the
+mechanism that will use it: per-slot population mean and spread sampled
+across a long run, beside the generation depth reached, so "does a genome
+slot ever actually move" has an answer. `plant_probe` shows the variation
+standing at the end of a run and structurally cannot show change. Slot 9
+doubles as the harness's own drift control while it has no consumer —
+nothing can be selecting on it, so what it does is what drift alone looks
+like, and every other slot has to beat that before it means anything.
+
 ## The generation loop: plants die, seeds expire, slots come back
 
 **Package P3 of the plant implementation split.** Three things that were
@@ -1070,6 +1096,71 @@ only, and a tussock that has retired every tip has demand exactly zero, so
 grass's live mortality arm. Widening the demand sum is an economy change and
 belongs to the single re-derivation pass, not here. The grass economy is
 written down in full in `assets/species/grass.ron`'s header.
+
+## The economy re-derived: standing tissue costs something
+
+**Package P2 of the plant implementation split**, and one re-derivation
+rather than six changes — the crown and the roots are one carbon economy,
+and tuning them separately produces two half-calibrated models that each
+compensate for the other's error.
+
+**Standing tissue costs carbon.** Every living cell pays a flat mass term,
+and shoot tissue additionally pays a term superlinear in the girth it
+carries (`q_peak`, at Takenaka's exponent of 1.5 — flat respiration is a
+recorded dead end, because cost linear in mass against income linear in leaf
+count balances at any size). The growth pool and the bud-break gate both net
+that bill, so growth is what is *left over* rather than what comes in. Eight
+world seeds, paired against `main`: a tree is a quarter smaller, its wood
+falls faster than its foliage, its trunk is thinner above the base, and 8 of
+8 founders still establish on every seed.
+
+**Night slows growth**, at `0.25 + 0.75 x daylight_fraction` — a 2026-08-17
+owner directive that had never been actioned. It reaches income and nothing
+else: every *decision* stays independent of the hour, because a threshold
+sampled at an arbitrary phase of a designed 20:1 oscillator is a different
+threshold every hour.
+
+**A root cell that touches no soil earns nothing and still costs.** The
+plant's water store was sized off root *mass*, so the interior of a root
+ball — a third of it, measured — was buying storage it could never use.
+Capacity now reads the root cells that share a face with soil. This is a
+flat tax on root mass rather than a brake on it, and it is not briefed as
+one; what it buys is that the 51–79% per-plant contact spread that already
+existed, unpriced and therefore unselectable, now has a consequence. The
+spread survives the pricing, which is the point.
+
+**Roots buy anchorage, which is what makes root investment a trade rather
+than a tax.** How many anchors a plant has and how far they spread are
+recovered free from a walk that already ran; a plant carrying a big crown on
+a narrow root plate diverts growth into roots until it catches up. It is a
+whole-plant allocation term and nothing else — no structural check is
+scheduled from it, and lane S owns the storm that collects.
+
+**A plant that cannot pay sheds, from the outside in.** Die-back removes the
+most distal, most cantilevered abandoned tissue until the book balances, and
+it is a topology-preserving erosion: it never takes foliage, never takes a
+cell with something hanging further out than it, and never takes one whose
+removal would disconnect its neighbours. A plant comes apart into pieces at
+no point, which took three attempts to get right.
+
+**Known limitations, both measured.** Adult mortality now has a cause that
+fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
+kills nothing. A *shaded* plant settling at a stunted size is a suppressed
+tree waiting for a gap and is correct; a *droughted* one doing the same is
+not, and is filed with a reproduction as `open-bugs-handoff.md` §V2 —
+transpirational demand is summed over foliage only, so shedding a leaf
+reduces the very signal that shed it and a plant escapes drought by
+starving. Ninety thousand frames at maximum desiccation leave a tree larger
+than it was twenty thousand frames earlier. The general form is that an
+unpayable deficit has no consequence but shedding: there is starvation
+shedding and no starvation death. And selection
+throughput moved the *wrong way*: fecundity is canopy size, every plant is
+smaller, and inherited-genome establishments went from 1 to 0 over eight
+seeds. No selection claim can be made for trees on this branch. Secondary
+thickening is also still free, which is why upkeep bounds a plant's size
+without bounding its tissue; charging it was built, measured and withdrawn.
+`Reports/plant-economy-rederivation-2026-08-23.md` has all of it, including
+the six mechanisms this package built and reverted.
 
 ## M16 status
 

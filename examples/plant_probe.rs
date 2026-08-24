@@ -544,12 +544,20 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // Slots follow `organism::GENOTYPE_TRAITS`' map (positional
         // forever): 0 shoot branch, 1 root branch, 2 plastochron, 3
         // turgor, 4 pipe, 5 root tropism gain, 6 allocation bias, 7
-        // stomatal closure, 8 penetration. Each column's variance comes
-        // from the vector its consumer actually reads -- the shoot Grow
-        // for 0/2/3/4/6/7, the RootTip Grow for 1/5/8 -- and from the
-        // run's own species: this used to hardcode "tree", so every
-        // conifer and shrub table printed multipliers scaled by the
-        // wrong widths.
+        // stomatal closure, 8 penetration, 9 strain response. Each
+        // column's variance comes from the vector its consumer actually
+        // reads -- the shoot Grow for 0/2/3/4/6/7/9, the RootTip Grow
+        // for 1/5/8 -- and from the run's own species: this used to
+        // hardcode "tree", so every conifer and shrub table printed
+        // multipliers scaled by the wrong widths.
+        //
+        // Slot 9 has no consumer yet, so its column is a multiplier
+        // nothing multiplies -- present so the table matches the genome
+        // rather than a subset of it, which is how a widening goes
+        // unnoticed. For whether a slot *moves*, this table is the wrong
+        // instrument in principle: it is one snapshot of who is standing
+        // at the end of a run. `examples/genome_drift` is the one that
+        // samples the population mean across generations.
         let table_species = w.species.id_of(&scene.species).expect("species is compiled in");
         let vector_of = |ct: organism::CellType| {
             w.species
@@ -569,15 +577,15 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         println!("
   per-tree genotype and outcome (variance {variance:?}):");
         println!(
-            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
-            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "cells", "leaves", "height", "stem"
+            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
+            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "strain", "cells", "leaves", "height", "stem"
         );
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
-                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
                 g(0),
                 g(1),
                 g(2),
@@ -587,6 +595,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
                 g(6),
                 g(7),
                 g(8),
+                g(9),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
@@ -1187,6 +1196,94 @@ water balance, per established plant:");
                 let (dmin, dmed, dmax, dmean) = q(&mut demands);
                 println!("  uptake/tick    min {umin:>7.2} median {umed:>7.2} max {umax:>7.2} mean {umean:>7.2}");
                 println!("  demand/tick    min {dmin:>7.2} median {dmed:>7.2} max {dmax:>7.2} mean {dmean:>7.2}");
+            }
+
+            // **The carbon book, per plant — income against the bill.**
+            //
+            // This is the pair the whole P2 re-derivation turns on, and
+            // neither half was readable before: income was recomputed
+            // inside `allocate_to_frontier` and dropped, and there was no
+            // bill at all. `CLAUDE.md` wants the discrete event count next
+            // to the picture, and `starved` is that count — a crown that
+            // *looks* receded and a crown that simply grew that way are the
+            // same picture, and only the number says which happened.
+            //
+            // `bill/income` is the quantity to read across a change: above
+            // 1.0 the plant is running down its stock and is on the ratchet
+            // that ends in `senescent`.
+            let mut incomes: Vec<f32> = Vec::new();
+            let mut bases: Vec<f32> = Vec::new();
+            let mut reaches: Vec<f32> = Vec::new();
+            let mut bills: Vec<f32> = Vec::new();
+            let mut unpaid: Vec<f32> = Vec::new();
+            let mut ratios: Vec<f32> = Vec::new();
+            let mut starved: u64 = 0;
+            let mut anchors: Vec<f32> = Vec::new();
+            let mut slender: Vec<f32> = Vec::new();
+            let mut contact: Vec<f32> = Vec::new();
+            for id in per_plant.keys() {
+                if let Some(st) = w.organism_state(*id) {
+                    // `OrganismState::income` is stored noon-equivalent, so
+                    // what a plant actually collects over a cycle is that
+                    // times the day's mean factor. Printed that way because
+                    // the bill it is read against is charged every tick and
+                    // does not care what time it is -- and because the
+                    // alternative produced two figures four-fold apart from
+                    // one build, purely because one horizon was a whole
+                    // number of days and the other was not.
+                    let collected = st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR;
+                    incomes.push(collected);
+                    bases.push(st.maintenance_basis);
+                    // The raw anchorage reach — `Σ|x−x̄|` over the anchor
+                    // set against the crown's own moment about the collar,
+                    // unclamped and unpriced. `ANCHOR_DEMAND` has to be set
+                    // from *this* distribution: a saturated `anchor status`
+                    // column cannot say where to put it, and a term that
+                    // reads 1.00 on every plant is a term nothing can
+                    // select on.
+                    if st.crown_moment > 0.0 {
+                        reaches.push(st.anchor_moment / st.crown_moment);
+                    }
+                    bills.push(st.maintenance);
+                    unpaid.push(st.maintenance_unpaid);
+                    ratios.push(if collected > 0.0 { st.maintenance / collected } else { f32::INFINITY });
+                    starved += st.starved_cells as u64;
+                    anchors.push(st.anchor_status);
+                    slender.push(st.slenderness);
+                    if st.root_cells > 0 {
+                        contact.push(100.0 * st.contact_root_cells as f32 / st.root_cells as f32);
+                    }
+                }
+            }
+            if !bills.is_empty() {
+                let q = |v: &mut Vec<f32>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    (v[0], v[v.len() / 2], v[v.len() - 1], v.iter().sum::<f32>() / v.len() as f32)
+                };
+                let (imin, imed, imax, imean) = q(&mut incomes);
+                let (bmin, bmed, bmax, bmean) = q(&mut bills);
+                let (_, rmed, rmax, _) = q(&mut ratios);
+                let (_, umed, umax, _) = q(&mut unpaid);
+                let (nmin, nmed, nmax, _) = q(&mut bases);
+                println!("\ncarbon book, per established plant (per organism tick):");
+                println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                println!("  maintenance    min {bmin:>7.3} median {bmed:>7.3} max {bmax:>7.3} mean {bmean:>7.3}");
+                println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
+                println!("  cells shed to starvation, cumulative: {starved}");
+                println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");
+                if !reaches.is_empty() {
+                    let (hmin, hmed, hmax, _) = q(&mut reaches);
+                    println!("  anchor reach ratio  min {hmin:>8.4} median {hmed:>8.4} max {hmax:>8.4}   (anchor moment / crown moment; ANCHOR_DEMAND is set from this)");
+                }
+                let (amin, amed, amax, _) = q(&mut anchors);
+                let (lmin, lmed, lmax, _) = q(&mut slender);
+                println!("  anchor status  min {amin:>7.2} median {amed:>7.2} max {amax:>7.2}   (1.0 = crown fully anchored)");
+                println!("  slenderness    min {lmin:>7.1} median {lmed:>7.1} max {lmax:>7.1}   (shoot height / base width)");
+                if !contact.is_empty() {
+                    let (cmin, cmed, cmax, _) = q(&mut contact);
+                    println!("  root soil contact  min {cmin:>5.1}% median {cmed:>5.1}% max {cmax:>5.1}%   (the rest earns nothing and still respires)");
+                }
             }
 
             // **What `support` actually reads on a healthy tree.** The

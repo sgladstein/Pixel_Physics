@@ -3,7 +3,8 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-24 (grass is sown into generated worlds; a dry
+*Current as of: 2026-08-24 (standing tissue costs something to keep, and a
+plant that cannot pay sheds it; grass is sown into generated worlds; a dry
 meadow carries fire, a wet one stops it, and a damp one burns in patches;
 and a felled crown comes apart into logs).
 Written when water became a real currency and
@@ -19,7 +20,10 @@ again when plants started dying of ordinary causes and seeds stopped lasting
 for ever; again when leaf fall was slowed to a quarter across all four
 woody species, so the floor stopped burying the world; and again when a
 felled crown stopped turning into sawdust and started coming apart into
-logs, broken wood and leaf litter. One plant-economy
+logs, broken wood and leaf litter. Updated most recently
+when standing wood started costing carbon to keep, night started slowing
+growth, and a root buried inside its own root ball stopped counting for
+anything — see **What a plant pays for**, which is new. One plant-economy
 number is unsettled and its cause is still open — see
 `Reports/open-bugs-handoff.md`.*
 
@@ -38,6 +42,11 @@ been true of *all four* since this build. See **Cutting a plant down**.
 
 **Light**, caught by foliage. A leaf in open sky earns well; a leaf buried
 inside its own canopy, or under a taller neighbour, earns almost nothing.
+
+Light earns most at midday and least at night, so growth visibly slows after
+dark and picks up again in the morning. What a plant *decides* — whether a
+leaf is too shaded to keep, whether to open a new shoot — does not swing with
+the hour; only how much it actually earns does.
 
 **Water**, drawn from damp soil by roots. Foliage spends water continuously —
 more in bright light, almost none at night — and the plant can only earn from
@@ -70,15 +79,49 @@ dense for them.
 
 Root mass does two jobs, and they are the same number:
 
-- **It sets how much water the plant can draw and store.** A big root system
-  keeps drinking through a dry spell; a small one lives tick to tick.
+- **It sets how much water the plant can draw and store** — but only the
+  roots that actually touch soil count. A root cell walled in on every side
+  by the plant's own roots has nothing to drink from, so it buys the plant
+  nothing at all, while still costing food to keep alive. Growing a solid
+  ball of root is therefore a waste of a third of it, and two plants of the
+  same root mass can differ by nearly two to one in how much of it is
+  earning.
 - **It anchors the plant.** A root threaded through soil holds, and holds the
-  soil too — root-bound ground keeps a slope that bare soil would lose.
+  soil too — root-bound ground keeps a slope that bare soil would lose. How
+  well anchored a plant is depends on how far its roots *spread*, not only on
+  how many there are, and a plant carrying a big crown on a narrow root plate
+  puts its growth into roots until it catches up. So a tall plant in the open
+  builds a wide plate and a squat one does not.
 
 A plant that is short of water spends its growth on roots instead of canopy,
 and switches back once it is comfortable. So a thirsty plant looks
 root-heavy, and a well-watered one looks top-heavy. Root systems are branched
 tangles, not single taproots, and they reach most of the way down a deep bed.
+
+## What a plant pays for
+
+**Everything a plant is standing up in costs food to keep, every day, whether
+or not it is earning.** A leaf earns; the wood holding it up does not, and
+the thicker that wood is the more it costs — disproportionately, so a big
+plant pays far more per unit of trunk than a small one. This is what stops a
+plant simply filling in for ever, and it is why an old plant is not just a
+bigger young one.
+
+The visible consequences:
+
+- **A branch that stops earning is abandoned.** When a limb loses its leaves
+  to shade or drought, the wood behind it is a pure cost, and the plant lets
+  it go from the tip inward. The litter falls where it stood.
+- **Plants trim from the outside in, never from the middle.** A plant never
+  comes apart into floating pieces; the outermost, longest-reaching tissue
+  goes first and the trunk is the last thing to go.
+- **Growth is what is left over.** A plant grows on the difference between
+  what it earns and what its standing tissue costs, so a big plant grows
+  slowly and a stressed one not at all.
+- **A plant that cannot pay at all shrinks.** It sheds its way down toward a
+  size it can carry, and a plant in a genuinely poor spot — a thin pocket of
+  soil, deep shade — settles at a stunted size and stays there rather than
+  dying.
 
 ## What a healthy stand looks like
 

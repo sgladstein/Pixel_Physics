@@ -484,11 +484,28 @@ pub enum Behavior {
         /// tree wants the written numbers and not a draw around them.
         /// Indexed by trait — **`GENOTYPE_TRAITS`' own doc holds the slot
         /// map and is the contract.** All zeroes disables jitter. The
-        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7 are borrowed
-        /// from the same vector by the passes that consume them — one
-        /// plant, one genotype); the root's `Grow` reads 1/5/8 from the
-        /// RootTip entry's own vector, which is what lets root and shoot
-        /// diverge within one individual.
+        /// shoot's `Grow` reads 0/2/3 from this vector (4/6/7/9 are
+        /// borrowed from the same vector by the passes that consume them
+        /// — one plant, one genotype); the root's `Grow` reads 1/5/8 from
+        /// the RootTip entry's own vector, which is what lets root and
+        /// shoot diverge within one individual.
+        ///
+        /// **Slot 9's width is provisional and is not from measurement**,
+        /// which is a gap left visible rather than relabelled away
+        /// (`CLAUDE.md`: set bars from measurement, and where the number
+        /// cannot be had yet, record both and leave the gap). The trait
+        /// has no consumer, so there is no outcome to regress a width
+        /// against; what it must not be is `0.0`, because a slot at zero
+        /// width is a slot no population can explore and this one exists
+        /// precisely to give selection something to act on. So each
+        /// species carries its **own widest in-service width** there —
+        /// the same number as its `pipe_ratio` slot, 0.7 where the others
+        /// run wide and 0.5 on conifer, whose whole vector is tighter.
+        /// That is a defensible default rather than a measured value: it
+        /// invents no new number, it spans better than 5x between the
+        /// extreme individuals, and it is wide enough that a mean moving
+        /// under selection will clear the drift the readout shows on an
+        /// unselected control. Re-derive it once the response curve lands.
         ///
         /// **Slots are positional and must never be renumbered** — the slot
         /// index selects which stored draw a trait reads, so moving a trait
@@ -1514,7 +1531,122 @@ pub struct OrganismState {
     /// (`Reports/plant-genome-design.md` §4.8).
     pub endowment: f32,
     pub root_cells: u32,
+    /// **Root cells that share a face with soil** — the uptake surface, as
+    /// opposed to the mass.
+    ///
+    /// A root cell walled in by its own siblings shares no face with
+    /// anything it could drink from, so it can absorb nothing while still
+    /// costing carbon to build and to run. `Reports/root-blob-and-uptake-
+    /// surface-2026-08-23.md` measured that interior at **33.1% / 36.1% /
+    /// 33.3%** of the root system at 10,800 / 25,200 / 43,200 frames, so
+    /// it is a third of every root system and not a rounding error.
+    ///
+    /// **Read the second finding before treating this as a brake.** The
+    /// interior share does *not* rise with mass — root cells nearly
+    /// quadruple across that table while it holds at about one third — so
+    /// pricing contact is a flat tax on root mass, not a bound on it. What
+    /// it does buy is the thing the owner asked for: per-plant contact
+    /// already spans **51%–79% at comparable mass, same genome, same
+    /// scene**, and nothing was pricing it, so nothing could select on it.
+    ///
+    /// A face, not eight neighbours, for the reason `diffuse_resource`
+    /// stays four-connected while `Grow` places at eight: an exchange
+    /// crosses a shared face, and a diagonal cell shares only a corner.
+    pub contact_root_cells: u32,
     pub shoot_cells: u32,
+    /// **How many of this plant's cells are structural anchors** — the
+    /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
+    /// loop rather than in a walk of its own.
+    ///
+    /// That loop already enumerated the set to seed its heap and then
+    /// dropped it (`open-bugs-handoff.md` §P3, "the anchor *set* itself is
+    /// never materialised"). Counting it costs one increment per cell in a
+    /// pass that was already visiting every cell.
+    pub anchor_cells: u32,
+    /// **The anchor plate's resisting moment**, `Σ|x − x̄|` over the anchor
+    /// set: how many anchors there are *and* how far out they reach,
+    /// in one number, from the same free tally.
+    ///
+    /// Rises with count and with spread, which is what an anchor plate
+    /// actually trades: a hundred anchors under the trunk resist less than
+    /// forty spread across two metres. No constant in it — it is a sum of
+    /// distances, so it needs no calibration to *be* right, only to be
+    /// compared against a demand.
+    pub anchor_moment: f32,
+    /// **How well anchored this plant is for the crown it carries**, 0..1 —
+    /// `anchor_moment` against the overturning demand of the shoot above
+    /// it, clamped.
+    ///
+    /// The counterweight that makes root allocation a trade instead of a
+    /// tax. `physical-trees-design-2026-08-23.md` §11.1: a quantity with a
+    /// cost and no benefit has exactly one optimum, the minimum, and a
+    /// working economy finds it and holds every plant there — the visible
+    /// result being one root morphology everywhere, which is the complaint
+    /// the owner has already made twice.
+    ///
+    /// **A whole-plant number, and that is load-bearing.** §11.7's first
+    /// trap, and `CLAUDE.md`'s "which object does this rule evaluate": the
+    /// quantities here — a crown's mass, its lever arm, an anchor
+    /// half-width — are defined for a plant and undefined for a cell. This
+    /// is read by `allocate_to_frontier`, an allocation decision; nothing
+    /// in the plant lane schedules a structural check off it. Lane S owns
+    /// the storm that collects.
+    /// **The crown's overturning demand**, `Σ (collar − y)` over shoot
+    /// tissue: mass times lever arm, in one sum from the walk
+    /// `organism_upkeep` already runs.
+    ///
+    /// Stored beside `anchor_moment` rather than folded into
+    /// `anchor_status`, for two reasons. The ratio of the two is what
+    /// `ANCHOR_DEMAND` is derived from, and a clamped status cannot be
+    /// divided back out to recover it. And lane S's wind-throw wants the
+    /// unclamped demand directly — a gust delivers a moment, and what it
+    /// has to beat is this.
+    pub crown_moment: f32,
+    pub anchor_status: f32,
+    /// **Height of the shoot above the collar over stem width at the
+    /// base** — read, never assigned (§11.2).
+    ///
+    /// `thicken` already ties width to the leaf mass above it, so a
+    /// slender plant is what happens when the crown flushes faster than the
+    /// stem thickens. Stored so lane S's wind-throw can pick its rung off a
+    /// number the growth model produced rather than one a rule invented.
+    pub slenderness: f32,
+    /// **What this plant's standing tissue cost to run last tick** — the
+    /// maintenance-respiration bill, summed over the walk that charges it.
+    /// **What the plant earned last tick**, in carbon — the income
+    /// `allocate_to_frontier` divides, stored so it can be read against
+    /// `maintenance` without a second derivation of the same expression.
+    ///
+    /// Night-scaled, like the pool it feeds: this is money, not policy.
+    pub income: f32,
+    /// **The bill at unit price** — `Σ (q_peak / L_node)^MAINTENANCE_EXPONENT`
+    /// over shoot tissue, before `MAINTENANCE_PER_NODE` multiplies it.
+    ///
+    /// Stored because a constant has to be *derived* rather than chosen, and
+    /// the only honest way to derive this one is to read the quantity it
+    /// scales on a stand the charge is not yet acting on. With the price at
+    /// zero this and `income` give the price that puts a mature tree at any
+    /// chosen bill-to-income ratio directly, instead of by bisecting a
+    /// feedback loop. Keeping it afterwards means the same derivation can be
+    /// re-run the day anything upstream of `q_peak` moves — which, on this
+    /// quantity's own history (four re-derivations of `pipe_ratio`), it will.
+    pub maintenance_basis: f32,
+    pub maintenance: f32,
+    /// **The part of that bill the plant could not pay**, in carbon.
+    ///
+    /// The continuous quantity `CLAUDE.md` prefers over a count of starving
+    /// cells: counts give knife-edge margins and sums separate cleanly.
+    /// Zero on any plant in surplus, which is most of them for most of
+    /// their lives.
+    pub maintenance_unpaid: f32,
+    /// **Cells lost to starvation, cumulative** — the "did it fire at all"
+    /// counter for crown recession and the root interior.
+    ///
+    /// `CLAUDE.md` is explicit that an image cannot answer this: a collapse
+    /// rendered as coherent falling slabs was read as "chunks are working"
+    /// while the body count was zero for the whole run. Every card this
+    /// mechanism is posted on carries this number in its `meta`.
+    pub starved_cells: u32,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
     /// occupies, refreshed once per organism tick in the walk
     /// `plant::organism_upkeep` is already doing.
@@ -1773,13 +1905,44 @@ pub struct OrganismState {
 /// signed off 2026-08-18). Slots 0/2/3 are read by the shoot's `Grow`,
 /// 1/5/8 by the root's `Grow` (from the RootTip entry's own vector — that
 /// separation is what lets root and shoot diverge within one individual),
-/// 4/6/7 by whole-plant passes that borrow the shoot vector:
+/// 4/6/7/9 by whole-plant passes that borrow the shoot vector:
 ///
 ///   0 shoot branch chance        5 root tropism gain
 ///   1 root branch chance         6 root:shoot allocation bias
 ///   2 shoot plastochron          7 stomatal closure point
 ///   3 turgor per cell            8 root penetration force
-///   4 pipe ratio
+///   4 pipe ratio                 9 strain-response gain
+///
+/// **Slot 9 is capacity, not yet a trait: it has a width and a draw and
+/// no consumer.** It is the heritable half of a reaction norm — how
+/// strongly *this individual* re-allocates carbon away from height and
+/// into root and stem when it is repeatedly loaded (thigmomorphogenesis,
+/// in the botany). The point of spending a slot rather than a constant is
+/// that a constant makes plasticity something the author decided and a
+/// slot makes it something selection can act on: the population can
+/// discover how responsive it should be, and different lineages can
+/// settle differently. The response curve itself is a later package.
+///
+/// **Appended, not re-purposed, and that was a deliberate call.** Slots
+/// 1 and 5 set the precedent for re-purposing a measured-dead slot, and
+/// re-purposing here would have cost nothing in bytes. It would have cost
+/// the measurement record a second time — only slots 0/2/3/4 survived the
+/// last re-map comparable, and the F4 megastudy re-run is already queued
+/// against the current numbering. Appending is exempt from the
+/// never-renumber rule for a mechanical reason rather than a stylistic
+/// one: `plant::seed_genotype` keys each draw on `rng::stream(world_seed,
+/// x, y, slot)`, so a slot's value is a function of its own index and
+/// nothing else, and adding one draws a stream nobody had drawn before.
+/// `plant::tests::a_genome_slots_draw_is_a_pure_function_of_its_own_index`
+/// asserts exactly that, and
+/// `plant::tests::expressing_the_appended_genome_slot_changes_no_plant`
+/// grows one stand twice in a run -- slot 9 expressed, then at zero
+/// width -- and requires the two to be identical.
+///
+/// The one place appending is *not* automatically free is the mutation
+/// loop in `plant::set_seed`, which draws one jitter per slot from a
+/// shared `Rng` — a tenth slot consumes a tenth draw and would shift
+/// every draw after it. See that function for how the sequence is held.
 ///
 /// Slots 1 and 5 were `upward_weight` and `light_weight`, measured inert
 /// across 1,024 genomes at ±40% / ±50% and held at zero width in every
@@ -1789,7 +1952,7 @@ pub struct OrganismState {
 /// phenotype, which is the property the never-renumber rule below exists
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
-pub const GENOTYPE_TRAITS: usize = 9;
+pub const GENOTYPE_TRAITS: usize = 10;
 
 /// How many heritable **body traits** a creature carries — the width of
 /// both `CreatureDef::traits` (the authored ancestral values) and
@@ -1824,7 +1987,7 @@ pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// **Discrete genes, and why a continuous genome cannot produce species.**
 ///
-/// `genotype_draws` jitters nine scalars around a species mean. Run a
+/// `genotype_draws` jitters ten scalars around a species mean. Run a
 /// population on that and you get a Gaussian cloud — *a spectrum*, by
 /// construction, however long it runs and however hard selection pushes.
 /// There is no setting of a continuous genome that yields two clumps.
@@ -2105,6 +2268,38 @@ impl SpeciesRegistry {
     /// everything else fixed.
     pub fn set_genome(&mut self, id: SpeciesId, genome: Vec<f32>) {
         self.species[id.0 as usize].genome = genome;
+    }
+
+    /// Overwrite one `Grow` arm's `genotype_variance` — **harness only**,
+    /// same caveat as `set_genome`, and it exists for one specific test
+    /// shape worth naming.
+    ///
+    /// The guard on appending a genome slot has to answer "does the new
+    /// slot change anything about the plants?", and the honest form of
+    /// that question is a **comparison, not a stored number**: grow the
+    /// same stand twice in one process, once with the slot expressed and
+    /// once with its width at `0.0`, and check the two are identical.
+    /// A hardcoded fingerprint answers it too, and then goes stale every
+    /// time any lane touches plant behaviour — which cost two wrong
+    /// diagnoses in one evening (`Reports/open-bugs-handoff.md`).
+    ///
+    /// Per-`World` rather than a global switch on purpose: the test
+    /// binary runs tests on many threads at once, so a process-wide
+    /// "effective genome width" would leak into whatever else happened
+    /// to be running. Widths are read live at every use (see
+    /// `Behavior::Grow::genotype_variance`), so setting one before a run
+    /// is enough and nothing needs redrawing.
+    ///
+    /// A no-op if the species has no `Grow` on that cell type.
+    pub fn set_genotype_variance(&mut self, id: SpeciesId, cell_type: CellType, variance: [f32; GENOTYPE_TRAITS]) {
+        let Some((_, behaviors)) = self.species[id.0 as usize].cell_types.iter_mut().find(|(ct, _)| *ct == cell_type) else {
+            return;
+        };
+        for b in behaviors.iter_mut() {
+            if let Behavior::Grow { genotype_variance, .. } = b {
+                *genotype_variance = variance;
+            }
+        }
     }
 
     /// Overwrite a species' creature parameters — **harness only**, same
@@ -2478,6 +2673,28 @@ pub struct OrganismCell {
     /// mobilising reserves instead of quietly giving up (see
     /// `plant::break_buds`).
     pub q_peak: f32,
+    /// **The support this cell carries *right now*** — the same basipetal
+    /// sum as `q_peak`, before the high-water `max`.
+    ///
+    /// `accumulate_support` has always computed this and thrown it away on
+    /// the line that latches the peak. Keeping it costs one `f32` per cell
+    /// and answers a question the peak provably cannot: **is this cell
+    /// still carrying any living foliage?** The peak says what it once
+    /// carried and, being monotone on purpose, keeps saying so for ever.
+    ///
+    /// That difference is what `organism_upkeep`'s die-back rule is keyed
+    /// on, and the reason it is safe. A cell at `q_now == 0` supports no
+    /// leaf anywhere above it in the plant's own topology, so removing it
+    /// cannot strand foliage: the crown recedes from its abandoned tips
+    /// inward, and the trunk — which carries the whole live crown — is not
+    /// a candidate while a single leaf remains. A rule keyed on the peak
+    /// instead would price the trunk highest *and* make it the first thing
+    /// to die, which is a hole in a stem, not crown recession.
+    ///
+    /// `plant::break_buds`' known defect (`q_peak` remembers, nothing reads
+    /// the difference) wants exactly this pair as well; P5's resprout is
+    /// the other consumer and needs no second field.
+    pub q_now: f32,
     /// The direction this shoot is **actually travelling**, carried forward
     /// with inertia rather than re-derived from the immediate
     /// neighbourhood each step.
@@ -2585,6 +2802,7 @@ impl Default for OrganismCell {
             carbon_conductance: [CONDUCTANCE_MIN; 4],
             order: 0,
             q_peak: 0.0,
+            q_now: 0.0,
             heading: (0.0, 0.0),
             path_len: 0,
             primed: false,
