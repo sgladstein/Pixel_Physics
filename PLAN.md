@@ -1297,6 +1297,73 @@ still stands.
 
 ---
 
+## Cross-lane findings — what only the integrator could see (2026-08-24)
+
+Three conclusions from running seven plant lanes concurrently. **None of them
+is a new measurement**; each is an existing lane's number, read against
+another lane's number. They are recorded here rather than in a lane report
+because no lane owns them, and each one changes what should be built next.
+
+### 1. Turnover gates the entire evolution ambition — measure it before planning around it
+
+`genome_drift`, `founders=16 frames=200000`, seeds 1 and 7: **max generation 1
+on both.** Standing population ~16–22, essentially the founding cohort, never
+replaced. Frames buy seed bank, not pedigree.
+
+The owner's stated goal is that plasticity should *derive itself from
+selection* rather than being authored, and his stated doubt was whether the
+model has the complexity for it. **The answer is that complexity is not the
+binding constraint** — the population never turns over, so selection has
+nothing to act on. Directly blocked, all of it downstream of the same fact:
+
+- the `MUTATION_SIGMA` sweep (blocked on turnover, not on sweep design);
+- any selection-derived reaction norm;
+- evolution-as-a-dev-tool for authoring new creatures, which the owner
+  approved on the creature side.
+
+**§5c turnover therefore precedes all of them, and is not optional.**
+`genome_drift` now warns below generation 2 so nobody spends hours on a study
+that structurally cannot answer its question.
+
+### 2. Wind-throw has every dependency met and no owner
+
+The owner asked for roots that anchor a tree, so a weak root system lets a
+storm knock it over, and a top-heavy tree on a thin trunk falls regardless.
+`Reports/physical-trees-design-2026-08-23.md` §11 specifies it. Its
+dependencies are now **all on `main`**:
+
+| piece | landed by |
+|---|---|
+| terrain-derived exposure — the world has sheltered places | W4 |
+| anchorage in the economy | P2 (#40) |
+| a felled tree comes down as pieces | T1 (#35) |
+
+**T2 (topple) was never dispatched**, so the pieces sit unconnected. This is
+the shortest remaining path to something the owner would actually *feel*, and
+it is currently nobody's.
+
+### 3. The recurring "size and colour" complaint has a diagnosis nobody has acted on
+
+Across at least three review cards the owner said the species differ only in
+size and colour — *"my statement from before stands that most of the
+difference between all of these is just size and color."*
+
+`Reports/plant-appearance-design.md` diagnosed it and the diagnosis has held:
+every species is ~90% wood / ~5% leaf and draws from one four-brown and one
+four-green palette. Three architectural levers were built, all demonstrably
+**fired** (46–186 sympodial forks per shrub, 1,797–2,750 plagiotropic steps
+per conifer, counters printed beside the sheets), and none moved the
+silhouette — because they change *which cell gets a label*, and texture and
+colour set the silhouette.
+
+**The fix is per-species texture and palette, not more growth levers.** It
+remains unscheduled while being the most-repeated unaddressed complaint in the
+review queue. `divergence` (see `Reports/instruments.md`) is the instrument
+that would tell you whether a proposed lever moves morphology *before* it is
+built — the measurement this failure needed and did not have.
+
+---
+
 ## Execution order
 
 Milestone numbers are stable identifiers, not an order. This is the order.

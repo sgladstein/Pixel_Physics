@@ -34,6 +34,24 @@
 #    the number, because the number is the thing a session needs to see
 #    before it decides whether to trust what it is sitting on.
 #
+# 3. **Work that is finished and invisible.** A branch can be current, green
+#    and complete and still be reachable by nobody, because the thing that
+#    makes work visible here is a pull request -- and a session that cannot
+#    reach the GitHub API cannot open one. Measured 2026-08-24: package W3
+#    sat at **13 commits ahead and 37 behind**, holding 660 insertions and a
+#    latent bug `main` needed, for hours. It was not stale (37 is under the
+#    40 bar) so this script printed it as `ok`, and no PR existed, so the
+#    integrator's board did not show it either. It was found by enumerating
+#    branches by hand.
+#
+#    The lesson, and the reason for the UNLANDED summary below: **the PR list
+#    is not the work list.** `ahead > 0` is the only reliable statement that
+#    a branch holds something the trunk does not, and it is true whether or
+#    not anyone has opened a PR, whether or not the branch is stale, and
+#    whether or not its session still exists. It is reported rather than
+#    gated, because a branch mid-work is supposed to be ahead -- the number
+#    is for a human deciding what has been forgotten, not a pass/fail.
+#
 # Usage:
 #   scripts/branchcheck.sh            # full drift report + the divergence gate
 #   scripts/branchcheck.sh --gate     # divergence gate only (quiet, for CI)
@@ -148,11 +166,27 @@ count_state() { printf '%s\n' "$rows" | grep -c "^$1	" || true; }
 merged=$(count_state MERGED); stale=$(count_state STALE)
 healthy=$(count_state ok); data=$(count_state DATA)
 
+# Unlanded work, counted across every state except DATA -- a STALE branch and
+# a current one are equally capable of holding a finished package nobody can
+# see, and W3 (the case in the header) was neither merged nor stale.
+unlanded_rows=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "DATA" && $4 > 0')
+unlanded=$(printf '%s' "$unlanded_rows" | grep -c . || true)
+unlanded_commits=$(printf '%s\n' "$unlanded_rows" | awk -F'\t' '{n += $4} END {print n+0}')
+
 printf -- '---------------------------------------------------------------------------------\n'
 printf 'branchcheck: %s merged (0 ahead -- carry nothing main lacks, deletable), %s stale (>%s behind), %s current, %s data.\n' \
   "$merged" "$stale" "$stale_after" "$healthy" "$data"
 [ "$merged" != "0" ] && printf 'branchcheck: MERGED branches are fully contained in main. Deleting one loses no commit.\n'
 [ "$stale" != "0" ] && printf 'branchcheck: a STALE branch merges against a trunk it has not seen. Pull main in before trusting a measurement taken on it.\n'
 [ "$data" != "0" ] && printf 'branchcheck: DATA branches share no history with main by design. Never merge main into one.\n'
+
+if [ "$unlanded" != "0" ]; then
+  printf 'branchcheck: %s branch(es) carry %s commit(s) main does not have.\n' "$unlanded" "$unlanded_commits"
+  printf 'branchcheck: THE PR LIST IS NOT THE WORK LIST -- a finished branch with no PR is invisible, and sessions that cannot reach the GitHub API cannot open one. Check each of these has a PR or an owner before concluding a program is done:\n'
+  printf '%s\n' "$unlanded_rows" | sort -k4,4nr | while IFS=$'\t' read -r state behind short ahead last; do
+    [ -z "$short" ] && continue
+    printf '    %-44s %3s ahead  %3s behind  %-6s last %s\n' "$short" "$ahead" "$behind" "$state" "$last"
+  done
+fi
 
 exit "$fail"

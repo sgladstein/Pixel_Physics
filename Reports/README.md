@@ -27,8 +27,13 @@ tried?"*.
   executed.** What the docs told an agent that wasn't true, re-ranked for
   the agent consumer; carries the in-flight doc inventory.
 - [pixel-physics-issues.md](pixel-physics-issues.md) — **mostly closed.**
-  The eleven-issue backlog; nine-plus closed, #11 (slice-identifier on
-  `ChunkCoord`) has a land-before-save-format deadline.
+  The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
+  `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
+  not spread) was owner-filed 2026-08-24.
+- [instruments.md](instruments.md) — **living index.** What each of the 25
+  `examples/` binaries can answer, and which of them generalise past the
+  question they were built for. **Grep this before building a measurement
+  harness** — the file exists because they were being rebuilt.
 
 ## Destruction and structure
 

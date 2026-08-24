@@ -11,6 +11,63 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 ## Open
 
+### 0-z. **Leaves are the only channel a plant has, and four separate "bugs" are all that one fact** — OPEN, structural
+
+Filed 2026-08-24 by the plant-program integrator. **Nothing here is a new
+measurement.** Every number below was reported by a different lane, each as an
+unrelated defect in its own area, and none of those lanes could see the others.
+Assembled, they are one design property with four symptoms — which is why
+fixing them one at a time has not worked and will not.
+
+**The property.** A plant's leaves are the sole interface between it and every
+system that acts on it. Economy, water, mortality and visible mass all read
+foliage and nothing else. So a plant that loses its leaves does not become a
+struggling plant; it drops out of the simulation's reach almost entirely, while
+still standing there.
+
+| the symptom, as reported | the lane that found it |
+|---|---|
+| Die-back is inert on a compact stump — a tree that cannot pay its bills loses nothing, because the only consequence of a deficit is shedding exposed tissue and a stump has none. | P2 §7 |
+| Transpirational demand is summed over `Leaf \| GrowingTip` **only**, so `settle_water` returns desiccation through its `else { 0.0 }` branch at zero demand, and `drought_death` — a parameter on `Photosynthesize` — is unreachable. **A foliage-free tree is immune to drought.** | integrator, chasing the owner's pushback |
+| A felled tree's pile reads as dust because `leaf` is **1,660 of 2,940 cells — 56%** — and every one becomes a `Powder`. 91%+ of *woody* mass promotes to pieces and it is not enough. | T1, filed as T1f |
+| Grass has **no leaf stage at all**, and P2's superlinear maintenance made each grass plant ~20% smaller with plant *counts* unchanged within ±1. | W3, re-measured across #40 |
+
+**The owner's judgement, which is what makes this a bug rather than a
+curiosity** (2026-08-24): *"but economics should be able to call us tree death
+right. if a tree doesn't get watered, it will eventually die."* Today it does
+not, and the escape route is perverse: **a tree escapes dying of thirst by
+starving first.** Losing its leaves is what makes it safe.
+
+**Why the per-symptom fixes failed.** Each lane correctly diagnosed its own
+half and reached for the lever in front of it — tune die-back, tune the
+fragment ladder, tune maintenance. All four levers read foliage, so none of
+them can act on the state that has none. This is the shape `CLAUDE.md` calls
+*two fixes failing the same way means the approach is wrong, not the tuning*,
+seen across four lanes instead of two attempts.
+
+**Ranked fixes** (the integrator's, given to P2 2026-08-24; P2 was building #1
+when this was filed — check whether it landed before starting):
+
+1. **Sustained unpayable deficit kills outright.** A counter of consecutive
+   ticks with an unpayable deficit; past a threshold the organism dies. Closes
+   the economy and water holes together, needs no new channel, and is what the
+   owner actually asked for.
+2. **Non-foliage maintenance demand** — wood and roots draw a trickle, so
+   demand never reaches zero and desiccation means something on a bare stump.
+   Does not on its own guarantee death; it is what makes #1's threshold
+   defensible.
+3. **A wood/root cavitation path.** Most physical, most work, a later lever.
+
+Separately, and not fixed by any of the above: **T1f's 56% is a *visual*
+symptom of the same property** and wants a dead-leaf tier that is not a
+`Powder`, or a less leaf-heavy species. Do not expect #1–#3 to change what a
+felled tree looks like.
+
+**The generalisable lesson, for whoever reads this next.** Each lane's finding
+was correct, well-measured, and useless alone. When several packages report
+unrelated inertness in the same subsystem, **ask what quantity they all read**
+before tuning any of them — the shared input is the bug.
+
 ### 0-a. Dark bands under overhangs, objects and open-cast digs (render) — **CLOSED, all three**
 
 Reported from play as *"dark bands under any overhangs or objects or when
