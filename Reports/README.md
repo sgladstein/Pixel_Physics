@@ -451,8 +451,32 @@ field rework — see `open-bugs-handoff.md`.
 ## In flight — exists on an unmerged branch, not in this directory yet
 
 When one of these merges, move its line into the sections above (docscheck
-flags the mismatch).
+flags the mismatch). Keep prose in this section free of backticked report
+filenames that already exist in `Reports/` — check 4 matches any such name
+here and cannot tell a listing from a passing mention.
 
-- `performance-audit.md` — worktree `perf-audit` (untracked).
-- `measurement-under-contention.md` — worktree `perf-lock` (untracked,
-  with a CLAUDE.md edit adding `scripts/perf.sh`).
+**All three former entries here were recovered and pushed 2026-08-24** — they
+had been in untracked worktrees on one machine, reachable from no remote. The
+recovery record is `perf-lock-recovery-2026-08-24.md` on
+`claude/perf-lock-recovery` (`369ec1d`). The old entries were wrong in three
+ways worth remembering: perf-lock's files were already committed, not
+untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
+never held the report at all; and a worktree's name is not its branch's name
+(plant-branch-angle lives in a worktree called `plant-crown`).
+
+- The contention-measurement report, `scripts/perf.sh`, and a `CLAUDE.md`
+  section — **`origin/perf-lock`** (`bdda4a9`). 6 ahead of `main` and **518
+  behind**, forked at `0efeb24`. Its `CLAUDE.md` is `+91 −1` against that fork
+  but **`+97 −467` against today's `main`**, so a naive merge reverts 467
+  lines of the most contested file in the repo. Re-apply the section onto
+  current `CLAUDE.md` rather than merging the branch. Blocks recommendation 12
+  of the CLAUDE.md review indexed above until it lands.
+- The frame-cost audit and four measurement harnesses —
+  **`origin/claude/perf-audit-recovery`** (`f7bebae`). A rescue, not a merge
+  candidate: not built, not checked, its worktree's `src/` changes held as a
+  `.patch` rather than committed, and its five new `examples/` binaries have
+  no rows in the instruments index yet (docscheck check 5 will fire).
+- §6a of the plant appearance report —
+  **`origin/claude/plant-appearance-6a-recovery`** (`8c35cff`). 50 lines that
+  were on no branch anywhere: the `thicken`/`stem_run` axis bug and a re-swept
+  `shade_death`.

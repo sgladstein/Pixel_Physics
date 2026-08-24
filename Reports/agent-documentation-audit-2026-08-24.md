@@ -18,6 +18,20 @@ review's method*. The irony is the finding: `CLAUDE.md` warns "know how far
 behind you are, before you trust anything you measured on it", and a one-commit
 drift was enough to make this report's first draft wrong about its own subject.
 
+**Which `CLAUDE.md` this report measured.** `main`'s. Every figure in §3 is
+against `e20e338`. **`origin/perf-lock` carries a different `CLAUDE.md`** — a
+91-line section on timing under contention (`scripts/perf.sh`, the TRUSTED
+gate, sccache) that exists on no other branch. Until it lands, any claim about
+"what `CLAUDE.md` says" has to name which one, and the always-loaded budget in
+§3 is the `main` figure, not the merged one.
+
+**Running `docscheck` on `main` will not reproduce this report's findings, and
+that is not a disagreement.** `main`'s `docscheck.sh` has **five** checks and
+no `scripts/bugindex.py`; this branch adds checks 6 and 7. So the three §4b
+identifier collisions are invisible on `main` — they report clean there
+because nothing looks for them, not because they are fixed. Confirmed against
+`e20e338` directly. On `main`, any docscheck finding at all is genuinely new.
+
 **A correction to this report's own first draft.** It stated that no other
 branch existed on the remote. That was false, and instructively so: the
 container's clone had fetched only `main`, so `git branch -r` showed two refs.
@@ -354,32 +368,31 @@ re-checked against the remote:
 
 | Rec | What it moves | Deferred behind | State now |
 |---|---|---|---|
-| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNVERIFIABLE** — no remote ref; see below |
-| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED, proved** — `git merge-base --is-ancestor origin/load-share origin/main` succeeds |
-| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **inherits 5's uncertainty** |
-| 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **BLOCKED — `perf-lock` exists on no remote** (§5e) |
+| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNBLOCKED, proved** — merged; `9b0cccc` is an ancestor of `main` |
+| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED, proved** — merged |
+| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **UNBLOCKED** |
+| 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **STILL BLOCKED** — pushing is not merging |
 
-**A correction this report had to make against itself.** Its first version read
-`plant-branch-angle`'s absence from the remote as "merged, therefore
-discharged" and `perf-lock`'s absence as "unpushed, therefore possibly lost" —
-**the same evidence, two opposite readings, chosen to suit the conclusion each
-supported.** That is the error §1c and the Method section are about, and it was
-caught by an independent review rather than by this report.
+**Recs 5, 6 and 7 are executable now.** All three blockers are discharged and
+each was proved by the ancestor test rather than inferred from a branch's
+absence.
 
-What can actually be proved:
+**Rec 12 is the one that is not what it looks like, and this report got it
+wrong twice.** The first draft said `perf-lock` was unreachable; the second
+implied that pushing it would settle the matter. Neither is right. `perf-lock`
+is now visible and reviewable by anyone instead of trapped on one machine —
+but it is still 6 commits ahead of `main` and **518 behind**, and it still
+edits the region the Conventions re-clustering would move. The deferral holds
+until someone merges it.
 
-- **`load-share` is merged** — `git merge-base --is-ancestor` against
-  `origin/main` returns true. Rec 6 is genuinely unblocked.
-- **`plant-branch-angle` cannot be tested either way.** It has no remote ref,
-  so the ancestor test cannot run. The only evidence it merged is `e20e338`'s
-  own commit message — a relayed claim, and `CLAUDE.md`'s rule is to verify
-  what a lane relays. Its absence is *equally consistent* with the `perf-lock`
-  story: unpushed on one machine.
-
-So **rec 6 is safe to execute now. Recs 5 and 7 need the same owner
-confirmation as `perf-lock`** — one question covers all three: *do
-`plant-branch-angle` and `perf-lock` still exist on your machine?* If they do
-not, all four are unblocked and the in-flight entries come out.
+**And merging it is not a 91-line addition.** That figure is measured against
+its own fork point (`0efeb24`: `CLAUDE.md +91 −1`). Against today's `main` the
+same file reads **+97 −467** — `perf-lock`'s `CLAUDE.md` is missing 467 lines
+that landed after the fork, so a naive branch merge would revert them. This is
+`CLAUDE.md`'s own 160-behind hazard at **518**, on the most contested file in
+the repo. The realistic path for rec 12 is to **re-apply the 91-line section
+onto today's `CLAUDE.md`**, then execute the re-clustering — not to merge the
+branch and reconcile afterwards.
 
 Each keeps the operative rule inline and moves only the narrative; together the
 four are ~350–400 tokens off every session. Small — and also the *approved,
@@ -447,30 +460,71 @@ agent cannot filter for "still true." A small controlled vocabulary
 *prefix*, with the existing prose kept after it, would make the index
 greppable without losing anything.
 
-### 5e. Three pieces of work exist on none of the 49 remote branches — CONFIRMED
+### 5e. All three artifacts were on the owner's machine — RECOVERED AND PUSHED
 
-The first draft said "may be lost". With a full `git fetch --prune` it can be
-stated flatly. Searched across **all 49 remote branches**:
+**Resolved 2026-08-24 by a local agent, and the answer was the good one:
+nothing had been cleaned.** All three were in untracked worktrees under
+`.claude/worktrees/`. Full findings on `claude/perf-lock-recovery` (`369ec1d`),
+`Reports/perf-lock-recovery-2026-08-24.md`.
 
-| Missing | Named by | Found on |
+| Artifact | Now at | State |
 |---|---|---|
-| `Reports/performance-audit.md` | `Reports/README.md` in-flight, worktree `perf-audit` (*untracked*) | **no branch** |
-| `Reports/measurement-under-contention.md` | `Reports/README.md` in-flight, worktree `perf-lock` (*untracked*) | **no branch** |
-| `scripts/perf.sh` + 91 lines of `CLAUDE.md` | `e20e338`'s message, branch `perf-lock` | **no branch** |
+| `perf-lock` | `origin/perf-lock` `bdda4a9` | pushed unmodified; 6 ahead of `main`, **518 behind**, forked at `0efeb24` |
+| `performance-audit.md` + 4 harnesses | `origin/claude/perf-audit-recovery` `f7bebae` | **was never committed to any branch** — an untracked file, one `git clean` from gone |
+| `plant-branch-angle` | merged; head `9b0cccc` | ref never pushed, but the work is in `main` |
 
-`perf-lock` is not merely unmerged — **it is unpushed**, and it is the sole
-remaining blocker on recommendation 12 (§5b). An untracked worktree is pushed
-nowhere by definition; if that machine is gone, so is all three.
+**Three ways the in-flight entries were wrong**, all now correctable:
 
-This is the same failure `e20e338` had just finished repairing for the
-overhaul's method, one layer out, and it is `CLAUDE.md`'s own rule — *handoffs
-are committed, not replied* — applied to work in progress rather than to
-handoff prose.
+- `perf-lock`'s files were *not* untracked — they were already committed on the
+  branch. The index's "(untracked)" note was several commits stale.
+- The branch `perf-audit` (`bb20167`) is **zero commits ahead of `main`**. The
+  report was never on it. Pointing anyone at that branch would have found
+  nothing and concluded the work never existed.
+- The `plant-branch-angle` *worktree* is named `plant-crown`, which is part of
+  why a name-based search misses it. Worktree name ≠ branch name.
 
-**Action for the owner, and it is time-sensitive if the machine is still
-around:** push `perf-lock` and `perf-audit`, or confirm they are gone so the
-in-flight entries can be removed and rec 12 unblocked. Nobody else can do this;
-the work is not reachable from any session.
+**Why this report could not settle `plant-branch-angle` itself, and the local
+agent could.** This session's clone is **shallow** — 633 commits — so
+`9b0cccc` is not present in it and `git merge-base --is-ancestor` cannot run;
+`branchcheck.sh` refuses on the same grounds. The local agent ran the real test
+on a full clone and it exits 0. That is the measurement, and it beats this
+report's inference. It is also the second time in this audit that a claim about
+branches came from a clone's fetch depth rather than from the repository — see
+the header correction and §5f.
+
+**The bonus find, which nobody asked for and which the same `git clean` would
+have taken:** 50 uncommitted lines of `Reports/plant-appearance-design.md` §6a,
+on no branch anywhere — the `thicken`/`stem_run` axis bug (leaning trunks
+mismeasured at 30–70 cells, so they never widened) and a re-swept `shade_death`
+(0.03 → 9% foliage, 0.003 → 30%, 0.0 → 54% but crowns fuse). Now on
+`origin/claude/plant-appearance-6a-recovery` (`8c35cff`).
+
+**A tighter deadline than this report quoted.** `e20e338` cited ~2026-09-18 for
+its own session directory. The transcripts on that machine start **2026-08-13**,
+so the default 30-day cleanup begins biting around **2026-09-12**. Anything
+still living only in session state has less time than the earlier figure
+implied.
+
+### 5e-bis. What the recovered branches owe before they can land
+
+Recorded so nobody discovers it at merge time:
+
+- `claude/perf-audit-recovery` adds **five `examples/` binaries**
+  (`frame_profile`, `perf_counters`, `render_cost`, `weather_duty`,
+  `camera_snap`) and **none has a row in `Reports/instruments.md`**, so
+  `docscheck` check 5 fires on merge. That check exists because harnesses were
+  being rebuilt; five new ones landing unindexed is exactly what it guards.
+  `camera_snap` has weaker provenance than the other four — untracked in the
+  same worktree and same session window, but not named in the report — and the
+  recovery flags it as such.
+- The branch also carries `Reports/perf-audit-worktree-src.patch` rather than
+  committing that worktree's `src/render.rs` (+54/−12) and `src/sim/field.rs`
+  (+22). That is the right call for a rescue — it is the audit's own
+  instrumentation, not feature work — but it means the branch is **not a merge
+  candidate as it stands**: not built, not checked, not tidied.
+- `perf-lock` adds `scripts/perf.sh`, which `main`'s `CLAUDE.md` Commands
+  block does not mention at all. Landing the script without its Commands row
+  repeats the defect `Reports/instruments.md` was created to fix.
 
 ### 5f. Branch hygiene: 49 remote branches, and `branchcheck.sh` cannot see most of them
 
