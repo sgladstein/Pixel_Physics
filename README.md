@@ -2025,13 +2025,26 @@ same squared cluster noise, and `tree_density` is split between them rather
 than paid four times over. Measured on the shipped world at seed 1, paired
 against `origin/main` at the same seed and frame count: 87 standing plants
 become 135 — conifer 30, creeper 28, shrub 28 and tree 49, where before it
-was 87 trees and nothing else — at 50% more plant cells. Grass is deliberately still not sown — it has no
-mortality path, and a world that seeded it would leak organism slots.
+was 87 trees and nothing else — at 50% more plant cells.
 `tests/worldgen.rs`'s `every_woody_species_is_sown_across_a_seed_sweep` and
 `a_sown_woody_species_also_comes_up` guard it over a sixteen-seed sweep
 (worlds are procedural, so the guard sweeps the procedure and gates an order
 statistic); `examples/flora_census` is the instrument, and
-`Reports/world-flora-sowing-2026-08-23.md` holds the derivation. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+`Reports/world-flora-sowing-2026-08-23.md` holds the derivation.
+
+**Grass joined them the same day, as a ground layer rather than a fifth
+woody species.** It had waited on a mortality path — a plantable grass that
+cannot die leaks organism slots — and once shade could kill a blade and the
+seed bank could decay, the remaining question was where to put it. Grass is
+sown off its own `grass_density`, on the columns the woody loop declined,
+weighted by `1 - ramp(woody sum, 1.0, 2.0)`: the ground layer of open
+country, where "open" is the whole woody preference summing low rather than
+any one species being absent. Keeping it out of the woody budget is what
+leaves the four species untouched — paired against main over sixteen seeds,
+conifer, creeper, shrub and tree come out bit-identical, and grass takes its
+columns from moss. It reaches 16 of 16 generated worlds (7 / 24 / 60 per
+world at 2,048 columns) and comes up where it lands (96% of sown), guarded
+by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 

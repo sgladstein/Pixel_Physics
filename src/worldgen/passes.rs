@@ -3826,24 +3826,42 @@ pub fn moisture_init(ctx: &Ctx, world: &mut World) -> usize {
 /// -0.51..0.98 with a median of 0.54, and the blanket runs 0-43 cells with a
 /// median of 15. A band placed without looking at those is either empty or
 /// the whole world, and both mistakes look like "the species never appears".
-struct Site {
+pub struct Site {
     /// `0` lush, `1` desert.
-    aridity: f32,
+    pub aridity: f32,
     /// Where this region's ground sits, remapped from `Character::elev`'s
     /// `-1..1`. **Region-scale, not per-column**, which is what makes the
     /// upland species arrive as a *band* of country rather than as a
     /// sprinkle wherever a hill happens to be — the same reason the cluster
     /// field is low-frequency.
-    upland: f32,
+    pub upland: f32,
     /// Loose blanket depth over the rock, normalised against the deepest
     /// this generator makes. `0` is a skin over stone, `1` is deep loam.
-    blanket: f32,
+    pub blanket: f32,
 }
 
 /// Cells of soil that count as a full blanket. Read against the measured
 /// p90 of 27 with headroom, not against the 43-cell maximum: a bar set on
 /// the extreme makes every ordinary column read as thin.
 const DEEP_BLANKET: f32 = 30.0;
+
+impl Site {
+    /// The three facts, read off the generator's own plan for a column.
+    ///
+    /// One constructor rather than three lines repeated at each call site:
+    /// `examples/flora_census -- terrain=1` is where the bands in this file
+    /// are set from, so it has to read the *same* `upland` remap and the
+    /// same `DEEP_BLANKET` normalisation that `life_scatter` does. Two
+    /// copies of that arithmetic drifting apart would put every band in
+    /// this file half a world away from the spread it was measured against.
+    pub fn new(aridity: f32, elev: f32, soil_depth: i32) -> Self {
+        Self {
+            aridity,
+            upland: (elev + 1.0) * 0.5,
+            blanket: (soil_depth as f32 / DEEP_BLANKET).clamp(0.0, 1.0),
+        }
+    }
+}
 
 /// `0` at or below `lo`, `1` at or above `hi`, linear between.
 ///
@@ -3928,6 +3946,124 @@ const WOODY: [Woody; 4] = [
     Woody { name: "tree", spacing: 7, weight: |s| (1.0 - s.aridity) * ramp(s.blanket, 0.10, 0.35) },
 ];
 
+/// **How much woody cover this column's country wants**, as the plain sum of
+/// the four weights above — before the `min(1.0)` that turns it into a
+/// planting probability.
+///
+/// Unclamped on purpose, and that is the whole reason this is a function
+/// rather than a line inside `life_scatter`. The clamped figure saturates:
+/// a typical column scores tree 0.73, conifer 0.53, shrub 0.23 and creeper
+/// 0.22, which sums to 1.71, so `min(1.0, sum)` reads `1.0` across most of
+/// the world and cannot tell dense forest country from ground that only
+/// just supports a tree. The *unclamped* sum can, and that is exactly the
+/// distinction the grass layer needs: grass is the ground layer of open
+/// country, and "open" here means the woody sum is low rather than that a
+/// particular species is absent.
+///
+/// Public so `examples/flora_census -- terrain=1` can print its spread. The
+/// grass band is cut through that spread, so the census and the pass have
+/// to be reading one definition — a band set against a re-derived copy of
+/// this arithmetic is a band set against a different world.
+pub fn woody_budget(site: &Site) -> f32 {
+    WOODY.iter().map(|w| (w.weight)(site)).sum()
+}
+
+/// **The ground layer: grass, and why it is not a fifth row of [`WOODY`].**
+///
+/// Grass waited on lane P's P3 rather than on anything in this file. Until
+/// that package landed, `plant::is_foliage` gated both abscission rules on
+/// `CellType::Leaf` and grass has no leaf stage, so a grass plant could not
+/// die of anything — a plantable grass that cannot die is an organism-slot
+/// leak ending in silent id corruption at the 4,095 ceiling
+/// (`Reports/plant-project-review-2026-08-23.md` §F4). P3 closed both halves:
+/// shade now kills a blade, and the seed bank decays on an 18,000-frame
+/// half-life. Both of those change *where* grass can be put, which is why
+/// this rule is shaped the way it is rather than copied off a woody species.
+///
+/// **It is a separate layer, sown after the woody loop and before moss.**
+/// Three reasons, and only the first is about grass:
+///
+/// 1. **A sward is not woody cover.** The four woody weights split one
+///    budget — `weight / max(1, Σ weights)` — so a fifth entry would take
+///    its columns *from* conifer, shrub, creeper and tree, thinning the four
+///    species the previous pass had just finished putting into the world.
+///    `grass_density` is its own knob for the same reason `moss_density` is.
+/// 2. **Grass only gets columns no woody plant took**, which falls out of
+///    the pass structure rather than needing a rule: the woody loop
+///    `continue`s a column it planted.
+/// 3. **Its spacing is its own.** A tussock is a couple of columns where a
+///    conifer is six, and gating grass on the woody cursor would leave a
+///    sward with a conifer's footprint.
+///
+/// # The weight is one reading of the woody sum, and that is the whole rule
+///
+/// `1 - ramp(woody_budget, 1.0, 2.0)`. Grass is the ground layer of **open
+/// country**, and "open" here is not "no tree in this column" — it is the
+/// whole woody preference summing low. Reading the sum rather than any one
+/// species is what makes this a niche instead of a leftover.
+///
+/// **The band is cut through the measured spread** (`flora_census --
+/// terrain=1`, plantable columns only, eight worlds of the default preset):
+/// the unclamped woody sum runs min 0.81, p10 1.00, p50 1.59, p90 2.06,
+/// max 2.51. So `1.0 → 2.0` spans p10 to roughly p90: grass is unopposed on
+/// the tenth of the world that supports woody cover least, absent from the
+/// tenth that supports it most, and graded across the eighty per cent
+/// between. A band placed anywhere outside that spread is either empty or
+/// the whole world, and both look identical on screen — "grass is rare".
+///
+/// **Why the sum and not `1 - budget`.** `life_scatter`'s own `budget` is
+/// `min(1.0, sum)`, and the spread above says p10 is already 1.00 — the
+/// clamped figure saturates across ninety per cent of plantable columns, so
+/// `1 - budget` is zero almost everywhere and would have sown grass into the
+/// margins only. That version was written first and the census is what
+/// caught it; the unclamped sum is the quantity that can actually tell
+/// forest country from ground that only just supports a tree.
+///
+/// **Two things fall out for free, and neither needed a term.** The dry
+/// steppe: past `ramp(aridity, 0.20, 0.50)` only shrub scores at all, so the
+/// woody sum drops and grass takes the dry margin — which is what grass's
+/// 0.10 `soil_water_threshold`, the lowest of the five, is for. And the thin
+/// skin over rock: at `blanket ≈ 0` only creeper scores, so a sward runs
+/// over the rock shelf. Writing either as its own aridity or blanket term
+/// would have been double-counting a fact the sum already carries.
+///
+/// **Footing is still soil**, like every woody species and for the same two
+/// reasons: `soil` is the only material with a `water_capacity`, so a seed
+/// on sand reads bone dry to `Germinate` whatever the weather has done; and
+/// grass's `penetration_force` of 1.0 clears soil's resistance of 0.8 and
+/// does *not* clear sand's 1.4, so a grass seed on sand could not root even
+/// if it germinated. Two numbers, one niche boundary, no rule.
+struct Grass {
+    name: &'static str,
+    spacing: i32,
+    weight: fn(&Site) -> f32,
+}
+
+/// Where the sward stops. See [`Grass`] for the measured spread these two
+/// numbers are cut through.
+const GRASS_OPEN: f32 = 1.0;
+const GRASS_CLOSED: f32 = 2.0;
+
+const GRASS: Grass = Grass {
+    name: "grass",
+    // A tussock's own footprint. Small, because the sward's density is what
+    // `grass_density` is for and a spacing rule that also sets density is
+    // two knobs moving one number.
+    spacing: 2,
+    weight: |s| 1.0 - ramp(woody_budget(s), GRASS_OPEN, GRASS_CLOSED),
+};
+
+/// Grass's own offset into the shared cluster field, continuing [`WOODY`]'s
+/// series at index 4 — so a sward's stands are uncorrelated with all four
+/// woody species' rather than sharing clumps with one of them.
+const GRASS_CLUSTER_INDEX: f32 = 4.0;
+
+/// Grass's placement salt. Distinct from [`SPECIES_SALT`]'s four and from
+/// moss's `9`, so the ground layer's roll is an independent draw rather than
+/// a second read of a woody species' number — which would make grass want
+/// exactly the columns one woody species wanted and lose every one of them.
+const GRASS_SALT: i32 = 19;
+
 /// Moss and woody seeds on ground that will support them.
 ///
 /// The world arrives with life in it rather than waiting for the player to
@@ -3966,7 +4102,10 @@ const WOODY: [Woody; 4] = [
 /// trees would be authoring an outcome the simulation is meant to produce.
 pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
     let p = ctx.terrain.params;
-    if p.moss_density <= 0.0 && p.tree_density <= 0.0 {
+    // Every layer, or a preset that grows only grass returns before it is
+    // reached. The two `0.0` presets (`arid`, `flat`) say so on all three
+    // fields rather than relying on this.
+    if p.moss_density <= 0.0 && p.tree_density <= 0.0 && p.grass_density <= 0.0 {
         return 0;
     }
     let mut n = 0;
@@ -3982,6 +4121,11 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
     // columns from a conifer is shaded out just as surely as two conifers
     // would be.
     let mut last_woody: Option<(i32, i32)> = None;
+    // The ground layer keeps its own cursor. Sharing the woody one would
+    // give a sward a conifer's footprint, and grass at the foot of a tree
+    // is not the thing spacing exists to prevent — shade is, and the
+    // weight handles shade at the scale shade actually works at.
+    let mut last_grass: Option<i32> = None;
     for x in 0..ctx.terrain.w {
         let plan = &ctx.plans[x as usize];
         let ground = plan.surface_y;
@@ -4013,11 +4157,7 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
         // sitting on bone-dry ground, whatever the weather has done.
         let on_soil = footing == ctx.soil;
         if on_soil {
-            let site = Site {
-                aridity: character.aridity,
-                upland: (character.elev + 1.0) * 0.5,
-                blanket: (plan.soil_depth as f32 / DEEP_BLANKET).clamp(0.0, 1.0),
-            };
+            let site = Site::new(character.aridity, character.elev, plan.soil_depth);
             // **Sharpened before they are shared out.** The raw weights are
             // preferences, and preferences alone put a *lottery* in every
             // column rather than a species in every country: measured on
@@ -4079,6 +4219,28 @@ pub fn life_scatter(ctx: &Ctx, world: &mut World) -> usize {
                 }
             }
             if planted {
+                continue;
+            }
+            // **The ground layer**, on the columns no woody plant took. See
+            // [`Grass`] for why this is a layer rather than a fifth species,
+            // and why its weight reads the woody sum.
+            let grass_weight = (GRASS.weight)(&site);
+            let grass_cluster = noise::fbm_1d(
+                ctx.terrain.seed,
+                Purpose::Life,
+                x as f32 / p.life_cluster_wavelength.max(1.0) + GRASS_CLUSTER_INDEX * SPECIES_CLUSTER_STRIDE,
+                2,
+            );
+            let grass_cluster = grass_cluster * grass_cluster;
+            let grass_room = last_grass.is_none_or(|last| x - last >= GRASS.spacing);
+            if grass_weight > 0.0
+                && grass_room
+                && noise::unit(ctx.terrain.seed, Purpose::Life, x, GRASS_SALT)
+                    < p.grass_density * grass_cluster * grass_weight
+                && world.plant_tree_species(x, above, GRASS.name)
+            {
+                last_grass = Some(x);
+                n += 1;
                 continue;
             }
         }

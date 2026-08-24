@@ -1047,7 +1047,14 @@ pub fn soil_moisture(cell: Cell) -> u16 {
 /// Exactly zero at or below the wilting point, which is the whole point of
 /// that breakpoint: drought becomes a terminal failure rather than a slow
 /// one, and a root in dust gets nothing rather than a little.
-pub(crate) fn plant_available_fraction(cell: Cell) -> f32 {
+///
+/// Public for the same reason `liquid_fill` below is, and it is the same
+/// hazard: `examples/divergence.rs` reports the wet/dry axis it was *given*
+/// beside the one it can still measure at the end of the run, and a harness
+/// re-deriving this arithmetic would be free to get the wilting-point
+/// breakpoint wrong in exactly the direction that makes a washed-out axis
+/// look intact.
+pub fn plant_available_fraction(cell: Cell) -> f32 {
     let m = soil_moisture(cell) as f32;
     let wp = material::SOIL_WILTING_POINT as f32;
     let fc = material::SOIL_FIELD_CAPACITY as f32;
