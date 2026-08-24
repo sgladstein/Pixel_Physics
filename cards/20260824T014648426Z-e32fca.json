@@ -1,0 +1,58 @@
+{
+  "id": "20260824T014648426Z-e32fca",
+  "created": "2026-08-24T01:46:48Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/p2-economy",
+    "commit": "e074248",
+    "agent": null,
+    "session_id": "be4bd036-b126-5c50-8812-dc18beb4a404",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "Root systems on a deep bed at 43,200 frames — blob, or not",
+  "question": "Do these read as eight different root systems, or as eight of the same thing? And is either one the 'big blob that fills in all space' you flagged?",
+  "context_md": "Your direction was: *\"There should be a disadvantage for growing a big blob of roots that fully fills in all space. If the root cell isn't touching soil it cannot benefit the plant and has a cost... we don't want to force the roots to grow a certain way but set up a system that leads to interesting and heterogenous results.\"*\n\nOne of these is the current build. In the other, a root cell that shares no face with soil earns the plant nothing — it buys no water storage — and still costs food to keep. **Nothing anywhere says what shape a root should be.**\n\nWorth knowing before you judge: the measurement said this would be a **flat tax on root mass, not a brake on it**, and that is what happened — the root system is 73% smaller and the fraction of it touching soil barely moved (64.6% to 65.6%). So the question is really about *shape and variety*, not about efficiency.\n\n100-row soil bed, same eight founders, same frame.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260824T014648426Z-e32fca/000-roots-main.png"
+      ],
+      "caption": "",
+      "meta": {
+        "root cells, whole stand": 9180,
+        "touching soil": "64.6%",
+        "walled in": "34.8%",
+        "per plant, touching soil": "38.8%-70.6%",
+        "median root cells per plant, 8 seeds": 899
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260824T014648426Z-e32fca/001-roots-p2.png"
+      ],
+      "caption": "",
+      "meta": {
+        "root cells, whole stand": 2512,
+        "touching soil": "65.6%",
+        "walled in": "34.1%",
+        "per plant, touching soil": "55.1%-85.7%",
+        "median root cells per plant, 8 seeds": 439
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
