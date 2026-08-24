@@ -602,7 +602,26 @@ every window. Verified green on both binaries. **This is lane S's file and
 the change is flagged rather than assumed**: the alternative was leaving a
 gate red, or reverting an economy over a guard the base fails half the time.
 
-## 13. Freshness
+## 13. Two things the merges brought, and what they mean here
+
+**`sim::clock` gives the sky its own frame counter.** `night_income_factor`
+now reads `world.sky_frame()`, not `world.frame` — the shipped world is an
+eight-minute day, so the real frame would have swung income eight times
+faster than the sun it is meant to follow. Every harness, test and
+acceptance scene is unaffected: `World::new` leaves the clock at baseline,
+where the two counters are the same number, which is why every figure above
+still stands. It matters in the app, and only there.
+
+**The owner's WP-11 verdict points the same way this package does.** Card
+`20260823T204815827Z-ffc290`, answered 2026-08-24: leaf share 50.2% → 58.7%
+with wood essentially unchanged "reads to him as separate stands, not as one
+mass". This package moves the same quantity the same direction — foliage
+share 45% → 46% at 28,800 frames and 38% → 40% at 45,000 — by taking wood
+away rather than by keeping leaves. Whether the *bole* reads is the question
+on card `20260824T014630073Z-a10698` and is not something the numbers can
+settle.
+
+## 14. Freshness
 
 Written 2026-08-23 and 2026-08-24. §1 is measured against `main` at
 `cfee870`, which this branch merged mid-session; §1.1, §2, §3, §6, §7, §8
