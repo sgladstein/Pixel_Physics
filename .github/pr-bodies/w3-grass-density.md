@@ -1,6 +1,6 @@
 Follow-up to PR #38 (W3), answering the owner's verdict on the density card.
-Full write-up: `Reports/grass-sowing-and-divergence-2026-08-23.md` §13, with the
-handoff at §14.
+Full write-up: `Reports/grass-sowing-and-divergence-2026-08-23.md` §13-§14, with the
+handoff at §15.
 
 ## 1. The density call
 
@@ -111,6 +111,47 @@ from one side and exposed from the other — identical terrain, identical
 founders, one difference. Shaping the two beds *differently* also works and is
 worse: different terrain means different slope, drainage, light angle and soil
 depth, and the axis stops being one axis.
+
+## 6. "How long does it take to fill an ideal area" — measured: it does not
+
+The owner's follow-up on the density card, answered from §9's control arm
+because that arm *is* the treeless case. Woody layer off, two seeds,
+2,048-column worlds with ~500 plantable columns each, re-measured on `main`
+**after** W4's wind geography landed (the earlier 63-from-43 figure predates it
+and is not comparable):
+
+| frames | seed 1 — plants (sown 64) | cells | seed 2 — plants (sown 63) | cells |
+|---|---|---|---|---|
+| 5,000 | 64 | 1,381 | 61 | 1,072 |
+| 10,000 | 65 | 1,391 | 60 | 1,070 |
+| 20,000 | 70 | 1,458 | 59 | 1,059 |
+| 30,000 | 69 | 1,433 | 60 | 1,064 |
+| **45,000** | **75** | **1,507** | **62** | **1,081** |
+
+**It does not fill, and the plateau is immediate.** Grass reaches its sown
+footprint inside 5,000 frames and holds it: the next 40,000 frames — nine times
+longer than establishment — add 11 plants on one seed and one on the other.
+Slots peak at 91 of 4,095 with 0 refused, so nothing is throttled. Full cover
+of ~500 plantable columns would be ~250 plants; at the faster seed's rate that
+is on the order of **700,000 frames**, and that extrapolation is generous.
+
+**Why: dispersal range is one cell.** `plant::set_seed` places a seed in an
+empty 8-neighbour of the parent, after which it falls and rolls. Offspring land
+inside or against the clump that made them, so grass cannot cross a gap and the
+sown positions are very nearly the final ones. Two independent supports — the
+code says one cell, the measurement says the footprint does not grow — and
+**explicitly not isolated**: crowding, the seed bank's 18,000-frame half-life
+and marginal-ground moisture could each also cap the stand. Separating them
+needs a single founder on uniformly ideal ground, which is a scene this package
+did not build and which the handoff now names.
+
+**What would change it is queued**: review item A5, dispersal — per-species seed
+mass, float and carry. `grass_density` cannot substitute for it. Promoted in the
+handoff (§15) to the item with a named consumer.
+
+Card `20260824T030939054Z-088ae6` carries the curve in `meta` alongside a render
+of the shipped world with the woody layer switched off at 43,200 frames — still
+scattered tussocks with bare soil between them.
 
 ## Gates
 
