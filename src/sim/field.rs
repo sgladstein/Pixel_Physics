@@ -34,6 +34,7 @@
 //! coupling to the CA grid is deliberate; it isolates bugs in the field solver
 //! from bugs in the coupling.
 
+use rayon::prelude::*;
 use std::collections::{HashMap, HashSet};
 
 use super::cell::AMBIENT_TEMPERATURE;
@@ -2563,14 +2564,12 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
 fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
     let old = world.fields_ref();
     let bounds = world.bounds();
-    for &coord in coords {
+    // Issue #6's hoist, one level further out: `par_solve_tiles` hands the
+    // tile to the body, so the pointer resolves once per tile rather than
+    // once per field cell -- and the tiles run on separate workers. See
+    // `par_solve_tiles` for why that is sound and bit-identical.
+    par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
-        // Hoisted out of the `ly`/`lx` loops (issue #6): this pointer is
-        // invariant across every field cell in the chunk. A `&mut` still
-        // supports the read-only `is_blocked_local` call below, so this
-        // also replaces the separate `next.get(&coord)` lookup that used
-        // to run once per field cell right before it.
-        let tile = next.get_mut(&coord).unwrap();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -2600,7 +2599,7 @@ fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkC
                 tile.set_local(lx, ly, cell);
             }
         }
-    }
+    });
 }
 
 /// `v += -gradient(pressure) * coupling`, damped, reflected off walls. Reads
@@ -2633,9 +2632,8 @@ fn step_velocity(
         .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
         .collect();
 
-    for &coord in coords {
+    par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
-        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6) -- invariant across the ly/lx loops below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -2700,7 +2698,7 @@ fn step_velocity(
                 tile.set_local(lx, ly, cell);
             }
         }
-    }
+    });
 }
 
 /// Explicit diffusion for temperature and light, each cell relaxing toward
@@ -2714,12 +2712,52 @@ fn step_velocity(
 /// insulating its interior at all, thermally or optically, depended on this:
 /// without it, heat and light passed through a wall exactly as freely as
 /// through open air, which defeats the entire point of `is_blocked` existing.
+/// Run a per-tile solve pass over the awake set, in parallel where that is
+/// sound.
+///
+/// **Sound because these passes are Jacobi.** Each one reads the *old*
+/// snapshot (plus its own tile in `next`) and writes only its own tile, so
+/// no two tiles can observe each other's work and the result cannot depend
+/// on the order tiles are visited in. That is the same property the
+/// determinism requirement and `mark_converged` already rest on; it is
+/// stated once here rather than re-argued at every pass.
+///
+/// **The parallel path requires `coords` to be exactly `next`'s key set.**
+/// That is how `step` builds them -- `next` is populated by iterating
+/// `solve`, and every caller here passes either `solve` itself or an empty
+/// slice (`momentum`, when the momentum passes are being skipped). Checked
+/// rather than assumed, with a serial fallback: a future caller handing a
+/// genuine *subset* would otherwise silently gain the tiles it meant to
+/// leave out, and no timing would ever show it -- the pass would simply be
+/// correct-looking and wrong, which is this file's own recorded failure mode
+/// for the momentum skip.
+///
+/// Threading is left to rayon's global pool, the same one `parallel.rs`
+/// uses, so `RAYON_NUM_THREADS` controls both and a scaling curve can be
+/// taken across the whole engine in one command.
+fn par_solve_tiles(
+    coords: &[ChunkCoord],
+    next: &mut HashMap<ChunkCoord, FieldTile>,
+    body: impl Fn(ChunkCoord, &mut FieldTile) + Sync + Send,
+) {
+    if coords.is_empty() {
+        return;
+    }
+    if coords.len() == next.len() {
+        next.par_iter_mut().for_each(|(&coord, tile)| body(coord, tile));
+    } else {
+        for &coord in coords {
+            let tile = next.get_mut(&coord).expect("next holds every coord of the solve set");
+            body(coord, tile);
+        }
+    }
+}
+
 fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
     let old = world.fields_ref();
     let bounds = world.bounds();
-    for &coord in coords {
+    par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
-        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6), also replaces the per-cell next.get(&coord) below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -2884,7 +2922,7 @@ fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chunk
                 tile.set_local(lx, ly, cell);
             }
         }
-    }
+    });
 }
 
 /// Semi-Lagrangian advection: trace each cell backward along the velocity
@@ -2909,9 +2947,8 @@ fn step_advection(
         .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
         .collect();
 
-    for &coord in coords {
+    par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
-        let tile = next.get_mut(&coord).unwrap(); // hoisted (issue #6) -- invariant across the ly/lx loops below
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
                 let (wx, wy) = (ox + lx * FIELD_SCALE, oy + ly * FIELD_SCALE);
@@ -2974,7 +3011,7 @@ fn step_advection(
                 tile.set_local(lx, ly, blended);
             }
         }
-    }
+    });
 }
 
 #[cfg(test)]
