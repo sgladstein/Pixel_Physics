@@ -1,0 +1,33 @@
+# Merge behaviour for the append-only records.
+#
+# Written 2026-08-24 after a five-lane plant program produced *zero* source
+# conflicts and three doc conflicts, every one of them the same shape: two
+# sessions appending a new entry at the same tail. Each cost a session
+# round-trip to resolve by hand, and each resolution was mechanically
+# identical -- keep both sides. `union` does exactly that, automatically.
+#
+# **The list below is deliberately short, and the exclusions are the point.**
+# `union` keeps both sides of every conflicting hunk, which is right for a
+# file that only ever grows and *wrong* for a file whose existing text gets
+# corrected. Applying it to a document that is edited in place silently
+# preserves the superseded claim alongside its replacement -- the reader then
+# sees a contradiction with no way to tell which half is current, and no
+# conflict marker ever appeared to warn anyone.
+#
+# Concretely, from the same evening:
+#
+#   - `wiki/plants.md` was NOT given union, and must not be. T1 deleted a
+#     paragraph that said a felled tree "comes down as sawdust ... ninety-odd
+#     per cent does not" -- true when written, false once the fragment ladder
+#     landed. Under `union` that paragraph would have survived next to the
+#     text replacing it, and the page would assert both.
+#   - `Reports/open-bugs-handoff.md` was NOT given union either: its entries
+#     get closed and struck through in place (§H3 was closed that same night),
+#     and union would keep the open and closed versions side by side.
+#   - `Reports/dead-ends.md` is excluded for the same reason -- an entry's
+#     rejection condition gets revised when something changes it.
+#
+# So: union is for logs that are *only* appended to, never revised. If you add
+# a file here, the test is not "does it get appended to a lot" but "is any
+# line in it ever edited after it is written".
+PLAN-log.md merge=union

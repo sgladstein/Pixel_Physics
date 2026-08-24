@@ -80,6 +80,30 @@ else
   note "Reports/README.md missing"
 fi
 
+# --- 5. Every examples/ binary must have a row in the instruments index -----
+# `Reports/instruments.md` exists because measurement harnesses were being
+# rebuilt: a lane needs a number, cannot tell from the names that a harness
+# already answers it, and writes a second one. An index only prevents that
+# while it is complete, and an index nobody is forced to update decays into
+# the exact state it was written to fix -- so this is a check rather than a
+# convention. Same shape as the report-index check above.
+if [ -f Reports/instruments.md ]; then
+  for f in examples/*.rs; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f" .rs)
+    grep -q "\`$base\`" Reports/instruments.md \
+      || note "Reports/instruments.md: examples/$base.rs has no row -- say what it answers, and what it can answer BEYOND the question you built it for"
+  done
+  # The inverse: a row for a binary that no longer exists sends the next
+  # session looking for a harness that was deleted.
+  while read -r name; do
+    [ -f "examples/$name.rs" ] \
+      || note "Reports/instruments.md: lists \`$name\` but examples/$name.rs does not exist"
+  done < <(grep -oE '^\| `[a-z0-9_]+`' Reports/instruments.md | tr -d '|` ' | sort -u)
+else
+  note "Reports/instruments.md missing -- the instruments index is referenced by CLAUDE.md"
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"
