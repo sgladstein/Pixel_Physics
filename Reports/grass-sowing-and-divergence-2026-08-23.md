@@ -606,28 +606,61 @@ metrics, the seed sweep, the establishment-imbalance warning and the
 axis-survival check — is written without knowing what is being varied. Adding
 wind is one arm on `Axis` and no other change.
 
-What has to exist first, and it is entirely W4's:
+**Updated 2026-08-24: exposure has landed and this is no longer blocked.**
+`weather::exposure(world, x, y, wind)` and `ground_exposure(world, x, wind)`
+are public, returning `0.0` sheltered to `1.0` open about `NEUTRAL_EXPOSURE`,
+with `exposure_detail` breaking out fetch, shelter and prominence. So the
+missing half exists. What follows is what building the arm now actually runs
+into, which is not what §11.5 anticipated.
 
-- **Position-dependent wind.** `weather::at(seed, frame)` takes no position, so
-  `wind` is one value for the whole world. Until an organism's experienced wind
-  is a function of *where it is*, the two patches cannot differ on it — the
-  windy patch and the sheltered patch are the same patch, and the instrument
-  would correctly report zero divergence for a reason that has nothing to do
-  with trees. `physical-trees-design-2026-08-23.md` §11.5 specifies the cheap
-  shape: exposure derived from terrain at gust time (open fetch upwind, height
-  above local ground), read by the handful of organisms a 26-cell gust
-  overlaps, nothing written and nothing stored.
+**The blocker moved rather than disappeared, and it is in *this* instrument,
+not in W4's.** Exposure is a pure function of **terrain** and wind direction.
+`common::PlantScene` builds a dead-flat bed — no shelter, no prominence — so
+`exposure` returns `NEUTRAL_EXPOSURE` uniformly across it. **Measured, not
+assumed**: `wind_probe -- preset=flat`, which is W4's own control, reports
+shelter 0.000 and prominence 0.000 at every sampled column, *"most sheltered
+0.500, most exposed 0.500, spread 0.000"*. **The scene the instrument is built
+on cannot express the axis at all**, and pointing it at
+wind without noticing would produce an exact-zero divergence that looks like
+the control passing. That is the failure this instrument was designed to
+catch, arriving through its own front door.
+
+Two ways out, and the second is much better:
+
+1. **Shape the beds differently** — a sheltered hollow against an exposed
+   rise. Straightforward, and it breaks the instrument's one real claim:
+   different terrain means different slope, drainage, light angle and soil
+   depth, so the patches would differ in four things and the axis would no
+   longer be one axis.
+2. **Same shaped bed in both patches, opposite wind direction.** Exposure
+   already takes `wind` as an argument and walks the fetch upwind, so a bed
+   shaped as a one-sided ridge is *sheltered* for wind from one side and
+   *exposed* for wind from the other. Identical terrain, identical founders,
+   identical everything — and the only difference is the sign of the wind the
+   exposure read is taken with. That is a genuine one-axis comparison and it
+   preserves the exact-zero control, because setting both patches to the same
+   sign must return exactly zero.
+
+So the work is: give `PlantScene` a bed profile (one asymmetric ridge is
+enough — it needs `shelter` and `prominence` to be nonzero, which a flat bed
+never makes), add `Axis::Exposure` carrying a wind sign per patch, and have
+the axis-survival check report realised mean `ground_exposure` per patch.
+Whatever consumes exposure to change growth — the plasticity directive — is
+lane P's economy work and still does not exist; until it does, the instrument
+will correctly report no divergence, and that will be a true statement about
+the model rather than a fault in the measurement.
 
 Three things this package learned that W4's exposure work should inherit,
 because each cost a run here:
 
 - **The axis-survival check matters more for wind than it did for moisture, not
-  less.** Gusts fire on 41.6% of frames at the default seed. A patch that is
-  sheltered from only *some* gust directions converges on the exposed one over
-  a long run, and the instrument would then report a null belonging to the
-  scene rather than to the model. `Axis::Exposure` must report **realised**
-  mean exposure per patch at the end of the run, the way `Axis::Moisture`
-  reports realised soil water — not the exposure that was requested.
+  less.** Gusts fire on 41.6% of frames at the default seed, and the global
+  wind's *sign* flips over a run — so a bed that is sheltered while the wind
+  blows one way is exposed when it turns, and the two patches average toward
+  each other. `Axis::Exposure` must report **realised** mean `ground_exposure`
+  per patch at the end of the run, the way `Axis::Moisture` reports realised
+  soil water — not the exposure that was requested. This is the single most
+  likely way a wind run produces a null that belongs to the scene.
 - **The arm that is "worse" must still support a population.** The moisture
   axis's first dry setting was under `tree`'s germination bar and established
   0, 0, 2 and 1 of twelve founders against a wet patch's 12 — a stand against
