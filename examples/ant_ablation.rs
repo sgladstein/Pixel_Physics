@@ -309,7 +309,12 @@ fn run_one(instincts: &[Instinct], frames: usize, seed: u64, rough: bool, world_
     // so everything below has to ask the world rather than assume.
     let surface_of = |world: &World, x: i32| -> i32 {
         (0..h)
-            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            // Ground, not "anything solid": a seed is a `Powder` and a blade
+            // is a `Solid`, so once worldgen sowed a ground layer this
+            // returned the top of a plant and put ants into the vegetation.
+            // `examples/ascii.rs`'s foraging scene has the full account --
+            // there it cost every delivery in the run.
+            .find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
             .unwrap_or(h - 1)
     };
     let height = |world: &World, x: i32| -> i32 { if world_terrain { surface_of(world, x) } else { hand_height(x) } };

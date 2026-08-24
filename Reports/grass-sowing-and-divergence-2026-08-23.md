@@ -478,10 +478,185 @@ moves it. The card asks it directly rather than this package guessing.
 
 ---
 
-## 13. Handoff
+## 13. Follow-up, 2026-08-24: the density call, and what it cost
 
-**State: feature-complete and pushed** on `w3-grass-and-divergence`
-(`e51ebd8` at time of writing), merged up to `main` at `4913ab0`. All four
+The density card (§11) was answered: ***"I would say noticeable more grass,
+but it should also spread over time, so this could be ok to start. Maybe
+increase it a little bit"***. Taken as a modest step — **x1.43 on every
+preset**, keeping their relative design: `rolling` and `terraced` 0.35 → 0.50,
+`canyon` 0.22 → 0.31, `wetland` 0.45 → 0.63.
+
+| sixteen seeds at 2,048 columns | before | after |
+|---|---|---|
+| grass, min / median / max | 7 / **24** / 60 | 9 / **38** / 76 |
+| conifer, creeper, shrub, tree | 2/6/27, 2/12/23, 1/6/25, 1/16/35 | **all four identical** |
+| shipped world, established grass | 71 | 102 |
+| shipped world, grass cells | 1,251 | 1,816 |
+| shipped world, organism slots | 288 / 4,095, 0 refused | 320 / 4,095, 0 refused |
+
+**Both guard bars were re-derived with it**, which the previous PR said would
+be needed: `median >= 8` → `>= 12` and `median <= 72` → `<= 114` (a third and
+three times the new median of 38, the same discipline as before), and the
+pooled establishment bar 20 → 40 against a measured 110 of 116 (0.95). A bar
+left at the old density's numbers is a bar that has stopped meaning anything.
+
+### Raising the density relocates the sward, it does not thicken it
+
+Worth recording because it changed how the follow-up card had to be built.
+Grass is spaced against its own last tussock (`last_grass`), so a denser field
+lands its plants at *different* columns rather than packing more into the same
+ones. Measured on `canyon`: world-wide grass rose 574 → 729 cells (+27%), while
+the specific 192-column window the owner had already judged went **100 → 88**.
+Moss's median moves 19 → 20 for the same reason — the wrong direction for "more
+grass crowds moss out", and not a defect.
+
+**So a one-window before/after cannot show a density change here**, and the
+follow-up card is a single pane asking "is this enough now?" with the
+before/after numbers in `meta`, rather than an A/B that would have shown the
+owner the opposite of the change. Card `20260824T011019066Z-63c0d2`.
+
+### The gap in the verdict, stated to the owner rather than left to be found
+
+"It should also spread over time" is an expectation this knob cannot meet, and
+§9's measurement is the reason: grass establishes at 95% and is then shaded out
+as the canopy closes, 3 of 40 still standing at 45,000 frames. Raising the
+density raises the *starting* amount; most of any increase is shaded out too.
+What would make grass persist is disturbance (W2's fire) or shade tolerance
+(lane P's `shade_death`). That is on the card in as many words.
+
+### The regression it exposed, which was not in the flora at all
+
+`examples/ascii` went from green to a panic — *"no ant completed the loop:
+1,901 pickups but nothing delivered home"*. Attributed against `origin/main`
+first, which runs all 31 scenes clean, so it belonged to the density change.
+
+It was a **scene** bug the change exposed. The foraging scene's `surface`
+helper found the topmost `Solid` *or* `Powder` cell — which is the ground right
+up until something is standing on it. A `seed` is a `Powder` and a grown blade
+is a `Solid`, so a sown ground layer makes it return the top of a plant: the
+nest patch at x=16..90 was stamped a row above the soil wherever a tussock had
+landed, and the 55 ants were planted into the vegetation instead of onto the
+hillside. Density 0.35 happened to leave that stretch clear; 0.50 does not.
+
+`CLAUDE.md`'s own entry, arriving in a fourth costume: *a scene that
+contradicts the code will look like a bug in the code*. The fix is to ask for
+**ground** — skip cells carrying an `organism_id` — which is what the scene
+meant and is immune to whatever the flora does next. The same helper appears in
+`examples/ant_ablation.rs` (1 site) and `examples/creature_space.rs` (5), both
+building generated worlds at default densities and carrying the identical
+exposure; fixed there too, since the harness `ascii`'s own comment cites for
+its numbers should not be measuring a different placement than the scene it
+backs.
+
+**Frame cost**, two runs a side against `origin/main` in the same session:
+means unchanged everywhere (8,192x2,560 spring ON 13.00 → 13.02 ms; spring OFF
+11.17 → 11.13 ms). The worst-frame column is again unreadable at this sample
+size — `main` itself spans 47.0 to 73.4 ms across two runs of one binary — and
+is not claimed either way. Note also that `ascii`'s scenes carry very little
+grass (75 organisms against 76), so this measurement has limited power to
+detect a grass-specific cost; the shipped-world means are the load-bearing
+numbers.
+
+---
+
+## 14. "How long does it take to fill an ideal area" — it does not
+
+The owner's question on the density card, 2026-08-24: ***"patches of grass
+should spread over time and completely fill up an area without trees and the
+correct environment (temp, light, etc.) This is a fine density at the start of
+a game, but how long does it take to fill an ideal area"***. The density is
+accepted; this is the follow-up question, and it is answerable from §9's
+control arm because that arm *is* the treeless case.
+
+Woody layer off (`treedensity=0 mossdensity=0`), two seeds, 2,048-column
+worlds holding **~500 plantable columns each**, `grass_density` 0.50, measured
+on `main` **after** W4's wind geography landed (the earlier 63-from-43 figure
+in §9 predates it and is not comparable):
+
+| frames | seed 1 — plants (sown 64) | cells | seed 2 — plants (sown 63) | cells |
+|---|---|---|---|---|
+| 5,000 | 64 | 1,381 | 61 | 1,072 |
+| 10,000 | 65 | 1,391 | 60 | 1,070 |
+| 20,000 | 70 | 1,458 | 59 | 1,059 |
+| 30,000 | 69 | 1,433 | 60 | 1,064 |
+| **45,000** | **75** | **1,507** | **62** | **1,081** |
+
+**The answer is that it does not fill, and the plateau is immediate.** Grass
+reaches its sown footprint inside 5,000 frames and then holds it: over the next
+**40,000** frames — nine times longer than establishment takes — seed 1 gains
+11 plants (+17%) and seed 2 gains one (+2%). Standing cells move +9% and +1%.
+Organism slots peak at 91 of 4,095 with 0 births refused, so nothing is being
+throttled by the ceiling.
+
+Put in the terms the question asks: full cover of ~500 plantable columns at
+grass's own spacing would be roughly **250 plants**. The faster of the two
+seeds is adding **11 plants per 45,000 frames**. At that rate reaching full
+cover takes on the order of **700,000 frames**, and that extrapolation is
+generous — it assumes a linear trend the flat curve does not support.
+
+### Re-measured after P2's economy landed, and the answer holds
+
+The table above was taken before PR #40 (P2, the economy re-derivation) merged
+— and `grass.ron`'s own header had said a retired mat *cannot* starve for
+exactly one reason: *"There is no maintenance cost anywhere in the engine yet…
+superlinear maintenance respiration is package P2's"*. P2 landed that, plus
+night-income scaling and the root contact-surface economy, so the assumption
+the curve rested on was removed underneath it. Re-run on post-P2 `main`, same
+seeds, same control:
+
+| | pre-P2 | post-P2 |
+|---|---|---|
+| seed 1 plants, 5,000 → 45,000 | 64 → 75 | **63 → 76** |
+| seed 2 plants, 5,000 → 45,000 | 61 → 62 | **61 → 63** |
+| seed 1 cells, 5,000 → 45,000 | 1,381 → 1,507 | **1,110 → 1,214** |
+| seed 2 cells, 5,000 → 45,000 | 1,072 → 1,081 | **862 → 882** |
+
+**The conclusion is unchanged and one number is not.** Plant counts hold within
+±1 at both ends, and the curve is still flat — grass still reaches its
+footprint by 5,000 frames and still gains ~13 plants and ~1 plant over the next
+40,000. What moved is plant *size*: **standing cells fall about 20% on every
+seed at both ends**, so superlinear maintenance makes each grass plant a fifth
+smaller without changing how many stand. Worth passing to lane P as a datum on
+what the re-derivation bought on a species with no leaf stage.
+
+Only the two endpoints were re-run, not the three intermediate points; they
+bracket the claim, which is about the plateau and the absence of spread.
+**Card `20260824T030939054Z-088ae6` carries the pre-P2 cell figures** — its
+answer stands, its cell numbers are ~20% high, and no correction card was
+posted because nothing the owner is being asked to decide turns on them.
+
+### Why, and how confident that is
+
+**Dispersal range is one cell.** `plant::set_seed` places a seed into an empty
+**8-neighbour of the parent cell** (`plant.rs`: "a seed is a falling powder",
+so the neighbour is unchosen), after which it falls and rolls. A grass plant's
+offspring therefore land inside or immediately against the clump that made
+them. **Grass cannot cross a gap**, so the positions the generator sows are
+very close to the positions grass occupies for the rest of the run — which is
+exactly the flat curve above.
+
+That reading has two independent supports — the code says the range is one
+cell, and the measurement says the footprint does not grow — and it is the
+explanation this package puts forward. **It is not isolated**, and saying so
+matters: crowding (`crowding_weight: 30.0`), the seed bank's 18,000-frame
+half-life and soil moisture on marginal ground could each also cap the stand,
+and nothing here separates them. Distinguishing them needs a run this package
+did not make — a single founder on uniformly ideal ground, measuring how far
+its descendants get — which is a scene, not a knob.
+
+**What would change it is already queued.** Review item **A5, dispersal**:
+per-species seed mass, float and carry, so wind and water move seed instead of
+it dropping at the parent's feet. That is the mechanism the owner's mental
+model assumes and the model does not yet have. Raising `grass_density` cannot
+substitute for it: density decides where grass *starts*, and on this evidence
+where it starts is very nearly where it stays.
+
+---
+
+## 15. Handoff
+
+**State: merged.** The first package landed as PR #38 at `f891da7`. The
+density follow-up in §13 is on `w3-grass-density`. All four
 gates green — `cargo test --release --locked --skip …` 895/9/2/44 with 0
 failed, clippy clean, `acceptance.sh` all cases met, `docscheck.sh` clean.
 
@@ -499,12 +674,13 @@ this report carries every number a PR body would.
 
 ### What the next session should pick up, in order
 
-1. **The density call.** Card `20260823T235145284Z-f19cb5` asks the owner
-   directly whether a world should carry more grass than five tussocks per 192
-   columns. If the answer is yes, `grass_density` is the knob — and note the
-   guard bar `median <= 72` in `grass_is_sown_across_a_seed_sweep` was set from
-   the *current* value and will need re-deriving with it, along with the slot
-   high-water and the frame cost.
+1. **The density call — answered once, and asked again.** The first answer was
+   "increase it a little bit"; §13 did that (x1.43) and re-derived both guard
+   bars with it. Card `20260824T011019066Z-63c0d2` asks whether the new amount
+   is right. If it should go further, the same discipline applies: the bars
+   `median >= 12` / `median <= 114` are cut from the measured median of 38 and
+   must be re-cut, and `examples/ascii` must be re-run — raising the density
+   once already broke a scene that had nothing to do with the flora (§13).
 2. **Confirm the divergence result at maturity.** Root:shoot diverges 8 of 8
    at 10,800 frames; `plant-species-authoring.md` §8 says confirm at 30,000,
    and W1 measured a root axis that peaked at 25,200 and washed out by 43,200.
@@ -513,6 +689,15 @@ this report carries every number a PR body would.
    window.
 3. **Whether a mature world should be a closed forest** (§9). Not a bug; a
    design call the owner has not been asked.
+4. **A5, dispersal, is now the item with a named consumer.** §14 measures that
+   grass does not spread — one-cell dispersal means the sown footprint is very
+   nearly the final one — and the owner's stated expectation is that patches
+   *"spread over time and completely fill up an area"*. Per-species seed mass,
+   float and carry is what closes that gap; no amount of `grass_density` can.
+   The isolating measurement §14 did *not* make is a single founder on
+   uniformly ideal ground, scored on how far its descendants get: that is one
+   scene, and it would separate dispersal range from crowding, the seed bank's
+   decay and marginal-ground moisture.
 
 ### Pointing the two-patch instrument at wind — the pairing W4 gates
 
@@ -524,28 +709,61 @@ metrics, the seed sweep, the establishment-imbalance warning and the
 axis-survival check — is written without knowing what is being varied. Adding
 wind is one arm on `Axis` and no other change.
 
-What has to exist first, and it is entirely W4's:
+**Updated 2026-08-24: exposure has landed and this is no longer blocked.**
+`weather::exposure(world, x, y, wind)` and `ground_exposure(world, x, wind)`
+are public, returning `0.0` sheltered to `1.0` open about `NEUTRAL_EXPOSURE`,
+with `exposure_detail` breaking out fetch, shelter and prominence. So the
+missing half exists. What follows is what building the arm now actually runs
+into, which is not what §11.5 anticipated.
 
-- **Position-dependent wind.** `weather::at(seed, frame)` takes no position, so
-  `wind` is one value for the whole world. Until an organism's experienced wind
-  is a function of *where it is*, the two patches cannot differ on it — the
-  windy patch and the sheltered patch are the same patch, and the instrument
-  would correctly report zero divergence for a reason that has nothing to do
-  with trees. `physical-trees-design-2026-08-23.md` §11.5 specifies the cheap
-  shape: exposure derived from terrain at gust time (open fetch upwind, height
-  above local ground), read by the handful of organisms a 26-cell gust
-  overlaps, nothing written and nothing stored.
+**The blocker moved rather than disappeared, and it is in *this* instrument,
+not in W4's.** Exposure is a pure function of **terrain** and wind direction.
+`common::PlantScene` builds a dead-flat bed — no shelter, no prominence — so
+`exposure` returns `NEUTRAL_EXPOSURE` uniformly across it. **Measured, not
+assumed**: `wind_probe -- preset=flat`, which is W4's own control, reports
+shelter 0.000 and prominence 0.000 at every sampled column, *"most sheltered
+0.500, most exposed 0.500, spread 0.000"*. **The scene the instrument is built
+on cannot express the axis at all**, and pointing it at
+wind without noticing would produce an exact-zero divergence that looks like
+the control passing. That is the failure this instrument was designed to
+catch, arriving through its own front door.
+
+Two ways out, and the second is much better:
+
+1. **Shape the beds differently** — a sheltered hollow against an exposed
+   rise. Straightforward, and it breaks the instrument's one real claim:
+   different terrain means different slope, drainage, light angle and soil
+   depth, so the patches would differ in four things and the axis would no
+   longer be one axis.
+2. **Same shaped bed in both patches, opposite wind direction.** Exposure
+   already takes `wind` as an argument and walks the fetch upwind, so a bed
+   shaped as a one-sided ridge is *sheltered* for wind from one side and
+   *exposed* for wind from the other. Identical terrain, identical founders,
+   identical everything — and the only difference is the sign of the wind the
+   exposure read is taken with. That is a genuine one-axis comparison and it
+   preserves the exact-zero control, because setting both patches to the same
+   sign must return exactly zero.
+
+So the work is: give `PlantScene` a bed profile (one asymmetric ridge is
+enough — it needs `shelter` and `prominence` to be nonzero, which a flat bed
+never makes), add `Axis::Exposure` carrying a wind sign per patch, and have
+the axis-survival check report realised mean `ground_exposure` per patch.
+Whatever consumes exposure to change growth — the plasticity directive — is
+lane P's economy work and still does not exist; until it does, the instrument
+will correctly report no divergence, and that will be a true statement about
+the model rather than a fault in the measurement.
 
 Three things this package learned that W4's exposure work should inherit,
 because each cost a run here:
 
 - **The axis-survival check matters more for wind than it did for moisture, not
-  less.** Gusts fire on 41.6% of frames at the default seed. A patch that is
-  sheltered from only *some* gust directions converges on the exposed one over
-  a long run, and the instrument would then report a null belonging to the
-  scene rather than to the model. `Axis::Exposure` must report **realised**
-  mean exposure per patch at the end of the run, the way `Axis::Moisture`
-  reports realised soil water — not the exposure that was requested.
+  less.** Gusts fire on 41.6% of frames at the default seed, and the global
+  wind's *sign* flips over a run — so a bed that is sheltered while the wind
+  blows one way is exposed when it turns, and the two patches average toward
+  each other. `Axis::Exposure` must report **realised** mean `ground_exposure`
+  per patch at the end of the run, the way `Axis::Moisture` reports realised
+  soil water — not the exposure that was requested. This is the single most
+  likely way a wind run produces a null that belongs to the scene.
 - **The arm that is "worse" must still support a population.** The moisture
   axis's first dry setting was under `tree`'s germination bar and established
   0, 0, 2 and 1 of twelve founders against a wet patch's 12 — a stand against

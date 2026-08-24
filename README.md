@@ -2133,8 +2133,8 @@ country, where "open" is the whole woody preference summing low rather than
 any one species being absent. Keeping it out of the woody budget is what
 leaves the four species untouched — paired against main over sixteen seeds,
 conifer, creeper, shrub and tree come out bit-identical, and grass takes its
-columns from moss. It reaches 16 of 16 generated worlds (7 / 24 / 60 per
-world at 2,048 columns) and comes up where it lands (96% of sown), guarded
+columns from moss. It reaches 16 of 16 generated worlds (9 / 38 / 76 per
+world at 2,048 columns) and comes up where it lands (95% of sown), guarded
 by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
