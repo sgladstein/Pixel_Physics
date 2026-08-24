@@ -163,6 +163,21 @@ tried?"*.
   from, and **§6 is item B1's answer**: shallow-fibrous against
   deep-fibrous is reachable on genome slot 5 alone, measured, with the
   sign of the axis the opposite of the obvious reading.
+- [grass-sowing-and-divergence-2026-08-23.md](grass-sowing-and-divergence-2026-08-23.md)
+  — **implemented.** The grass half of A1 and the whole of A4. Grass is sown
+  as its own layer rather than a fifth woody species, weighted by the
+  *unclamped* woody sum — the clamped one saturates at p10, which is the
+  measurement that chose the rule. Paired against main, all four woody
+  species come out bit-identical. The second half is
+  `examples/divergence.rs`, the two-patch instrument
+  `physical-trees-design-2026-08-23.md` §11.6 is waiting on: same founders,
+  one axis, scored on root:shoot and slenderness, with an exact
+  identical-patch control and §8's list of what it takes to point it at wind.
+  **§11 is the card-design postmortem** — the first review card was a null,
+  and counting rather than looking found why: the rendered window held 125
+  grass cells against 7,853 woody, while its `meta` honestly quoted the
+  whole-world total. §13 is the handoff, including what W4's exposure work
+  has to provide before the instrument can be aimed at wind.
 
 The genome and appearance set, merged from `plant-substrate-v2` /
 `plant-genome`. Two of its claims did not survive contact with main's
@@ -342,8 +357,11 @@ field rework — see `open-bugs-handoff.md`.
   as T6. Its three scheduling calls are decided (the economy half moves into
   P2; wind geography is dispatched as W4; plasticity is built as a heritable
   reaction norm), and §11.6a establishes from source that the genome already
-  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
-  been measured or rendered.
+  inherits and mutates — the gate is the slot ceiling. **§11.5 is discharged:**
+  W4 landed terrain-derived exposure, so the sheltered-valley outcome it called
+  unreachable is now reachable, and the section carries what T6 inherits — a
+  world 37% calmer per gust, and the sampling trap that makes an arbitrary
+  frame read flat. The rest of §11 is unmeasured and unrendered.
 
 ## Open working files
 

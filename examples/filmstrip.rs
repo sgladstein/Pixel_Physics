@@ -2090,6 +2090,18 @@ fn build_scene(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
+    /// knobs (`sim::clock`), each "N times slower than baseline".
+    ///
+    /// **Explicit here, and deliberately not read from `assets/clock.ron`.**
+    /// The app loads that file and every harness leaves `World::new`'s
+    /// baseline alone, which is what keeps several hundred guards and every
+    /// stored contact sheet valid across a change to the shipped day length.
+    /// The cost of that divergence is that a sheet rendered here is at
+    /// whatever these say, so they are echoed on stdout beside the scene name
+    /// — `CLAUDE.md`'s harness rule, after a 3.5-hour study turned out to be
+    /// three populations wearing 24 logs.
+    clock: pixel_physics::sim::clock::Clock,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
     /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
@@ -2281,6 +2293,31 @@ struct Args {
     /// never looks at 15 cells of a 17-cell wall reads as "the wall is
     /// fine".
     stress: bool,
+    /// `channel=exposure` -- repaint the sheet with `weather::exposure`, the
+    /// terrain-derived wind shelter every consumer of it will sample.
+    ///
+    /// Not one of `render.rs`'s overlays, for `stress`'s reason one step
+    /// further: exposure is not a stored channel *and never will be*. It is
+    /// a pure read over terrain, deliberately holding no per-tile state,
+    /// because the version of this that kept state in the field was
+    /// measured at a permanent 3.55 ms on every scene and reverted (see
+    /// `weather::exposure`'s own doc). There is nothing to overlay; it has
+    /// to be computed here.
+    ///
+    /// **A full replace on a fixed dark-to-bright ramp**, per `CLAUDE.md`,
+    /// and not a blend into the cell's own colour: a magnitude-scaled blend
+    /// was tried here once and produced a canopy-density sheet that read as
+    /// blank, which would have sent a fix at working code.
+    exposure: bool,
+    /// `wind=` -- which way the wind is blowing for `channel=exposure`.
+    ///
+    /// Exposure is a function of terrain, position *and* wind direction:
+    /// the lee of a ridge is the sheltered side only for as long as the
+    /// wind holds. Defaults to what `weather::at` actually says at this
+    /// world's seed and frame, so the sheet shows the real field rather
+    /// than a hypothetical one, and the value used is printed under the
+    /// tile either way.
+    wind: Option<f32>,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -2738,6 +2775,8 @@ fn parse() -> Args {
         sky_light: SkyLight::default(),
         daylight: None,
         stress: false,
+        exposure: false,
+        wind: None,
         gif: false,
         explosions: Vec::new(),
         blasts: Vec::new(),
@@ -2788,6 +2827,7 @@ fn parse() -> Args {
         // acceptance case in ice.ron's note is stated at.
         fall: 90,
         pond: 60,
+        clock: pixel_physics::sim::clock::Clock::default(),
     };
     let mut named_gif = false;
     for arg in std::env::args().skip(1) {
@@ -2905,10 +2945,16 @@ fn parse() -> Args {
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
                 "stress" => a.stress = true,
+                "exposure" => a.exposure = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress, exposure"
                 ),
             },
+            "wind" => {
+                let f: f32 = v.parse().expect("wind=<-1.0..1.0>");
+                assert!((-1.0..=1.0).contains(&f), "wind=<-1.0..1.0>, got {f}");
+                a.wind = Some(f);
+            }
             "daylight" => {
                 let f: f32 = v.parse().expect("daylight=<0.0..1.0>");
                 assert!((0.0..=1.0).contains(&f), "daylight=<0.0..1.0>, got {f}");
@@ -3023,6 +3069,37 @@ fn parse() -> Args {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
                 a.crop = Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1);
+            }
+            "day" | "weather" | "growth" | "creatures" | "gnome" => {
+                let n: u32 = v.parse().unwrap_or_else(|_| panic!("{k}= wants a whole number, got {v:?}"));
+                a.clock.set_rates(0, |c| match k {
+                    "day" => c.day_minutes = n,
+                    "weather" => c.weather_slowdown = n,
+                    "growth" => c.growth_slowdown = n,
+                    "creatures" => c.creature_slowdown = n,
+                    _ => c.gnome_slowdown = n,
+                });
+                // A value out of range clamps silently, and a knob whose
+                // stored value is not what was asked for is a knob nobody can
+                // tell is disconnected -- the failure `Args::clock` records.
+                //
+                // Compares the *specific* knob rather than asking whether the
+                // whole clock is still at baseline, which was the first
+                // version and rejected `day=1` -- a perfectly legitimate way
+                // to name the default explicitly, and exactly what a paired
+                // comparison against a slowed day needs on its other arm.
+                let stored = match k {
+                    "day" => a.clock.day_minutes,
+                    "weather" => a.clock.weather_slowdown,
+                    "growth" => a.clock.growth_slowdown,
+                    "creatures" => a.clock.creature_slowdown,
+                    _ => a.clock.gnome_slowdown,
+                };
+                assert_eq!(
+                    stored, n,
+                    "{k}={v} was clamped to {stored}: the range is 1..={}",
+                    pixel_physics::sim::clock::MAX_SLOWDOWN
+                );
             }
             other => panic!("unknown argument {other:?}"),
         }
@@ -4088,6 +4165,94 @@ fn paint_stress(world: &World, frame: &mut [u8]) {
     }
 }
 
+/// Repaint `frame` with `weather::exposure` for the *ground* of each column.
+///
+/// **A column wash, and the first version was not.** Exposure is defined at
+/// any point, so the obvious sheet paints every cell with its own value --
+/// and that sheet is worthless. A cell inside rock has every upwind surface
+/// above it and reads ~0.0; a cell in the sky has every upwind surface below
+/// it and reads ~1.0; so the picture comes out a straw sky over a navy solid,
+/// split on the ground line, and the terrain-driven variation that the
+/// channel exists to show is a one-pixel band nobody can see. Rendered, it
+/// is exactly the "reads as blank" failure `CLAUDE.md` warns produces a fix
+/// aimed at working code -- the numbers under that same sheet were healthy
+/// (spread 0.941), which is the whole argument for printing them.
+///
+/// What is painted instead is `weather::ground_exposure` for the column,
+/// down the full height: the quantity `weather::gust` actually samples, and
+/// the one that answers "is this a sheltered place". The surface row is
+/// marked in a fixed cyan that is nowhere on the ramp, so the terrain
+/// profile can be read against the wash without tinting it.
+///
+/// A **full replace on a fixed dark-to-bright ramp**, per `CLAUDE.md`, at
+/// alpha 1.0: deep navy is sheltered, mid slate is level open ground
+/// (`weather::NEUTRAL_EXPOSURE`), pale straw is fully exposed. Fixed rather
+/// than normalised to the frame's own range -- a per-frame rescale makes a
+/// world with no relief look exactly like one with plenty, which is the
+/// failure this channel exists to catch, and the `preset=flat` control
+/// would stop being a control.
+fn paint_exposure(world: &World, frame: &mut [u8], wind: f32) {
+    for x in 0..WIDTH {
+        let surface = (0..HEIGHT).find(|&y| world.get(x, y).material != material::EMPTY);
+        let e = pixel_physics::sim::weather::ground_exposure(world, x, wind)
+            .unwrap_or(pixel_physics::sim::weather::NEUTRAL_EXPOSURE);
+        // Two straight segments through the neutral point, so the ramp stays
+        // monotone in exposure while level ground still lands on a
+        // recognisable colour rather than an arbitrary grey.
+        let colour = if e <= 0.5 {
+            let t = e / 0.5;
+            [(14.0 + 76.0 * t) as u8, (16.0 + 84.0 * t) as u8, (34.0 + 78.0 * t) as u8, 255]
+        } else {
+            let t = (e - 0.5) / 0.5;
+            [(90.0 + 155.0 * t) as u8, (100.0 + 140.0 * t) as u8, (112.0 + 63.0 * t) as u8, 255]
+        };
+        for y in 0..HEIGHT {
+            let dst = (((y * WIDTH) + x) * 4) as usize;
+            let px = if Some(y) == surface { [0, 200, 220, 255] } else { colour };
+            frame[dst..dst + 4].copy_from_slice(&px);
+        }
+    }
+}
+
+/// Which wind `channel=exposure` was drawn for, and the census that says
+/// whether the channel is doing anything at all.
+///
+/// Printed next to the sheet because a picture cannot report its own
+/// inputs, and an exposure sheet drawn at `wind = 0.02` on a world with no
+/// relief is indistinguishable from a broken one. The spread in particular
+/// is the "did it fire at all" counter `CLAUDE.md` asks for: a channel that
+/// is working on rolling terrain has a wide one, and a flat world must
+/// report ~0.000 with a mean at `NEUTRAL_EXPOSURE`.
+fn report_exposure(world: &World, wind: f32) {
+    let (mut lo, mut hi, mut sum, mut n) = (f32::MAX, f32::MIN, 0.0f64, 0u32);
+    let (mut lo_x, mut hi_x) = (0, 0);
+    for x in 0..WIDTH {
+        let Some(s) = (0..HEIGHT).find(|&y| world.get(x, y).material != material::EMPTY) else { continue };
+        let v = pixel_physics::sim::weather::exposure(world, x, s, wind);
+        if v < lo {
+            lo = v;
+            lo_x = x;
+        }
+        if v > hi {
+            hi = v;
+            hi_x = x;
+        }
+        sum += v as f64;
+        n += 1;
+    }
+    if n == 0 {
+        println!("    exposure: no ground anywhere in this world");
+        return;
+    }
+    println!(
+        "    exposure (wind {wind:+.2}): ground columns {n}, mean {:.3}, sheltered {:.3} at x={lo_x}, exposed {:.3} at x={hi_x}, spread {:.3}",
+        sum / n as f64,
+        lo,
+        hi,
+        hi - lo
+    );
+}
+
 /// Print whatever structural probes were asked for. Separate from the tile
 /// line above because these scan the world and the tile line does not — a
 /// scene that isn't about structure should pay nothing for this existing.
@@ -4302,6 +4467,16 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
 
 fn main() {
     let args = parse();
+    // **Echo the world clock, always.** `CLAUDE.md`'s harness rule: a knob
+    // whose value you cannot see is a knob you cannot tell is disconnected,
+    // and a contact sheet that does not name its own clock was rendered by a
+    // binary that may never have had one. Printed even at the baseline, so a
+    // sheet whose caption is missing this line is from an older build.
+    let c = &args.clock;
+    println!(
+        "filmstrip: scene={} clock(day={} weather={} growth={} creatures={} gnome={})",
+        args.scene, c.day_minutes, c.weather_slowdown, c.growth_slowdown, c.creature_slowdown, c.gnome_slowdown
+    );
     // Repeated runs are for the *timing* only -- the image and the
     // expectations come from the last one, which is a full run like any
     // other. Deliberately re-simulated from scratch rather than reusing a
@@ -4519,6 +4694,9 @@ fn report_colony(world: &World, render: bool) {
 /// not need an image and should not pay for one.
 fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
     let mut world = build(args);
+    // After `build`, which may construct the world several different ways --
+    // one place to set it means a scene cannot silently opt out.
+    world.clock = args.clock;
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
     // Taken here rather than in `build` so it includes whatever the scene
@@ -4649,6 +4827,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
             if args.stress {
                 paint_stress(&world, &mut frame);
+            }
+            if args.exposure {
+                let wind = args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind);
+                paint_exposure(&world, &mut frame, wind);
             }
 
             let mut tile = vec![0u8; (tile_w * tile_h * 4) as usize];
@@ -4845,6 +5027,10 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         worst_draw_ms = worst_draw_ms.max(drew.elapsed().as_secs_f64() * 1000.0);
         if args.stress {
             paint_stress(&world, &mut frame);
+        }
+        if args.exposure {
+            let wind = args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind);
+            paint_exposure(&world, &mut frame, wind);
         }
 
         let (gx, gy) = (captured as i32 % args.cols as i32, captured as i32 / args.cols as i32);
@@ -5712,6 +5898,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64),
         if render {
             println!("    worst frame so far: {worst_ms:.2} ms (frame {worst_frame})");
             report_loads(&world, args);
+            if args.exposure {
+                report_exposure(&world, args.wind.unwrap_or_else(|| pixel_physics::sim::weather::at(world.seed, world.frame).wind));
+            }
             dump_materials(&world, args);
         }
         captured += 1;

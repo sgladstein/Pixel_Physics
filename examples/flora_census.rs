@@ -93,6 +93,11 @@ fn main() {
     let (mut seeds, mut frames, mut preset) = (8usize, 0usize, String::new());
     let (mut w, mut h) = (2047i32, 639i32);
     let mut terrain = false;
+    let mut where_mode = false;
+    let mut window: i32 = 512;
+    let mut at: Option<i32> = None;
+    let mut focus: Option<String> = None;
+    let (mut tree_density, mut grass_density, mut moss_density): (Option<f32>, Option<f32>, Option<f32>) = (None, None, None);
     let mut mix = false;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -103,7 +108,24 @@ fn main() {
             "w" => w = v.parse::<i32>().expect("w=N") - 1,
             "h" => h = v.parse::<i32>().expect("h=N") - 1,
             "terrain" => terrain = v != "0",
+            // **Density overrides, so a control can be run without editing a
+            // preset.** The question these exist for: grass establishes at
+            // 96% and is down to 3 of 40 by frame 45,000 — is that the
+            // woody canopy closing over it (succession, and correct), or
+            // grass failing on its own? Only the same world with the woody
+            // layer switched off can separate those, and before this the
+            // comparison could not be expressed at all.
+            "treedensity" => tree_density = Some(v.parse().expect("treedensity")),
+            "grassdensity" => grass_density = Some(v.parse().expect("grassdensity")),
+            "mossdensity" => moss_density = Some(v.parse().expect("mossdensity")),
             "mix" => mix = v != "0",
+            // See `report_where`: `where=1` says which columns a species is
+            // actually in, `window=` how wide a camera is, `at=` audits a
+            // window that has already been rendered.
+            "where" => where_mode = v != "0",
+            "window" => window = v.parse().expect("window"),
+            "at" => at = Some(v.parse().expect("at")),
+            "focus" => focus = Some(v.to_string()),
             _ => panic!("unknown argument {arg:?}"),
         }
     }
@@ -113,15 +135,40 @@ fn main() {
     }
     let name = if preset.is_empty() { presets.default_name() } else { preset.clone() };
     let Some(params) = presets.get(&name) else { panic!("unknown preset {name:?}") };
+    let mut overridden = params.clone();
+    if let Some(v) = tree_density {
+        overridden.tree_density = v;
+    }
+    if let Some(v) = grass_density {
+        overridden.grass_density = v;
+    }
+    if let Some(v) = moss_density {
+        overridden.moss_density = v;
+    }
+    let params = &overridden;
 
     // **The harness names its own parameters** — a log that does not say
     // which seed or which world size it ran is a log written by a binary
     // that may never have had the knob (`CLAUDE.md`, the megastudy that was
-    // three populations wearing 24 files).
-    println!("flora_census preset={name} seeds={seeds} frames={frames} world={}x{}", w + 1, h + 1);
+    // three populations wearing 24 files). The three densities are echoed
+    // whether or not they were overridden, for the same reason: a control
+    // run and the run it controls have to be distinguishable from their logs
+    // alone, months later.
+    println!(
+        "flora_census preset={name} seeds={seeds} frames={frames} world={}x{} tree_density={} grass_density={} moss_density={}",
+        w + 1,
+        h + 1,
+        params.tree_density,
+        params.grass_density,
+        params.moss_density
+    );
 
     if terrain {
         report_terrain(params, seeds, w, h);
+        return;
+    }
+    if where_mode {
+        report_where(params, seeds, w, h, frames, &WhereOpts { window, at, focus });
         return;
     }
     if mix {
@@ -164,7 +211,20 @@ fn main() {
                 format!("{n}: sown {s} est {e} cells {c}")
             })
             .collect();
-        println!("  seed {seed:>3}  gen {gen_ms:>6.0}ms  run {run_s:>6.1}s  {}", line.join(" | "));
+        // **The slot ceiling, printed rather than assumed.** Grass is the
+        // one sown species that breeds fast enough to matter to the 4,095
+        // organism-slot ceiling, and what happens past it is silent id
+        // corruption rather than a visible failure — a world at the ceiling
+        // and a world where nothing is breeding read identically in every
+        // other column of this line. `high-water` is the peak of
+        // concurrently-live organisms and `refused` the births the ceiling
+        // turned away; both are free from the allocator.
+        let (high_water, ceiling) = world.organism_slot_high_water();
+        let refused = world.organisms_refused();
+        println!(
+            "  seed {seed:>3}  gen {gen_ms:>6.0}ms  run {run_s:>6.1}s  slots {high_water}/{ceiling} refused {refused}  {}",
+            line.join(" | ")
+        );
     }
 
     // The order statistic, not the mean: outcomes here are chaotic in the
@@ -197,10 +257,17 @@ fn main() {
 /// answering it would set the thresholds wrong.
 fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32) {
     use pixel_physics::worldgen::column::Terrain;
+    use pixel_physics::worldgen::passes;
     let mut aridity: Vec<f32> = Vec::new();
     let mut elev: Vec<f32> = Vec::new();
     let mut depth: Vec<f32> = Vec::new();
     let mut table: Vec<f32> = Vec::new();
+    // **The woody sum, which is the fact the grass band is cut through.**
+    // Grass is the ground layer of open country, and "open" is not a species
+    // being absent — it is the whole woody preference summing low. Printed
+    // here, unclamped, because `life_scatter`'s own `budget` is
+    // `min(1.0, sum)` and that saturates across most of the world.
+    let mut woody: Vec<f32> = Vec::new();
     let (mut plantable, mut columns) = (0usize, 0usize);
     for seed in 1..=seeds as u64 {
         let mut world = World::new(Rect::new(0, 0, w, h));
@@ -226,6 +293,7 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
             elev.push(ch.elev);
             depth.push(plan.soil_depth as f32);
             table.push((plan.table_y - ground) as f32);
+            woody.push(passes::woody_budget(&passes::Site::new(ch.aridity, ch.elev, plan.soil_depth)));
         }
     }
     let q = |v: &mut Vec<f32>, name: &str| {
@@ -238,6 +306,170 @@ fn report_terrain(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize
     q(&mut elev, "elev");
     q(&mut depth, "soil_depth");
     q(&mut table, "table-below");
+    q(&mut woody, "woody-sum");
+}
+
+/// **Where a species actually is, in world columns — the camera-pointing
+/// instrument.**
+///
+/// Written after a review card came back *"I don't see a difference between
+/// the images."* The card was a 512-column crop of the 8,192-column world,
+/// and its `meta` honestly reported 71 established grass plants — **for the
+/// whole world**. One plant every 115 columns means the rendered window held
+/// about four of them, each a handful of cells, and "no difference" was the
+/// correct reading of that picture. The counts were real and were the wrong
+/// counts: a whole-world total cannot say whether the thing is *in the
+/// frame*.
+///
+/// So this reports the densest `window`-wide span per species — where to
+/// point a camera — and, with `at=X`, what a window you have already
+/// rendered actually contained. Check the second before believing a card and
+/// use the first before shooting one.
+/// How the camera-pointing report is aimed: how wide the shot is, an
+/// already-rendered window to audit, and a single species to rank windows
+/// for. One struct rather than three more parameters -- these three are one
+/// question ("which frame") and travel together.
+struct WhereOpts {
+    window: i32,
+    at: Option<i32>,
+    focus: Option<String>,
+}
+
+fn report_where(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, w: i32, h: i32, frames: usize, opts: &WhereOpts) {
+    let WhereOpts { window, at, focus } = opts;
+    let (window, at) = (*window, *at);
+    for seed in 1..=seeds as u64 {
+        let mut world = World::new(Rect::new(0, 0, w, h));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        for _ in 0..frames {
+            pixel_physics::sim::parallel::step(&mut world);
+            world.step_active_sites();
+            world.step_fields();
+        }
+        let bounds = world.bounds().expect("bounded world");
+        // Cells per (species, column). Cells rather than plants, because a
+        // camera sees cells: four grass plants of five cells each and one
+        // shrub of two hundred are not the same picture.
+        let mut per_col: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for y in bounds.min_y..=bounds.max_y {
+            for x in bounds.min_x..=bounds.max_x {
+                let id = world.get(x, y).organism_id();
+                if id == 0 {
+                    continue;
+                }
+                let Some(state) = world.organism(id) else { continue };
+                let name = world.species.get(state.species).name.clone();
+                per_col.entry(name).or_insert_with(|| vec![0; (w + 1) as usize])[x as usize] += 1;
+            }
+        }
+        // **`focus=NAME` — the top non-overlapping windows for one species,
+        // with everything else that shares them.** The densest-window-per-
+        // species listing below answers "where is this species", which is
+        // not the same question as "where can I photograph this species":
+        // grass's densest 128-column window on the shipped world holds 348
+        // grass cells and 3,276 tree cells, and a picture of it is a picture
+        // of trees. This ranks candidates and prints what a camera pointed
+        // at each would actually contain.
+        if let Some(target) = focus.as_deref() {
+            let Some(cols) = per_col.get(target) else {
+                println!("  seed {seed}: no {target} in this world at all");
+                continue;
+            };
+            let total: usize = cols.iter().sum();
+            let mut sums: Vec<(usize, i32)> = Vec::new();
+            let mut run: usize = cols.iter().take(window.min(w + 1) as usize).sum();
+            sums.push((run, 0));
+            for x in window..=w {
+                run += cols[x as usize];
+                run -= cols[(x - window) as usize];
+                sums.push((run, x - window + 1));
+            }
+            sums.sort_by(|a, b| b.0.cmp(&a.0));
+            let mut taken: Vec<i32> = Vec::new();
+            println!("  seed {seed}: top {window}-column windows for {target} ({total} cells world-wide)");
+            for (count, x0) in sums {
+                if count == 0 || taken.len() >= 6 {
+                    break;
+                }
+                // Non-overlapping, or the list is six views of one patch.
+                if taken.iter().any(|&t| (t - x0).abs() < window) {
+                    continue;
+                }
+                taken.push(x0);
+                let others: Vec<String> = per_col
+                    .iter()
+                    .filter(|(n, _)| n.as_str() != target)
+                    .map(|(n, c)| {
+                        let lo = x0.clamp(0, w) as usize;
+                        let hi = (x0 + window).clamp(0, w + 1) as usize;
+                        (n.clone(), c[lo..hi].iter().sum::<usize>())
+                    })
+                    .filter(|(_, v)| *v > 0)
+                    .map(|(n, v)| format!("{n} {v}"))
+                    .collect();
+                // **And the rows it occupies**, because "where" is two
+                // coordinates and a crop set from the wrong one shows bare
+                // ground. A 70-row crop guessed from the surface line missed
+                // a sward entirely once already.
+                let (mut y0, mut y1) = (i32::MAX, i32::MIN);
+                for y in bounds.min_y..=bounds.max_y {
+                    for x in x0..(x0 + window).min(w + 1) {
+                        let id = world.get(x, y).organism_id();
+                        if id == 0 {
+                            continue;
+                        }
+                        let Some(state) = world.organism(id) else { continue };
+                        if world.species.get(state.species).name == target {
+                            y0 = y0.min(y);
+                            y1 = y1.max(y);
+                        }
+                    }
+                }
+                println!(
+                    "    x={x0:<6} {target} {count:>5} cells  rows {y0}..{y1}  |  also: {}",
+                    if others.is_empty() { "nothing else".to_string() } else { others.join(", ") }
+                );
+            }
+            continue;
+        }
+        println!("  seed {seed}: densest {window}-column window per species (and what it holds)");
+        for (name, cols) in &per_col {
+            let total: usize = cols.iter().sum();
+            // One pass with a running sum -- the world is 8,192 wide and this
+            // runs per species per seed.
+            let mut run: usize = cols.iter().take(window.min(w + 1) as usize).sum();
+            let mut best = (0i32, run);
+            for x in window..=w {
+                run += cols[x as usize];
+                run -= cols[(x - window) as usize];
+                if run > best.1 {
+                    best = (x - window + 1, run);
+                }
+            }
+            let at_count = at.map(|a| {
+                let lo = a.clamp(0, w) as usize;
+                let hi = (a + window).clamp(0, w + 1) as usize;
+                cols[lo..hi].iter().sum::<usize>()
+            });
+            match at_count {
+                Some(c) => println!(
+                    "    {name:<9} {total:>6} cells world-wide | densest window x={:<6} {:>5} cells ({:>4.1}%) | at x={:<6} {:>5} cells ({:>4.1}%)",
+                    best.0,
+                    best.1,
+                    100.0 * best.1 as f64 / total.max(1) as f64,
+                    at.unwrap_or(0),
+                    c,
+                    100.0 * c as f64 / total.max(1) as f64
+                ),
+                None => println!(
+                    "    {name:<9} {total:>6} cells world-wide | densest window x={:<6} {:>5} cells ({:>4.1}%)",
+                    best.0,
+                    best.1,
+                    100.0 * best.1 as f64 / total.max(1) as f64
+                ),
+            }
+        }
+    }
 }
 
 /// **How segregated the woody species actually are along the world.**

@@ -69,6 +69,7 @@
 pub mod brain;
 pub mod cell;
 pub mod chunk;
+pub mod clock;
 pub mod creature;
 pub mod decay;
 pub mod evaporation;
