@@ -2056,12 +2056,28 @@ fn apply_sky_to(
     columns.sort_unstable();
     columns.dedup();
 
+    // **One tile fetch per (column, chunk-row), not one per (column, lx,
+    // chunk-row).** The walk is per *field* column (`lx`), but the tile a
+    // field column lands in depends only on `(cx, cy)` -- so the original
+    // loop order re-fetched the same tile eight times, and then a ninth
+    // time for the `sky_lit` write at the bottom. Measured at 8192x2560:
+    // 128 chunk-columns x 8 lx x 40 chunk-rows x 2 fetches = ~82,000
+    // `HashMap` lookups per sky pass, against 5,120 now.
+    //
+    // **Bit-identical, and the reason is that the eight sub-columns never
+    // interact.** `carried` is per-`lx` and each `(lx, ly)` cell is written
+    // exactly once from its own sub-column's chain, so carrying eight
+    // accumulators down the column in step computes the same value for
+    // every cell as eight separate descents did. The two shared writes are
+    // both monotone: `lit` is a set insert and `sky_lit` an OR, so folding
+    // eight per-`lx` updates into one per-tile update lands on the same
+    // state. What changes is only the order tiles are *touched* in, which
+    // nothing here reads.
     for cx in columns {
-        for lx in 0..FIELD_TILE_SIZE {
-            let mut carried = amplitude;
-            for cy in min_cy..=max_cy {
-                let coord = ChunkCoord::new(cx, cy);
-                let Some(tile) = next.get_mut(&coord) else {
+        let mut carried = [amplitude; FIELD_TILE_SIZE as usize];
+        for cy in min_cy..=max_cy {
+            let coord = ChunkCoord::new(cx, cy);
+            let Some(tile) = next.get_mut(&coord) else {
                     // Not in the solved subset. A *sleeping* tile still
                     // stands in the light's way — treating it as open sky
                     // would pour daylight through a sleeping mountain onto
@@ -2072,18 +2088,24 @@ fn apply_sky_to(
                     // sleeping tile either already holds this amplitude's
                     // value (max-write no-op) or is dark (nothing to
                     // write). No tile at all is genuinely open sky.
-                    if let Some(sleeping) = old.get(&coord) {
+                if let Some(sleeping) = old.get(&coord) {
+                    for lx in 0..FIELD_TILE_SIZE {
+                        let c = &mut carried[lx as usize];
                         for ly in 0..FIELD_TILE_SIZE {
-                            if carried <= 0.0 {
+                            if *c <= 0.0 {
                                 break;
                             }
-                            carried *= sleeping.transmission_local(lx, ly);
+                            *c *= sleeping.transmission_local(lx, ly);
                         }
                     }
-                    continue;
-                };
+                }
+                continue;
+            };
+            let mut any_lit = false;
+            for lx in 0..FIELD_TILE_SIZE {
+                let c = &mut carried[lx as usize];
                 for ly in 0..FIELD_TILE_SIZE {
-                    if carried <= 0.0 {
+                    if *c <= 0.0 {
                         continue;
                     }
                     // **The light reaching this block is written here even
@@ -2099,8 +2121,8 @@ fn apply_sky_to(
                     // Max, never assignment: diffusion may legitimately
                     // have brought *more* light here from a neighbouring
                     // column, and this pass must not darken it.
-                    if carried > cell.light {
-                        cell.light = carried;
+                    if *c > cell.light {
+                        cell.light = *c;
                         tile.set_local(lx, ly, cell);
                     }
                     // **Graded, and graded per column.** The block's own
@@ -2113,15 +2135,14 @@ fn apply_sky_to(
                     // that and introduced its own error, reading a
                     // horizontal plate and a vertical trunk identically
                     // when only one of them is in a downward ray's way.
-                    carried *= tile.transmission_local(lx, ly);
+                    *c *= tile.transmission_local(lx, ly);
                 }
-                if carried > 0.0 {
-                    lit.insert(coord);
-                }
-                if let Some(t) = next.get_mut(&coord) {
-                    t.sky_lit = carried > 0.0 || t.sky_lit;
-                }
+                any_lit |= *c > 0.0;
             }
+            if any_lit {
+                lit.insert(coord);
+            }
+            tile.sky_lit = any_lit || tile.sky_lit;
         }
     }
     lit
@@ -2201,21 +2222,28 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
     columns.sort_unstable();
     columns.dedup();
 
+    // One tile fetch per (column, chunk-row) rather than one per (column,
+    // lx, chunk-row) -- `apply_sky_to`'s restructure, applied to its sibling
+    // for the same reason and with the same bit-identity argument: `reach`
+    // is per-`lx`, the eight sub-columns never interact, and each cell is
+    // written exactly once from its own chain. This one has no shared
+    // per-tile write at all, so the argument is simpler still.
     for cx in columns {
-        for lx in 0..FIELD_TILE_SIZE {
-            // Starts at 1.0, not at the offset: this is the fraction of the
-            // sky's forcing that reaches a block, so it is the same quantity
-            // for the warm half of the day and the cool half. `apply_sky_to`
-            // folds the amplitude into its carried value instead, because
-            // light has no negative half to keep symmetric.
-            let mut reach = 1.0f32;
-            for cy in min_cy..=max_cy {
-                let coord = ChunkCoord::new(cx, cy);
-                let Some(tile) = next.get_mut(&coord) else {
-                    continue; // no chunk here: open sky, carry on unchanged
-                };
+        // Starts at 1.0, not at the offset: this is the fraction of the
+        // sky's forcing that reaches a block, so it is the same quantity
+        // for the warm half of the day and the cool half. `apply_sky_to`
+        // folds the amplitude into its carried value instead, because
+        // light has no negative half to keep symmetric.
+        let mut reach = [1.0f32; FIELD_TILE_SIZE as usize];
+        for cy in min_cy..=max_cy {
+            let coord = ChunkCoord::new(cx, cy);
+            let Some(tile) = next.get_mut(&coord) else {
+                continue; // no chunk here: open sky, carry on unchanged
+            };
+            for lx in 0..FIELD_TILE_SIZE {
+                let r = &mut reach[lx as usize];
                 for ly in 0..FIELD_TILE_SIZE {
-                    let sky = offset * reach;
+                    let sky = offset * *r;
                     let mut cell = tile.get_local(lx, ly);
                     if cell.sky_temperature != sky {
                         cell.temperature += sky - cell.sky_temperature;
@@ -2227,7 +2255,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
                     // it — the same choice `apply_sky_to` documents for a
                     // leaf's own light, and for the same reason: sun-warmed
                     // rock is warm at its surface.
-                    reach *= tile.transmission_local(lx, ly);
+                    *r *= tile.transmission_local(lx, ly);
                 }
             }
         }
