@@ -932,15 +932,37 @@ some places and wasteful in others. A separate anchorage cost would be a
 knob nobody can set from evidence — `design-philosophy.md` §2a's test,
 failed.
 
-### 11.5 What does not exist, and the biome outcome depends on it
+### 11.5 What did not exist, and the biome outcome depended on it
 
-**Wind has no geography.** `weather::at(seed, frame)` takes no position:
+> **Discharged 2026-08-24 by package W4** (`claude/w4-wind-geography`, merged).
+> This section is kept as written because the reasoning it records is what W4
+> was briefed against and is still the constraint on anything that touches
+> wind; the two sentences that are no longer true are corrected in place
+> below. **Terrain-derived exposure exists on `main`.**
+
+**Wind had no geography.** `weather::at(seed, frame)` takes no position:
 `wind` is `channel(seed, frame, 3) * 2.0 - 1.0`, one value for the entire
-world. Gusts fire *at* a location, but their strength is global and
-time-only. So "a sheltered valley grows slender trees and an exposed ridge
-grows squat ones" **cannot emerge today** — every tree in the world
-experiences the same storm, and the biome divergence the owner asked for has
-nothing to vary against.
+world. Gusts fire *at* a location, and before W4 their strength was global
+and time-only.
+
+**Two corrections to what this section originally claimed**, both from
+measurement made after it was written:
+
+- It said flatly that there is no sheltered spot in this world. **Too
+  strong.** The *field* already carried locality even though the driver did
+  not: horizontal wind sampled across a sward at three instants read spreads
+  of 0.0000 / 0.0387 / 0.0000, the middle one a `weather::gust` dipole
+  sitting in the field. What was missing was *persistent* shelter, because
+  nothing positional fed the driver — a hollow was calmer than a ridge only
+  for as long as a gust happened to be somewhere else, which is not
+  something a tree can grow differently in response to.
+- It said "a sheltered valley grows slender trees and an exposed ridge grows
+  squat ones" **cannot emerge today**. **After W4 it can.** Shelter is now
+  persistent and terrain-shaped, so there is something for the biome
+  divergence to vary against. Whether it *does* emerge is a separate
+  question and is not yet measured — W3's two-patch divergence instrument
+  (`examples/divergence.rs`, merged) is the thing that would answer it, and
+  needs one arm on its `Axis` to be pointed at wind.
 
 The obvious fix is a spatial wind field, and that is precisely the shape of
 the term this engine already reverted: a steady global wind measured at a
@@ -951,10 +973,33 @@ here is a term that is *read*, by a handful of organisms, on the frames a
 gust fires. Nothing is written and nothing is kept.
 
 Cheapest shape that does the job: **exposure derived from terrain at gust
-time** — open fetch upwind, and height above the local ground — queried only
-for the organisms a 26-cell gust actually overlaps. No new field, no new
-storage, no standing cost, and it is a pure function of terrain and frame so
-it stays deterministic. Unpriced; it would be T6's first measurement.
+time** — open fetch upwind, and height above the local ground. No new field,
+no new storage, no standing cost, and a pure function of terrain and
+direction, so it stays deterministic.
+
+**Built by W4, and one deliberate difference from what this paragraph
+proposed.** This section suggested querying "only for the organisms a 26-cell
+gust actually overlaps"; W4 queries once per gust at the strike column and
+scales the whole dipole, which is strictly cheaper — one query per gust
+rather than one per overlapped organism. The per-organism form is what T6
+will want, reading the term at a tree's own position, and
+`exposure(world, x, y, wind)` is already the point form that supports it.
+
+Two things T6 inherits and must not re-derive:
+
+- **The world is now globally calmer by design.** `MIN_GUST_SHARE` floors the
+  scale and exposure tops out at 1.0, so the term can only ever *subtract*
+  pressure — centring on neutral would let a ridge deliver ~1.5x the old
+  impulse, and adding pressure is the exact failure that killed the reverted
+  steady-wind term. Measured at 62.6% of the old total delivered strength
+  over 517 gusts. Any wind-throw threshold tuned against pre-W4 gust
+  strengths is tuned against a world that no longer exists.
+- **The sampling trap.** `|wind| > GUST_THRESHOLD` holds 41.6% of the time
+  and gusts fire one frame in 26, so most frames have no gust to be sheltered
+  from at all. Sampling at an arbitrary frame can read flat and look like a
+  dead mechanism, or read a gust's own dipole and credit it to terrain. W4's
+  flat-preset control (mean 0.500, spread 0.000) is what separates those two,
+  and T6 needs its own equivalent.
 
 ### 11.6 How the divergence actually arrives — plasticity before selection
 

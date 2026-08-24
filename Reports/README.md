@@ -357,8 +357,11 @@ field rework — see `open-bugs-handoff.md`.
   as T6. Its three scheduling calls are decided (the economy half moves into
   P2; wind geography is dispatched as W4; plasticity is built as a heritable
   reaction norm), and §11.6a establishes from source that the genome already
-  inherits and mutates — the gate is the slot ceiling. Nothing in §11 has
-  been measured or rendered.
+  inherits and mutates — the gate is the slot ceiling. **§11.5 is discharged:**
+  W4 landed terrain-derived exposure, so the sheltered-valley outcome it called
+  unreachable is now reachable, and the section carries what T6 inherits — a
+  world 37% calmer per gust, and the sampling trap that makes an arbitrary
+  frame read flat. The rest of §11 is unmeasured and unrendered.
 
 ## Open working files
 
