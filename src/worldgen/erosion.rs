@@ -372,6 +372,7 @@ mod tests {
             world_age: 1.0,
             tree_density: 0.0,
             moss_density: 0.0,
+            grass_density: 0.0,
             ..Default::default()
         };
         let snapshot = |w: &World| -> std::collections::HashSet<(i32, i32, u16)> {

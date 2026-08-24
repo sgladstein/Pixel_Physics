@@ -2090,6 +2090,18 @@ fn build_scene(args: &Args) -> World {
 
 struct Args {
     scene: String,
+    /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
+    /// knobs (`sim::clock`), each "N times slower than baseline".
+    ///
+    /// **Explicit here, and deliberately not read from `assets/clock.ron`.**
+    /// The app loads that file and every harness leaves `World::new`'s
+    /// baseline alone, which is what keeps several hundred guards and every
+    /// stored contact sheet valid across a change to the shipped day length.
+    /// The cost of that divergence is that a sheet rendered here is at
+    /// whatever these say, so they are echoed on stdout beside the scene name
+    /// — `CLAUDE.md`'s harness rule, after a 3.5-hour study turned out to be
+    /// three populations wearing 24 logs.
+    clock: pixel_physics::sim::clock::Clock,
     /// `seed=N` -- which generated world `scene=worldgen` builds.
     seed: u64,
     /// `yield=F` -- the gnome's `dig_yield`, for comparing the spoil
@@ -2788,6 +2800,7 @@ fn parse() -> Args {
         // acceptance case in ice.ron's note is stated at.
         fall: 90,
         pond: 60,
+        clock: pixel_physics::sim::clock::Clock::default(),
     };
     let mut named_gif = false;
     for arg in std::env::args().skip(1) {
@@ -3023,6 +3036,37 @@ fn parse() -> Args {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("crop")).collect();
                 assert_eq!(n.len(), 4, "crop=x,y,w,h");
                 a.crop = Rect::new(n[0], n[1], n[0] + n[2] - 1, n[1] + n[3] - 1);
+            }
+            "day" | "weather" | "growth" | "creatures" | "gnome" => {
+                let n: u32 = v.parse().unwrap_or_else(|_| panic!("{k}= wants a whole number, got {v:?}"));
+                a.clock.set_rates(0, |c| match k {
+                    "day" => c.day_minutes = n,
+                    "weather" => c.weather_slowdown = n,
+                    "growth" => c.growth_slowdown = n,
+                    "creatures" => c.creature_slowdown = n,
+                    _ => c.gnome_slowdown = n,
+                });
+                // A value out of range clamps silently, and a knob whose
+                // stored value is not what was asked for is a knob nobody can
+                // tell is disconnected -- the failure `Args::clock` records.
+                //
+                // Compares the *specific* knob rather than asking whether the
+                // whole clock is still at baseline, which was the first
+                // version and rejected `day=1` -- a perfectly legitimate way
+                // to name the default explicitly, and exactly what a paired
+                // comparison against a slowed day needs on its other arm.
+                let stored = match k {
+                    "day" => a.clock.day_minutes,
+                    "weather" => a.clock.weather_slowdown,
+                    "growth" => a.clock.growth_slowdown,
+                    "creatures" => a.clock.creature_slowdown,
+                    _ => a.clock.gnome_slowdown,
+                };
+                assert_eq!(
+                    stored, n,
+                    "{k}={v} was clamped to {stored}: the range is 1..={}",
+                    pixel_physics::sim::clock::MAX_SLOWDOWN
+                );
             }
             other => panic!("unknown argument {other:?}"),
         }
@@ -4302,6 +4346,16 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
 
 fn main() {
     let args = parse();
+    // **Echo the world clock, always.** `CLAUDE.md`'s harness rule: a knob
+    // whose value you cannot see is a knob you cannot tell is disconnected,
+    // and a contact sheet that does not name its own clock was rendered by a
+    // binary that may never have had one. Printed even at the baseline, so a
+    // sheet whose caption is missing this line is from an older build.
+    let c = &args.clock;
+    println!(
+        "filmstrip: scene={} clock(day={} weather={} growth={} creatures={} gnome={})",
+        args.scene, c.day_minutes, c.weather_slowdown, c.growth_slowdown, c.creature_slowdown, c.gnome_slowdown
+    );
     // Repeated runs are for the *timing* only -- the image and the
     // expectations come from the last one, which is a full run like any
     // other. Deliberately re-simulated from scratch rather than reusing a
@@ -4519,6 +4573,9 @@ fn report_colony(world: &World, render: bool) {
 /// not need an image and should not pay for one.
 fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, usize, (i64, i64), i64) {
     let mut world = build(args);
+    // After `build`, which may construct the world several different ways --
+    // one place to set it means a scene cannot silently opt out.
+    world.clock = args.clock;
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
     // Taken here rather than in `build` so it includes whatever the scene

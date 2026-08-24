@@ -627,6 +627,21 @@ impl Handler {
             // The A/B key. Deliberately reassigned as the question changes --
             // see `App::toggle_experiment`.
             KeyCode::KeyK => self.app.toggle_experiment(),
+            // **`Tab` switches which menu the panel shows, and it is the
+            // primary binding rather than an alias.** `PageUp`/`PageDown`
+            // came first and are kept below, but they are absent from 60%
+            // and many laptop keyboards, which made the `WORLD` menu --
+            // and with it every world-speed knob -- unreachable on the
+            // hardware some people actually play on. `Tab` is on every
+            // keyboard and "next section" is what it means everywhere else.
+            //
+            // Shadowing the palette toggle while the panel is open costs
+            // nothing: the panel covers most of the screen, so the swatch
+            // row underneath it is not what anyone is reaching for. The
+            // panel already shadows `S` (save, over the gnome's descend)
+            // on the same reasoning, and this arm must stay *above* the
+            // unconditional `Tab` arm below or the guard never fires.
+            KeyCode::Tab if self.app.show_tunables => self.app.tunables_cycle_group(),
             KeyCode::PageUp | KeyCode::PageDown if self.app.show_tunables => self.app.tunables_cycle_group(),
             KeyCode::KeyS if self.app.show_tunables => self.app.save_tunable(),
             KeyCode::KeyI => self.app.toggle_hover_inspector(),

@@ -579,7 +579,7 @@ const SNOW_INSULATION: f32 = 4.0;
 /// Set to `SNOW_THRESHOLD` exactly, so there is one bar to remember rather
 /// than two to reconcile: **it freezes when it is cold enough to snow**,
 /// whether or not anything is actually falling.
-const DRY_FROST_CHILL: f32 = SNOW_THRESHOLD;
+pub(crate) const DRY_FROST_CHILL: f32 = SNOW_THRESHOLD;
 
 /// How deep a *crust* the front's own sweep will hold cold, in cells./// How deep a *crust* the front's own sweep will hold cold, in cells.
 ///
@@ -720,7 +720,7 @@ const LOCAL_RELIEF: i32 = 8;
 ///
 /// Below it the air is moving but not eventfully, and a world should not be
 /// paying for pressure impulses on an ordinary breezy afternoon.
-const GUST_THRESHOLD: f32 = 0.45;
+pub(crate) const GUST_THRESHOLD: f32 = 0.45;
 
 /// Frames between gusts at full wind. Gusts are *events* -- a squall
 /// arriving, not a constant push -- which is what keeps this on the right
@@ -796,7 +796,37 @@ pub struct Strike {
 /// Pure, like the rest of this module: no strike list, no timers, and a
 /// replay of the same seed puts the lightning in the same place on the same
 /// frame. Storms only -- see `STRIKE_MIN_INTENSITY`.
-pub fn strike(seed: u64, frame: u64, bounds: Option<Rect>) -> Option<Strike> {
+///
+/// # Two clocks, on purpose
+///
+/// `frame` is **physics time** and drives the strike window and the flash
+/// animation. Both are real-time effects: the two-peak strobe below is sized
+/// in frames because that is what makes it read as lightning rather than as a
+/// light being switched off, and stretching it with a longer day would
+/// rediscover exactly that failure at 1.9 seconds a flash.
+///
+/// `day_minutes` converts to **world time** for the one thing that is a
+/// question about the weather rather than about the animation: whether the
+/// window falls inside a storm at all (`sim::clock`). Without it, lightning
+/// samples a different clock from the rain it is supposed to accompany and
+/// flashes on clear days.
+///
+/// `weather_frame_of` maps a real frame to the **weather** clock, and is
+/// applied to the frame the window *began* on so a flash is not cut off
+/// mid-strobe by the front easing below the threshold. It is a mapping rather
+/// than a single value because the window's start is computed in here, and
+/// rather than a bare divisor because a bare divisor is not the same function
+/// as `Clock`'s once a rate has been changed live -- the two would diverge
+/// without bound, and `render.rs` forces a full-screen redraw on every strike
+/// frame and the one after, so a phantom bolt on a clear day costs the
+/// dirty-rect skip for as long as it lasts. Purity is unaffected: this stays a
+/// pure function of its arguments.
+///
+/// Note it is the *weather* knob, not the day knob. An earlier draft passed
+/// `day_minutes`, which contradicted the decision that the two are
+/// independent -- lightning would have been gated on a clock the rain was not
+/// using.
+pub fn strike(seed: u64, frame: u64, weather_frame_of: impl Fn(u64) -> u64, bounds: Option<Rect>) -> Option<Strike> {
     let bounds = bounds?;
     // Which window we might be in the flash of -- including the previous one,
     // since a flash that began near the end of a window is still lit in this
@@ -824,7 +854,7 @@ pub fn strike(seed: u64, frame: u64, bounds: Option<Rect>) -> Option<Strike> {
         }
         // The weather at the moment it *began*, so a strike is not cut off
         // mid-flash by the front easing below the threshold.
-        let at_start = at(seed, start);
+        let at_start = at(seed, weather_frame_of(start));
         if at_start.kind != Precipitation::Rain || at_start.intensity < STRIKE_MIN_INTENSITY {
             continue;
         }
@@ -916,6 +946,24 @@ fn gust(world: &mut World, w: Weather) {
 /// wake every tile between the cloud and the ground, undoing it. What the
 /// player sees falling is drawn, not simulated.
 pub fn step(world: &mut World) {
+    // **World time, on the weather's *own* clock** (`sim::clock`) -- not the
+    // sky's, and that distinction was built the other way round first.
+    //
+    // The withdrawn version read `world.sky_frame()`, on the argument that
+    // `WEATHER_EPOCH_FRAMES` is *defined* as two days, so lengthening the day
+    // must lengthen the epoch or the definition stops being true. That
+    // argument is sound and the coupling was still rejected, by owner
+    // preference: the day and the weather are two things a player wants to
+    // set separately, and a knob that silently moves another knob is not a
+    // separate knob. What survives is that the constant is two *baseline*
+    // days rather than two live ones -- a statement about where the number
+    // came from, not an invariant. `Reports/dead-ends.md` carries the entry.
+    //
+    // Reached through `World::weather` rather than `at(seed, weather_frame())`
+    // spelled out here, so that `weather_override` is honoured on this path
+    // too: that is the one resolution point both the simulation and the
+    // renderer read, and the storm that lands has to be the storm that is
+    // drawn. Identical to `world.frame` at the default.
     let w = world.weather();
     // Wind is not gated on precipitation -- a dry gale is weather too, and
     // the wind channel is generated whether or not anything is falling.
@@ -1566,7 +1614,7 @@ mod tests {
         let bounds = Some(Rect::new(0, 0, 511, 319));
         for seed in 0..256u64 {
             for frame in 0..STRIKE_WINDOW * 2 {
-                let _ = strike(seed, frame, bounds);
+                let _ = strike(seed, frame, |f| f, bounds);
             }
         }
     }
@@ -1684,7 +1732,7 @@ mod tests {
         let b = Some(Rect::new(0, 0, 511, 319));
         let seed = 4;
         let strikes: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20)
-            .filter(|&f| strike(seed, f, b).is_some_and(|s| s.age == 0))
+            .filter(|&f| strike(seed, f, |g| g, b).is_some_and(|s| s.age == 0))
             .collect();
         println!("{} strikes over 20 epochs", strikes.len());
         assert!(!strikes.is_empty(), "a storm world never produced a single strike");
@@ -1695,7 +1743,7 @@ mod tests {
         }
         // Pure, like everything else here: the same frame is the same strike.
         for &f in strikes.iter().take(4) {
-            assert_eq!(strike(seed, f, b), strike(seed, f, b));
+            assert_eq!(strike(seed, f, |g| g, b), strike(seed, f, |g| g, b));
         }
         // ...and a flash lasts a bounded time rather than latching on. A
         // strike that never ended would leave the world permanently white
@@ -1703,7 +1751,7 @@ mod tests {
         // redraw.
         for &f in strikes.iter().take(4) {
             assert!(
-                strike(seed, f + STRIKE_FRAMES, b).is_none_or(|s| s.age == 0),
+                strike(seed, f + STRIKE_FRAMES, |g| g, b).is_none_or(|s| s.age == 0),
                 "a flash was still lit a full duration after it began"
             );
         }
@@ -1717,7 +1765,7 @@ mod tests {
         let dry: Vec<u64> = (0..WEATHER_EPOCH_FRAMES * 20).filter(|&f| !at(4, f).is_precipitating()).collect();
         assert!(!dry.is_empty(), "seed 4 is never dry, so this proves nothing");
         assert!(
-            dry.iter().all(|&f| strike(4, f, b).is_none()),
+            dry.iter().all(|&f| strike(4, f, |g| g, b).is_none()),
             "lightning struck out of a clear sky"
         );
     }
