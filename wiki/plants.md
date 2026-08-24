@@ -3,8 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-23 (a dry meadow carries fire, a wet one stops it,
-and a damp one burns in patches; and a felled crown comes apart into logs).
+*Current as of: 2026-08-24 (grass is sown into generated worlds; a dry
+meadow carries fire, a wet one stops it, and a damp one burns in patches;
+and a felled crown comes apart into logs).
 Written when water became a real currency and
 roots started mattering; updated when the genome took over leaf economics,
 wood density and seed provisioning, and again when grass arrived and plants
@@ -163,10 +164,12 @@ Where each one grows is decided by the ground — trees in damp deep soil,
 conifers on the high ground, shrubs on the dry margin, creepers on a skin of
 soil over rock. `wiki/the-world.md` has that half.
 
-**Grass does not come with a new world yet**, though you can plant it. It
-has no way to die of anything, and a world that seeded it would accumulate
-grass that can never be cleared — so it waits on that rather than on
-anything about how worlds are made.
+**Grass now comes with a new world**, on the open ground the woody plants
+leave. What it waited on was a way to die: grass that could not be cleared
+would have piled up in a world that kept seeding it. Now shade kills a blade
+and a buried seed loses half its viability every few thousand frames, so a
+sward thins where a canopy closes over it and thickens where the light
+holds. `wiki/the-world.md` has where it goes.
 
 Individuals of one species differ too. Every plant carries a genome drawn when
 it germinates and inherited by its seed, so a population drifts and can be

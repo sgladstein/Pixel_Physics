@@ -75,11 +75,21 @@ const PLATFORM_STICK: i32 = 6;
 /// every jump near a tree into a grab at boot height.
 const GRIP_ROWS: i32 = PLAYER_HEIGHT / 2;
 
-/// How long the swing pose stays up after a blow.
+/// How long the swing pose stays up after a blow, **at the defaults**.
 ///
-/// Half the default `dig_cooldown`, so held digging alternates swing and
-/// stance rather than sticking in one or flickering between them — the
-/// rhythm of blows the cooldown already produces, made visible.
+/// Half `dig_cooldown`, so held digging alternates swing and stance rather
+/// than sticking in one or flickering between them — the rhythm of blows the
+/// cooldown already produces, made visible.
+///
+/// **No longer read by the code, on purpose.** `dig` and `shake` compute
+/// `dig_cooldown / 2` instead, so the documented relationship holds by
+/// construction rather than by coincidence: as a literal it silently stopped
+/// being half the cooldown the moment the cooldown became tunable in the
+/// panel, and again when `Tuning::dilated` let the gnome's whole rhythm
+/// slow down — the swing pose would have kept flickering at real-time speed
+/// over a slowed dig. Kept as the recorded default and checked against the
+/// derivation by `the_swing_pose_is_half_the_dig_cooldown_at_the_defaults`.
+#[cfg(test)]
 const SWING_FRAMES: u8 = 4;
 
 /// Everything about how the character *feels*, live-tunable under the
@@ -286,6 +296,89 @@ pub struct Tuning {
     /// something you carry — `F2` to `DUST` or `SPOIL` is where that
     /// starts. See `SPOIL_MODES`.
     pub dig_yield: f32,
+}
+
+impl Tuning {
+    /// **The same character, moving at `scale` times the pace.** Not a
+    /// different character: jump height, reach, dig radius and every other
+    /// distance are untouched, and only the rate at which the trajectory is
+    /// traversed changes.
+    ///
+    /// This is a *dimensional* rescale, not a multiply-everything. Position
+    /// advances by a velocity each tick and velocity by an acceleration, so
+    /// under a time scale `s`:
+    ///
+    /// - **velocities take one factor of `s`** — `run_max`, `jump_impulse`,
+    ///   `fall_clamp`, `climb_speed`, `stroke_impulse`;
+    /// - **accelerations take two** — `gravity`, `run_accel`,
+    ///   `ground_decel`. This is what preserves shape: apex is `v^2 / 2g`,
+    ///   and `(sv)^2 / 2(s^2 g)` is the same height;
+    /// - **a per-tick retention takes the power `s`** — `swim_damp`, because
+    ///   it compounds. `d^s` applied `1/s` times as often is `d`. Getting
+    ///   this backwards as `d^(1/s)` was caught in review and is not
+    ///   cosmetic: `0.84^8` is 0.248 where `0.84^(1/8)` is 0.979, and
+    ///   terminal velocity in water would have scaled as `s^2` instead of
+    ///   `s`;
+    /// - **durations divide by `s`**, so a forgiveness window covers the
+    ///   same amount of *motion*;
+    /// - **distances, sizes and dimensionless ratios do not move at all** —
+    ///   `dig_reach`, `dig_radius`, `step_up`, `wade_rows`, `mantle_reach`,
+    ///   `shake_reach`, `air_control`, `buoyancy`, `wade_slowdown`,
+    ///   `surface_hop`, `dig_yield`, and the two shake probabilities.
+    ///
+    /// # Derived, never written back
+    ///
+    /// The stored `Tuning` stays the un-dilated source of truth and this
+    /// returns a copy. That is required rather than tidy: `MovementFeel::
+    /// apply` (`F3`) overwrites six of these fields with absolute values, so
+    /// a knob that mutated the stored struct would be silently wiped by the
+    /// next feel cycle — and `the_defaults_are_the_first_feel_of_each_list`
+    /// pins `Tuning::default()` to `MOVEMENT_FEELS[0]` and would fail on the
+    /// spot. It also keeps `MovementFeel::jump_cells()`'s on-screen number
+    /// honest, since that reads the stored values.
+    ///
+    /// # What it does not preserve
+    ///
+    /// The apex is preserved by the *formula* and not quite by the
+    /// integrator: `player::step` is semi-implicit Euler, so the achieved
+    /// height is `v^2/2g + v/2` and the second term carries one factor of
+    /// `s`. At the defaults a jump reaches 23.10 cells at `1x` and 22.18 at
+    /// `8x` — about nine tenths of a cell lower. Against `step_up` (4) and
+    /// `mantle_reach` (4) that is a playtestable difference rather than a
+    /// rounding one, which is why this ships as a knob to be judged in the
+    /// hand rather than as a silent default.
+    ///
+    /// Durations stay `u8`, which is safe only because `clock::MAX_SLOWDOWN`
+    /// is 30: `dig_cooldown` reaches 240 of 255 at the cap. Raising that cap
+    /// means widening these.
+    pub fn dilated(&self, scale: f32) -> Self {
+        if scale >= 1.0 {
+            return *self;
+        }
+        let slow = 1.0 / scale;
+        let dur = |d: u8| ((d as f32 * slow).round() as u32).min(u8::MAX as u32) as u8;
+        Self {
+            // Accelerations: two factors.
+            gravity: self.gravity * scale * scale,
+            run_accel: self.run_accel * scale * scale,
+            ground_decel: self.ground_decel * scale * scale,
+            // Velocities: one.
+            run_max: self.run_max * scale,
+            jump_impulse: self.jump_impulse * scale,
+            fall_clamp: self.fall_clamp * scale,
+            climb_speed: self.climb_speed * scale,
+            stroke_impulse: self.stroke_impulse * scale,
+            // A compounding per-tick retention.
+            swim_damp: self.swim_damp.powf(scale),
+            // Windows, in ticks.
+            coyote_frames: dur(self.coyote_frames),
+            jump_buffer_frames: dur(self.jump_buffer_frames),
+            dig_cooldown: dur(self.dig_cooldown),
+            stroke_cooldown: dur(self.stroke_cooldown),
+            // Everything else is a distance, a size or a ratio.
+            ..*self
+        }
+    }
 }
 
 impl Default for Tuning {
@@ -939,9 +1032,24 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
     // Body cells near him, once. The margin covers this tick's whole
     // sweep — the furthest he can travel plus the depenetration reach —
     // so the window is gathered before he moves and is still valid after.
+    //
+    // **Sized from the *unscaled* tuning, deliberately.** A dilated gnome
+    // moves less per tick, so scaling this with him would shrink the window
+    // to `DEPENETRATE_REACH + 1` = 6 at four times slower -- exactly
+    // `PLATFORM_STICK`, leaving the deepest probe in this function with zero
+    // slack. Nothing about a probe radius is a rate; it is the reach the
+    // *rest* of the tick needs, and paying for the un-dilated worst case
+    // costs a handful of cells of scan.
     let (xi, yi) = p.rect_origin();
     let reach = tuning.fall_clamp.max(tuning.run_max).ceil() as i32 + DEPENETRATE_REACH + 1;
     let bodies = Bodies::near(world, xi, yi, reach);
+
+    // Everything from here reads the *dilated* character (`Tuning::dilated`,
+    // `clock::Clock::gnome_slowdown`). Identical to `tuning` at the default,
+    // where `dilated` returns a copy untouched.
+    let scale = world.clock.gnome_scale();
+    let dilated = tuning.dilated(scale);
+    let tuning = &dilated;
 
     // Free an invaded rectangle first, so this tick's movement starts
     // from a legal position: sand that fell into us, a body that settled
@@ -1235,7 +1343,13 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
         // read as the tree grabbing at him, and applied sideways it would
         // read as glue.
         if p.vy > 0.0 && foliage > 0.0 {
-            p.vy *= 1.0 - foliage.clamp(0.0, 1.0);
+            // A per-tick retention like `swim_damp`, so it takes the same
+            // power under dilation -- and unlike `swim_damp` it is not a
+            // `Tuning` field at all (it comes from `Material::fall_drag`), so
+            // `Tuning::dilated` cannot reach it and it has to be done here.
+            // Left raw, a crown would arrest a slowed fall N times harder in
+            // the gnome's own time.
+            p.vy *= (1.0 - foliage.clamp(0.0, 1.0)).powf(scale);
         }
     }
 
@@ -1431,10 +1545,25 @@ pub fn step(world: &mut World, input: PlayerInput, tuning: &Tuning) {
 /// shoving it out of the rectangle gives the depenetration pass somewhere
 /// to stand him up.
 pub fn dig(world: &mut World, aim: (i32, i32), tuning: &Tuning) -> Option<Bite> {
+    // **Dilated here too, not just in `step`.** `dig` and `shake` are called
+    // from `App::paint_stroke` on the render-frame path rather than from the
+    // tick, with the stored tuning -- so a dilation applied only inside
+    // `step` would leave `dig_cooldown` running at real-time while every
+    // other rhythm slowed, and the gnome would dig N times faster relative to
+    // his own motion. Identical to `tuning` at the default.
+    let dilated = tuning.dilated(world.clock.gnome_scale());
+    let tuning = &dilated;
     let mut p = world.player.take()?;
     let bite = if p.dig_cooldown == 0 {
         p.dig_cooldown = tuning.dig_cooldown;
-        p.action = SWING_FRAMES;
+        // **Half the (possibly dilated) cooldown, computed rather than named.**
+        // `SWING_FRAMES` is documented as "half the default `dig_cooldown`",
+        // which was true by coincidence and stopped being true the moment the
+        // cooldown could be tuned or dilated -- the swing pose would have run
+        // at real-time speed over a slowed dig rhythm. Deriving it makes the
+        // documented relationship hold by construction, and at the defaults
+        // it is still exactly `SWING_FRAMES`.
+        p.action = (tuning.dig_cooldown / 2).max(1);
         // Buried, the bite auto-aims *above his head* rather than at his
         // own centre, and the difference is the whole escape. Centred on
         // himself, the disc reaches as far below his feet as above his
@@ -1627,13 +1756,16 @@ const SHAKE_IMPULSE_STRENGTH: f32 = 6.0;
 ///   `plant_tree` the `T` key does, and it is the loop `README.md` lists
 ///   as missing ("plants don't reseed").
 pub fn shake(world: &mut World, at: (i32, i32), tuning: &Tuning) -> Option<Shake> {
+    // See `dig` for why this dilates rather than taking the stored tuning.
+    let dilated = tuning.dilated(world.clock.gnome_scale());
+    let tuning = &dilated;
     let mut p = world.player.take()?;
     if p.dig_cooldown != 0 {
         world.player = Some(p);
         return None;
     }
     p.dig_cooldown = tuning.dig_cooldown;
-    p.action = SWING_FRAMES;
+    p.action = (tuning.dig_cooldown / 2).max(1); // see `dig`
     world.player = Some(p);
 
     let organism_id = world.get(at.0, at.1).organism_id();
@@ -3536,6 +3668,71 @@ mod tests {
     /// numbers, and a drift between them would mean a fresh gnome
     /// silently differs from the feel named on screen — the exact class
     /// of bug the status line exists to prevent.
+    /// The relationship `SWING_FRAMES`' doc claims, asserted rather than
+    /// left as prose — and asserted against the *derivation* the code now
+    /// uses, so the constant cannot drift away from it unnoticed.
+    #[test]
+    fn the_swing_pose_is_half_the_dig_cooldown_at_the_defaults() {
+        let t = Tuning::default();
+        assert_eq!((t.dig_cooldown / 2).max(1), SWING_FRAMES);
+    }
+
+    /// **A dilated gnome is the same gnome, slower.** The shape of a jump is
+    /// what a time scale has to preserve, and the formula that guarantees it
+    /// is `v^2 / 2g` — one factor of the scale on the velocity, two on the
+    /// acceleration.
+    ///
+    /// Distances must not move at all, which is the other half of "same
+    /// gnome": a slow-motion character whose reach shrank would just be a
+    /// smaller one.
+    #[test]
+    fn dilation_preserves_the_shape_of_a_jump_and_every_distance() {
+        let base = Tuning::default();
+        for slowdown in [2.0f32, 4.0, 8.0] {
+            let s = 1.0 / slowdown;
+            let d = base.dilated(s);
+
+            // `jump_cells` is `v^2 / 2g`, so it is invariant by construction.
+            let (a, b) = (base.jump_impulse.powi(2) / (2.0 * base.gravity), d.jump_impulse.powi(2) / (2.0 * d.gravity));
+            assert!((a - b).abs() < 0.01, "at {slowdown}x a jump reaches {b} against {a}");
+
+            // The compounding term: `d^s` applied `1/s` times as often must
+            // come back to `d`. This is the assertion that fails for the
+            // inverted `powf(1/s)` spelling caught in review.
+            let compounded = d.swim_damp.powf(slowdown);
+            assert!(
+                (compounded - base.swim_damp).abs() < 0.001,
+                "at {slowdown}x, swim_damp {} compounds to {compounded} rather than {}",
+                d.swim_damp,
+                base.swim_damp
+            );
+
+            // Rates fall, windows lengthen.
+            assert!(d.run_max < base.run_max && d.gravity < base.gravity);
+            assert!(d.dig_cooldown > base.dig_cooldown && d.coyote_frames > base.coyote_frames);
+            // ...and `u8` still holds them, which is only true because
+            // `clock::MAX_SLOWDOWN` is 30. See `Tuning::dilated`.
+            assert_eq!(d.dig_cooldown, (base.dig_cooldown as f32 * slowdown).round() as u8);
+
+            // Distances, sizes and dimensionless ratios: untouched.
+            assert_eq!(
+                (d.dig_reach, d.dig_radius, d.step_up, d.wade_rows, d.mantle_reach, d.shake_reach),
+                (base.dig_reach, base.dig_radius, base.step_up, base.wade_rows, base.mantle_reach, base.shake_reach)
+            );
+            assert_eq!(d.air_control, base.air_control);
+            assert_eq!(d.buoyancy, base.buoyancy);
+            assert_eq!(d.wade_slowdown, base.wade_slowdown);
+            assert_eq!(d.surface_hop, base.surface_hop);
+            assert_eq!(d.dig_yield, base.dig_yield);
+        }
+        // The default is the identity, which every pre-existing player test
+        // depends on.
+        let same = base.dilated(1.0);
+        assert_eq!(same.gravity, base.gravity);
+        assert_eq!(same.dig_cooldown, base.dig_cooldown);
+        assert_eq!(same.swim_damp, base.swim_damp);
+    }
+
     #[test]
     fn the_defaults_are_the_first_feel_of_each_list() {
         let d = Tuning::default();

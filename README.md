@@ -63,7 +63,8 @@ and three overnight-run sections (§9 UI, §10 tunables, §11 rendering).
 | `Tab` | Toggle the material palette (swatch row, current selection outlined) |
 | `/` (shown as `?`) | Toggle the keybind help overlay |
 | `O` | Toggle the live tunables panel (§10 — browse/adjust/save material fields at runtime) |
-| `PageUp` / `PageDown` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. |
+| `O` -> WORLD | **World speed.** How fast the day, the weather, plant growth, creatures and the gnome run — five independent knobs, each a whole multiple of the baseline, none of them the physics clock. The day is named on the title bar at every setting, including the default. Slowing the world does not slow what falls: a *phase* (the sun, the weather) is slowed by feeding it a slower clock, a *schedule* (growth, creature ticks) by a longer interval, and neither can reach the CA sweep. What it is **not** is behaviour-preserving — a slowed plant drinks from soil that still refills at full speed, a slowed organism still burns and collapses at full speed, and the knobs trade with each other; `sim::clock`'s module doc names all three. Saved to `assets/clock.ron`, which the app reads and the harnesses deliberately do not — they take the knobs as arguments instead, so a test's world is always at baseline |
+| `Tab` | Switch which tunables menu is shown (PHYSICS / VISUAL / EXPLOSION / PLAYER / WORLD), while the panel is open. Split because a dozen materials times ten fields is one scroll of well over a hundred rows. `PageUp` / `PageDown` do the same and came first; `Tab` is the primary binding because 60% and many laptop keyboards have no page keys, which left the `WORLD` menu — and so every world-speed knob — unreachable on them. While the panel is open `Tab` does not toggle the palette, the same shadowing the panel already does to `S`. |
 | `↑` / `↓` | Move the tunables selection (only while the panel is open) |
 | `←` / `→` | Adjust the selected tunable's live value by its own step while the panel is open — and with it closed, adjust the **pinned** tunable, so a value under evaluation is one keypress away mid-play |
 | `Enter` | **Pin** the selected tunable for those panel-closed arrow keys (only while the panel is open) |
@@ -193,6 +194,10 @@ src/sim/     the simulation — knows nothing about windows or GPUs
                of "a forest burns and regrows"
   weather.rs   fronts, rain, snow, wind and gusts, lightning -- weather as
                a deterministic property of the world, not an event roll
+  clock.rs     world time: how fast the day, the weather, growth, creatures
+               and the gnome run, each on its own knob and none of them the
+               physics clock -- a phase is slowed by a slower clock, a
+               schedule by a longer interval, and neither reaches the sweep
   structural.rs M17: anchor distance, confinement, the structural check --
                what decides a cell is no longer held up
   load.rs      the load/torque failure criterion on top of it: who carries
@@ -2020,13 +2025,26 @@ same squared cluster noise, and `tree_density` is split between them rather
 than paid four times over. Measured on the shipped world at seed 1, paired
 against `origin/main` at the same seed and frame count: 87 standing plants
 become 135 — conifer 30, creeper 28, shrub 28 and tree 49, where before it
-was 87 trees and nothing else — at 50% more plant cells. Grass is deliberately still not sown — it has no
-mortality path, and a world that seeded it would leak organism slots.
+was 87 trees and nothing else — at 50% more plant cells.
 `tests/worldgen.rs`'s `every_woody_species_is_sown_across_a_seed_sweep` and
 `a_sown_woody_species_also_comes_up` guard it over a sixteen-seed sweep
 (worlds are procedural, so the guard sweeps the procedure and gates an order
 statistic); `examples/flora_census` is the instrument, and
-`Reports/world-flora-sowing-2026-08-23.md` holds the derivation. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
+`Reports/world-flora-sowing-2026-08-23.md` holds the derivation.
+
+**Grass joined them the same day, as a ground layer rather than a fifth
+woody species.** It had waited on a mortality path — a plantable grass that
+cannot die leaks organism slots — and once shade could kill a blade and the
+seed bank could decay, the remaining question was where to put it. Grass is
+sown off its own `grass_density`, on the columns the woody loop declined,
+weighted by `1 - ramp(woody sum, 1.0, 2.0)`: the ground layer of open
+country, where "open" is the whole woody preference summing low rather than
+any one species being absent. Keeping it out of the woody budget is what
+leaves the four species untouched — paired against main over sixteen seeds,
+conifer, creeper, shrub and tree come out bit-identical, and grass takes its
+columns from moss. It reaches 16 of 16 generated worlds (7 / 24 / 60 per
+world at 2,048 columns) and comes up where it lands (96% of sown), guarded
+by `grass_is_sown_across_a_seed_sweep` and `sown_grass_also_comes_up`. `F6`/`F8` roll seeds, `F7` cycles presets, and the same seed and preset
 rebuild the same world within one build. `tests/worldgen.rs` guards it;
 [`wiki/the-world.md`](wiki/the-world.md) describes what a player sees.
 
@@ -2373,6 +2391,47 @@ is the one that entry measures: a converged, quiet field skips its whole solve
 the intended answer for the saturated case, and this is the measurement that
 says when it stops being optional. Run the example while nothing else is
 compiling — concurrent cargo processes skew the figure badly.
+
+## World speed — five independent time axes
+
+How fast the world *ages* is five settings, none of which is the physics
+clock: `day_minutes`, `growth_slowdown`, `weather_slowdown`,
+`creature_slowdown`, `gnome_slowdown`. Each is a whole multiple of baseline
+(1 = the behaviour the engine had before `sim::clock` existed), capped at 30,
+adjustable live under `O` → WORLD and persisted to `assets/clock.ron`.
+
+The separation is structural rather than a promise. The engine reads its one
+clock (`World::frame`) three different ways, and only one of them is physics:
+a **phase** (`field::sun_elevation`, `weather::channel`) is a pure function of
+`frame % PERIOD` and is slowed by feeding it a slower clock; a **schedule**
+(organism and creature ticks) is an entry due at `frame + interval` and is
+slowed by a longer interval; the **CA sweep** is neither and is untouched.
+`physics_is_untouched_by_every_world_clock_knob` asserts a bit-identical grid
+across every setting, with a paired non-grid witness so it cannot pass by
+being disconnected.
+
+`DAY_NIGHT_PERIOD_FRAMES` is deliberately *not* raised to lengthen a day.
+`SKY_LIGHT_STEP` and `SKY_TEMPERATURE_QUANTUM` are sized against the per-frame
+rate of change it implies, and field sleeping is an inequality against
+`SETTLE_EPSILON_*` — a slower sky moves less per frame, so a quantum sized for
+the old rate stops registering and the field freezes at the last brightness it
+saw. Feeding a slower clock leaves all of that exact in sky-frame units, and
+measures 3.5x *fewer* field solves per real frame at a four-minute day.
+
+The app loads `assets/clock.ron` (shipped: an eight-minute day, everything
+else baseline); `World::new` does not, so every test, harness and acceptance
+scene stays at baseline. Harnesses take the knobs as explicit arguments
+instead — `filmstrip day=/weather=/growth=/creatures=/gnome=`, `plant_probe
+growth=` — and echo them.
+
+**Known limitation: these are not behaviour-preserving, and the plant one is
+not close.** Each subsystem's internal economy rescales exactly, but every
+exchange it has with a world still running at full speed is per real frame.
+Measured on a paired sweep at matched tick counts across eight seeds, a tree
+at `growth_slowdown: 4` ends between 0.15x and 1.34x its baseline size, median
+0.61x. Soil is ruled out as the cause by measurement (final profiles are
+essentially identical); per-real-frame hazards are the leading suspect and are
+not chased to ground. `sim::clock`'s module doc carries the numbers.
 
 ## Status
 

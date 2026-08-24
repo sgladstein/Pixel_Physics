@@ -610,6 +610,7 @@ mod tests {
             residual_density: 3.0,
             tree_density: 0.0,
             moss_density: 0.0,
+            grass_density: 0.0,
             spring_flow: 0.0,
             ..base.clone()
         };
@@ -679,6 +680,7 @@ mod tests {
             residual_density: 3.0,
             tree_density: 0.0,
             moss_density: 0.0,
+            grass_density: 0.0,
             spring_flow: 0.0,
             ..base.clone()
         };

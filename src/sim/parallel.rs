@@ -810,6 +810,10 @@ impl CellSurface for ChunkView<'_> {
         self.world.frame
     }
 
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        self.world.organism_due(base_interval)
+    }
+
     fn schedule_active_site(&mut self, site: ActiveSite) {
         self.pending_active_sites.push(site);
     }
