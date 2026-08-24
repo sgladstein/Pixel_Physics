@@ -23,9 +23,23 @@ tried?"*.
 - [emergent-world-architecture.md](emergent-world-architecture.md) —
   **direction agreed.** Thin agents, rich world; the priority reshuffle; §8
   is where determinism was reversed to *required*.
-- [documentation-audit.md](documentation-audit.md) — **findings, being
-  executed.** What the docs told an agent that wasn't true, re-ranked for
-  the agent consumer; carries the in-flight doc inventory.
+- [documentation-audit.md](documentation-audit.md) — **executed
+  2026-08-21/22.** What the docs told an agent that wasn't true, re-ranked
+  for the agent consumer; carries the in-flight doc inventory, and the
+  cold-agent benchmark that verified the outcome — 3/3 in 8 file-opens, no
+  source reads, one stale work order correctly refused. Re-run that before
+  claiming a later docs pass improved routing.
+- [documentation-overhaul-plan.md](documentation-overhaul-plan.md) —
+  **executed; four CLAUDE.md items deferred.** The plan the audit's findings
+  were executed against: the agent-consumer framing, read-cost measurements,
+  the drift protocol, and the two refusals that leave no trace in the tree
+  (no README reorder, no `Reports/archive/` — both had been chosen the other
+  way first).
+- [claude-md-recommendations.md](claude-md-recommendations.md) — **nine
+  landed, four open.** The thirteen-recommendation review of `CLAUDE.md` as
+  always-loaded infrastructure. 5, 6, 7 and 12 are approved and blocked only
+  on `load-share`, `plant-branch-angle` and `perf-lock` merging; execute
+  them when those land.
 - [pixel-physics-issues.md](pixel-physics-issues.md) — **mostly closed.**
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
