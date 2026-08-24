@@ -133,4 +133,29 @@
     // max on a healthy 8-tree stand is 77; 96 is that with headroom.
     max_cantilever_reach: 96,
     breaks_into: "deadwood",
+    // **The three tiers a felled tree comes apart into**, and the two lines
+    // below are two of them. `Reports/physical-trees-design-2026-08-23.md`
+    // §5: a real fell severed 2,648 cells and promoted 45 of them (1.7%) as
+    // pieces, because the ladder wood drew from was rock's -- {2, 4, 8, 16,
+    // 32} cells, two rungs of which are below `rigid::MIN_BODY_CELLS` and
+    // can never be a piece at all. Everything else became single deadwood
+    // grains and piled at their angle of repose. A cone of sawdust.
+    //
+    // 5 moves the base to {32, 64, 128, 256, 400} (the top rung capped by
+    // `MAX_BODY_CELLS`), which is a bole, a limb, a branch, a stick. The
+    // ceiling is deliberately *not* touched: a 2,400-cell crown wants to be
+    // six to ten pieces and not one slab, which is the all-or-nothing
+    // failure `design-philosophy.md` §0a names, approached from the other
+    // side.
+    fragment_floor: 5,
+    // Grown at eight neighbours, so it fragments at eight, and severed it
+    // comes away as pieces rather than as scatter. See `MaterialDef::woody`
+    // -- both consequences are the same fact and the measurement for each
+    // is there.
+    woody: true,
+    // The piece tier. `breaks_into` above is still the grit: which one a
+    // cell gets is decided by whether the fragment it landed in cleared
+    // `MIN_BODY_CELLS`, so the outcome is graded by the size of what broke
+    // rather than by a switch.
+    severs_into: "log",
 )

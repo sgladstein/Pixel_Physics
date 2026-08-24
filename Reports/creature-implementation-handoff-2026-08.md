@@ -529,9 +529,11 @@ never pulled main forward — both recorded in CLAUDE.md).
 
 | Lane | WPs, in order | Owns (files) | Starts |
 |---|---|---|---|
-| **A — gates & instruments** | WP-1 → WP-3 → WP-4 | `examples/*` (`ascii`, `creature_space`, `forage_probe`, `ant_ablation`), the review queue, `ci.yml` | now |
+| **A — gates & instruments** | WP-1 → WP-3 → WP-4 | `examples/*` (`ascii`, `creature_space`, `forage_probe`, `ant_ablation`), the review queue, `ci.yml` — **except `creature_space`'s WP-8 step 6 mode, which is Lane C's; see the note under this table** | now |
 | **B — accounting & docs** | WP-2 → WP-7 → WP-5 → WP-6 | `Reports/*`, `wiki/*`, `PLAN.md` (land same-day), `particle.rs`, `explosion.rs`, `fire.rs`, `world.rs` ledger | now |
 | **C — S5 & traffic** | WP-8 → WP-9 (serial within the lane) | `creature.rs`, `organism.rs`, `material.rs`, `brain.rs`, `render.rs`, `assets/species/*` | when Lane A lands WP-4 (or immediately for WP-8 steps 1–5, deferring every measurement claim until WP-4 is on main) |
+
+**Corrected 2026-08-24: this table contradicted the steps beneath it.** It gave Lane A everything under `examples/*` while WP-8 step 6 tells Lane C to add a `creature_space` mode — so two lanes were directed into one file by the plan itself, and they collided in practice. The split is drawn on *file* ownership, which cannot express "one mode inside one example"; where a work package needs a file another lane owns, name the exception here rather than leaving the table and the steps to disagree.
 
 Rules that make the split safe, all already paid for:
 

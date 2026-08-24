@@ -69,7 +69,7 @@ already changed decisions:
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (542 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (546 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
@@ -312,6 +312,50 @@ Everything that has actually collided here collided in `src/app.rs`. So:
 **if you touch a contested file, land it quickly** rather than holding a
 large diff across a session — the window in which someone else's work
 cannot compile is the window you created.
+
+**A file-ownership split is only as current as your last look at the branch
+list.** Read once at session start it is stale within the hour, and nothing
+prompts a re-read — the drift check has `branchcheck.sh` nagging for it, this
+has nothing, which is exactly why it goes unasked. Measured 2026-08-23 on the
+creature line's three-lane split: Lane A fetched the remotes before Lanes B
+and C had branches at all, never looked again, and spent the whole session
+believing it was the only lane. On that belief it filed four bug entries into
+`Reports/open-bugs-handoff.md`, a file the split assigns to **Lane B** — which
+had already filed all four, and better, its version of the foraging regression
+bisected where Lane A's said "unattributed". Lane B then spent a merge
+unifying the duplicates (`e3c5e76`), and Lane A had meanwhile told the owner
+those lanes did not exist. **Before writing into a file another lane owns,
+re-list the branches.** It costs one command, and the roster you were handed
+is a claim about the past, not evidence about who is running now.
+
+**The roster is the narrow case; the general one is that a shared append-only
+file must be *read* before it is appended to.** Re-listing branches fixes
+staleness of the roster, and two collisions the same day had no roster
+confusion in them at all — both were single-owner filings by sessions that
+knew exactly who else was running. `Reports/open-bugs-handoff.md` is where
+they land, because it is append-only, lettered, and written into by every
+line at once:
+
+- Two different bugs were filed as **§Q** — one branch's colony-scene panic
+  against `main`'s owner-reported debris needles, which already carried three
+  inbound references. Landing them naively would have left two §Q headings in
+  one document with those references silently resolving to whichever sorted
+  first. The newcomer was renamed §R, its self-references repointed.
+- A branch carried a stale copy of **§M still headed OPEN** which `main` had
+  since closed. Resolved keep-both, that merge would have re-opened a fixed
+  bug and sent the next reader at a generator with nothing to do with it —
+  which is the failure §M's own entry opens by warning about.
+
+So before adding a section: **grep the file for the thing you are about to
+file, and check the letter is not taken.** And when a merge conflicts there,
+ask which side is *newer* rather than which is yours — a stale copy of an
+entry the other side has since closed looks exactly like your own work.
+
+**Check the split is self-consistent before trusting it, too.** The same
+document gave Lane A everything under `examples/*` and told Lane C to add a
+`creature_space` mode — a file under `examples/*`. Two lanes were directed
+into one file by the plan itself, so the collision was authored in rather
+than stumbled into.
 
 If you find yourself needing to commit while a contested file holds
 somebody else's unfinished work, do **not** try to stage around it. Add a
@@ -797,6 +841,22 @@ consider it at all.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
+- **A green suite does not prove a test *could* fail, and that is a different
+  claim from the one above.** The sibling of the `#[ignore]` case: those tests
+  never ran, these run and pass and could not have done otherwise. A genome
+  widening shifted one draw out of a shared `Rng` that the *caller* went on
+  using, and both guards over it stayed green through the regression —
+  measured, by putting the fault back. One hashed a grown stand, which is
+  insensitive to a single reordered draw; the other built a fresh `Rng` per
+  call to model production, so it never observed a caller that continues.
+  Green was evidence about the tests, not about the code, and it was used to
+  withdraw a correct finding. **Before trusting a guard, put the fault it is
+  named for back and watch it go red** — and if it does not, the guard is not
+  weak, it is blind, and a new one is needed rather than a wider assertion in
+  the old one. The same session found a `let generation = state.generation;`
+  shadowing the parent's `generation` — every bred child pinned at generation 1
+  for ever, silently flattening lineage depth — and it was caught only because
+  one guard hashed enough state to notice.
 - **A *red* suite proves even less: `cargo test` stops at the first failing
   test binary, so a known-red lib test hides every integration test from a
   local run.** Bug A lives in the lib target, so plain `cargo test` fails

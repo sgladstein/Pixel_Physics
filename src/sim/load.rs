@@ -1926,7 +1926,30 @@ fn evaluate_within(world: &World, x: i32, y: i32, cache: &mut Cache, budget: &mu
     // on its own rubble was judged as many separate knife-edge footings.
     // `bearing_moment` already reads the *piece's* footing width; feeding it
     // the *piece's* weight is the other half of that pairing.
-    if parent.is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
+    //
+    // **And except for a material that opted out of the structural system
+    // altogether.** `capacity_within` returns `i64::MAX` for
+    // `max_unsupported_span == u16::MAX` and says in as many words that
+    // such a material "does not participate in the structural system at
+    // all" -- and then this line put it straight back in, because
+    // `i64::MAX.min(bearing_moment(..))` is `bearing_moment`. So the opt-out
+    // held against bending and silently did not hold against bearing, which
+    // is the *only* mode that then applied to it.
+    //
+    // Found by `log`, T1's piece tier, which is the first material to want
+    // the opt-out and to spend its life lying on loose rubble: half of every
+    // felled tree's landed pieces were crushed back into `deadwood` within a
+    // few hundred frames of arriving -- the dust outcome the whole package
+    // exists to remove, arriving one frame later by a different route.
+    // Measured on `scene=fell fell=7150` at frame 8,750: 1,191 cells of log
+    // delivered by `rigid::settle`, **431 still standing**, with 592 cells
+    // of deadwood that had no other source.
+    //
+    // Narrow by construction rather than by a special case: it fires only
+    // where `capacity_within`'s own early return already fired, and the
+    // only two materials in the shipped set that reach it are `log` and
+    // `nest`.
+    if capacity != i64::MAX && parent.is_none() && rests_on_ground(world, x, y) && !floats_on_liquid(world, x, y) {
         capacity = capacity.min(bearing_moment(world, x, y, mass));
     }
     Some(Load { mass, moment, torque, capacity, supported, truncated })
