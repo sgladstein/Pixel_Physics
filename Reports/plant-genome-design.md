@@ -508,6 +508,89 @@ Each species carries its own widest in-service width there (its
 the response curve lands. `examples/genome_drift` is the instrument for
 that and for the `MUTATION_SIGMA` sweep this document leaves open.
 
+### Handoff — what the next session must not re-derive (2026-08-24, PR #37)
+
+**What landed.** `GENOTYPE_TRAITS` 9 → 10, slot 9 (`strain`) appended as
+capacity with no consumer; ten `genotype_variance` tuples across five species
+files; `examples/genome_drift`, the per-slot population-mean-over-generations
+readout; and two fixes found while building the guards — `set_seed`'s appended
+slots now draw jitter from a keyed substream (`APPENDED_JITTER_SALT`) instead
+of the caller's shared `Rng`, and a `let generation = state.generation`
+shadowing bug that would have pinned **every bred child at generation 1 for
+ever**, silently flattening the lineage depth this whole programme's selection
+work is gated on.
+
+**The keying contract, and it is the licence for appending.** Every founding
+draw is `rng::stream(world_seed, x, y, slot)`, so **a slot's value is a pure
+function of its own index and the germination site** — not of how many slots
+exist, not of fill order. That is why appending is free and renumbering is
+catastrophic, and it is asserted directly by
+`a_genome_slots_draw_is_a_pure_function_of_its_own_index` (no frames stepped,
+so no other lane can move it). Do not re-establish this by growing a stand and
+hashing it; that was tried, and see the guard note below.
+
+**`seed_genotype` refuses to redraw an inherited genome, and that early-return
+is load-bearing.** It keys on where a seed came to rest, which is right for a
+seed a scene or the player placed and exactly wrong for one a parent set:
+redrawing would erase the parent's genome at the moment of germination and
+leave a population that breeds but does not inherit — selection with nothing to
+accumulate on. The `s.inherited` guard is the whole heredity channel. Do not
+"simplify" it.
+
+**Which slots are inert, and the trap in asking.** Slots 1 and 5 were measured
+inert (upward weight at ±40%, light weight at ±50%, flat across 1,024 genomes)
+and re-purposed once to root traits; only 0/2/3/4 stayed comparable across that
+re-map. Slot 9 is inert **by construction** until its consumer lands. Per
+vector: the shoot `Grow` carries 0/2/3/4/6/7/9 and zeroes 1/5/8; the root
+`Grow` is the mirror.
+
+The trap: **every slot is drawn for every individual whatever its width.**
+`seed_genotype` fills the entire vector unconditionally, so a slot at `0.0`
+variance has a population mean that moves and a phenotype that does not — its
+column in any readout looks exactly like a live slot under drift. This is why
+`genome_drift` prints the species' widths beside the draw tables. Reading a
+mean without the width beside it will produce a confident wrong answer.
+
+**Generational throughput — measured, and it gates the reaction-norm work.**
+`genome_drift`, `species=tree founders=16 frames=200000`, seeds 1 and 7:
+**maximum generation reached was 1, on both seeds.** Seed 1 ended with 82 live
+organisms of which 66 were seeds; seed 7, 109 of which 87 were seeds. The
+standing population is ~16–22 plants — essentially the founding cohort — and
+the rest is a seed bank. This is §5c of `plant-evolution-design.md` arriving as
+a measurement: nothing kills a healthy adult, so once a stand closes the
+founding cohort *is* the population.
+
+Consequences, both of which will otherwise be discovered the expensive way:
+200,000 frames buys a **bigger seed bank, not a deeper pedigree**, so no frame
+budget alone reaches a multi-generation selection experiment; and the
+`MUTATION_SIGMA` sweep (still untuned at 0.08) is therefore **blocked on the
+§5c turnover work, not on the sweep**. `genome_drift`'s generation-depth line
+prints a WARNING below generation 2 for exactly this reason — check it before
+spending hours on a study that cannot answer its question. For scale on what
+counts as signal: the unselected excursion envelope over those runs was ~0.10 –
+0.32 draw units, quoted as a range because the control slot's own excursion was
+0.316 on one seed and 0.100 on the other.
+
+**The guard on all this: sound, but with an expiry date — read this before
+trusting it.** `expressing_the_appended_genome_slot_changes_no_plant` grows one
+stand twice in a single process, slot 9 expressed and then at `0.0` width, and
+requires the two identical. It replaced a hardcoded whole-stand fingerprint
+that went stale three times in one evening as other lanes moved plant
+behaviour, and cost two wrong diagnoses; that incident is in
+`Reports/open-bugs-handoff.md`. Both arms move together under anything
+upstream, and it holds no magic number.
+
+It is **not** vacuous today — pointing the turgor read at slot 9 makes it red,
+which was run, not assumed. But be precise about why it passes: it passes
+because **nothing reads slot 9**. So the moment the reaction norm lands and
+slot 9 acquires a real consumer, **this test will begin failing legitimately,
+because expressing the slot will then change plants by design.** When that
+happens it must be **retired, not weakened** — a version edited until it goes
+green again would be asserting nothing at all. Its replacement should compare
+two arms that differ in something the *consumer* is not supposed to read, or it
+should be deleted outright and the three drift-immune guards left to carry the
+contract.
+
 **Discrete — `DISCRETE_LOCI = 6`** (seed strategy deferred, §4.8).
 
 | slot | locus | alleles | consequence |
