@@ -153,6 +153,18 @@ fn generated_terrain_is_already_at_rest() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        // **Every life layer, not the two that existed when this was
+        // written.** A seed is a `Powder` and settles, so a sown world has a
+        // live process in it -- the same reason `spring_flow` and the
+        // weather are held still here, and the same rule: a live process is
+        // not a placement defect. Grass landed as a *third* layer with its
+        // own density knob, and the two lines above stopped meaning "no
+        // life" the moment it did: five tests in this file failed at once,
+        // reporting `seed` and `soil` cells leaving their positions, which
+        // is a sward settling and not a terrain defect. Anything added to
+        // `life_scatter` later has to be zeroed in all seven of these
+        // fixtures too.
+        params.grass_density = 0.0;
         params.spring_flow = 0.0;
         let params = &params;
         for seed in SEEDS {
@@ -225,6 +237,7 @@ fn generated_terrain_stops_sweeping_almost_immediately() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.grass_density = 0.0;
         let mut world = build(&params, 1);
         let mut frames = 0;
         while world.active_chunk_count() > 0 && frames < 120 {
@@ -955,6 +968,107 @@ fn a_sown_woody_species_also_comes_up() {
     }
 }
 
+/// **Grass reaches the world, and comes up when it gets there.**
+///
+/// The grass half of A1, and it is a separate test from the woody sweep
+/// above rather than a fifth entry in [`WOODY`] for the same reason grass is
+/// a separate layer in `life_scatter`: it is sown off its own density knob,
+/// on the columns the woody loop declined, and its counts live on a
+/// different scale (median 24 a world against the woody 6-16). Folding it
+/// into the woody sweep would have meant one bar for two distributions, and
+/// the loose end of that bar is the species it was not set from.
+///
+/// **Measured over these sixteen worlds before the bars were set**: sown
+/// min 7, median 24, max 60, present in 16 of 16. Paired against `main` in
+/// the same session, all four woody species are bit-identical (conifer
+/// 2/6/27, creeper 2/12/23, shrub 1/6/25, tree 1/16/35 on both) — grass
+/// takes its columns from *moss*, whose median goes 20 to 19, which is the
+/// two ground layers competing for the same leftover ground and is the
+/// interaction to expect rather than a defect.
+///
+/// The sweep genuinely sweeps this rule: grass's per-world count runs 7 to
+/// 60 across these sixteen seeds, an 8.6x spread, so the order statistic is
+/// reading a procedure and not a fixed scene (`CLAUDE.md` — all eight
+/// acceptance scenes once stayed green through a change that made one world
+/// lose 26x more material, because `seed=` reached only two of them).
+#[test]
+fn grass_is_sown_across_a_seed_sweep() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let mut counts: Vec<usize> = Vec::new();
+    for seed in FLORA_SEEDS {
+        let mut world = World::new(Rect::new(0, 0, FLORA_BOUNDS.0, FLORA_BOUNDS.1));
+        worldgen::generate(&mut world, Spec::Generated { params, seed });
+        let (sown, _) = flora_census(&world);
+        counts.push(sown.get("grass").copied().unwrap_or(0));
+    }
+    let present = counts.iter().filter(|&&c| c > 0).count();
+    let mut v = counts.clone();
+    v.sort_unstable();
+    let median = v[v.len() / 2];
+    // One world may miss it outright, exactly as the woody sweep allows: the
+    // placement field is clustered by design and a world whose swards all
+    // fall in the sea is a real outcome.
+    assert!(
+        present >= FLORA_SEEDS.len() - 1,
+        "grass is missing from {} of {} generated worlds (counts {v:?})",
+        FLORA_SEEDS.len() - present,
+        FLORA_SEEDS.len()
+    );
+    // A third of the measured median of 24, so the bar has real headroom and
+    // still fails long before grass goes to zero.
+    assert!(median >= 8, "grass's median world holds only {median} (counts {v:?})");
+    // **And an upper bound, which the woody sweep has no equivalent of.**
+    // Grass is the one species that reproduces fast enough to matter to the
+    // 4,095 organism-slot ceiling, and the failure it walks into is silent id
+    // corruption rather than an ugly picture. This bar is a *sowing* bound at
+    // 2,047 columns and so only a proxy for that — it catches a density or
+    // band change that blankets the world, not a runaway seeding rate. The
+    // standing-organism high-water mark over a long run in the shipped world
+    // is the real measurement and lives in the report, not here, because it
+    // costs minutes rather than seconds.
+    assert!(median <= 72, "grass's median world holds {median} — three times the measured 24, so the sward is blanketing the world (counts {v:?})");
+}
+
+/// Grass is sown where it can actually come up.
+///
+/// The same claim `a_sown_woody_species_also_comes_up` makes, and it needs
+/// making separately for grass because grass's hazard is the opposite one.
+/// A woody species sown into country too dry for its germination bar is sown
+/// forever and comes up never; grass has the *lowest* bar of the five
+/// (`soil_water_threshold: 0.10`) so it germinates almost anywhere it lands
+/// — what kills it is **shade**, which P3 made live. So the rule that would
+/// fail here is sowing a sward under a closed canopy, and this is what says
+/// the weight's reading of the woody sum keeps it out from under one.
+///
+/// Pooled rather than per seed, for the same reason: per world the numbers
+/// are single digits and a rate over a handful of plants is noise. Measured
+/// pooled over these eight worlds at 300 frames: 76 of 79 sown came up.
+#[test]
+fn sown_grass_also_comes_up() {
+    let presets = presets();
+    let params = presets.get(&presets.default_name()).expect("default preset");
+    let (mut pooled_sown, mut pooled_up) = (0usize, 0usize);
+    for seed in FLORA_SEEDS.iter().take(8) {
+        let mut world = World::new(Rect::new(0, 0, 1023, 383));
+        worldgen::generate(&mut world, Spec::Generated { params, seed: *seed });
+        for _ in 0..300 {
+            step(&mut world);
+        }
+        let (sown, up) = flora_census(&world);
+        pooled_sown += sown.get("grass").copied().unwrap_or(0);
+        pooled_up += up.get("grass").copied().unwrap_or(0);
+    }
+    assert!(pooled_up >= 20, "grass established {pooled_up} plants across the whole sweep ({pooled_sown} sown)");
+    // Half, against a measured 0.96. Grass that is sown and mostly fails to
+    // come up is being sown under a canopy, which is a weight bug wearing a
+    // rarity costume.
+    assert!(
+        pooled_up as f32 / pooled_sown.max(1) as f32 >= 0.5,
+        "grass germinated {pooled_up} of {pooled_sown} sown — it is being sown where it cannot come up"
+    );
+}
+
 #[test]
 fn planted_life_is_clustered_rather_than_evenly_spaced() {
     // The claim the squared cluster field exists to make. Evenly spaced
@@ -1433,7 +1547,7 @@ fn erosion_talus_draws_as_buried_gravel_at_the_top_of_the_cover() {
     use pixel_physics::worldgen::column::Terrain;
     let presets = presets();
     let base = presets.get("rolling").expect("rolling preset");
-    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, ..base.clone() };
+    let params = WorldgenParams { world_age: 6.0, tree_density: 0.0, moss_density: 0.0, grass_density: 0.0, ..base.clone() };
 
     let mut total_talus_cells = 0usize;
     let mut wrong_family = 0usize;
@@ -1947,6 +2061,7 @@ fn vault_test_params(base: &WorldgenParams) -> WorldgenParams {
         vault_min_depth: 40,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         // Off for the same reason as the two above: these worlds are settled
         // and then compared against a control, so anything that is still a
         // *process* after generation shows up as a difference and is read as
@@ -3164,6 +3279,7 @@ fn a_forced_boulder_world_seats_stone_and_arrives_at_rest() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         spring_flow: 0.0,
         ..base.clone()
     };
@@ -3245,6 +3361,7 @@ fn a_seated_boulder_stands_at_a_believable_height() {
         world_age: 1.0,
         tree_density: 0.0,
         moss_density: 0.0,
+        grass_density: 0.0,
         residual_density: 0.0,
         ..base.clone()
     };
@@ -4180,6 +4297,7 @@ fn probe_m_does_generated_water_ever_settle() {
         let mut params = params.clone();
         params.tree_density = 0.0;
         params.moss_density = 0.0;
+        params.grass_density = 0.0;
         params.spring_flow = 0.0;
         for seed in SEEDS {
             let mut world = build(&params, seed);

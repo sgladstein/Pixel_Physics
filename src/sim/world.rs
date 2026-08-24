@@ -346,6 +346,14 @@ pub struct World {
     /// instead of returning the out-of-bounds sentinel.
     bounds: Option<Rect>,
     pub frame: u64,
+    /// **World time**, and deliberately not the same thing as `frame`.
+    ///
+    /// `frame` is the physics clock: one tick, one CA sweep, and the
+    /// definition of how fast anything falls. `clock` is how fast the world
+    /// *ages* — the length of a day and the pace of growth — and both of its
+    /// knobs default to the historical behaviour exactly. See
+    /// `sim::clock`'s module doc for why the two are separable at all.
+    pub clock: crate::sim::clock::Clock,
     pub materials: MaterialRegistry,
     pub rng: Rng,
     /// M8: coherent pieces of broken structure currently in flight
@@ -1337,6 +1345,7 @@ impl World {
             fields: HashMap::new(),
             bounds: Some(bounds),
             frame: 0,
+            clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
             chunk_bodies: Vec::new(),
@@ -1435,7 +1444,8 @@ impl World {
     /// `PHEROMONE_INTERVAL` gate lives inside, so no caller has to know
     /// the interval exists.
     pub fn step_pheromones(&mut self) {
-        self.pheromones.step(self.frame);
+        let interval = self.clock.creature_interval(crate::sim::pheromone::PHEROMONE_INTERVAL);
+        self.pheromones.step(self.frame, interval);
     }
 
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
@@ -2287,7 +2297,7 @@ impl World {
         crate::sim::weather::supply(self.atmospheric_bank)
     }
 
-    /// The sky this frame: `weather::at(seed, frame)` unless
+    /// The sky this frame: `weather::at(seed, weather_frame)` unless
     /// [`Self::weather_override`] is holding it.
     ///
     /// **One resolution point, read by both the simulation and the
@@ -2295,9 +2305,16 @@ impl World {
     /// rather than a local: the storm that is drawn and the storm that lands
     /// have to be the same storm, and an override honoured by only one of
     /// them would draw snow that never settles on anything.
+    ///
+    /// **Read on the *weather* clock**, which is independent of the day's
+    /// (`sim::clock::Clock::weather_slowdown`) and identical to `frame` at
+    /// the default. This method and the override arrived on separate
+    /// branches and merged into one body without conflicting -- the clock
+    /// half is the half a textual merge drops, because the override is the
+    /// line that moved.
     #[inline]
     pub fn weather(&self) -> crate::sim::weather::Weather {
-        self.weather_override.unwrap_or_else(|| crate::sim::weather::at(self.seed, self.frame))
+        self.weather_override.unwrap_or_else(|| crate::sim::weather::at(self.seed, self.weather_frame()))
     }
 
     /// Register every chunk `body`'s current full footprint touches in
@@ -3426,6 +3443,64 @@ impl World {
         self.freeze_underground_map();
         self.freeze_ground_datum();
         self.frame = self.frame.wrapping_add(1);
+        // No world-time bookkeeping here on purpose. The phase clocks are
+        // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
+        // beside it -- an earlier version incremented a counter from this
+        // very line and thereby ignored the 27 places that assign
+        // `World::frame` directly to select a time of day or a weather
+        // window. See that function's own doc; the invariant it restores is
+        // what makes "every knob defaults to today's behaviour" true.
+    }
+
+    /// **The clock every day/night reader takes, in place of [`World::frame`].**
+    ///
+    /// `field::sun_elevation` and everything downstream of it — the painted
+    /// sky, the light channel, the temperature swing, the weather epoch —
+    /// are pure functions of a frame number modulo
+    /// `field::DAY_NIGHT_PERIOD_FRAMES`. Feeding them a slower clock is what
+    /// lengthens a day; the period itself must not move (`sim::clock`'s
+    /// module doc has the full reasoning, and it is a field-sleeping
+    /// argument, not a preference).
+    ///
+    /// Identical to `frame` at the default `day_minutes: 1`.
+    pub fn sky_frame(&self) -> u64 {
+        self.clock.sky_frame(self.frame)
+    }
+
+    /// [`World::sky_frame`] as of the previous real frame — the comparison
+    /// point for "has the sky moved", which is not `sky_frame() - 1` under a
+    /// slowed clock. See `clock::Clock::prev_sky_frame`.
+    pub fn prev_sky_frame(&self) -> u64 {
+        self.clock.prev_sky_frame(self.frame)
+    }
+
+    /// The weather's own clock — independent of [`World::sky_frame`]. See
+    /// `clock::Clock::weather_slowdown`.
+    pub fn weather_frame(&self) -> u64 {
+        self.clock.weather_frame(self.frame)
+    }
+
+    /// A creature-schedule interval scaled by `clock.creature_slowdown`, as an
+    /// absolute frame to be due on — the creature twin of
+    /// [`World::organism_due`].
+    pub fn creature_due(&self, base_interval: u64) -> u64 {
+        self.frame + self.clock.creature_interval(base_interval)
+    }
+
+    /// The lightning lit at `frame`, if any, with this world's own two
+    /// clocks supplied — `weather::strike` needs both, and its doc says why.
+    /// `frame` is a *real* frame, so a caller wanting last frame's still-lit
+    /// flash passes `world.frame.wrapping_sub(1)` exactly as it always did.
+    pub fn lightning_at(&self, frame: u64) -> Option<crate::sim::weather::Strike> {
+        crate::sim::weather::strike(self.seed, frame, |f| self.clock.weather_frame(f), self.bounds())
+    }
+
+    /// An organism-schedule interval scaled by `clock.growth_slowdown`, as
+    /// an absolute frame to be due on. Every `world.frame + INTERVAL` in the
+    /// plant subsystem goes through here, which is what makes growth pace a
+    /// single knob rather than a sweep of constants.
+    pub fn organism_due(&self, base_interval: u64) -> u64 {
+        self.frame + self.clock.organism_interval(base_interval)
     }
 
     /// Record where the ground starts in each column, once. See
@@ -3708,7 +3783,7 @@ impl World {
         // that settles repeatedly stacking sites and turning the decay rate
         // into a function of how often the ground was disturbed.
         for (x, y) in settled_decayables {
-            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.frame + decay::DECAY_TICK_INTERVAL });
+            self.schedule_active_site(ActiveSite { x, y, kind: scheduler::ActiveKind::Decay, next_frame: self.organism_due(decay::DECAY_TICK_INTERVAL) });
         }
     }
 
@@ -3791,6 +3866,10 @@ impl CellSurface for World {
     #[inline]
     fn frame(&self) -> u64 {
         self.frame
+    }
+
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        World::organism_due(self, base_interval)
     }
 
     #[inline]

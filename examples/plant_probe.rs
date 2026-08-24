@@ -91,6 +91,12 @@ fn main() {
     if let Some(seed) = std::env::args().find_map(|a| a.strip_prefix("worldseed=").map(|v| v.parse().expect("worldseed"))) {
         w.seed = seed;
     }
+    // `growth=N` -- the world clock's plant knob (`sim::clock`). Applied
+    // before any stepping, like `worldseed=`, and named on the echo line
+    // below for the same reason that line exists at all.
+    let growth: u32 =
+        std::env::args().find_map(|a| a.strip_prefix("growth=").map(|v| v.parse().expect("growth"))).unwrap_or(1);
+    w.clock.set_rates(0, |c| c.growth_slowdown = growth);
 
     // **Echo what this run was actually given, first line of every log.**
     //
@@ -108,8 +114,11 @@ fn main() {
     // defence is not discipline, it is this line: a log that does not name
     // its own seed was written by a binary that never had one.
     println!(
-        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={}",
-        scene.species, w.seed, scene.soil_depth
+        "plant_probe: species={} trees={trees} frames={frames} worldseed={} width={width} soil={} growth={}",
+        scene.species,
+        w.seed,
+        scene.soil_depth,
+        w.clock.growth_slowdown
     );
 
     // **`census=N` -- the standing organism count every N frames.**
@@ -185,9 +194,22 @@ fn main() {
             );
         }
     }
+    // **This used to claim it was "how often `diffuse_resource` ran at all,
+    // since it is dispatched from the CA sweep".** That function no longer
+    // exists -- resource transport moved into `plant::step_organisms` and now
+    // runs on the organism tick, not on sweep visits -- so the line was
+    // describing an architecture that had been gone for some time. It cost a
+    // wrong diagnosis: a `growth=` sweep showed a slowed tree reaching a
+    // fraction of its size at matched tick counts, and this line pointed
+    // straight at a sleeping-chunk explanation that cannot be the cause.
+    // `CLAUDE.md`'s own warning, one level up from the assets: the harness is
+    // as stale-able as the thing it reports on.
+    //
+    // What it measures is still worth printing -- it is the sweep's own duty
+    // cycle, and therefore how much of the frame budget the scene is actually
+    // spending -- so it stays, saying what it is.
     println!(
-        "chunks were awake on {awake_frames}/{frames} frames ({:.1}%) -- this is how often `diffuse_resource` ran at all, \
-since it is dispatched from the CA sweep and the sweep skips settled chunks",
+        "chunks were awake on {awake_frames}/{frames} frames ({:.1}%) -- the CA sweep's duty cycle for this scene",
         100.0 * awake_frames as f32 / frames as f32
     );
 

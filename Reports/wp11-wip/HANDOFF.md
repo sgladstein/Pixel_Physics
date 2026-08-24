@@ -33,17 +33,23 @@ halves, since a pair is only valid within one tree. The same goes for
 PR #31's `plant.rs` work, which lands in the abscission code's own
 neighbourhood.
 
-## 3. The two open review cards, and what each one decides
+## 3. The two review cards — **both answered 2026-08-24, both "after"**
 
-- `20260823T204413045Z-25c85d` — the floor, as an animation. Confirms the
-  fix. No decision rides on it.
-- `20260823T204815827Z-ffc290` — **the crowns.** This one has a
-  consequence: arm C is landed, so if the canopy reads as one mass the
-  remedy is taking conifer/shrub/creeper to `0.0015` and leaving `tree`
-  where the owner put it — one value line per file — **not** reverting the
-  floor fix. Leaf share is 50.2% → 58.7% with wood essentially unchanged,
-  so the crowns genuinely can look different and his answer will mean
-  something.
+Answered after this branch landed; recorded here so nobody re-opens them.
+
+- `20260823T204413045Z-25c85d` — the floor, as an animation. Owner chose
+  **"after — your rate, on all four"**. Confirms the fix; no decision rode
+  on it.
+- `20260823T204815827Z-ffc290` — **the crowns.** Owner chose **"after —
+  quarter rate on all four"**, i.e. the denser canopy is what he wants.
+  Leaf share 50.2% -> 58.7% with wood essentially unchanged reads as
+  separate stands to him, not as one mass.
+
+  **The contingency this section used to carry is therefore retired, not
+  pending:** taking conifer/shrub/creeper to `0.0015` was the remedy *if*
+  the canopy read as one mass. It did not. Do not apply it, and do not
+  read the leaf-share rise as a debt owed. The landed values are the
+  answer to both cards.
 
 ## 4. The two worldgen at-rest reds are not this branch's
 

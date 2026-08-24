@@ -546,15 +546,23 @@ produced, so a plant in surplus pays one float compare.
 
 ## 11. What this does not answer
 
-- **Whether the bole reads as clearer on screen.** The numbers say the trunk
-  is thinner above the base and the foliage share is up; whether a stand
-  *looks* like trees with boles is a card, and cards are the only acceptance
-  channel this project has for that.
-- **Whether anchorage changes root morphology or only root mass.** The
-  contact spread survives (§4) and `anchor_status` is live across the
-  population, but nothing here renders two root systems side by side. Lane
-  B's re-run was queued behind P2 for exactly this and now has a priced
-  economy to run against.
+- **Whether the bole reads as clearer on screen** — posted blind as card
+  `20260824T014630073Z-a10698`, paired at 28,800 frames with the counts in
+  `meta`. The numbers say the trunk is thinner above the base and the
+  foliage share is up; whether a stand *looks* like trees with boles is the
+  owner's, and cards are the only acceptance channel this project has for
+  it.
+- **Whether the root systems read as varied rather than as eight of the same
+  thing** — card `20260824T014648426Z-e32fca`, blind, on the 100-row bed at
+  43,200 frames, with the flat-tax caveat stated in the card itself so the
+  question is about shape rather than about efficiency. Lane B's re-run was
+  queued behind P2 for exactly this and now has a priced economy to run
+  against.
+- **Whether anchorage changes root morphology or only root mass.**
+  `anchor_status` is live across the population (median 0.18–0.77 by seed)
+  and the contact spread survives, but nothing isolates the anchorage term
+  from the rest of the economy. Turning `ANCHOR_DEMAND` to 0 switches it off
+  exactly, which is the A/B that would answer it.
 - **Anything about wind.** `anchor_status`, `crown_moment` and `slenderness`
   exist and are read by the allocation rule only. No structural check is
   scheduled from any of them; lane S owns the storm.

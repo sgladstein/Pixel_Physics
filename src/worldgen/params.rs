@@ -353,6 +353,23 @@ pub struct WorldgenParams {
     pub moss_density: f32,
     /// Per-column tree probability scale.
     pub tree_density: f32,
+    /// Per-column grass probability scale — **the ground layer's own knob,
+    /// deliberately not a share of `tree_density`.**
+    ///
+    /// Grass is a second layer rather than a fifth woody species, and the
+    /// divisor is why. The four woody weights split one budget
+    /// (`weight / max(1, Σ weights)`), so a fifth entry in that table would
+    /// take its columns *from* conifer, shrub, creeper and tree — thinning
+    /// the four species the previous pass had just finished putting into the
+    /// world, and changing what `tree_density` means at the same time. Moss
+    /// has always been its own layer for the same reason; grass joins it
+    /// there.
+    ///
+    /// Set from the establishment sweep rather than from an aspiration —
+    /// see `GRASS` in `passes.rs` for what a founder density buys once
+    /// reproduction is running, and for the organism-slot ceiling that
+    /// bounds it from above.
+    pub grass_density: f32,
     /// Wavelength of the clustering field that both densities are multiplied
     /// by. This is the anti-even-spacing device: uniform probability produces
     /// evenly scattered plants, which is exactly the failure mode a
@@ -412,6 +429,7 @@ impl Default for WorldgenParams {
             world_age: 0.8,
             moss_density: 0.10,
             tree_density: 0.26,
+            grass_density: 0.35,
             life_cluster_wavelength: 70.0,
         }
     }
@@ -523,6 +541,11 @@ mod tests {
         let arid = presets.get("arid").expect("arid preset exists");
         assert_eq!(arid.moss_density, 0.0);
         assert_eq!(arid.tree_density, 0.0);
+        // Grass too, and explicitly rather than by inheritance: `serde(default)`
+        // means an omitted field takes `WorldgenParams::default()`'s nonzero
+        // value, so a preset that means "nothing grows here" has to say so on
+        // every layer or the next layer added turns the desert green.
+        assert_eq!(arid.grass_density, 0.0);
     }
 
     #[test]

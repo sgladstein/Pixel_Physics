@@ -1,15 +1,23 @@
 # Weather
 
-*Current as of: 2026-08-23 (rain now reaches the soil through leaf litter,
-grass and other loose cover instead of being stopped dead by it, and bare
-ground goes on drying downwards after its surface is dry, so unplanted
-ground rises and falls with the weather instead of only ever getting
+*Current as of: 2026-08-23 (how fast the weather changes its mind is now a
+setting, separate from the length of a day; rain now reaches the soil through
+leaf litter, grass and other loose cover instead of being stopped dead by it,
+and bare ground goes on drying downwards after its surface is dry, so
+unplanted ground rises and falls with the weather instead of only ever getting
 wetter; before that, the water bank — rain comes out of what evaporated,
 and damp ground gives its water back to the sky — plus drying that follows
 the sun; and cold is something the air does rather than something only
 snowfall does, so a pond ices over across a minute or two and holds; and
 the sheet thickens quickly then slowly rather than at one pace, with lying
 snow slowing it rather than speeding it up).*
+
+**How fast it changes is a setting** (`O` → WORLD, `weather_slowdown`),
+and it is deliberately *separate* from the length of a day: turning one does
+not turn the other. A slowed weather system does not rain less — fronts
+simply last longer and arrive less often, and each one delivers proportionally
+more over its own life. Normally a front's cycle spans about two normal days,
+so if you lengthen the day and want that relationship kept, set this to match.
 
 Every world has weather, and it is a property of the world rather than
 something that happens to it: the same seed gets the same weather at the

@@ -2659,7 +2659,11 @@ cells at the old rate and 3,429 → **3,358** at the new one. The cost went
 to its own card (`20260823T204815827Z-ffc290`): leaf share 50.2% → 58.7%
 with wood essentially unchanged, so every cell the change adds is leaf,
 and whether the crowns still read as separate stands is the owner's to
-say. Both cards were open at the time of writing.
+say. Both cards were open at the time of writing and **both were answered
+2026-08-24, both "after"**: the floor card confirms the fix, and on the
+crowns the owner picked the quarter rate on all four — the denser canopy
+is what he wants, so the standing contingency (conifer/shrub/creeper to
+`0.0015` if the crowns read as one mass) is retired rather than pending.
 
 One correction worth keeping: the first version of `floor:` called the
 rise "manufactured by decay" and clamped negatives away. The retuned arm
@@ -2668,7 +2672,75 @@ well as arrives, and the column could never see decay's writes separately
 from whatever consumes them. Renamed to "net"; what removes soil is
 unidentified and is not this branch's to chase.
 
+---
 
+
+### World speed: five independent time axes (2026-08-23)
+
+The day/night cycle was 3,600 frames — one minute at the fixed 60 Hz — and
+unchangeable without a rebuild. It is now one of five knobs on
+`sim::clock::Clock`, living on `World`: `day_minutes`, `growth_slowdown`,
+`weather_slowdown`, `creature_slowdown`, `gnome_slowdown`. Each is a whole
+multiple of baseline, capped at 30, live under `O` → WORLD, saved to
+`assets/clock.ron` (shipped: an eight-minute day, the rest baseline). The app
+reads that file; `World::new` does not, which is what keeps several hundred
+guards and every stored contact sheet valid across a change to it.
+
+**The complaint was resolved before anything was built.** "Too fast" has two
+readings and they want different fixes. Measured off the curve: of a 60 s
+cycle the sun is up 30 s, night sits at a flat floor 30 s, and each dawn/dusk
+transition is 4.4 s. The owner's answer was "the cycle repeats too often", so
+a uniform rate slowdown is the mechanism and the proportionally longer flat
+night (four minutes at eight) is an accepted cost. Reshaping the curve so the
+transitions take a larger share is a separate change to `sun_elevation`'s
+*shape* and is not this.
+
+**Three mechanisms, and only one of them is physics.** A phase
+(`sun_elevation`, `weather::channel`) is a pure function of `frame % PERIOD`
+and is slowed by feeding it a slower clock; a schedule (organism, creature
+ticks) is `frame + interval` and is slowed by a longer interval; the CA sweep
+is neither and is untouched. `DAY_NIGHT_PERIOD_FRAMES` is deliberately not
+raised — `SKY_LIGHT_STEP` and `SKY_TEMPERATURE_QUANTUM` are sized against the
+per-frame rate it implies and field sleeping is an inequality against
+`SETTLE_EPSILON_*`, so a slower sky under a raised period would stop
+registering as a change and freeze the field at its last brightness. Measured
+instead: 3.5x fewer field solves per real frame at a four-minute day.
+
+**Two independent reviews found three defects in the first implementation**,
+all of which are recorded in the commits and in `Reports/dead-ends.md`:
+
+1. The sky clock was a counter advanced from `begin_step`, which ignored the
+   27 places that assign `World::frame` directly to pick a time of day or a
+   weather window. Seven guards would have failed and four more would have
+   passed while testing nothing. Replaced by a form derived from `frame` and
+   anchored at the last rate change.
+2. A per-frame rain-budget divisor, drafted as "required", inverts the water
+   balance — and the obvious guard for it passes for the broken version.
+3. `weather::strike` ran a third clock, on the day knob, under a design that
+   had already made weather independent.
+
+**Withdrawn claim, then measured.** "One knob rebalances nothing" was true
+only of each subsystem's *internal* economy. A paired `plant_probe` sweep at
+matched tick counts across eight seeds puts a `growth_slowdown: 4` tree
+between 0.15x and 1.34x its baseline size, median 0.61x. Soil is ruled out by
+measurement (final profiles essentially identical, mean 633 against 627);
+chunk sleeping is ruled out by construction. Per-real-frame hazards are the
+leading suspect — `CLAUDE.md`'s hop-bounded structural check is a named one —
+and this is left as an open question rather than dressed up as a mechanism.
+
+**Two guards were built and thrown away** rather than shipped, because
+neither could fail: water deposited per real frame is invisible at world
+level (standing water passed unchanged with a 4x divisor deliberately
+injected; the atmospheric bank is a net ledger). What ships guards the
+premise instead, and says plainly what is argued rather than guarded.
+
+Also fixed along the way: `plant_probe`'s awake-chunk line claimed to be
+reporting how often `diffuse_resource` ran "since it is dispatched from the
+CA sweep" — that function no longer exists and transport runs on the organism
+tick, so the line was an architecture out of date, and it cost a wrong
+diagnosis before it was caught.
+
+---
 ---
 
 ## P2 — the economy re-derivation (2026-08-24)
