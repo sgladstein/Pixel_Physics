@@ -282,6 +282,56 @@ first time (§4a). Flagged rather than claimed either way.
   what it looks like when it is right; plants do not, and the appearance work
   is exactly the kind this repo's own convention says should have one.
 
+## 6a. What actually fixed §2.1, and it was not more foliage volume
+
+`leaf_cluster` 5→10 raised foliage share 7%→11% and the owner's reading of
+the result was *"they still look pretty brown"*. Correct. Two causes, and
+neither was cluster size.
+
+**The trunk was lying about its width.** `thicken` places its new cell along
+`cross_section_axis`; `stem_run`, which decides *whether* to widen, walked
+the row with `y` fixed. They agree for a vertical trunk and disagree for
+every leaning one, where the row-walk runs lengthwise down the stem and
+swallows any limb it touches. Trunks measured themselves at 30–70 cells,
+`leaf_count / stem_width` fell far below `pipe_ratio`, and thickening
+returned without widening — so there was no girth hierarchy and every
+species was a mat of thin strands. Fixing the axis produces trunk-and-limb
+with taper at the *same* `pipe_ratio`.
+
+Third time this denominator has been wrong; the first two fixes changed its
+**scope** (whole row → contiguous run) and not its **axis**. A contiguous
+run is still a row run. Narrowing the scope hid how wrong the axis was.
+
+**And `shade_death` was still being charged for a job four other mechanisms
+had taken over.** It landed at `0.03` when it was the only thing separating
+crowns, costing 4.8× the foliage. Divide-crowding, `branch_angle`,
+`internode` and path-length turgor all separate crowns now. Re-swept:
+
+| `shade_death` | foliage share | fused run | mean cells |
+|---|---|---|---|
+| 0.03 | 9% | 51 | 3,318 |
+| 0.01 | 15% | 52 | 3,488 |
+| **0.003** | **30%** | 53 | 3,977 |
+| 0.0 | 54% | **107** | 4,728 |
+
+Fusion is flat from 0.03 to 0.003 and breaks only at zero, so **tripling the
+foliage cost nothing**. The general lesson is worth more than the number: a
+constant that was correct when it landed can go on being paid long after the
+thing it bought is provided elsewhere. When several mechanisms accumulate in
+one area, re-sweep the oldest.
+
+### Two ways the *viewing* was wrong, which cost more than either bug
+
+- **A night render hid the girth.** "There is no trunk, nothing is thicker
+  than four cells" was read off a night image and was simply false — the
+  daylight baseline plainly has trunks. Judge plant shape at **noon (frame
+  28800, phase 0)**.
+- **Comparing 4× against 1×.** At 4× you see individual brown twigs between
+  green cells; at 1× the same tufts merge into green mass. Reading current
+  work at 4× against older sheets at 1× produced a confident wrong call
+  about where the foliage was. Compare at the zoom the complaint was made
+  at.
+
 ## 7. The end state: colour as a readout, and heritable
 
 Stated by the owner as a later goal, recorded here and in `PLAN.md`'s settled
