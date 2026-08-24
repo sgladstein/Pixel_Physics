@@ -23,9 +23,24 @@ tried?"*.
 - [emergent-world-architecture.md](emergent-world-architecture.md) —
   **direction agreed.** Thin agents, rich world; the priority reshuffle; §8
   is where determinism was reversed to *required*.
-- [documentation-audit.md](documentation-audit.md) — **findings, being
-  executed.** What the docs told an agent that wasn't true, re-ranked for
-  the agent consumer; carries the in-flight doc inventory.
+- [documentation-audit.md](documentation-audit.md) — **executed.** What the
+  docs told an agent that wasn't true, re-ranked for the agent consumer;
+  carries the in-flight doc inventory. Every headline finding was re-verified
+  against `1882dc9` and is fixed — the architecture map, the Controls table
+  and the wiki freshness notes — and its three recurring defect classes are
+  carried by `scripts/docscheck.sh` rather than by the report. Read it as
+  history; do not re-execute it.
+- [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
+  — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
+  call.** The companion to the above, asking the other question: not *is the
+  documentation true* but *can an agent find what it needs, and what does
+  looking cost*. Carries the corpus measurements (~1.08M tokens; the six
+  routed documents are ~306k), the CLAUDE.md append-drift figure (5,475 lines
+  added against 56 ever removed) and its section budget, and the bug
+  register's open/closed split. **§4b lists three live identifier collisions
+  in `open-bugs-handoff.md` — §Z already resolves to two different bugs in two
+  different reports — and §5a records that the repo version-controls none of
+  its Claude Code configuration.**
 - [pixel-physics-issues.md](pixel-physics-issues.md) — **mostly closed.**
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
