@@ -454,6 +454,42 @@ vegetative spread, so a patch neither colonises bare ground next to it nor
 closes as the world runs. What ships today is an initial condition wearing the
 appearance of a standing crop.
 
+**Measured, by W3, on a treeless control** — 2,048-column worlds, ~500
+plantable columns, `flora_census seeds=2 w=2047 h=639 treedensity=0
+mossdensity=0 frames=45000`:
+
+| seed | plants @5,000 frames | @45,000 |
+|---|---|---|
+| 1 | 63 | 76 |
+| 2 | 61 | 63 |
+
+Standing cells move under 10%. Grass reaches its sown footprint inside 5,000
+frames and holds it. Full cover of ~500 columns needs ~250 plants, so at the
+observed rate that is on the order of **700,000 frames** — which is the honest
+answer to "how long does it take to fill an ideal area".
+
+**The leading explanation, with two independent supports:** `plant::set_seed`
+places a seed into an empty **8-neighbour of the parent cell**, so offspring
+land inside or against the clump that made them and grass cannot cross a gap —
+the sown positions are very nearly the final ones. The code says one cell, and
+the measurement says the footprint does not grow.
+
+**This is a candidate cause, not an established one, and the distinction is
+load-bearing.** Three other mechanisms could each also cap the stand:
+`crowding_weight: 30.0`, the seed bank's 18,000-frame half-life, and soil
+moisture on marginal ground. Fixing dispersal against the wrong one of these
+buys nothing.
+
+**The run that settles it** — not yet built — is *one founder on uniformly
+ideal ground, scored on how far its descendants get by 45,000 frames*. That is
+a scene rather than a knob: `PlantScene` already takes `soil=` and
+`soil_moisture`, so it is a small addition to `examples/plant_probe.rs` or a
+sibling, not new machinery. **Do that before choosing a fix.**
+
+**The mechanism that would change it is review item A5 (dispersal)** —
+per-species seed mass, float and carry. This issue gives A5 a named consumer
+and a measured motivation rather than leaving it a speculative nicety.
+
 **Why this is a feature and not a density tune.** Raising the sown density was
 tried first and is what the earlier cards were about; the owner accepted it as
 a starting value and then asked the question that density cannot answer. A
