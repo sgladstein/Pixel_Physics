@@ -2924,6 +2924,62 @@ measurable at the pressure that restored it. In `dead-ends.md` with the
 re-test condition: the charge belongs in the allocation pool, not in the
 thickening cell's own carbon, which transport refills within a tick.
 
+**ADDENDUM, 2026-08-24 — §V2's fix 1 was taken, and this is P2's final
+state.** Head `bd16112fb093df7d36e06650cd04b00a0e5d1b5f` on
+`claude/p2-economy`. Everything above this addendum still stands except the
+mortality paragraphs, which it supersedes.
+
+`STARVATION_DEATH_TICKS = 200`: a plant that cannot pay the **mass term** of
+its maintenance — `income >= MAINTENANCE_PER_CELL x cells` — for 200
+consecutive organism ticks is marked `senescent`, and `rot_remains` carries
+it out. The mass term and not the whole bill is the load-bearing choice; a
+mature plant is in deficit on the full bill essentially always. Eight seeds:
+organisms senescent 0 -> 2 at 28,800 and 0 -> 4 at 45,000, **organism slots
+reclaimed for the first time** (seed 4: 27 live in 27 -> 19 live in 25) and
+the survivors larger, median 4,034 -> 5,324 cells. Guard
+`a_tree_denied_water_dies_and_a_watered_one_does_not`, paired. Full account
+in §V2 and in the economy report §7.
+
+**The recruitment paragraph above predicted this and was half right.** It
+said establishment is gated on a founder dying rather than on fecundity.
+Founders now die and **inherited-genome establishment is still 0 at both
+horizons.** Mortality was necessary and is not sufficient. Whatever the
+remaining gate is, it is not "nothing ever dies", and the next session
+should stop re-deriving that hypothesis. Turnover also fell 25-30%.
+
+**Three things the next session must not re-derive, because they are
+measured and written down.**
+
+1. **`CellType::Leaf` is not foliage, and `income` is zero for any species
+   without a `Leaf` stage.** `allocate_to_frontier` sums intercepted light
+   over `CellType::Leaf` only. This package hit it three times. The death
+   rule exempts leafless species as a *workaround*; the repair is to make
+   `intercepted` ask `is_foliage`, which also closes `break_buds`' grass
+   defect. §V2 fix 2.
+2. **A grow-out probe that re-pins a bed every thousand frames is measuring
+   rain, not drought.** `run_with_fields` steps the weather. This produced a
+   published table showing a droughted tree *recovering*, and read as a rule
+   failing when it was the scene. Pin at a hundred frames. §V2 correction 1.
+3. **The 17x8 `plant_tree_on_ground` bed is water-limited for a grown
+   tree.** Income floors near 0.04 there whatever the soil says, so a
+   "watered" arm in it starves. Use `root_slot_run`'s 61x30 bed for anything
+   that compares watered against droughted.
+
+**Gates, on `bd16112` after merging `origin/main` (bfcb879), all four run in
+one session on that exact SHA and confirmed identical to the pushed head:**
+tests 999 passed / 0 failed / 71 ignored; clippy clean; `docscheck` clean;
+`acceptance.sh` all cases OK, including `wood` at 1091 cells over 4 windows
+against a bar of 400. `ascii` on the same SHA: M16 tree-from-seed worst frame
+growing 0.9352 ms, settled 0.4944 ms; moss 0.2827 / 0.0683; the organism
+scene's mean 3.808 ms over 12,000 frames.
+
+`lavadrop` failed three earlier acceptance runs on this box (85.12, 63.21,
+71.65 ms against a 60 ms bar) and passed on the gating run. That is §T1d's
+recorded flake and not this branch's: `lavadrop` builds no plant, this
+change adds one float compare per organism per tick, and §T1d's uncontended
+measurement has unmodified `main` itself at 74.96 ms — over the bar.
+Recorded rather than waved away.
+
 ### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
 
 **Resolution of the two mechanical claims**, with the full account and every
