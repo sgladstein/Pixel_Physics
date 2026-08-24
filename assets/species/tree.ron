@@ -290,7 +290,7 @@
                 // remains true of slots 0/2/3/4, whose meanings did not
                 // move; nothing else survives the re-map and the
                 // megastudy re-baselines.
-                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0),
+                genotype_variance: (0.5, 0.0, 0.4, 0.18, 0.7, 0.0, 0.4, 0.5, 0.0, 0.7),
                 turgor_source: 1.0,
                 turgor_yield: 0.1,
                 turgor_per_cell: 0.0075,
@@ -403,7 +403,7 @@
                 // at 0.9 -- above soil's 0.8, so no individual is locked
                 // out of ordinary ground -- while the strongest reaches
                 // 1.5, past sand's 1.4.
-                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25),
+                genotype_variance: (0.0, 0.5, 0.0, 0.0, 0.0, 0.4, 0.0, 0.0, 0.25, 0.0),
             ),
         ]),
         (MatureBody, [

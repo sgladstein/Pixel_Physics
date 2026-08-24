@@ -1019,6 +1019,32 @@ mat. All of it, with the controls that produced each number, is in
 `Reports/open-bugs-handoff.md` §A–§E. Do not re-derive those diagnoses, and
 do not trust a plant constant without re-measuring it first.
 
+**Since: a tenth genome slot, and the instrument that can see it move.**
+`GENOTYPE_TRAITS` is 10. Slot 9 is `strain` — the heritable half of a
+reaction norm, how strongly an individual re-allocates away from height
+when it is repeatedly loaded — and it ships as **capacity with no
+consumer**: a width and a draw, so that when the response curve lands,
+how responsive to be is something selection finds rather than something
+an author picked. It was **appended rather than re-purposed** onto a
+measured-dead slot, deliberately: re-purposing costs the measurement
+record its comparability a second time, and the F4 megastudy re-run is
+already queued against the current numbering. Appending costs ~16 KB
+across the full 4,095 organisms and moves nothing — draws are keyed
+`rng::stream(world_seed, x, y, slot)`, so slots 0–8 draw bit-identically,
+which four guard tests in `plant.rs` pin, none of them against a stored
+fingerprint: each slot drawing from its own index, one stand grown twice in
+a run with slot 9 expressed and suppressed, 200 bred children, and the
+caller's own `Rng` position after `set_seed` returns.
+
+`examples/genome_drift` is the readout, and it exists **before** the
+mechanism that will use it: per-slot population mean and spread sampled
+across a long run, beside the generation depth reached, so "does a genome
+slot ever actually move" has an answer. `plant_probe` shows the variation
+standing at the end of a run and structurally cannot show change. Slot 9
+doubles as the harness's own drift control while it has no consumer —
+nothing can be selecting on it, so what it does is what drift alone looks
+like, and every other slot has to beat that before it means anything.
+
 ## The generation loop: plants die, seeds expire, slots come back
 
 **Package P3 of the plant implementation split.** Three things that were

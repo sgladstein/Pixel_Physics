@@ -544,12 +544,20 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // Slots follow `organism::GENOTYPE_TRAITS`' map (positional
         // forever): 0 shoot branch, 1 root branch, 2 plastochron, 3
         // turgor, 4 pipe, 5 root tropism gain, 6 allocation bias, 7
-        // stomatal closure, 8 penetration. Each column's variance comes
-        // from the vector its consumer actually reads -- the shoot Grow
-        // for 0/2/3/4/6/7, the RootTip Grow for 1/5/8 -- and from the
-        // run's own species: this used to hardcode "tree", so every
-        // conifer and shrub table printed multipliers scaled by the
-        // wrong widths.
+        // stomatal closure, 8 penetration, 9 strain response. Each
+        // column's variance comes from the vector its consumer actually
+        // reads -- the shoot Grow for 0/2/3/4/6/7/9, the RootTip Grow
+        // for 1/5/8 -- and from the run's own species: this used to
+        // hardcode "tree", so every conifer and shrub table printed
+        // multipliers scaled by the wrong widths.
+        //
+        // Slot 9 has no consumer yet, so its column is a multiplier
+        // nothing multiplies -- present so the table matches the genome
+        // rather than a subset of it, which is how a widening goes
+        // unnoticed. For whether a slot *moves*, this table is the wrong
+        // instrument in principle: it is one snapshot of who is standing
+        // at the end of a run. `examples/genome_drift` is the one that
+        // samples the population mean across generations.
         let table_species = w.species.id_of(&scene.species).expect("species is compiled in");
         let vector_of = |ct: organism::CellType| {
             w.species
@@ -569,15 +577,15 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         println!("
   per-tree genotype and outcome (variance {variance:?}):");
         println!(
-            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
-            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "cells", "leaves", "height", "stem"
+            "  {:>4}  {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6} {:>6}   {:>6} {:>6} {:>6} {:>6}",
+            "id", "branch", "rootbr", "plast", "turgor", "pipe", "roottr", "alloc", "stoma", "penetr", "strain", "cells", "leaves", "height", "stem"
         );
         let mut ids: Vec<u16> = per_organism.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
             let g = |slot: usize| pixel_physics::sim::plant::genotype(&w, id, slot, variance[slot]);
             println!(
-                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
+                "  {id:>4}  {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3} {:>6.3}   {:>6} {:>6} {:>6} {:>6}",
                 g(0),
                 g(1),
                 g(2),
@@ -587,6 +595,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
                 g(6),
                 g(7),
                 g(8),
+                g(9),
                 per_organism.get(&id).map_or(0, |v| v.0),
                 per_organism.get(&id).map_or(0, |v| v.1),
                 per_organism.get(&id).map_or(0, |v| (v.3 - v.2 + 1) as usize),
