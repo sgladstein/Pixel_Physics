@@ -2668,3 +2668,76 @@ well as arrives, and the column could never see decay's writes separately
 from whatever consumes them. Renamed to "net"; what removes soil is
 unidentified and is not this branch's to chase.
 
+
+---
+
+## P2 — the economy re-derivation (2026-08-24)
+
+Package P2 of the plant implementation split, run as one re-derivation
+rather than six changes: superlinear maintenance respiration on `q_peak`,
+night income, drought's income gating, the owner's root-blob economy,
+anchorage as what root investment buys, and adult mortality's cause. Full
+account and every table in
+`Reports/plant-economy-rederivation-2026-08-23.md`; the landing notes other
+lanes need are `open-bugs-handoff.md` §P2.
+
+**The headline, eight world seeds paired against `main` at `cfee870`, at
+28,800 frames:** median plant 4,740 → 3,659 cells, wood 2,371 → 2,144,
+foliage share 45% → 46%, stem above the base 15 → 13, root cells 407 → 270,
+and **8 of 8 founders establishing on every seed**, unchanged. Die-back
+sheds 6,595 and 6,886 cells per stand on the two seeds inspected, so it is
+not cosmetic. Frame cost on `ascii`'s tree scene is inside the run-to-run
+spread of a single binary.
+
+**Most of the session was spent building things and taking them out again,
+which is the part worth logging.** Six mechanisms were built, measured and
+withdrawn, each with its `dead-ends.md` entry:
+
+1. Per-cell die-back gated on `q_now == 0` — 4–6 of 8 founders establishing
+   against 8 of 8, one seed at 94% root mass. `accumulate_support` walks a
+   *spanning tree*, so `q_now == 0` means "not on this tick's arbitrary
+   path", which is most of a trunk's girth. A traversal artifact read as a
+   biological fact.
+2. Die-back triggered on the summed per-cell shortfall — 90 of 1,124 cells
+   still reachable from the base. Transport is slow by design, so distal
+   cells in a healthy plant run momentarily short constantly.
+3. Die-back without its two connectivity exclusions — 52% connected for four
+   thousand frames, then seven cells of 1,321 adrift.
+4. Excluding foliage by `CellType::Leaf` — deleted a grass sward, 0 of 12
+   blades against 12, and the sod that holds a bank with it.
+5. Comparing the bill against instantaneous night-scaled income — a stand
+   shedding on a nightly cycle, spotted because one build reported
+   bill/income 0.6 at 28,800 frames and 2.6–5.6 at 45,000, one horizon being
+   a whole number of days and the other not.
+6. Gating root re-initiation on solvency, which is the fix §U names — under
+   a maintenance economy a plant at its ceiling is insolvent by
+   construction, so it shut the root amplifier on every mature plant and
+   produced the death spiral `allocate_to_frontier` documents.
+
+Charging secondary thickening was built and withdrawn too: it removes a real
+treadmill (a starving plant re-laying almost exactly what die-back removes —
+5,914 cells shed over 60,000 frames for a net loss of ten) and cost
+establishment at full pressure while buying nothing measurable at the
+pressure that restored it.
+
+**Two negative results, reported rather than worked around.** Adult
+mortality has a cause that fires and kills nothing — `senescent` reads 0 on
+every seed at both horizons, exactly as before — because a light- or
+water-limited plant settles at a stunted size rather than dying (correct),
+dormant buds keep it vital (correct), and a compact stump has almost no
+cells a topology-preserving erosion may take (a defect). And selection
+throughput moved the *wrong way*: inherited-genome establishments 1 → 0,
+organisms born 447 → 343, because fecundity is canopy size and every plant
+is smaller. No selection claim is made for trees on this branch.
+
+**Bug §A is now exactly dead rather than approximately.** The two slot-1
+draws produce byte-identical root and shoot counts and `ROOT_TIP_AT_CAP`
+reads 0 in both arms, so P1's cap lead is answered — root extension is
+carbon-bound, and `tree.ron`'s root `max_active_tips` was deliberately left
+alone rather than changed to move nothing.
+
+**One instrument the plant lane did not have.** `scripts/plantsweep.sh`
+sweeps the economy over world seeds and gates order statistics, the way
+`seedsweep.sh` does for destruction. It was built before the model changed,
+which is the only reason the first design's collapse was caught as a
+collapse rather than as a tuning problem.

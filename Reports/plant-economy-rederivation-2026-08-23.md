@@ -49,23 +49,34 @@ identical trees from one genome spanning 31 to 153 cells, so one
 drawn from `(world seed, germination coordinate)`, so varying `worldseed=`
 re-rolls the whole population.
 
-Eight world seeds, 8 founders each, ensemble medians:
+Eight world seeds, 8 founders each, ensemble medians, against `main` at
+**`cfee870`** — which is the base this branch merged, and matters: WP-11 cut
+`shade_death` to a quarter across all four woody species the same day, so a
+baseline tree now holds 45% foliage where it held 30%. Every figure in this
+table was re-measured after that merge; the pre-merge pair is in §1.1
+because the *direction* is the same and the size of one effect is not.
 
-| | 28,800 frames | | 45,000 frames | |
-|---|---|---|---|---|
-| | **before** | **after** | **before** | **after** |
-| plant cells | 3,786 | **2,778** | 3,616 | **2,608** |
-| wood cells | 2,600 | **1,953** | 2,867 | **2,021** |
-| **foliage share of the plant** | 30% | **32%** | 19% | **23%** |
-| stem thickness above the base | 15 | **13** | 17 | **13** |
-| root cells | 401 | **266** | 574 | **367** |
-| root share | 12% | 10% | 20% | 13% |
-| **founders established** | 8 of 8, every seed | **8 of 8, every seed** | 8 of 8 | **8 of 8** |
-| organisms born (total over 8 seeds) | 557 | 385 | 1,067 | 696 |
-| organisms died | 230 | 166 | 617 | 414 |
-| **inherited-genome establishments** | 1 | **0** | 2 | **0** |
-| organisms senescent | 0 | **0** | 0 | **0** |
-| canopy top (min over seeds) | 68 | 62 | 68 | 62 |
+| | 28,800 frames | |
+|---|---|---|
+| | **main `cfee870`** | **P2** |
+| plant cells | 4,740 | **3,659** |
+| wood cells | 2,371 | **2,144** |
+| **foliage share of the plant** | 45% | **46%** |
+| stem thickness above the base | 15 | **13** |
+| root cells | 407 | **270** |
+| root share | 9% | 8% |
+| **founders established** | 8 of 8, every seed | **8 of 8, every seed** |
+| organisms born (total over 8 seeds) | 447 | 343 |
+| organisms died | 192 | 143 |
+| **inherited-genome establishments** | 1 | **0** |
+| organisms senescent | 0 | **0** |
+| canopy top (min over seeds) | 59 | 69 |
+
+Median bill-to-income across the eight stands runs **1.27 to 1.45**, with
+individual plants from 2.00 to 3.25: the typical tree is just past the point
+where it trims, which is where the pressure was aimed. Die-back is not
+cosmetic — **6,595 and 6,886 cells shed to starvation per stand** at 28,800
+frames on the two seeds inspected.
 
 **Read the foliage share, not a wood-to-leaf ratio built out of two
 medians.** `leaf %` is a median of per-plant shares and is the quantity that
@@ -73,21 +84,36 @@ means what it says; dividing the median wood count by the median cell count
 divides two different plants and moved the *other way* on the same data. A
 metric trap worth naming, because it very nearly went into this report.
 
-**What the table says.** A tree is a quarter to a third smaller, its wood
-falls faster than its foliage (share up 2 points at 28,800 and 4 at 45,000),
-its trunk is thinner above the base, and not one founder failed to
-establish on any seed at either horizon. No run hit the ceiling.
+**What the table says.** A tree is a quarter smaller and its wood is a tenth
+smaller, so wood falls faster than foliage; its trunk is thinner above the
+base; and not one founder failed to establish on any seed. No run hit the
+ceiling.
 
 **And what it says that is not good news** is §7: turnover fell by about a
-third, inherited-genome establishment went from a rounding error to zero,
+quarter, inherited-genome establishment went from a rounding error to zero,
 and no adult tree died.
 
-Die-back is not cosmetic at stand scale. Cells shed to starvation, per
-stand, over 45,000 frames: **5,300 / 5,300 / 8,839 / 9,950 / 9,851 / 8,957 /
-7,603 / 8,787**. Median bill-to-income across the eight stands runs 1.15 to
-4.24, with individual plants at 1.99 to 24.07 — most trees are trimming,
-some are receding hard, and which is which is not something any rule
-assigned.
+### 1.1 The same pair before the merge, at two horizons
+
+Measured against `main` at `c0ba0b3` (this branch's own base), before
+WP-11's leaf-fall cut landed. Kept because it is the only place the effect
+is measured at 45,000 frames, and because it shows the same directions on a
+population that shed leaves four times faster:
+
+| | 28,800 | | 45,000 | |
+|---|---|---|---|---|
+| | before | after | before | after |
+| plant cells | 3,786 | 2,778 | 3,616 | 2,608 |
+| wood cells | 2,600 | 1,953 | 2,867 | 2,021 |
+| foliage share | 30% | **32%** | 19% | **23%** |
+| stem above the base | 15 | 13 | 17 | 13 |
+| root cells | 401 | 266 | 574 | 367 |
+| founders established | 8 of 8 | 8 of 8 | 8 of 8 | 8 of 8 |
+| inherited-genome establishments | 1 | 0 | 2 | 0 |
+| senescent | 0 | 0 | 0 | 0 |
+
+Cells shed to starvation per stand over 45,000 frames on that base: 5,300 /
+5,300 / 8,839 / 9,950 / 9,851 / 8,957 / 7,603 / 8,787.
 
 ---
 
@@ -443,12 +469,13 @@ The number that gates every downstream evolution claim
 
 | | before | after |
 |---|---|---|
-| 28,800 frames, 8 seeds | 1 | **0** |
-| 45,000 frames, 8 seeds | 2 | **0** |
-| organisms born, 45,000 frames | 1,067 | 696 |
-| organisms died, 45,000 frames | 617 | 414 |
+| 28,800 frames, 8 seeds, against `cfee870` | 1 | **0** |
+| 28,800 frames, organisms born / died | 447 / 192 | 343 / 143 |
+| 28,800 frames, against `c0ba0b3` | 1 | **0** |
+| 45,000 frames, against `c0ba0b3` | 2 | **0** |
+| 45,000 frames, organisms born / died | 1,067 / 617 | 696 / 414 |
 
-**It was ~0 and it is now 0.** Turnover fell by about a third, for a reason
+**It was ~0 and it is now 0.** Turnover fell by a quarter to a third, for a reason
 that is not subtle: `Reproduce` fires per mature cell, so a plant's fecundity
 is its canopy size, and this package makes every plant a quarter to a third
 smaller. Fewer seeds, and no founder dies to make room for the ones that
@@ -512,7 +539,12 @@ produced, so a plant in surplus pays one float compare.
 
 ## 12. Freshness
 
-Written 2026-08-23 against `main` at `c0ba0b3` (P3's merge). Every number is
-measured on this branch in one session except the three quoted from
+Written 2026-08-23 and 2026-08-24. §1 is measured against `main` at
+`cfee870`, which this branch merged mid-session; §1.1, §2, §3, §6, §7, §8
+and §9's second half were measured against `c0ba0b3`, this branch's own
+base, before WP-11's leaf-fall cut landed. Which base a figure comes from is
+named wherever it matters, because it does: a baseline tree holds 45%
+foliage at `cfee870` against 30% at `c0ba0b3`. Every number is measured on
+this branch in one session except the three quoted from
 `root-blob-and-uptake-surface-2026-08-23.md` §2, which are cited as that
 report's.

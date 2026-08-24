@@ -1066,6 +1066,65 @@ grass's live mortality arm. Widening the demand sum is an economy change and
 belongs to the single re-derivation pass, not here. The grass economy is
 written down in full in `assets/species/grass.ron`'s header.
 
+## The economy re-derived: standing tissue costs something
+
+**Package P2 of the plant implementation split**, and one re-derivation
+rather than six changes — the crown and the roots are one carbon economy,
+and tuning them separately produces two half-calibrated models that each
+compensate for the other's error.
+
+**Standing tissue costs carbon.** Every living cell pays a flat mass term,
+and shoot tissue additionally pays a term superlinear in the girth it
+carries (`q_peak`, at Takenaka's exponent of 1.5 — flat respiration is a
+recorded dead end, because cost linear in mass against income linear in leaf
+count balances at any size). The growth pool and the bud-break gate both net
+that bill, so growth is what is *left over* rather than what comes in. Eight
+world seeds, paired against `main`: a tree is a quarter smaller, its wood
+falls faster than its foliage, its trunk is thinner above the base, and 8 of
+8 founders still establish on every seed.
+
+**Night slows growth**, at `0.25 + 0.75 x daylight_fraction` — a 2026-08-17
+owner directive that had never been actioned. It reaches income and nothing
+else: every *decision* stays independent of the hour, because a threshold
+sampled at an arbitrary phase of a designed 20:1 oscillator is a different
+threshold every hour.
+
+**A root cell that touches no soil earns nothing and still costs.** The
+plant's water store was sized off root *mass*, so the interior of a root
+ball — a third of it, measured — was buying storage it could never use.
+Capacity now reads the root cells that share a face with soil. This is a
+flat tax on root mass rather than a brake on it, and it is not briefed as
+one; what it buys is that the 51–79% per-plant contact spread that already
+existed, unpriced and therefore unselectable, now has a consequence. The
+spread survives the pricing, which is the point.
+
+**Roots buy anchorage, which is what makes root investment a trade rather
+than a tax.** How many anchors a plant has and how far they spread are
+recovered free from a walk that already ran; a plant carrying a big crown on
+a narrow root plate diverts growth into roots until it catches up. It is a
+whole-plant allocation term and nothing else — no structural check is
+scheduled from it, and lane S owns the storm that collects.
+
+**A plant that cannot pay sheds, from the outside in.** Die-back removes the
+most distal, most cantilevered abandoned tissue until the book balances, and
+it is a topology-preserving erosion: it never takes foliage, never takes a
+cell with something hanging further out than it, and never takes one whose
+removal would disconnect its neighbours. A plant comes apart into pieces at
+no point, which took three attempts to get right.
+
+**Known limitations, both measured.** Adult mortality now has a cause that
+fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
+kills nothing: a plant at a light- or water-limited ceiling settles at a
+stunted size rather than dying, which is correct, and a compact stump has
+almost no cells the erosion is allowed to take, which is not. And selection
+throughput moved the *wrong way*: fecundity is canopy size, every plant is
+smaller, and inherited-genome establishments went from 1 to 0 over eight
+seeds. No selection claim can be made for trees on this branch. Secondary
+thickening is also still free, which is why upkeep bounds a plant's size
+without bounding its tissue; charging it was built, measured and withdrawn.
+`Reports/plant-economy-rederivation-2026-08-23.md` has all of it, including
+the six mechanisms this package built and reverted.
+
 ## M16 status
 
 Built: the active-site scheduler (`scheduler.rs`) and plant growth
