@@ -416,6 +416,13 @@ field rework — see `open-bugs-handoff.md`.
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [perf-lock-recovery-2026-08-24.md](perf-lock-recovery-2026-08-24.md) —
+  **recovery record; acted on.** Three artifacts this index pointed at that
+  existed on no remote branch, all found in untracked worktrees on one
+  machine and now pushed. Also settles the `plant-branch-angle` question —
+  merged, its ref simply never pushed — and records one thing nobody asked
+  for: 50 uncommitted lines of `plant-appearance-design.md` §6a, rescued to
+  `claude/plant-appearance-6a-recovery`.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
@@ -436,6 +443,14 @@ field rework — see `open-bugs-handoff.md`.
 When one of these merges, move its line into the sections above (docscheck
 flags the mismatch).
 
-- `performance-audit.md` — worktree `perf-audit` (untracked).
-- `measurement-under-contention.md` — worktree `perf-lock` (untracked,
-  with a CLAUDE.md edit adding `scripts/perf.sh`).
+- `performance-audit.md` — **recovered 2026-08-24**, branch
+  `claude/perf-audit-recovery`. It was never on `perf-audit`, which is zero
+  commits ahead of `main`; it was an untracked file in that worktree. The
+  branch also carries the five harnesses its numbers came from and a patch of
+  two instrumented source files left uncommitted. Not built, not a merge
+  candidate as it stands — see
+  [perf-lock-recovery-2026-08-24.md](perf-lock-recovery-2026-08-24.md).
+- `measurement-under-contention.md` — **pushed 2026-08-24**, branch
+  `origin/perf-lock` (`bdda4a9`), committed there along with `scripts/perf.sh`
+  and 91 lines of CLAUDE.md that `main` does not have. Until it merges,
+  `main`'s CLAUDE.md and the working checkout's are different files.
