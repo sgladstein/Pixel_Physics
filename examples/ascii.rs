@@ -1594,10 +1594,32 @@ fn forage_loop_scene() {
     }
     let Some(params) = presets.get(&presets.default_name()) else { return };
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: 1 });
-    // The surface is whatever the generator left, per column.
+    // The **ground** the generator left, per column — organism cells
+    // explicitly skipped, and that exclusion is load-bearing rather than
+    // tidy.
+    //
+    // This used to be "the topmost Solid or Powder", which is the ground
+    // right up until something is standing on it. A `seed` is a `Powder` and
+    // a grown blade is a `Solid`, so as soon as worldgen sowed a ground
+    // layer this started returning the top of a plant: the nest patch below
+    // got stamped a row above the soil wherever a tussock had landed, and
+    // the ants were planted into the vegetation rather than onto the
+    // hillside. Raising `grass_density` from 0.35 to 0.50 was enough to put
+    // grass inside x=16..90 and take the scene from green to **1,901
+    // pickups and zero deliveries** — the colony's loop never closed.
+    //
+    // The failure read exactly like an ant bug and was a scene bug
+    // (`CLAUDE.md`: a scene that contradicts the code will look like a bug in
+    // the code). Asking for ground rather than for "anything solid" makes it
+    // immune to whatever the flora does next, which is the point — this
+    // scene wants a hillside, and a plant is not one.
     let surface = |world: &World, x: i32| -> i32 {
         (0..h)
-            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            .find(|&y| {
+                let c = world.get(x, y);
+                c.organism_id() == 0
+                    && matches!(world.materials.kind(c.material), material::MaterialKind::Solid | material::MaterialKind::Powder)
+            })
             .unwrap_or(h - 1)
     };
 

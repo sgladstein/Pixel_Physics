@@ -456,7 +456,11 @@ fn cost_breakdown(frames: usize) {
     let gen = t0.elapsed();
 
     let surface = |world: &World, x: i32| -> i32 {
-        (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
+        // Ground, not "anything solid" -- see `examples/ascii.rs`'s foraging
+        // scene: a seed is a `Powder` and a blade is a `Solid`, so once
+        // worldgen sowed a ground layer this returned the top of a plant and
+        // placed creatures into the vegetation instead of onto the hillside.
+        (0..h).find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
     };
     let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
     let nest = world.materials.id_of("nest").expect("nest");
@@ -567,7 +571,7 @@ fn spawn_census() {
         let Some(params) = presets.get(preset) else { continue };
         pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed: BASE_SEED });
         let surface = |world: &World, x: i32| -> i32 {
-            (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
+            (0..h).find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
         };
         let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
         for _ in 0..2400 {
@@ -666,7 +670,7 @@ fn census_one(seed: u64, preset: &str) -> f64 {
     let Some(params) = presets.get(preset) else { return 0.0 };
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed });
     let surface = |world: &World, x: i32| -> i32 {
-        (0..h).find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
+        (0..h).find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)).unwrap_or(h - 1)
     };
     let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
     for i in 0..2 {
@@ -952,7 +956,7 @@ fn run_one(genome: &[f32], frames: usize, seed: u64, econ: Economy) -> Sample {
 
     let surface = |world: &World, x: i32| -> i32 {
         (0..h)
-            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            .find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
             .unwrap_or(h - 1)
     };
     let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
@@ -1346,7 +1350,7 @@ fn diet_scene(seed: u64) -> (World, Vec<i32>) {
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed });
     let surface = |world: &World, x: i32| -> i32 {
         (0..h)
-            .find(|&y| matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
+            .find(|&y| world.get(x, y).organism_id() == 0 && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder))
             .unwrap_or(h - 1)
     };
     let surface_at: Vec<i32> = (0..w).map(|x| surface(&world, x)).collect();
