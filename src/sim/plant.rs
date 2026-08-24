@@ -3148,6 +3148,37 @@ const MAINTENANCE_EXPONENT: f32 = 1.5;
 /// *nothing* is different evidence from one that moves a little".
 const MAINTENANCE_PER_CELL: f32 = 1.5e-4;
 
+/// **How many consecutive organism ticks a plant may fail to pay the mass
+/// term of its own maintenance before it is dead.**
+///
+/// The owner's ruling, 2026-08-24, on the finding that an unpayable deficit
+/// had no consequence in this model: *"but economics should be able to
+/// cause tree death right. if a tree doesn't get watered, it will
+/// eventually die."* That is a design call and this is it — the economy can
+/// kill, and it is the only thing here that can.
+///
+/// **Measured against the mass term alone, not against the whole bill, and
+/// that is the load-bearing choice.** A mature plant is in deficit on the
+/// *full* bill essentially all the time — the girth term is superlinear and
+/// the median tree in a grove runs a bill-to-income of 1.27 to 1.45 — so a
+/// rule keyed on "deficit" would kill a healthy stand outright. What
+/// separates a tree at its ceiling from a tree that is dying is whether it
+/// can pay to keep the tissue it *has* alive at all:
+/// `income >= MAINTENANCE_PER_CELL x cells`. Measured on a grove at 28,800
+/// frames, a healthy tree clears that line by about 2.6x (income 1.18
+/// against a mass term of 0.45), and a tree with its water withheld sits
+/// under it with income at zero.
+///
+/// **Consecutive, and reset on any tick it can pay**, so this is a
+/// sustained failure and not a bad afternoon — the hysteresis a whole-plant
+/// rule with a destructive action needs.
+///
+/// It sets `senescent`, which is exactly the seam P3 shaped for it: *"The
+/// flag is deliberately shaped to be gated by a cause other than
+/// starvation."* `rot_remains` then carries the plant out at the species
+/// half-life, so death is graded rather than a disappearance.
+const STARVATION_DEATH_TICKS: u16 = 200;
+
 /// **Most of a plant that one tick of die-back may remove**, as a fraction
 /// of its cells.
 ///
@@ -4658,6 +4689,53 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // traversal per organism per tick for one boolean.
         if vital_cells == 0 && !cells.is_empty() && has_economy {
             state.senescent = true;
+        }
+        // **Death by starvation — the economy's own killer.** See
+        // `STARVATION_DEATH_TICKS`, including why the comparison is the
+        // mass term rather than the whole bill (a mature plant is in
+        // deficit on the full bill nearly always, so keying on that would
+        // empty a healthy stand).
+        //
+        // `income` is this tick's, stored noon-equivalent by
+        // `allocate_to_frontier` which ran earlier in `step_organisms`;
+        // `MEAN_NIGHT_INCOME_FACTOR` turns it into what the plant actually
+        // collects over a day, which is the quantity a bill charged every
+        // tick has to be compared against.
+        //
+        // Gated on `has_economy` exactly as the rule above is, and for the
+        // same reason: this is starvation-shaped and moss does not earn.
+        // **Only a species whose income this model can actually measure**,
+        // and that exemption is a defect elsewhere rather than a property
+        // of grass. `allocate_to_frontier` sums intercepted light over
+        // `CellType::Leaf` **only**, so a species with no `Leaf` stage has
+        // `income == 0` by construction however much it is earning — grass
+        // photosynthesises from `MatureBody` and `GrowingTip`. A starvation
+        // rule keyed on income therefore reads every sward as starving:
+        // measured, it killed **12 of 12 blades in the fully lit arm** of
+        // `a_shaded_sward_thins_and_a_lit_one_does_not`, and took the sod
+        // that holds a river bank with it.
+        //
+        // This is the third time in this package that a whole-plant rule
+        // has had to learn `CellType::Leaf` is not "foliage" — the die-back
+        // exclusion and P3's abscission fix are the other two, and both use
+        // `is_foliage`, which asks the species. The right repair is to make
+        // `intercepted` use it too, which would also close `break_buds`'
+        // recorded grass defect (`supportable` is 0 for grass for exactly
+        // this reason). That is an economy change for a second species with
+        // no measurement behind it, so it is filed rather than made here —
+        // `open-bugs-handoff.md` §V2 — and until then a species with no
+        // `Leaf` stage cannot starve to death.
+        if has_economy && has_leaf_stage {
+            let alive = (root_cells + shoot_cells) as f32;
+            let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
+            if alive > 0.0 && collected < MAINTENANCE_PER_CELL * alive {
+                state.starving_ticks = state.starving_ticks.saturating_add(1);
+                if state.starving_ticks >= STARVATION_DEATH_TICKS {
+                    state.senescent = true;
+                }
+            } else {
+                state.starving_ticks = 0;
+            }
         }
     }
     let mut leaves_above: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
@@ -6414,6 +6492,122 @@ so nothing below this line would be about shade"
         );
     }
 
+    /// **A tree denied water dies; a watered one does not** — the owner's
+    /// ruling, as the guard that has to hold.
+    ///
+    /// *"but economics should be able to cause tree death right. if a tree
+    /// doesn't get watered, it will eventually die."* (2026-08-24). Before
+    /// `STARVATION_DEATH_TICKS` this was false in a way no amount of tuning
+    /// reached: transpirational demand is summed over foliage only, so
+    /// shedding a leaf reduces the very signal that shed it, and a plant
+    /// escaped drought by starving — ninety thousand frames at desiccation
+    /// 1.000 left a tree *larger* than it had been twenty thousand frames
+    /// earlier (`print_a_tree_with_the_water_withheld`, and
+    /// `open-bugs-handoff.md` §V2).
+    ///
+    /// **Paired, and the watered arm is the half that matters.** A rule
+    /// that kills the droughted tree and also kills the watered one is not
+    /// mortality, it is a timer — and this repo has a recorded case of
+    /// exactly that (`ORGANISM_STALE_LIMIT` implementing meristem
+    /// senescence, which grafting experiments falsify). Both arms are the
+    /// same individual grown the same way for the same frames; the only
+    /// difference is whether the bed keeps its water.
+    #[test]
+    fn a_tree_denied_water_dies_and_a_watered_one_does_not() {
+        fn run_arm(withhold: bool) -> (bool, usize, u16) {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+            // The plastochron is jittered per organism and most draws grow
+            // nothing at all in this scene, so the arms are pointed at an
+            // individual that actually builds a crown -- otherwise both
+            // would pass for the wrong reason.
+            for _ in 0..2 {
+                w.push_organism(tree).expect("an organism slot is free");
+            }
+            // **A bed big enough that "watered" means supplied.** The usual
+            // 17x8 `plant_tree_on_ground` bed is *water*-limited for a tree
+            // this size -- income floors near 0.04 there whatever the soil
+            // says -- so both arms starve and the comparison differs in
+            // more than the one thing it claims to. Measured: the watered
+            // arm died in that bed too, at 356 starving ticks, which is the
+            // scene contradicting the code rather than the rule being
+            // wrong. 61 wide by 30 deep is `root_slot_run`'s bed.
+            {
+                let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                let (px, py) = (100, 120);
+                const HALF: i32 = 30;
+                const ROWS: i32 = 30;
+                for fx in (px - HALF - 1)..=(px + HALF + 1) {
+                    w.set(fx, py + ROWS + 1, Cell::new(material::STONE, 0));
+                }
+                for dy in 1..=ROWS {
+                    w.set(px - HALF - 1, py + dy, Cell::new(material::STONE, 0));
+                    w.set(px + HALF + 1, py + dy, Cell::new(material::STONE, 0));
+                    for fx in (px - HALF)..=(px + HALF) {
+                        w.set(fx, py + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                    }
+                }
+                w.plant_tree(px, py);
+            }
+            run_with_fields(&mut w, 8_000);
+            let b = w.bounds().expect("bounded");
+            let id = (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .map(|(x, y)| w.get(x, y).organism_id())
+                .find(|&id| id != 0)
+                .expect("test setup: nothing grew, so there is no crown to dry out");
+            let grown = w.organism(id).map_or(0, |st| st.cells.len());
+            assert!(grown > 200, "test setup: the tree reached only {grown} cells, which is too small to be about a crown");
+
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            // **Re-pinned every hundred frames, not every thousand, and
+            // that is not fussiness.** `run_with_fields` steps the weather,
+            // so rain falls on the bed between pins; at a thousand-frame
+            // interval the plant drinks the rain and the "drought" is a
+            // drizzle. Measured at that interval the droughted tree
+            // *recovered* — 3,871 cells and `starving_ticks` back to 0 —
+            // which reads exactly like the rule failing and was the scene.
+            for _ in 0..200 {
+                if withhold {
+                    // Re-applied every epoch because the plant's own root tissue
+                    // keeps converting soil and the bed would otherwise
+                    // creep back above the wilting point.
+                    let bounds = w.bounds().expect("bounded");
+                    for y in bounds.min_y..=bounds.max_y {
+                        for x in bounds.min_x..=bounds.max_x {
+                            let c = w.get(x, y);
+                            if c.material == soil {
+                                w.set(x, y, c.with_aux(material::SOIL_WILTING_POINT));
+                            }
+                        }
+                    }
+                }
+                run_with_fields(&mut w, 100);
+            }
+            // A plant that died and finished rotting has had its slot
+            // reclaimed, so "gone" counts as dead exactly as `senescent`
+            // does -- reading only the flag would call a completed death a
+            // survival.
+            match w.organism(id) {
+                Some(st) => (st.senescent, st.cells.len(), st.starving_ticks),
+                None => (true, 0, 0),
+            }
+        }
+        let (wet_dead, wet_cells, wet_ticks) = run_arm(false);
+        let (dry_dead, dry_cells, dry_ticks) = run_arm(true);
+        assert!(
+            dry_dead,
+            "a tree with its water withheld for twenty thousand frames is still alive at {dry_cells} cells \
+({dry_ticks} consecutive starving ticks of the {STARVATION_DEATH_TICKS} it takes). The economy cannot kill, which is \
+the state the owner's 2026-08-24 ruling exists to end"
+        );
+        assert!(
+            !wet_dead,
+            "the watered arm died too ({wet_cells} cells, {wet_ticks} starving ticks), so this is a timer rather than \
+mortality -- see the doc on this test"
+        );
+    }
+
     /// **Water withheld from a grown tree — the reproduction for "drought
     /// cannot kill a plant", filed as an open bug rather than fixed here.**
     ///
@@ -6486,7 +6680,25 @@ so nothing below this line would be about shade"
                     }
                 }
             }
-            run_with_fields(&mut w, 1_000);
+            // **Ten pins of a hundred frames, not one of a thousand.**
+            // `run_with_fields` steps the weather, so rain falls between
+            // pins and at a thousand-frame interval the plant drinks it —
+            // the "drought" becomes a drizzle. The first version of this
+            // probe had that defect and its table showed the tree
+            // *recovering*, which was read as the self-extinguishing loop
+            // and was partly the rain.
+            for _ in 0..10 {
+                let bb = w.bounds().expect("bounded");
+                for y in bb.min_y..=bb.max_y {
+                    for x in bb.min_x..=bb.max_x {
+                        let c = w.get(x, y);
+                        if c.material == soil {
+                            w.set(x, y, c.with_aux(material::SOIL_WILTING_POINT));
+                        }
+                    }
+                }
+                run_with_fields(&mut w, 100);
+            }
             let cells: Vec<(i32, i32)> = (bounds.min_y..=bounds.max_y)
                 .flat_map(|y| (bounds.min_x..=bounds.max_x).map(move |x| (x, y)))
                 .filter(|&(x, y)| w.get(x, y).organism_id() == id)

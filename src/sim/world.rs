@@ -1846,6 +1846,7 @@ impl World {
             maintenance: 0.0,
             maintenance_unpaid: 0.0,
             starved_cells: 0,
+            starving_ticks: 0,
             collar_y: None,
             // The species mean until something germinates and draws — see
             // `OrganismState::genotype_draws`.

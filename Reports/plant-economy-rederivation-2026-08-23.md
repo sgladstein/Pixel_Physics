@@ -416,7 +416,41 @@ retired.
 
 ---
 
-## 7. Adult mortality: the cause is built, it fires, and nothing dies
+## 7. Adult mortality: the economy can now kill
+
+**Superseded in part, 2026-08-24.** This section was written when the cause
+fired and nothing died. The owner then ruled on it — *"but economics should
+be able to cause tree death right. if a tree doesn't get watered, it will
+eventually die."* — and `STARVATION_DEATH_TICKS` is that ruling: a plant
+that cannot pay even the **mass term** of its own maintenance for 200
+consecutive organism ticks is marked `senescent`, and `rot_remains` carries
+it out.
+
+| | before the rule | with it |
+|---|---|---|
+| organisms senescent, 8 seeds at 28,800 | 0 | **2** |
+| organisms senescent, 8 seeds at 45,000 | 0 | **4** |
+| slots reclaimed (seed 4, 28,800) | none — 27 live in 27 | **19 live in 25** |
+| a tree denied water | never dies | **dies** — guard `a_tree_denied_water_dies_and_a_watered_one_does_not` |
+
+**The mass term, not the whole bill.** A mature plant is in deficit on the
+full bill essentially always (median bill-to-income 1.27–1.45), so a rule
+keyed on "deficit" empties a healthy stand; a healthy tree clears the *mass*
+line by about 2.6x. And the survivors of a death are **larger** — seed 4's
+median plant went 4,034 → 5,324 cells — which is competitive release, the
+thing this program has been short of.
+
+**What it does not do**, and §7.2 below is still the record of why: it gives
+an unpayable deficit a consequence, but it does not make wood and root *ask*
+for water, so the zero-demand immunity is still in the water book.
+Inherited-genome establishment is **still 0** at both horizons; mortality
+was necessary and is not yet sufficient.
+
+The rest of this section is the diagnosis that led there, kept because the
+mechanisms it names are still live.
+
+### 7.0 The state this section was written in
+
 
 P3 handed this package the cause and said so: *"Nothing kills a healthy
 tree; a mature tree always holds dormant buds, so it is never senescent,

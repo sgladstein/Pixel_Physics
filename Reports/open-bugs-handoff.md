@@ -2624,7 +2624,7 @@ opens by warning against. Ranked candidates, none started:
 `examples/crown_census.rs` is the instrument for any of them, and the
 die-back-off arm is the control.
 
-### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **OPEN, reproduced 2026-08-24**
+### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **FIXED 2026-08-24 by `STARVATION_DEATH_TICKS`; two corrections to the entry below**
 
 Raised by the owner against `plant-economy-rederivation-2026-08-23.md` §7,
 which had folded the water case in with the light case: *"but economics
@@ -2648,7 +2648,51 @@ So drought sheds leaves, fewer leaves means less demand, less demand means
 less desiccation. **Drought is a negative feedback on itself and a plant
 escapes it by starving.**
 
-**Reproduction: `plant::tests::print_a_tree_with_the_water_withheld`**
+**FIXED, and by the owner's own ruling rather than by tuning.** *"but
+economics should be able to cause tree death right. if a tree doesn't get
+watered, it will eventually die."* `STARVATION_DEATH_TICKS`: a plant that
+cannot pay even the **mass term** of its own maintenance —
+`income >= MAINTENANCE_PER_CELL x cells` — for 200 consecutive organism
+ticks is marked `senescent`, which is the seam P3 shaped for exactly this
+(*"gated by a cause other than starvation"*), and `rot_remains` carries it
+out at the species half-life so the death is graded.
+
+**The mass term and not the whole bill, and that is the load-bearing
+choice.** A mature plant is in deficit on the *full* bill essentially
+always — the girth term is superlinear and a grove's median tree runs
+bill-to-income at 1.27–1.45 — so a rule keyed on "deficit" empties a healthy
+stand. What separates a tree at its ceiling from a tree that is dying is
+whether it can pay to keep the tissue it already has alive; a healthy tree
+clears that line by about 2.6x.
+
+Guard: `a_tree_denied_water_dies_and_a_watered_one_does_not`, paired, in a
+bed large enough that "watered" means supplied. Ensemble effect, eight
+seeds: **organisms senescent 0 → 4 at 45,000 frames** and 0 → 2 at 28,800,
+with slots reclaimed for the first time (seed 4: 19 live in 25 slots against
+27-in-27 without the rule) and the survivors *larger* — competitive release.
+
+**Two corrections to what this entry originally claimed.**
+
+1. **The recovery in the table below is partly rain, not purely the
+   self-extinguishing loop.** The reproduction re-pinned the bed to the
+   wilting point every *thousand* frames, and `run_with_fields` steps the
+   weather — so rain fell between pins and the plant drank it. At a
+   hundred-frame pin the drought is airtight and the plant does not recover.
+   The same defect made the guard's first deep-bed run read as the rule
+   failing (`starving_ticks` back to 0 at 3,871 cells) when it was the
+   scene. **The mechanism below is unaffected** — it is read from source,
+   not from that table — but the *"grows back at the wilting point"* reading
+   was overstated.
+2. **The general form is only half closed.** `STARVATION_DEATH_TICKS` gives
+   an unpayable deficit a consequence, which is what §7.4 of the economy
+   report said it lacked. It does **not** make wood and root *ask* for
+   water, so the zero-demand immunity is still there in the water book:
+   desiccation still collapses with foliage and `drought_death` still
+   reaches leaves only. Fix 2 below is therefore still wanted — it is what
+   makes the desiccation number mean something on a bare stump — and fix 3
+   with it.
+
+**Reproduction (records the pre-fix behaviour): `plant::tests::print_a_tree_with_the_water_withheld`**
 (`#[ignore]`d; `cargo test --release print_a_tree_with_the_water --
 --ignored --nocapture --test-threads=1`, `DROUGHT_EPOCHS=90` for the full
 table). A grown tree, every soil cell in its bed pinned to
@@ -2686,21 +2730,31 @@ carbon one.
 second economy change on an unmerged one, which is the half-calibrated-model
 failure its own report opens by warning against:
 
-1. **A sustained unpayable deficit kills the plant outright.** One rule
-   closing both this entry and the stump case. The hook exists: P3 shaped
-   `senescent` to be gated by a cause other than starvation, and
-   `rot_remains` already carries the remains out at a species half-life. The
-   design question is what "sustained" is measured over — a whole-plant
-   quantity with hysteresis, not a per-tick test, or a bad afternoon kills a
-   healthy tree.
-2. **Living non-foliage tissue carries a small water demand.** Breaks the
+1. ~~**A sustained unpayable deficit kills the plant outright.**~~ **DONE** —
+   `STARVATION_DEATH_TICKS`, above. The design question it posed answered
+   itself in the measurement: "sustained" had to be measured against the
+   *mass term* with a reset on any solvent tick, because the full bill is
+   unpayable for healthy trees too.
+2. **Make `allocate_to_frontier`'s `intercepted` ask the species, not the
+   cell type.** It sums over `CellType::Leaf` only, so **`OrganismState::income`
+   is exactly zero for any species with no `Leaf` stage however much it is
+   earning** — grass photosynthesises from `MatureBody` and `GrowingTip`.
+   Found by `STARVATION_DEATH_TICKS` reading that zero as starvation and
+   killing **12 of 12 blades in the fully lit arm** of
+   `a_shaded_sward_thins_and_a_lit_one_does_not`; the rule now exempts
+   leafless species, which is a workaround and not the fix. `is_foliage`
+   already asks the species and is what die-back and P3's abscission both
+   use — this is the third place in one package to need it. Fixing it would
+   also close `break_buds`' recorded grass defect, where `supportable` is 0
+   for exactly this reason, so it is one change closing three things.
+3. **Living non-foliage tissue carries a small water demand.** Breaks the
    self-extinguishing loop at its root, because demand would floor at the
    plant's own mass rather than at zero. It is also the biology: trees lose
    water through bark and respire in wood and root, and do not stop needing
    water when the leaves drop. Cheapest of the three, and it re-derives the
    water constants, so it wants the `plantsweep.sh` ensemble before and
    after.
-3. **A drought consequence for wood and root.** The real mechanism is
+4. **A drought consequence for wood and root.** The real mechanism is
    cavitation, which kills conducting tissue rather than leaves. The most
    faithful and the most work; it needs a per-cell channel that does not
    exist.
