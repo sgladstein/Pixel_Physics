@@ -766,6 +766,16 @@ fn fracture_with_impulse(
         // `MaterialDef::fragment_floor`.
         let material = world.materials.get(world.get(seed.0, seed.1).material);
         let (rungs, floor, diagonal) = (material.fragment_rungs, material.fragment_floor, material.woody);
+        // **Only wood seeds a fragment of severed tissue.** Foliage may be
+        // *claimed* by a fragment the flood reaches it through -- a leafy
+        // limb comes off with its leaves on -- but it never starts one and
+        // never chooses one's size, which is `Reports/physical-trees-
+        // design-2026-08-23.md` §5.3's actual argument: a leaf is not a
+        // small log and must not get a draw off wood's ladder. Anything no
+        // woody seed reaches is scattered after the loop.
+        if tissue && !diagonal {
+            continue;
+        }
         // Clamped rather than left to wrap: `floor` and `size_bias` are
         // both content-reachable, and a shift past the word size is a panic
         // in debug and nonsense in release. `MAX_BODY_CELLS` caps the result
@@ -818,6 +828,31 @@ fn fracture_with_impulse(
             }
         }
     }
+    // **Whatever no fragment claimed.** For rock this is empty by
+    // construction -- every cell of the region is a candidate seed, so the
+    // loop above consumes all of it. For severed tissue it is the foliage
+    // that hung off nothing a promoted piece reached, and it scatters, which
+    // is the third tier arriving as a consequence of the same draw rather
+    // than as a separate pass over the region.
+    //
+    // Walks `remaining` -- sorted -- rather than `left`, which is a
+    // `HashSet`: iterating that would make the *order* of conversion depend
+    // on the hasher, and `shatter_to_rubble`/`convert_to_debris` both draw a
+    // shade from `world.rng`. Same determinism rule as the seed loop, and
+    // the same one §2a names.
+    for &cell in &remaining {
+        if !left.remove(&cell) {
+            continue;
+        }
+        if tissue {
+            if convert_to_debris(world, cell.0, cell.1) {
+                grit_cells += 1;
+            }
+        } else {
+            shatter_to_rubble(world, cell.0, cell.1);
+            grit_cells += 1;
+        }
+    }
     (promoted_cells, grit_cells)
 }
 
@@ -864,32 +899,44 @@ fn fracture_with_impulse(
 /// `dead-ends.md`, and it is exactly the failure this function exists to
 /// undo.
 pub(crate) fn fell_severed_tissue(world: &mut World, region: &[(i32, i32)], broke_at: (i32, i32)) -> (u32, u32) {
-    let mut woody: Vec<(i32, i32)> = Vec::with_capacity(region.len());
-    let mut removed = 0u32;
-    // Foliage first, so the ladder below never sees it. Order is the
-    // caller's sorted region order, which is what keeps this deterministic
-    // -- see `Reports/physical-trees-design-2026-08-23.md` §2a, and note
-    // this walks a slice rather than a `HashSet` for exactly that reason.
-    for &(x, y) in region {
-        if world.materials.get(world.get(x, y).material).woody {
-            woody.push((x, y));
-        } else if convert_to_debris(world, x, y) {
-            removed += 1;
-        }
+    if region.is_empty() {
+        return (0, 0);
     }
-    if woody.is_empty() {
-        return (removed, 0);
-    }
-    // Sized off the piece's own half-extent, exactly as `fracture` sizes a
-    // collapse: what the ladder is asking is "how big is the thing that came
-    // apart", and a felled bole and a snapped twig are not on the same
-    // scale. One ladder, one calibration.
-    let half = woody
-        .iter()
-        .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
-    let extent = ((half.1 - half.0) / 2).max((half.3 - half.2) / 2);
-    let (promoted, grit) = fracture_with_impulse(world, &woody, None, size_bias(extent), Some(broke_at), true);
-    (removed + promoted as u32 + grit as u32, promoted as u32)
+    // **The whole region goes to the ladder, foliage included — but only
+    // wood may *seed* a fragment.**
+    //
+    // Converting every leaf to litter here, before the ladder ran, was the
+    // first shape of this function and it is what the owner saw frame by
+    // frame: *"the branches fall off as whole pieces (good), but then hit
+    // the ground and turn to dust"*. The pieces were fine. What turned to
+    // dust was the **foliage**, and it did so at the instant of severance —
+    // roughly 1,570 cells of `litter` powder created in a single frame,
+    // against 710 cells of `log` at rest. Litter outnumbered the piece tier
+    // 2.3 to 1, it is the brightest thing on screen, and the pieces fell
+    // through it and were buried in it.
+    //
+    // A leaf still never seeds a fragment and never sizes one — the draw is
+    // made at a woody seed, from wood's own ladder — so
+    // `Reports/physical-trees-design-2026-08-23.md` §5.3 holds where it
+    // argues foliage must not be *on* the ladder. What it did not argue,
+    // and what was wrong, is that foliage must leave the branch at the
+    // moment the branch does. A leafy limb comes off a real tree with its
+    // leaves on it; they let go later, in their own time, and that is what
+    // `MaterialDef::severs_into` on `leaf.ron` now does when the piece
+    // lands.
+    //
+    // Foliage that no promoted piece claims — a leaf whose twig fell below
+    // `MIN_BODY_CELLS`, or one hanging off nothing — still scatters, so the
+    // third tier is intact and is now a *consequence* of the same draw
+    // rather than a separate pass over the region.
+    let extent = {
+        let half = region
+            .iter()
+            .fold((i32::MAX, i32::MIN, i32::MAX, i32::MIN), |(x0, x1, y0, y1), &(x, y)| (x0.min(x), x1.max(x), y0.min(y), y1.max(y)));
+        ((half.1 - half.0) / 2).max((half.3 - half.2) / 2)
+    };
+    let (promoted, grit) = fracture_with_impulse(world, region, None, size_bias(extent), Some(broke_at), true);
+    ((promoted + grit) as u32, promoted as u32)
 }
 
 /// Flood up to `target` connected cells out of `left`, removing them.
@@ -4507,16 +4554,19 @@ mod tests {
     }
 
     /// The three tiers, on one severed region: wood becomes a **piece**,
-    /// foliage becomes **scatter**, and neither is the other.
+    /// the foliage hanging off that wood **rides down with it**, and
+    /// foliage no piece reaches **scatters**.
     ///
-    /// The leaf half is the one that needs saying: a crown is roughly a
-    /// third foliage by cell count, and putting it on the ladder pads a
-    /// draw into a "piece" that is mostly leaf.
+    /// The middle claim is the one that changed and the one worth guarding.
+    /// Converting every leaf at the instant of severance is what the owner
+    /// saw as *"the branches fall off as whole pieces (good), but then hit
+    /// the ground and turn to dust"* — roughly 1,570 cells of `litter`
+    /// created in a single frame against 710 of `log` at rest. A leafy limb
+    /// comes off a real tree with its leaves on.
     #[test]
-    fn a_severed_limb_comes_apart_into_pieces_and_its_leaves_into_litter() {
+    fn a_severed_limb_carries_its_own_foliage_down() {
         let (mut w, id) = tissue_world();
         let leaf = w.materials.id_of("leaf").expect("leaf");
-        let litter = w.materials.id_of("litter").expect("litter");
         let log = w.materials.id_of("log").expect("log");
         // A 12x4 slab of wood -- comfortably over `MIN_BODY_CELLS` -- with
         // a row of foliage hanging off its underside.
@@ -4540,10 +4590,43 @@ mod tests {
             w.chunk_bodies.iter().flat_map(|b| b.cells.iter()).all(|c| c.organism_id == id),
             "a body lifted out of a tree has to remember which tree, or it lands as inert wood"
         );
-        for x in 20..32 {
-            assert_eq!(w.get(x, 24).material, litter, "foliage scatters to litter; it is not a small log");
-        }
+        // The foliage left the grid **with** the wood rather than being
+        // converted where it hung.
+        let carried = w.chunk_bodies.iter().flat_map(|b| b.cells.iter()).filter(|c| c.material == leaf).count();
+        assert!(carried >= 8, "the leaves hanging off a promoted limb must ride down on it, not turn to powder in mid-air -- {carried} of 12 carried");
         assert_eq!(w.materials.get(log).name, "log", "test setup: the piece tier must exist");
+    }
+
+    /// And the half that must **not** change: a leaf never seeds a fragment
+    /// and never sizes one, so foliage that no woody piece reaches still
+    /// scatters rather than flying as a slab of its own.
+    ///
+    /// This is `Reports/physical-trees-design-2026-08-23.md` §5.3's actual
+    /// argument, and it is what keeps "leaves ride down" from quietly
+    /// becoming "leaves are logs". Without the wood-only seed rule this
+    /// clump is 24 cells — three times `MIN_BODY_CELLS` — and would promote
+    /// as a body made entirely of foliage.
+    #[test]
+    fn foliage_no_piece_reaches_still_scatters_and_never_seeds_one() {
+        let (mut w, id) = tissue_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf");
+        let litter = w.materials.id_of("litter").expect("litter");
+        let mut region = Vec::new();
+        for x in 20..32 {
+            for y in 20..22 {
+                w.set(x, y, Cell::new(leaf, 0).with_organism_id(id));
+                region.push((x, y));
+            }
+        }
+        region.sort_unstable();
+
+        let (severed, as_pieces) = fell_severed_tissue(&mut w, &region, (20, 20));
+        assert_eq!(severed, region.len() as u32, "every cell of the region left the tree");
+        assert_eq!(as_pieces, 0, "a clump of pure foliage is not a piece however large it is");
+        assert!(w.chunk_bodies.is_empty(), "a leaf must never seed a fragment -- 24 cells of it would otherwise clear MIN_BODY_CELLS");
+        for &(x, y) in &region {
+            assert_eq!(w.get(x, y).material, litter, "unclaimed foliage scatters, which is the third tier");
+        }
     }
 
     /// A landed piece is **dead tissue**, not live wood — and a `wood` wall

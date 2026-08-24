@@ -6580,7 +6580,7 @@ impl FellCensus {
         // dust" and "part of the fall was deleted at the moment it landed"
         // is a number on the sheet rather than a hypothesis about it.
         println!(
-            "      {} of those pieces landed as {} cells of log; {} cells were lost in settle (nowhere to place)",
+            "      {} of those pieces landed as {} cells of dead tissue (log + litter, cumulative over re-landings); {} cells were lost in settle (nowhere to place)",
             pieces, world.structural_failures.settled_tissue_cells, world.structural_failures.settle_lost_cells
         );
         // **Lying or standing, which is the acceptance question and not a

@@ -227,6 +227,71 @@ held in the tree. Whether that makes rotation the next work is the owner's
 call and is being put to them; it is recorded here because the measurement
 holds either way.
 
+## 4d. The frame-by-frame verdict, and the defect it named
+
+The GIF got a diagnosis where two rounds of stills got a rejection:
+
+> "Examine it frame by frame. The branches fall off as whole pieces (good),
+> but then hit the ground and turn to dust. The trunk of the tree doesn't
+> move it just turns gray and then all the dust falls on top of it making a
+> big pile. That is not what happens to a tree if it falls over"
+
+**"The branches fall off as whole pieces (good)" retires the "fully
+reconsidered" question.** The ladder, the 8-connected flood, the promotion
+path: all confirmed by eye, in motion. The earlier verdict was written from
+stills.
+
+**"Hit the ground and turn to dust" was the foliage, not the pieces**, and
+the measurement is in `open-bugs-handoff.md` T1e: `log` *rises* to a plateau
+as bodies land and holds flat to within three cells over two hundred frames,
+while `litter` stands at 1,652 against it — 2.3 to 1, roughly 1,570 cells of
+it created in a single frame at severance. Fixed by letting foliage ride the
+piece it hangs on (§4e).
+
+**"The trunk doesn't move, it just turns gray"** is two things. Not moving
+is T2 — nothing here topples anything. *Turning grey* was T1's own and was a
+palette failure: the bole is promoted as one ~300-cell body, drops onto its
+own stump with nowhere to go, settles in place, and re-renders in `log`'s
+colours. Those colours were a desaturated grey, chosen for legibility
+against gold litter, and grey is what ash and stone are in this world — so a
+piece landing read as tissue *dying*. Now pale cream timber, which separates
+from `deadwood` on value and from `litter` on hue. Two rejected attempts are
+recorded in `dead-ends.md`.
+
+## 4e. Foliage rides the piece it hangs on
+
+`fell_severed_tissue` converted every non-woody cell of a severed region
+*before* the ladder ran. The whole region now goes to the ladder and **only
+woody cells may seed a fragment**; foliage the flood reaches is carried, and
+foliage no piece reaches still scatters.
+
+§5.3 is intact where it argues foliage must not be **on** the ladder — a
+leaf never seeds a fragment and never sizes one, guarded by
+`foliage_no_piece_reaches_still_scatters_and_never_seeds_one`, which fails
+without the seed rule. What §5.3 did not argue, and what was wrong, is that
+foliage must leave the branch at the moment the branch does.
+
+Same cut, same seed:
+
+| | before | after |
+|---|---|---|
+| severed mass promoted | 1,160 (44%) | **2,820 (99%)** |
+| pieces >= 256 cells | 2 | **7** |
+| largest piece | 244 cells, 26x41 | **321 cells, 35x38** |
+| peak bodies in flight | 20 | **26** |
+| `log` 100 frames after landing | 711 | **724**, flat to within 3 over 200 frames |
+| settled pieces >= 8 cells | 13 (11 upright) | 12 (6 upright, 2 lying, 4 square) |
+
+**The 99% is honest but it is not 99% of *wood*.** Foliage now counts as
+promoted mass because it comes down attached, so the figure is no longer
+comparable with §8's bar in the terms that bar was written in. The settled
+composition is the number to read instead: `log` 631, `deadwood` 384,
+`litter` 466 at frame 8,750.
+
+**Still not fixed, and still the honest gap:** the pieces mostly land
+upright (6 of 11), because a piece cut out of a standing tree is a vertical
+piece and nothing rotates it on the way down. §6.1 predicted it; T2 owns it.
+
 ## 5. Filed, not fixed
 
 **`settle` drops a cell with nowhere to go, and a felled crown lands in a

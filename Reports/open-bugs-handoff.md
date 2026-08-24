@@ -5203,6 +5203,14 @@ fix in T1: **318 unsupported failures / 1,307 cells**, and `log` standing at
 same run read 431 standing, so this is the residue of a bigger problem, not
 the whole of it.
 
+**Downgraded in severity by T1e below, and the correction matters.** The gap
+between "delivered" and "standing" is *not* a decay curve — `log` rises to a
+plateau as bodies land and then holds flat to within three cells over two
+hundred frames. Most of that gap is bodies landing on top of one another and
+overwriting, plus `settle_lost_cells`, not pieces being crushed after they
+arrive. This entry stands as a real modelling defect in the support
+predicate; it is not the reason a felled tree did not look like fallen logs.
+
 **Ruled out by measurement**, so do not re-derive them:
 
 - It is not the overload path. `log` leaves `max_unsupported_span` unset, so
@@ -5297,6 +5305,60 @@ ms, and it read as a regression from this branch. It is not; the same window
 also reported `ascii` worst at 118.6 ms against 72.6 uncontended. Recorded
 because the misreading is the point: a timing gate measured beside other
 work is measuring the other work.
+
+### T1e. "The pieces hit the ground and turn to dust" was **not** `settle`, and the measurement says so — **CLOSED**
+
+Worth recording because the hypothesis was reasonable, was held by two
+sessions, and was wrong; the cost of not checking it would have been a
+rewrite of `rigid::settle`.
+
+Watching the fall frame by frame the owner reported: *"The branches fall off
+as whole pieces (good), but then hit the ground and turn to dust."* The
+natural suspect is `settle` — `Reports/physical-trees-design-2026-08-23.md`
+§5.5 predicts a landed piece re-rasterizing as inert material and then
+running whatever powder path applies to it.
+
+**It is not, and `log` is stable on landing.** Tracing the settled census
+frame by frame after the fall (`scene=fell fell=7150`, one run, same seed):
+
+| frame | `log` standing | pieces >= 8 cells |
+|---|---|---|
+| 7,175 | 459 | 9 |
+| 7,190 | 644 | 15 |
+| 7,210 | **713** | 18 |
+| 7,250 | 712 | 18 |
+| 7,300 | 711 | 18 |
+| 7,400 | 710 | 18 |
+
+`log` *rises* as bodies land and then holds flat to within three cells over
+two hundred frames. Nothing is converting it. The piece count is likewise
+stable at 18 holding 609 cells.
+
+**What actually turned to dust was the foliage.** At the same frames:
+`litter` **1,652** cells against `log` 710 and `deadwood` 363 — the leaf
+tier outnumbered the piece tier **2.3 to 1**, it is the brightest thing on
+screen, and roughly **1,570 cells of it were created in a single frame** at
+the instant of severance, because `fell_severed_tissue` converted every
+non-woody cell of the region before the ladder ran. The pieces fell through
+that cloud and were buried in it. Rendered at 4x it is unmistakable and it
+is exactly what "turn to dust" describes.
+
+**Fixed by letting foliage ride the piece it hangs on** rather than leaving
+the branch at the moment the branch does: the whole severed region now goes
+to the ladder and only *woody* cells may seed a fragment, so a leafy limb
+comes off with its leaves on and lets go when it lands
+(`leaf.ron`'s `severs_into`). §5.3 is intact where it argues foliage must
+not be *on* the ladder — a leaf still never seeds a fragment and never sizes
+one. Guarded both ways by
+`a_severed_limb_carries_its_own_foliage_down` and
+`foliage_no_piece_reaches_still_scatters_and_never_seeds_one`, the second of
+which fails without the wood-only seed rule.
+
+**The lesson, which is `CLAUDE.md`'s own:** an image says *what* and
+*where*. Two sessions read "turns to dust" as a claim about the material
+that was turning to dust, and the material that was turning to dust was the
+one nobody was looking at. The frame-by-frame census is what separated them,
+and it took one run.
 
 ### T1c. §1c's settle loss is now a counter
 

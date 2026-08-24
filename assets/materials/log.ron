@@ -49,11 +49,34 @@
     // be able to find in the pile, and a 44-unit spread hid it inside the
     // grit it landed in. Judged by eye at play zoom on the settled
     // `scene=fell` pile, which is the only way this could have been judged.
+    // **Warm timber, not grey.** The first shipped palette was a
+    // desaturated warm grey, chosen so a piece would stand out against
+    // `litter`'s gold and `deadwood`'s dark brown -- and it did stand out,
+    // as the wrong thing. Watching the fall frame by frame the owner's
+    // words for it were *"the trunk of the tree doesn't move it just turns
+    // gray"*: a bole promoted, landing on its own stump with nowhere to go
+    // and re-rendering in place, read as tissue **dying** rather than as a
+    // log. Grey is what ash and stone are here.
+    //
+    // So: pale, warm, and light enough to separate from everything else in
+    // a debris pile without borrowing gold from `litter` (132,96,44 to
+    // 182,146,78) or dark from `deadwood` (64,43,26 to 96,66,40). Cut
+    // timber is the reference, not bark -- this is the inside of a broken
+    // trunk.
+    // Landed at pale cream-timber after two rejected attempts, and both
+    // rejections are worth keeping because they are the two ways this can
+    // fail. A desaturated **grey** was legible in the pile and read as the
+    // wood *dying* -- the owner's word, watching the fall, was "turns
+    // gray". A warm mid-**brown** read as wood and vanished into `litter`'s
+    // gold, which is the same hue family at nearly the same value. What is
+    // left is the axis neither used: go **light**, and pinker than gold, so
+    // it separates on value from `deadwood` and on hue from `litter` while
+    // still being the colour of the inside of a broken trunk.
     colors: [
-        (126, 108, 92),
-        (132, 114, 98),
-        (120, 102, 86),
-        (138, 120, 104),
+        (190, 160, 132),
+        (200, 172, 144),
+        (178, 148, 120),
+        (208, 182, 156),
     ],
     // Between living wood's 0.25 and deadwood's 0.35: drier than the tree it
     // came off, less finely divided than the grit. Same burn temperature and

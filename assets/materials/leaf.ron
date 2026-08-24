@@ -151,6 +151,16 @@
     // that nothing wrote it yet), so this is the switch-over that note is
     // waiting for as much as it is a felling change.
     breaks_into: "litter",
+    // **A leaf that rides down on its branch lets go when the branch
+    // lands.** `severs_into` is consulted only for a cell that left the
+    // grid as organism tissue, so this is the landing half of foliage
+    // riding with the piece it hangs on -- see `rigid::fell_severed_tissue`
+    // for why it rides at all. Same target as `breaks_into` deliberately:
+    // where the leaf ends up is the forest floor either way, and the whole
+    // difference the ride buys is that it gets there *with the branch*
+    // rather than as a cloud of powder created the instant the branch was
+    // cut.
+    severs_into: "litter",
 
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
