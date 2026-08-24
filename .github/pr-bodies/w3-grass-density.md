@@ -2,6 +2,21 @@ Follow-up to PR #38 (W3), answering the owner's verdict on the density card.
 Full write-up: `Reports/grass-sowing-and-divergence-2026-08-23.md` §13-§14, with the
 handoff at §15.
 
+## 0. This branch carries a fix `main` needs whether or not you take the density
+
+`examples/ascii`'s foraging scene — and the same helper in
+`examples/ant_ablation.rs` (1 site) and `examples/creature_space.rs` (5) —
+computed "the surface" as the topmost `Solid` **or** `Powder` cell. That is the
+ground right up until something stands on it: a `seed` is a `Powder` and a
+grown blade is a `Solid`, so a sown ground layer makes it return the top of a
+*plant*. `main` does not trigger it at `grass_density` 0.35, but the bug is
+live in `main` today and the next thing that puts vegetation on those columns
+hits it — here, raising the density stamped the ant nest a row above the soil,
+planted 55 ants into the vegetation, and took the suite from green to
+**1,901 pickups and zero deliveries**. Fixed by asking for ground (skip cells
+carrying an `organism_id`). **If the density change is not wanted, this hunk
+still should be.**
+
 ## 1. The density call
 
 Card `20260823T235145284Z-f19cb5` came back:
@@ -111,21 +126,6 @@ from one side and exposed from the other — identical terrain, identical
 founders, one difference. Shaping the two beds *differently* also works and is
 worse: different terrain means different slope, drainage, light angle and soil
 depth, and the axis stops being one axis.
-
-## 0. This branch carries a fix `main` needs whether or not you take the density
-
-`examples/ascii`'s foraging scene — and the same helper in
-`examples/ant_ablation.rs` (1 site) and `examples/creature_space.rs` (5) —
-computed "the surface" as the topmost `Solid` **or** `Powder` cell. That is the
-ground right up until something stands on it: a `seed` is a `Powder` and a
-grown blade is a `Solid`, so a sown ground layer makes it return the top of a
-*plant*. `main` does not trigger it at `grass_density` 0.35, but the bug is
-live in `main` today and the next thing that puts vegetation on those columns
-hits it — here, raising the density stamped the ant nest a row above the soil,
-planted 55 ants into the vegetation, and took the suite from green to
-**1,901 pickups and zero deliveries**. Fixed by asking for ground (skip cells
-carrying an `organism_id`). **If the density change is not wanted, this hunk
-still should be.**
 
 ## 6. "How long does it take to fill an ideal area" — measured: it does not
 
