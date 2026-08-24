@@ -112,6 +112,21 @@ founders, one difference. Shaping the two beds *differently* also works and is
 worse: different terrain means different slope, drainage, light angle and soil
 depth, and the axis stops being one axis.
 
+## 0. This branch carries a fix `main` needs whether or not you take the density
+
+`examples/ascii`'s foraging scene — and the same helper in
+`examples/ant_ablation.rs` (1 site) and `examples/creature_space.rs` (5) —
+computed "the surface" as the topmost `Solid` **or** `Powder` cell. That is the
+ground right up until something stands on it: a `seed` is a `Powder` and a
+grown blade is a `Solid`, so a sown ground layer makes it return the top of a
+*plant*. `main` does not trigger it at `grass_density` 0.35, but the bug is
+live in `main` today and the next thing that puts vegetation on those columns
+hits it — here, raising the density stamped the ant nest a row above the soil,
+planted 55 ants into the vegetation, and took the suite from green to
+**1,901 pickups and zero deliveries**. Fixed by asking for ground (skip cells
+carrying an `organism_id`). **If the density change is not wanted, this hunk
+still should be.**
+
 ## 6. "How long does it take to fill an ideal area" — measured: it does not
 
 The owner's follow-up on the density card, answered from §9's control arm
@@ -166,7 +181,7 @@ scattered tussocks with bare soil between them.
 
 ## Gates
 
-- `cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots` — **919 / 9 / 2 / 44, 0 failed**
+- `cargo test --release --locked -- --skip root_and_shoot_branching_read_different_slots` — **932 / 9 / 2 / 44, 0 failed** (`--test worldgen` is **44/0**: main's 42 plus this branch's two grass guards — not 42/0, which has been propagating)
 - `cargo clippy --all-targets -- -D warnings` — clean
 - `bash scripts/acceptance.sh` — all cases met their expectations
 - `bash scripts/docscheck.sh` — clean

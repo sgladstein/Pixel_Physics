@@ -5526,3 +5526,133 @@ deleted:** a guard that hashes whole-simulation output is a guard on every
 lane's work, not on yours. When the property is "X changes nothing", the
 checkable form is two arms in one build — not one arm against a number from
 last week.
+
+## Landing notes — lane W, package W3 (grass sowing + the A4 divergence instrument), 2026-08-24
+
+Successor to the W1 notes above. Full derivation in
+`Reports/grass-sowing-and-divergence-2026-08-23.md`; this is what survives the
+session.
+
+### What landed
+
+**Grass into worldgen (A1's grass half), PR #38.** `life_scatter` sows grass as
+its **own layer** off `grass_density`, between the woody loop and moss — not as
+a fifth row of `WOODY`, because those four weights split one budget and a fifth
+entry would have taken columns from the species W1 had just landed. Measured
+paired against main over sixteen seeds, all four woody species come out
+**bit-identical**; grass competes with *moss*. The weight is
+`1 - ramp(woody_budget, 1.0, 2.0)` on the **unclamped** woody sum — the clamped
+one saturates (p10 is already 1.00), which is the measurement that chose the
+rule. Guarded by `grass_is_sown_across_a_seed_sweep` and
+`sown_grass_also_comes_up`, both checked against the artifact they exist to
+catch by breaking them deliberately.
+
+**The A4 two-patch divergence instrument, `examples/divergence.rs`, PR #38.**
+Same founders, two patches differing in one environmental axis, scored on
+root:shoot and slenderness. Two *separate worlds* at the same seed and
+coordinates, so "same founders" is literal rather than approximate. Its
+identical-patch control returns **exactly zero** on both metrics while the
+sample it draws from spans slenderness 1.26–57.00. On moisture it found
+root:shoot diverging **8 of 8 seeds** and correctly **refused** slenderness
+(5 of 8, swinging −5.15 to +3.94).
+
+### Do not re-derive these
+
+- **The instrument exists and is axis-agnostic.** Everything downstream of the
+  axis — the two-world founder construction, the exact-zero control, both
+  metrics, the seed sweep, the establishment-imbalance warning, the
+  axis-survival check — does not know what is being varied. **Adding an axis is
+  one arm on `Axis` and nothing else.**
+- **It can already answer questions nobody has asked**, and this is the bullet
+  that stops it being rebuilt:
+  - **Any** single-axis morphology comparison — `soil=`, `founders=`,
+    `width=`, `species=`, `frames=` are all parameters already, so "does soil
+    depth change root:shoot", "does crowding change slenderness", "do two
+    species differ in shape at the same size" are each a run, not a build.
+  - **Does a new genome locus move morphology at all?** Point it at two
+    patches differing only in the locus and read the sign agreement. This is
+    the measurement `plant-species-authoring.md` §1 wanted when it found
+    `light_weight` and `upward_weight` inert.
+  - **A determinism check, for free.** The control asserts two identically
+    built worlds diverge by *exactly* zero. If it ever returns non-zero on
+    `control=1`, determinism has broken — which `PLAN.md` requires and nothing
+    else routinely exercises at whole-organism scale.
+- **`flora_census -- where=1 focus=NAME at=X`** answers "where in the world is
+  this species, and what shares the frame". Built after a review card came back
+  *"I don't see a difference"* and counting showed the rendered window held 125
+  grass cells against 7,853 woody. **Audit a window with `at=` before believing
+  a card**; a whole-world total in `meta` cannot say whether the thing is in
+  frame.
+
+### Measurements that contradict something written
+
+- **`assets/species/grass.ron`'s header is now wrong in one clause.** It says
+  *"There is no maintenance cost anywhere in the engine yet, so a retired mat
+  cannot starve; superlinear maintenance respiration is package P2's"*. **P2
+  landed** (PR #40). Re-measured across it: grass plant *counts* are unchanged
+  within ±1, but **standing cells fall ~20% on every seed at both ends of a
+  45,000-frame run** — superlinear maintenance makes each grass plant a fifth
+  smaller without changing how many stand. Whoever next edits that file should
+  correct the clause; the number is a datum for lane P on what the
+  re-derivation bought on a species with no leaf stage.
+- **`plant_tree_species`'s doc understates what it plants** — it says the seed
+  germinates into a `wood`-material `GrowingTip`, and grass germinates into
+  `grassblade`. Left alone deliberately: `plant.rs` had two packages live in it.
+- **The owner's stated model of grass is not what the engine does.** He expects
+  patches to *"spread over time and completely fill up an area without trees"*.
+  Measured on the treeless control, grass reaches its sown footprint inside
+  5,000 frames and holds it — over the next 40,000 it gains 13 plants on one
+  seed and 2 on another. See the open question below.
+
+### Open — does grass fail to spread because dispersal is one cell?
+
+**Not a bug report; a question with a reproduction.** Measured (post-P2 `main`,
+treeless control, 2,048-column worlds with ~500 plantable columns):
+
+```
+cargo build --release --examples
+./target/release/examples/flora_census seeds=2 w=2047 h=639 \
+    treedensity=0 mossdensity=0 frames=45000
+```
+
+Seed 1: 63 plants at 5,000 frames → 76 at 45,000. Seed 2: 61 → 63. Standing
+cells move under 10%. Full cover of ~500 columns needs ~250 plants, so at the
+observed rate that is on the order of **700,000 frames**.
+
+**The leading explanation** is that `plant::set_seed` places a seed into an
+empty **8-neighbour of the parent cell**, so offspring land inside or against
+the clump that made them and grass cannot cross a gap — the sown positions are
+very nearly the final ones. Two independent supports: the code says one cell,
+and the measurement says the footprint does not grow.
+
+**It is NOT isolated, which is why this is a question.** Crowding
+(`crowding_weight: 30.0`), the seed bank's 18,000-frame half-life, and soil
+moisture on marginal ground could each also cap the stand. **The run that would
+settle it** — and which this package did not build — is *one founder on
+uniformly ideal ground, scored on how far its descendants get by 45,000
+frames*. That is a scene, not a knob: `PlantScene` already takes `soil=` and
+`soil_moisture`, so it is a small addition to `examples/plant_probe.rs` or a
+sibling, not new machinery.
+
+**Why it matters beyond grass:** review item **A5 (dispersal)** — per-species
+seed mass, float and carry — is the mechanism that would change this, and it
+now has a named consumer and a measured motivation rather than being a
+speculative nicety.
+
+### Unmerged at close, and one of it is a fix `main` needs anyway
+
+`w3-grass-density` is **not in `main`** (`main` still carries
+`grass_density: 0.35`). It holds the owner-directed density bump with both
+guard bars re-derived, the fill-curve answer above — **and a latent-bug fix
+that is independent of the density change**:
+
+`examples/ascii`'s foraging scene (and the same helper in
+`examples/ant_ablation.rs` ×1 and `examples/creature_space.rs` ×5) computed
+"the surface" as the topmost `Solid` **or** `Powder` cell. That is the ground
+right up until something stands on it — a `seed` is a `Powder`, a grown blade
+is a `Solid` — so a sown ground layer makes it return the top of a *plant*. At
+`grass_density` 0.50 it stamped the ant nest a row above the soil and planted
+55 ants into the vegetation: **1,901 pickups and zero deliveries**, a green
+suite to a panic. `main` does not trigger it at 0.35 today, but the bug is
+still there and the next thing that puts vegetation on those columns hits it.
+Fixed by asking for ground — skip cells carrying an `organism_id`.
