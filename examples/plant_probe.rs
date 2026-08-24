@@ -1189,6 +1189,94 @@ water balance, per established plant:");
                 println!("  demand/tick    min {dmin:>7.2} median {dmed:>7.2} max {dmax:>7.2} mean {dmean:>7.2}");
             }
 
+            // **The carbon book, per plant — income against the bill.**
+            //
+            // This is the pair the whole P2 re-derivation turns on, and
+            // neither half was readable before: income was recomputed
+            // inside `allocate_to_frontier` and dropped, and there was no
+            // bill at all. `CLAUDE.md` wants the discrete event count next
+            // to the picture, and `starved` is that count — a crown that
+            // *looks* receded and a crown that simply grew that way are the
+            // same picture, and only the number says which happened.
+            //
+            // `bill/income` is the quantity to read across a change: above
+            // 1.0 the plant is running down its stock and is on the ratchet
+            // that ends in `senescent`.
+            let mut incomes: Vec<f32> = Vec::new();
+            let mut bases: Vec<f32> = Vec::new();
+            let mut reaches: Vec<f32> = Vec::new();
+            let mut bills: Vec<f32> = Vec::new();
+            let mut unpaid: Vec<f32> = Vec::new();
+            let mut ratios: Vec<f32> = Vec::new();
+            let mut starved: u64 = 0;
+            let mut anchors: Vec<f32> = Vec::new();
+            let mut slender: Vec<f32> = Vec::new();
+            let mut contact: Vec<f32> = Vec::new();
+            for id in per_plant.keys() {
+                if let Some(st) = w.organism_state(*id) {
+                    // `OrganismState::income` is stored noon-equivalent, so
+                    // what a plant actually collects over a cycle is that
+                    // times the day's mean factor. Printed that way because
+                    // the bill it is read against is charged every tick and
+                    // does not care what time it is -- and because the
+                    // alternative produced two figures four-fold apart from
+                    // one build, purely because one horizon was a whole
+                    // number of days and the other was not.
+                    let collected = st.income * pixel_physics::sim::plant::MEAN_NIGHT_INCOME_FACTOR;
+                    incomes.push(collected);
+                    bases.push(st.maintenance_basis);
+                    // The raw anchorage reach — `Σ|x−x̄|` over the anchor
+                    // set against the crown's own moment about the collar,
+                    // unclamped and unpriced. `ANCHOR_DEMAND` has to be set
+                    // from *this* distribution: a saturated `anchor status`
+                    // column cannot say where to put it, and a term that
+                    // reads 1.00 on every plant is a term nothing can
+                    // select on.
+                    if st.crown_moment > 0.0 {
+                        reaches.push(st.anchor_moment / st.crown_moment);
+                    }
+                    bills.push(st.maintenance);
+                    unpaid.push(st.maintenance_unpaid);
+                    ratios.push(if collected > 0.0 { st.maintenance / collected } else { f32::INFINITY });
+                    starved += st.starved_cells as u64;
+                    anchors.push(st.anchor_status);
+                    slender.push(st.slenderness);
+                    if st.root_cells > 0 {
+                        contact.push(100.0 * st.contact_root_cells as f32 / st.root_cells as f32);
+                    }
+                }
+            }
+            if !bills.is_empty() {
+                let q = |v: &mut Vec<f32>| {
+                    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                    (v[0], v[v.len() / 2], v[v.len() - 1], v.iter().sum::<f32>() / v.len() as f32)
+                };
+                let (imin, imed, imax, imean) = q(&mut incomes);
+                let (bmin, bmed, bmax, bmean) = q(&mut bills);
+                let (_, rmed, rmax, _) = q(&mut ratios);
+                let (_, umed, umax, _) = q(&mut unpaid);
+                let (nmin, nmed, nmax, _) = q(&mut bases);
+                println!("\ncarbon book, per established plant (per organism tick):");
+                println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                println!("  maintenance    min {bmin:>7.3} median {bmed:>7.3} max {bmax:>7.3} mean {bmean:>7.3}");
+                println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
+                println!("  cells shed to starvation, cumulative: {starved}");
+                println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");
+                if !reaches.is_empty() {
+                    let (hmin, hmed, hmax, _) = q(&mut reaches);
+                    println!("  anchor reach ratio  min {hmin:>8.4} median {hmed:>8.4} max {hmax:>8.4}   (anchor moment / crown moment; ANCHOR_DEMAND is set from this)");
+                }
+                let (amin, amed, amax, _) = q(&mut anchors);
+                let (lmin, lmed, lmax, _) = q(&mut slender);
+                println!("  anchor status  min {amin:>7.2} median {amed:>7.2} max {amax:>7.2}   (1.0 = crown fully anchored)");
+                println!("  slenderness    min {lmin:>7.1} median {lmed:>7.1} max {lmax:>7.1}   (shoot height / base width)");
+                if !contact.is_empty() {
+                    let (cmin, cmed, cmax, _) = q(&mut contact);
+                    println!("  root soil contact  min {cmin:>5.1}% median {cmed:>5.1}% max {cmax:>5.1}%   (the rest earns nothing and still respires)");
+                }
+            }
+
             // **What `support` actually reads on a healthy tree.** The
             // number changed meaning when the search was turned around to
             // run from the anchors outward: it used to answer "is there

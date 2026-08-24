@@ -362,7 +362,75 @@ run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 
 #    nothing to do with the gnome and sits close enough to the budget to
 #    flake on other hardware. `repeat=1` for the same reason -- there is no
 #    timing claim here to stabilise, and the run is 26 s.
-run wood     scene=wood     start=6600 every=1 count=1 crop=0,140,512,180 zoom=2 min_travelled=200 repeat=1
+#    **Swept, and gated on the total, since 2026-08-24 — it was one
+#    arrangement and it was blind by construction.** The bar of 200 was set
+#    from a single measured 362 at `frame0=0`, and how far the gnome gets
+#    is chaotic in *which stand grew*, not in the character model. Measured
+#    over six windows, `main` at `cfee870` against the P2 economy branch:
+#
+#      frame0     0    900   1800   2700   3600   4500   total
+#      main     360    360    247     59     50     57   1,133
+#      P2       175    214    358    358     54    359   1,518
+#
+#    **`main` itself fails a 200 bar on three of those six windows and the
+#    branch on two** — so the case was not measuring whether a gnome can
+#    cross a wood, it was measuring whether this fortnight's arrangement
+#    happened to put a soil bank in his way. §8b below already says what
+#    stops him at the worst window and that it is a *known* open bug
+#    (`open-bugs-handoff.md` §C1, the forest-floor bank the wade model has
+#    no way over), which is why that bar is 40 rather than 200.
+#
+#    `CLAUDE.md`: a guard over a procedural system has to sweep the
+#    procedure and gate an order statistic rather than any single seed.
+#    Four windows rather than six to keep the added CI time near 80 s, and
+#    the **total** rather than a percentile because at four samples a
+#    percentile is an extreme order statistic wearing a percentile's
+#    clothes — `seedsweep.sh` records a 3-seed p90 reporting an 84%
+#    regression that did not exist.
+#
+#    The bar is 400 against a measured 714 (`main`) and 946 (branch), which
+#    is headroom on both while still catching what this case exists for: a
+#    gnome walled in by a crown scores near zero on every window, so a
+#    genuine regression lands far under 400 and cannot hide in one lucky
+#    arm.
+WOOD_ARMS="${WOOD_ARMS:-0 1800 3600 4500}"
+WOOD_TOTAL_BAR="${WOOD_TOTAL_BAR:-400}"
+if [ -z "${ONLY_CASES:-}" ] || case " ${ONLY_CASES:-} " in *" wood "*) true ;; *) false ;; esac; then
+  case " ${SKIP_CASES:-} " in
+    *" wood "*) echo "--- wood (SKIPPED via SKIP_CASES)" ;;
+    *)
+      echo "--- wood (swept over ${WOOD_ARMS// /, })"
+      wood_total=0
+      wood_parsed=0
+      for wood_arm in $WOOD_ARMS; do
+        # shellcheck disable=SC2086
+        wood_out=$($FILM scene=wood frame0=$wood_arm start=6600 every=1 count=1 \
+                        crop=0,140,512,180 zoom=2 repeat=1 out="$OUT/acceptance-wood-$wood_arm.png" 2>&1)
+        wood_d=$(echo "$wood_out" | grep -oE 'travelled [0-9]+ cells' | head -1 | grep -oE '[0-9]+')
+        # An empty parse is a broken parser, not a zero -- `seedsweep.sh`
+        # learned this when a census line gained a parenthetical and a
+        # whole sweep reported "max 0".
+        if [ -z "$wood_d" ]; then
+          echo "    frame0=$wood_arm: PARSE? -- the gnome census line format probably changed"
+        else
+          echo "    frame0=$wood_arm: travelled $wood_d cells"
+          wood_total=$((wood_total + wood_d))
+          wood_parsed=$((wood_parsed + 1))
+        fi
+      done
+      wood_arms_n=$(echo "$WOOD_ARMS" | wc -w)
+      if [ "$wood_parsed" -ne "$wood_arms_n" ]; then
+        echo "    ^^ wood FAILED: only $wood_parsed of $wood_arms_n windows parsed"
+        fails=$((fails + 1))
+      elif [ "$wood_total" -lt "$WOOD_TOTAL_BAR" ]; then
+        echo "    ^^ wood FAILED: travelled $wood_total cells over $wood_arms_n windows, bar is $WOOD_TOTAL_BAR"
+        fails=$((fails + 1))
+      else
+        echo "  OK: scene=wood met its expectations ($wood_total cells over $wood_arms_n windows, bar $WOOD_TOTAL_BAR)"
+      fi
+      ;;
+  esac
+fi
 
 # 8b. ...and gets through a *differently grown* one.
 #

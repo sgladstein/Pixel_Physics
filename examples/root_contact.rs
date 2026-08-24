@@ -111,18 +111,46 @@ fn main() {
     let soil_depth: i32 = arg("soil=").map_or(100, |v| v.parse().expect("soil=N"));
     let frames: u64 = arg("frames=").map_or(43200, |v| v.parse().expect("frames=N"));
     let trees: usize = arg("trees=").map_or(8, |v| v.parse().expect("trees=N"));
-
-    // The harness names its own parameters -- `CLAUDE.md`, the megastudy
-    // that was three populations wearing 24 logs.
-    println!("root_contact: species={species} trees={trees} frames={frames} soil={soil_depth}");
+    // **The bed's floor, and the reason it is a knob.** This report's own
+    // §6 records the censoring caveat it could not lift: "the deep arm's
+    // deepest individual sits on the 100-row bed floor from 25,200 on, so
+    // these systems are partly bed-shaped. A 200-row bed needs a `height=`
+    // knob the harness does not have." It has one now. `ground=` moves the
+    // surface up and `height=` the world's bottom edge, so a deep bed is
+    // `ground=140 height=420 soil=200` rather than a recompile.
+    let default = common::PlantScene::default();
+    let ground_y: i32 = arg("ground=").map_or(default.ground_y, |v| v.parse().expect("ground=N"));
+    let height: i32 = arg("height=").map_or(default.height, |v| v.parse().expect("height=N"));
+    // Genotypes are drawn from `(world seed, germination coordinate)`, so
+    // this is what makes a second run a second *population* rather than the
+    // same eight individuals measured twice. Without it every figure in the
+    // report above was one draw from a distribution `CLAUDE.md` measures at
+    // 31 to 153 cells for identical trees -- see `scripts/plantsweep.sh`.
+    let worldseed: Option<u64> = arg("worldseed=").map(|v| v.parse().expect("worldseed=N"));
 
     let scene = common::PlantScene {
         species: species.clone(),
         trees,
         soil_depth,
+        ground_y,
+        height,
         ..common::PlantScene::default()
     };
     let mut world = scene.build();
+    // Applied before any stepping -- germination, where draws happen, has
+    // not run yet.
+    if let Some(seed) = worldseed {
+        world.seed = seed;
+    }
+
+    // The harness names its own parameters -- `CLAUDE.md`, the megastudy
+    // that was three populations wearing 24 logs. **Printed after the
+    // world exists** so the seed it names is the one the world actually
+    // carries rather than the one the argument asked for.
+    println!(
+        "root_contact: species={species} trees={trees} frames={frames} soil={soil_depth} ground={ground_y} height={height} worldseed={}",
+        world.seed
+    );
     let soil = world.materials.id_of("soil").expect("soil is compiled in");
 
     // Sampled as it matures rather than once at the end: the question is
