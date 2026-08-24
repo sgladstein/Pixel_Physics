@@ -1117,6 +1117,16 @@ cell with something hanging further out than it, and never takes one whose
 removal would disconnect its neighbours. A plant comes apart into pieces at
 no point, which took three attempts to get right.
 
+**Judged by eye, and it went this way.** Posted as a blind A/B of the same
+stand at 28,800 frames (card `20260824T014630073Z-a10698`): the priced
+economy is the arm that reads as separate trees with clear trunks, and the
+current build is the one that reads as one mass. That is the first
+eye-judged evidence that the re-derivation improves the *silhouette* rather
+than only the numbers — and the numbers say why, median plant 4,740 → 3,659
+cells with the stem above the base 15 → 13. The root systems were posted the
+same way (`20260824T014648426Z-e32fca`) and both arms improved, with the
+priced one chosen.
+
 **Known limitations, both measured.** Adult mortality now has a cause that
 fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
 kills nothing. A *shaded* plant settling at a stunted size is a suppressed

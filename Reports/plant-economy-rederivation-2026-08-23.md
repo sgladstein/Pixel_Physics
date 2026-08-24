@@ -712,7 +712,16 @@ item 1 — is the same arm. **The click and the comment agree, and both favour
 this branch**; the apparent contradiction comes from reading the comment's
 letters as the poster's labels. Anyone acting on this card should re-derive
 the mapping from `blind_was` rather than from the letters, and any future
-blind card in this repo has the same trap in it.
+blind card in this repo has the same trap in it — it is now written up in
+`.claude/skills/review/SKILL.md`, with this card as the worked example.
+
+So **the stand with the priced economy is the one that reads as separate
+trees with clear trunks, and `main` is the mass.** §1's numbers say why:
+median plant 4,740 → 3,659 cells and stem above the base 15 → 13 — crown
+recession thinned the stand until the trunks showed. The owner confirmed the
+mapping himself afterwards: *"I selected the correct image B… I am 99%
+positive the images were switched around when shown to me, so I wrote it
+right and selected it right."*
 
 The rest of that sentence — *"but the soil build-up in between the branches
 is horrible"* — therefore attaches to **this branch**, and it is a real
