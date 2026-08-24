@@ -478,10 +478,91 @@ moves it. The card asks it directly rather than this package guessing.
 
 ---
 
-## 13. Handoff
+## 13. Follow-up, 2026-08-24: the density call, and what it cost
 
-**State: feature-complete and pushed** on `w3-grass-and-divergence`
-(`e51ebd8` at time of writing), merged up to `main` at `4913ab0`. All four
+The density card (§11) was answered: ***"I would say noticeable more grass,
+but it should also spread over time, so this could be ok to start. Maybe
+increase it a little bit"***. Taken as a modest step — **x1.43 on every
+preset**, keeping their relative design: `rolling` and `terraced` 0.35 → 0.50,
+`canyon` 0.22 → 0.31, `wetland` 0.45 → 0.63.
+
+| sixteen seeds at 2,048 columns | before | after |
+|---|---|---|
+| grass, min / median / max | 7 / **24** / 60 | 9 / **38** / 76 |
+| conifer, creeper, shrub, tree | 2/6/27, 2/12/23, 1/6/25, 1/16/35 | **all four identical** |
+| shipped world, established grass | 71 | 102 |
+| shipped world, grass cells | 1,251 | 1,816 |
+| shipped world, organism slots | 288 / 4,095, 0 refused | 320 / 4,095, 0 refused |
+
+**Both guard bars were re-derived with it**, which the previous PR said would
+be needed: `median >= 8` → `>= 12` and `median <= 72` → `<= 114` (a third and
+three times the new median of 38, the same discipline as before), and the
+pooled establishment bar 20 → 40 against a measured 110 of 116 (0.95). A bar
+left at the old density's numbers is a bar that has stopped meaning anything.
+
+### Raising the density relocates the sward, it does not thicken it
+
+Worth recording because it changed how the follow-up card had to be built.
+Grass is spaced against its own last tussock (`last_grass`), so a denser field
+lands its plants at *different* columns rather than packing more into the same
+ones. Measured on `canyon`: world-wide grass rose 574 → 729 cells (+27%), while
+the specific 192-column window the owner had already judged went **100 → 88**.
+Moss's median moves 19 → 20 for the same reason — the wrong direction for "more
+grass crowds moss out", and not a defect.
+
+**So a one-window before/after cannot show a density change here**, and the
+follow-up card is a single pane asking "is this enough now?" with the
+before/after numbers in `meta`, rather than an A/B that would have shown the
+owner the opposite of the change. Card `20260824T011019066Z-63c0d2`.
+
+### The gap in the verdict, stated to the owner rather than left to be found
+
+"It should also spread over time" is an expectation this knob cannot meet, and
+§9's measurement is the reason: grass establishes at 95% and is then shaded out
+as the canopy closes, 3 of 40 still standing at 45,000 frames. Raising the
+density raises the *starting* amount; most of any increase is shaded out too.
+What would make grass persist is disturbance (W2's fire) or shade tolerance
+(lane P's `shade_death`). That is on the card in as many words.
+
+### The regression it exposed, which was not in the flora at all
+
+`examples/ascii` went from green to a panic — *"no ant completed the loop:
+1,901 pickups but nothing delivered home"*. Attributed against `origin/main`
+first, which runs all 31 scenes clean, so it belonged to the density change.
+
+It was a **scene** bug the change exposed. The foraging scene's `surface`
+helper found the topmost `Solid` *or* `Powder` cell — which is the ground right
+up until something is standing on it. A `seed` is a `Powder` and a grown blade
+is a `Solid`, so a sown ground layer makes it return the top of a plant: the
+nest patch at x=16..90 was stamped a row above the soil wherever a tussock had
+landed, and the 55 ants were planted into the vegetation instead of onto the
+hillside. Density 0.35 happened to leave that stretch clear; 0.50 does not.
+
+`CLAUDE.md`'s own entry, arriving in a fourth costume: *a scene that
+contradicts the code will look like a bug in the code*. The fix is to ask for
+**ground** — skip cells carrying an `organism_id` — which is what the scene
+meant and is immune to whatever the flora does next. The same helper appears in
+`examples/ant_ablation.rs` (1 site) and `examples/creature_space.rs` (5), both
+building generated worlds at default densities and carrying the identical
+exposure; fixed there too, since the harness `ascii`'s own comment cites for
+its numbers should not be measuring a different placement than the scene it
+backs.
+
+**Frame cost**, two runs a side against `origin/main` in the same session:
+means unchanged everywhere (8,192x2,560 spring ON 13.00 → 13.02 ms; spring OFF
+11.17 → 11.13 ms). The worst-frame column is again unreadable at this sample
+size — `main` itself spans 47.0 to 73.4 ms across two runs of one binary — and
+is not claimed either way. Note also that `ascii`'s scenes carry very little
+grass (75 organisms against 76), so this measurement has limited power to
+detect a grass-specific cost; the shipped-world means are the load-bearing
+numbers.
+
+---
+
+## 14. Handoff
+
+**State: merged.** The first package landed as PR #38 at `f891da7`. The
+density follow-up in §13 is on `w3-grass-density`. All four
 gates green — `cargo test --release --locked --skip …` 895/9/2/44 with 0
 failed, clippy clean, `acceptance.sh` all cases met, `docscheck.sh` clean.
 
@@ -499,12 +580,13 @@ this report carries every number a PR body would.
 
 ### What the next session should pick up, in order
 
-1. **The density call.** Card `20260823T235145284Z-f19cb5` asks the owner
-   directly whether a world should carry more grass than five tussocks per 192
-   columns. If the answer is yes, `grass_density` is the knob — and note the
-   guard bar `median <= 72` in `grass_is_sown_across_a_seed_sweep` was set from
-   the *current* value and will need re-deriving with it, along with the slot
-   high-water and the frame cost.
+1. **The density call — answered once, and asked again.** The first answer was
+   "increase it a little bit"; §13 did that (x1.43) and re-derived both guard
+   bars with it. Card `20260824T011019066Z-63c0d2` asks whether the new amount
+   is right. If it should go further, the same discipline applies: the bars
+   `median >= 12` / `median <= 114` are cut from the measured median of 38 and
+   must be re-cut, and `examples/ascii` must be re-run — raising the density
+   once already broke a scene that had nothing to do with the flora (§13).
 2. **Confirm the divergence result at maturity.** Root:shoot diverges 8 of 8
    at 10,800 frames; `plant-species-authoring.md` §8 says confirm at 30,000,
    and W1 measured a root axis that peaked at 25,200 and washed out by 43,200.

@@ -369,6 +369,28 @@ pub struct WorldgenParams {
     /// see `GRASS` in `passes.rs` for what a founder density buys once
     /// reproduction is running, and for the organism-slot ceiling that
     /// bounds it from above.
+    ///
+    /// **0.50 is the owner's call, not a derived number**, and the record of
+    /// it is the point. It shipped at 0.35, which put five tussocks across
+    /// 192 columns on `canyon`; asked directly on a review card whether that
+    /// was the right amount of ground cover, the answer was *"I would say
+    /// noticeable more grass, but it should also spread over time, so this
+    /// could be ok to start. Maybe increase it a little bit"*. So this is a
+    /// modest step (x1.43 on every preset, keeping their relative design),
+    /// not the large one the first clause on its own would suggest.
+    ///
+    /// **The second clause is the one to read before raising it again.**
+    /// "It should also spread over time" is an expectation this knob cannot
+    /// meet: raising it raises the *starting* amount, and grass thins as the
+    /// canopy closes over it — 3 of 40 still standing at 45,000 frames on
+    /// `rolling`, against 63 of 43 with the woody layer switched off. Most
+    /// of any increase is shaded out too. What would make grass spread is
+    /// disturbance (W2's fire) or shade tolerance (lane P's `shade_death`),
+    /// and neither is this field.
+    ///
+    /// Whoever moves it next: `grass_is_sown_across_a_seed_sweep`'s median
+    /// bars are re-derived from the sweep each time, and leaving them at the
+    /// previous density's numbers is how a guard stops meaning anything.
     pub grass_density: f32,
     /// Wavelength of the clustering field that both densities are multiplied
     /// by. This is the anti-even-spacing device: uniform probability produces
@@ -429,7 +451,7 @@ impl Default for WorldgenParams {
             world_age: 0.8,
             moss_density: 0.10,
             tree_density: 0.26,
-            grass_density: 0.35,
+            grass_density: 0.50,
             life_cluster_wavelength: 70.0,
         }
     }

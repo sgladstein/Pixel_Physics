@@ -979,15 +979,22 @@ fn a_sown_woody_species_also_comes_up() {
 /// the loose end of that bar is the species it was not set from.
 ///
 /// **Measured over these sixteen worlds before the bars were set**: sown
-/// min 7, median 24, max 60, present in 16 of 16. Paired against `main` in
-/// the same session, all four woody species are bit-identical (conifer
-/// 2/6/27, creeper 2/12/23, shrub 1/6/25, tree 1/16/35 on both) — grass
-/// takes its columns from *moss*, whose median goes 20 to 19, which is the
-/// two ground layers competing for the same leftover ground and is the
-/// interaction to expect rather than a defect.
+/// min 9, median 38, max 76, present in 16 of 16. Paired against the density
+/// this shipped at first (`grass_density` 0.35, median 24) in the same
+/// session, all four woody species are bit-identical at both settings
+/// (conifer 2/6/27, creeper 2/12/23, shrub 1/6/25, tree 1/16/35) — grass
+/// competes with *moss*, not with them.
 ///
-/// The sweep genuinely sweeps this rule: grass's per-world count runs 7 to
-/// 60 across these sixteen seeds, an 8.6x spread, so the order statistic is
+/// **Moss's median moves 19 to 20 as grass gets denser, which is the wrong
+/// direction and is not a defect.** More grass strictly removes moss
+/// opportunities per column, so the naive expectation is a fall. What
+/// happens instead is that `last_grass` blocks a sward within its own
+/// spacing, so a denser field lands its tussocks at *different* columns and
+/// frees some that previously carried grass. The pattern shifts; it does not
+/// simply thicken.
+///
+/// The sweep genuinely sweeps this rule: grass's per-world count runs 9 to
+/// 76 across these sixteen seeds, an 8.4x spread, so the order statistic is
 /// reading a procedure and not a fixed scene (`CLAUDE.md` — all eight
 /// acceptance scenes once stayed green through a change that made one world
 /// lose 26x more material, because `seed=` reached only two of them).
@@ -1015,9 +1022,11 @@ fn grass_is_sown_across_a_seed_sweep() {
         FLORA_SEEDS.len() - present,
         FLORA_SEEDS.len()
     );
-    // A third of the measured median of 24, so the bar has real headroom and
-    // still fails long before grass goes to zero.
-    assert!(median >= 8, "grass's median world holds only {median} (counts {v:?})");
+    // A third of the measured median of 38, so the bar has real headroom and
+    // still fails long before grass goes to zero. **Re-derived with the
+    // density**, not left at the 8 it was when the median was 24 — a bar set
+    // from a superseded measurement is a bar that means nothing.
+    assert!(median >= 12, "grass's median world holds only {median} (counts {v:?})");
     // **And an upper bound, which the woody sweep has no equivalent of.**
     // Grass is the one species that reproduces fast enough to matter to the
     // 4,095 organism-slot ceiling, and the failure it walks into is silent id
@@ -1027,7 +1036,7 @@ fn grass_is_sown_across_a_seed_sweep() {
     // standing-organism high-water mark over a long run in the shipped world
     // is the real measurement and lives in the report, not here, because it
     // costs minutes rather than seconds.
-    assert!(median <= 72, "grass's median world holds {median} — three times the measured 24, so the sward is blanketing the world (counts {v:?})");
+    assert!(median <= 114, "grass's median world holds {median} — three times the measured 38, so the sward is blanketing the world (counts {v:?})");
 }
 
 /// Grass is sown where it can actually come up.
@@ -1042,8 +1051,9 @@ fn grass_is_sown_across_a_seed_sweep() {
 /// the weight's reading of the woody sum keeps it out from under one.
 ///
 /// Pooled rather than per seed, for the same reason: per world the numbers
-/// are single digits and a rate over a handful of plants is noise. Measured
-/// pooled over these eight worlds at 300 frames: 76 of 79 sown came up.
+/// are small and a rate over a handful of plants is noise. Measured pooled
+/// over these eight worlds at 300 frames: **110 of 116 sown came up** (0.95),
+/// per-world established 5 / 12 / 29 in 8 of 8 worlds.
 #[test]
 fn sown_grass_also_comes_up() {
     let presets = presets();
@@ -1059,8 +1069,10 @@ fn sown_grass_also_comes_up() {
         pooled_sown += sown.get("grass").copied().unwrap_or(0);
         pooled_up += up.get("grass").copied().unwrap_or(0);
     }
-    assert!(pooled_up >= 20, "grass established {pooled_up} plants across the whole sweep ({pooled_sown} sown)");
-    // Half, against a measured 0.96. Grass that is sown and mostly fails to
+    // Re-derived with the density too: 40 is well under the measured 110 and
+    // still far above the handful a broken rule would leave.
+    assert!(pooled_up >= 40, "grass established {pooled_up} plants across the whole sweep ({pooled_sown} sown)");
+    // Half, against a measured 0.95. Grass that is sown and mostly fails to
     // come up is being sown under a canopy, which is a weight bug wearing a
     // rarity costume.
     assert!(
