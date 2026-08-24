@@ -1,0 +1,136 @@
+diff --git a/src/render.rs b/src/render.rs
+index df20d3c..1059d36 100644
+--- a/src/render.rs
++++ b/src/render.rs
+@@ -462,6 +462,10 @@ const GNOME_SPRITE: [[Option<[u8; 4]>; 7]; 14] = {
+ };
+ 
+ pub struct Renderer {
++    /// Why the last `draw` repainted every pixel, or `None` if it took the
++    /// dirty-rect path. Diagnosis only -- nothing reads it to decide
++    /// anything. See the `check` chain in `draw` for why it exists.
++    pub last_full_reason: Option<&'static str>,
+     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
+     /// Prototype switch — see the enum's own doc.
+     pub grain: GrainMode,
+@@ -614,6 +618,7 @@ pub struct Renderer {
+ impl Renderer {
+     pub fn new() -> Self {
+         Self {
++            last_full_reason: None,
+             grain: GrainMode::default(),
+             frame: 0,
+             last_body_rects: Vec::new(),
+@@ -924,14 +929,34 @@ impl Renderer {
+         let sky_changed = self.last_sky_key != Some(sky_key);
+         self.last_sky_key = Some(sky_key);
+ 
+-        let full = force_full
+-            || scale_changed
+-            || camera_moved
+-            || sky_changed
+-            || organism_overlay_changed
+-            || organism_overlay_is_live
+-            || self.field_overlay != FieldOverlay::Off
+-            || self.show_chunk_overlay
++        // **Which trigger fired, recorded for diagnosis only.** A profile
++        // that says "the whole screen was repainted" cannot say whether to
++        // fix the camera or the dirty rectangles, and those are opposite
++        // fixes -- the pixel count is identical either way. Measured with
++        // this: at the default seed the answer was `precipitating` on 595
++        // frames of 600, and every other hypothesis on the list was noise.
++        //
++        // `||` is kept, not replaced by `|`. The chain short-circuits today
++        // and two of its arms call `weather::strike`, so evaluating them all
++        // to collect every reason would add work to the hot path to answer a
++        // question nobody is asking on most frames. The first reason is the
++        // one responsible anyway.
++        let mut full_reason: Option<&'static str> = None;
++        let full = {
++            let mut check = |flag: bool, name: &'static str| {
++                if flag && full_reason.is_none() {
++                    full_reason = Some(name);
++                }
++                flag
++            };
++            check(force_full, "force_full (cursor/panel/toast)")
++            || check(scale_changed, "zoom changed")
++            || check(camera_moved, "camera moved")
++            || check(sky_changed, "sky changed")
++            || check(organism_overlay_changed, "organism overlay changed")
++            || check(organism_overlay_is_live, "organism overlay is live")
++            || check(self.field_overlay != FieldOverlay::Off, "field overlay on")
++            || check(self.show_chunk_overlay, "chunk overlay on")
+             // Falling precipitation moves every frame and moves *everywhere*,
+             // so there is no dirty rectangle that describes it and the whole
+             // frame has to be repainted while it falls. Accepted knowingly:
+@@ -939,13 +964,18 @@ impl Renderer {
+             // ends when the rain does. This is exactly the cost that made
+             // `ParticleSystem` the wrong vehicle -- there it would have been
+             // permanent instead.
+-            || weather.is_precipitating()
++            || check(weather.is_precipitating(), "precipitating")
+             // A strike lifts every pixel in the frame, so the frame after one
+             // has to be repainted or the flash sticks around as a permanently
+             // brightened world.
+-            || crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some()
+-            || crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some()
+-            || !particles.is_empty();
++            || check(crate::sim::weather::strike(world.seed, world.frame, world.bounds()).is_some(), "lightning strike")
++            || check(
++                crate::sim::weather::strike(world.seed, world.frame.wrapping_sub(1), world.bounds()).is_some(),
++                "lightning strike (previous frame)",
++            )
++            || check(!particles.is_empty(), "particles in flight")
++        };
++        self.last_full_reason = full_reason;
+ 
+         // Where the gnome is on screen this frame. Tracked through *both*
+         // branches below: a full redraw repaints everything anyway, but if
+diff --git a/src/sim/field.rs b/src/sim/field.rs
+index a329b60..cf00fa1 100644
+--- a/src/sim/field.rs
++++ b/src/sim/field.rs
+@@ -46,6 +46,18 @@ use super::world::World;
+ /// 64x the work for detail nothing reads.
+ pub const FIELD_SCALE: i32 = 8;
+ 
++/// **Diagnostic only.** How much of the world the last `step` actually
++/// touched, so a harness can print the three numbers that decide this
++/// function's cost: how many tiles were judged awake, how many had to be
++/// *readable* (awake plus a halo, and the halo is applied twice), and how
++/// many exist at all. Everything else here is a pure function of the world,
++/// so these are the only way to tell "the field is expensive because a lot
++/// is happening" apart from "the field is expensive because a little is
++/// happening in a lot of places".
++pub static SOLVED_TILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++pub static READ_TILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++pub static TOTAL_TILES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
++
+ /// Field cells per side of one tile. `CHUNK_SIZE` must stay a multiple of
+ /// `FIELD_SCALE`, checked by `chunk_size_is_a_multiple_of_field_scale` below —
+ /// a chunk that didn't divide evenly would leave a partial row of field cells
+@@ -699,6 +711,10 @@ pub fn step(world: &mut World) {
+     // as exactly zero change, which is the actually correct answer.
+     let amplitude_changed = (sky_light_amplitude(world.frame) - sky_light_amplitude(world.frame.saturating_sub(1))).abs() > SETTLE_EPSILON_LIGHT;
+     if world.active_chunk_count() == 0 && world.fields_settled() && !amplitude_changed {
++        use std::sync::atomic::Ordering::Relaxed;
++        SOLVED_TILES.store(0, Relaxed);
++        READ_TILES.store(0, Relaxed);
++        TOTAL_TILES.store(world.chunk_count(), Relaxed);
+         return;
+     }
+ 
+@@ -770,6 +786,12 @@ pub fn step(world: &mut World) {
+     }
+     let mut read_coords: Vec<ChunkCoord> = read.into_iter().collect();
+     read_coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
++    {
++        use std::sync::atomic::Ordering::Relaxed;
++        SOLVED_TILES.store(solve.len(), Relaxed);
++        READ_TILES.store(read_coords.len(), Relaxed);
++        TOTAL_TILES.store(coords.len(), Relaxed);
++    }
+ 
+     // Old state stays untouched in `world` until the very end, so every phase
+     // below can read it through `sample`/`is_blocked` while writing into
