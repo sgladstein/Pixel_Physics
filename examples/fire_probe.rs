@@ -457,6 +457,26 @@ fn main() {
             after.len(),
         );
     }
+
+    // **The mosaic census.** The owner asked twice for an outcome between
+    // "everything burns" and "nothing burns", and a consumed *fraction*
+    // cannot tell those two apart from the thing actually wanted: 40% of a
+    // sward gone as one solid block from the ignition outward is a front
+    // that ran out of budget, while 40% gone as nine separate scorched
+    // patches with green between them is a **mosaic** -- which is what a
+    // partially-burnt meadow looks like, and the outcome that survives the
+    // event for a player to walk through afterwards.
+    //
+    // So count both sides: how many separate burnt patches were left, and
+    // how many separate stands of grass came through. One burnt patch and
+    // one surviving stand is a front that crossed halfway and stopped.
+    // Several of each, interleaved, is the mosaic.
+    let (burnt_patches, largest_burnt) = fuel_components(&w, ash, ground_y);
+    let (survivors, largest_survivor) = fuel_components(&w, grass, ground_y);
+    println!(
+        "  MOSAIC: {burnt_patches} burnt patch(es), largest {largest_burnt} cells | \
+         {survivors} surviving stand(s), largest {largest_survivor} cells"
+    );
 }
 
 /// Number of 4-connected components of `id` in the sward band, and the

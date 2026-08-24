@@ -245,10 +245,13 @@ field rework — see `open-bugs-handoff.md`.
   verdicts (S6, S7's larder, new channels).
 - [foraging-range-measurement.md](foraging-range-measurement.md) —
   **measured record, instrument landed via `da252dc`;** §0 and §5 corrected
-  on landing (2026-08-23). Why `nest_visits` counted loitering and what
-  replaced it: the `forage_reach` profile, `FORAGE_TRIP_MIN` derived from a
-  sessile control, the 19-cell bubble, and the litter-in-the-canopy finding
-  with the owner's call and the paired table it produced.
+  on landing, **§3 corrected 2026-08-23** by WP-9 arm 1's re-test. Why
+  `nest_visits` counted loitering and what replaced it: the `forage_reach`
+  profile, `FORAGE_TRIP_MIN` derived from a sessile control, the 19-cell
+  bubble, and the litter-in-the-canopy finding with the owner's call and the
+  paired table it produced. §3's correction records that the probe's 55-ant
+  scene plants at 2-cell spacing — the recorded gridlock — so its "`>=32` at
+  zero" figure describes that scene rather than a founded colony.
 - [stigmergy-research.md](stigmergy-research.md) — **research,
   implemented.** Deposit → diffuse → decay → follow; the ant colony is
   built on it.

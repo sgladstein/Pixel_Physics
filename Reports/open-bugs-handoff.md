@@ -2669,17 +2669,26 @@ number in `Reports/grassfire-and-the-desert-2026-08-23.md`:
   Swept over 12 procedurally different swards: at field capacity no sward
   loses more than **7.9%** of itself; dry, **5 of 12 burn out entirely**.
 
-**Still open, and it is `render.rs`'s, not fire's.** The fire now has a body,
-a plume and a char scar, and it still draws *pale*. Every burning thing
-saturates the heat ramp (it tops out 400C above ambient; grass burns at
-520C, a flame at 780C) and the top of that ramp, `FIRE_TINT_HIGH`, is
-(255, 210, 110) — a yellow-white. A burning meadow therefore draws as
-**straw**. A two-constant prototype (LOW (150,30,12) / HIGH (255,138,36))
-reads as fire at a glance and is **not shipped**, because those constants
-also colour lava, quench crust and warm water — three looks the owner has
-already judged. The A/B is on the owner's review queue; whoever takes it
-owns re-checking those three. Two attempts that made it worse are in
-`Reports/dead-ends.md` under *rendering*.
+- ***"Just looks like you are cycling colors"* — closed by an owner verdict
+  on a blind A/B, not by a judgement made here.** The fire now has a body,
+  a plume and a char scar, and it still drew *pale*, because every burning
+  thing saturates the heat ramp (400C above ambient; grass burns at 520C, a
+  flame at 780C) and the top of that ramp was a yellow-white — so a burning
+  meadow came out as **straw**. `FIRE_TINT_LOW`/`HIGH` are now
+  (150,30,12)/(255,138,36). It went to the owner rather than being changed
+  in passing because the same two constants colour **lava, fresh quench
+  crust and warm water**, three looks already judged; the collateral is on
+  its own card. Lava and the quench crust read *better* for it — a falling
+  blob goes from sandy cream to molten orange. **The warm-water arm is
+  unverified**, and is recorded that way rather than as checked: the pan
+  has cooled by the time it is worth photographing, and where it is hot the
+  tint barely registers against the blue. Two attempts that made it worse
+  (flame `glow`, a widened `HEAT_GLOW_RANGE`) are in
+  `Reports/dead-ends.md` under *rendering*.
+
+**What is left of §G**: nothing in fire. The one loose thread is the
+warm-water collateral above, which wants an eye on a scene where a pan is
+actually hot in frame.
 
 <details>
 <summary>The original entry, kept because the verdict is the bar</summary>
@@ -4575,6 +4584,24 @@ over-production (88% of the colony's food is standing leaf, the stock triples,
 the colony has stopped ranging). One economy, three symptoms — sessile ants,
 a rising floor, and soil that does not match.
 
+**Update 2026-08-23 (WP-11): the named lever is pulled; the structural gap
+stands.** New shed-cause counters (`World::shed_shade/shed_drought/
+shed_stranded`, printed by `filmstrip` beside the decay line) attribute
+~89% of leaf fall to `shade_death`, so that is what moved: `tree.ron`'s
+leaf `shade_death`/`drought_death` went 0.003 → 0.00075, swept at
+0.003/0.0015/0.00075 (soil-writing events 6,331/3,443/1,800 on the arms'
+own tree) and chosen by the owner on card `20260823T161006584Z-6ecbab`
+("C is best"). Verified on the tree it landed on (post-water-book `main`):
+this same scene now reads **1,862 decay events at frame 12,000 against
+6,653 paired baseline (−72%)**, standing litter 1,024 → 344, living tissue
++10%. What this does **not** fix, kept open under this heading: soil still
+has no exit channel, so the count is still a monotone floor level — it
+rises at a quarter the rate, it does not stop; and colony-band food
+*energy* does not fall with the rate (census medians 70k/82k/91k across
+the arms — retained foliage becomes low standing leaf), so §L's abundance
+reading is not expected to move much. Both were on the card the owner
+chose from.
+
 ### M. ~~Two gating worldgen tests are red, and both are the same thing: generated water never comes to rest~~ — **FIXED 2026-08-23. It was the sky, and the generator was innocent.**
 
 > **The cause is weather, and both "where to start" leads below are wrong.**
@@ -4652,6 +4679,7 @@ a rising floor, and soil that does not match.
 > binaries; this is the quieter sibling, where a **green** `--lib` is read as
 > a green gate and is not evidence of one. Run it the way CI does
 > (`cargo test --release --locked`) before claiming the test gate is green.
+
 
 **Two** tests, not one, and neither is in any handoff's list — which records
 `main` as one red (bug A). Neither is quarantined, so this is a **gating**
@@ -4783,6 +4811,85 @@ Worth noting for **§Q**, which is about exactly these spires: a one-cell
 stone needle that stands indefinitely in still air but comes down under a
 snowfall is evidence that what holds it up is a *bearing* rule with no
 slenderness term, rather than anything about the terrain it grew from.
+
+### R. `filmstrip scene=colony` panics at its own default seed, and degrades badly at others — **OPEN, found 2026-08-23 (WP-9 arm 1)**
+
+The scene every colony review card is rendered from cannot be run without a
+`seed=` argument, and where it does run it mostly does not place a colony.
+
+**Reproduction.** One release binary built from this branch, `scene=colony`
+with nothing else varied:
+
+```
+./target/release/examples/filmstrip scene=colony genome=authored seed=N \
+    start=1200 every=3600 count=1 cols=1 zoom=2 out=/tmp/p.png
+```
+
+| `seed=` | result |
+|---|---|
+| **1 — the default (`filmstrip.rs:2580`)** | **panics**, `filmstrip.rs:1461`, `.expect("some dry ground")` |
+| 0 | 13 of 52 ants placed |
+| 2 | 35 of 52 |
+| 3 | **2 of 52** |
+| 7 | 22 of 52 |
+
+So `filmstrip scene=colony` with no `seed=` is a panic, which is the form
+anyone reaches for first and the form the scene's own doc comment above it
+suggests.
+
+**Two distinct faults, and the second is the dangerous one.**
+
+1. The `.expect("some dry ground")` at `:1461` is the outer search failing:
+   no column in `102..WIDTH-102` has a dry surface. The scene was *already*
+   softened once for this — its own comment records "on a wetland seed there
+   may be no unbroken 200-cell beach, and demanding one made the scene panic
+   rather than degrade" — and it is panicking again from the same place, so
+   the previous softening addressed the inner window and not this.
+2. **`assert!(placed > 0)` is not the guard it reads as.** At seed 3 it
+   passes with **2 ants**, and a two-ant "colony scene" is exactly the
+   *scene-lost-the-situation* failure `CLAUDE.md` warns about: the render
+   looks plausible, the assertion is green, and the picture is not of a
+   colony. A guard on a colony scene should bar on a fraction of
+   `COLONY_ANTS` (52), not on zero.
+
+**Why it matters beyond the scene.** This is the harness a judge-by-eye
+verdict on colony behaviour is produced from. WP-9's founded-colony A/B card
+(`20260823T180052569Z-c73d21`) had to be shot at `seed=2` for exactly this
+reason, and 35 of 52 ants is the *best* of the seeds tried — so the card the
+owner judged shows a colony a third short of a founded one. That is stated on
+the card, but the honest fix is in the scene.
+
+**Not caused by the creature work, and this is measured rather than argued.**
+Three arms, and every number is identical across all three:
+
+| | seed 1 (default) | seed 0 | seed 2 | seed 3 | seed 7 |
+|---|---|---|---|---|---|
+| `climbs_over_kin` **on** (WP-9 branch) | panic | 13/52 | 35/52 | 2/52 | 22/52 |
+| `climbs_over_kin` **off**, same binary tree | panic | — | — | 2/52 | — |
+| **clean `origin/main` `f245ebc`**, flag off, none of the WP-9 code | panic | 13/52 | 35/52 | 2/52 | 22/52 |
+
+The third row is the one that settles it: a worktree at `origin/main`, its own
+`target/`, `climbs_over_kin: false` as `main` ships it, and it panics at the
+same `.expect("some dry ground")` and places the same counts at every other
+seed. **§R is pre-existing on `main` and has nothing to do with the flag.**
+(The line number differs between the rows — `:1461` on the WP-9 branch,
+`:1485` on `main` — because `main` has since grown lines above the scene, not
+because the assertion moved.)
+
+Mechanically that was already the expectation, since the dry-ground search
+runs *before* `found_colony` places anything, so no ant exists when it fails.
+Terrain, not animals. It remains plausibly downstream of §L's rock-country
+fallback widening, which changed fallback terrain — that half is still a lead
+and nobody has bisected it.
+
+**Blast radius: none of the gates.** `scene=colony` appears nowhere in the
+repo outside `filmstrip.rs` itself. `scripts/acceptance.sh` renders twelve
+scenes and this is not one of them (`capped`, `coldsnap`, `lavadrop`,
+`ligament`, `rockdrop`, `room`, `strike`, `terrain`, `undercut`, `wood`,
+`worked`, `worldcrack`); `ascii` does not use `filmstrip`; no test invokes it.
+So this cannot redden CI. It bites exactly one activity — a human or agent
+rendering a colony card for the review queue — which is how it was found.
+
 
 ### L. The colony has gone sessile: 98 round trips became 2 — **CLOSED 2026-08-23: the rock-country fallback gated on an argmax, and the colony's home terrain vanished with it**
 
