@@ -797,6 +797,22 @@ consider it at all.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
+- **A green suite does not prove a test *could* fail, and that is a different
+  claim from the one above.** The sibling of the `#[ignore]` case: those tests
+  never ran, these run and pass and could not have done otherwise. A genome
+  widening shifted one draw out of a shared `Rng` that the *caller* went on
+  using, and both guards over it stayed green through the regression —
+  measured, by putting the fault back. One hashed a grown stand, which is
+  insensitive to a single reordered draw; the other built a fresh `Rng` per
+  call to model production, so it never observed a caller that continues.
+  Green was evidence about the tests, not about the code, and it was used to
+  withdraw a correct finding. **Before trusting a guard, put the fault it is
+  named for back and watch it go red** — and if it does not, the guard is not
+  weak, it is blind, and a new one is needed rather than a wider assertion in
+  the old one. The same session found a `let generation = state.generation;`
+  shadowing the parent's `generation` — every bred child pinned at generation 1
+  for ever, silently flattening lineage depth — and it was caught only because
+  one guard hashed enough state to notice.
 - **A *red* suite proves even less: `cargo test` stops at the first failing
   test binary, so a known-red lib test hides every integration test from a
   local run.** Bug A lives in the lib target, so plain `cargo test` fails
