@@ -6640,6 +6640,41 @@ impl FellCensus {
             "      {} of those pieces landed as {} cells of dead tissue (log + litter, cumulative over re-landings); {} cells were lost in settle (nowhere to place)",
             pieces, world.structural_failures.settled_tissue_cells, world.structural_failures.settle_lost_cells
         );
+        // **The whole pile, by material, with no summarising.** The
+        // three-material line above is a summary and a summary is what let
+        // a claim of "refixed" go out over a picture that had barely
+        // changed: the *fall* improved enormously and the settled
+        // composition moved 617->631 log and 557->466 litter, which is
+        // nothing, and nobody had put the two settled tables side by side.
+        // Printed in full so the next reading cannot skip the check.
+        //
+        // Counted over the debris box only -- the columns the tree
+        // occupied, from the crown down to the ground -- so the world's
+        // terrain does not swamp the thing being asked about.
+        {
+            let mut tally: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            let mut loose = 0usize;
+            for y in 0..HEIGHT {
+                for x in 200..340 {
+                    let cell = world.get(x, y);
+                    if cell.material == material::EMPTY || cell.attached() {
+                        continue;
+                    }
+                    let m = world.materials.get(cell.material);
+                    *tally.entry(m.name.clone()).or_default() += 1;
+                    if matches!(m.kind, MaterialKind::Powder) {
+                        loose += 1;
+                    }
+                }
+            }
+            let total: usize = tally.values().sum();
+            let listed: Vec<String> = tally.iter().rev().map(|(n, c)| format!("{n} {c}")).collect();
+            println!("      unattached debris in the fall box (x 200..340): {} cells -- {}", total, listed.join(", "));
+            println!(
+                "      of that, {loose} cells are a Powder kind ({:.0}% of the pile is loose grain by count)",
+                if total == 0 { 0.0 } else { 100.0 * loose as f64 / total as f64 }
+            );
+        }
         // **Lying or standing, which is the acceptance question and not a
         // rephrasing of the counts above.** "It doesn't obviously look like
         // fallen logs" has two causes that every other number here reads

@@ -5360,6 +5360,89 @@ that was turning to dust, and the material that was turning to dust was the
 one nobody was looking at. The frame-by-frame census is what separated them,
 and it took one run.
 
+### T1f. **The felled pile is 74% powder because the tree is 56% leaves.** The piece ladder cannot fix this — **OPEN, and it is the acceptance blocker**
+
+The number that should have been taken before any of the earlier hypotheses,
+and the one that decides whether T1's bar is reachable at all.
+
+**Method note first, because it nearly produced a fourth wrong answer.** A
+census of "unattached cells in the fall box" reads **8,308 cells, 78% of them
+a `Powder` kind**, which looks damning and means nothing: run the identical
+census *before the cut* and it reads 8,608 cells, 51% powder, with **soil
+4,384**. The box is mostly the soil bank the tree is standing on. Only the
+delta is the tree. `CLAUDE.md`: sanity-check a new metric against a case you
+know is fine, before trusting it about a case you don't.
+
+**The tree, and only the tree**, `scene=fell fell=7150`:
+
+| | before the cut | 100 frames after landing (7,300) | settled (8,750) |
+|---|---|---|---|
+| `wood` / `log` | 1,280 | **724** | 631 |
+| `leaf` / `litter` | 1,660 | **1,634** | 466 |
+| `deadwood` | — | 382 | 384 |
+| tree debris total | 2,940 | **2,740** | 1,481 |
+| of the log, in coherent pieces >= 8 cells | — | **640 (12 pieces)** | 522 (11 pieces) |
+
+So at the moment a player is looking at it:
+
+- **coherent pieces: 640 of 2,740 = 23%**
+- **loose grain (`litter` + `deadwood`): 2,016 of 2,740 = 74%**
+- scattered single `log` cells: 84 = 3%
+
+**The pile is three-quarters powder, and the dominant powder is the
+foliage.** `leaf` is **1,660 of the tree's 2,940 cells — 56%** — and every
+one of them becomes `litter`, which is a `Powder` with a friction angle.
+Even if every single wood cell came down as a coherent log, over half the
+pile would still be grain.
+
+**This is why the piece ladder cannot reach the bar.** The ladder is working:
+91%+ of *woody* mass promotes, the size distribution is real, and the pieces
+survive landing (T1e). The bar — "logs lying on the ground, visible at
+readable zoom" — is about what dominates the picture, and what dominates the
+picture is leaves.
+
+**One thing that does change it, and it is time.** By frame 8,750 the litter
+has rotted and `log` 631 finally exceeds `litter` 466. The pile becomes
+log-dominant *eventually*. Nobody watches a fall for 1,500 frames.
+
+**What would actually move it**, none of which T1 owns:
+
+- foliage that lands as something which reads as *foliage lying there*
+  rather than as grain — a dead-leaf tier that is not a `Powder`, which is a
+  new material and a new settling question;
+- a less leaf-heavy species, which is worldgen/genome, not felling;
+- rotation, so the wood that *is* there reads as logs lying rather than
+  standing (6 of 11 pieces land upright — §6.1, T2's).
+
+### T1g. A "refixed" claim went out over a settled state that had barely moved
+
+Recorded as a method failure, because the correction is cheap and the cost
+was a wasted review round and the owner's trust.
+
+Foliage riding its branch (T1e) transformed the **fall**: promoted share
+44% -> 99%, peak plant cells in flight 1,211 -> 2,878, pieces over 256 cells
+2 -> 7. It moved the **settled** state by almost nothing:
+
+| at rest | before the ride change | after |
+|---|---|---|
+| `log` | 711 | 724 |
+| `litter` | 1,652 | 1,634 |
+| `deadwood` | ~380 | 382 |
+
+The leaves now arrive attached to the branch and convert to `litter` on
+landing instead of in mid-air. The end state is the same pile. The owner's
+verdict was *"It is still very clearly dust. Did you review the images
+yourself?"* and both halves are fair: the images were reviewed and read as
+"still a mound" — that reading was even written on the *previous* card — but
+the new card was titled as a refix anyway, on the strength of the flight
+numbers, **without putting the two settled tables side by side**.
+
+The rule this breaks is already in `CLAUDE.md` and is one line long: *look
+again after the fix, for what you did not measure*. A fix measured on the
+quantity it obviously improves, and shipped without re-measuring the
+quantity the acceptance bar is written in, is not verified. Print the
+before/after of **the bar's own quantity** or do not claim the fix.
+
 ### T1c. §1c's settle loss is now a counter
 
 `FailureCounts::settle_lost_cells` counts every cell `rigid::settle` could
