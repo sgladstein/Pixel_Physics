@@ -277,44 +277,36 @@ Two traps the generator had to survive, both recorded in its docstrings:
    of the genuine §1/§2/§3. The section test is an **allowlist** of the three
    register sections, so a newly appended narrative section is inert by default.
 
-### 4b. Three identifier collisions remain — OPEN, editorial
+### 4b. The three identifier collisions — RESOLVED 2026-08-24
 
-`§R`, `§X` and `§Z` each name two entries. `docscheck.sh` now reports them.
+`docscheck` reports **clean**. All three are fixed, and the three turned out to
+need three different remedies, which is why treating them as one job would have
+been wrong.
 
-**§Z is already doing measurable harm across reports:**
+| § | Two entries | Remedy | Cost |
+|---|---|---|---|
+| X | the *same* bug filed twice — "A desert with no desert plants", 2026-08-22 and 2026-08-23 | older retitled **`X (original).`**, matching the `G (original).` shape already in this file | **zero repointing** — every inbound §X means the desert thing, and the surviving entry is it |
+| R | two genuinely different bugs (`filmstrip scene=colony` panic; an ant standing on open water) | newcomer renamed **`R2`** | **zero** — neither had a single inbound reference |
+| Z | two genuinely different bugs (the stand reading as one mass; a free particle dropping `Cell::aux`) | newcomer renamed **`Z2`** | **13 references repointed** across 5 files |
 
-- `Reports/creature-review-2026-08.md:166-168` — "§Z" means the free-particle
-  `Cell::aux` bug (register line 1241).
-- `Reports/plant-project-review-2026-08-23.md:36,61` — "§Z" means *"the stand
-  still reads as one mass"* (register line 1107).
+**A correction to this report's own estimate.** §4b previously called the §Z
+rename "one line in a comment". It was **13** — `src/sim/world.rs`,
+`explosion.rs`, `particle.rs` (×4), `creature-review-2026-08.md` (×3) and
+`creature-implementation-handoff-2026-08.md` (×4). The earlier figure came from
+grepping only `bug Z` in one file and not the `§Z` form anywhere else.
 
-Two reports, one reference, different bugs. `src/sim/world.rs:4129` says
-"bug Z" and means the `Cell::aux` one.
+**The danger a blind fix would have hit.** The *other* §Z — the stand bug — has
+**17** references of its own, ten of them in `examples/plant_probe.rs`. A
+repo-wide `sed` on `§Z` would have silently repointed those at the corpse bug,
+turning an ambiguity into a wrong answer. The rename was scoped to the five
+files that reference the corpse bug and nothing else, verified both directions
+afterwards: `plant_probe.rs` still holds 10 `§Z` and zero `§Z2`.
 
-| § | Entries | Nature |
-|---|---|---|
-| Z | 1107 (stand reads as one mass, JUDGED) / 1241 (particle drops `Cell::aux`, FIXED) | **Two different bugs.** Line 1241 owns the source reference. |
-| X | 1502 (DECISION CARD, 2026-08-23) / 1551 (DESIGN DIRECTION, 2026-08-22) | **Same bug filed twice** — "A desert with no desert plants". The newer supersedes. |
-| R | 5162 (`filmstrip scene=colony` panics) / 5373 (ant stands on open water) | **Two different bugs**, both OPEN, both found 2026-08-23. |
+Renamed by recency, per `CLAUDE.md`'s own §Q→§R precedent — the first claimant
+keeps the letter. The §Z2 entry carries a note recording the rename and what was
+repointed, so the next reader of an old `§Z` reference elsewhere can resolve it.
 
-Only **S** and **T** remain free as single letters. The file already has two
-conventions for this: suffixes (`V2`, `P1`/`P2`/`P3`, `H2`/`H3`, `C1`, `D1`)
-and a parenthetical marker (`G (original)`, `(was) 1h.`), the latter rendering
-an entry deliberately unreferenceable.
-
-**Proposed, needs an owner call because it is editorial:**
-
-- **§X** — the two are the same bug, so retitle the *older* (1551) to
-  `X (original).`, matching the `G (original)` precedent already in the file.
-  No new letter consumed, collision gone.
-- **§Z** and **§R** — genuinely distinct bugs. `CLAUDE.md`'s own precedent
-  ("the newcomer was renamed §R, its self-references repointed") says rename by
-  recency; but for §Z the newcomer holds the only source-code reference, so
-  renaming it also edits `src/sim/world.rs:4129`. Either is one line. **Which
-  entry keeps the letter is the owner's call.**
-
-Deliberately not done unilaterally: renaming a bug changes its address, and
-three reports plus one source file cite these.
+`cargo check` passes; the edits are comments and prose only.
 
 ## 5. Not yet acted on — proposals
 
