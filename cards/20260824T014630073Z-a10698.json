@@ -1,0 +1,60 @@
+{
+  "id": "20260824T014630073Z-a10698",
+  "created": "2026-08-24T01:46:30Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/p2-economy",
+    "commit": "e074248",
+    "agent": null,
+    "session_id": "be4bd036-b126-5c50-8812-dc18beb4a404",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "A stand at 28,800 frames: does either of these have boles?",
+  "question": "Which one reads as separate trees with clear trunks, rather than one mass of foliage down to the ground?",
+  "context_md": "Same scene, same eight founders, same frame. One of them is the current build; the other charges plants for the wood they are standing up in, so a branch that stops earning is let go.\n\nWhat I am asking about is the **bottom half of each picture** — whether you can see trunk, and see between the trees.\n\n(The numbers under each pane are ensemble medians over eight world seeds, not this one stand.)",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260824T014630073Z-a10698/000-stand-main.png"
+      ],
+      "caption": "",
+      "meta": {
+        "living plant cells in this stand": 35749,
+        "median plant, 8 seeds": 4740,
+        "median wood": 2371,
+        "foliage share": "45%",
+        "stem above the base": 15,
+        "cells shed to starvation": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260824T014630073Z-a10698/001-stand-p2.png"
+      ],
+      "caption": "",
+      "meta": {
+        "living plant cells in this stand": 26238,
+        "median plant, 8 seeds": 3659,
+        "median wood": 2144,
+        "foliage share": "46%",
+        "stem above the base": 13,
+        "cells shed to starvation": "6,595-6,886 per stand"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
