@@ -800,6 +800,30 @@ fn banded_shade(world: &World, organism_id: u16, material: material::MaterialId,
 /// population runs long enough to measure allele spread per generation.
 const MUTATION_SIGMA: f32 = 0.08;
 
+/// **How many genome slots `set_seed` mutates before it rolls the discrete
+/// loci** — the frozen prefix of the inherited-mutation draw order.
+///
+/// Deliberately a literal and deliberately *not* `organism::GENOTYPE_TRAITS`,
+/// which is the whole point of it existing. `set_seed` takes one draw from a
+/// shared `Rng` per slot, so the number of slots is part of the random
+/// sequence: had this tracked the constant, appending slot 9 would have
+/// inserted a draw ahead of the allele rolls and quietly re-bred every
+/// individual in every study taken before it. Pinning the prefix at the
+/// width the record was measured at costs one `take`/`skip` pair and keeps
+/// bred genomes bit-identical across the widening.
+///
+/// Raise it only alongside a deliberate re-baseline of the breeding record.
+const SEQUENCED_TRAITS: usize = 9;
+
+/// Salt for the appended slots' mutation substream in `set_seed`, so it
+/// cannot collide with `seed_genotype`'s founding draws.
+///
+/// Those are keyed `rng::stream(world_seed, x, y, slot)`. A run has one
+/// world seed, so XOR-ing a fixed salt into the first argument puts the
+/// mutation jitter on streams no founding draw can ever reach, whatever
+/// the coordinates.
+const APPENDED_JITTER_SALT: u64 = 0x5361_6C74_4A69_7472;
+
 /// Set one seed from `(x, y)`, carrying this parent's genome forward.
 ///
 /// **This is the heredity channel, and until now there was none.** Every
@@ -824,6 +848,8 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
     let Some(seed_material) = world.materials.id_of("seed") else {
         return false;
     };
+    // Read before the `organism_mut` borrow below, which holds `world`.
+    let world_seed = world.seed;
     // Somewhere open beside the parent cell. Deliberately *any* free
     // neighbour rather than a chosen direction: a seed is a falling powder,
     // so where it ends up is the world's business, not the plant's.
@@ -851,7 +877,25 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
         // dial: two offspring of one parent can differ on branching and
         // agree on height, which is what lets a population explore corners
         // of the trait space rather than sliding along one diagonal.
-        for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()) {
+        //
+        // **Only the slots that existed when this sequence was measured,
+        // and the rest after the loci below.** This is the one place
+        // widening `GENOTYPE_TRAITS` is not free. Every other consumer of
+        // a genome indexes a slot; this one *consumes* a draw per slot
+        // from a shared `Rng`, so a tenth slot spliced into the middle of
+        // the sequence shifts the allele rolls that follow it and every
+        // bred individual in the engine becomes a different plant —
+        // silently, and in exactly the way appending a slot was chosen
+        // over re-purposing one to avoid.
+        //
+        // Splitting the loop is the cheap fix and the boundary is
+        // deliberately a stated constant rather than a bare literal: it
+        // is the width the record was taken at, it does not move when
+        // `GENOTYPE_TRAITS` does, and the next slot appended lands after
+        // the loci for the same reason this one did. The alternative —
+        // one substream per slot — would have given every *existing* slot
+        // a different jitter and broken the thing this protects.
+        for (dst, src) in state.genotype_draws.iter_mut().zip(draws.iter()).take(SEQUENCED_TRAITS) {
             let jitter = (rng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
             *dst = (*src + jitter).clamp(-1.0, 1.0);
         }
@@ -865,6 +909,50 @@ fn set_seed(world: &mut World, x: i32, y: i32, parent_id: u16, seed_cost: f32, r
                 let n = organism::LOCUS_ALLELES[locus].max(1);
                 *allele = rng.below(n as u32) as u8;
             }
+        }
+        // **The appended slots, from their own keyed substream rather
+        // than the shared `Rng`** -- and the substream is the whole
+        // point, not an implementation detail.
+        //
+        // An earlier version of this drew them from `rng` too, just
+        // after the loci, on the reasoning that nothing reads `rng`
+        // afterwards. That reasoning was wrong in a way worth recording:
+        // `rng` is `&mut`, borrowed from the caller, and it **outlives
+        // this call**. Consuming one extra draw here leaves the caller's
+        // stream one position further along on return, so every draw it
+        // makes afterwards shifts. Whether that is observable depends on
+        // the *behavior order in the species file* -- `Reproduce`
+        // happens to be last among the `rng` users for the shipped
+        // species, which is exactly the kind of accident that holds
+        // until someone reorders a `.ron` and cannot see why a stand
+        // changed.
+        //
+        // Drawing from a substream keeps the shared stream's consumption
+        // count **identical to pre-widening**, unconditionally, so the
+        // caller's position on return does not depend on how many genome
+        // slots exist. Slots 0-8 and the loci above are untouched, and
+        // this is safe here where it would not be for them: they have a
+        // measured record keyed to their draw order, and slot 9 has
+        // never been drawn before, so it has nothing to preserve.
+        //
+        // Keyed off the world seed salted, so it cannot collide with
+        // `seed_genotype`'s `(world_seed, x, y, slot)` streams within a
+        // run; and off the parent's `(generation, slot)` packed
+        // together, so a lineage that keeps re-seeding the same cell
+        // still mutates rather than drawing one frozen jitter for ever.
+        // Position and generation both survive save/load and neither
+        // depends on iteration order, which is what determinism needs
+        // (`PLAN.md`, same-build).
+        // NB: the *parent's* `generation`, destructured at the top of
+        // this function -- deliberately not a fresh binding off `state`,
+        // which is the child and whose generation is not written until
+        // the end of this block. Shadowing it here set every child to
+        // generation 1 for ever and flattened lineage depth outright;
+        // the stand guard caught it, which is what it is for.
+        for (slot, (dst, src)) in state.genotype_draws.iter_mut().zip(draws.iter()).enumerate().skip(SEQUENCED_TRAITS) {
+            let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
+            let jitter = (jrng.below(2_000) as f32 / 1_000.0 - 1.0) * MUTATION_SIGMA;
+            *dst = (*src + jitter).clamp(-1.0, 1.0);
         }
         // Both colours derive from the (possibly just-mutated) alleles.
         // Foliage has worked this way since the discrete-loci change;
@@ -7224,6 +7312,385 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
 
         let other_world = draws_at_100(&[], 999);
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
+    }
+
+    /// **The property, rather than two instants fitted to one trajectory**
+    /// (`CLAUDE.md`) — and the reason appending a genome slot is safe at
+    /// all, asserted directly instead of inferred from a grown stand.
+    ///
+    /// Every founding draw is `rng::stream(world_seed, x, y, slot)`, so
+    /// **slot N's value is a function of N and the germination site and
+    /// nothing else** — not of how many slots exist beside it, not of the
+    /// order they are filled in, not of anything downstream. That is the
+    /// whole licence for appending, and it is the sentence
+    /// `GENOTYPE_TRAITS`' doc makes the contract.
+    ///
+    /// This recomputes each slot's expected draw from the documented key
+    /// and checks the stored vector against it, slot by slot. It calls
+    /// `seed_genotype` directly rather than growing anything, which is
+    /// the point: it steps no frames, reads no species file and touches
+    /// no plant behaviour, so **nothing any other lane lands in `main`
+    /// can move it**. The stand fingerprint below is the complement —
+    /// broader, and fragile for exactly that reason (see its own note).
+    ///
+    /// Fails for a renumbering, a re-purposing, or any change to how a
+    /// draw is derived — the three things that silently rewrite every
+    /// genome ever measured.
+    #[test]
+    fn a_genome_slots_draw_is_a_pure_function_of_its_own_index() {
+        let mut w = test_world();
+        w.seed = 909_090;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let organism_id = w.push_organism(tree).expect("an organism slot is free");
+        let (x, y) = (73, 41);
+        seed_genotype(&mut w, organism_id, x, y);
+
+        let draws = w.organism(organism_id).expect("live organism").genotype_draws;
+        for (slot, got) in draws.iter().enumerate() {
+            // The documented key, written out here on purpose: if this
+            // line and `seed_genotype` ever disagree, that is the bug
+            // this test is for, and a shared helper would hide it.
+            let mut rng = rng::stream(w.seed, x as u64, y as u64, slot as u64);
+            let want = rng.below(10_000) as f32 / 10_000.0 * 2.0 - 1.0;
+            assert_eq!(
+                *got, want,
+                "slot {slot} did not draw from `rng::stream(world_seed, x, y, {slot})`. A slot's \
+                 value must depend on its own index and nothing else -- that is what makes \
+                 appending a slot safe and renumbering one catastrophic. See `GENOTYPE_TRAITS`."
+            );
+        }
+
+        // Not vacuous: an all-zero vector would satisfy a broken
+        // derivation that returned a constant, and would pass the loop
+        // above if `seed_genotype` were gutted the same way.
+        assert!(draws.iter().any(|&d| d != 0.0), "a germinated plant should have drawn a real genotype");
+        assert!(
+            draws.iter().any(|&d| d != draws[0]),
+            "the slots should differ from each other -- one stream reused for every slot would \
+             make the whole genome a single number wearing ten labels"
+        );
+    }
+
+    /// **The append-only guard on the genome layout: does slot 9 change
+    /// any plant?** Asked as a comparison inside one process, which is
+    /// the only form of the question that holds still.
+    ///
+    /// Grows the same stand twice in one run — once with slot 9's width
+    /// as the species ships it, once with that width at `0.0` — and
+    /// asserts the two are identical, cell for cell and genome for
+    /// genome. Slot 9 is capacity with no consumer
+    /// (`organism::GENOTYPE_TRAITS`), so expressing it or not must make
+    /// no difference to anything. The day it does, either a consumer has
+    /// been wired to it or a slot has been renumbered onto it, and both
+    /// arms of this test disagree.
+    ///
+    /// **This replaced a hardcoded whole-stand fingerprint, and the
+    /// reason is worth keeping.** That version asserted
+    /// `h == 0x1a52804a2df78ebc`, which was true of the tree the day it
+    /// was written and false the moment any lane touched plant
+    /// behaviour. Inside one evening it went stale twice — WP-11's
+    /// leaf-fall reaching four species, P3's generation loop, W2's
+    /// grassfire, then W3's grass sowing and W4's wind geography — and
+    /// each staleness looked exactly like a genome fault. It cost two
+    /// wrong diagnoses, one of which nearly "fixed" correct code. Both
+    /// arms here move together under all of that, so none of it can
+    /// reach this test, and **there is no magic number for anyone to
+    /// decide whether to update.** `CLAUDE.md`: assert the property, not
+    /// two instants fitted to one trajectory. The full incident is in
+    /// `Reports/open-bugs-handoff.md`.
+    ///
+    /// **Confirmed not vacuous**, which matters more here than usual
+    /// because two arms that are equal *by construction* would pass for
+    /// ever while testing nothing: pointing the turgor read at slot 9
+    /// (one character, `genotype(world, organism_id, 9, ...)`) makes the
+    /// arms disagree and the test red. Re-run that if this is rewritten.
+    ///
+    /// What it deliberately does **not** cover, because each has a
+    /// cheaper guard that cannot go stale either: slots 0–8 drawing from
+    /// their own index (`a_genome_slots_draw_is_a_pure_function_of_its_own_index`),
+    /// the breeding draw order (`widening_the_genome_does_not_move_the_
+    /// breeding_draw_sequence`), and `set_seed`'s consumption of the
+    /// caller's `Rng` (`set_seed_leaves_the_callers_rng_position_alone`).
+    #[test]
+    fn expressing_the_appended_genome_slot_changes_no_plant() {
+        const FOUNDERS: usize = 4;
+        const APPENDED: usize = 9;
+
+        /// FNV-1a, written out rather than pulled from `DefaultHasher`,
+        /// which is explicitly not stable across releases. Nothing is
+        /// stored across runs here, but a hash that changes shape
+        /// mid-comparison would be its own bug.
+        fn fingerprint(w: &World) -> (u64, usize, usize) {
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            let mut eat = |bytes: &[u8]| {
+                for &b in bytes {
+                    h ^= b as u64;
+                    h = h.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            };
+            let b = w.bounds().expect("the test world has bounds");
+            let mut owners: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+            let mut cells = 0usize;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    let c = w.get(x, y);
+                    if c.organism_id() == 0 {
+                        continue;
+                    }
+                    owners.insert(c.organism_id());
+                    cells += 1;
+                    eat(&x.to_le_bytes());
+                    eat(&y.to_le_bytes());
+                    eat(&c.material.0.to_le_bytes());
+                    eat(&c.aux().to_le_bytes());
+                    eat(&c.organism_id().to_le_bytes());
+                }
+            }
+            for id in &owners {
+                let Some(s) = w.organism(*id) else { continue };
+                // Slots 0..9 only. Slot 9 itself is *expected* to differ
+                // between the arms in the draw vector -- the arms differ
+                // in its width, and the point is that no plant changes,
+                // not that the unread number matches.
+                for d in &s.genotype_draws[..APPENDED] {
+                    eat(&d.to_bits().to_le_bytes());
+                }
+                eat(&s.alleles);
+                eat(&s.generation.to_le_bytes());
+            }
+            (h, owners.len(), cells)
+        }
+
+        fn grow(slot_nine_width: f32) -> (u64, usize, usize) {
+            let mut w = test_world();
+            w.seed = 4242;
+            let tree = w.species.id_of("tree").expect("tree species is compiled in");
+            // The shoot vector, which is where slot 9 lives -- 4/6/7/9
+            // are borrowed from it by the whole-plant passes.
+            let mut shoot = w
+                .species
+                .get(tree)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    organism::Behavior::Grow { genotype_variance, .. } => Some(*genotype_variance),
+                    _ => None,
+                })
+                .expect("tree's shoot has a Grow");
+            assert!(shoot[APPENDED] > 0.0, "tree should ship a live width on the appended slot, or both arms are the same run");
+            shoot[APPENDED] = slot_nine_width;
+            w.species.set_genotype_variance(tree, CellType::GrowingTip, shoot);
+
+            // Four individuals, not one: the draws are position-keyed,
+            // so a single tree exercises a single column of the slot map.
+            for x in [40, 70, 100, 130] {
+                plant_tree_on_ground(&mut w, x, 60);
+            }
+            // 8,000 and not 2,000 because at 2,000 nothing has bred, and
+            // a guard over a genome that never inherited is watching half
+            // the machinery. Measured: at 2,000 this scene did not even
+            // notice the turgor read moving from slot 3 to slot 4.
+            run_with_fields(&mut w, 8_000);
+            fingerprint(&w)
+        }
+
+        let expressed = grow(0.7);
+        let suppressed = grow(0.0);
+
+        // **Not a vacuous comparison.** An empty stand, or one that never
+        // bred, fingerprints identically in both arms and watches
+        // nothing. More owners than founders is what says `set_seed` ran.
+        assert!(expressed.2 > 400, "the stand should have actually grown, got {} organism cells", expressed.2);
+        assert!(
+            expressed.1 > FOUNDERS,
+            "the stand must breed within the budget or this guard never exercises `set_seed`; got {} owners",
+            expressed.1
+        );
+
+        assert_eq!(
+            expressed, suppressed,
+            "expressing genome slot {APPENDED} changed the stand. It is capacity with no consumer, so \
+             nothing should read it and nothing should move: either a consumer has been wired to it, \
+             or a slot has been renumbered onto it (which rewrites every genome ever measured -- see \
+             `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a comparison between two arms of \
+             the same build, so an unrelated plant change landing in `main` cannot cause it. Both arms \
+             move together. This is a real fault."
+        );
+    }
+
+    /// **The breeding half of the append-only guard**, and the one the
+    /// stand fingerprint above cannot reach.
+    ///
+    /// `set_seed` is the only consumer of a genome that spends the shared
+    /// `Rng` *per slot* rather than indexing by slot, so the number of
+    /// slots is itself part of the random sequence: a tenth jitter drawn
+    /// inline would push every allele roll after it one draw along, and
+    /// every bred individual in every study taken before the widening
+    /// would come out a different plant. `SEQUENCED_TRAITS` is what holds
+    /// the prefix; this is what proves it holds.
+    ///
+    /// **Two hundred children rather than the stand test's three, and
+    /// that is the entire reason this test exists separately.** The
+    /// discrete loci mutate at 3% across 6 loci, so a shifted sequence
+    /// only shows where a roll actually crosses the threshold —
+    /// ~0.18 flips per seed. The four-tree stand breeds three times, and
+    /// so it passes the naive all-slots-inline loop perfectly happily:
+    /// measured, not assumed. At this sample the expected flip count is
+    /// ~36, and the naive loop is red.
+    ///
+    /// A fresh `Rng` per call, keyed the way `Behavior::Reproduce` keys
+    /// it in production (organism, cell, frame), so the sensitivity this
+    /// measures is the sensitivity the engine actually has and not an
+    /// artifact of threading one stream through every birth.
+    #[test]
+    fn widening_the_genome_does_not_move_the_breeding_draw_sequence() {
+        const LEGACY_TRAITS: usize = 9;
+        const CHILDREN: usize = 200;
+
+        struct Fnv(u64);
+        impl Fnv {
+            fn eat(&mut self, bytes: &[u8]) {
+                for &b in bytes {
+                    self.0 ^= b as u64;
+                    self.0 = self.0.wrapping_mul(0x0000_0100_0000_01b3);
+                }
+            }
+        }
+
+        let mut w = test_world();
+        w.seed = 77;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let parent = w.push_organism(tree).expect("an organism slot is free");
+        // A parent whose draws are spread across the legacy range rather
+        // than all one value: a uniform genome would let a slot-order bug
+        // copy the wrong slot and still produce the right number.
+        if let Some(s) = w.organism_mut(parent) {
+            for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
+                *d = (slot as f32) / 9.0 - 0.5;
+            }
+            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.generation = 3;
+        }
+
+        let mut h = Fnv(0xcbf2_9ce4_8422_2325);
+        let mut born = 0usize;
+        for i in 0..CHILDREN {
+            // Spread out, so every call finds the free neighbour it needs
+            // and the seeds it already dropped are not what refuses the
+            // next one -- a refused `set_seed` returns early and would
+            // quietly shrink the sample.
+            let (x, y) = (4 + (i as i32 % 48) * 4, 4 + (i as i32 / 48) * 4);
+            let mut rng = rng::stream(parent as u64, x as u64, y as u64, i as u64);
+            if !set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+                continue;
+            }
+            born += 1;
+        }
+        // Every child, in id order, over the slots and loci that existed
+        // when this value was taken.
+        let mut ids: Vec<u16> = Vec::new();
+        let b = w.bounds().expect("the test world has bounds");
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let id = w.get(x, y).organism_id();
+                if id != 0 && id != parent {
+                    ids.push(id);
+                }
+            }
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        for id in &ids {
+            let Some(s) = w.organism(*id) else { continue };
+            for d in &s.genotype_draws[..LEGACY_TRAITS] {
+                h.eat(&d.to_bits().to_le_bytes());
+            }
+            h.eat(&s.alleles);
+            h.eat(&s.generation.to_le_bytes());
+        }
+
+        assert_eq!(born, CHILDREN, "every call should have set a seed, or the sample is smaller than it reads");
+        assert_eq!(ids.len(), CHILDREN, "every child should own its seed cell");
+        // Not vacuous: the loci have to have actually mutated somewhere,
+        // or this fingerprint is 200 copies of the parent's alleles and
+        // is blind to exactly the shift it exists to catch.
+        let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0])).count();
+        assert!(mutated >= 5, "the discrete loci should have mutated in a few children, got {mutated}");
+
+        assert_eq!(
+            h.0, 0x2197_04fe_f1c7_3b67,
+            "the breeding draw sequence moved. `set_seed` spends one draw per genome slot from a \
+             shared `Rng`, so this fails if a new slot was mutated inline instead of after the \
+             discrete loci -- see `SEQUENCED_TRAITS`. Every bred genome ever measured is downstream \
+             of this sequence."
+        );
+    }
+
+    /// **`set_seed` must leave the caller's `Rng` where it found it**,
+    /// however many genome slots exist — the property neither guard
+    /// above can see.
+    ///
+    /// `rng` is `&mut`, borrowed from `Behavior::Reproduce`, and it
+    /// outlives the call. Drawing one jitter per slot from it means the
+    /// *number of genome slots* decides where the caller's stream sits
+    /// on return, so widening the genome shifts every draw the caller
+    /// makes afterwards. Whether that is observable depends on the
+    /// behavior order in the species file — `Reproduce` is currently
+    /// last among the `rng` users for the shipped species, which is an
+    /// accident that holds until someone reorders a `.ron`.
+    ///
+    /// **This test exists because the other two provably cannot catch
+    /// it**, and that was measured rather than assumed: with the
+    /// appended-slot loop moved back onto the shared stream, both the
+    /// stand fingerprint and the 200-child breeding fingerprint stay
+    /// **green**. The stand scene is insensitive to it, and the breeding
+    /// test builds a fresh `Rng` per call precisely to model production,
+    /// so it never observes a caller that continues. A fix nothing can
+    /// fail for is a fix that will be quietly undone.
+    ///
+    /// So this asserts the one thing that actually moves: the caller's
+    /// *next* draw after `set_seed` returns. Confirmed able to fail by
+    /// drawing the appended slots from `rng` instead of their substream,
+    /// which is exactly the regression it guards.
+    #[test]
+    fn set_seed_leaves_the_callers_rng_position_alone() {
+        let mut w = test_world();
+        w.seed = 4242;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+        let parent = w.push_organism(tree).expect("an organism slot is free");
+        if let Some(s) = w.organism_mut(parent) {
+            for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
+                *d = (slot as f32) / 9.0 - 0.5;
+            }
+            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.generation = 2;
+        }
+
+        // One `Rng`, threaded through several births exactly as a caller
+        // that keeps using it would -- which is the situation the
+        // property is about. A fresh stream per call cannot express it.
+        let mut rng = rng::stream(1, 2, 3, 4);
+        let mut born = 0;
+        for i in 0..8 {
+            let (x, y) = (10 + i * 6, 20);
+            if set_seed(&mut w, x, y, parent, 1.0, &mut rng) {
+                born += 1;
+            }
+        }
+        assert_eq!(born, 8, "every call should have set a seed, or the stream is not being advanced");
+
+        // The caller's next draw. This is a pure function of how many
+        // draws `set_seed` took, so it pins the consumption count
+        // without needing to observe it directly.
+        let next = rng.below(1_000_000);
+        assert_eq!(
+            next, 471_168,
+            "`set_seed` consumed a different number of draws from the caller's `Rng` than it used \
+             to, so every draw the caller makes after it now differs. Almost certainly a new genome \
+             slot being mutated from the shared `rng` instead of its own substream -- see \
+             `SEQUENCED_TRAITS` and `APPENDED_JITTER_SALT`. This value was taken on `main` at \
+             `GENOTYPE_TRAITS = 9` and must not move when the genome widens."
+        );
     }
 
     /// **Crowding must reorder choices, never veto all of them.** Under
