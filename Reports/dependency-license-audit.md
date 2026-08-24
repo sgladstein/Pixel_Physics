@@ -132,14 +132,44 @@ cross-checks the crates `cargo-about` resolved against the crates the rendered
 file actually names, and both it and `--check` were verified red by injecting
 that exact fault.
 
-## 4. What is still owed before the game actually ships
+## 4. Apache-2.0 §4d, and why scoping it to Apache crates was wrong
 
-- **Apache-2.0 §4d NOTICE propagation** for the 10 Apache-only crates. The
-  licence text is reproduced; if any of those crates ships its own `NOTICE`
-  file, its contents must be carried too. `cargo-about` does not collect
-  `NOTICE` files, so this is a manual pass over those ten.
+**Resolved 2026-08-24 by automating it — worth reading, because the manual
+version of this task returns the wrong answer.**
+
+Apache-2.0 §4d requires a component's own `NOTICE` file, if it has one, to
+travel with any redistribution. `cargo-about` reproduces licence *texts* and
+does not collect `NOTICE` files, so this was filed as a manual pass over the
+ten Apache-only crates.
+
+Done exactly as filed, that pass finds **nothing**: none of `ab_glyph`,
+`ab_glyph_rasterizer`, `codespan-reporting`, `gethostname`, `gl_generator`,
+`glutin_wgl_sys`, `khronos_api`, `owned_ttf_parser`, `spirv` or `winit` ships a
+`NOTICE`. The item would have been closed as "checked, nothing owed".
+
+`scripts/notices.sh` scans **all 213 resolved components** instead, and finds
+one. `cfg_aliases 0.2.2` ships `NOTICES.md`, disclosing that its `cfg_aliases!`
+macro is derived from `tectonic_cfg_support`, whose MIT copyright notice must
+therefore be reproduced. **`cfg_aliases` is MIT-licensed, not Apache** — the
+crate the filed scope would never have looked at.
+
+The general lesson, and the reason this has a section rather than a line: **the
+obligation follows the NOTICE file, not the licence.** Scoping the search by
+licence family looked like a sensible narrowing and was the one thing that
+could make the search miss. Its contents are now carried automatically, and the
+section renders "none" rather than vanishing when empty, so a dropped step
+stays visible in the output.
+
+## 5. What is still owed before the game actually ships
+
 - **Wire the notices file into whatever packaging step eventually exists**, so
-  the `.txt` lands next to the executable rather than only in the repo.
+  the `.txt` lands next to the executable rather than only in the repo. Tracked
+  as `PLAN.md` §4b. The obligation is that the notice travels with the
+  *binary*; a file that ships only inside the source tree does not discharge
+  it.
+- **Re-run `bash scripts/notices.sh --check` after any dependency change.** A
+  new crate silently invalidates the committed file, and nothing else notices:
+  `docscheck.sh` does not know about it and CI does not run it.
 - **A lawyer.** The MIT-grants-selling-rights reading is plain from the licence
   text, but if money is going to ride on this, the relicensing and the notices
   file both deserve a professional read. Nothing here is legal advice.

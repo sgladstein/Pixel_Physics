@@ -2966,3 +2966,38 @@ Still owed: Apache-2.0 §4d NOTICE-file propagation for the 10 Apache-only
 crates (cargo-about does not collect `NOTICE` files — manual pass), and wiring
 the file into a packaging step once one exists so it lands beside the
 executable rather than only in the repo.
+
+## 2026-08-24 — the release to-dos are in PLAN.md now, and one of them closed itself
+
+The two items `Reports/dependency-license-audit.md` left open were living only
+in a report, which is where a to-do goes to not get done. They are now a
+**"Licensing and attribution — open before release"** section in `PLAN.md`,
+kept as its own table for the same reason the plant-line table is separate:
+the twelve-item backlog above it mirrors `Reports/pixel-physics-issues.md`
+item for item and must not drift.
+
+Also corrected there: the note under the backlog reading *"the rest of the
+item (LICENSE, `rustfmt.toml`, `rust-version`) still stands"*. LICENSE landed
+2026-08-21 and has since been reversed to proprietary, so a reader working the
+backlog would have seen "no LICENSE" filed as a defect and helpfully restored
+MIT — issue #10 frames the *absence* of a permissive licence as the bug. Only
+`rustfmt.toml` is genuinely outstanding.
+
+**§4a closed itself, and the manual version had the wrong answer.** Apache-2.0
+§4d was filed as a manual pass over the ten Apache-only crates. Done exactly as
+filed it finds nothing — none of those ten ships a `NOTICE` file, and the item
+would have been closed as "checked, nothing owed". `scripts/notices.sh` now
+scans **all 213 resolved components** and finds **one**: `cfg_aliases 0.2.2`
+ships `NOTICES.md` disclosing that its macro derives from
+`tectonic_cfg_support`, whose MIT copyright notice must be reproduced.
+`cfg_aliases` is **MIT, not Apache** — the crate the filed scope could not have
+looked at.
+
+The lesson is narrower than "automate things" and worth keeping: **the
+obligation follows the NOTICE file, not the licence.** Scoping the search by
+licence family read as a sensible narrowing and was the single thing that made
+it miss. The rendered section states "none" rather than disappearing when empty,
+so a dropped step is visible instead of silent; output is byte-identical across
+runs.
+
+Still open: §4b, wiring the file into a packaging step once one exists.

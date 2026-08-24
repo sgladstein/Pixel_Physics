@@ -67,6 +67,53 @@ PY
 cov=$?
 [ $cov -ne 0 ] && exit 1
 
+# Apache-2.0 section 4d: if a component ships its own NOTICE file, its contents
+# must be carried into any redistribution. cargo-about reproduces licence TEXTS
+# and does not collect NOTICE files, so a green notices file does not cover
+# this. It was tracked as a manual pass over the Apache-only crates until it
+# became obvious that a manual pass is exactly the thing that rots. Automated
+# here instead, and over EVERY resolved crate rather than only the Apache-only
+# ones: the obligation follows the NOTICE file, so a dual-licensed crate that
+# ships one has one.
+#
+# The section is appended unconditionally, stating "none" when there are none,
+# so the rendered file records that the check ran. A section that vanished when
+# empty would be indistinguishable from the step having been dropped.
+python3 - "$tmp/about.json" "$tmp/notices.txt" <<'NOTICESCAN'
+import json, os, sys
+
+crates = json.load(open(sys.argv[1]))["crates"]
+found = []
+for c in sorted(crates, key=lambda c: (c["package"]["name"], c["package"]["version"])):
+    pkg = c["package"]
+    root = os.path.dirname(pkg.get("manifest_path") or "")
+    if not root or not os.path.isdir(root):
+        continue
+    for entry in sorted(os.listdir(root)):
+        if entry.upper().startswith("NOTICE"):
+            path = os.path.join(root, entry)
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    found.append((pkg["name"], pkg["version"], entry, fh.read().rstrip()))
+
+with open(sys.argv[2], "a", encoding="utf-8") as out:
+    out.write("\n" + "-" * 80 + "\n")
+    out.write("APACHE-2.0 SECTION 4d -- NOTICE FILES\n")
+    out.write("-" * 80 + "\n\n")
+    if not found:
+        out.write("No component in this build ships a NOTICE file, so there is nothing\n"
+                  "further to carry. Checked automatically by scripts/notices.sh across\n"
+                  "all %d resolved components, every time this file is regenerated.\n"
+                  % len(crates))
+    else:
+        out.write("The following components ship a NOTICE file. Apache-2.0 section 4d\n"
+                  "requires these contents to travel with any redistribution.\n\n")
+        for name, version, entry, text in found:
+            out.write("=== %s %s (%s) ===\n\n%s\n\n" % (name, version, entry, text))
+print("notices: NOTICE files found in %d of %d components" % (len(found), len(crates)))
+NOTICESCAN
+if [ $? -ne 0 ]; then echo "notices: NOTICE scan failed" >&2; exit 1; fi
+
 if [ "$mode" = "--check" ]; then
   if ! diff -q "$tmp/notices.txt" "$OUT" >/dev/null 2>&1; then
     echo "notices: $OUT is STALE -- run 'bash scripts/notices.sh' and commit the result" >&2

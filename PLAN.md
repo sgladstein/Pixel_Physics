@@ -1292,11 +1292,44 @@ it. Full detail and reproductions for all four live in
 | §U | **Drought raises absolute biomass, which inverts real plant behaviour.** A water-stressed tree measured *larger* on both totals (982 vs 734 cells) and on wood (428 vs 299) than a watered one. Real drought narrows rings — that is the basis of dendrochronology. Hypothesis on file: `break_root_tips` is gated on `water_status < 0.95`, so stress *triggers* root re-initiation without throttling the carbon that pays for it. | bug, model |
 | §X | **The desert niche needs a capacity lever, not a wilting point.** Arid country is dead because its blanket is **sand**, which declares no `water_capacity` at all — not because dry soil sits under the wilting point. So making the wilting point a species trait, which §X originally proposed, would do nothing for the desert. Three candidate levers instead: give sand a small capacity, let a root reach the water table, or store rain. | design, blocks desert species |
 
+### Licensing and attribution — open before release (2026-08-24)
+
+Kept separate from both tables above for the same reason they are separate
+from each other: those mirror `Reports/pixel-physics-issues.md` and
+`Reports/open-bugs-handoff.md` item for item and should not drift. These two
+mirror **`Reports/dependency-license-audit.md` §4**, which holds the full
+reasoning and the measurements.
+
+Neither blocks development. Both block *release*, which is the trap — they
+become due at the moment nobody is reading a backlog, and the audit that
+found them reads as if it discharged them. It did not: it establishes that
+nothing in the tree forbids shipping a closed-source commercial binary, which
+is a different claim from having done what those licences ask in return.
+
+| Ref | Title | Kind |
+|---|---|---|
+| ~~§4a~~ | ~~**Apache-2.0 §4d NOTICE propagation.**~~ **(resolved 2026-08-24 by automating it, and the manual version would have got it wrong.)** `cargo-about` reproduces licence *texts* and does not collect crates' own `NOTICE` files, so this was filed as a manual pass over the 10 Apache-only crates. Done by hand, that pass finds **nothing** — none of those ten ships a `NOTICE`. `scripts/notices.sh` now scans **all 213 resolved components** instead, because the obligation follows the NOTICE file rather than the licence, and it finds **one**: `cfg_aliases 0.2.2` ships `NOTICES.md` disclosing that its macro is derived from `tectonic_cfg_support`, whose MIT copyright notice must therefore be reproduced. `cfg_aliases` is **MIT**, not Apache — the crate the filed scope would never have looked at. Its contents are now carried in `THIRD-PARTY-NOTICES.txt` automatically, and the section renders "none" rather than vanishing when empty, so a dropped step is visible. | chore |
+| §4b | **Wire `THIRD-PARTY-NOTICES.txt` into packaging** so it lands beside the executable, or is reachable from an in-game credits screen. There is no packaging step in this repo yet, which is exactly why the file is committed rather than generated at build time — but a notices file that ships only inside the source tree does not discharge the obligation, because the obligation is that the notice travels with the *binary*. Whoever builds the first release pipeline owns this. | chore, blocks release |
+
+Standing check, cheap and easy to forget: **`bash scripts/notices.sh --check`
+after any change to `Cargo.toml` or `Cargo.lock`.** A new dependency silently
+invalidates the committed notices file, and nothing else in the repo notices —
+`docscheck.sh` does not know about it and CI does not run it.
+
 **Stale in the table above, verified 2026-08-22:** #10 says the default
 branch is `main`, "a 15-byte stub — the project lives on `master`".
 `origin/main` and `origin/master` are now the *same commit*, so that half of
-#10 is done; the rest of the item (LICENSE, `rustfmt.toml`, `rust-version`)
-still stands.
+#10 is done; the rest of the item (`rustfmt.toml`) still stands.
+`rust-version = "1.87"` landed 2026-08-21.
+
+**#10's LICENSE half is closed, and reopening it would be a mistake
+(2026-08-24).** It was closed with MIT on 2026-08-21 and MIT has since been
+**reversed to proprietary**: the owner intends to sell the game, and MIT
+explicitly grants everyone the right to sell the software. Read
+`Reports/dependency-license-audit.md` before touching `LICENSE` or
+`Cargo.toml`'s licence fields — #10 frames the *absence* of a permissive
+licence as a defect, and all-rights-reserved is now the deliberate position,
+so "finish issue #10" is precisely the reasoning that would undo it.
 
 ---
 
