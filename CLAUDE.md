@@ -313,6 +313,27 @@ Everything that has actually collided here collided in `src/app.rs`. So:
 large diff across a session — the window in which someone else's work
 cannot compile is the window you created.
 
+**A file-ownership split is only as current as your last look at the branch
+list.** Read once at session start it is stale within the hour, and nothing
+prompts a re-read — the drift check has `branchcheck.sh` nagging for it, this
+has nothing, which is exactly why it goes unasked. Measured 2026-08-23 on the
+creature line's three-lane split: Lane A fetched the remotes before Lanes B
+and C had branches at all, never looked again, and spent the whole session
+believing it was the only lane. On that belief it filed four bug entries into
+`Reports/open-bugs-handoff.md`, a file the split assigns to **Lane B** — which
+had already filed all four, and better, its version of the foraging regression
+bisected where Lane A's said "unattributed". Lane B then spent a merge
+unifying the duplicates (`e3c5e76`), and Lane A had meanwhile told the owner
+those lanes did not exist. **Before writing into a file another lane owns,
+re-list the branches.** It costs one command, and the roster you were handed
+is a claim about the past, not evidence about who is running now.
+
+**Check the split is self-consistent before trusting it, too.** The same
+document gave Lane A everything under `examples/*` and told Lane C to add a
+`creature_space` mode — a file under `examples/*`. Two lanes were directed
+into one file by the plan itself, so the collision was authored in rather
+than stumbled into.
+
 If you find yourself needing to commit while a contested file holds
 somebody else's unfinished work, do **not** try to stage around it. Add a
 worktree at `origin/main`, re-apply your own change there, verify, commit
