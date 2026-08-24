@@ -2659,7 +2659,11 @@ cells at the old rate and 3,429 → **3,358** at the new one. The cost went
 to its own card (`20260823T204815827Z-ffc290`): leaf share 50.2% → 58.7%
 with wood essentially unchanged, so every cell the change adds is leaf,
 and whether the crowns still read as separate stands is the owner's to
-say. Both cards were open at the time of writing.
+say. Both cards were open at the time of writing and **both were answered
+2026-08-24, both "after"**: the floor card confirms the fix, and on the
+crowns the owner picked the quarter rate on all four — the denser canopy
+is what he wants, so the standing contingency (conifer/shrub/creeper to
+`0.0015` if the crowns read as one mass) is retired rather than pending.
 
 One correction worth keeping: the first version of `floor:` called the
 rise "manufactured by decay" and clamped negatives away. The retuned arm
