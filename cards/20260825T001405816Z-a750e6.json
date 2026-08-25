@@ -1,0 +1,44 @@
+{
+  "id": "20260825T001405816Z-a750e6",
+  "created": "2026-08-25T00:14:05Z",
+  "board": "performance",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/app-performance-review-0p5ix4",
+    "commit": "b133385",
+    "agent": null,
+    "session_id": "97d6df1b-4aaa-5b6a-9e7e-d591ff14fc20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Performance pass: the shipped world, and one trade to call",
+  "question": "The release profile buys ~4% of frame cost for +50% build time. Keep it, or revert those three lines?",
+  "context_md": "**This card is not asking whether anything looks different — it asks you to settle a cost trade.** Every change on the branch is *bit-identical*, proven by hash (`FIELD_HASH` over 3,900 frames, `plant_probe` byte-identical), not by the suite. The image is the real app on the branch via xvfb+lavapipe, confirming it still runs and renders.\n\n**What the audit found.** Nothing had ever timed a whole `App::update` frame; the three numbers that existed were taken at three different world sizes. At the shipped 8192x2560, **with nobody playing in it**, the world cost **30.1 ms amortised against a 16.6 ms budget, 79% of frames over**. It is now 26.2 ms and 70.9%. Still over — the field is ~58% of what is left, plants ~28%.\n\n**The trade I want your call on.** There was no `[profile.release]` at all. Adding one is worth ~4%:\n\n| | field_cost | ascii stress s1 | incremental rebuild |\n|---|---|---|---|\n| no profile | 9.84 ms | 110.4 ms | 28 s |\n| `lto = \"thin\"` alone | 10.58 ms | 111.9 ms | 23 s |\n| **thin + `codegen-units = 1`** | **9.19 ms** | **105.9 ms** | **42 s** |\n\nAll of the win is `codegen-units`; LTO alone measured *nothing*. So it is ~4% of frame cost for **+50% build time**, and this repo values iteration speed explicitly. I landed it, but it is three lines in `Cargo.toml` and reverting changes no behaviour — your call, since you are the one waiting on builds.\n\n**Two findings you may care about more than the 4%:**\n\n- A **Rust upgrade can silently change how every plant grows**. `allocate_to_frontier` sorts donors with an unstable sort, ties are constant (mature cells pin at `RESOURCE_SCALE`), and the tie order depends on the standard library's implementation. An explicit tie-break would fix it and is itself a behaviour change — not mine to take.\n- **§P's named lead is dead.** `body_index` cannot be `worldcrack`'s per-process variance: each id is pushed once per coord, and the whole path is the test-only liquid-body one. §P stays open; a fixed-seed hasher must not be sold as its fix.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the app on this branch",
+      "files": [
+        "20260825T001405816Z-a750e6/000-pixel_physics_screenshot.png"
+      ],
+      "caption": "rolling preset, 3 frames in — xvfb + lavapipe",
+      "meta": {
+        "frame amortised before": "30.10 ms",
+        "frame amortised after": "26.16 ms",
+        "frames over 16.6ms budget": "79.0% -> 70.9%",
+        "field phase": "20.74 -> 15.22 ms",
+        "commits, all bit-identical": 5,
+        "behaviour changes": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
