@@ -230,6 +230,16 @@ is what the reset procedure below names. `master` is a mirror with nothing of
 its own and is on its way out. `scripts/branchcheck.sh --gate` fails if any
 commit is ever reachable from `master` but not `main`, and CI runs it.
 
+**A session cannot delete a branch, so the prune is the owner's to run.**
+Measured 2026-08-25: 37 branches verified at 0 ahead of `main`, every
+`git push origin --delete` returned **HTTP 403**, none succeeded. Pushing
+commits works all day; deleting a ref does not, and the GitHub MCP server
+offers no delete-branch tool either. The proxy was healthy with no relay
+failures, so this is the credential's scope rather than a misconfiguration.
+`branchcheck` can therefore *identify* deletable branches and never act on
+them — when the merged count climbs, that is a message for the owner, not a
+task any lane can pick up.
+
 **Know how far behind you are, before you trust anything you measured on
 it.** The worktree rule below keeps two sessions from breaking each other's
 build; nothing was ever written down about staying current, so nothing pulled
@@ -582,6 +592,29 @@ fork — *build the fix, or write the finding up and stop, but not a half-built
 fix with no writeup* — the lane chose in one turn and acted. Put the fork in
 the brief.
 
+### Reaching another lane: write a file, do not ask the human to carry it
+
+**Measured 2026-08-25, and it is the same lesson as the section above with the
+cost made visible.** The docs-audit and perf lanes exchanged two substantive
+corrections in one evening — a rule that was too strong, and a counter that was
+measuring nothing, both of which changed `CLAUDE.md`. **Every message was
+copied by hand by the owner.** Both lanes could read each other's branches the
+whole time; neither had a place to write. Direct session-to-session messaging
+is not available across accounts, so the repo is the channel.
+
+`Reports/lanes/<lane>.md` — **one file per lane, and you write only your own.**
+Single-writer files cannot collide, which is why it is not one shared document:
+the three conflicts recorded above were all two sessions appending at the same
+tail. `scripts/branchcheck.sh --brief` names any lane note touched in the last
+seven days at session start, so nobody has to remember to look, and
+`git show origin/<branch>:Reports/lanes/<lane>.md` reads one **without merging
+anything** — which is how both of those corrections were verified before being
+acted on. Protocol in `Reports/lanes/README.md`.
+
+A lane note is a *finding*, not a status update, and it does not replace the
+real record: what belongs in `CLAUDE.md`, a report or `dead-ends.md` goes
+there. The note is how the other lane learns it happened.
+
 ### Handoffs are committed, not replied
 
 A reply dies with the container. Ask for the handoff **as a commit**: what
@@ -844,6 +877,79 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
+### A timing number is only as trustworthy as the box was quiet
+
+Two runs of a **byte-identical** `examples/ascii` on bit-identical
+deterministic work disagreed **2.42x** on one scene, and reversed the
+serial/parallel ordering on another — one run reported the *parallel* stress
+scene slower than the serial one, backwards from M5's whole purpose, and the
+other reversed it. Both orderings cannot be true. Nothing in the simulation
+changed: the statistic was measuring the rest of the machine. Two rules come
+out of that, and neither depends on the machine it was measured on:
+
+- **Gate on counters, never on wall clock.** Everything `examples/ascii.rs`
+  asserts is a deterministic count, identical under any load. A wall-clock
+  assertion is a flake generator — and usually the counter above it is the
+  stronger claim anyway, because "the pass did no work at all" cannot be
+  explained away by a busy box. Measured again independently 2026-08-25 by the
+  perf lane: a scheduler census recompiled between two runs of one scene came
+  back **byte-identical** (`produced 7042 / deferred 61488` at frame 4,800,
+  both times) while the wall-clock column on the same frame moved 9.54 → 8.16
+  ms. The counters reproduced exactly where the clock moved 17%.
+- **…and check what the counter counts.** A counter inherits the wall clock's
+  failure mode by a different route: it is exactly as trustworthy as the claim
+  that the thing it counts is the thing you care about. Measured 2026-08-25,
+  two hours after the rule above landed, and it nearly published a null: a
+  harness probing whether the pick leaks the way a blast does reported 200 cuts
+  and a queue flat at its idle 5,400 — a clean, counter-based negative. **The
+  counter was counting calls.** `rigid::is_tool_target` accepts
+  `Solid | Plant` and refuses bedrock, and the harness aimed at the topmost
+  `Solid | Powder` cell, which on a rolling world is soil — so every swing
+  landed in dirt. 23 swings, **0 cells removed**. With the aim corrected the
+  same 23 swings remove **1,157**, and the queue then goes to the scheduler's
+  cap and stays there. The cheap guard is to **pair every "it fired" counter
+  with an effect counter from the far side of the call**: `rigid::mine_swept`
+  returns its own loosened count, `rigid::strike` returns `()`, so the second
+  needs a census of the neighbourhood either side of the blow. This is *Ask
+  what a metric counts when nothing is wrong* (below) applied to counters
+  rather than to metrics — a null is where it hides, because a null looks the
+  same whether the mechanism is quiet or the probe never reached it.
+- **…and a *positive* hides from the opposite direction.** A null hides from
+  **inattention** — nothing demands an explanation. A positive hides from
+  **motivated reasoning** — it is the result you wanted, and every check you
+  reach for is one it passes. Same session, both shapes, and neither had a
+  control. *A cost that vanishes may be work that vanished* below is the worked
+  case and carries the remedy.
+- **Measure one scene, not the suite.** A short run can land inside a quiet
+  window; a long one structurally cannot, so a full-suite timing figure is
+  untrustworthy by construction rather than by luck. Run the whole suite for
+  the counter gates, where load is irrelevant.
+
+**A worst-frame figure is worthless unless an aggregate independently pins
+it.** This is the corrected form of the rule, and the correction came from the
+perf lane pushing back with a case the original got wrong. The original said
+flatly that an untrusted worst is worth nothing — true for the case it was
+drawn from, where the worst is one frame among thousands of *comparable* ones
+and a single scheduler preemption can set it (measured across three attempts at
+one scene: the worst moved **6x** with machine state while the median moved
+~30%).
+
+It is false when the expensive event is **rare**, because then the mean is not
+independent of the worst — it contains it. The test is arithmetic: **mean ×
+frames ≈ worst**. One blast per run puts essentially all time ever spent in the
+blasts phase into a single frame, and the perf lane's converged-pass figure
+pins at 0.97 (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst), its
+bedrock-only control at 0.96 — while the ascii case above pins at nothing at
+all. Two further independent legs held there: two runs agreeing to **1.2x**,
+not 6x, and a dose-response prediction (the 8x box has 64x the area;
+6.08 × 64 = 389 ms).
+
+So: run the ratio before quoting a worst. If an aggregate pins it, quote it; if
+it is an order statistic over many similar frames, it is noise wearing a
+number. An untrusted *median* is worth something either way.
+
+`Reports/measurement-under-contention.md` has the evidence, and records why the
+machine-wide lock it designed was deliberately not landed.
 ### A cost that vanishes may be work that vanished
 
 The sharpest version of *look again for what you did not measure*, and it

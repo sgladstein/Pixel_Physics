@@ -198,6 +198,28 @@ else
   note "scripts/readmetoc.py missing -- README's table of contents is unenforced"
 fi
 
+# 9. Every cross-document address in `Reports/dead-ends.md` still resolves.
+#
+# The register addresses its entries by document and heading/paragraph name
+# rather than by line number -- 266 quoted fragments, 79 of them pointing into
+# `README.md` and `PLAN.md`. That makes those headings a load-bearing address
+# space for the one document whose whole job is stopping an agent re-walking a
+# dead end, and until 2026-08-25 nothing noticed when one was renamed: the
+# entry goes on reading correctly and simply stops pointing anywhere.
+#
+# Safe to gate on because its errors are false *passes* -- it asks whether the
+# text is still somewhere in the document, not whether it is still a heading.
+# See the script's own docstring for what that misses, and for the two related
+# checks that were designed and rejected for failing the opposite way.
+if [ -f scripts/addrcheck.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#addrcheck: }"
+  done < <(python3 scripts/addrcheck.py --check 2>&1 | grep -v 'addresses resolve')
+else
+  note "scripts/addrcheck.py missing -- dead-ends.md's cross-document addresses are unenforced"
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"

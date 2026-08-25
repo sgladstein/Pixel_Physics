@@ -21,6 +21,39 @@ Two audiences, one table: the **anchor** is for a human reading on GitHub, the
 milestone index below it is sorted numerically, which is the one thing grep
 cannot do for you.
 
+The **topic index** is the third table and answers the one navigation failure
+that survived the other two. Measured 2026-08-25: five of six subsystems own
+exactly one section apiece (`M17 status` is "structural collapse" wearing a
+number), but *plants* own five top-level sections and not one of them is named
+"plants" -- so an agent greps `plant`, lands in `M16 status`, and never learns
+the standing-tissue economy has a section of its own.
+
+`TOPICS` below is an **explicit** map, and that is a deliberate reversal. The
+first cut scored sections by counting topic-term hits per section, which looks
+principled and is not: it counts *mentions*, not *ownership*. `M18 status`
+outranked `Materials` for "powders" because a worm burrows through a lot of
+them, and `The ant colony -- status` fell out of "creatures" entirely -- at 14
+lines it cannot clear any share bar set by a 254-line section. Tuning the
+thresholds until the output looked right is exactly what
+`Reports/design-philosophy.md` 2b calls curve-fitting, and what `CLAUDE.md`
+means by asking what a metric counts when nothing is wrong. Membership is
+editorial, so it is written down as data.
+
+That trades away the one virtue the scored version had -- a new section could
+not be silently missing -- so `--check` buys it back and then some:
+
+* every title in `TOPICS` must still exist, so a renamed heading fails
+  `scripts/docscheck.sh` instead of rotting into a dead anchor; and
+* every `##` section must appear in some topic or in `UNINDEXED`, so adding a
+  section forces a placement decision rather than a silent omission.
+
+The first guard matters more than it looks. `Reports/dead-ends.md` addresses
+**47 of its 594 entries by README section *and paragraph* name** across 16
+sections, so these headings are a load-bearing address space for the
+do-not-retry register: renaming one silently invalidates pointers into the one
+document whose whole job is stopping an agent re-walking a dead end. This
+check is the only mechanical thing in the repo that notices.
+
 Sibling of `scripts/bugindex.py`, and shares its two hard-won mechanics: the
 line numbers cite a document the table is inside, so generation iterates to a
 fixpoint; and the block is *derived*, so a merge conflict inside it is never
@@ -35,6 +68,96 @@ import sys
 from pathlib import Path
 
 DOC = Path(__file__).resolve().parent.parent / "README.md"
+
+# Topic -> the sections that *own* it, in intended reading order (primary
+# first). Titles must match a `## ` heading exactly; `--check` fails if one
+# stops existing, which is what makes a heading rename visible rather than
+# silent. A section may appear under several topics -- `Felling status` is
+# genuinely both plant work and structural work, and saying so once here is
+# cheaper than the reader discovering it twice.
+TOPICS = {
+    "plants, trees and moss": [
+        "M16 status",
+        "Plant lines merged: the genome, and the ecology",
+        "The economy re-derived: standing tissue costs something",
+        "The generation loop: plants die, seeds expire, slots come back",
+        "Felling status — the verb works, and what it produces is pieces",
+    ],
+    "creatures — worms and the ant colony": [
+        "M18 status",
+        "The ant colony — status",
+    ],
+    "structural collapse, felling and rigid bodies": [
+        "M17 status",
+        "Felling status — the verb works, and what it produces is pieces",
+        "M8 status — started, not complete",
+    ],
+    "fire, heat and phase change": [
+        "M14 status",
+        "Materials",
+    ],
+    "explosions, particles and debris": [
+        "M15 status",
+        "M7 status",
+    ],
+    "liquids and gases": [
+        "Liquid physics: compressible volume, not discrete occupied cells",
+        "The coarse field grid",
+    ],
+    # No section is *named* for powders: the angle-of-repose model is written up
+    # under `Materials`, and the movement rule it feeds is in `update.rs`, which
+    # the `Architecture` file map is the index to. Two entries beats a reader
+    # concluding it is undocumented.
+    "powders and granular flow": [
+        "Materials",
+        "Architecture",
+    ],
+    "the coarse field grid — pressure, heat, light": [
+        "The coarse field grid",
+        "M12/M13 status",
+    ],
+    "worldgen and world structure": [
+        "M10 status — the worldgen half",
+        "Architecture",
+    ],
+    "the gnome (player character)": [
+        "M9 status — the gnome",
+        "Controls",
+    ],
+    "weather, sky and the clock": [
+        "Weather status",
+        "M19 status — started",
+        "World speed — five independent time axes",
+    ],
+    "rendering, UI and tunables": [
+        "UI improvements — overnight run, section 9",
+        "Live tunables panel — overnight run, section 10",
+        "Rendering performance — overnight run, section 11",
+        "M6 deferral",
+    ],
+    "performance and the parallel sweep": [
+        "Performance",
+        "M5 status",
+        "Architecture",
+        "Rendering performance — overnight run, section 11",
+    ],
+    "materials and the data schema": [
+        "Materials",
+        "M12/M13 status",
+    ],
+}
+
+# Sections deliberately absent from the topic index, so that `--check` can
+# insist every *other* section is placed. `Status` is not an oversight: its
+# **Known limitations** list spans every topic at once, so it earns a line of
+# prose above the table rather than a row in fourteen of them.
+UNINDEXED = {
+    "Contents",
+    "Running",
+    "Finding things",
+    "Status",
+    "License",
+}
 BEGIN = "<!-- BEGIN GENERATED TOC -- regenerate with scripts/readmetoc.py -->"
 END = "<!-- END GENERATED TOC -->"
 
@@ -72,10 +195,51 @@ def headings(lines):
             yield line[3:].strip(), i
 
 
+def short_label(title):
+    """The part of a heading before its first `—` or `:`.
+
+    The topic table names a subject already, so the descriptive tail of a
+    heading is dead weight there -- "M10 status — the worldgen half" under the
+    row **worldgen and world structure** says "the worldgen half" twice. Full
+    titles stay in the Contents table above, and the anchor is still built from
+    the full title, so the link does not care.
+    """
+    return re.split(r"\s+—\s+|:\s+", title, maxsplit=1)[0].strip()
+
+
 def milestone_key(title):
     """Sort key for `M<n> ...` headings. `M12/M13` sorts on 12."""
     m = re.match(r"M(\d+)", title)
     return int(m.group(1)) if m else None
+
+
+def validate(rows):
+    """Fail loudly on the two ways the topic index can rot.
+
+    Returned as a list of complaints rather than raised, so `--check` can print
+    all of them at once -- a heading rename usually breaks several topics, and
+    fixing them one run at a time is the kind of chore that gets abandoned.
+    """
+    titles = {t for t, _ in rows}
+    problems = []
+    for topic, members in TOPICS.items():
+        for m in members:
+            if m not in titles:
+                problems.append(
+                    f"  topic {topic!r} names a section that no longer exists: {m!r}\n"
+                    f"    -> a `## ` heading was renamed or removed. Repoint it in TOPICS,\n"
+                    f"       and check `Reports/dead-ends.md` -- 47 of its entries address\n"
+                    f"       README by section name and do not move themselves."
+                )
+    placed = {m for members in TOPICS.values() for m in members}
+    for t, _ in rows:
+        if t not in placed and t not in UNINDEXED:
+            problems.append(
+                f"  section {t!r} is in no topic\n"
+                f"    -> add it to a TOPICS entry, or to UNINDEXED if it genuinely\n"
+                f"       indexes nothing (say why in a comment)."
+            )
+    return problems
 
 
 def render(rows):
@@ -117,6 +281,34 @@ def render(rows):
         ]
         for n, title, line in ms:
             out.append(f"| {n} | [{title}](#{anchor(title)}) | {line} |")
+    line_of = dict(rows)
+    out += [
+        "",
+        "### By topic",
+        "",
+        "Which sections own a subsystem, **primary first** — the rest are genuinely",
+        "relevant rather than equal partners. Every subsystem has one clear primary",
+        "write-up, usually a milestone: `M17 status` *is* the structural-collapse",
+        "document, `M14 status` *is* fire. Plants are the exception this table exists",
+        "for — four further top-level sections carry plant material and not one of",
+        "them is named \"plants\". A section can appear twice; felling is honestly both",
+        "plant work and structural work.",
+        "",
+        "**Known limitations for every topic are collected in one place**:",
+        f"[Status](#status), line {line_of.get('Status', '?')} — the *last* section in the",
+        "file, not the first. Read it before concluding something is broken.",
+        "",
+        "| Topic | Sections, primary first |",
+        "|---|---|",
+    ]
+    for topic, members in TOPICS.items():
+        cells = ", ".join(
+            f"[{short_label(m)}](#{anchor(m)}) {line_of[m]}"
+            for m in members
+            if m in line_of
+        )
+        out.append(f"| **{topic}** | {cells} |")
+
     out += ["", END]
     return "\n".join(out)
 
@@ -147,6 +339,15 @@ def main():
         return 2
     with open(DOC, encoding="utf-8", newline="") as fh:
         text = fh.read()
+
+    problems = validate(list(headings(text.split("\n"))))
+    if problems:
+        print("readmetoc: the topic index in scripts/readmetoc.py is out of step "
+              "with README.md:")
+        for p in problems:
+            print(p)
+        return 1
+
     updated = build(text)
     if "--check" in args:
         if updated != text:

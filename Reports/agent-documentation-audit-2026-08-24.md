@@ -702,3 +702,303 @@ project context, search breadth medium. Compare **files opened**, **source
 files read**, and **traps refused** — 8 / 0 / 1-of-1 in 2026-08-21, 6 / 0 /
 1-of-1 here. Read §1c first: the instrument now lives inside the corpus it
 measures.
+
+## 9. README.md audited against the agent lens — verdict: keep it
+
+Asked 2026-08-25: *is the primary README useful for agents developing the
+project?* The owner's suspicion was that it mixes four audiences — a message
+to the user, an explanation of the code, a history of development, and notes
+to other agents — and that the mix costs agents.
+
+**Measured, the mix is not there.** README is 2,735 lines / ~44.6k tokens.
+By audience:
+
+| | lines | share |
+|---|---|---|
+| user-facing (`## Running`, `## Controls`) | 71 | 2.6% |
+| navigation (`## Contents`, `## Finding things`) | 88 | 3.2% |
+| `## License` | 2 | 0.1% |
+| **subsystem reference** | **2,574** | **94.1%** |
+
+The history impression is **voice, not content**. Every status section opens
+`Built:` / `Landed`, then describes what the code does *today*, with live
+file paths and identifiers. It reads as a changelog and functions as a
+reference manual.
+
+### It is not stale, and this was the concern with the strongest prior
+
+The audit's founding worry was that documentation predates implementation.
+For README that is measurably false. Every backticked token was extracted and
+resolved against the tree:
+
+| | checked | wrong |
+|---|---|---|
+| file/path references | 546 | **0** |
+| code identifiers (consts, fns, types) | 220 | **2** |
+
+The two are renamed tests — `same_group_chunks_are_never_within_reach_of_
+each_other` (README:994) is now `concurrent_chunks_are_never_within_reach_of_
+each_other`, and `a_tree_can_produce_multiple_simultaneous_tips_via_
+branching` (README:1417) is now `root_and_shoot_branching_read_different_
+slots`. `assets/player.ron` looked missing and is not: `player.rs`'s
+`ASSET_PATH` writes it at runtime. `min_neighbour` (README:1621) is a
+*deliberately* dead identifier — the section is describing a fixed bug.
+
+**0.4% error rate over 766 references.** Do not "refresh" this file.
+
+### It duplicates nothing
+
+8-gram shingle overlap, README against all of `wiki/`: **0.10%** (28 of
+28,620). The trailing `## Status` against the rest of README: **2.5%** — it
+reads like a summary of the milestone sections and is not one; it is 20
+cross-references plus a **Known limitations** list that exists nowhere else
+in the repo. That list is the single highest-value paragraph in the file for
+an arriving agent, and it is at line 2,632 of 2,735.
+
+### The one real cost: subsystem knowledge split by build date
+
+Per-topic section spread (sections with >=5 substantive line hits):
+
+| topic | dominant section | other sections |
+|---|---|---|
+| fire/heat | M14 status (46) | incidental |
+| structural | M17 status (42) | Felling (12), M8 (9) |
+| creatures | M18 status (58) | incidental |
+| worldgen | M10 status (25) | incidental |
+| **plants** | **M16 status (65)** | **The economy re-derived (25), Plant lines merged (19), The generation loop (15), Felling status (14)** |
+
+Five of six topics have exactly one owning section, so the milestone framing
+costs nothing — `M17 status` is `structural collapse` wearing a number. Plants
+are the exception: five top-level sections, **none of them named "plants"**.
+An agent that greps `plant` stops at M16 and never learns the standing-tissue
+economy exists.
+
+### Why a reorder is the wrong fix — and would break 47 addresses
+
+`Reports/dead-ends.md` **addresses its entries by README section and
+paragraph name**: `- **README.md 'M17 status' — 'A step's cost now depends on
+which direction the support comes from' paragraph**`. 47 of its 594 entries
+are addressed this way, across 16 distinct sections (7 in `The coarse field
+grid`, 6 each in `M8 status` and `M16 status`, 5 in `M17 status`).
+
+**README's section structure is a load-bearing address space for the
+do-not-retry register.** Renaming or reordering sections silently invalidates
+47 pointers into the one document whose whole job is stopping an agent
+re-walking a dead end. This is the mechanical reason behind
+`Reports/documentation-overhaul-plan.md` item 11's reversal, which recorded
+only that the churn "bought nothing a table does not" — the cost is larger
+than that entry states.
+
+### Recommendation — both items landed 2026-08-25
+
+**Keep the README as it is.** Not stale, not duplicative, 94% reference, and
+its headings are referenced infrastructure. Two narrow, non-structural items:
+
+1. **Fix the two renamed test names** (README:994, README:1417). Mechanical.
+2. **Add a generated topic -> section index** to the existing TOC block —
+   `plants -> M16 status, Plant lines merged, The generation loop, The
+   economy re-derived, Felling status`. It solves the only measured
+   navigation failure without renaming a heading, so no `dead-ends.md`
+   address moves; and because `scripts/readmetoc.py` generates it under
+   `scripts/docscheck.sh`, it cannot drift. Cost: ~40 lines (2.6% -> 4.0% of
+   the file spent on navigation).
+
+Explicitly **not** recommended: reordering sections, renaming milestone
+headings to subsystem names, splitting the file, or moving status sections
+into `Reports/`.
+
+### 9a. What landed, and the mechanism that was rejected on the way
+
+Both items are in. The two stale identifiers are fixed — and the second was
+not the rename it looked like, which is the transferable part: README claimed
+`a_tree_can_produce_multiple_simultaneous_tips_via_branching` guards that a
+tree produces multiple simultaneous tips. The successor is
+`a_tree_can_branch_into_more_than_one_lineage`, and **the proxy changed
+because the design did** — tip retirement means tips essentially never stay
+alive simultaneously now, so a blind repoint would have re-armed a claim the
+mechanism deliberately abandoned. Read a successor's body before repointing a
+stale name.
+
+**The topic index is an explicit map, and the first cut was not.** The
+obvious mechanism — score each section by counting topic-term hits, keep
+those above a share of the top — produces a table that looks principled and
+is wrong, because it counts *mentions* rather than *ownership*:
+
+- `M18 status` outranked `Materials` for **powders**, purely because a worm
+  burrows through a great many of them;
+- `The ant colony — status` fell out of **creatures** altogether — at 14
+  lines it cannot clear any share bar set by a 254-line section;
+- **worldgen** picked up `Controls`, because `\bseed\b` matches the keys that
+  plant a seed.
+
+Tuning the thresholds until that output looked right is what
+`Reports/design-philosophy.md` 2b calls curve-fitting and what `CLAUDE.md`
+means by *ask what a metric counts when nothing is wrong*. Membership is an
+editorial judgement, so it is written down as data instead.
+
+The scored version had exactly one virtue — a new section could not be
+silently missing — and `--check` buys it back: it fails if a title in
+`TOPICS` stops existing, **and** if any `## ` section belongs to no topic and
+is not on an explicit `UNINDEXED` list. The first guard is worth more than
+its cost on its own, because nothing else in the repo notices when a README
+heading is renamed out from under those 47 `dead-ends.md` addresses.
+
+Every guard was verified by putting its fault back: a renamed heading, an
+unplaced new section, a hand-edited line number in each of the two tables,
+and `docscheck` exiting non-zero for all of them (checked without a pipe —
+`docscheck | tail` reports `tail`'s status, which is the gotcha `CLAUDE.md`
+records).
+
+Cost: **32 lines, ~783 tokens, 1.7% of README**. Navigation is now 3.7% of
+the file.
+
+## 10. Doc staleness, measured across the whole corpus — mostly a negative result
+
+Concern (b) of the founding brief, verbatim: *"Many of the reports were
+generated prior to development and may be out of date from how we implemented
+the features."* Measured 2026-08-25 across all ~80 documents.
+
+**Do not re-run the general sweep. It does not measure staleness.**
+
+The method that worked on `README.md` in §9 — extract every backticked token,
+resolve it against the tree — was run over `Reports/`, `wiki/`, `PLAN.md` and
+`CLAUDE.md`. The top scorers by miss rate:
+
+| document | rate | what the misses actually are |
+|---|---|---|
+| `dependency-license-audit.md` | 54.5% | crate names (`ab_glyph`, `khronos_api`) |
+| `prior-art-worldgen-slicing.md` | 51.9% | **Minecraft's** internals (`BIOME_USE_BIG_WANG`, `stbhw_generate_image`) |
+| `measurement-under-contention.md` | 45.0% | `src/perf.rs`, `TimingLock`, `TRUSTED` — which its own header says are deliberately **not** in the tree |
+| `agent-documentation-audit-2026-08-24.md` | 42.4% | this document, quoting names from other branches |
+| `CLAUDE.md` | 26.5% | harness names (`SessionStart`, `ToolSearch`, `create_trigger`) |
+| `dead-ends.md` | 7.8% | rejected species files (`prostrate.ron`, `weeping.ron`) — **absent because they were rejected** |
+
+A design report, a prior-art survey, a retirement notice and a do-not-retry
+register are all *supposed* to name things that are not in the tree. The
+metric counts "identifier not found" and calls it staleness; what it is
+measuring is mostly a document doing its job. This is `CLAUDE.md`'s *ask what
+a metric counts when nothing is wrong* — and the answer was: a great deal.
+
+`README.md` scored 0.4% not because it is better maintained than the reports,
+but because it is the one document in the corpus whose whole purpose is to
+describe the tree as it stands. **The sweep is valid only for documents that
+claim to describe the current tree**, which is `README.md` and parts of
+`PLAN.md`, and nothing else.
+
+### The one class that is real: cited test names
+
+A doc saying *"test X guards this"* is a checkable claim, and when it is wrong
+an agent trusts a guard that does not exist — the failure `CLAUDE.md`'s
+green-suite gotchas are entirely about. Restricting to backticked
+`snake_case` names of four-plus words:
+
+**334 cited test-shaped names across the corpus, 29 absent from the tree.**
+
+Four of those were genuinely misleading and are fixed here:
+
+| site | was | now |
+|---|---|---|
+| `PLAN.md`:1274 | `same_group_chunks_are_never_within_reach_of_each_other` cited as having "held up" | repointed to `concurrent_chunks_...`, old name kept as history |
+| `PLAN.md`:1276 | `a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks` | the guard survives keyed on a worm; repointed to `a_settled_world_with_a_worm_still_sleeps_between_movement_ticks` |
+| `PLAN.md`:1660 | "`pack_aux_preserving_density` **now wraps** every self-update" | it was **deleted as unnecessary** by the substrate migration — the fields are no longer co-located, so the bug class is unrepresentable. `plant.rs`:1017 holds the removal note. Marked do-not-restore |
+| `pixel-physics-issues.md`:132, 550 | same rename, two sites | repointed the same way |
+
+### …and a gate for it was designed and rejected
+
+A `docscheck` rule over cited test names looks like the obvious next step. It
+would fire on **correct** documentation:
+
+- `plant-project-review-2026-08-23.md` §V reads *"`a_tree_eventually_stops_growing`
+  retired by owner decision"* — correctly recording a retirement;
+- `open-bugs-handoff.md`:3103 names `a_snowstorm_leaves_no_snow_floating_on_open_water`
+  as the *before* and names its successor in the next clause;
+- `liquid-heightfield-design.md` proposes restoring a test it calls deleted;
+- `plant-substrate-v2-design.md` proposes six tests that were never built.
+
+And the four fixes above **still trip it**, deliberately: repointing a stale
+name correctly means keeping the old one as history. A name-only rule cannot
+separate "claims a live guard" from "records a dead one"; only the surrounding
+sentence can. Triage stays human, and the sweep is a one-off instrument, not a
+gate.
+
+`a_tree_eventually_stops_growing` is cited in **six** documents and exists in
+none — every one of them correctly, as a retired bar. That is the shape of
+this whole finding.
+
+## 11. PLAN.md audited — and the address space that turned out to span two documents
+
+### The document is in better shape than its headings suggest
+
+`PLAN.md` is 3,704 lines and 18 `##` sections, and its headings read like
+append-drift: *"— done, not started"*, *"— started, on branch
+`plant-substrate-v2`"*, *"— landed, plan updated"*. They are not. There is a
+working convention underneath: **every handoff section carries a dated
+`*(State YYYY-MM-DD: …)*` line immediately under its heading**, and those
+lines are accurate where they can be checked — the liquid-heightfield one
+still correctly says promotion was reverted and bodies remain test-only,
+which `CLAUDE.md`'s own gotcha list independently confirms.
+
+The heading is a record of what was true when the section was written; the
+State line is the correction. That is a sound design for an append-only
+planning document.
+
+Three real defects, all fixed here without touching a heading:
+
+| defect | fix |
+|---|---|
+| Contents claims **five** session-handoff sections; there are **four** | corrected, and the Contents now tells the reader to read the State line rather than the heading |
+| The heading at :1939 names branch `plant-substrate-v2`, **deleted from origin**; its work is in `main` | a dated State line says so — the heading is an address and stays |
+| Four cited test names claimed as live guards (§10) | repointed |
+
+### Why no heading was renamed: 32 more addresses
+
+`Reports/dead-ends.md` addresses **32** of its entries by `PLAN.md` heading
+name, on top of the 47 into `README.md` found in §9. Renaming a heading in
+either is a cross-repo edit. That is now written into both documents.
+
+### `scripts/addrcheck.py` — the check that was worth building
+
+266 quoted address fragments in `dead-ends.md`, all of which must resolve.
+Wired into `docscheck.sh` as check 9. **This is the third indexing check
+attempted today and the only one adopted**, and the reason is a clean rule:
+
+| check | fails on | verdict |
+|---|---|---|
+| general identifier sweep | design reports, prior-art surveys, `dead-ends.md` itself — all of which *should* name absent things | rejected (§10) |
+| cited test names | docs correctly recording a retired test | rejected (§10) |
+| **dead-ends addresses** | nothing correct — an address either resolves or it does not | **adopted** |
+
+**Its errors are false passes, never false alarms**, which is what makes it
+safe to gate on: it asks whether the text is still somewhere in the document,
+not whether it is still a heading. Fault-injected against three realistic
+renames, two fire and one does not (a `worldgen-design.md` heading whose
+phrase also appears in that file's prose).
+
+### Four things it took fault injection to find, none visible by reading
+
+The first version reported a confident **all 88 resolve**. Every number in
+that sentence was wrong:
+
+1. **It checked only the first quoted fragment per entry.** An entry reading
+   `README.md 'M17 status' — 'A step's cost now depends …' paragraph` names
+   two things; the paragraph went unchecked. Rewording it passed silently.
+   Fixing this took the corpus from 88 addresses to **266**.
+2. **Quote pairing broke on apostrophes.** `'a step's cost'` splits in half on
+   a naive `'([^']+)'`. A quote followed by a lowercase letter is an
+   apostrophe, not a delimiter.
+3. **Normalisation was needed twice**, and every rule earned its place by a
+   *correct* address failing: backticks, `**bold**`, `~~strike~~`, `→` vs
+   `->`, `§6` vs `section 6`, `*italics*`, smart quotes, case. Without them 16
+   of 266 fail and **all sixteen are false alarms**.
+4. **An entry addresses a set of documents, not one.** Entry 658 names
+   `tree-shape-problem-statement.md` and then, in an `(also …)` clause,
+   attributes a fragment to `tree-architecture-implementation-plan.md`. And
+   `PLAN.md`'s progress log was **split out into `PLAN-log.md`**, so entries
+   naming "PLAN.md Progress log" point at text that has moved. Blaming the
+   first-named document reported both as broken.
+
+Fixing (4) took the count from 8 unresolved to **0**, which is the shape
+`CLAUDE.md` warns about — *a cost that vanishes may be work that vanished*.
+It was checked rather than accepted: the entries were read, the `(also …)`
+clause found, and the guard re-injected with three faults to confirm it had
+not gone vacuous. It had not.
