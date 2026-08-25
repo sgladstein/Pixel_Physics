@@ -994,7 +994,12 @@ consider it at all.
   procedural system has to sweep the procedure, and it should gate an **order
   statistic** (p90 or max over N seeds) rather than any single seed: outcomes
   here are chaotic in the seed, so which one is worst reshuffles on any
-  legitimate change and a per-seed baseline gets rubber-stamped. **This
+  legitimate change and a per-seed baseline gets rubber-stamped. **Six seeds
+  is not a sweep**, measured 2026-08-25: §S2's anchor-rule census read
+  **1.64x** over its first six seeds and **1.08x** over the next twelve,
+  pooling to a per-seed *median of zero* with a third of seeds running the
+  other way. The six-seed sample was not wrong, it was unrepresentative —
+  and it looked exactly like a clean result. **This
   happened twice in one session** — two different changes to the load model,
   both green on all eight cases, the second eating fifty times more world than
   the bug it was fixing. A seed sweep caught each in one command. So build the

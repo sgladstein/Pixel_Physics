@@ -102,25 +102,25 @@ point.
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
 | S2 | **OPEN** | 5918 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6067 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6158 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6172 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6184 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6202 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6223 | A material-counting guard cannot see a species |
-| W1c | note | 6236 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6370 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6448 | The structural opt-out did not hold against bearing |
-| T1d | note | 6459 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6493 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6547 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6601 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6630 | §1c's settle loss is now a counter |
-| -- | note | 6647 | What landed |
-| -- | note | 6670 | Do not re-derive these |
-| -- | note | 6698 | Measurements that contradict something written |
-| -- | note | 6718 | Open |
-| -- | note | 6753 | Unmerged at close, and one of it is a fix main needs anyway |
+| -- | closed | 6107 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6198 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6212 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6224 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6242 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6263 | A material-counting guard cannot see a species |
+| W1c | note | 6276 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6410 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6488 | The structural opt-out did not hold against bearing |
+| T1d | note | 6499 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6533 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6587 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6641 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6670 | §1c's settle loss is now a counter |
+| -- | note | 6687 | What landed |
+| -- | note | 6710 | Do not re-derive these |
+| -- | note | 6738 | Measurements that contradict something written |
+| -- | note | 6758 | Open |
+| -- | note | 6793 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6010,16 +6010,56 @@ what was painted.
 - **Established**: a freshly generated world has *no* ground roots at all —
   `compute_world_distances` never makes one — and acquires them lazily as
   `tick` visits cells. Painted rock gets them immediately and in bulk.
-- **Not established**: how often a player meets it. This is **one hand-built
-  scene at one geometry**, not a sweep over procedural content, and
-  `CLAUDE.md` is explicit that such a case is blind by construction to what
-  worldgen actually produces. What it demonstrates is the *mechanism*; how
-  common the geometry is, nobody has measured.
+- **Measured, 2026-08-25**: how often a player meets it — see the frequency
+  section below. Short version: the trigger is everywhere and the *outcome*
+  is not distinguishable from seed noise.
 - **Not established**: which rule is right. `compute_world_distances`'
   bedrock-only rule is the most conservative and is what the world is built
   with; `tick`'s is the considered one and has the reasoning behind it;
   `relax_region`'s appears to be neither, and no comment anywhere argues for
   it.
+
+#### Frequency in generated terrain: the trigger is everywhere, the damage is noise
+
+`anchor_probe worldgen=1` — 18 seeds x 12 build sites at 2048x640, `rolling`.
+At each site a 40-cell platform is drawn level from the local surface (so the
+terrain decides how much cantilevers and what its underside meets), painted
+**identically in both arms**, with only the field rule differing afterwards.
+
+| | |
+|---|---|
+| sites whose platform sits over loose material | **73–78%** |
+| sites where the two rules disagree about what is anchored | **78%** |
+| platform cells destroyed, brush rule | 5,026 |
+| platform cells destroyed, bedrock-only rule | 4,062 |
+| ratio | 1.24x |
+| **per-seed extra damage, median** | **0** |
+| per-seed extra damage, mean / p90 / range | +54 / +196 / −126 to +426 |
+| seeds where the brush arm did worse / **better** / identical | 8 / **6** / 4 |
+
+**So the mechanism's trigger condition is near-universal and its consequence
+in ordinary terrain is not.** The geometry that actually destroys a structure
+— a long span from a narrow support with loose material touching partway — is
+one a player builds deliberately; terrain hands it to you rarely enough that
+over 216 sites the median seed shows no difference at all, and a third of
+seeds come out *better* under the brush's rule.
+
+**This entry's own first answer was a small-sample artifact, and that is worth
+recording.** The first six seeds gave **1.64x** and read as a clean effect.
+The next twelve gave **1.08x**. Pooled, the median is zero. `CLAUDE.md`
+already says outcomes here are chaotic in the seed and a guard must read an
+order statistic over N seeds — the rule was written down, quoted in this very
+session, and still under-applied at n=6. **Six seeds is not a sweep on this
+engine.**
+
+#### What that means for priority
+
+**§S2 does not go ahead of §S.** §S doubles the frame cost on every
+destructive verb, reproduces every time, and needs no special geometry. §S2 is
+a genuine defect with a proven mechanism whose effect on a generated world is
+inside seed noise. Fix the anchor rule because it is *wrong* and cheap to make
+consistent, not because players are losing structures to it — nothing here
+shows that they are.
 
 #### For the wiki, when this is fixed
 
