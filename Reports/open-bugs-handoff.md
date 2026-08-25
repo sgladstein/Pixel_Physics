@@ -101,25 +101,25 @@ point.
 | L | closed | 5285 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5417 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5479 | One explosion leaves the structural scheduler pinned at its cap for ever |
-| -- | closed | 5753 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 5844 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 5858 | Grow into soil destroys the soil's stored water |
-| 3 | note | 5870 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 5888 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 5909 | A material-counting guard cannot see a species |
-| W1c | note | 5922 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6056 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6134 | The structural opt-out did not hold against bearing |
-| T1d | note | 6145 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6179 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6233 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6287 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6316 | §1c's settle loss is now a counter |
-| -- | note | 6333 | What landed |
-| -- | note | 6356 | Do not re-derive these |
-| -- | note | 6384 | Measurements that contradict something written |
-| -- | note | 6404 | Open |
-| -- | note | 6439 | Unmerged at close, and one of it is a fix main needs anyway |
+| -- | closed | 5802 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 5893 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 5907 | Grow into soil destroys the soil's stored water |
+| 3 | note | 5919 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 5937 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 5958 | A material-counting guard cannot see a species |
+| W1c | note | 5971 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6105 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6183 | The structural opt-out did not hold against bearing |
+| T1d | note | 6194 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6228 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6282 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6336 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6365 | §1c's settle loss is now a counter |
+| -- | note | 6382 | What landed |
+| -- | note | 6405 | Do not re-derive these |
+| -- | note | 6433 | Measurements that contradict something written |
+| -- | note | 6453 | Open |
+| -- | note | 6488 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5701,28 +5701,77 @@ speed-up, so do not assert one.
   in open water for the rest of a run, and `load::evaluate` calling it
   UNSUPPORTED the whole time.
 
-#### What to try, and the one thing to check before believing it
+#### The fix: prototyped, measured, and the box size is the whole of it
 
-Give the explosion the same converged pass the brush already takes:
-`relax_region` over the charge's own extent, once, at the moment it fires.
-The function exists, is tested, and its doc is an argument for exactly this.
+Give the explosion the same converged pass the brush already takes —
+`relax_region` once, when the blast's last stage has run. Prototyped on
+`claude/perf-blast-relax` (`explosion.rs::settle_structure`), and the first
+sizing was **wrong in an instructive way**.
 
-**But it is a behaviour change, and possibly to the wrong thing.** The owner's
-stated requirement is *"collapse must be obvious and delayed, so the player
-can get supports in first"*, and `CHAIN_WINDOW_FRAMES` is 600 frames of
-deliberate generosity in service of it. Some part of the delay a player
-currently sees after a blast is this wavefront crawling — which means a
-converged pass could make collapse arrive *instantly* and read as worse, even
-while the frame cost falls off a cliff. That is a judge-by-eye question and it
-belongs in front of the owner as a blind A/B (`filmstrip gif=1`, with the
-failure counts in the card's `meta`), not in a commit message. See also §D2,
-which is the same quantity from the other side: *"a room's collapse arrives at
-frame ~350 where it used to arrive at ~150"*, filed as a regression.
+**Sized to the charge (`damage_extent + 4`): nothing.** Pending 45,134
+against the baseline's 43,789 at frame 3,600. It works perfectly for exactly
+one frame — 100 frames after the bang the baseline reads `worsened 199,
+produced 1393` and the pass reads `worsened 0, unmoved 391, produced 10`, so
+the blast's own correction is genuinely finished — and by frame 2,400 the
+wavefront is back at `worsened 1637`. `relax_region` seeds its boundary from
+the values just *outside* the box and treats them as correct, so where a
+charge severs a load path the outside is stale-low, the inside converges to a
+value that has to rise again, and the correction simply restarts from the box
+edge instead of the crater.
 
-The measurement that has to accompany it: `FailureCounts` before and after
-over `scripts/blastsweep.sh`'s nine charges, read at the order statistic. A
-converged pass changes *which* cells reach a failing verdict and when, so
-"the frame got cheaper" is not on its own evidence that nothing else moved.
+**At eight times that box the backlog does not shrink, it disappears:**
+
+| frame | baseline | 8x box |
+|---|---|---|
+| 2,400 | 25,876 pending / 10.08 ms | **5,134 / 0.03 ms** |
+| 3,600 | 43,789 / 13.02 ms | **5,812 / 0.10 ms** |
+| 6,000 | 73,233 / 10.32 ms | **6,586 / 0.16 ms** |
+
+5,134 is *below* the ~5,400 idle heap. Whole frame 31.21 → 18.98 ms and
+97.1% → 49.2% of frames over budget — though those two are 9,000 and 6,000
+frames respectively and a like-for-like amortised comparison is still owed.
+
+So the converged pass is the right mechanism and a charge-sized region is two
+orders of magnitude too small: the affected zone measures ~63 chunks
+(~250,000 cells) against a few thousand.
+
+#### Three things standing between that and a shippable fix
+
+1. **`relax_region` roots on loose ground eagerly; `tick` roots last-resort.**
+   `relax_region` seeds any cell with `is_resting_on_ground` at distance 0
+   outright; `tick` takes that root only when relaxation leaves no path at
+   all — a distinction its own comment calls *"the whole of the dig
+   cascade"*, because eager rooting is "a sprinkle of sand under a beam holds
+   the beam up". Over a brush stroke the discrepancy is small; over an 8x
+   blast box it is not, and `max aux` after the pass is 142 against 2,482 for
+   the small box. **A queue that goes quiet because everything got rooted at
+   0 looks exactly like a queue that goes quiet because it converged.**
+   `scripts/acceptance.sh` run with the 8x box is **green on all cases** —
+   3,578 cells still came off as chunks, 167 pieces still cut loose — so the
+   worst reading is not what is happening. But those scenes are hand-placed
+   at one seed and `CLAUDE.md` is explicit that such a guard is blind to
+   procedural variation, so this is *not settled*: it wants
+   `scripts/blastsweep.sh`'s `FailureCounts` at the order statistic.
+2. **A 440 ms frame.** The `blasts` row's worst goes to 440.75 ms — the pass
+   itself, in one frame. A quarter-second freeze at the bang is not a trade
+   this repo makes, so the pass has to be amortised across frames.
+3. **A multiplier is not a design.** The shipping form wants a self-sizing
+   region — grow until no cell just *outside* it wants to rise, which is a
+   perimeter scan and terminates on its own — rather than `SETTLE_SCALE`.
+
+#### And it is still a behaviour change, for the owner to judge
+
+The owner's stated requirement is *"collapse must be obvious and delayed, so
+the player can get supports in first"*, and `CHAIN_WINDOW_FRAMES` is 600
+frames of deliberate generosity in service of it. **Some part of the delay a
+player currently sees after a blast is this wavefront crawling** — so a
+converged pass could make collapse arrive nearly instantly and read as worse,
+even while the frame cost falls off a cliff. That is a judge-by-eye question
+and belongs in front of the owner as a blind A/B (`filmstrip`, frames rather
+than a GIF, with the failure counts in the card's `meta`), not in a commit
+message. See also §D2, the same quantity from the other side: *"a room's
+collapse arrives at frame ~350 where it used to arrive at ~150"*, filed as a
+regression.
 
 
 ## Closed this session
