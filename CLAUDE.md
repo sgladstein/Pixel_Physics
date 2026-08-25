@@ -613,13 +613,27 @@ report could mean two different things, the cheap move is to measure both
 and see which one is actually there, or to ask. It is much cheaper than the
 fix you build for the wrong reading.
 
-### Ask what a metric counts when nothing is wrong
+### Ask what your number counts when nothing is wrong — metric, counter, timing, difference or census alike
 
-The whisker hunt defined
-a "film" as a water cell with air above and below — which is *what falling
-water looks like*, so the metric counted every droplet in the world. Its
-numbers were real and meant nothing. Sanity-check a new metric against a
-case you know is fine, before trusting it about a case you don't.
+**The single worst-recurring failure in this repo: six occurrences across two
+independent sessions, the last two on one day.** Sanity-check any new number
+against a case you know is fine, before trusting it about a case you don't.
+
+The rule was written as *"ask what a **metric** counts"* and recurred
+anyway, because none of the repeats looked like a metric in the moment. Name
+the instrument and it stops hiding:
+
+| instrument | how it lied |
+|---|---|
+| a **metric** | the whisker hunt defined a "film" as water with air above and below — *what falling water looks like* — so it counted every droplet in the world |
+| a **counter** | 200 cuts reported against a flat queue; the counter counted **calls**, the harness aimed at soil, and 23 swings removed **0** cells |
+| a **timing** | three 600-frame windows on the same world gave **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost" — it was the wind |
+| a **difference** | `extra lost = 0`, comparing two things that had both not happened |
+| a **census** | counted every `Solid` in the world rather than the platform under test |
+
+Its numbers are real every time. That is the point: a number that is
+arithmetically correct and answers a different question than the one asked
+looks exactly like a result.
 
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
@@ -1066,12 +1080,18 @@ consider it at all.
   *settled* one, because what it defeats is the dirty-rect render skip — and
   a settled world is exactly where that skip does its work.
 - **A size cap must bound work, never gate whether something happens.**
-  Written twice in one session: fracture declined any region larger than its
-  body-size cap and fell through to per-cell conversion, so the *bigger* the
-  collapse the more certain it dissolved into dust. The cap belonged on a
-  fragment, not on the decision to break at all. Any `if too_big { return }`
-  is a claim that the largest cases deserve the least behaviour — check that
-  is what you meant.
+  **The test is semantic, not syntactic: does exhausting the cap produce an
+  *answer*, or merely *less work*?** An answer is the bug. Stated as
+  `if too_big { return }` this rule was findable and still missed twice more,
+  because neither repeat had a `return` in it — a truncation that *understated*
+  a subtree's torque, and a budget whose exhaustion resolved to
+  **"supported"**. Both reports quoted this rule while failing to be saved by
+  it. The original: fracture declined any region larger than its body-size cap
+  and fell through to per-cell conversion, so the *bigger* the collapse the
+  more certain it dissolved into dust — the cap belonged on a fragment, not on
+  the decision to break at all. **Three live sites carry this shape today**
+  (`src/sim/load.rs:717`, `:1080`, `:1150`, each `budget == 0 || >= MAX_*`);
+  check what each returns when the budget runs out before trusting it.
 
 **Process and records**
 
@@ -1295,3 +1315,27 @@ consider it at all.
   live, and go live the moment promotion lands. Why promotion was
   implemented and reverted is in `liquid.rs`'s own module doc and
   `Reports/liquid-heightfield-design.md`.
+- **A coarse-field read is block-nearest, so neighbouring cells sample the
+  same value — never build a per-cell decision on the difference between
+  two of them.** At `FIELD_SCALE`, four sensors one cell apart land in the
+  same field block roughly seven times in eight, so their differences are
+  zero and whatever tie-break follows becomes a constant direction. **Hit
+  four times, on three different lines, and never once caught by a test:**
+  worm thermotaxis resolved to "always flee west"; tree phototropism
+  reproduced the identical degeneracy; a third proposal for per-candidate
+  self-avoidance was stopped only by a reviewer noticing the pattern; and
+  it stands recorded as a live trap for the first liquid code to read
+  pressure per cell. If a rule needs a *gradient*, interpolate or sample
+  far enough apart to cross a block boundary — and prove the two reads can
+  actually differ before trusting the sign.
+- **A channel needs a writer and a reader, and the compiler checks neither.**
+  A field that is written and never read is dead weight; one that is read
+  and never written is worse, because **every consumer of it is dead code
+  that looks alive** — the reads compile, the values are plausible, and the
+  behaviour they drive silently does not exist. `Reports/dead-ends.md` calls
+  this "the failure mode this project has hit three times": light with no
+  writer, canopy density with an always-zero reader, pressure with no liquid
+  consumer. It is a standing check, not three individual fixes — when you
+  add or inherit a per-cell or per-tile channel, name its writer and its
+  reader out loud before building on it, and if either is missing say so
+  rather than assuming the other end is somewhere you have not looked.

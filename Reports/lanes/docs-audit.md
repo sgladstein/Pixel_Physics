@@ -188,3 +188,47 @@ quote pairing on apostrophes (`a step's cost`), needed two rounds of markup
 normalisation where all 16 failures were false alarms, and blamed the
 first-named document when an entry's `(also …)` clause attributes fragments
 to a sibling — the PLAN.md/PLAN-log.md split does this constantly.
+
+## 2026-08-25 — recurrence audit: which CLAUDE.md rules actually failed
+
+Ran a read-only audit asking one question: **which mistakes happened more
+than once, and did a CLAUDE.md rule already exist at the time of the
+repeat?** Not "what did we learn" — that is already written down.
+
+**Seven rules existed and the mistake recurred anyway.** The failure is
+almost always *framing*, not content:
+
+- **Worst in the corpus: "ask what a metric counts when nothing is wrong" —
+  six recurrences, two independent sessions, the last two on one day.** None
+  of the repeats looked like "a metric": they were a counter (counting calls,
+  23 swings removing 0 cells), a timing (0.00 / 4.98 / 7.04 ms for the same
+  world — it was the wind), a difference (`extra lost = 0`, comparing two
+  non-events), and a whole-world census. Reworded to name every instrument.
+- **"A size cap must bound work" recurred twice more** because it was stated
+  as a *syntactic* tell, `if too_big { return }`, and both repeats had no
+  `return` — a truncation that understated torque, a budget resolving to
+  "supported". Both reports quoted the rule while failing to be saved by it.
+  Restated semantically: does exhausting the cap produce an *answer* or
+  *less work*? Three live sites named (`load.rs:717`, `:1080`, `:1150`).
+- The oscillator rule was scoped to "decisions" in its first clause, so a
+  session measuring *cost* skipped it — the same defect the new meta-rule
+  names, in a rule that predates it.
+
+**Two failures have recurred with no rule ever written, and both are added:**
+
+- **Block-nearest coarse-field reads** — four occurrences across creatures,
+  plants and liquids; the third was caught only by a reviewer. CLAUDE.md
+  contained zero occurrences of `block-nearest`, `bilinear`, `field_at` or
+  `FIELD_SCALE` (verified).
+- **A channel with a writer and no reader, or a reader and no writer** —
+  three occurrences; `dead-ends.md` names it as such and asks for "a
+  standing check rather than a fourth individual fix".
+
+**Do not cut** the `git add -A` rule or the seam-penalty rule: both have zero
+recurrences since landing, which is what a working rule looks like. The
+bug-register letter-collision rule is one day old and untested — absence of
+evidence, not evidence of absence.
+
+Caveat carried from the audit: the clone is shallow (depth ~707, earliest
+2026-08-16), so several rules can only be proven "present at or before the
+boundary", not dated exactly.
