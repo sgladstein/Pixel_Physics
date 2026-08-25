@@ -1,7 +1,8 @@
 # CLAUDE.md organization review — the thirteen recommendations
 
-**Status: nine landed in `0efeb24`; recommendations 5, 6, 7 and 12 are
-approved and still open.** Produced 2026-08-19 by the documentation
+**Status: twelve landed — nine in `0efeb24`, then 5, 6 and 7 on 2026-08-25.
+Only recommendation 12 is still open, and it is blocked on `perf-lock`
+merging rather than on any disagreement.** Produced 2026-08-19 by the documentation
 overhaul's review agent, recovered into the repo 2026-08-24 from the
 session's local plans directory — where it was the only copy, cited by the
 audit's delta section as "recorded as a queued follow-up so the approval is
@@ -9,11 +10,17 @@ not silently dropped" but not actually reachable from anything in the tree.
 Landed/pending status below was re-verified against `main` on 2026-08-24,
 not taken from the session's own account.
 
-**What the four open ones have in common:** each moves text across a region
-that an unmerged branch also edits — `load-share` beside the oscillator
+**What the four blocked ones had in common:** each moved text across a region
+that an unmerged branch also edited — `load-share` beside the oscillator
 passage, `plant-branch-angle` beside the git-reset passage, `perf-lock`
-inside Conventions. The block is a merge-conflict argument, not a
-disagreement with the recommendation. When those three branches land, this
+inside Conventions. The block was a merge-conflict argument, not a
+disagreement with the recommendation. Two of those branches have since merged
+(both verified by ancestor test, not inferred from a missing ref), which is
+what unblocked 5, 6 and 7. `perf-lock` has *not* merged: it was recovered and
+pushed on 2026-08-24 but sits 6 ahead of `main` and **518 behind**, and its
+`CLAUDE.md` reads `+97 −467` against today's file — so rec 12 wants that
+branch's 91-line section re-applied onto current `CLAUDE.md`, not a branch
+merge. When those three branches land, this
 list is directly executable.
 
 **The line numbers are rotted, deliberately.** Every `LNNN` below points
@@ -74,7 +81,7 @@ against a stale base — direction right, figures unreliable. Treat every
 
 ## 5. The git-reset forensics passage is always-loaded narrative
 
-****Pending**.** Deferred: `plant-branch-angle` rewrites the region beside this passage. The full narrative is still inline in `CLAUDE.md`.
+****LANDED 2026-08-25.** ** The blocker cleared — `plant-branch-angle` is merged into `main` (`9b0cccc` is an ancestor; verified by ancestor test, not inferred from the branch's absence). The recipe and the operative two-sentence warning stay inline; the narrative and the three-step forensics moved to `Reports/concurrent-sessions.md`.
 
 **The issue.** The git-reset forensics passage (L133-146, ~200 tokens) - '**That reset strands stale files whenever the main tree was *behind*.**' through the recovery procedure - describes a rare failure mode of one specific maneuver, in full narrative detail, in every session's context.
 
@@ -84,7 +91,7 @@ against a stale base — direction right, figures unreliable. Treat every
 
 ## 6. The oscillator section is subsystem-specific detail
 
-****Pending**.** Deferred: `load-share` inserts sections beside the oscillator passage. Still inline in full.
+****LANDED 2026-08-25.** ** The blocker cleared — `load-share` is merged into `main`. Compressed to the rule plus `field::noon_equivalent_light`; the rationale needed no new home, because `Reports/plant-economy-rederivation-2026-08-23.md` already carried it including the 71-at-noon-against-28-at-night measurement.
 
 **The issue.** 'A channel that oscillates by design must be divided out of decisions' (L272-283, ~150 tokens) is subsystem-specific: it matters only when writing a threshold on light or temperature in organism code, and its detail (71 vs 28 tip counts, the temperature forecast) is design-report material.
 
@@ -94,7 +101,7 @@ against a stale base — direction right, figures unreliable. Treat every
 
 ## 7. The amputation gotcha is an open bug, and belongs with the open bugs
 
-****Pending**.** Deferred with 5 and 6 as the second narration move-out. Both entries — the amputation gotcha and the liquid-heightfield latency note — are still inline in `CLAUDE.md`.
+****LANDED 2026-08-25, and the gotcha had gone stale in the meantime.** ** No new register entry was filed: `open-bugs-handoff.md` §0d already covers it and already records the supersession, so filing one would have duplicated it (CLAUDE.md's own "grep the file before adding a section"). More importantly the gotcha's stated *reason* was no longer true — the hop-bounded `organism_is_supported` it names **no longer exists anywhere in the tree**, replaced by `plant::anchor_support`, a Dijkstra from the anchors outward with no span budget. The inline rule was rewritten around the reason that *is* still live (growth adds material, so it is not a disturbance; a `GrowingTip` is expected to be transiently unsupported), pointing at §0d for the history. The liquid-heightfield note compressed to a pointer at `liquid.rs`'s module doc, which already carries the fact.
 
 **The issue.** 'A structural check scheduled mid-organism amputates it' (L507-516) is, by its own words, an open bug with a workaround: 'Until the support search anchors properly, do not add `schedule_structural_check_around`...'. The knowledge table defines Reports/open-bugs-handoff.md as exactly this: 'Working reproductions, what has been ruled out... Read this before touching a listed area.'
 
