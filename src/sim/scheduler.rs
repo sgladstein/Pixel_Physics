@@ -256,6 +256,110 @@ impl PartialOrd for ActiveSite {
 /// `pop_due_active_site` will find them again next frame — not lost, not
 /// requeued, just deferred, spreading a big backlog across several frames
 /// instead of spiking one.
+/// Per-kind wall time and site count inside [`step`], printed when
+/// `SCHED_PASS=<every N frames>` is set. Off by default and free when off.
+///
+/// **Why this exists.** `scale_probe phases=1 load=` measured this phase at
+/// **0.317 ms idle and 9.429 ms with a 64-ant colony in the world** -- a 30x
+/// jump that took it from 2.4% of the frame to 35.1%, nearly tying the field.
+/// A single total cannot say which of the six site kinds that is, and they
+/// want completely different fixes: a creature tick is per-ant per-interval
+/// work, a structural check drags the load model's flood walks behind it
+/// (`open-bugs-handoff.md` §1j measured 118 ms on a destruction scene, and
+/// that cost lands *here* rather than in the `blasts` row, because
+/// `structural::tick` is dispatched from this loop), and decay/evaporation
+/// are cheap per site but can arrive in bulk.
+///
+/// **Counts as well as times**, for the reason every counter in this repo
+/// exists: 2,000 cheap checks and 2,000 checks that each flood a thousand
+/// cells are the same number of sites and three orders of magnitude apart in
+/// cost, which is the observation `step`'s own load-budget comment opens
+/// with. Time alone cannot separate "many sites" from "expensive sites";
+/// time *and* count can.
+#[derive(Default)]
+struct SchedTiming {
+    every: u64,
+    ms: [f64; 6],
+    n: [u32; 6],
+    deferred: usize,
+    staged_ms: f64,
+    /// Sites *scheduled by* this frame's ticks. The decisive number when a
+    /// backlog will not drain: if `produced` matches the number popped, each
+    /// site is replacing itself and the queue is self-sustaining however fast
+    /// it is drained. `CLAUDE.md` records a reverted change with exactly this
+    /// signature -- "every settling cell raised a fresh check on its parent
+    /// ... faster than the queue drained".
+    produced: usize,
+    /// Which branch of `structural::tick` produced them -- see
+    /// `structural::TickCensus`. `produced` says the queue is
+    /// self-sustaining; this says what sustains it.
+    census: structural::TickCensus,
+}
+
+impl SchedTiming {
+    const NAMES: [&'static str; 6] =
+        ["organism", "structural", "creature", "decay", "evaporate", "dissipate"];
+
+    fn new() -> Self {
+        use std::sync::OnceLock;
+        static EVERY: OnceLock<u64> = OnceLock::new();
+        let every = *EVERY.get_or_init(|| std::env::var("SCHED_PASS").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        SchedTiming { every, ..Default::default() }
+    }
+
+    fn slot(kind: &ActiveKind) -> usize {
+        match kind {
+            ActiveKind::Organism { .. } => 0,
+            ActiveKind::StructuralCheck => 1,
+            ActiveKind::Creature { .. } => 2,
+            ActiveKind::Decay => 3,
+            ActiveKind::Evaporate { .. } => 4,
+            ActiveKind::Dissipate => 5,
+        }
+    }
+
+    fn time<R>(&mut self, kind: &ActiveKind, f: impl FnOnce() -> R) -> R {
+        if self.every == 0 {
+            return f();
+        }
+        let slot = Self::slot(kind);
+        let t = std::time::Instant::now();
+        let r = f();
+        self.ms[slot] += t.elapsed().as_secs_f64() * 1000.0;
+        self.n[slot] += 1;
+        r
+    }
+
+    fn report(&self, frame: u64) {
+        if self.every == 0 || !frame.is_multiple_of(self.every) {
+            return;
+        }
+        let total: f64 = self.ms.iter().sum::<f64>() + self.staged_ms;
+        let detail: Vec<String> = Self::NAMES
+            .iter()
+            .zip(self.ms.iter())
+            .zip(self.n.iter())
+            .filter(|((_, ms), n)| **n > 0 || **ms > 0.0)
+            .map(|((name, ms), n)| format!("{name} {ms:.2}/{n}"))
+            .collect();
+        println!(
+            "  [sched] frame {frame:>6} sites {:>5} produced {:>5} deferred {:>6} total {total:>7.2}ms | staged {:.2} | {}",
+            self.n.iter().sum::<u32>(),
+            self.produced,
+            self.deferred,
+            self.staged_ms,
+            detail.join("  ")
+        );
+        let c = self.census;
+        if c.worsened + c.improved + c.unmoved > 0 {
+            println!(
+                "  [struct] frame {frame:>6} worsened {:>5} improved {:>5} unmoved {:>5} | budget0 {:>5} chain-deferred {:>5} uninteresting {:>5} | max aux {}",
+                c.worsened, c.improved, c.unmoved, c.budget0, c.chain_deferred, c.uninteresting, c.max_aux
+            );
+        }
+    }
+}
+
 pub fn step(world: &mut World) {
     // Refilled once per frame, before any site is dispatched: the load
     // walks a structural check performs are the expensive half of this
@@ -273,18 +377,25 @@ pub fn step(world: &mut World) {
         }
     }
 
+    let mut timing = SchedTiming::new();
+    // What is still waiting when the frame's site budget runs out. A phase
+    // that is expensive *and* draining its backlog is a different problem
+    // from one that is expensive and falling behind, and only this number
+    // separates them.
+    timing.deferred = world.active_site_count();
     for site in due_sites {
-        let produced = match site.kind {
+        let produced = timing.time(&site.kind, || match site.kind {
             ActiveKind::Organism { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
             ActiveKind::Creature { .. } => creature::tick(world, &site),
             ActiveKind::Decay => decay::tick(world, &site),
             ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
             ActiveKind::Dissipate => update::dissipation_tick(world, &site),
-        };
+        });
         // Routed through the one canonical insertion point -- `world.
         // active_sites` is live for the whole loop now, so there's no
         // longer a separate "taken out" case to special-case here.
+        timing.produced += produced.len();
         for produced_site in produced {
             world.schedule_active_site(produced_site);
         }
@@ -295,7 +406,17 @@ pub fn step(world: &mut World) {
     // neither competes for `MAX_SITES_PER_FRAME` nor gets starved by the
     // load budget those sites drain — which is what happened when it was
     // driven by rescheduled checks. See `structural::advance_staged_fractures`.
+    let t = std::time::Instant::now();
     structural::advance_staged_fractures(world);
+    if timing.every > 0 {
+        timing.staged_ms = t.elapsed().as_secs_f64() * 1000.0;
+    }
+    // Drained unconditionally, not only on a reporting frame: the counters
+    // are per-frame, and leaving them to accumulate on the frames between
+    // reports would make every printed line a running total wearing a
+    // per-frame label.
+    timing.census = structural::take_tick_census();
+    timing.report(world.frame);
 }
 
 /// Starting point, not empirically pinned down to the frame budget yet —

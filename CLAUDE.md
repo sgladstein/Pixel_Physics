@@ -69,7 +69,7 @@ already changed decisions:
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (546 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (573 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
@@ -229,6 +229,16 @@ made no sense. `main` is the GitHub default, is the only branch CI gates, and
 is what the reset procedure below names. `master` is a mirror with nothing of
 its own and is on its way out. `scripts/branchcheck.sh --gate` fails if any
 commit is ever reachable from `master` but not `main`, and CI runs it.
+
+**A session cannot delete a branch, so the prune is the owner's to run.**
+Measured 2026-08-25: 37 branches verified at 0 ahead of `main`, every
+`git push origin --delete` returned **HTTP 403**, none succeeded. Pushing
+commits works all day; deleting a ref does not, and the GitHub MCP server
+offers no delete-branch tool either. The proxy was healthy with no relay
+failures, so this is the credential's scope rather than a misconfiguration.
+`branchcheck` can therefore *identify* deletable branches and never act on
+them — when the merged count climbs, that is a message for the owner, not a
+task any lane can pick up.
 
 **Know how far behind you are, before you trust anything you measured on
 it.** The worktree rule below keeps two sessions from breaking each other's
@@ -904,6 +914,12 @@ out of that, and neither depends on the machine it was measured on:
   what a metric counts when nothing is wrong* (below) applied to counters
   rather than to metrics — a null is where it hides, because a null looks the
   same whether the mechanism is quiet or the probe never reached it.
+- **…and a *positive* hides from the opposite direction.** A null hides from
+  **inattention** — nothing demands an explanation. A positive hides from
+  **motivated reasoning** — it is the result you wanted, and every check you
+  reach for is one it passes. Same session, both shapes, and neither had a
+  control. *A cost that vanishes may be work that vanished* below is the worked
+  case and carries the remedy.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
@@ -934,6 +950,39 @@ number. An untrusted *median* is worth something either way.
 
 `Reports/measurement-under-contention.md` has the evidence, and records why the
 machine-wide lock it designed was deliberately not landed.
+### A cost that vanishes may be work that vanished
+
+The sharpest version of *look again for what you did not measure*, and it
+cost a night. §S's backlog — a blast leaving the structural scheduler pinned
+at its cap for ever — was attacked with a converged relaxation pass over the
+damaged region. At a large enough region the queue did not shrink, it
+**disappeared**: 5,134 pending against 25,876, scheduler 0.03 ms against
+10.08 ms, whole frame 31.21 → 18.98 ms, and `scripts/acceptance.sh` green on
+every case. It reads as a complete fix and it was an artifact:
+`relax_region` anchors any cell resting on loose ground at distance 0
+outright, where `tick` takes that root only as a last resort, so the pass had
+rooted the whole blast neighbourhood flat and the structural system simply
+had nothing left to say about it. **A queue that goes quiet because the
+system stopped asking is indistinguishable, in every timing, from one that
+went quiet because it converged.**
+
+Two things to carry:
+
+- **When a cost disappears rather than shrinks, suspect the work
+  disappeared.** A 300x improvement in a subsystem nobody optimised is a
+  claim that the subsystem was doing nothing useful. Find the quantity that
+  says whether it still is — here `max aux`, the largest support distance in
+  the field, which read 142 with the "fix" and 2,482 without it.
+- **The control is to hold the semantic rule fixed, not to add another
+  metric.** One env switch putting `relax_region` back on
+  `compute_world_distances`' bedrock-only rule, changing nothing else,
+  settled it in one run: the queue came straight back to baseline. Measuring
+  *around* the confound would have taken all night and convinced nobody.
+
+And note what did **not** catch it: acceptance was green on all cases
+throughout, damage counters still fired, pieces still came off. A guard over
+"does destruction still happen" cannot see "destruction happens over a region
+that has quietly been made immune".
 
 ### An isolated harness overstates what the app will see
 
