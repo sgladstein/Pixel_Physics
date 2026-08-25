@@ -269,3 +269,47 @@ removal criterion, and ran +2,583 / -365 lines (7.1:1) over its history.**
 That is why one-offs accumulate. A removal criterion is now in Conventions —
 cut on a missing mechanism, on machinery that now enforces it, or on a
 measured recurrence audit; never on "this only happened once".
+
+## 2026-08-25 — Method de-skewed; the metric bottomed out at its floor
+
+Applied the framing lens to Method (6,444 tokens, 22 subsections) and acted
+on the three recurrence-audit findings still outstanding.
+
+**Fixed:**
+
+- **The oscillator rule was titled "divided out of *decisions*"** and
+  recurred twice on that framing, because neither repeat was a decision: a
+  cost measurement (three 600-frame windows on one world giving 0.00 / 4.98 /
+  7.04 ms — it was the wind) and a damage census (`cells lost` riding the
+  water cycle at ±1,700, larger than most damage figures in the sweep). Now
+  covers every number, with one test: *could this have been different if I
+  had sampled it an hour later?*
+- **Two rule families led with a specific mechanism and buried the general
+  check.** The stale-binary family is four bullets with one shared tell
+  (*identical output across a change that must have moved something*) stated
+  only in the middle of them; it now leads, with the one-line standing check.
+  The green-suite family is three bullets each describing a *different*
+  mechanism, so an agent who rules out the two named ones concludes green is
+  informative — which is how a correct finding was once withdrawn. *Put the
+  fault back and watch it go red* now leads instead of trailing.
+
+**Left alone, deliberately — and this is the reusable part.** Five Method
+subsections still measure ≥75% one subsystem, and **all five are correctly
+framed**: their titles are universal and only their evidence is from one
+line, which is exactly what the meta-rule asks for. "Two drivers, and the app
+runs the parallel one" is genuinely scoped (there are literally two drivers);
+chunk decomposition the recurrence audit found to be a *working* rule.
+
+**That is the third time today the ratio metric flagged correct content** —
+Conventions, then "fixing a bug exposes a compensating constant", now these
+five. The metric measures *body vocabulary*; the meta-rule deliberately puts
+the subsystem in the body. So the metric has a floor it cannot go below, and
+reaching it is the stopping condition, not a to-do list. Do not "fix" the
+remaining five — the only way to move them is to delete evidence.
+
+**Cost, honestly:** this pass grew CLAUDE.md ~915 tokens (20,932 → 21,847)
+and removed nothing, which is the same 7:1 pattern the removal criterion was
+just written to stop. The two family leads consolidate seven bullets under
+two general checks and cover the highest-recurrence class in the corpus, so I
+think it pays — but it is an addition, and the next pass over this file
+should be looking for what comes out.

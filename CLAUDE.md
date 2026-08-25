@@ -688,15 +688,33 @@ lines, and a blind `sed` on the field name dragged the root's deliberate
 `0.0` along with the shoot's through every data point. Prove the edit
 touched only its target before trusting anything downstream of it.
 
-### A channel that oscillates by design must be divided out of decisions
+### A designed oscillator must be divided out of every number it reaches — measurements as much as decisions
 
-Any threshold on light — or on temperature, the day anything gates on it —
-must divide out the day/night oscillation: use `field::noon_equivalent_light`.
-A threshold sampled at an arbitrary phase of a designed oscillator is a
-different threshold every hour. The cycle stays real on screen and in the
-field; it just must not alias into decisions. The measured failure it ends (a
-nightly extinction event, live tips 71 at noon against 28 at night) is in
+**Any** number sampled from a world that contains a designed cycle — day/night,
+the water cycle, weather, the clock — carries that cycle's phase unless you
+remove it. The cycle stays real on screen and in the field; it just must not
+alias into anything you then compare.
+
+This rule was written as *"divided out of decisions"* and recurred twice on
+that framing, because neither repeat was a decision:
+
+- a **cost measurement** — three 600-frame windows on one world reported
+  **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost".
+  It was the wind;
+- a **damage census** — `seedsweep`'s `cells lost` column rides the water
+  cycle at about **±1,700 cells**, larger than most damage figures in the
+  sweep, so any single-frame reading is that frame's phase plus the damage
+  and the two are not separable.
+
+The original case was a decision and is still the cleanest illustration: a
+threshold on light sampled at an arbitrary phase is a different threshold
+every hour, which produced a nightly extinction event — live tips 71 at noon
+against 28 at night — until it divided the cycle out with
+`field::noon_equivalent_light`. Full account in
 `Reports/plant-economy-rederivation-2026-08-23.md`.
+
+**The test is the same for a threshold and for a benchmark: could this number
+have been different if I had sampled it an hour later?**
 
 ### A cascade censused before it settles reads a *delay* as damage
 
@@ -757,7 +775,7 @@ term measured *ten times worse* on `scene=worldcrack strike=12` and nearly
 halved the worst case over 24 seeded runs. Comparisons of cascades belong in
 `seedsweep.sh`, run to rest, read at the order statistic.
 
-### A mean over *events* is not the size of the pieces
+### A mean over *events* is not a mean over the thing you care about
 
 The sibling of the metric traps below, one level up, and it nearly cost a
 correct change. `failing region size: mean` divides cells by **failure
@@ -1223,6 +1241,13 @@ consider it at all.
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
   CI keeps `cargo fmt --check` informational for exactly that reason, so do
   not let it ride along with an unrelated change.
+- **Before trusting any guard, put the fault it is named for back and watch
+  it go red.** This is the general remedy for the three bullets below, and it
+  is stated first because each of them describes a *different* mechanism by
+  which green means nothing — so an agent who has ruled out the two named
+  mechanisms concludes green is informative, which is how a correct finding
+  was once withdrawn. If the guard does not go red, it is not weak, it is
+  **blind**, and it needs replacing rather than a wider assertion.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
@@ -1256,6 +1281,17 @@ consider it at all.
   of `Running tests/worldgen.rs` from the output as the tell, since it reads
   as a pass rather than an error. The general rule: **while any gate is
   quarantined, whatever runs after it is not being run locally.**
+- **You are probably measuring a binary that is not the code you wrote.**
+  Four separate bullets below are one failure — the artifact under test is
+  stale, and it happens on *every* route into it. **The shared tell is
+  identical output across a change that must have moved something**: three
+  bit-identical sweep runs, a lens-shape before/after that came back
+  byte-for-byte equal, a `scale_probe` count unchanged by a change that had
+  to move it. **The standing check is one line** — `cargo build --release
+  --examples` with `set -o pipefail`, then confirm the output actually moved
+  before believing any of it. Four occurrences to date, one of which bit a
+  single session three times in an afternoon, and each produced another
+  bullet rather than being caught by the last.
 - **Editing an asset `.ron` does nothing until the next build.** Materials
   and species are compiled into the binary via `include_str!`; only the
   app's F5 reload reads the directory, and headless harnesses do not. A
