@@ -80,7 +80,16 @@ def entries(lines):
     editing every time someone appends one.
     """
     section = ""
+    fenced = False
     for i, line in enumerate(lines, 1):
+        # Fenced code can contain heading-shaped lines. None in this file does
+        # today; a pasted shell transcript or markdown example would, and the
+        # failure is a confident register entry that is not a bug.
+        if line.startswith("```"):
+            fenced = not fenced
+            continue
+        if fenced:
+            continue
         if line.startswith("## "):
             section = line[3:].strip()
             continue

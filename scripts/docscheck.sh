@@ -181,6 +181,23 @@ else
   note "src/app.rs or README.md missing -- check 8 (keys vs Controls table) did not run"
 fi
 
+# --- 8. README's table of contents must be current ------------------------
+# README is ~2,600 lines with 33 sections, thirteen of them milestone status
+# write-ups in the order they were written rather than numeric order. A
+# wholesale reorder was approved and then reversed (documentation-overhaul-plan
+# item 11: agents navigate by grep, the reorder is a huge diff on a contested
+# file, "a TOC buys the same navigation for 3% of the churn"). The TOC is that
+# substitute, and it is only worth having while it is true -- same argument as
+# the instruments index and the bug register's status table above.
+if [ -f scripts/readmetoc.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#readmetoc: }"
+  done < <(python3 scripts/readmetoc.py --check 2>&1 | grep -v 'contents current')
+else
+  note "scripts/readmetoc.py missing -- README's table of contents is unenforced"
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"
