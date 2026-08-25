@@ -35,8 +35,8 @@ tried?"*.
   the drift protocol, and the two refusals that leave no trace in the tree
   (no README reorder, no `Reports/archive/` — both had been chosen the other
   way first).
-- [claude-md-recommendations.md](claude-md-recommendations.md) — **twelve
-  landed, one open.** The thirteen-recommendation review of `CLAUDE.md` as
+- [claude-md-recommendations.md](claude-md-recommendations.md) — **all
+  thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
   Only **rec 6** is provably unblocked: `load-share` is merged into `main`
   (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
