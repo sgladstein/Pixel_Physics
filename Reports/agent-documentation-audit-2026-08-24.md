@@ -347,7 +347,7 @@ Candidates, in leverage order:
 4. **`.claude/commands/`** — `/gates` (run the suite exactly as CI does,
    `--skip` included), `/land`, `/docs-check`.
 
-### 5b. Recs 5, 6 and 7 — LANDED 2026-08-25. Rec 12 remains
+### 5b. All thirteen CLAUDE.md recommendations have landed — 2026-08-25
 
 **This supersedes what this report's first draft proposed here.** It argued for
 moving Method/Conventions/Gotchas into skills, having not seen
@@ -363,7 +363,7 @@ re-checked against the remote:
 | 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **LANDED** — narrative now in `concurrent-sessions.md` |
 | 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **LANDED** — needed no new home; `plant-economy-rederivation-2026-08-23.md` already held it |
 | 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **LANDED — and the gotcha had gone stale**, see below |
-| 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **STILL BLOCKED** — pushing is not merging |
+| 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **LANDED — the blocker was never real**, see below |
 
 **Recs 5, 6 and 7 landed 2026-08-25**, and two of the three turned out
 differently from what the recommendation assumed — which is the argument for
@@ -391,57 +391,42 @@ executing an approved plan by *reading the tree*, not by applying its diff.
   figure was never the main value there — an always-loaded gotcha naming a
   function that no longer exists is worse than a long one that is true.
 
-**Rec 12 is the one that is not what it looks like, and this report got it
-wrong twice.** The first draft said `perf-lock` was unreachable; the second
-implied that pushing it would settle the matter. Neither is right. `perf-lock`
-is now visible and reviewable by anyone instead of trapped on one machine —
-but it is still 6 commits ahead of `main` and **518 behind**, and it still
-edits the region the Conventions re-clustering would move. The deferral holds
-until someone merges it.
+**Rec 12 is the one this report got wrong three times, and the third is the
+instructive one.** The first draft said `perf-lock` was unreachable; the second
+implied pushing it would settle the matter; both were corrected. The third
+error was inherited rather than invented: **`perf-lock` never touched
+Conventions at all.**
 
-**And merging it is not a 91-line addition.** That figure is measured against
-its own fork point (`0efeb24`: `CLAUDE.md +91 −1`). Against today's `main` the
-same file reads **+97 −467** — `perf-lock`'s `CLAUDE.md` is missing 467 lines
-that landed after the fork, so a naive branch merge would revert them. This is
-`CLAUDE.md`'s own 160-behind hazard at **518**, on the most contested file in
-the repo. The realistic path for rec 12 is to **re-apply the 91-line section
-onto today's `CLAUDE.md`**, then execute the re-clustering — not to merge the
-branch and reconcile afterwards.
+Checked 2026-08-25 — its four `CLAUDE.md` hunks land at fork-point lines 56,
+90, 105 and 224, and `## Conventions` begins at **436**. Rec 12 had been
+deferred since 2026-08-19 on a conflict that did not exist, and this report
+repeated the claim into two documents before anyone opened the diff. That is a
+miniature of the failure the whole audit is about: **a blocker recorded once
+and thereafter inherited, never re-tested.** The lesson generalises past this
+instance — a deferral is a claim about the tree at a moment, and it decays
+exactly like a measurement does.
 
-Each keeps the operative rule inline and moves only the narrative; together the
-four are ~350–400 tokens off every session. Small — and also the *approved,
-specified, already-reviewed* version of the change, worth more than a larger
-unreviewed one.
+So rec 12 landed with no dependency: the nineteen bullets clustered under
+**Tests and guards / Tuning and sweeps / Performance / Process and records**,
+reordered only. "No rewording" was verified mechanically rather than by
+reading — the multiset of bullet texts was hashed before and after and is
+unchanged (`0ef24257d3da56d0`). Cost: **+10 lines**.
 
-All four passages were confirmed to still exist and were relocated by their
-quoted sentences (`e20e338` records that the recommendations' `LNNN` references
-are rotted and none survives the pre-`0efeb24` file): rec 5 at `CLAUDE.md:374`,
-rec 6 at `:677`, rec 7 at `:1060` and `:1078`, rec 12's Conventions at
-`:839-948`. Rec 5 also names a destination report,
-`Reports/concurrent-sessions.md`, which does not exist and must be created.
+**`perf-lock` remains unlanded, and it is not a documentation task.** This
+report previously implied it was a 91-line CLAUDE.md re-apply. It is **1,546
+insertions across 11 files**: `src/perf.rs` alone is 733 new lines, plus
+`examples/quiet_probe.rs`, `scripts/perf.sh`, a 317-line rework of the
+CI-gated `examples/ascii.rs`, a new CI job, and an edit to
+`examples/filmstrip.rs` — the most-collided file in the repo. Its `CLAUDE.md`
+section *documents that feature*: land the prose without the code and the file
+tells every agent to run `scripts/perf.sh` and quote `TRUSTED`, neither of
+which exists. It is a feature-landing project, and it should be scoped as one.
 
-**One sequencing hazard.** Rec 7 files two new entries into
-`open-bugs-handoff.md`, and §4b's collisions may need up to three renames.
-Only **S** and **T** are free as single letters, so demand is up to five
-against a supply of two: **the suffix convention (`V2`/`P2`/`H3`, already used
-in the file) is forced, not optional.** Settle it once, before either job
-starts, or they race for the last two letters.
-
-**What this report adds that the recommendations do not cover.** They were
-written against a `CLAUDE.md` of ~869 lines. The file is now **1,081**, and the
-single largest addition — `## Running a program of sessions (coordinator ↔
-lane)`, **145 lines, 13.4% of the budget** — landed 2026-08-24 in `fccc6ee`,
-*after* that review. It has never been through one. It is also the section with
-the sharpest audience split in the file: a lane pays for it every session and
-never uses it, and by its own account a lane woken by a trigger has no MCP tools
-and so cannot act on most of it. **Recommend it be the next candidate**, on the
-same move-the-narrative-keep-the-rule pattern as recs 5–7.
-
-Stated honestly, because it cuts against the recommendation: an always-loaded
-rule is read every time, a skill only on description match, and several of
-these lessons are ones an agent does not know it needs until after it has paid.
-That is the argument for moving *narrative* and never the "nevers" — which is
-precisely what recs 5–7 do, and why they are the right shape to follow.
+Two things worth weighing before it is: the branch is **518 behind**, and a
+good deal of its content is specific to a **Windows/Git Bash four-core box**
+(`strings` missing from that shell, `sccache` as a user environment variable,
+contention between local sessions). With development now mostly in cloud
+containers, some of it may need re-deriving rather than re-applying.
 
 ### 5c. README's table of contents — approved in 2026-08, never executed
 

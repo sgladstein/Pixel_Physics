@@ -1,8 +1,7 @@
 # CLAUDE.md organization review — the thirteen recommendations
 
-**Status: twelve landed — nine in `0efeb24`, then 5, 6 and 7 on 2026-08-25.
-Only recommendation 12 is still open, and it is blocked on `perf-lock`
-merging rather than on any disagreement.** Produced 2026-08-19 by the documentation
+**Status: all thirteen landed** — nine in `0efeb24`, then 5, 6, 7 and 12 on
+2026-08-25. Produced 2026-08-19 by the documentation
 overhaul's review agent, recovered into the repo 2026-08-24 from the
 session's local plans directory — where it was the only copy, cited by the
 audit's delta section as "recorded as a queued follow-up so the approval is
@@ -10,17 +9,28 @@ not silently dropped" but not actually reachable from anything in the tree.
 Landed/pending status below was re-verified against `main` on 2026-08-24,
 not taken from the session's own account.
 
-**What the four blocked ones had in common:** each moved text across a region
-that an unmerged branch also edited — `load-share` beside the oscillator
-passage, `plant-branch-angle` beside the git-reset passage, `perf-lock`
-inside Conventions. The block was a merge-conflict argument, not a
-disagreement with the recommendation. Two of those branches have since merged
-(both verified by ancestor test, not inferred from a missing ref), which is
-what unblocked 5, 6 and 7. `perf-lock` has *not* merged: it was recovered and
-pushed on 2026-08-24 but sits 6 ahead of `main` and **518 behind**, and its
-`CLAUDE.md` reads `+97 −467` against today's file — so rec 12 wants that
-branch's 91-line section re-applied onto current `CLAUDE.md`, not a branch
-merge. When those three branches land, this
+**What the four blocked ones had in common** — and one of the four blocks was
+never real. Each was said to move text across a region an unmerged branch also
+edited: `load-share` beside the oscillator passage, `plant-branch-angle` beside
+the git-reset passage, `perf-lock` inside Conventions. Two of those held and
+have since cleared (both branches merged, each verified by ancestor test rather
+than inferred from a missing ref), which is what unblocked 5, 6 and 7.
+
+**`perf-lock` never touched Conventions.** Checked 2026-08-25: its four
+`CLAUDE.md` hunks land at fork-point lines 56, 90, 105 and 224, and Conventions
+begins at 436. Rec 12 sat deferred from 2026-08-19 on a conflict that did not
+exist — and the claim was repeated forward, into this document's own header and
+into `agent-documentation-audit-2026-08-24.md`, before anyone opened the diff.
+It is a small instance of the thing the audit is about: a blocker recorded once
+and then inherited rather than re-tested.
+
+`perf-lock` itself is a separate matter and is **not** a documentation
+re-apply. It is 1,546 insertions across 11 files — `src/perf.rs` alone is 733
+new lines, plus `examples/quiet_probe.rs`, `scripts/perf.sh`, a 317-line rework
+of `examples/ascii.rs`, a CI job, and an edit to `examples/filmstrip.rs`, the
+most-collided file in the repo. Its `CLAUDE.md` section *documents that
+feature*, so the section cannot land without it. See
+`agent-documentation-audit-2026-08-24.md` §5e. When those three branches land, this
 list is directly executable.
 
 **The line numbers are rotted, deliberately.** Every `LNNN` below points
@@ -151,7 +161,7 @@ against a stale base — direction right, figures unreliable. Treat every
 
 ## 12. Conventions is a 93-line undifferentiated list
 
-****Pending**.** Deferred: the re-clustering moves bullets across the whole section, and `perf-lock` edits inside it. Conventions is still a flat list.
+****LANDED 2026-08-25.** ** The deferral's stated cause was checked and found false: `perf-lock` does not edit Conventions (its hunks stop at fork-point line 224; the section starts at 436), so nothing was blocking this. The nineteen bullets are clustered under **Tests and guards / Tuning and sweeps / Performance / Process and records**, reordered only — verified mechanically by hashing the multiset of bullet texts before and after, which is unchanged. Cost: +10 lines of sub-leads and spacing.
 
 **The issue.** 'Conventions' is a 93-line undifferentiated bullet list (L355-449) mixing test design ('A guard test must be able to fail for the *replacement* artifact'), tuning epistemology ('A constant nobody can tune in either direction may be a counterweight'), performance ('Measure a cost against the state the optimisation exists for'), and process ('Prefer an independent review before significant commits').
 
