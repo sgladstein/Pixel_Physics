@@ -308,7 +308,6 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
             }
             tot_sites += 1;
 
-            let before = census(&brush).0 as i64;
             brush.paint_capsule(a, b, PLATFORM_RADIUS, material::STONE, 1.0);
             let plat: Vec<(i32, i32)> = (x - PLATFORM_RADIUS..=x + PLATFORM_LEN + PLATFORM_RADIUS)
                 .flat_map(|px| (plat_y - PLATFORM_RADIUS..=plat_y + PLATFORM_RADIUS).map(move |py| (px, py)))
@@ -339,8 +338,19 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
                 pixel_physics::sim::parallel::step(&mut gen);
                 gen.frame += 1;
             }
-            let brush_lost = before + plat.len() as i64 - census(&brush).0 as i64;
-            let gen_lost = before + plat.len() as i64 - census(&gen).0 as i64;
+            // **Census the platform, not the world.** `census()` counts every
+            // Solid cell, and a generated world sheds its own loose material
+            // for hundreds of frames regardless of what was built on it -- so
+            // a whole-world loss is dominated by settling that both arms do
+            // identically, and comes back equal to the cell whatever the
+            // platform did. That is a second, quieter version of the vacuity
+            // this row exists to detect: the number moved, so it looks like a
+            // measurement, and it is still not about the platform.
+            let still_standing = |w: &World| -> i64 {
+                plat.iter().filter(|&&(px, py)| w.materials.kind(w.get(px, py).material) == MaterialKind::Solid).count() as i64
+            };
+            let brush_lost = plat.len() as i64 - still_standing(&brush);
+            let gen_lost = plat.len() as i64 - still_standing(&gen);
             extra_lost += brush_lost - gen_lost;
             seed_brush_lost += brush_lost;
             seed_gen_lost += gen_lost;
@@ -365,9 +375,11 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
         format!("{tot_disagree} ({:.0}%)", pct(tot_disagree)),
     );
     if tot_brush_lost == 0 && tot_gen_lost == 0 {
-        println!("\n!! BOTH ARMS LOST NOTHING -- the platforms all stood, so `extra lost` compares two");
-        println!("!! non-events and says nothing about the rule. Make the site harder before reading it.");
+        println!("\n!! BOTH ARMS LOST NO PLATFORM CELLS -- every platform stood, so `extra lost` compares");
+        println!("!! two non-events and says nothing about the rule. Make the site harder before reading it.");
     }
+    println!("`brush lost` / `gen lost` count cells of the PLATFORM destroyed, not of the world:");
+    println!("a generated world sheds its own loose material for hundreds of frames either way.");
     println!("\n`on loose` = the platform sits over Powder. `rule disagrees` = the brush rooted cells");
     println!("`compute_world_distances` did not. `extra lost` = Solid cells the brush arm destroyed beyond the control.");
 }
