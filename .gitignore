@@ -1,8 +1,33 @@
 /target
 **/*.rs.bk
 __pycache__/
-# Session-local agent state: worktrees (see CLAUDE.md "Working alongside
-# another session"), workflow scripts, and per-machine permission settings.
-# None of it is project content, and a worktree swept into a commit would
-# carry another session's in-progress tree with it.
-/.claude/
+
+# `.claude/` is deliberately NOT ignored wholesale any more.
+#
+# It was, on the reasoning that none of it is project content. But five files
+# under it had to be force-added anyway -- the review skill, its CATCHUP note,
+# and three workflow harnesses -- precisely because they are, so the exception
+# was re-argued every time somebody added one, and anything nobody thought to
+# force-add simply vanished. Two things settled the reversal:
+#
+#   1. **Most development now happens in cloud containers that are destroyed
+#      after the session.** Config that is not committed does not merely live
+#      on one machine -- for those sessions it does not exist at all. A
+#      per-machine `settings.json` helps nobody in a container that starts from
+#      a fresh clone, which is exactly where the sessions most needing a shared
+#      baseline are running.
+#   2. Claude Code's own split is `settings.json` shared, `settings.local.json`
+#      per-machine. The blanket rule inverted it.
+#
+# So: name the machine-local things, and let project content -- skills,
+# workflows, hooks, agents, commands, the shared settings -- be tracked like
+# any other source.
+#
+# `worktrees/` is the real hazard the blanket rule existed to stop and is still
+# ignored: it holds entire checkouts of this repo, and one swept into a commit
+# would carry another session's in-progress tree with it. Anything else that is
+# genuinely machine-local gets its own line here rather than a new blanket.
+/.claude/worktrees/
+/.claude/settings.local.json
+/.claude/*.local.json
+/.claude/**/*.local.json
