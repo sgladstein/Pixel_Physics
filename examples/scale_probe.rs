@@ -58,6 +58,14 @@ const QUIET_RUN: usize = 120;
 /// was deliberately left unmoved (see the module doc), so `scales=4` now
 /// lands exactly on the shipped 8192x2560 rather than a size beyond it.
 /// `size=WxH` is the way to probe past that without touching this.
+/// Brush radius for the `strike` and `mine` load components.
+///
+/// `App::brush_radius`'s own default -- the app scales both verbs off the
+/// brush deliberately ("the tool the player is already sizing is the tool
+/// that decides how hard they hit"), so a probe that picks its own number is
+/// measuring a swing nobody can make.
+const DIG_RADIUS: i32 = 6;
+
 const BASE_W: i32 = 2048;
 const BASE_H: i32 = 640;
 
@@ -401,6 +409,17 @@ impl Bucket {
 /// | `ants:N` | plant N ants along the surface -- `creature::tick` scheduling, pheromones, foraging |
 /// | `gnome` | summon the player and drive him: run right, jump every second |
 /// | `blast:EVERY[:COUNT]` | fire an `explosion::trigger` at the surface every EVERY frames -- debris, fracture, chunk bodies, the load model, the field impulse. `COUNT` stops after that many, which is the *only* way to ask whether a blast's cost ends: with charges still arriving, a queue that never drains and one that drains slower than it fills look identical |
+/// | `strike:EVERY[:COUNT]` | swing `rigid::strike` at the surface every EVERY frames -- the *hammer*, at the app's own `brush_radius * STRIKE_FORCE_PER_RADIUS` |
+/// | `mine:EVERY[:COUNT]` | cut with `rigid::mine_swept` every EVERY frames -- the *pick*, the verb a player spends most of their time in |
+///
+/// **`strike` and `mine` exist because §S is not an explosion bug.** Reading
+/// the three destructive verbs, `World::paint_capsule` is the only one that
+/// pays for `structural::relax_region`; `rigid::strike` and
+/// `rigid::mine_swept` both stop at `record_disturbance` plus
+/// `schedule_structural_check_around` and hand the whole correction to the
+/// reactive wavefront, exactly as the explosion does. Whether that leaks at a
+/// pick's radius the way it does at a charge's is a question about *ordinary
+/// play*, and only a counter answers it.
 /// | `all` | `ants:64,gnome,blast:600` |
 ///
 /// **Read the two runs as a pair.** The point is not the loaded number on its
@@ -461,16 +480,24 @@ fn phase_probe(args: ProbeArgs) {
     // `usize::MAX` is "keep firing", so the common case needs no sentinel
     // check at the trigger site below.
     let mut blast_limit = usize::MAX;
+    let (mut strike_every, mut strike_limit) = (0usize, usize::MAX);
+    let (mut mine_every, mut mine_limit) = (0usize, usize::MAX);
+    // `EVERY[:COUNT]`, shared by the three verbs so they cannot drift apart.
+    let cadence = |n: &str, what: &str| -> (usize, usize) {
+        match n.split_once(':') {
+            Some((every, count)) => (
+                every.parse().unwrap_or_else(|_| panic!("{what}:EVERY:COUNT")),
+                count.parse().unwrap_or_else(|_| panic!("{what}:EVERY:COUNT")),
+            ),
+            None => (n.parse().unwrap_or_else(|_| panic!("{what}:EVERY")), usize::MAX),
+        }
+    };
     for part in spec.split(',').filter(|p| !p.is_empty()) {
         match part.split_once(':') {
             Some(("ants", n)) => ants = n.parse().expect("ants:N"),
-            Some(("blast", n)) => match n.split_once(':') {
-                Some((every, count)) => {
-                    blast_every = every.parse().expect("blast:EVERY:COUNT");
-                    blast_limit = count.parse().expect("blast:EVERY:COUNT");
-                }
-                None => blast_every = n.parse().expect("blast:EVERY"),
-            },
+            Some(("blast", n)) => (blast_every, blast_limit) = cadence(n, "blast"),
+            Some(("strike", n)) => (strike_every, strike_limit) = cadence(n, "strike"),
+            Some(("mine", n)) => (mine_every, mine_limit) = cadence(n, "mine"),
             None if part == "gnome" => gnome = true,
             None if part == "ants" => ants = 64,
             None if part == "blast" => blast_every = 600,
@@ -486,6 +513,36 @@ fn phase_probe(args: ProbeArgs) {
             let k = world.materials.kind(world.get(x, y).material);
             matches!(k, MaterialKind::Solid | MaterialKind::Powder)
         })
+    };
+
+    // **Where the rock is**, which is not where the surface is. `strike` and
+    // `mine_swept` both go through `rigid::is_tool_target`, which takes
+    // `Solid | Plant` and refuses bedrock -- so a swing aimed at the topmost
+    // `Solid | Powder` cell lands in *soil* and removes nothing at all. The
+    // first version of this probe did exactly that and reported 23 cuts and
+    // **0 cells removed**, which would have been published as "the pick does
+    // not leak" and been a statement about the aim.
+    let rock_at = |world: &World, x: i32| -> Option<i32> {
+        (0..h).find(|&y| {
+            let c = world.get(x, y);
+            world.materials.kind(c.material) == MaterialKind::Solid && c.material != pixel_physics::sim::material::BEDROCK
+        })
+    };
+
+    // `Solid` cells in a square around a point -- the before/after census the
+    // hammer needs to prove it removed anything. `Solid` only: the pick and
+    // hammer turn rock into rubble (a `Powder`) rather than into nothing, so
+    // counting occupancy would read a cut as zero change.
+    let solid_in_box = |world: &World, cx: i32, cy: i32, r: i32| -> usize {
+        let mut n = 0;
+        for y in (cy - r)..=(cy + r) {
+            for x in (cx - r)..=(cx + r) {
+                if world.materials.kind(world.get(x, y).material) == MaterialKind::Solid {
+                    n += 1;
+                }
+            }
+        }
+        n
     };
 
     // Spread across the middle of the world rather than from the left edge:
@@ -535,6 +592,9 @@ fn phase_probe(args: ProbeArgs) {
     let mut frame_total = Samples::new("WHOLE FRAME");
 
     let mut blasts_fired = 0usize;
+    let (mut strikes, mut mines) = (0usize, 0usize);
+    // Cells the pick and hammer actually removed, as against swings taken.
+    let mut dug_cells = 0usize;
     for step in 0..frames {
         // **Scripted, not random.** A filmstrip's gnome is scripted for the
         // same reason (`examples/filmstrip.rs`): a run that varied per
@@ -552,6 +612,40 @@ fn phase_probe(args: ProbeArgs) {
             if let Some(sy) = surface_at(&world, x) {
                 blasts.trigger_with(&mut world, &mut particles, x, sy + 8, 20, 200.0);
                 blasts_fired += 1;
+            }
+        }
+        // The hammer and the pick, at the app's own sizes: `App::strike`
+        // passes `brush_radius * STRIKE_FORCE_PER_RADIUS` (0.9) as force, and
+        // `Player::dig` passes `Tuning::dig_yield`. Both walk along the
+        // surface rather than hitting one spot for ever, because a player
+        // does and because a single hole stops finding fresh rock.
+        if strike_every > 0 && step > 0 && step % strike_every == 0 && strikes < strike_limit {
+            let x = w / 2 + (strikes as i32 % 64 - 32) * 6;
+            if let Some(sy) = rock_at(&world, x) {
+                // **Census the swing's own neighbourhood either side of it**,
+                // because `strike` returns nothing and a count of *calls* is
+                // the vacuous counter `CLAUDE.md` warns about: a hammer aimed
+                // at soil it cannot break swings happily and removes nothing,
+                // and "this verb does not leak" would then be a statement
+                // about the aim rather than about the verb. The box is the
+                // crack reach (`radius * CRACK_REACH`, 3) plus slack.
+                let box_r = DIG_RADIUS * 4;
+                let before = solid_in_box(&world, x, sy + 2, box_r);
+                pixel_physics::sim::rigid::strike(&mut world, x, sy + 2, DIG_RADIUS, DIG_RADIUS as f32 * 0.9);
+                dug_cells += before.saturating_sub(solid_in_box(&world, x, sy + 2, box_r));
+                strikes += 1;
+            }
+        }
+        if mine_every > 0 && step > 0 && step % mine_every == 0 && mines < mine_limit {
+            let x = w / 2 + (mines as i32 % 64 - 32) * 6;
+            if let Some(sy) = rock_at(&world, x) {
+                let to = (x, sy + 2);
+                let from = (x, sy + 1);
+                // `mine_swept` returns the cells it loosened -- the same
+                // "did it fire" question as the strike above, already
+                // answered by the function itself.
+                dug_cells += pixel_physics::sim::rigid::mine_swept(&mut world, from, to, DIG_RADIUS, 0.0);
+                mines += 1;
             }
         }
         let frame = world.frame;
@@ -612,7 +706,7 @@ fn phase_probe(args: ProbeArgs) {
     // *table*, and only these numbers say which one you are looking at.
     if !spec.is_empty() {
         println!(
-            "load: {planted} ants planted, gnome {}, {blasts_fired} blasts fired, {} particles in flight at end",
+            "load: {planted} ants planted, gnome {}, {blasts_fired} blasts fired, {strikes} strikes, {mines} mine cuts, {dug_cells} cells actually removed by them, {} particles in flight at end",
             if gnome { "on" } else { "off" },
             particles.len(),
         );
