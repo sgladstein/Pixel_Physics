@@ -101,26 +101,26 @@ point.
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | One explosion leaves the structural scheduler pinned at its cap for ever |
-| S2 | **OPEN** | 5805 | Three functions answer "what anchors a cell" three different ways, and the most permissiv... |
-| -- | closed | 5898 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 5989 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6003 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6015 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6033 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6054 | A material-counting guard cannot see a species |
-| W1c | note | 6067 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6201 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6279 | The structural opt-out did not hold against bearing |
-| T1d | note | 6290 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6324 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6378 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6432 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6461 | §1c's settle loss is now a counter |
-| -- | note | 6478 | What landed |
-| -- | note | 6501 | Do not re-derive these |
-| -- | note | 6529 | Measurements that contradict something written |
-| -- | note | 6549 | Open |
-| -- | note | 6584 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 5822 | Three functions answer "what anchors a cell" three different ways, and the most permissiv... |
+| -- | closed | 5915 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6006 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6020 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6032 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6050 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6071 | A material-counting guard cannot see a species |
+| W1c | note | 6084 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6218 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6296 | The structural opt-out did not hold against bearing |
+| T1d | note | 6307 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6341 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6395 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6449 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6478 | §1c's settle loss is now a counter |
+| -- | note | 6495 | What landed |
+| -- | note | 6518 | Do not re-derive these |
+| -- | note | 6546 | Measurements that contradict something written |
+| -- | note | 6566 | Open |
+| -- | note | 6601 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5561,8 +5561,21 @@ noticed it: nothing runs out, nothing asserts, no frame spikes. It just costs
 
 #### Chain mode is not the lever, and the source already says why
 
-The obvious next thought is that `chain_reach` bounds it. It does not. Same
-scene, 3,600 measured frames each:
+The obvious next thought is that `chain_reach` bounds it. It does not, **and
+the argument for that is in the source rather than in the timings below** —
+see the caveat after them.
+
+The reason is in `structural.rs`'s own `MAX_DISTURBANCES` doc: the disturbance
+ring is scanned *"once per record and once per cell that has **already reached
+a failing verdict** (`within_disturbance`) — never per cell per frame."*
+`chain_reach` is a leash on **consequences**, applied after the load walk has
+already been paid for. It decides whether a failure is *licensed*, not whether
+a check *runs*. A queue of checks is upstream of every point at which the
+leash is consulted, so no setting of it can shrink one, and it must not be
+offered as a fix for this.
+
+The four-way run agrees, for what that is worth — same scene, 3,600 measured
+frames each:
 
 | `chain=` | reach | scheduler, amortised | whole frame | over budget |
 |---|---|---|---|---|
@@ -5571,18 +5584,24 @@ scene, 3,600 measured frames each:
 | TIGHT | 16 | 10.030 ms | 27.890 ms | 90.9% |
 | NONE | 0 | 9.747 ms | 27.250 ms | 91.3% |
 
-Flat — and the knob *was* connected: the worst frames spread 72.9 / 96.7 /
-99.4 / 74.7 ms, which is four different worlds rather than one binary run four
-times (`CLAUDE.md`'s stale-binary tell is *identical* output, and this is not
-that).
+**Read that table as corroboration, not evidence, and do not re-derive
+anything from it.** It is wall clock and nothing else: no counter was taken
+per mode, and the whole spread is 3% — inside what a contended box produces
+on its own. The docs-audit lane measured two runs of a *byte-identical*
+`ascii` binary disagreeing by 2.42x and reversing the serial/parallel
+ordering (`Reports/measurement-under-contention.md` — **in flight on that
+lane's branch as of 2026-08-25**, not in this directory yet), which is enough
+to
+manufacture a 3% null or to hide a 3% effect either way. The one thing the
+table does establish is that the knob was **connected**: the worst frames
+spread 72.9 / 96.7 / 99.4 / 74.7 ms, so these are four different worlds
+rather than one stale binary run four times, which is `CLAUDE.md`'s
+stale-binary tell.
 
-The reason is in `structural.rs`'s own `MAX_DISTURBANCES` doc: the disturbance
-ring is scanned *"once per record and once per cell that has **already reached
-a failing verdict** (`within_disturbance`) — never per cell per frame."*
-`chain_reach` is a leash on **consequences**, applied after the load walk has
-been paid for. It decides whether a failure is *licensed*, not whether a check
-*runs*. No setting of it can shrink a queue of checks, and it must not be
-offered as a fix for this.
+If someone needs this claim to carry weight on its own rather than as a
+footnote to the source argument, the measurement to take is `deferred` and
+`produced` per mode — counters, which reproduce exactly where the clock does
+not (see the census note in the mechanism section below).
 
 #### Mechanism — attributed, 2026-08-25
 
