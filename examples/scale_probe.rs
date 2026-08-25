@@ -40,6 +40,7 @@
 use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::explosion::Blasts;
+use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::particle::{self, ParticleSystem};
 use pixel_physics::sim::{field, parallel, player, rigid, structural, weather};
 use pixel_physics::worldgen::{self, Spec, WorldgenPresets};
@@ -87,6 +88,9 @@ fn main() {
     // `phases=1` switches this probe from "what does a bigger world cost"
     // to "where does one frame go" -- see `phase_probe` below.
     let mut phases = false;
+    // `load=` puts a *subject* in the world -- see `phase_probe`'s doc on why
+    // the default (an empty world) measures the wrong frame.
+    let mut load = String::new();
     // Frames run before measurement starts, discarded. Terrain is at rest by
     // frame 7, but light and moisture start at zero on a fresh world and have
     // to fill it once; `field_cost.rs` uses the same 1500 for the same reason.
@@ -96,6 +100,7 @@ fn main() {
         match k {
             "scales" => scales = v.split(',').map(|t| t.parse().expect("scales=1,2,4")).collect(),
             "phases" => phases = v != "0",
+            "load" => load = v.to_string(),
             "warm" => warm = v.parse().expect("warm=N"),
             "size" => {
                 let (w, h) = v.split_once('x').expect("size=WxH");
@@ -122,7 +127,7 @@ fn main() {
 
     if phases {
         let (w, h) = explicit.unwrap_or((BASE_W * 4, BASE_H * 4));
-        phase_probe(w, h, &params, &name, seed, warm, frames);
+        phase_probe(w, h, &params, &name, seed, warm, frames, &load);
         return;
     }
 
@@ -366,15 +371,37 @@ impl Bucket {
 ///   for most of a session and what M10's streaming has to hold down as
 ///   resident chunks outnumber active ones.
 ///
-/// # What it deliberately does not do
+/// # `load=` -- and why the default measures the wrong frame
 ///
-/// No player, no blasts, no scripted disturbance: this is a *generated world
-/// left alone*, which is the common case and the one a whole-world-per-frame
-/// pass has nowhere to hide in. Phases that need a subject (`player`,
-/// `blasts`, `splashes`) therefore report their empty-case cost, which is the
-/// honest number for a frame nobody is digging in -- read them as "what the
-/// call costs when there is nothing to do", not as the cost of the mechanic.
-/// `filmstrip` is where a phase gets exercised with a subject in it.
+/// With no `load=`, this is a *generated world left alone*: no player, no
+/// blasts, no creatures, nothing digging. That is a real regime -- it is what
+/// a whole-world-per-frame pass has nowhere to hide in -- but it is **not the
+/// regime the app is judged in**, and reading it as if it were is a mistake
+/// this probe made on its first outing.
+///
+/// The phases that need a subject report their *empty-case* cost without one:
+/// `player`, `blasts`, `splashes`, `particles` and `rigid bodies` all read
+/// ~0.00 ms because nothing was happening, and it is easy to conclude they do
+/// not matter. The repo's own record says otherwise -- `open-bugs-handoff.md`
+/// §1j measured the load model at a **118 ms worst frame** on a destruction
+/// scene, and `dead-ends.md` carries the owner's playtest report that "when
+/// something big breaks into lots of little pieces, the performance gets
+/// bad". Saving milliseconds on the idle frame while a blast frame costs a
+/// hundred is optimising the half that was already playable.
+///
+/// So `load=` puts a subject in the world. Comma-separated, any combination:
+///
+/// | | |
+/// |---|---|
+/// | `ants:N` | plant N ants along the surface -- `creature::tick` scheduling, pheromones, foraging |
+/// | `gnome` | summon the player and drive him: run right, jump every second |
+/// | `blast:EVERY` | fire an `explosion::trigger` at the surface every EVERY frames -- debris, fracture, chunk bodies, the load model, the field impulse |
+/// | `all` | `ants:64,gnome,blast:600` |
+///
+/// **Read the two runs as a pair.** The point is not the loaded number on its
+/// own; it is which phases move between idle and loaded, because that is what
+/// says where the optimisation effort belongs. A phase that is 0.00 ms idle
+/// and 40 ms under a blast is the whole game.
 fn phase_probe(
     w: i32,
     h: i32,
@@ -383,6 +410,7 @@ fn phase_probe(
     seed: u64,
     warm: usize,
     frames: usize,
+    load: &str,
 ) {
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let t = Instant::now();
@@ -392,12 +420,55 @@ fn phase_probe(
 
     let mut particles = ParticleSystem::default();
     let mut blasts = Blasts::default();
-    let input = player::PlayerInput::default();
     let tuning = player::Tuning::default();
 
     for _ in 0..warm {
         parallel::step(&mut world);
         world.step_fields();
+    }
+
+    // **The subject goes in after the warm-up**, so the light and moisture
+    // channels have already filled and the colony is not measured against a
+    // world still converging.
+    let spec = if load == "all" { "ants:64,gnome,blast:600" } else { load };
+    let (mut ants, mut gnome, mut blast_every) = (0usize, false, 0usize);
+    for part in spec.split(',').filter(|p| !p.is_empty()) {
+        match part.split_once(':') {
+            Some(("ants", n)) => ants = n.parse().expect("ants:N"),
+            Some(("blast", n)) => blast_every = n.parse().expect("blast:EVERY"),
+            None if part == "gnome" => gnome = true,
+            None if part == "ants" => ants = 64,
+            None if part == "blast" => blast_every = 600,
+            _ => eprintln!("ignoring unknown load component {part:?}"),
+        }
+    }
+
+    // The ground line, found the way `ascii`'s river-cost scene finds it:
+    // topmost `Solid` or `Powder`. Water and plants are not ground, so an ant
+    // is not planted onto a pond or into a canopy.
+    let surface_at = |world: &World, x: i32| -> Option<i32> {
+        (0..h).find(|&y| {
+            let k = world.materials.kind(world.get(x, y).material);
+            matches!(k, MaterialKind::Solid | MaterialKind::Powder)
+        })
+    };
+
+    // Spread across the middle of the world rather than from the left edge:
+    // a colony bunched at x=0 shares one chunk column and would understate
+    // both the pheromone plane and the scheduler.
+    let mut planted = 0usize;
+    for i in 0..ants {
+        let x = w / 4 + (i as i32 * (w / 2)) / ants.max(1) as i32;
+        if let Some(sy) = surface_at(&world, x) {
+            world.plant_ant(x, sy - 1);
+            planted += 1;
+        }
+    }
+    if gnome {
+        let x = w / 2;
+        if let Some(sy) = surface_at(&world, x) {
+            world.player = Some(pixel_physics::sim::player::Player::at(x, sy - 4));
+        }
     }
 
     println!(
@@ -428,7 +499,26 @@ fn phase_probe(
     let mut buckets = [[Bucket::default(); 2]; 2]; // [sky stepped][gusting]
     let mut frame_total = Samples::new("WHOLE FRAME");
 
-    for _ in 0..frames {
+    let mut blasts_fired = 0usize;
+    for step in 0..frames {
+        // **Scripted, not random.** A filmstrip's gnome is scripted for the
+        // same reason (`examples/filmstrip.rs`): a run that varied per
+        // invocation would make two measurements incomparable, which is the
+        // whole point of taking them.
+        let input = player::PlayerInput {
+            right: gnome,
+            jump_pressed: gnome && step % 60 == 0,
+            ..Default::default()
+        };
+        // Fired at the surface near the middle, where there is material to
+        // break. Radius and strength are `X`'s own debug defaults.
+        if blast_every > 0 && step > 0 && step % blast_every == 0 {
+            let x = w / 2 + ((step / blast_every) as i32 % 8 - 4) * 64;
+            if let Some(sy) = surface_at(&world, x) {
+                blasts.trigger_with(&mut world, &mut particles, x, sy + 8, 20, 200.0);
+                blasts_fired += 1;
+            }
+        }
         let frame = world.frame;
         let sky_stepped =
             field::sky_light_amplitude(frame) != field::sky_light_amplitude(frame.saturating_sub(1));
@@ -482,6 +572,16 @@ fn phase_probe(
     // timing alone cannot say which. `CLAUDE.md`: "did it fire at all needs
     // a counter, not a picture" -- here, "is this per-item cost or item
     // count".
+    // The load counters, beside the timings for the same reason every other
+    // counter in this repo is: a loaded run and an idle one produce the same
+    // *table*, and only these numbers say which one you are looking at.
+    if !spec.is_empty() {
+        println!(
+            "load: {planted} ants planted, gnome {}, {blasts_fired} blasts fired, {} particles in flight at end",
+            if gnome { "on" } else { "off" },
+            particles.len(),
+        );
+    }
     println!(
         "live organisms: {}   chunks: {}   awake chunks: {}\n",
         world.live_organism_count(),
