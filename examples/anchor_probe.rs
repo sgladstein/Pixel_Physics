@@ -59,6 +59,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::{scheduler, structural};
+use pixel_physics::worldgen::{self, Spec, WorldgenPresets};
 
 const W: i32 = 256;
 const H: i32 = 128;
@@ -232,15 +233,170 @@ fn run_arm(arm: &str, span_end: i32, frames: usize, sand_span: (i32, i32)) -> Ar
     }
 }
 
+
+/// **How often does a real world put a build site on loose ground?**
+/// `worldgen=1` — the frequency half of §S2, which the hand-built scene above
+/// deliberately does not answer.
+///
+/// The scene above proves the *mechanism*: where a painted structure rests on
+/// loose material, the brush's rule roots that contact at 0 and the structure
+/// comes down. It cannot say how often a player meets that geometry, because
+/// it *is* that geometry — `CLAUDE.md` is explicit that a hand-placed case is
+/// blind by construction to what worldgen produces, and that a guard over a
+/// procedural system has to sweep the procedure and read an order statistic.
+///
+/// So: generate a world, walk the surface, and at each candidate site place
+/// the same small platform two ways --- once through `World::paint_capsule`
+/// (which relaxes the stroke's box, the shipped brush) and once placed
+/// directly followed by `compute_world_distances` (the worldgen rule). Both
+/// arms are the same seed and the same platform, so the only difference is
+/// the rule. Count the sites where the two disagree about what is anchored.
+///
+/// **The number to read is the disagreement rate, not any single site**, and
+/// it is reported per seed as well as pooled, because outcomes here are
+/// chaotic in the seed.
+fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frames: usize) {
+    let (presets, err) = WorldgenPresets::load();
+    if let Some(e) = err {
+        eprintln!("preset load: {e}");
+    }
+    let name = presets.default_name();
+    let params = presets.get(&name).unwrap_or_else(|| panic!("no default preset")).clone();
+
+    println!("worldgen census: preset {name}, {gw}x{gh}, seeds {seeds:?}, {sites_per_seed} sites each, {frames} frames\n");
+    println!(
+        "{:>6} {:>8} {:>12} {:>14} {:>14} {:>12}",
+        "seed", "sites", "on loose", "brush roots", "rule disagrees", "extra lost"
+    );
+    println!("{}", "-".repeat(70));
+
+    let (mut tot_sites, mut tot_loose, mut tot_disagree, mut tot_extra) = (0usize, 0usize, 0usize, 0i64);
+    for &seed in seeds {
+        let mut on_loose = 0usize;
+        let mut roots = 0usize;
+        let mut disagree = 0usize;
+        let mut extra_lost = 0i64;
+
+        for i in 0..sites_per_seed {
+            // Sites spread across the middle of the world, clear of the edges.
+            // Spread so two platforms cannot touch: each is PLATFORM_LEN long.
+            let x = gw / 8 + (i as i32 * (gw * 3 / 4)) / sites_per_seed.max(1) as i32;
+            debug_assert!((gw * 3 / 4) / sites_per_seed.max(1) as i32 > PLATFORM_LEN + 8, "sites would overlap");
+
+            let mut brush = World::new(Rect::new(0, 0, gw - 1, gh - 1));
+            worldgen::generate_only(&mut brush, Spec::Generated { params: &params, seed });
+            let Some(sy) = surface_of(&brush, x) else { continue };
+            // The platform sits *on* the surface, which is the case in
+            // question: a player building on whatever is there.
+            let plat_y = sy - 1;
+            let (a, b) = ((x, plat_y), (x + PLATFORM_LEN, plat_y));
+
+            // Does anything loose touch the platform's underside? If not, no
+            // rule can differ here and the site is not evidence either way.
+            let loose = (x..=x + PLATFORM_LEN)
+                .any(|px| brush.materials.kind(brush.get(px, plat_y + PLATFORM_RADIUS + 1).material) == MaterialKind::Powder);
+            if loose {
+                on_loose += 1;
+            }
+            tot_sites += 1;
+
+            let before = census(&brush).0 as i64;
+            brush.paint_capsule(a, b, PLATFORM_RADIUS, material::STONE, 1.0);
+            let plat: Vec<(i32, i32)> = (x - PLATFORM_RADIUS..=x + PLATFORM_LEN + PLATFORM_RADIUS)
+                .flat_map(|px| (plat_y - PLATFORM_RADIUS..=plat_y + PLATFORM_RADIUS).map(move |py| (px, py)))
+                .filter(|&(px, py)| brush.materials.kind(brush.get(px, py).material) == MaterialKind::Solid)
+                .collect();
+            let brush_zero = plat.iter().filter(|&&(px, py)| brush.get(px, py).aux() == 0).count();
+
+            // The control arm: identical seed, identical platform, placed
+            // without the brush's relax so `compute_world_distances` decides.
+            let mut gen = World::new(Rect::new(0, 0, gw - 1, gh - 1));
+            worldgen::generate_only(&mut gen, Spec::Generated { params: &params, seed });
+            for &(px, py) in &plat {
+                gen.set(px, py, Cell::new(material::STONE, 0));
+            }
+            structural::compute_world_distances(&mut gen);
+            let gen_zero = plat.iter().filter(|&&(px, py)| gen.get(px, py).aux() == 0).count();
+
+            roots += brush_zero.saturating_sub(gen_zero);
+            if brush_zero > gen_zero {
+                disagree += 1;
+            }
+
+            for _ in 0..frames {
+                scheduler::step(&mut brush);
+                pixel_physics::sim::parallel::step(&mut brush);
+                brush.frame += 1;
+                scheduler::step(&mut gen);
+                pixel_physics::sim::parallel::step(&mut gen);
+                gen.frame += 1;
+            }
+            let brush_lost = before + plat.len() as i64 - census(&brush).0 as i64;
+            let gen_lost = before + plat.len() as i64 - census(&gen).0 as i64;
+            extra_lost += brush_lost - gen_lost;
+        }
+
+        println!(
+            "{seed:>6} {sites_per_seed:>8} {on_loose:>12} {roots:>14} {disagree:>14} {extra_lost:>12}"
+        );
+        tot_loose += on_loose;
+        tot_disagree += disagree;
+        tot_extra += extra_lost;
+    }
+    println!("{}", "-".repeat(70));
+    let pct = |n: usize| 100.0 * n as f64 / tot_sites.max(1) as f64;
+    println!(
+        "{:>6} {tot_sites:>8} {:>12} {:>14} {:>14} {tot_extra:>12}",
+        "all",
+        format!("{tot_loose} ({:.0}%)", pct(tot_loose)),
+        "",
+        format!("{tot_disagree} ({:.0}%)", pct(tot_disagree)),
+    );
+    println!("\n`on loose` = the platform sits over Powder. `rule disagrees` = the brush rooted cells");
+    println!("`compute_world_distances` did not. `extra lost` = Solid cells the brush arm destroyed beyond the control.");
+}
+
+/// Topmost `Solid`-or-`Powder` cell -- where a player would put something.
+fn surface_of(world: &World, x: i32) -> Option<i32> {
+    (0..world.bounds().map_or(0, |b| b.max_y + 1)).find(|&y| {
+        matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder)
+    })
+}
+
+/// The platform a site is tested with: a **one-sided** run at constant height,
+/// started from the local surface and drawn rightward.
+///
+/// One-sided and level on purpose. A platform centred on a site and following
+/// the ground is a slab lying flat, which has no span for a rule about *load
+/// paths* to disagree about -- measured, at 300 frames, as an `extra lost` of
+/// zero at every site while the field disagreed at 88% of them. Drawn level
+/// from the surface, the terrain itself decides how much of it ends up
+/// cantilevered and what its underside meets on the way down, which is what a
+/// player building outward from a slope actually produces.
+const PLATFORM_LEN: i32 = 40;
+const PLATFORM_RADIUS: i32 = 2;
+
 fn main() {
     let mut frames = 900usize;
     let mut spans: Vec<i32> = vec![40, 45, 50, 55, 60, 70, 80, 100];
     let mut sand_span = DEFAULT_SAND;
+    let mut census_mode = false;
+    let mut seeds: Vec<u64> = vec![1, 2, 3, 7, 11, 24301];
+    let mut sites = 12usize;
+    let (mut gw, mut gh) = (2048i32, 640i32);
     for arg in std::env::args().skip(1) {
         if let Some((k, v)) = arg.split_once('=') {
             match k {
                 "frames" => frames = v.parse().expect("frames=N"),
                 "spans" => spans = v.split(',').map(|t| t.parse().expect("spans=A,B,C")).collect(),
+                "worldgen" => census_mode = v != "0",
+                "seeds" => seeds = v.split(',').map(|t| t.parse().expect("seeds=A,B,C")).collect(),
+                "sites" => sites = v.parse().expect("sites=N"),
+                "size" => {
+                    let (a, b) = v.split_once('x').expect("size=WxH");
+                    gw = a.parse().expect("size=WxH");
+                    gh = b.parse().expect("size=WxH");
+                }
                 "sand" => {
                     let (a, b) = v.split_once(',').expect("sand=X0,X1");
                     sand_span = (a.parse().expect("sand=X0,X1"), b.parse().expect("sand=X0,X1"));
@@ -251,6 +407,10 @@ fn main() {
     }
     // Echo the parameters -- a log that does not name them was written by a
     // binary that never had them (`Reports/instruments.md`'s standing gotcha).
+    if census_mode {
+        worldgen_census(&seeds, sites, gw, gh, frames);
+        return;
+    }
     println!("anchor_probe: {W}x{H}, deck from x{PIER_X0} at y{DECK_TOP}, pier {PIER_X0}..{PIER_X1}, sand {}..{}", sand_span.0, sand_span.1);
     println!("spans {spans:?}, {frames} frames per arm\n");
 
