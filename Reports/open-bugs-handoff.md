@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**37 open, 75 bugs** (plus 18 landing-note items,
+**38 open, 76 bugs** (plus 18 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -26,99 +26,100 @@ point.
 
 | § | Status | Line | What it is |
 |---|---|---|---|
-| 0-z | **OPEN** | 127 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
-| 0-a | closed | 184 | Dark bands under overhangs, objects and open-cast digs (render) |
-| C1 | **OPEN** | 248 | A forest-floor bank is a wall the gnome has no way over |
-| D1 | closed | 285 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
-| D2 | **OPEN** | 442 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
-| D3 | **OPEN** | 465 | Near-surface blasts do not throw chunks into the air |
-| D4 | **OPEN** | 498 | At a bounded reach a collapse can stop part way and leave a slab in open air |
-| 0 | **OPEN** | 535 | Roofed water: ponds fills both sides of an overhang (worldgen) |
-| 0b | closed | 553 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
-| 0c | closed | 675 | Cave light is quantised to 8-cell squares (render) |
-| 0d | **OPEN** | 749 | The organism support search asks the wrong question |
-| 0e | closed | 791 | A decay site does not follow its cell |
-| NEW | closed | 854 | Plants grow nothing on generated terrain |
-| U | closed | 1014 | Water stress makes a tree BIGGER |
-| V | closed | 1059 | A tree with no seedlings under it never stops growing |
-| Z | decided | 1112 | The stand still reads as one mass |
-| Z2 | closed | 1246 | A free particle drops Cell::aux, so a blast under-prices a corpse |
-| Y | closed | 1364 | The gnome cannot get through the wood |
-| X | decided | 1515 | A desert with no desert plants |
-| -- | historic | 1564 | X (original). A desert with no desert plants |
-| W | decided | 1641 | The water-cycle branch and this one are two halves of one mechanic |
-| A | **OPEN** | 1715 | The slot-1 root spread has collapsed |
-| B | closed | 1995 | anchor_support runs over creature organisms, unguarded |
-| C | closed | 2082 | grass and creeper root branching is running a retired model |
-| D | closed | 2131 | Two smaller things the merge exposed |
-| E | closed | 2163 | A test scene can outlive the economy it was written for |
-| F | **OPEN** | 2181 | Cross-line seams neither branch's tests exercise |
-| P1 | **OPEN** | 2252 | The water book, the root-tip counter, and what they said about §A and §U |
-| P3 | **OPEN** | 2539 | The generation loop |
-| V2 | **OPEN** | 2735 | A tree cannot die of drought |
-| P2 | **OPEN** | 2822 | The economy re-derivation |
-| G | **OPEN** | 2967 | Grassfire arrives with a standing negative verdict |
-| -- | historic | 3030 | G (original). Grassfire arrives with a standing negative verdict |
-| 0f | closed | 3052 | A melting Powder manufactures water |
-| 0g | closed | 3107 | scene=lavapour's pond simmers forever |
-| 0h | **OPEN** | 3169 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
-| 0i | **OPEN** | 3213 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
-| 1 | closed | 3253 | Whiskers on a spreading front |
-| 1l | **OPEN** | 3370 | Boiling never puts a bubble *in* the water |
-| 1m | **OPEN** | 3434 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
-| 1b | **OPEN** | 3505 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
-| 1c | **OPEN** | 3547 | A rigid body loses about a tenth of its cells when it lands |
-| 1d | **OPEN** | 3576 | A large lava lake never finishes solidifying |
-| 1h | closed | 3592 | Falling rock grinds itself to powder in deep water |
-| 1k | **OPEN** | 3698 | A splash droplet loses about 1% of a cell somewhere |
-| 1j | **OPEN** | 3730 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
-| 1i | closed | 3762 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
-| -- | historic | 3774 | (was) 1h. Falling rock grinds itself to powder in deep water |
-| 1e-ter | closed | 3841 | A boulder that never leaves the sky |
-| 1e-bis | closed | 3881 | Slabs of rock hanging over a solidifying lava lake |
-| 1e | **OPEN** | 3914 | One cell in a lava pour is still left hanging, and the route is unknown |
-| 1f | **OPEN** | 3941 | A pond with rock in it never stops shuffling fill |
-| 1g | **OPEN** | 3968 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
-| 2 | **OPEN** | 3984 | Sand-into-water displacement |
-| 3 | closed | 4011 | Scheduler under-enforces max_active_tips |
-| -- | historic | 4029 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
-| 4 | **OPEN** | 4069 | Levelling is O(width²) |
-| 4b | closed | 4089 | A cell alone in the air drops its column's skyline |
-| 5 | **OPEN** | 4122 | Automatic promotion |
-| 6 | **OPEN** | 4151 | The heightfield does not deliver the speed it was built for |
-| H | closed | 4202 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
-| H2 | closed | 4320 | The ascii colony has gone sessile |
-| H3 | closed | 4382 | Both worldgen at-rest tests are red on main, and both are water |
-| I | closed | 4505 | The disturbance-extent guard inverts once rubble stops anchoring |
-| J | **OPEN** | 4570 | A blocked substep still vents the smoke it was only *probing* |
-| Q | **OPEN** | 4600 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 4655 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 4788 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 4870 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 4938 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 4995 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | **OPEN** | 5205 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| L | closed | 5284 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 5416 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | closed | 5503 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 5594 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 5608 | Grow into soil destroys the soil's stored water |
-| 3 | note | 5620 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 5638 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 5659 | A material-counting guard cannot see a species |
-| W1c | note | 5672 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 5806 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 5884 | The structural opt-out did not hold against bearing |
-| T1d | note | 5895 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 5929 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 5983 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6037 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6066 | §1c's settle loss is now a counter |
-| -- | note | 6083 | What landed |
-| -- | note | 6106 | Do not re-derive these |
-| -- | note | 6134 | Measurements that contradict something written |
-| -- | note | 6154 | Open |
-| -- | note | 6189 | Unmerged at close, and one of it is a fix main needs anyway |
+| 0-z | **OPEN** | 128 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
+| 0-a | closed | 185 | Dark bands under overhangs, objects and open-cast digs (render) |
+| C1 | **OPEN** | 249 | A forest-floor bank is a wall the gnome has no way over |
+| D1 | closed | 286 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
+| D2 | **OPEN** | 443 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
+| D3 | **OPEN** | 466 | Near-surface blasts do not throw chunks into the air |
+| D4 | **OPEN** | 499 | At a bounded reach a collapse can stop part way and leave a slab in open air |
+| 0 | **OPEN** | 536 | Roofed water: ponds fills both sides of an overhang (worldgen) |
+| 0b | closed | 554 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
+| 0c | closed | 676 | Cave light is quantised to 8-cell squares (render) |
+| 0d | **OPEN** | 750 | The organism support search asks the wrong question |
+| 0e | closed | 792 | A decay site does not follow its cell |
+| NEW | closed | 855 | Plants grow nothing on generated terrain |
+| U | closed | 1015 | Water stress makes a tree BIGGER |
+| V | closed | 1060 | A tree with no seedlings under it never stops growing |
+| Z | decided | 1113 | The stand still reads as one mass |
+| Z2 | closed | 1247 | A free particle drops Cell::aux, so a blast under-prices a corpse |
+| Y | closed | 1365 | The gnome cannot get through the wood |
+| X | decided | 1516 | A desert with no desert plants |
+| -- | historic | 1565 | X (original). A desert with no desert plants |
+| W | decided | 1642 | The water-cycle branch and this one are two halves of one mechanic |
+| A | **OPEN** | 1716 | The slot-1 root spread has collapsed |
+| B | closed | 1996 | anchor_support runs over creature organisms, unguarded |
+| C | closed | 2083 | grass and creeper root branching is running a retired model |
+| D | closed | 2132 | Two smaller things the merge exposed |
+| E | closed | 2164 | A test scene can outlive the economy it was written for |
+| F | **OPEN** | 2182 | Cross-line seams neither branch's tests exercise |
+| P1 | **OPEN** | 2253 | The water book, the root-tip counter, and what they said about §A and §U |
+| P3 | **OPEN** | 2540 | The generation loop |
+| V2 | **OPEN** | 2736 | A tree cannot die of drought |
+| P2 | **OPEN** | 2823 | The economy re-derivation |
+| G | **OPEN** | 2968 | Grassfire arrives with a standing negative verdict |
+| -- | historic | 3031 | G (original). Grassfire arrives with a standing negative verdict |
+| 0f | closed | 3053 | A melting Powder manufactures water |
+| 0g | closed | 3108 | scene=lavapour's pond simmers forever |
+| 0h | **OPEN** | 3170 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
+| 0i | **OPEN** | 3214 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
+| 1 | closed | 3254 | Whiskers on a spreading front |
+| 1l | **OPEN** | 3371 | Boiling never puts a bubble *in* the water |
+| 1m | **OPEN** | 3435 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
+| 1b | **OPEN** | 3506 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
+| 1c | **OPEN** | 3548 | A rigid body loses about a tenth of its cells when it lands |
+| 1d | **OPEN** | 3577 | A large lava lake never finishes solidifying |
+| 1h | closed | 3593 | Falling rock grinds itself to powder in deep water |
+| 1k | **OPEN** | 3699 | A splash droplet loses about 1% of a cell somewhere |
+| 1j | **OPEN** | 3731 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
+| 1i | closed | 3763 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
+| -- | historic | 3775 | (was) 1h. Falling rock grinds itself to powder in deep water |
+| 1e-ter | closed | 3842 | A boulder that never leaves the sky |
+| 1e-bis | closed | 3882 | Slabs of rock hanging over a solidifying lava lake |
+| 1e | **OPEN** | 3915 | One cell in a lava pour is still left hanging, and the route is unknown |
+| 1f | **OPEN** | 3942 | A pond with rock in it never stops shuffling fill |
+| 1g | **OPEN** | 3969 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
+| 2 | **OPEN** | 3985 | Sand-into-water displacement |
+| 3 | closed | 4012 | Scheduler under-enforces max_active_tips |
+| -- | historic | 4030 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
+| 4 | **OPEN** | 4070 | Levelling is O(width²) |
+| 4b | closed | 4090 | A cell alone in the air drops its column's skyline |
+| 5 | **OPEN** | 4123 | Automatic promotion |
+| 6 | **OPEN** | 4152 | The heightfield does not deliver the speed it was built for |
+| H | closed | 4203 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
+| H2 | closed | 4321 | The ascii colony has gone sessile |
+| H3 | closed | 4383 | Both worldgen at-rest tests are red on main, and both are water |
+| I | closed | 4506 | The disturbance-extent guard inverts once rubble stops anchoring |
+| J | **OPEN** | 4571 | A blocked substep still vents the smoke it was only *probing* |
+| Q | **OPEN** | 4601 | Settled debris stands in one-cell vertical needles that never topple |
+| P | **OPEN** | 4656 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 4789 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 4871 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 4939 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 4996 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | **OPEN** | 5206 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| L | closed | 5285 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 5417 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| S | **OPEN** | 5479 | One explosion leaves the structural scheduler pinned at its cap for ever |
+| -- | closed | 5753 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 5844 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 5858 | Grow into soil destroys the soil's stored water |
+| 3 | note | 5870 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 5888 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 5909 | A material-counting guard cannot see a species |
+| W1c | note | 5922 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6056 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6134 | The structural opt-out did not hold against bearing |
+| T1d | note | 6145 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6179 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6233 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6287 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6316 | §1c's settle loss is now a counter |
+| -- | note | 6333 | What landed |
+| -- | note | 6356 | Do not re-derive these |
+| -- | note | 6384 | Measurements that contradict something written |
+| -- | note | 6404 | Open |
+| -- | note | 6439 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5473,6 +5474,255 @@ question — does an ant drown, float, or swim? — and both are outside
 WP-8/WP-9's scope, so this is filed rather than patched. Whoever takes it
 should do the two halves together: fixing only placement leaves an ant that
 wanders onto a pond still walking on it.
+
+
+### S. One explosion leaves the structural scheduler pinned at its cap for ever — **OPEN, found 2026-08-25 by measurement**
+
+Found by the frame-cost audit (`Reports/frame-cost-audit-2026-08.md`) while
+answering the owner's question — *"saving a few ms in static play but then
+everything freezes when actually playing is wasted effort"*. It is the one
+finding of that audit that is a **bug** rather than a cost; everything else it
+turned up was work the frame legitimately has to do.
+
+**One blast, and the world never recovers.** 8192x2560, `preset rolling seed
+1`, a single radius-20 charge at frame 1,700 and nothing else — no ants, no
+player, no second charge — measured to frame 10,500:
+
+| | idle, before the charge | 9,000 frames after it |
+|---|---|---|
+| pending active sites | ~5,400 | **117,166**, still climbing linearly |
+| sites served per frame | 9 | **2,000 — the cap, every frame** |
+| scheduler phase | 0.01 ms | **8-13 ms** |
+| whole frame, amortised | 13.33 ms | **31.21 ms** |
+| frames over the 16.6 ms budget | 29.6% | **97.1%** |
+
+The charge is visually over in a second or two. Two and a half minutes of play
+later the frame is still more than twice its idle cost and getting worse, and
+`blasts` itself is 0.002 ms — the explosion is not what is expensive, the
+queue it left behind is.
+
+**Reproduce** (about five minutes):
+
+```
+SCHED_PASS=600 cargo run --release --example scale_probe -- \
+  size=8192x2560 phases=1 warm=1500 frames=9000 load=blast:200:1
+```
+
+`load=blast:EVERY:COUNT`'s `COUNT` exists for this measurement and is the
+whole reason it is readable: with charges still arriving, *a queue that never
+drains* and *a queue that drains slower than it fills* look identical. Fire
+one and the two separate. This entry was first written from an
+eleven-charge run and could not have distinguished them.
+
+#### It is not the ants — and that is worth saying, because it was the standing assumption
+
+Ablated at the same size, 3,600 frames:
+
+| load | sites served | heap after the batch | scheduler phase |
+|---|---|---|---|
+| `ants:64,gnome` @2,400 | 38 | 5,252 | 0.19 ms |
+| `ants:64,gnome` @4,800 | 67 | 6,216 | 0.36 ms |
+| `blast:300` @2,400 | **2,000 (the cap)** | 23,744 | 7.27 ms |
+| `blast:300` @4,800 | **2,000** | 77,100 | 8.99 ms |
+
+A 64-ant colony is nearly free and its queue is **stable**. `creature::tick`
+was the expected answer and it is not the answer. ~99% of the loaded
+scheduler time is `ActiveKind::StructuralCheck` (7.17 of 7.27 ms; 8.90 of
+8.99 ms).
+
+Read `deferred` for what it is: `world.active_site_count()` sampled *after*
+the frame's batch has been popped, so it is the whole heap, not the capped
+remainder. Its idle value at this size is ~5,400 — ordinary future-dated
+growth and evaporation sites — and that is the number a drained queue comes
+back to.
+
+#### The shape: an 8x oversubscription, not a spike
+
+`schedule_active_site` dedups `StructuralCheck` **by position**, so the heap
+is a *set of cells with a check pending*. At 117,000 pending, each
+rescheduling itself every `STRUCTURAL_TICK_INTERVAL` (5) frames, the queue
+demands ~23,000 services a frame against a `MAX_SITES_PER_FRAME` of 2,000.
+It cannot clear, and every cell it does serve schedules more:
+
+```
+[sched] frame 2400 sites 2000 produced 7651 deferred  25876  10.08ms
+[sched] frame 4200 sites 2000 produced 7631 deferred  53077   9.32ms
+[sched] frame 6000 sites 2000 produced 7014 deferred  73233  10.32ms
+[sched] frame 7800 sites 2000 produced 5743 deferred  91409  10.17ms
+[sched] frame 9600 sites 2000 produced 5854 deferred 112400  11.39ms
+```
+
+`produced` ~6,000-7,600 against 2,000 served. Most of that is absorbed by the
+position dedup — the heap grows only ~+12 a frame — which is why this reads
+as a *treadmill* rather than an explosion in memory, and why nothing has ever
+noticed it: nothing runs out, nothing asserts, no frame spikes. It just costs
+8-13 ms a frame for the rest of the session.
+
+#### Chain mode is not the lever, and the source already says why
+
+The obvious next thought is that `chain_reach` bounds it. It does not. Same
+scene, 3,600 measured frames each:
+
+| `chain=` | reach | scheduler, amortised | whole frame | over budget |
+|---|---|---|---|---|
+| SPREAD (the shipped default) | `i32::MAX` | 9.722 ms | 27.589 ms | 91.0% |
+| LOCAL | 48 | 9.717 ms | 27.312 ms | 90.9% |
+| TIGHT | 16 | 10.030 ms | 27.890 ms | 90.9% |
+| NONE | 0 | 9.747 ms | 27.250 ms | 91.3% |
+
+Flat — and the knob *was* connected: the worst frames spread 72.9 / 96.7 /
+99.4 / 74.7 ms, which is four different worlds rather than one binary run four
+times (`CLAUDE.md`'s stale-binary tell is *identical* output, and this is not
+that).
+
+The reason is in `structural.rs`'s own `MAX_DISTURBANCES` doc: the disturbance
+ring is scanned *"once per record and once per cell that has **already reached
+a failing verdict** (`within_disturbance`) — never per cell per frame."*
+`chain_reach` is a leash on **consequences**, applied after the load walk has
+been paid for. It decides whether a failure is *licensed*, not whether a check
+*runs*. No setting of it can shrink a queue of checks, and it must not be
+offered as a fix for this.
+
+#### Mechanism — attributed, 2026-08-25
+
+`SCHED_PASS` now prints a second `[struct]` line splitting the structural
+share by which branch of `structural::tick` produced it: `worsened` /
+`improved` / `unmoved`, the two defer reasons, and the largest distance
+written. Two candidates were visible in `tick` before the census, and they
+wanted opposite fixes, so guessing between them was not on:
+
+1. **The distance wavefront** (`moved`) fans out to five sites — itself plus
+   four neighbours — and is load-bearing. Dropping it froze `scene=capped`
+   completely: at frame 3,000 all 15,840 cells were still at `aux 0` and not
+   one had ever been load-evaluated. Nothing here proposes removing it. But
+   within it, `worsened` is the **count-to-infinity** climb an unanchored
+   region performs — this module's own doc names the dynamic — and `aux` is a
+   full `u16`, so such a region's cells climb toward 65,535 one step per tick,
+   producing five sites each time, for ever.
+2. **The out-of-budget defer** (`if world.load_budget == 0 { defer!(); }`) is
+   fan-out 1 and cannot make progress on a frame whose budget was spent before
+   it was reached. Dispatch is ordered by `(next_frame, x, y)`, so low-`x`
+   work wins the budget every frame and starves everything behind it — a
+   hazard the same file already records having been bitten by.
+
+**It is the wavefront, and it is not count-to-infinity.** Same scene, same
+charge, `SCHED_PASS=600`:
+
+```
+[struct] frame 2400 worsened 1400 improved  9 unmoved 267 | budget0  723 | max aux 438
+[struct] frame 3600 worsened 1276 improved 29 unmoved 601 | budget0 1863 | max aux 639
+[struct] frame 4800 worsened 1278 improved  9 unmoved 596 | budget0 1715 | max aux 816
+[struct] frame 6000 worsened 1292 improved 10 unmoved 670 | budget0 1472 | max aux 917
+[struct] frame 6600 worsened 1007 improved 18 unmoved 932 | budget0  773 | max aux 1018
+```
+
+About **1,300 of every 1,900 structural ticks are cells whose distance rose**,
+against ~10-50 that fell, and `max aux` climbs almost perfectly linearly at
+~85 per 600 frames — one step per service round. Candidate 2 is real but
+secondary: `budget0` runs 700-1,900 of the batch and is a rider on the
+wavefront, not its source.
+
+(The `[sched]` line is byte-identical with the census compiled in — `produced
+7042 deferred 61488` at 2,400, `7014 / 73233` at 6,000, `5513 / 79842` at
+6,600, matching the run without it. The instrument does not perturb what it
+measures.)
+
+**And the third explanation is the right one, which the source states
+outright.** `structural::relax_region`'s doc:
+
+> `tick` relaxes one cell per scheduled check, and reschedules its
+> neighbours `STRUCTURAL_TICK_INTERVAL` frames later — so a wavefront
+> advances roughly one cell per 5 frames. That is the right shape for a
+> *disturbance*, which is local and whose consequences should arrive
+> progressively. **It is the wrong shape for material appearing from
+> nothing** ... A 192-cell column needs ~192 rounds — over fifteen seconds at
+> 60 Hz.
+
+Removing a crater is the same event as adding one: the shortest path to
+bedrock changes for every cell that routed through it, so the true distances
+rise across a region far larger than the hole. `World::paint_capsule` already
+knows this and pays for **one converged pass** over what the stroke touched
+(`world.rs`, `if touched_structure { ... relax_region(self, region) }`).
+Worldgen does the same, world-wide, with `compute_world_distances`.
+
+**Nothing on the explosion path does either.** A radius-20 charge hands its
+whole correction to the reactive wavefront, which then advances one cell per
+five frames through a region the measurement above puts at >100,000 cells
+while serving 2,000 a frame. That is the bug, and the fix already exists in
+this file — it is simply not wired to this verb.
+
+**What is still open**: whether the wavefront ever terminates. It had not
+turned over 8,800 frames after the charge, and at ~85 distance-units per 600
+frames it is nowhere near `u16::MAX`; a genuine convergence to true distances
+would stop and this measurement cannot say when. For the player the
+distinction is academic — either way the frame is over budget for minutes —
+but it decides whether a converged pass is a *fix* or merely a large
+speed-up, so do not assert one.
+
+
+#### What this is *not*, and its neighbours
+
+- **Not §1j.** §1j is that `MAX_LOAD_CELLS_PER_FRAME` bounds only one of the
+  load model's walks, so a *single* frame can cost 118 ms. This is that the
+  *number of expensive frames* is unbounded. They compound — the budget is
+  what makes each capped frame cost 8-13 ms rather than 80 — but fixing either
+  leaves the other standing. §1j's 118 ms figure is still owed a re-take with
+  `PROBE_NO_LOAD=1`; that is not done here either.
+- **Not the reverted parent-scheduling dead end**, though it has the same
+  signature. `structural.rs` records "every settling cell raised a fresh check
+  on its parent ... faster than the queue drained": `scene=capped` pending 26
+  → 4,064, frame cost 2.5 ms → 3,160 ms. That mechanism is gone; this
+  reproduces without it, at 20x the world size and through a different verb.
+  Read that comment before proposing anything — it is the record of what the
+  obvious fix costs.
+- **Not visible at 512x320**, which is why nine sessions of explosion work did
+  not find it. `scripts/blastsweep.sh` is the standing explosion artifact and
+  it is a generated *rolling 512x320* world; it watches
+  `FailureCounts::confined` for exactly this class of treadmill and has never
+  watched the scheduler heap. And every earlier frame-cost number in the repo
+  measured part of a frame, at idle.
+- **Not confirmed in the real app.** Everything above is headless. Confirming
+  it wants `xvfb-run` plus the capture hook and a stopwatch, not another
+  probe, and it has not been done.
+
+#### Do not "fix" this by
+
+- **Raising `MAX_SITES_PER_FRAME`.** The queue's demand is ~23,000 services a
+  frame; raising the cap raises the per-frame cost and clears nothing. §1j
+  records the same non-result for `MAX_LOAD_CELLS_PER_FRAME`: 12,000 → 20,000
+  → 40,000 gave 118 ms and 118.7 ms, identical.
+- **Lowering `chain_reach`.** Measured above. It is the wrong quantity.
+- **Dropping the wavefront.** Measured, in place, in `structural::tick`'s own
+  comment. It does not degrade; it fails totally and silently.
+- **Retiring a site after N unproductive checks**, in the shape
+  `organism::STALE_LIMIT` uses, without first establishing what wakes it
+  again. `GROUNDED_RECHECK_INTERVAL`'s doc is the record of what happens when
+  a structural cell stops asking and nothing re-asks it: a lone stone hanging
+  in open water for the rest of a run, and `load::evaluate` calling it
+  UNSUPPORTED the whole time.
+
+#### What to try, and the one thing to check before believing it
+
+Give the explosion the same converged pass the brush already takes:
+`relax_region` over the charge's own extent, once, at the moment it fires.
+The function exists, is tested, and its doc is an argument for exactly this.
+
+**But it is a behaviour change, and possibly to the wrong thing.** The owner's
+stated requirement is *"collapse must be obvious and delayed, so the player
+can get supports in first"*, and `CHAIN_WINDOW_FRAMES` is 600 frames of
+deliberate generosity in service of it. Some part of the delay a player
+currently sees after a blast is this wavefront crawling — which means a
+converged pass could make collapse arrive *instantly* and read as worse, even
+while the frame cost falls off a cliff. That is a judge-by-eye question and it
+belongs in front of the owner as a blind A/B (`filmstrip gif=1`, with the
+failure counts in the card's `meta`), not in a commit message. See also §D2,
+which is the same quantity from the other side: *"a room's collapse arrives at
+frame ~350 where it used to arrive at ~150"*, filed as a regression.
+
+The measurement that has to accompany it: `FailureCounts` before and after
+over `scripts/blastsweep.sh`'s nine charges, read at the order statistic. A
+converged pass changes *which* cells reach a failing verdict and when, so
+"the frame got cheaper" is not on its own evidence that nothing else moved.
 
 
 ## Closed this session

@@ -132,7 +132,7 @@ fn main() {
 
     if phases {
         let (w, h) = explicit.unwrap_or((BASE_W * 4, BASE_H * 4));
-        phase_probe(w, h, &params, &name, seed, warm, frames, &load, &chain);
+        phase_probe(ProbeArgs { w, h, params: &params, name: &name, seed, warm, frames, load: &load, chain: &chain });
         return;
     }
 
@@ -400,24 +400,33 @@ impl Bucket {
 /// |---|---|
 /// | `ants:N` | plant N ants along the surface -- `creature::tick` scheduling, pheromones, foraging |
 /// | `gnome` | summon the player and drive him: run right, jump every second |
-/// | `blast:EVERY` | fire an `explosion::trigger` at the surface every EVERY frames -- debris, fracture, chunk bodies, the load model, the field impulse |
+/// | `blast:EVERY[:COUNT]` | fire an `explosion::trigger` at the surface every EVERY frames -- debris, fracture, chunk bodies, the load model, the field impulse. `COUNT` stops after that many, which is the *only* way to ask whether a blast's cost ends: with charges still arriving, a queue that never drains and one that drains slower than it fills look identical |
 /// | `all` | `ants:64,gnome,blast:600` |
 ///
 /// **Read the two runs as a pair.** The point is not the loaded number on its
 /// own; it is which phases move between idle and loaded, because that is what
 /// says where the optimisation effort belongs. A phase that is 0.00 ms idle
 /// and 40 ms under a blast is the whole game.
-fn phase_probe(
+/// Everything `phases=1` was invoked with, in one place. A struct rather than
+/// nine positional arguments because the list grows every time a question
+/// needs a new knob (`load=` and `chain=` are both recent), and a run whose
+/// parameters cannot be printed back is a run nobody can tell is
+/// misconfigured -- see the megastudy that produced 24 logs of 3 populations
+/// because `worldseed=` post-dated the binary.
+struct ProbeArgs<'a> {
     w: i32,
     h: i32,
-    params: &pixel_physics::worldgen::WorldgenParams,
-    name: &str,
+    params: &'a pixel_physics::worldgen::WorldgenParams,
+    name: &'a str,
     seed: u64,
     warm: usize,
     frames: usize,
-    load: &str,
-    chain: &str,
-) {
+    load: &'a str,
+    chain: &'a str,
+}
+
+fn phase_probe(args: ProbeArgs) {
+    let ProbeArgs { w, h, params, name, seed, warm, frames, load, chain } = args;
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let t = Instant::now();
     worldgen::generate_only(&mut world, Spec::Generated { params, seed });
@@ -449,10 +458,19 @@ fn phase_probe(
     }
     let spec = if load == "all" { "ants:64,gnome,blast:600" } else { load };
     let (mut ants, mut gnome, mut blast_every) = (0usize, false, 0usize);
+    // `usize::MAX` is "keep firing", so the common case needs no sentinel
+    // check at the trigger site below.
+    let mut blast_limit = usize::MAX;
     for part in spec.split(',').filter(|p| !p.is_empty()) {
         match part.split_once(':') {
             Some(("ants", n)) => ants = n.parse().expect("ants:N"),
-            Some(("blast", n)) => blast_every = n.parse().expect("blast:EVERY"),
+            Some(("blast", n)) => match n.split_once(':') {
+                Some((every, count)) => {
+                    blast_every = every.parse().expect("blast:EVERY:COUNT");
+                    blast_limit = count.parse().expect("blast:EVERY:COUNT");
+                }
+                None => blast_every = n.parse().expect("blast:EVERY"),
+            },
             None if part == "gnome" => gnome = true,
             None if part == "ants" => ants = 64,
             None if part == "blast" => blast_every = 600,
@@ -529,7 +547,7 @@ fn phase_probe(
         };
         // Fired at the surface near the middle, where there is material to
         // break. Radius and strength are `X`'s own debug defaults.
-        if blast_every > 0 && step > 0 && step % blast_every == 0 {
+        if blast_every > 0 && step > 0 && step % blast_every == 0 && blasts_fired < blast_limit {
             let x = w / 2 + ((step / blast_every) as i32 % 8 - 4) * 64;
             if let Some(sy) = surface_at(&world, x) {
                 blasts.trigger_with(&mut world, &mut particles, x, sy + 8, 20, 200.0);

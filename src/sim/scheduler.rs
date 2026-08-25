@@ -290,6 +290,10 @@ struct SchedTiming {
     /// signature -- "every settling cell raised a fresh check on its parent
     /// ... faster than the queue drained".
     produced: usize,
+    /// Which branch of `structural::tick` produced them -- see
+    /// `structural::TickCensus`. `produced` says the queue is
+    /// self-sustaining; this says what sustains it.
+    census: structural::TickCensus,
 }
 
 impl SchedTiming {
@@ -346,6 +350,13 @@ impl SchedTiming {
             self.staged_ms,
             detail.join("  ")
         );
+        let c = self.census;
+        if c.worsened + c.improved + c.unmoved > 0 {
+            println!(
+                "  [struct] frame {frame:>6} worsened {:>5} improved {:>5} unmoved {:>5} | budget0 {:>5} chain-deferred {:>5} uninteresting {:>5} | max aux {}",
+                c.worsened, c.improved, c.unmoved, c.budget0, c.chain_deferred, c.uninteresting, c.max_aux
+            );
+        }
     }
 }
 
@@ -400,6 +411,11 @@ pub fn step(world: &mut World) {
     if timing.every > 0 {
         timing.staged_ms = t.elapsed().as_secs_f64() * 1000.0;
     }
+    // Drained unconditionally, not only on a reporting frame: the counters
+    // are per-frame, and leaving them to accumulate on the frames between
+    // reports would make every printed line a running total wearing a
+    // per-frame label.
+    timing.census = structural::take_tick_census();
     timing.report(world.frame);
 }
 
