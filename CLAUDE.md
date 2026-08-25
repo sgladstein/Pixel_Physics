@@ -840,11 +840,98 @@ usually this, not the physics. Suspect it early; the reports on liquids do not
 consider it at all.
 
 ## Conventions
+**Tests and guards**
+
+- **A guard test must be able to fail for the *replacement* artifact**, not
+  only the original one. A fix that cleared torn seam rows and introduced
+  much worse banding passed its own test, because that test only looked at
+  rows lying on a seam. If a fix trades one artifact for another, its test
+  should be the thing that catches the trade.
+- **Check that a guard's inputs actually vary what it guards.** All eight
+  acceptance scenes stayed green through a change that made one world seed
+  lose 26x more material to a single dig — and a ninth hand-authored scene
+  would have been just as blind, because `seed=` reaches only two scenes and
+  every structural case builds hand-placed geometry at the default seed. The
+  scenes were not too few; they were blind *by construction*. A guard over a
+  procedural system has to sweep the procedure, and it should gate an **order
+  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
+  here are chaotic in the seed, so which one is worst reshuffles on any
+  legitimate change and a per-seed baseline gets rubber-stamped. **This
+  happened twice in one session** — two different changes to the load model,
+  both green on all eight cases, the second eating fifty times more world than
+  the bug it was fixing. A seed sweep caught each in one command. So build the
+  sweep *before* changing a model that governs procedural content, not after:
+  on green alone, both would have shipped.
+- **A superseded mechanism's tests keep passing while testing nothing.**
+  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
+  nothing, because the scenario is trivially stable once the mechanism they
+  were written for is gone. When replacing a mechanism, deliberately break
+  the *replacement* and confirm the old tests fail. If they still pass,
+  delete them rather than porting them.
+- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
+  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
+  §8. (An earlier version of this bullet warned of stale comments saying
+  otherwise; a sweep found none survive.)
+
+**Tuning and sweeps**
 
 - **Set bars from measurement with headroom**, never from an aspiration and
   never sitting on the measured value. Where a report asks for a number the
   engine cannot yet hit, record both and leave the gap visible rather than
   relabelling it away.
+- **Two fixes failing the same way means the approach is wrong, not the
+  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
+  both replaced the tear with a throttle at the same seam. That is a signal
+  to change the approach — the third attempt fixed the sweep *order* instead
+  and cost nothing.
+- **A change that moves *nothing* is different evidence from one that moves a
+  little.** Gating the granular capacity divisor on `parent.is_none()` was
+  recorded as a dead end because not one cell moved, across six presets and
+  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
+  a cell's distance at 0 the moment powder touched its underside, so every
+  powder-backed cell was parentless *by construction* and the gate had nothing
+  to discriminate. An exactly-zero delta means suspect the condition you keyed
+  on is degenerate, before concluding the lever is dead — and re-test any
+  do-not-retry entry of that shape after something changes its condition.
+- **A constant nobody can tune in either direction may be a counterweight, not
+  a model.** That same divisor existed to cancel the eager rooting above: two
+  modelling errors roughly annulling each other. Every attempt to tune it made
+  some case worse because it was holding a different mistake in place. When a
+  term resists tuning in both directions, ask what it is compensating for.
+- **When several knobs move the same number, check what each one trades.**
+  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
+  sooner; the first does it by giving up on the last of the levelling
+  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
+  that look interchangeable on the headline metric usually are not.
+- **When a rule must tell apart two things that can look identical, state
+  the difference as data.** Four successive support models tried to infer
+  "is this held up" from *shape*, and every one was either strong enough to
+  hold a mountain or weak enough to let a player's tower break, never both —
+  because geometry cannot distinguish a mountain from a wall someone
+  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
+  trading one case for the other, the rule is reading the wrong quantity;
+  more tuning will not find a setting that does not exist.
+- **For "does this look right", ship a runtime selector rather than choosing.**
+  Five grain modes behind one key settled in minutes a question that no
+  amount of argument or still images had. Default to current behaviour, name
+  the active one on screen, and state what each option *costs*.
+
+**Performance**
+
+- **Measure a cost against the state the optimisation exists for.** An
+  animated grain looked free in every moving scene and cost ~10 ms/frame on a
+  *settled* one, because what it defeats is the dirty-rect render skip — and
+  a settled world is exactly where that skip does its work.
+- **A size cap must bound work, never gate whether something happens.**
+  Written twice in one session: fracture declined any region larger than its
+  body-size cap and fell through to per-cell conversion, so the *bigger* the
+  collapse the more certain it dissolved into dust. The cap belonged on a
+  fragment, not on the decision to break at all. Any `if too_big { return }`
+  is a claim that the largest cases deserve the least behaviour — check that
+  is what you meant.
+
+**Process and records**
+
 - **A revert keeps the knowledge — and gets an address.** Keep the
   reproduction (`#[ignore]` it if it now fails), record what the withdrawn
   fix was, what it improved, and why it went, and add the entry to
@@ -870,83 +957,6 @@ consider it at all.
   drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
-- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
-  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
-  §8. (An earlier version of this bullet warned of stale comments saying
-  otherwise; a sweep found none survive.)
-- **A guard test must be able to fail for the *replacement* artifact**, not
-  only the original one. A fix that cleared torn seam rows and introduced
-  much worse banding passed its own test, because that test only looked at
-  rows lying on a seam. If a fix trades one artifact for another, its test
-  should be the thing that catches the trade.
-- **Check that a guard's inputs actually vary what it guards.** All eight
-  acceptance scenes stayed green through a change that made one world seed
-  lose 26x more material to a single dig — and a ninth hand-authored scene
-  would have been just as blind, because `seed=` reaches only two scenes and
-  every structural case builds hand-placed geometry at the default seed. The
-  scenes were not too few; they were blind *by construction*. A guard over a
-  procedural system has to sweep the procedure, and it should gate an **order
-  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
-  here are chaotic in the seed, so which one is worst reshuffles on any
-  legitimate change and a per-seed baseline gets rubber-stamped. **This
-  happened twice in one session** — two different changes to the load model,
-  both green on all eight cases, the second eating fifty times more world than
-  the bug it was fixing. A seed sweep caught each in one command. So build the
-  sweep *before* changing a model that governs procedural content, not after:
-  on green alone, both would have shipped.
-- **Two fixes failing the same way means the approach is wrong, not the
-  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
-  both replaced the tear with a throttle at the same seam. That is a signal
-  to change the approach — the third attempt fixed the sweep *order* instead
-  and cost nothing.
-- **A change that moves *nothing* is different evidence from one that moves a
-  little.** Gating the granular capacity divisor on `parent.is_none()` was
-  recorded as a dead end because not one cell moved, across six presets and
-  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
-  a cell's distance at 0 the moment powder touched its underside, so every
-  powder-backed cell was parentless *by construction* and the gate had nothing
-  to discriminate. An exactly-zero delta means suspect the condition you keyed
-  on is degenerate, before concluding the lever is dead — and re-test any
-  do-not-retry entry of that shape after something changes its condition.
-- **A constant nobody can tune in either direction may be a counterweight, not
-  a model.** That same divisor existed to cancel the eager rooting above: two
-  modelling errors roughly annulling each other. Every attempt to tune it made
-  some case worse because it was holding a different mistake in place. When a
-  term resists tuning in both directions, ask what it is compensating for.
-- **When several knobs move the same number, check what each one trades.**
-  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
-  sooner; the first does it by giving up on the last of the levelling
-  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
-  that look interchangeable on the headline metric usually are not.
-- **Measure a cost against the state the optimisation exists for.** An
-  animated grain looked free in every moving scene and cost ~10 ms/frame on a
-  *settled* one, because what it defeats is the dirty-rect render skip — and
-  a settled world is exactly where that skip does its work.
-- **For "does this look right", ship a runtime selector rather than choosing.**
-  Five grain modes behind one key settled in minutes a question that no
-  amount of argument or still images had. Default to current behaviour, name
-  the active one on screen, and state what each option *costs*.
-- **A size cap must bound work, never gate whether something happens.**
-  Written twice in one session: fracture declined any region larger than its
-  body-size cap and fell through to per-cell conversion, so the *bigger* the
-  collapse the more certain it dissolved into dust. The cap belonged on a
-  fragment, not on the decision to break at all. Any `if too_big { return }`
-  is a claim that the largest cases deserve the least behaviour — check that
-  is what you meant.
-- **When a rule must tell apart two things that can look identical, state
-  the difference as data.** Four successive support models tried to infer
-  "is this held up" from *shape*, and every one was either strong enough to
-  hold a mountain or weak enough to let a player's tower break, never both —
-  because geometry cannot distinguish a mountain from a wall someone
-  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
-  trading one case for the other, the rule is reading the wrong quantity;
-  more tuning will not find a setting that does not exist.
-- **A superseded mechanism's tests keep passing while testing nothing.**
-  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
-  nothing, because the scenario is trivially stable once the mechanism they
-  were written for is gone. When replacing a mechanism, deliberately break
-  the *replacement* and confirm the old tests fail. If they still pass,
-  delete them rather than porting them.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
