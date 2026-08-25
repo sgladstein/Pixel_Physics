@@ -863,6 +863,24 @@ out of that, and neither depends on the machine it was measured on:
   back **byte-identical** (`produced 7042 / deferred 61488` at frame 4,800,
   both times) while the wall-clock column on the same frame moved 9.54 → 8.16
   ms. The counters reproduced exactly where the clock moved 17%.
+- **…and check what the counter counts.** A counter inherits the wall clock's
+  failure mode by a different route: it is exactly as trustworthy as the claim
+  that the thing it counts is the thing you care about. Measured 2026-08-25,
+  two hours after the rule above landed, and it nearly published a null: a
+  harness probing whether the pick leaks the way a blast does reported 200 cuts
+  and a queue flat at its idle 5,400 — a clean, counter-based negative. **The
+  counter was counting calls.** `rigid::is_tool_target` accepts
+  `Solid | Plant` and refuses bedrock, and the harness aimed at the topmost
+  `Solid | Powder` cell, which on a rolling world is soil — so every swing
+  landed in dirt. 23 swings, **0 cells removed**. With the aim corrected the
+  same 23 swings remove **1,157**, and the queue then goes to the scheduler's
+  cap and stays there. The cheap guard is to **pair every "it fired" counter
+  with an effect counter from the far side of the call**: `rigid::mine_swept`
+  returns its own loosened count, `rigid::strike` returns `()`, so the second
+  needs a census of the neighbourhood either side of the blow. This is *Ask
+  what a metric counts when nothing is wrong* (below) applied to counters
+  rather than to metrics — a null is where it hides, because a null looks the
+  same whether the mechanism is quiet or the probe never reached it.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
