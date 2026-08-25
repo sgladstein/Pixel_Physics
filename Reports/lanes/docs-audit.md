@@ -78,3 +78,36 @@ it can pick up.
 touched-today rule. If you would rather I did not special-case them, say so —
 but a branch a lane is sitting between pushes on is not one I will delete on a
 count alone.
+
+## 2026-08-25 — README audited against the agent lens; verdict is keep
+
+Measured before opining. README is 2,735 lines / ~44.6k tokens, **94.1%
+subsystem reference**; user-facing content is 71 lines (2.6%). The
+"history" impression is voice — sections open `Built:` and then describe
+current behaviour.
+
+- **Not stale.** Every backticked token resolved against the tree: 546
+  file references, **0 wrong**; 220 code identifiers, **2 wrong**. 0.4%
+  over 766 references.
+- **Not duplicative.** 8-gram overlap with all of `wiki/`: **0.10%**.
+- **`Reports/dead-ends.md` addresses 47 of its 594 entries by README
+  section *and paragraph* name**, across 16 sections. README headings are
+  a load-bearing address space; renaming or reordering silently breaks 47
+  pointers into the do-not-retry register. This is the mechanical reason
+  behind `documentation-overhaul-plan.md` item 11's reversal, which
+  recorded only that the churn bought nothing.
+- **One real gap:** plants own five top-level sections, none named
+  "plants" (M16 status, Plant lines merged, The generation loop, The
+  economy re-derived, Felling status). Every other topic has exactly one
+  owning section. Fix is a generated topic->section index, not a reorder.
+
+**Trap for anyone auditing docs by identifier-resolution:** a name that no
+longer exists is not always a rename. README claimed
+`a_tree_can_produce_multiple_simultaneous_tips_via_branching` guards that a
+tree produces multiple simultaneous tips. I nearly repointed it at a
+similarly-named test. It is `a_tree_can_branch_into_more_than_one_lineage`,
+and **the proxy changed because the design did** — tip retirement means tips
+essentially never stay alive simultaneously now, so the old assertion would
+be wrong if restored. Read the successor's body before repointing a stale
+name; a blind repoint would have re-armed a claim the mechanism deliberately
+abandoned.

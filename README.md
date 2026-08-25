@@ -36,22 +36,22 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1131 |
 | [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1183 |
 | [M16 status](#m16-status) | 1248 |
-| [M17 status](#m17-status) | 1428 |
-| [M18 status](#m18-status) | 1655 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 1909 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 1954 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 1985 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2005 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2118 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2179 |
-| [Weather status](#weather-status) | 2294 |
-| [The ant colony — status](#the-ant-colony--status) | 2311 |
-| [M19 status — started](#m19-status--started) | 2325 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2361 |
-| [Performance](#performance) | 2442 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2591 |
-| [Status](#status) | 2632 |
-| [License](#license) | 2733 |
+| [M17 status](#m17-status) | 1434 |
+| [M18 status](#m18-status) | 1661 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 1915 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 1960 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 1991 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2011 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2124 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2185 |
+| [Weather status](#weather-status) | 2300 |
+| [The ant colony — status](#the-ant-colony--status) | 2317 |
+| [M19 status — started](#m19-status--started) | 2331 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2367 |
+| [Performance](#performance) | 2448 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2597 |
+| [Status](#status) | 2638 |
+| [License](#license) | 2739 |
 
 ### Milestones, in numeric order
 
@@ -63,16 +63,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 966 |
 | 6 | [M6 deferral](#m6-deferral) | 956 |
 | 7 | [M7 status](#m7-status) | 855 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2005 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2118 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2179 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2011 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2124 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2185 |
 | 12 | [M12/M13 status](#m12m13-status) | 654 |
 | 14 | [M14 status](#m14-status) | 707 |
 | 15 | [M15 status](#m15-status) | 884 |
 | 16 | [M16 status](#m16-status) | 1248 |
-| 17 | [M17 status](#m17-status) | 1428 |
-| 18 | [M18 status](#m18-status) | 1655 |
-| 19 | [M19 status — started](#m19-status--started) | 2325 |
+| 17 | [M17 status](#m17-status) | 1434 |
+| 18 | [M18 status](#m18-status) | 1661 |
+| 19 | [M19 status — started](#m19-status--started) | 2331 |
 
 <!-- END GENERATED TOC -->
 
@@ -991,7 +991,7 @@ cy%2)` pairwise) shows only four possible configurations — left+right,
 top+bottom, and the two diagonal pairs — and each one's write footprint
 lands in geometrically opposite, disjoint halves/rows/corners of the shared
 chunk. No two workers in the same pass ever target the same cell.
-`same_group_chunks_are_never_within_reach_of_each_other` in `parallel.rs`
+`concurrent_chunks_are_never_within_reach_of_each_other` in `parallel.rs`
 checks this exhaustively across a wide neighbourhood rather than resting on
 the derivation alone.
 
@@ -1414,9 +1414,15 @@ canalization doc-vs-code gap above:
   passed even with the MIZ1 switch deleted entirely), and nothing checked
   that a tree ever actually produced more than one simultaneous tip.
   `roots_steer_toward_off_axis_water_via_hydrotropism` and
-  `a_tree_can_produce_multiple_simultaneous_tips_via_branching` close both
-  — the latter directly exercises `TreeState`'s private fields, which
-  Rust's privacy model allows from `plant.rs`'s own nested test module.
+  `a_tree_can_branch_into_more_than_one_lineage` close both — the latter
+  directly exercises `TreeState`'s private fields, which Rust's privacy
+  model allows from `plant.rs`'s own nested test module. **The branching
+  guard's proxy changed with the mechanism and the old one would now be
+  wrong**: it was `a_tree_can_produce_multiple_simultaneous_tips_via_
+  branching`, counting tips alive at once, and tip retirement means tips
+  essentially never stay alive simultaneously any more *by design*. A
+  branch point is now a cell with 3+ same-organism `Plant` 8-neighbours —
+  a parent plus more than one child. Do not restore the old assertion.
   Writing the branching test surfaced one more real tuning bug: channel
   decayed on *every* tick spent waiting for energy, not just genuine dead
   ends, and since energy waits happened roughly 2-3x more often than

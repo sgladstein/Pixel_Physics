@@ -702,3 +702,107 @@ project context, search breadth medium. Compare **files opened**, **source
 files read**, and **traps refused** — 8 / 0 / 1-of-1 in 2026-08-21, 6 / 0 /
 1-of-1 here. Read §1c first: the instrument now lives inside the corpus it
 measures.
+
+## 9. README.md audited against the agent lens — verdict: keep it
+
+Asked 2026-08-25: *is the primary README useful for agents developing the
+project?* The owner's suspicion was that it mixes four audiences — a message
+to the user, an explanation of the code, a history of development, and notes
+to other agents — and that the mix costs agents.
+
+**Measured, the mix is not there.** README is 2,735 lines / ~44.6k tokens.
+By audience:
+
+| | lines | share |
+|---|---|---|
+| user-facing (`## Running`, `## Controls`) | 71 | 2.6% |
+| navigation (`## Contents`, `## Finding things`) | 88 | 3.2% |
+| `## License` | 2 | 0.1% |
+| **subsystem reference** | **2,574** | **94.1%** |
+
+The history impression is **voice, not content**. Every status section opens
+`Built:` / `Landed`, then describes what the code does *today*, with live
+file paths and identifiers. It reads as a changelog and functions as a
+reference manual.
+
+### It is not stale, and this was the concern with the strongest prior
+
+The audit's founding worry was that documentation predates implementation.
+For README that is measurably false. Every backticked token was extracted and
+resolved against the tree:
+
+| | checked | wrong |
+|---|---|---|
+| file/path references | 546 | **0** |
+| code identifiers (consts, fns, types) | 220 | **2** |
+
+The two are renamed tests — `same_group_chunks_are_never_within_reach_of_
+each_other` (README:994) is now `concurrent_chunks_are_never_within_reach_of_
+each_other`, and `a_tree_can_produce_multiple_simultaneous_tips_via_
+branching` (README:1417) is now `root_and_shoot_branching_read_different_
+slots`. `assets/player.ron` looked missing and is not: `player.rs`'s
+`ASSET_PATH` writes it at runtime. `min_neighbour` (README:1621) is a
+*deliberately* dead identifier — the section is describing a fixed bug.
+
+**0.4% error rate over 766 references.** Do not "refresh" this file.
+
+### It duplicates nothing
+
+8-gram shingle overlap, README against all of `wiki/`: **0.10%** (28 of
+28,620). The trailing `## Status` against the rest of README: **2.5%** — it
+reads like a summary of the milestone sections and is not one; it is 20
+cross-references plus a **Known limitations** list that exists nowhere else
+in the repo. That list is the single highest-value paragraph in the file for
+an arriving agent, and it is at line 2,632 of 2,735.
+
+### The one real cost: subsystem knowledge split by build date
+
+Per-topic section spread (sections with >=5 substantive line hits):
+
+| topic | dominant section | other sections |
+|---|---|---|
+| fire/heat | M14 status (46) | incidental |
+| structural | M17 status (42) | Felling (12), M8 (9) |
+| creatures | M18 status (58) | incidental |
+| worldgen | M10 status (25) | incidental |
+| **plants** | **M16 status (65)** | **The economy re-derived (25), Plant lines merged (19), The generation loop (15), Felling status (14)** |
+
+Five of six topics have exactly one owning section, so the milestone framing
+costs nothing — `M17 status` is `structural collapse` wearing a number. Plants
+are the exception: five top-level sections, **none of them named "plants"**.
+An agent that greps `plant` stops at M16 and never learns the standing-tissue
+economy exists.
+
+### Why a reorder is the wrong fix — and would break 47 addresses
+
+`Reports/dead-ends.md` **addresses its entries by README section and
+paragraph name**: `- **README.md 'M17 status' — 'A step's cost now depends on
+which direction the support comes from' paragraph**`. 47 of its 594 entries
+are addressed this way, across 16 distinct sections (7 in `The coarse field
+grid`, 6 each in `M8 status` and `M16 status`, 5 in `M17 status`).
+
+**README's section structure is a load-bearing address space for the
+do-not-retry register.** Renaming or reordering sections silently invalidates
+47 pointers into the one document whose whole job is stopping an agent
+re-walking a dead end. This is the mechanical reason behind
+`Reports/documentation-overhaul-plan.md` item 11's reversal, which recorded
+only that the churn "bought nothing a table does not" — the cost is larger
+than that entry states.
+
+### Recommendation
+
+**Keep the README as it is.** Not stale, not duplicative, 94% reference, and
+its headings are referenced infrastructure. Two narrow, non-structural items:
+
+1. **Fix the two renamed test names** (README:994, README:1417). Mechanical.
+2. **Add a generated topic -> section index** to the existing TOC block —
+   `plants -> M16 status, Plant lines merged, The generation loop, The
+   economy re-derived, Felling status`. It solves the only measured
+   navigation failure without renaming a heading, so no `dead-ends.md`
+   address moves; and because `scripts/readmetoc.py` generates it under
+   `scripts/docscheck.sh`, it cannot drift. Cost: ~40 lines (2.6% -> 4.0% of
+   the file spent on navigation).
+
+Explicitly **not** recommended: reordering sections, renaming milestone
+headings to subsystem names, splitting the file, or moving status sections
+into `Reports/`.
