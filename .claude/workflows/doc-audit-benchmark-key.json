@@ -1,0 +1,61 @@
+{
+  "_comment": [
+    "Answer key for the cold-agent documentation benchmark whose questions and",
+    "method live in Reports/documentation-audit.md. It is HERE, outside Reports/,",
+    "because the benchmark prompt restricts the agent under test to README.md,",
+    "CLAUDE.md, PLAN.md, PLAN-log.md, wiki/ and Reports/ -- so .claude/ is out of",
+    "bounds by the instrument's own rule rather than by a new one.",
+    "Do not move this back into Reports/, and do not paste it into a runner.",
+    "Grading a run: compare files_opened, source_files_read and traps_refused."
+  ],
+  "runs": [
+    {
+      "date": "2026-08-21",
+      "tree": "post-overhaul",
+      "correct": "3/3",
+      "files_opened": 8,
+      "source_files_read": 0,
+      "traps_refused": "1/1",
+      "tool_calls": {
+        "total": 17,
+        "reads": 8,
+        "greps": 8,
+        "listings": 1
+      },
+      "files_in_order": [
+        "Reports/README.md",
+        "wiki/README.md",
+        "CLAUDE.md",
+        "Reports/dead-ends.md",
+        "Reports/load-model-handoff.md",
+        "Reports/tree-architecture-implementation-plan.md",
+        "PLAN.md",
+        "README.md"
+      ],
+      "agent_closing_observation": "The index files in this repo are unusually load-bearing and worth reading first in any future session.",
+      "per_question": {
+        "Q1": "Named src/sim/load.rs, distinguished it from structural.rs (which only orders the support forest by anchor distance), and produced a prioritised reading list from the index alone -- including the then-in-flight load-concentration-review-response.md on the unmerged load-share branch with its hash, i.e. coordinate rather than duplicate.",
+        "Q2": "Found the reversal in dead-ends.md, quoted the ~5x cell-count ballooning and the vertical-first 1%-compress throttle as the mechanism, gave the re-test condition, and flagged the adjacent near-miss entry (the landed horizontal-first move whose Cell::flowing() gating was rejected) as a distinct case -- which is what separates a good index from a lucky grep.",
+        "Q3": "Routed to the implementation plan's inline per-phase status, then PLAN.md, then the index's in-flight section. REFUSED THE TRAP: Reports/load-model-handoff.md is not safe to execute, for two independent reasons found separately -- the index marks it superseded by landing (7e13e42), and its section 3 instruction (a stored per-cell support parent in a side table on World) is a recorded dead end whose entry ends 'Do not add the table back.'"
+      },
+      "why_q3_is_the_point": "Before the overhaul, CLAUDE.md's knowledge table advertised that same document as 'The next step on destruction, written up to be picked up cold.' A cold agent following the old table would have executed a superseded work order whose central instruction is a dead end -- the exact wasted session the overhaul exists to prevent."
+    },
+    {
+      "date": "2026-08-24",
+      "tree": "e20e338 plus the agent-consumption audit branch",
+      "correct": "3/3",
+      "files_opened": 6,
+      "source_files_read": 0,
+      "traps_refused": "1/1",
+      "files_in_order": [
+        "CLAUDE.md",
+        "README.md",
+        "PLAN.md",
+        "Reports/README.md",
+        "Reports/dead-ends.md",
+        "Reports/load-model-handoff.md"
+      ],
+      "notes": "Routing improved across 258 commits and ~14 new reports since the overhaul. Found a third reason to refuse the trap that the baseline run did not report: load-model-handoff.md's own header still reads 'Status: not started', which the index contradicts. This run also flagged, unprompted, that the answer key was then inside Reports/ and made the benchmark non-blind -- which is why the key now lives here."
+    }
+  ]
+}
