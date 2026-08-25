@@ -265,17 +265,25 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
 
     println!("worldgen census: preset {name}, {gw}x{gh}, seeds {seeds:?}, {sites_per_seed} sites each, {frames} frames\n");
     println!(
-        "{:>6} {:>8} {:>12} {:>14} {:>14} {:>12}",
-        "seed", "sites", "on loose", "brush roots", "rule disagrees", "extra lost"
+        "{:>6} {:>8} {:>12} {:>14} {:>14} {:>12} {:>11} {:>11}",
+        "seed", "sites", "on loose", "brush roots", "rule disagrees", "extra lost", "brush lost", "gen lost"
     );
-    println!("{}", "-".repeat(70));
+    println!("{}", "-".repeat(94));
 
     let (mut tot_sites, mut tot_loose, mut tot_disagree, mut tot_extra) = (0usize, 0usize, 0usize, 0i64);
+    // **Absolute losses per arm, not only their difference.** An `extra lost`
+    // of zero means the rule changed nothing *only if something happened at
+    // all*; if both arms lost nothing, the platforms simply stood and the
+    // comparison is vacuous. Two of this session's measurements were exactly
+    // that shape before a control caught them, so the control is printed
+    // rather than assumed.
+    let (mut tot_brush_lost, mut tot_gen_lost) = (0i64, 0i64);
     for &seed in seeds {
         let mut on_loose = 0usize;
         let mut roots = 0usize;
         let mut disagree = 0usize;
         let mut extra_lost = 0i64;
+        let (mut seed_brush_lost, mut seed_gen_lost) = (0i64, 0i64);
 
         for i in 0..sites_per_seed {
             // Sites spread across the middle of the world, clear of the edges.
@@ -334,24 +342,32 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
             let brush_lost = before + plat.len() as i64 - census(&brush).0 as i64;
             let gen_lost = before + plat.len() as i64 - census(&gen).0 as i64;
             extra_lost += brush_lost - gen_lost;
+            seed_brush_lost += brush_lost;
+            seed_gen_lost += gen_lost;
         }
 
         println!(
-            "{seed:>6} {sites_per_seed:>8} {on_loose:>12} {roots:>14} {disagree:>14} {extra_lost:>12}"
+            "{seed:>6} {sites_per_seed:>8} {on_loose:>12} {roots:>14} {disagree:>14} {extra_lost:>12} {seed_brush_lost:>11} {seed_gen_lost:>11}"
         );
         tot_loose += on_loose;
         tot_disagree += disagree;
         tot_extra += extra_lost;
+        tot_brush_lost += seed_brush_lost;
+        tot_gen_lost += seed_gen_lost;
     }
-    println!("{}", "-".repeat(70));
+    println!("{}", "-".repeat(94));
     let pct = |n: usize| 100.0 * n as f64 / tot_sites.max(1) as f64;
     println!(
-        "{:>6} {tot_sites:>8} {:>12} {:>14} {:>14} {tot_extra:>12}",
+        "{:>6} {tot_sites:>8} {:>12} {:>14} {:>14} {tot_extra:>12} {tot_brush_lost:>11} {tot_gen_lost:>11}",
         "all",
         format!("{tot_loose} ({:.0}%)", pct(tot_loose)),
         "",
         format!("{tot_disagree} ({:.0}%)", pct(tot_disagree)),
     );
+    if tot_brush_lost == 0 && tot_gen_lost == 0 {
+        println!("\n!! BOTH ARMS LOST NOTHING -- the platforms all stood, so `extra lost` compares two");
+        println!("!! non-events and says nothing about the rule. Make the site harder before reading it.");
+    }
     println!("\n`on loose` = the platform sits over Powder. `rule disagrees` = the brush rooted cells");
     println!("`compute_world_distances` did not. `extra lost` = Solid cells the brush arm destroyed beyond the control.");
 }
