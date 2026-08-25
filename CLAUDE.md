@@ -844,6 +844,34 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
+### A timing number is only as trustworthy as the box was quiet
+
+Two runs of a **byte-identical** `examples/ascii` on bit-identical
+deterministic work disagreed **2.42x** on one scene, and reversed the
+serial/parallel ordering on another — one run reported the *parallel* stress
+scene slower than the serial one, backwards from M5's whole purpose, and the
+other reversed it. Both orderings cannot be true. Nothing in the simulation
+changed: the statistic was measuring the rest of the machine. Two rules come
+out of that, and neither depends on the machine it was measured on:
+
+- **Gate on counters, never on wall clock.** Everything `examples/ascii.rs`
+  asserts is a deterministic count, identical under any load. A wall-clock
+  assertion is a flake generator — and usually the counter above it is the
+  stronger claim anyway, because "the pass did no work at all" cannot be
+  explained away by a busy box.
+- **Measure one scene, not the suite.** A short run can land inside a quiet
+  window; a long one structurally cannot, so a full-suite timing figure is
+  untrustworthy by construction rather than by luck. Run the whole suite for
+  the counter gates, where load is irrelevant.
+
+And read the *worst* frame with suspicion: measured across three attempts at
+one scene, the worst frame moved **6x** with machine state while the median
+moved ~30%. An untrusted median is worth something; an untrusted worst is
+worth nothing.
+
+`Reports/measurement-under-contention.md` has the evidence, and records why the
+machine-wide lock it designed was deliberately not landed.
+
 ### An isolated harness overstates what the app will see
 
 The sibling of the paired-baseline rule below, and it cost a wrong headline
