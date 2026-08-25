@@ -146,6 +146,12 @@ tried?"*.
   all) answer "is this dark", and which of the two the still-open
   open-cast-dig case needs.
 
+- [structural-reconvergence-design.md](structural-reconvergence-design.md) —
+  **design, nothing built.** The scope for §S: converge the support field over
+  what actually changed rather than over a box, why both withdrawn attempts
+  failed the same way, and why the delay timer is nearly free while the
+  convergence is not. Read with §S and `dead-ends.md`'s scheduler section.
+
 ## Liquids and granular
 
 - [liquid-simulation-research.md](liquid-simulation-research.md) —
