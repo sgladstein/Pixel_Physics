@@ -310,42 +310,67 @@ repointed, so the next reader of an old `§Z` reference elsewhere can resolve it
 
 ## 5. Not yet acted on — proposals
 
-### 5a. The Claude Code configuration surface is empty *(highest leverage)*
+### 5a. The Claude Code configuration surface — LANDED 2026-08-25
 
-This repo is built end-to-end by Claude Code agents, and **none of its Claude
-Code configuration is version-controlled.** `.claude/` holds one skill
-(`review`) and two workflow scripts. There is:
+**The finding, and a correction to how this report first stated it.** The repo
+version-controlled none of its Claude Code configuration: no settings, hooks,
+agent definitions or commands, and **zero mentions of any of them across all
+122 markdown files.** That much was true. Calling it an oversight was not —
+`.gitignore` ignored `/.claude/` deliberately, and its comment named
+"per-machine permission settings" explicitly.
 
-- no `.claude/settings.json` — no shared permission allowlist, no env, no hooks
-- no `.claude/hooks/` — nothing runs at session start
-- no `.claude/agents/` — the lane/coordinator program described across 145
-  lines of `CLAUDE.md` is assembled by hand each time
-- no `.claude/commands/` — no slash commands
+But five files under it had been force-added anyway (the review skill, its
+CATCHUP, three workflow harnesses) *because they are project content*, so the
+exception was re-argued every time and anything nobody thought to force-add
+vanished. The owner's question settled it: **most development now happens in
+cloud containers that are destroyed after the session, so configuration that is
+not committed does not merely live on one machine — for those sessions it does
+not exist.** The ignore was inverted to name the machine-local things
+(`worktrees/`, `*.local.json`) instead of the whole directory.
 
-**Measured: zero mentions of `settings.json`, `SessionStart`, `.claude/agents`
-or "slash command" across all 122 markdown files.**
+**What landed:**
 
-The sharpest instance: `CLAUDE.md` says *"run `bash scripts/branchcheck.sh`
-when you pick up a branch"* — and the drift it exists to prevent happened
-anyway, at scale (measured 2026-08-22: ten branches at exactly 160 behind).
-That is a convention with no enforcement, in a repo whose own stated lesson is
-*"a convention alone did not catch it; a check that runs catches it."*
-A `SessionStart` hook running `branchcheck.sh` is that check.
+- **`scripts/branchcheck.sh --brief`** — a summary mode. The full report is a
+  49-row table, right for auditing the repo and far too much for every session
+  start; `--brief` is 15 lines / ~430 tokens.
+- **A `SessionStart` hook** running it, in `.claude/settings.json`. This is
+  `CLAUDE.md`'s "run `branchcheck.sh` when you pick up a branch" turned from a
+  convention into a check that runs — the convention demonstrably failed (ten
+  branches at *exactly* 160 behind, 2026-08-22), and this repo's own stated
+  lesson is that a check catches what a convention does not.
+- **Permission lists** — a narrow, mostly read-only `allow`; a `deny` holding
+  the one rule `CLAUDE.md` states unconditionally (`git add -A`, after it once
+  swept ~1,200 lines of another session's work into an unrelated commit); and
+  an `ask` list for the conditional ones.
+- **`.claude/README.md`** explaining all of it, now that the directory is
+  tracked and a session will find it.
 
-Candidates, in leverage order:
+**One design correction worth recording.** This report first proposed denying
+force-push outright. That would have been wrong: the actual rule is
+*conditional* — `CLAUDE.md` forbids rewriting history **on someone else's
+branch** and defers to convention on a branch you created. A blanket deny would
+have blocked `--force-with-lease` on your own branch, which is routine, and
+which this very session used repeatedly. It is on `ask` instead, with `rebase`,
+`commit --amend`, `reset --hard` and `git add .`. A rule stated unconditionally
+can be denied; a conditional one can only be asked.
 
-1. **`SessionStart` hook** — `branchcheck.sh`, and `review.py inbox` (which
-   `CLAUDE.md` asks every session to run when picking a thread back up).
-2. **`.claude/settings.json`** — permission allowlist for the read-only and
-   routine commands (`cargo test`, `cargo clippy`, `bash scripts/*.sh`,
-   `git status/log/diff`), so agents stop burning turns on prompts.
-3. **`.claude/agents/lane.md`** — encode the dispatch brief that `CLAUDE.md`
-   §"Running a program of sessions" describes in prose, including the two rules
-   that cost real money: **workers run `claude-opus-5`, never inherited** (three
-   workers silently inherited a premium tier and ran $25–71 each inside ninety
-   minutes), and **every package gets a cost fork at dispatch.**
-4. **`.claude/commands/`** — `/gates` (run the suite exactly as CI does,
-   `--skip` included), `/land`, `/docs-check`.
+**And a finding the hook produced on its first run.** Against the real remote:
+**37 branches are merged and still standing**, and **14 carry 135 commits
+`main` does not have** — `claude/worldgen-caves-r6` at 87 ahead / 546 behind,
+`claude/app-performance-review-0p5ix4` at 8 ahead and only 2 behind (current
+work, no PR). That is §5f's branch hygiene and the "PR list is not the work
+list" problem, measured rather than asserted, by the thing that now runs
+automatically.
+
+**A caveat the hook had to be honest about.** `branchcheck` refused to run at
+all on a shallow clone — and cloud containers clone shallow, so the check could
+not execute in the environment where most sessions now start, which is how a
+convention nobody can run stays unrun. The **gate** still refuses (it asks an
+ancestry question shallow history cannot answer); the **report** now runs and
+labels what it cannot vouch for. Measured at depth 645 here, every ahead/behind
+count matched the same figures taken with full history; the unreliable part is
+`DATA` classification, where a common ancestor beyond the boundary looks
+identical to a genuine orphan.
 
 ### 5b. All thirteen CLAUDE.md recommendations have landed — 2026-08-25
 
