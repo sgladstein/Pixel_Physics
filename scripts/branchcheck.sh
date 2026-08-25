@@ -56,6 +56,7 @@
 #   scripts/branchcheck.sh            # full drift report + the divergence gate
 #   scripts/branchcheck.sh --gate     # divergence gate only (quiet, for CI)
 #   scripts/branchcheck.sh --no-fetch # skip the fetch, use refs as they are
+#   scripts/branchcheck.sh --brief    # summary only, no per-branch table
 #
 # STALE_AFTER=<n> overrides the advisory staleness bar (default 40).
 
@@ -64,10 +65,12 @@ cd "$(dirname "$0")/.."
 
 gate_only=0
 do_fetch=1
+brief=0
 for arg in "$@"; do
   case "$arg" in
     --gate) gate_only=1 ;;
     --no-fetch) do_fetch=0 ;;
+    --brief) brief=1 ;;
     # Prints the header block by structure -- every comment line after the
     # shebang, stopping at the first line that is not one. A hardcoded line
     # range rots the moment the header is edited, and prints `set -u`.
@@ -83,9 +86,20 @@ note() { printf 'branchcheck: %s\n' "$*"; fail=1; }
 # A shallow clone cannot answer an ancestry question, and CI checkouts are
 # shallow by default -- so say that plainly rather than reporting a clean
 # run over history that is not there.
+# A shallow clone cannot answer the ancestry question the *gate* asks, so the
+# gate still refuses. The drift report is a different question and mostly
+# survives: measured in a cloud container at depth 645, every ahead/behind
+# count matched the same figures taken with full history. Refusing outright
+# meant this script could not run at all in the environment where most
+# sessions now start -- which is how a convention nobody can execute stays
+# unexecuted. So the report runs, and says what it cannot vouch for.
+shallow=0
 if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" = "true" ]; then
-  note "shallow clone: ancestry is unknowable here. Use actions/checkout with fetch-depth: 0, or run git fetch --unshallow."
-  exit 1
+  shallow=1
+  if [ "$gate_only" = "1" ]; then
+    note "shallow clone: ancestry is unknowable here. Use actions/checkout with fetch-depth: 0, or run git fetch --unshallow."
+    exit 1
+  fi
 fi
 
 if [ "$do_fetch" = "1" ]; then
@@ -125,8 +139,10 @@ done
 # Advisory. Nothing here sets `fail` -- a branch being behind is a fact about
 # a work in progress, not a defect in the tree, and a gate on it would fire
 # on every branch that is merely a few days old.
-printf '\n%-48s %6s %7s  %-8s %s\n' BRANCH AHEAD BEHIND STATE 'LAST COMMIT'
-printf -- '---------------------------------------------------------------------------------\n'
+if [ "$brief" = "0" ]; then
+  printf '\n%-48s %6s %7s  %-8s %s\n' BRANCH AHEAD BEHIND STATE 'LAST COMMIT'
+  printf -- '---------------------------------------------------------------------------------\n'
+fi
 
 # Collected into a variable rather than piped straight to `sort`, because a
 # `while ... done | sort` runs the loop in a subshell and every counter
@@ -156,11 +172,13 @@ rows=$(
   done
 )
 
-printf '%s\n' "$rows" | sort -k1,1 -k2,2nr \
-  | while IFS=$'\t' read -r state behind short ahead last; do
-      [ -z "$short" ] && continue
-      printf '%-48s %6s %7s  %-8s %s\n' "$short" "$ahead" "$behind" "$state" "$last"
-    done
+if [ "$brief" = "0" ]; then
+  printf '%s\n' "$rows" | sort -k1,1 -k2,2nr \
+    | while IFS=$'\t' read -r state behind short ahead last; do
+        [ -z "$short" ] && continue
+        printf '%-48s %6s %7s  %-8s %s\n' "$short" "$ahead" "$behind" "$state" "$last"
+      done
+fi
 
 count_state() { printf '%s\n' "$rows" | grep -c "^$1	" || true; }
 merged=$(count_state MERGED); stale=$(count_state STALE)
@@ -173,6 +191,29 @@ unlanded_rows=$(printf '%s\n' "$rows" | awk -F'\t' '$1 != "DATA" && $4 > 0')
 unlanded=$(printf '%s' "$unlanded_rows" | grep -c . || true)
 unlanded_commits=$(printf '%s\n' "$unlanded_rows" | awk -F'\t' '{n += $4} END {print n+0}')
 
+# The line a session actually needs at start-up: where *this* branch stands.
+# The whole point of the SessionStart hook is that CLAUDE.md's "run this when
+# you pick up a branch" was a convention nobody executed -- and the drift it
+# exists to prevent happened anyway, at scale.
+here=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')
+if [ "$here" != "main" ] && [ "$here" != "?" ]; then
+  h_ahead=$(git rev-list --count origin/main..HEAD 2>/dev/null || echo '?')
+  h_behind=$(git rev-list --count HEAD..origin/main 2>/dev/null || echo '?')
+  h_files=$(git diff --name-only origin/main...HEAD 2>/dev/null | grep -c . || true)
+  printf 'branchcheck: YOU ARE ON %s -- %s ahead, %s behind main, %s file(s) changed.\n' \
+    "$here" "$h_ahead" "$h_behind" "$h_files"
+  # CLAUDE.md's landing rule, applied rather than quoted.
+  if [ "$h_behind" != "?" ] && [ "$h_behind" -gt 0 ] && [ $((h_behind * h_files)) -gt 300 ]; then
+    printf 'branchcheck: behind x files = %s, past the 300 bar where merges get expensive. Merge main in, or land what you have.\n' \
+      "$((h_behind * h_files))"
+  fi
+fi
+
+if [ "$shallow" = "1" ]; then
+  printf 'branchcheck: shallow clone (depth %s). Ahead/behind counts held against full history when this was measured, but a branch whose common ancestor is beyond the boundary is reported DATA when it is merely old. Run git fetch --unshallow before trusting a DATA verdict.\n' \
+    "$(git rev-list --count origin/main 2>/dev/null || echo '?')"
+fi
+
 printf -- '---------------------------------------------------------------------------------\n'
 printf 'branchcheck: %s merged (0 ahead -- carry nothing main lacks, deletable), %s stale (>%s behind), %s current, %s data.\n' \
   "$merged" "$stale" "$stale_after" "$healthy" "$data"
@@ -183,10 +224,18 @@ printf 'branchcheck: %s merged (0 ahead -- carry nothing main lacks, deletable),
 if [ "$unlanded" != "0" ]; then
   printf 'branchcheck: %s branch(es) carry %s commit(s) main does not have.\n' "$unlanded" "$unlanded_commits"
   printf 'branchcheck: THE PR LIST IS NOT THE WORK LIST -- a finished branch with no PR is invisible, and sessions that cannot reach the GitHub API cannot open one. Check each of these has a PR or an owner before concluding a program is done:\n'
-  printf '%s\n' "$unlanded_rows" | sort -k4,4nr | while IFS=$'\t' read -r state behind short ahead last; do
+  # Brief mode shows the deepest few only. The full list is the point of the
+  # full report; at session start it is a prompt to go look, not the lookup.
+  if [ "$brief" = "1" ]; then show=5; else show=0; fi
+  printf '%s\n' "$unlanded_rows" | sort -k4,4nr | { n=0; while IFS=$'\t' read -r state behind short ahead last; do
     [ -z "$short" ] && continue
+    n=$((n + 1))
+    if [ "$show" != "0" ] && [ "$n" -gt "$show" ]; then continue; fi
     printf '    %-44s %3s ahead  %3s behind  %-6s last %s\n' "$short" "$ahead" "$behind" "$state" "$last"
   done
+  if [ "$show" != "0" ] && [ "$n" -gt "$show" ]; then
+    printf '    ... and %s more -- run scripts/branchcheck.sh for the full list.\n' "$((n - show))"
+  fi; }
 fi
 
 exit "$fail"
