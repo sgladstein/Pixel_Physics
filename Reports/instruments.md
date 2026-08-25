@@ -59,6 +59,7 @@ studies:
 | `field_cost` | What the coarse field costs per frame, and what decides it | |
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
 | `fire_probe` | The grassfire instrument | |
+| `anchor_probe` | **Does it matter which code path last wrote a field?** One geometry, its anchor distances written three ways, swept for the margin | Built for `open-bugs-handoff.md` §S2; the shape generalises — see below |
 
 ## Creatures
 
@@ -93,6 +94,31 @@ therefore already answers:
   worlds diverge by *exactly* zero. A non-zero return on `control=1` means
   determinism has broken — which `PLAN.md` requires and which nothing else
   routinely exercises at whole-organism scale.
+
+**`anchor_probe` is a *provenance* harness, and that is what generalises.**
+It was built to ask whether `structural.rs`' three disagreeing anchor rules
+matter, and everything downstream of "which function writes the field" is
+indifferent to what the field is. Three properties worth reusing:
+
+- **One geometry, N routes.** The obvious build — paint a structure, generate
+  one, dig one — cannot answer the question, because the arms would differ in
+  *shape* as well as in rule. Building once and writing the field several ways
+  makes the scene a constant by construction, and the probe prints a material
+  census per arm as the control that says so.
+- **It sweeps for a margin, not an outcome.** Past its margin every rule
+  agrees a structure falls; short of it every rule agrees it stands. A rule
+  can only show itself in *where the margin is*, which is also the quantity a
+  player feels — how far you can build before it comes down. The first run of
+  this probe put the sand pile where the margin could not reach it and
+  produced a null that said nothing about anything.
+- **It prints the debug field beside the outcome.** That is what caught the
+  two pointing opposite ways: under the brush's rule the deck reads as *better
+  supported* (largest distance 9 against 82) and is the arm that collapses. A
+  support overlay alone would have said the brush's field was the healthy one.
+
+Reach for its shape for any "does this code path's version of X differ from
+that one's" question — two writers of the same cached field, two builders of
+the same state, a fast path against its slow reference.
 
 **`ant_ablation` and `pass_ablation` are the same idea in two domains**: turn
 the mechanism off and see whether the outcome notices. Before concluding a
