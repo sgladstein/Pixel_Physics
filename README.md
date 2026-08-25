@@ -49,9 +49,9 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M19 status — started](#m19-status--started) | 2325 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2361 |
 | [Performance](#performance) | 2442 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2569 |
-| [Status](#status) | 2610 |
-| [License](#license) | 2706 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2591 |
+| [Status](#status) | 2632 |
+| [License](#license) | 2733 |
 
 ### Milestones, in numeric order
 
