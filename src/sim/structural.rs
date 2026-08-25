@@ -3557,8 +3557,30 @@ pub fn relax_region(world: &mut World, region: Rect) {
             if !is_relaxable(world, cell) {
                 continue;
             }
+            // **Prototype switch, not a shipping one** (`SETTLE_GROUND=0`).
+            // Three functions in this module answer "what anchors a cell"
+            // three different ways, and the difference decides whether the
+            // converged pass in `explosion.rs` is a fix or an immunity:
+            //
+            //   compute_world_distances   bedrock and the world edge, only
+            //   relax_region (here)       ...plus `is_resting_on_ground`, eagerly
+            //   tick                      ...but only as a *last resort*
+            //
+            // `tick`'s own comment calls that last-resort rule "the whole of
+            // the dig cascade": rooting eagerly on powder makes a cell a load
+            // sink, which is "a sprinkle of sand under a beam holds the beam
+            // up". Over a brush stroke the discrepancy is small. Over a blast
+            // box eight times the charge it may not be, and a queue that goes
+            // quiet because everything got rooted at 0 is indistinguishable
+            // from one that goes quiet because it converged. Setting this to
+            // 0 reproduces `compute_world_distances`' rule and separates them.
+            let ground_anchors = {
+                use std::sync::OnceLock;
+                static ON: OnceLock<bool> = OnceLock::new();
+                *ON.get_or_init(|| std::env::var("SETTLE_GROUND").map_or(true, |v| v != "0"))
+            };
             let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
-                || is_resting_on_ground(world, x, y);
+                || (ground_anchors && is_resting_on_ground(world, x, y));
             let distance = if anchored { 0 } else { u16::MAX };
             world.set(x, y, cell.with_aux(distance));
             if anchored {
