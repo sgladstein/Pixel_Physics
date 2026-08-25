@@ -135,3 +135,28 @@ stops existing, and if any section is in no topic.
 *and paragraph* name. Nothing in the repo noticed when a `## ` heading was
 renamed out from under them; `docscheck` does now. If you rename a README
 heading, that is a cross-repo edit.
+
+## 2026-08-25 — doc staleness swept corpus-wide; the general method is a dead end
+
+Do not re-run an identifier-resolution sweep over `Reports/` expecting a
+staleness score. Measured across all ~80 docs: the top scorers are
+`prior-art-worldgen-slicing.md` (51.9%, names **Minecraft's** internals),
+`dependency-license-audit.md` (54.5%, crate names), and
+`measurement-under-contention.md` (45%, names `src/perf.rs` and `TimingLock`,
+which its own header says are deliberately not in the tree). Design reports,
+prior-art surveys, retirement notices and `dead-ends.md` are all *supposed*
+to name absent things. `README.md`'s 0.4% is not better hygiene — it is the
+only doc whose job is describing the current tree.
+
+**The one real class is cited test names**: 334 across the corpus, 29 absent.
+Four genuinely misled and are fixed (`PLAN.md` ×3 sites,
+`pixel-physics-issues.md` ×2). `a_tree_eventually_stops_growing` is cited in
+six documents and exists in none — correctly every time, as a retired bar.
+
+**A docscheck gate for this was designed and rejected**, which is the part
+worth not rediscovering: it fires on correct docs (`plant-project-review`
+§V records the retirement; `open-bugs-handoff`:3103 names the old test as
+the *before* and its successor in the next clause), and the four fixes above
+still trip it, because repointing correctly means keeping the old name as
+history. Only the surrounding sentence separates "claims a live guard" from
+"records a dead one". Triage stays human.

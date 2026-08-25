@@ -851,3 +851,76 @@ records).
 
 Cost: **32 lines, ~783 tokens, 1.7% of README**. Navigation is now 3.7% of
 the file.
+
+## 10. Doc staleness, measured across the whole corpus — mostly a negative result
+
+Concern (b) of the founding brief, verbatim: *"Many of the reports were
+generated prior to development and may be out of date from how we implemented
+the features."* Measured 2026-08-25 across all ~80 documents.
+
+**Do not re-run the general sweep. It does not measure staleness.**
+
+The method that worked on `README.md` in §9 — extract every backticked token,
+resolve it against the tree — was run over `Reports/`, `wiki/`, `PLAN.md` and
+`CLAUDE.md`. The top scorers by miss rate:
+
+| document | rate | what the misses actually are |
+|---|---|---|
+| `dependency-license-audit.md` | 54.5% | crate names (`ab_glyph`, `khronos_api`) |
+| `prior-art-worldgen-slicing.md` | 51.9% | **Minecraft's** internals (`BIOME_USE_BIG_WANG`, `stbhw_generate_image`) |
+| `measurement-under-contention.md` | 45.0% | `src/perf.rs`, `TimingLock`, `TRUSTED` — which its own header says are deliberately **not** in the tree |
+| `agent-documentation-audit-2026-08-24.md` | 42.4% | this document, quoting names from other branches |
+| `CLAUDE.md` | 26.5% | harness names (`SessionStart`, `ToolSearch`, `create_trigger`) |
+| `dead-ends.md` | 7.8% | rejected species files (`prostrate.ron`, `weeping.ron`) — **absent because they were rejected** |
+
+A design report, a prior-art survey, a retirement notice and a do-not-retry
+register are all *supposed* to name things that are not in the tree. The
+metric counts "identifier not found" and calls it staleness; what it is
+measuring is mostly a document doing its job. This is `CLAUDE.md`'s *ask what
+a metric counts when nothing is wrong* — and the answer was: a great deal.
+
+`README.md` scored 0.4% not because it is better maintained than the reports,
+but because it is the one document in the corpus whose whole purpose is to
+describe the tree as it stands. **The sweep is valid only for documents that
+claim to describe the current tree**, which is `README.md` and parts of
+`PLAN.md`, and nothing else.
+
+### The one class that is real: cited test names
+
+A doc saying *"test X guards this"* is a checkable claim, and when it is wrong
+an agent trusts a guard that does not exist — the failure `CLAUDE.md`'s
+green-suite gotchas are entirely about. Restricting to backticked
+`snake_case` names of four-plus words:
+
+**334 cited test-shaped names across the corpus, 29 absent from the tree.**
+
+Four of those were genuinely misleading and are fixed here:
+
+| site | was | now |
+|---|---|---|
+| `PLAN.md`:1274 | `same_group_chunks_are_never_within_reach_of_each_other` cited as having "held up" | repointed to `concurrent_chunks_...`, old name kept as history |
+| `PLAN.md`:1276 | `a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks` | the guard survives keyed on a worm; repointed to `a_settled_world_with_a_worm_still_sleeps_between_movement_ticks` |
+| `PLAN.md`:1660 | "`pack_aux_preserving_density` **now wraps** every self-update" | it was **deleted as unnecessary** by the substrate migration — the fields are no longer co-located, so the bug class is unrepresentable. `plant.rs`:1017 holds the removal note. Marked do-not-restore |
+| `pixel-physics-issues.md`:132, 550 | same rename, two sites | repointed the same way |
+
+### …and a gate for it was designed and rejected
+
+A `docscheck` rule over cited test names looks like the obvious next step. It
+would fire on **correct** documentation:
+
+- `plant-project-review-2026-08-23.md` §V reads *"`a_tree_eventually_stops_growing`
+  retired by owner decision"* — correctly recording a retirement;
+- `open-bugs-handoff.md`:3103 names `a_snowstorm_leaves_no_snow_floating_on_open_water`
+  as the *before* and names its successor in the next clause;
+- `liquid-heightfield-design.md` proposes restoring a test it calls deleted;
+- `plant-substrate-v2-design.md` proposes six tests that were never built.
+
+And the four fixes above **still trip it**, deliberately: repointing a stale
+name correctly means keeping the old one as history. A name-only rule cannot
+separate "claims a live guard" from "records a dead one"; only the surrounding
+sentence can. Triage stays human, and the sweep is a one-off instrument, not a
+gate.
+
+`a_tree_eventually_stops_growing` is cited in **six** documents and exists in
+none — every one of them correctly, as a retired bar. That is the shape of
+this whole finding.

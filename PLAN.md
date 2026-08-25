@@ -1271,10 +1271,12 @@ A note from the same document worth keeping as a standing rule: two of its
 findings (#4, #7) were cases where `README.md` or a module doc claimed a
 property the code didn't actually have — both were prose claims with no
 regression test behind them, while every claim backed by a *named* test
-(`same_group_chunks_are_never_within_reach_of_each_other`,
-`a_connected_mass_of_cooling_cells_actually_settles`,
-`a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks`)
-held up. **A performance or cost claim in a doc needs either a test or a
+(`concurrent_chunks_are_never_within_reach_of_each_other` — then named
+`same_group_chunks_are_never_within_reach_of_each_other`;
+`a_connected_mass_of_cooling_cells_actually_settles`; and a settled-world
+sleep guard, then keyed on a growing tree and now on a worm,
+`a_settled_world_with_a_worm_still_sleeps_between_movement_ticks`) held
+up. **A performance or cost claim in a doc needs either a test or a
 measurement command next to it, or it should be written as an intention,
 not a fact.**
 
@@ -1656,8 +1658,12 @@ biology — parked because context ran low, not because it's low priority.
 tracking only, no action needed):**
 - Crowding-reads-an-always-empty-cell (`candidate_crowding` now reads
   occupied neighbours, regression test exists).
-- `pack_aux` clobbering canopy density on every resource update
-  (`pack_aux_preserving_density` now wraps every self-update).
+- `pack_aux` clobbering canopy density on every resource update. Fixed
+  twice over: `pack_aux_preserving_density` wrapped every self-update, and
+  the substrate migration then **deleted it as unnecessary** — with the
+  scalars in `OrganismCell` the two fields are no longer co-located, so a
+  cell-type write cannot reach a density at all. `plant.rs` keeps the
+  removal note where the function was. Do not restore it.
 - `World::trees` never shrinking — `TreeState` itself is deleted.
 - Two coexisting tree implementations / `tree.ron` not existing — the old
   `TreeState`/`Tip`/`RootTip` system is fully deleted, `tree.ron` exists and
