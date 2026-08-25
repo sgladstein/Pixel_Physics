@@ -194,6 +194,79 @@ const STRUCTURAL_TICK_INTERVAL: u64 = 5;
 /// looking at what stranded it.
 const GROUNDED_RECHECK_INTERVAL: u64 = STRUCTURAL_TICK_INTERVAL * 12;
 
+/// Why a `StructuralCheck` produced the sites it produced, counted per
+/// frame and printed by `scheduler::step` when `SCHED_PASS` is set.
+///
+/// **Why this exists.** `SCHED_PASS` established that a *single* explosion at
+/// 8192x2560 leaves the scheduler pinned at `MAX_SITES_PER_FRAME` for the
+/// rest of the run, with ~8,100 sites scheduled against 2,000 drained
+/// (`Reports/open-bugs-handoff.md` §S). A produced-count says the queue is
+/// self-sustaining; it cannot say *which* branch of `tick` sustains it, and
+/// the two candidates want opposite fixes:
+///
+/// - the **distance wavefront** (`moved`), which fans out to five sites and
+///   is load-bearing -- dropping it froze `scene=capped` completely; within
+///   it, `worsened` is the count-to-infinity climb an unanchored region
+///   performs for ever, and `improved` is an ordinary convergence front that
+///   terminates;
+/// - the **out-of-budget defer** (`budget0`), which is fan-out 1 and is a
+///   treadmill rather than a generator.
+///
+/// `max_aux` is the tell for the first: a settling structure's distances
+/// plateau, and a region with no anchor at all climbs towards `u16::MAX` one
+/// step per tick, so a max that keeps rising over thousands of frames with
+/// the world's material dead still is the count-to-infinity dynamic and
+/// nothing else.
+///
+/// Free when off: every increment is behind `enabled()`, which reads a
+/// `OnceLock`, and the whole struct is zero when `SCHED_PASS` is unset.
+#[derive(Default, Clone, Copy)]
+pub struct TickCensus {
+    /// Distance rose -- support got worse, or nothing anchors this at all.
+    pub worsened: u32,
+    /// Distance fell -- an ordinary convergence front, which terminates.
+    pub improved: u32,
+    /// Distance unchanged: this tick asked a question rather than moving one.
+    pub unmoved: u32,
+    /// Deferred because `world.load_budget` was already spent.
+    pub budget0: u32,
+    /// Deferred by the chain walk itself (`ChainVerdict::Deferred`).
+    pub chain_deferred: u32,
+    /// Returned early as attached bulk with no crack and no free face.
+    pub uninteresting: u32,
+    /// Largest distance written this frame.
+    pub max_aux: u16,
+}
+
+thread_local! {
+    static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
+        worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
+    }) };
+}
+
+fn census_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SCHED_PASS").is_ok())
+}
+
+fn census(f: impl FnOnce(&mut TickCensus)) {
+    if !census_enabled() {
+        return;
+    }
+    CENSUS.with(|c| {
+        let mut v = c.get();
+        f(&mut v);
+        c.set(v);
+    });
+}
+
+/// Read and reset the frame's census. Called once per frame by
+/// `scheduler::step`, after the site loop.
+pub fn take_tick_census() -> TickCensus {
+    CENSUS.with(|c| c.replace(TickCensus::default()))
+}
+
 /// Recompute one `Solid` cell's distance to the nearest anchor from its
 /// neighbours' currently-stored distances. Dispatched from
 /// `scheduler::step` via `ActiveKind::StructuralCheck`.
@@ -358,6 +431,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // structure at low `x` wins the budget every frame and starves every
     // other structural check in the world behind it.
     let mut propagate = Vec::new();
+    census(|c| {
+        if worsened {
+            c.worsened += 1;
+        } else if moved {
+            c.improved += 1;
+        } else {
+            c.unmoved += 1;
+        }
+        c.max_aux = c.max_aux.max(new_distance);
+    });
     if moved {
         world.set(x, y, cell.with_aux(new_distance));
         propagate.push(reschedule(world, x, y));
@@ -397,6 +480,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // spreads over frames instead of spiking one. Deliberately not "assume
     // it holds and stop checking" -- that would silently drop the check.
     if world.load_budget == 0 {
+        census(|c| c.budget0 += 1);
         defer!();
     }
     // Attached bulk with no crack and no free face cannot fail, so it does
@@ -407,6 +491,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // volume -- `scene=capped`'s column is 11,520 cells of which ~800 are
     // surface.
     if !super::load::is_structurally_interesting(world, x, y) {
+        census(|c| c.uninteresting += 1);
         return propagate;
     }
 
@@ -425,6 +510,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     world.load_budget = budget;
     world.load_cache = cache;
     if matches!(verdict, super::load::ChainVerdict::Deferred) {
+        census(|c| c.chain_deferred += 1);
         defer!();
     }
     if let super::load::ChainVerdict::Failing(failure) = verdict {

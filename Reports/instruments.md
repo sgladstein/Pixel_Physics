@@ -1,6 +1,6 @@
 # The instruments — what already exists to measure with
 
-**Status: living index. Current as of 2026-08-24.**
+**Status: living index. Current as of 2026-08-25.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
 **25 of them**, and their names do not say what they can answer. This file
@@ -122,6 +122,34 @@ beside the timings. The counters are the point: they are what said the cost is
 per *cell ticked* rather than per live organism, which killed a plausible
 optimisation before it was written. Reach for it for any "is this cost the
 item count or the item size" question.
+
+**`SCHED_PASS=<every N>` splits `scheduler::step` six ways**, one per
+`ActiveKind`, and prints `sites` / `produced` / `deferred` beside the times.
+Same shape as `FIELD_PASS` and `ORGANISM_PASS`, and the counters are again the
+point:
+
+- **`produced` against `sites` is a leak detector.** If a batch schedules as
+  many sites as it drains, each site is replacing itself and the queue is
+  self-sustaining however fast it is served -- which is how
+  `open-bugs-handoff.md` §S was found (~8,100 produced against a 2,000 cap).
+  Reach for it for any "does this backlog drain" question, not only a
+  structural one.
+- **`deferred` is the whole heap after the batch**, not the capped remainder,
+  so it has a meaningful idle value (~5,400 at 8192x2560: ordinary
+  future-dated growth and evaporation sites) and a drained queue is one that
+  comes back to it.
+- **`[struct]`'s second line attributes the structural share to a branch of
+  `structural::tick`** -- `worsened` / `improved` / `unmoved`, plus the two
+  defer reasons and the largest distance written. A `max aux` that keeps
+  rising with the world's material dead still is the count-to-infinity
+  dynamic and nothing else.
+
+**`scale_probe load=blast:EVERY:COUNT` is what makes a cost question about a
+*verb* answerable at all.** With charges still arriving, a queue that never
+drains and one that drains slower than it fills look identical; `COUNT` fires
+a fixed number and lets the world be watched afterwards. The same trick
+applies to any load component added later -- measure the aftermath, not the
+steady state.
 
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a
