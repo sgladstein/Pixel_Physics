@@ -13,27 +13,38 @@ paper and dull in the hand has failed, and "the test passes" is not a
 defence.
 
 This is not a restatement of "looks good in motion" below — that is about
-*appearance*, and this is about *response*. Destroying something should feel
-like destroying it: the thing should crack, throw debris, come apart in
-pieces of varying size, and react to how it was hit. Two failures that
-already cost real rework, both of which passed every test they had:
+*appearance*, and this is about *response*. **It applies to every line in
+the engine, not to destruction**, even though destruction is where it was
+learned and most of the evidence below comes from. If you are working on
+plants, water, weather or creatures, the two laws are yours.
 
-- **All-or-nothing outcomes.** Structural failure produced either a single
-  large coherent body or a uniform dissolve into powder, with nothing in
-  between. Real breakage is a *distribution* — a few blocks, more cobbles, a
-  lot of grit — and its absence read as fake immediately.
-- **No verb behind the effect.** Destruction could only be triggered by
-  *erasing* support, which delivers no load and no impulse, so nothing ever
-  failed from being *hit*. The mechanic worked and still felt inert, because
-  the player had no way to strike anything.
+**1. An outcome is a distribution, not a binary.** Structural failure once
+produced either a single coherent body or a uniform dissolve into powder,
+with nothing between; real breakage is a few blocks, more cobbles, a lot of
+grit, and its absence read as fake immediately. The same law, arrived at
+separately on the plant line: a tree that cannot pay its maintenance is
+marked senescent and carried out by `rot_remains` at the species half-life,
+**so the death is graded rather than a disappearance** — the owner's own
+ruling. Ask of any change: does this have a middle? A plant that is either
+thriving or gone, a pool that is either full or empty, a fire that is either
+out or total, has the same defect the rubble did.
 
-Practical consequences when weighing a change: prefer the version with more
-legible feedback even when it is less exact; a graded outcome beats a binary
-one; and if a destructive event produces no debris, no impulse and no sound
-of consequence, it is not finished regardless of what the simulation
-believes. Judge this by playing it, not by reading the diff — the owner's
-playtest reports have overturned three separate models that all looked
-correct in tests.
+**2. There must be a verb, and it must deliver something.** Destruction
+could once only be triggered by *erasing* support, which carries no load and
+no impulse, so nothing ever failed from being *hit* — the mechanic worked
+and still felt inert, because the player had no way to strike anything. The
+plant line hit this too, and closed it the same way: `Felling status` is
+titled *the verb works, and what it produces is pieces*. If a system can
+only be changed by the world changing around it, the player is a spectator
+of it.
+
+Practical consequences when weighing a change, in any subsystem: prefer the
+version with more legible feedback even when it is less exact; a graded
+outcome beats a binary one; and if an event produces no visible consequence
+— no debris, no impulse, no sound, no mark left behind — it is not finished
+regardless of what the simulation believes. Judge this by playing it, not by
+reading the diff — the owner's playtest reports have overturned three
+separate models that all looked correct in tests.
 
 ## What this project is optimising for
 
@@ -69,9 +80,10 @@ already changed decisions:
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (573 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (594 at last census, 2026-08-25), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
+| `Reports/session-programs.md` | **Coordinator ↔ lane protocol** — only if you are coordinating sessions or were spawned by one |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
 | `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
@@ -98,11 +110,11 @@ unless named otherwise):
 - Proposing, building or retrying any mechanism → `Reports/dead-ends.md`
   first.
 - Needing a number nobody has measured → `Reports/instruments.md` before
-  writing a harness; 25 already exist and the names do not say what they
+  writing a harness; 26 already exist and the names do not say what they
   answer.
-- Coordinating other sessions, or spawned by one → *Running a program of
-  sessions* below. The lanes and the coordinator **can** message each other,
-  and the mechanism is not the obvious one.
+- Coordinating other sessions, or spawned by one → `Reports/session-programs.md`.
+  The lanes and the coordinator **can** message each other, and the mechanism
+  is not the obvious one.
 
 **Source comments are load-bearing.** They record *why*, including approaches
 that were tried and reverted and must not be retried. Do not strip them when
@@ -401,21 +413,44 @@ checkout share a `target/`, so one session's half-finished edit makes the
 write and must not fix — and a running sandbox in one session locks the exe
 the other needs to link. Both happened in a single afternoon. A worktree
 gives each session its own `target/`, so a broken build stays local to
-whoever broke it. `.claude/worktrees/` already holds several.
+whoever broke it. (A cloud session gets a fresh container with its own
+checkout, so this is about a shared *local* clone.)
 
 **Know which files are yours.** Collisions are almost never random — they
-land in the same few files every time:
+land in the same few files every time. Counted over **188 branch landings**
+(2026-08-25, `git log --merges` with each merge diffed against its first
+parent), here is how many landings touched each file:
 
-| Area | Files |
+| Area | Files, with landings that touched them |
 |---|---|
-| Structural / destruction | `src/sim/load.rs`, `structural.rs`, `rigid.rs`, `examples/filmstrip.rs` scenes, `scripts/acceptance.sh` |
-| Worldgen | `src/worldgen/*`, `assets/worldgen.ron`, `tests/worldgen.rs` |
-| **Contested** | `src/app.rs`, `src/main.rs`, `README.md`, `PLAN.md`, this file |
+| **Contested — anyone may be in these** | `Reports/open-bugs-handoff.md` **118**, `README.md` **103**, `Reports/README.md` **103**, `src/sim/world.rs` **103**, `examples/filmstrip.rs` **99**, `Reports/dead-ends.md` **79**, `src/render.rs` **70**, this file **66**, `src/app.rs` 51, `PLAN-log.md` 50, `PLAN.md` 41 |
+| Plants | `src/sim/plant.rs` 60, `organism.rs` 44, `examples/plant_probe.rs` 44, `wiki/plants.md` 67, `assets/species/*.ron` |
+| Structural / destruction | `src/sim/structural.rs` 57, `rigid.rs` 32, `load.rs` 22, `scripts/acceptance.sh` 41, `wiki/structural-collapse.md` 43 |
+| Creatures | `src/sim/creature.rs` 39, `brain.rs` 19, `assets/species/ant.ron` |
+| Worldgen | `tests/worldgen.rs` 36, `src/worldgen/passes.rs` 27, `params.rs` 18, `assets/worldgen.ron` 15 |
+| Fields, fire, weather | `src/sim/field.rs` 34, `fire.rs` 38, `weather.rs` 43, `decay.rs` 19, `src/sky.rs` 11 |
+| The sweep itself | `src/sim/parallel.rs` 38, `update.rs` 24, `material.rs` 33, `scheduler.rs` 16 |
+| The gnome | `src/sim/player.rs` 45 |
 
-Everything that has actually collided here collided in `src/app.rs`. So:
-**if you touch a contested file, land it quickly** rather than holding a
-large diff across a session — the window in which someone else's work
-cannot compile is the window you created.
+**Two things in that table correct what this file used to say**, and both
+were measured rather than assumed:
+
+- It claimed *"everything that has actually collided here collided in
+  `src/app.rs`."* `app.rs` is **sixth**, at 51. `world.rs` (103),
+  `filmstrip.rs` (99) and `open-bugs-handoff.md` (118) are all far more
+  exposed, and none of the three was listed at all.
+- The old table named only structural and worldgen, so **every other line —
+  plants, creatures, fire, weather, the sweep, the gnome — had no row**, and
+  an agent on one of them could not tell whether its files were shared.
+
+`src/sim/liquid.rs` and `chunk.rs` show **0** landings in that window: real
+files, currently dormant. A zero here means nobody is in your way, not that
+the file does not matter.
+
+So: **if you touch a contested file, land it quickly** rather than holding a
+large diff across a session — the window in which someone else's work cannot
+compile is the window you created. Recompute the table rather than trusting
+it: it is a snapshot, and the command that produced it is named above.
 
 **A file-ownership split is only as current as your last look at the branch
 list.** Read once at session start it is stale within the hour, and nothing
@@ -477,173 +512,24 @@ commits you were behind by; if it is their exact inverse and the file was clean
 beforehand, `git checkout --` it. Full account, and the case it really happened
 to, in `Reports/concurrent-sessions.md`.
 
-## Running a program of sessions (coordinator ↔ lane)
+## Running a program of sessions — moved out
 
-Written 2026-08-24, from one evening in which a coordinating session ran seven
-lanes, merged nine pull requests and lost several hours to four failures that
-had nothing to do with the engine. Everything here is a fact about *this*
-harness, measured, not a guess about how agents ought to work.
+**Coordinating other sessions, or spawned by one?** The whole protocol is
+`Reports/session-programs.md`: how a coordinator reaches a lane (the
+mechanism is not the obvious one — `SendMessage` fails, a poke-only trigger
+works), why a woken lane cannot reply, why the return path must be files,
+and the four failures that cost an evening.
 
-### The sessions can talk to each other — and by default they cannot
+It is a report rather than a section here because it applies to a minority
+of sessions and cost every one of them ~2,200 always-loaded tokens.
+`CLAUDE.md` is read before any work begins, so anything most sessions do not
+need belongs behind a pointer.
 
-**This is the one that cost the most, and it looked like everyone forgetting to
-report in.** It was not. The channel was one-directional by construction:
-every lane's reply reached the coordinator only because the *owner* copied it
-in by hand.
-
-Measured:
-
-| | |
-|---|---|
-| `SendMessage` to a session id | **fails** — "No agent named … is reachable" |
-| `ListAgents` | shows only in-process subagents, never sibling cloud sessions |
-| `create_trigger(persistent_session_id=…)` then `fire_trigger` | **works** — delivered immediately, the session wakes and acts |
-
-So the coordinator *can* reach any lane, with the trigger pair above. Use a
-poke-only trigger — omit both `cron_expression` and `run_once_at`, then
-`fire_trigger` — rather than a timed one; `run_once_at` rejects a timestamp in
-the past and a long turn drifts you into that error.
-
-**The lane cannot reach back, and here is why.** A trigger stamps its own
-`allowed_tools` onto the session it fires, and that list contains no `mcp__*`
-entries — the API says so out loud when you create one: *"this trigger stores
-no MCP connectors, so the sessions it fires will run without connector
-tools."* A lane woken this way therefore has no `create_trigger`, no
-`fire_trigger`, and no `SendMessage` that resolves. It can push commits and it
-can write files, and that is the whole of its outbound vocabulary.
-
-Two consequences, both of which should shape how a program is set up:
-
-- **Tell every lane, in its dispatch brief, that its coordinator is session
-  `<id>` and that the human is not the postbox.** Even without a live channel,
-  a lane that knows it has a coordinator writes *to* that coordinator.
-- **Because the return path is files, insist the return path is files.**
-  "Reply to me" is not a channel a lane can honour; "commit it and push, then
-  tell me the head SHA" is. This is the same rule as *handoffs are committed,
-  not replied* below, and it is not a stylistic preference — it is the only
-  outbound bandwidth a woken lane actually has.
-
-If a future harness gives lanes the MCP tools, check it rather than assume it:
-have one lane try `create_trigger` against the coordinator early, while a
-failure is still cheap to route around.
-
-### Coordinators can talk to each other, and that channel is two-way
-
-The asymmetry above is only between a coordinator and the lanes it wakes. Two
-*coordinators* — the plant program and the creature line, say — are both
-top-level sessions that kept their own MCP tools, so the same
-`create_trigger(persistent_session_id=…)` + `fire_trigger` pair works **in both
-directions** between them. Neither needs the owner to carry a message.
-
-It went through the owner anyway, all evening, and the traffic was worth
-having: the creature-line coordinator sent four items, two of which were
-defects in the *plant* program's own record — a bug-register section that was
-stale and belonged to the plant integrator, and a review card whose verdict the
-plant side was about to misread. A neighbouring program is the cheapest
-available reviewer of your blind spots, precisely because it is not inside
-them.
-
-**Find your peers with `list_sessions(mine: true)` and read the `tags`.** This
-is why the tag convention earns its keep: tag every session with its program
-(`plant-program`, `creature-line`) and its role (`integrator`, `lane-W`), and
-a coordinator can enumerate its own lanes, and the other programs' coordinators,
-without asking anyone. A session with no tags is a session nobody can route to.
-
-Worth sending across programs, and cheap: anything you notice in *their* files,
-a shared file you are about to touch that they own, a verdict you think they
-will read the wrong way, and the fact that you are winding down. Not worth
-sending: status for its own sake.
-
-### The PR list is not the work list
-
-A pull request is what makes work *visible*, and a session that cannot reach
-the GitHub API cannot open one — which was every spawned session here. They
-push a branch, write the PR body into a file on it, and wait for someone who
-never looks.
-
-Package W3 sat at **13 commits ahead, 37 behind**, holding 660 insertions and
-a latent bug `main` needed, for hours. It was not stale — 37 is under the
-40-commit bar — so `branchcheck.sh` printed it as `ok`, and no PR existed, so
-the coordinator's board did not show it either. It was found by enumerating
-branches by hand.
-
-`scripts/branchcheck.sh` now reports **UNLANDED** — every branch with `ahead >
-0`, whatever its staleness, with a count. Read it every cycle. `ahead > 0` is
-the only statement that survives a session dying, a PR never being opened, and
-a branch looking healthy.
-
-The structural fix is to connect the GitHub App for the org so lanes can open
-their own pull requests; until then the coordinator is the only route to a PR
-and must behave like it.
-
-### Doc files are the conflict surface, not source
-
-Five lanes touched plant code in one evening and produced **zero source
-conflicts**. All three conflicts were two sessions appending an entry at the
-same tail of an append-only record. `.gitattributes` now gives `PLAN-log.md`
-a `union` merge; read that file's header before adding to the list, because
-`union` is actively harmful on any document whose existing text gets
-corrected.
-
-### Give every package a cost fork at dispatch, not when you notice the number
-
-Lanes ran to $52–$170 unprompted. The single time a brief carried an explicit
-fork — *build the fix, or write the finding up and stop, but not a half-built
-fix with no writeup* — the lane chose in one turn and acted. Put the fork in
-the brief.
-
-### Reaching another lane: write a file, do not ask the human to carry it
-
-**Measured 2026-08-25, and it is the same lesson as the section above with the
-cost made visible.** The docs-audit and perf lanes exchanged two substantive
-corrections in one evening — a rule that was too strong, and a counter that was
-measuring nothing, both of which changed `CLAUDE.md`. **Every message was
-copied by hand by the owner.** Both lanes could read each other's branches the
-whole time; neither had a place to write. Direct session-to-session messaging
-is not available across accounts, so the repo is the channel.
-
-`Reports/lanes/<lane>.md` — **one file per lane, and you write only your own.**
-Single-writer files cannot collide, which is why it is not one shared document:
-the three conflicts recorded above were all two sessions appending at the same
-tail. `scripts/branchcheck.sh --brief` names any lane note touched in the last
-seven days at session start, so nobody has to remember to look, and
-`git show origin/<branch>:Reports/lanes/<lane>.md` reads one **without merging
-anything** — which is how both of those corrections were verified before being
-acted on. Protocol in `Reports/lanes/README.md`.
-
-A lane note is a *finding*, not a status update, and it does not replace the
-real record: what belongs in `CLAUDE.md`, a report or `dead-ends.md` goes
-there. The note is how the other lane learns it happened.
-
-### Handoffs are committed, not replied
-
-A reply dies with the container. Ask for the handoff **as a commit**: what
-landed, what the next session must not re-derive, and anything measured that
-contradicts something already written. Two lanes did this and both documents
-are now merged; one of them is what answered a question the owner had asked
-twice.
-
-### Re-cut a bar the package cannot reach, explicitly and in writing
-
-T1 could not meet its acceptance bar because `leaf` is 56% of a tree and every
-leaf cell is a `Powder` — nothing a fragment ladder can touch. Holding the
-mechanism hostage to a bar it structurally could not reach would have been the
-default. Naming a narrower bar (*a landed piece survives as a piece, and the
-owner has seen it*), saying why, and landing the work was right. State the
-re-cut; do not silently accept a miss, and do not stall.
-
-### Verify what a lane relays, including a lane correcting you
-
-Two relayed claims were stale and checking took seconds — a lane reported
-blocked on something already done, and a suite reported at 42 tests that was
-really 44. Relayed status is a hypothesis.
-
-**And the inverse, which is the expensive one.** The coordinator withdrew a
-*correct* finding — a genome widening leaking a draw from a shared `Rng` —
-because CI was green, and was corrected by the lane holding the measurement.
-A coordinator's prior should be that **the session with the measurement is
-right**, and overruling it needs a measurement, not an argument. See the
-green-suite gotcha this produced.
+**One line of it is load-bearing enough to keep here.** Spawned worker
+sessions run on Opus (`model: "claude-opus-5"` on the `create_session`
+call), **never inherited from the coordinator** — owner cost policy,
+2026-08-23. The default inherits the caller's model, and three workers once
+silently inherited a premium tier and ran $25–71 each inside ninety minutes.
 
 ## Method
 
@@ -1209,6 +1095,20 @@ consider it at all.
   drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
+- **Adding a rule to this file: state the rule universally, put the subsystem
+  in the evidence clause.** This file is loaded before every session begins,
+  so a rule that *reads* as belonging to one line is silently lost on every
+  agent working elsewhere. The test is one question — **would an agent
+  working on weather recognise this as theirs?** If not, either scope it
+  explicitly in the first clause, so the sessions it does not cover can skip
+  it, or it is universal and mis-framed. Measured 2026-08-25: the ethos
+  section — the owner's stated core value, *above correctness of any
+  individual mechanic* — was **90.9% destruction vocabulary and mentioned
+  plants, liquids and creatures zero times**, because its framing sentence
+  was "destroying something should feel like destroying it". The two laws
+  under it were always universal; only the framing was not, and the plant
+  line had independently rediscovered both. **Gotchas are exempt** —
+  they are concrete bugs and their specificity is the whole value.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
