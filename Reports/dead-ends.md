@@ -10,7 +10,9 @@ and the chest-rule fix added two more; 565 after the physical-trees design
 session added the two measured sway rejections on 2026-08-23, and 572
 after package P2's economy re-derivation added seven the same day — six of
 them mechanisms that package built, measured and withdrew inside one
-session, which is the shape this file exists to make cheap.
+session, which is the shape this file exists to make cheap; 573 after the
+frame-cost audit's converged-pass prototype on 2026-08-25, which is that
+shape again and is worth reading for its control rather than its verdict.
 Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
@@ -1123,7 +1125,10 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/worldgen/passes.rs water-table distance transform comment (two-pass Manhattan)** - A per-column distance-to-water transform was tried first and left the wetted perimeter of every above-table pond unwrapped: saturated bank cells were not seeds, their outward neighbours computed as far-from-water and got no moisture fringe, so capillarity assembled it at runtime — 82 frames of awake chunks on the rolling preset against 31 once ponds seed the full two-pass transform (liquid at -1, capacity-bearing cells at 0).
   *Re-test when:* Holds while ponds can sit above the smoothed table; any transform that ignores 2D adjacency to standing water re-creates the runtime cost.
 
-## scheduler  (9 entries)
+## scheduler  (10 entries)
+
+- **src/sim/explosion.rs `settle_structure` (prototype, `claude/perf-blast-relax`); Reports/open-bugs-handoff.md §S** - Giving a finished blast the one converged `structural::relax_region` pass that `World::paint_capsule` already pays for over a brush stroke, to stop §S's structural-check backlog: **it does not work at any box size, and the arm that looked like it worked was measuring an immunity.** Sized to the charge (`damage_extent + 4`) it buys nothing -- 45,134 pending against the baseline's 43,789 at frame 3,600 -- because `relax_region` seeds its boundary from the values just outside the box and trusts them, so where a charge severs a load path the outside is stale-low and the correction restarts from the box edge. At 8x the box the backlog appeared to *vanish* (5,134 pending against 25,876 at frame 2,400, scheduler 0.03 ms against 10.08 ms, whole frame 31.21 -> 18.98 ms, `scripts/acceptance.sh` green on every case) -- and the control killed it: `relax_region` anchors any `is_resting_on_ground` cell at distance 0 outright where `tick` roots on ground only as a last resort, so a big box over a blast's rubble field roots the whole neighbourhood at zero. With the rule held fixed to `compute_world_distances`' bedrock-only seeding (`SETTLE_GROUND=0`), the same 8x box gives **19,674 pending / 10.00 ms at frame 2,400 and 32,877 / 8.85 ms at 3,000** -- tracking the baseline -- and `max aux` returns to 2,482 from 142. Separately, the pass costs a 440.75 ms frame.
+  *Re-test when:* This rejects a **box-shaped** region, not the converged pass as an idea. The untried shape is a region derived from what actually changed -- invalidate the subtree of every cell whose support parent was destroyed, then Dijkstra from the boundary of *that* set, which has correct values by construction and needs no box. Any such attempt must (a) hold the anchor rule fixed or fix §S2 first, since eager ground-rooting silences the measurement, (b) be judged on `max aux` and `FailureCounts` as well as on the queue, and (c) be amortised across frames -- the 440 ms spike is independent of how the region is chosen. Note that acceptance was **green on all cases** through the immunity arm: it is not a guard against this.
 
 - **README.md 'M16 status' — independent-review list ('Moss never went dormant' and 'Roots grew for free' items)** - Unconditionally rescheduling an organism's own site every tick regardless of whether it can ever act again: a fully-enclosed moss tip, and later a root waiting on energy that will never arrive, each became an immortal active site checked forever — exactly the unbounded cost the scheduler exists to avoid. Both fixed with stale/starvation-tick counters that force dormancy past a threshold.
   *Re-test when:* Nothing re-wakes a dormant tip if conditions later improve — an accepted limitation; any new organism site kind needs its own dormancy bound from the start.

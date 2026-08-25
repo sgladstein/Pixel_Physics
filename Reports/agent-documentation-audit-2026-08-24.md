@@ -102,44 +102,60 @@ search breadth medium, as its own instructions specify.
 | Source files read | 0 | **0** |
 | Traps refused | 1/1 | **1/1** |
 
-The six were `CLAUDE.md`, `README.md`, `PLAN.md`, `Reports/README.md`,
-`Reports/dead-ends.md`, `Reports/load-model-handoff.md`. Routing has **not**
-regressed across the 258 commits and ~14 new reports since the overhaul; on
-this instrument it improved. The trap was refused for both of the intended
-reasons — the index marks `load-model-handoff.md` superseded by landing
-(`7e13e42`), and its §3 side-table instruction is a recorded dead end — plus a
-third the baseline run did not report: the report's *own* header still reads
-"**Status:** not started", which is the stale half the index corrects.
+Routing has **not** regressed across the 258 commits and ~14 new reports since
+the overhaul; on this instrument it improved. The trap was refused, and for one
+more reason than the baseline run found.
+
+**Which files were opened, and which reasons the trap was refused for, are
+deliberately not written here** — see §1c. They are in
+`.claude/workflows/doc-audit-benchmark-key.json`, outside the corpus the
+benchmark allows itself to read.
 
 **This is the number that answers "are agents missing important information".**
 On this instrument, they are not. The token cost of the corpus (§2) and the
 always-loaded budget (§3) are real problems, but they are *cost* problems, not
 *findability* problems, and the two should not be argued as one.
 
-### 1c. The benchmark is now contaminated by its own recording — OPEN
+### 1c. The benchmark was contaminated by its own recording — FIXED 2026-08-25
 
 `e20e338` recorded the benchmark into `documentation-audit.md`, which is
-inside the corpus the benchmark measures. The questions are there verbatim,
-and so is the **graded per-question analysis** — including the sentence that
-says the trap was refused and why.
+**inside the corpus the benchmark measures**. The questions were there
+verbatim, and so was the graded per-question analysis — including the sentence
+naming the trap and saying why it was refused.
 
 The re-run agent hit it and said so unprompted: *"flagging it because it makes
 this benchmark non-blind on repeat runs."* It reported deriving nothing from
-it, and its answers carry detail the recorded analysis does not, so this run is
-credible. The next one is not guaranteed to be.
+it, and its answers carried detail the recorded analysis did not, so that run
+stands. The next one would not have.
+
+This is the repo's own *"a debug readout must not be a function of the thing it
+debugs"*, one level up, with the instrument as the readout.
 
 This is the repo's own rule — *a debug readout must not be a function of the
 thing it debugs* (`CLAUDE.md`, Method) — with the instrument as the readout.
 
-**Proposed fix, minimal and preserving the exact questions:** the *questions*
-can stay (the runner pastes them in anyway; reading them is not an advantage).
-Move the **result and the per-question analysis** to a non-markdown sidecar
-under `.claude/workflows/`, which the benchmark prompt already places out of
-bounds — it restricts the agent to `README.md`, `CLAUDE.md`, `PLAN.md`,
-`PLAN-log.md`, `wiki/` and `Reports/`. Leave the three headline numbers and
-the method in the report, and cite the sidecar. Not executed here: it edits a
-report that landed hours ago, and the owner may prefer rotating the questions
-instead.
+**The fix, and why it needed no new rule.** The *questions* stay in the report:
+the runner pastes them in anyway, so reading them is no advantage, and keeping
+them is what makes the numbers comparable across runs. The **result and the
+graded analysis** moved to `.claude/workflows/doc-audit-benchmark-key.json` —
+which the benchmark prompt already places out of bounds, because that prompt
+restricts the agent to `README.md`, `CLAUDE.md`, `PLAN.md`, `PLAN-log.md`,
+`wiki/` and `Reports/`, and `.claude/` is none of them. The instrument's own
+constraint does the excluding; nothing was added to it.
+
+**Rotating the questions was the alternative and is worse.** It would cost
+comparability against the 8 / 0 / 1-of-1 baseline, which is the only thing that
+makes the instrument worth running. Same questions, hidden answers, keeps the
+number meaningful.
+
+**A leak this report had to fix in itself.** §1b above originally listed the
+six files the re-run opened and spelled out both reasons the trap was refused —
+in `Reports/`, inside the corpus. Moving the key out of `documentation-audit.md`
+while leaving that in place would have been a cosmetic fix that felt complete.
+Verified after the change by grepping the allowed corpus for the graded
+verdict's phrasing: gone, while the evidence a run is *supposed* to discover
+(the index's "superseded by landing", `dead-ends.md`'s "Do not add the table
+back") is untouched — those are the trail, not the answer.
 
 ## 2. The corpus, measured
 
