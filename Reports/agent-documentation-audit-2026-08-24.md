@@ -924,3 +924,81 @@ gate.
 `a_tree_eventually_stops_growing` is cited in **six** documents and exists in
 none — every one of them correctly, as a retired bar. That is the shape of
 this whole finding.
+
+## 11. PLAN.md audited — and the address space that turned out to span two documents
+
+### The document is in better shape than its headings suggest
+
+`PLAN.md` is 3,704 lines and 18 `##` sections, and its headings read like
+append-drift: *"— done, not started"*, *"— started, on branch
+`plant-substrate-v2`"*, *"— landed, plan updated"*. They are not. There is a
+working convention underneath: **every handoff section carries a dated
+`*(State YYYY-MM-DD: …)*` line immediately under its heading**, and those
+lines are accurate where they can be checked — the liquid-heightfield one
+still correctly says promotion was reverted and bodies remain test-only,
+which `CLAUDE.md`'s own gotcha list independently confirms.
+
+The heading is a record of what was true when the section was written; the
+State line is the correction. That is a sound design for an append-only
+planning document.
+
+Three real defects, all fixed here without touching a heading:
+
+| defect | fix |
+|---|---|
+| Contents claims **five** session-handoff sections; there are **four** | corrected, and the Contents now tells the reader to read the State line rather than the heading |
+| The heading at :1939 names branch `plant-substrate-v2`, **deleted from origin**; its work is in `main` | a dated State line says so — the heading is an address and stays |
+| Four cited test names claimed as live guards (§10) | repointed |
+
+### Why no heading was renamed: 32 more addresses
+
+`Reports/dead-ends.md` addresses **32** of its entries by `PLAN.md` heading
+name, on top of the 47 into `README.md` found in §9. Renaming a heading in
+either is a cross-repo edit. That is now written into both documents.
+
+### `scripts/addrcheck.py` — the check that was worth building
+
+266 quoted address fragments in `dead-ends.md`, all of which must resolve.
+Wired into `docscheck.sh` as check 9. **This is the third indexing check
+attempted today and the only one adopted**, and the reason is a clean rule:
+
+| check | fails on | verdict |
+|---|---|---|
+| general identifier sweep | design reports, prior-art surveys, `dead-ends.md` itself — all of which *should* name absent things | rejected (§10) |
+| cited test names | docs correctly recording a retired test | rejected (§10) |
+| **dead-ends addresses** | nothing correct — an address either resolves or it does not | **adopted** |
+
+**Its errors are false passes, never false alarms**, which is what makes it
+safe to gate on: it asks whether the text is still somewhere in the document,
+not whether it is still a heading. Fault-injected against three realistic
+renames, two fire and one does not (a `worldgen-design.md` heading whose
+phrase also appears in that file's prose).
+
+### Four things it took fault injection to find, none visible by reading
+
+The first version reported a confident **all 88 resolve**. Every number in
+that sentence was wrong:
+
+1. **It checked only the first quoted fragment per entry.** An entry reading
+   `README.md 'M17 status' — 'A step's cost now depends …' paragraph` names
+   two things; the paragraph went unchecked. Rewording it passed silently.
+   Fixing this took the corpus from 88 addresses to **266**.
+2. **Quote pairing broke on apostrophes.** `'a step's cost'` splits in half on
+   a naive `'([^']+)'`. A quote followed by a lowercase letter is an
+   apostrophe, not a delimiter.
+3. **Normalisation was needed twice**, and every rule earned its place by a
+   *correct* address failing: backticks, `**bold**`, `~~strike~~`, `→` vs
+   `->`, `§6` vs `section 6`, `*italics*`, smart quotes, case. Without them 16
+   of 266 fail and **all sixteen are false alarms**.
+4. **An entry addresses a set of documents, not one.** Entry 658 names
+   `tree-shape-problem-statement.md` and then, in an `(also …)` clause,
+   attributes a fragment to `tree-architecture-implementation-plan.md`. And
+   `PLAN.md`'s progress log was **split out into `PLAN-log.md`**, so entries
+   naming "PLAN.md Progress log" point at text that has moved. Blaming the
+   first-named document reported both as broken.
+
+Fixing (4) took the count from 8 unresolved to **0**, which is the shape
+`CLAUDE.md` warns about — *a cost that vanishes may be work that vanished*.
+It was checked rather than accepted: the entries were read, the `(also …)`
+clause found, and the guard re-injected with three faults to confirm it had
+not gone vacuous. It had not.

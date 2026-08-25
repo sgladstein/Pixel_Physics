@@ -160,3 +160,31 @@ the *before* and its successor in the next clause), and the four fixes above
 still trip it, because repointing correctly means keeping the old name as
 history. Only the surrounding sentence separates "claims a live guard" from
 "records a dead one". Triage stays human.
+
+## 2026-08-25 — PLAN.md audited; dead-ends addresses now gated
+
+`PLAN.md` headings look like append-drift (*"done, not started"*) and are
+not: every handoff section carries a dated `*(State …)*` line that corrects
+its heading, and those are accurate. Fixed three real defects without
+touching a heading — Contents claimed five handoff sections against four,
+and the heading at :1939 names branch `plant-substrate-v2`, which is gone
+from origin.
+
+**Headings in README.md and PLAN.md are a shared address space.**
+`dead-ends.md` addresses 47 entries by README heading and 32 by PLAN.md
+heading. `scripts/addrcheck.py` now checks all 266 quoted fragments and is
+`docscheck` check 9. Renaming a heading in either doc is a cross-repo edit.
+
+**If you build any doc-indexing check here, the adopted/rejected line is
+this:** a check is safe to gate on only if nothing *correct* trips it. A
+general identifier sweep and a cited-test-name check both fail that (design
+reports and retirement notices correctly name absent things); an address
+either resolves or it does not.
+
+**And fault-inject it before believing it.** My first version confidently
+reported "all 88 resolve" and was wrong four ways, none visible by reading:
+it checked only the first quoted fragment per entry (real count: 266), broke
+quote pairing on apostrophes (`a step's cost`), needed two rounds of markup
+normalisation where all 16 failures were false alarms, and blamed the
+first-named document when an entry's `(also …)` clause attributes fragments
+to a sibling — the PLAN.md/PLAN-log.md split does this constantly.
