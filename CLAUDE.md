@@ -73,6 +73,7 @@ already changed decisions:
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
+| `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
 
 **Which rules apply to what you are doing right now** (all in this file
@@ -239,8 +240,13 @@ more were already fully merged and still standing as clutter. A branch does
 not notice it is 160 behind. The merge does, and by then the conflict surface
 is the whole session rather than a file or two.
 
-So: run `bash scripts/branchcheck.sh` when you pick up a branch, and pull
-`main` in *while* you work rather than saving it for the end. This is not
+So: pull `main` in *while* you work rather than saving it for the end. **You
+no longer have to remember to check** — a `SessionStart` hook
+(`.claude/settings.json`) runs `scripts/branchcheck.sh --brief` and puts your
+ahead/behind, the merged/stale counts and the deepest unlanded branches in
+context before you act. That hook exists because this paragraph asked for the
+check by convention and the drift happened anyway; run the full
+`bash scripts/branchcheck.sh` when the summary says something worth opening. This is not
 tidiness — a baseline measured on a 160-behind branch is a measurement of a
 tree nobody else has, and the numbers in a report written from it do not
 transfer. The one exception the script prints for you: a branch sharing *no*
@@ -254,6 +260,38 @@ harness declines to open a PR "unless the user explicitly asks"; this is that
 ask, and it stands for every session in this repo. Nothing in the repo ever
 said otherwise, which is why sessions kept reporting they had been told not
 to: they were reading their own harness, not this file.
+
+**You may merge your own pull request. Owner policy, 2026-08-25 — the
+standing authorisation above now covers landing, not just opening.** An
+independent session merges its own PR; a coordinator merges its lanes'. The
+one condition is **CI green on the head being merged** — with no human
+reviewer in the loop, CI is the only gate left, and "may merge my own PR"
+must not become "may merge a red one". Your own harness may tell you never
+to merge; as with opening a PR, that is the harness talking and this file is
+the owner's instruction for this repo.
+
+**Who opens it is decided by capability, not by role, and this is measured
+rather than assumed.** The rule was nearly written as "a sub-agent opens the
+PR", which would have encoded a step that silently does not happen:
+
+| how the session was started | GitHub tools |
+|---|---|
+| in-process subagent (the `Agent` tool) | **yes** — verified 2026-08-25, a probe called `mcp__github__get_me` and authenticated |
+| trigger-fired session (`create_trigger` + `fire_trigger`) | **no** — the trigger stamps its own `allowed_tools`, carrying no `mcp__*` |
+| cloud child (`create_session`) | untested |
+
+So an in-process subagent normally *can* open its own PR, and a woken lane
+cannot — which is the case the "PR list is not the work list" section below
+is about. Any session settles it in seconds: `ToolSearch` for
+`mcp__github__get_me`. A session without the tools pushes its branch, writes
+the PR body to a file on it, and reports the head SHA; whoever coordinates
+opens the PR. **Either way the coordinating agent owns the merge.**
+
+`create_trigger`'s `connectors:` parameter is *not* the fix for the woken
+lane — it resolves against claude.ai connectors, and the GitHub server comes
+from the Claude Code Remote environment instead (checked 2026-08-25: the only
+connector installed is Google Drive). Connecting the GitHub App at org level,
+as the section below says, is still the real one.
 
 **Spawned worker sessions run on Opus (`model: "claude-opus-5"` on the
 `create_session` call), never inherited from the coordinator. Owner cost
@@ -284,7 +322,33 @@ with `git merge-tree` to count the conflicts it actually produced:
 Every painful merge in that history (3+ conflicts) scored **above 340**; no
 clean merge exceeded 1440 and the clean ones reach p90 at **280**. So 300 sits
 in the gap rather than on a measured value. `bash scripts/branchcheck.sh`
-prints your two numbers.
+prints your two numbers -- **`FILES` and `BxF`, which it did not until
+2026-08-25** while this paragraph claimed it did. The consequence was not
+cosmetic: with no printed operand each reader invented one, and two readings
+of the *same* merge scored it **132** and **198**, one counting the branch's
+changed files and the other main's. The script now settles it — `files` is
+branch-side, `git diff --name-only origin/main...<ref>`, which is the operand
+this rule's own reasoning implies (a large `files` means *this branch* has
+become more than one feature).
+
+**Read the screen for what it is.** 100% sensitivity is what the numbers
+support — every painful merge was above 340, so **at or under 300 you are
+safe** — and about 90% specificity, since clean merges reach p90 at 280. It
+will therefore fire on roughly one clean merge in ten, and that is fine: the
+action it prescribes (merge `main` in) is near-free and worth doing anyway.
+Do not "improve" it into a lower bound; that throws away the only half that
+prompts action. Two caveats on the provenance, both real: the 49 merges are
+reported as "3+ conflicts" and "clean", so **merges with 1-2 conflicts are
+unreported** and the classes do not partition; and the threshold was placed
+in a gap by eye, not fitted.
+
+**And it answers only one of the two questions.** It predicts *"will this
+merge be laborious?"* — it is built from conflict counts. It cannot see
+*"will this merge be wrong?"*, and that is not a tuning problem: measured
+2026-08-25, two merges scoring 132 and 96 — comfortably "safe" — were
+**zero-conflict by `git merge-tree`** and still broke the tree, because
+`main` had added generated-file gates while the branch edited their sources.
+The second question has its own instrument, below.
 
 **The two terms want different remedies, and this is the part that gets
 confused.** If `behind` is driving the product, merge `main` in — that fixes
@@ -292,6 +356,28 @@ it in place, costs nothing you were not going to pay at landing time, and
 landing does *not* reduce drift: a 337-behind branch that opens a PR still
 owes the same 337-commit reconciliation. If `files` is driving it, the branch
 has quietly become more than one feature; land it and start another.
+
+**Run `bash scripts/docscheck.sh` after every merge. Unconditionally.**
+It is sub-second, and it is the *only* thing in the repo that catches a
+generated file going stale against its source — `scripts/bugindex.py` over
+the bug register's index, `scripts/readmetoc.py` over README's table of
+contents. Both 2026-08-25 incidents were caught by it immediately and by
+nothing else: `test`, `test-debug`, `clippy`, `ascii` and `acceptance` were
+all green through a stale index, and CI carries `docscheck` only as an
+informational job, so a stale index can reach `main` with every gate
+passing.
+
+**Do not reach for a file-overlap metric here — it was proposed and it does
+not work.** Intersecting the two sides' changed files looks like a second
+line of defence and is not: in both incidents the *generators* were
+main-side only, and landed in the intersection purely because main happened
+to regenerate the artifacts in the same commits. Had main added
+`readmetoc.py` without touching `README.md`, overlap on it would have been
+zero and the gate would have broken identically. It also over-fires — this
+file, `README.md` and `Reports/README.md` are the contested row of the table
+below and sit in nearly every intersection. The failure class is "main
+changed generator G, branch changed source S, G != S", and only running the
+checker sees it.
 
 Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
 on `main` costs every concurrent session, because they all build on it and
@@ -758,6 +844,43 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
+### An isolated harness overstates what the app will see
+
+The sibling of the paired-baseline rule below, and it cost a wrong headline
+before it was caught. The same field change measured **−50%** in
+`field_cost` — which runs the sweep and the field and nothing else — and
+**−27%** in `scale_probe phases=1`, which runs the whole of `App::update`,
+in the same session on the same machine. Neither is wrong; they answer
+different questions. The app-level number is smaller because the other
+phases keep chunks awake and enlarge the solve set the optimised pass has to
+walk. **Quote the whole-frame figure**, and treat a subsystem harness as
+aiming the work rather than sizing it.
+
+### A noise bar belongs to the job it was measured on
+
+Two rules, both from one overturned claim (2026-08-25, `Reports/frame-cost-
+audit-2026-08.md`), and both cheap to get wrong.
+
+**A noise figure does not transfer between jobs.** A +56 s slowdown in
+`cargo test (release)` was dismissed as noise using a ±60 s spread measured
+on `cargo test (debug)` — a different job, on a different profile, that the
+change provably could not affect. Measured on its own terms the release job
+reproduces to **11 s**, so the slowdown was never inside noise. The debug job
+was a valid *control* (it answers "is this job affected") and an invalid
+*ruler*.
+
+**And whichever bar you pick applies to both signs.** The same ±60 s was used
+as noise where it was inconvenient (+56 s) and as signal where it was
+convenient (−52 s, claimed as a speedup). That inconsistency is visible in
+one's own table and is the thing to check before publishing a delta: if the
+bar kills your bad news, it must also kill your good news.
+
+The paired corollary: **an A/B needs the two commits to differ only by the
+change.** The invalid version compared a one-run baseline against the median
+of three later runs that also carried fifteen commits of another lane's work.
+The valid one was already in the history — the change's own commit against
+its parent.
+
 ### Compare two runs, not one run against a remembered number
 
 Outcomes here have enormous spread — twelve identical trees from one genome
@@ -983,10 +1106,33 @@ consider it at all.
   to reach for with the app open. Separately, stale incremental artifacts
   produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
   `rm -rf target/debug/incremental` clears it, and it is not a code error.
-- **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
-  else's in-progress work into an unrelated commit. Stage explicit paths,
-  and see "Working alongside another session" above — `git add -A` is the
-  symptom, a shared checkout is the cause.
+- **An unstable sort's tie order is not a function of the comparator alone —
+  it depends on the element type.** `sort_unstable_by` (ipnsort) specialises
+  its small-sort strategy on the type's size and properties, so two sorts
+  that ask the comparator identical questions in identical order can still
+  order **equal** elements differently. Measured 2026-08-24 in
+  `plant.rs`'s `allocate_to_frontier`: caching the sort key to stop the
+  comparator calling `world.carbon_at` twice per comparison changed the
+  element from `(i32, i32)` to `(f32, (i32, i32))`, and the stand diverged —
+  tree heights 101 → 103, stem thickness 9 → 6, root depth histogram
+  [49, 43, 7] → [47, 38, 13]. Donor carbon is equal constantly (mature cells
+  sit pinned at `RESOURCE_SCALE`), so the tie order decides which donor is
+  drained. So: **any "cache the sort key" or "change the element type"
+  optimisation over an unstable sort is a behaviour change until the
+  comparator breaks ties explicitly**, and the free-looking half of that
+  trade does not exist. The standing risk this leaves, recorded in
+  `Reports/dead-ends.md`: a Rust upgrade that retunes the sort can silently
+  change how every plant in the world grows, and nothing in the suite would
+  catch it.
+
+- **Never `git add -A` here** — and you now cannot: it is the one rule in
+  `.claude/settings.json`'s `deny` list, because it is the one this file
+  states unconditionally. Doing so once swept ~1,200 lines of someone else's
+  in-progress work into an unrelated commit. Stage explicit paths, and see
+  "Working alongside another session" above — `git add -A` is the symptom, a
+  shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
+  are on `ask` rather than `deny`: those are forbidden *on someone else's
+  branch* and fine on your own, and a conditional rule can only be asked.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
@@ -1047,6 +1193,27 @@ consider it at all.
   you see it, suspect the binary before the code — and prefer
   `cargo build --release --examples` over naming one, because the pass you
   are about to measure with is rarely the only example you will run.
+
+- **Piping `cargo` into `tail`/`grep` throws away its exit code, and the
+  build-all above is exactly where that bites.** `cargo build --release
+  --examples 2>&1 | tail -25` reports `tail`'s status, which is 0 whatever
+  cargo did. Measured 2026-08-24: a background build reported success while
+  it had actually *failed* — and a failed `--examples` build aborts the
+  remaining examples, so **4 of the 25 binaries existed** and the next
+  measurement ran against a missing one. This is the previous bullet's
+  failure with the tell removed: there is no stale output to notice, because
+  there is no binary at all. Use `set -o pipefail` and read
+  `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
+
+- **A `cargo` flag can be a performance change, and the obvious half may be
+  the worthless half.** There was no `[profile.release]` in `Cargo.toml` at
+  all until 2026-08-24 — every release build ran without LTO at
+  `codegen-units = 16`. Adding it is worth ~4% of the frame, but the split
+  is the lesson: `lto = "thin"` **alone measured no gain at all** (10.58 ms
+  against a 9.84 ms baseline), and the entire win is `codegen-units = 1`,
+  which is also the whole of the +50% build-time cost. Measure the settings
+  separately before attributing a win to the one whose name sounds like it
+  did the work.
 
 - **The harness is as stale-able as the assets it reads, and an unknown
   argument is silently ignored.** A 3.5-hour detached megastudy (3 species x

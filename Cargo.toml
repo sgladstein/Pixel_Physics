@@ -24,3 +24,61 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# **Measured, and the split matters.** There was no `[profile.release]` at all
+# until the 2026-08-24 frame-cost audit, so every release build ran at cargo's
+# defaults: no LTO and `codegen-units = 16`, which forbids inlining across
+# codegen units. That matters here more than in most crates, because the hot
+# paths are small functions called at CA-sweep scale -- `Cell` accessors,
+# `World::get`, `FieldTile::get_local`/`set_local`.
+#
+# **All of the win is `codegen-units`, none of it is LTO**, which is the
+# opposite of what was expected. Measured paired, three runs a side:
+#
+#                        field_cost   ascii s1   local incremental rebuild
+#   no profile             9.84 ms    110.4 ms         28 s
+#   lto = "thin" alone    10.58 ms    111.9 ms         23 s   <- no gain at all
+#   thin + cgu = 1         9.19 ms    105.9 ms         42 s
+#   fat  + cgu = 1         9.48 ms       --            42 s
+#
+# `ascii scene=stress` scene 1 is the trustworthy column: its run-to-run
+# ranges do not overlap (109.9-111.7 against 105.4-108.8), where
+# `field_cost`'s do. The rebuild column carries at least +-5 s of noise --
+# note that `thin` alone "rebuilds faster than no profile at all", which
+# cannot be true -- so read the local cost as ~+14 s, not exactly 14.
+#
+# **What it costs CI, corrected by independent review 2026-08-25.** An
+# earlier version of this comment's chat summary said "no CI cost". That was
+# wrong, and wrong for an instructive reason: the noise bar used to dismiss
+# the slowdown was borrowed from the *debug* test job, which
+# `[profile.release]` provably cannot affect, and applied to the *release*
+# job, which reproduces far tighter (two runs on identical code: 695 s and
+# 706 s, 11 s apart). The isolated A/B is this profile's own commit against
+# its parent, differing only in this file and three markdown files:
+# `cargo test (release)` went **763 s -> 859 s**. That is real.
+#
+# Two things keep it affordable, and both are conditions rather than
+# properties. CI's *critical path* is unchanged, because the seven jobs run
+# in parallel and the longest is `cargo test (debug)`, which never reads this
+# profile -- but its slack over the release job fell from 245 s to 123 s, so
+# one more change of this size moves the critical path and that stops being
+# true. And the extra compute is **unbilled rather than free**: the repo is
+# public. Revisit this if it goes private.
+#
+# Withdrawn from the earlier version: a claim that `ascii` and `acceptance`
+# got *faster* because a quicker binary repays the codegen. The mechanism
+# caps at ~6 s by arithmetic (execution is about half that job's step, and
+# the frame gain is 4.1%), and two runs compiling byte-identical code on
+# another branch differ by 70 s -- larger than the effect claimed.
+#
+# So: ~4% of frame cost, for ~+14 s per local rebuild and ~+96 s of CI build
+# time that nobody is currently billed for. Deleting these three lines costs
+# nothing and changes no behaviour -- verified bit-identical by `FIELD_HASH`
+# and `plant_probe`, since Rust does no fast-math but that was checked rather
+# than assumed.
+#
+# `panic = "abort"` is deliberately NOT set: it breaks `#[should_panic]` under
+# `cargo test --release`, which is how CI runs the suite, for no measured gain.
+[profile.release]
+lto = "thin"
+codegen-units = 1

@@ -49,9 +49,9 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M19 status — started](#m19-status--started) | 2325 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2361 |
 | [Performance](#performance) | 2442 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2569 |
-| [Status](#status) | 2610 |
-| [License](#license) | 2706 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2591 |
+| [Status](#status) | 2632 |
+| [License](#license) | 2733 |
 
 ### Milestones, in numeric order
 
@@ -2441,6 +2441,28 @@ of 1,160 promoted cells on the measured cut, printed as
 
 ## Performance
 
+### Read this first: the whole frame, at the size that ships
+
+**Everything below this subsection measures the CA sweep at 512x320**, which
+is the test environment, not the world the app loads. The world ships at
+**8192x2560**. Those numbers are still correct about what they measure; they
+are not the frame budget.
+
+The whole-frame figure, which nothing measured until the 2026-08-24 audit
+(`Reports/frame-cost-audit-2026-08.md`, and `scale_probe phases=1` is the
+instrument):
+
+| at 8192x2560, nobody playing | before the audit's fixes | after |
+|---|---|---|
+| amortised frame | 30.10 ms | **26.16 ms** |
+| frames over the 16.6 ms budget | 79.0% | **70.9%** |
+| field phase | 20.74 ms | **15.22 ms** |
+
+**The shipped world does not fit its budget standing still**, and that is the
+number to quote. The field is ~58% of it, `plant::step_organisms` ~28% (and
+it scales with plant biomass, so it grows as a forest matures), the CA sweep
+~10%, and the other seven phases together under 0.1%.
+
 Measured by `cargo run --release --example ascii`, which reports the worst
 single frame of each scenario — now run through both drivers back to back
 for the stress scenes specifically so the gap is visible directly rather
@@ -2680,10 +2702,15 @@ Known limitations:
   gently toward brighter nearby cells, but branches don't occlude the M13
   light field for each other the way Palubicki et al.'s full model does —
   see M16 status above for what's simplified and why.
-- **The field grid's own solve is still single-threaded** — see M5 status
-  above. It no longer needs to be threaded to fit the 60 Hz budget (the
-  combined worst case is now ~11.5 ms), but it's the next thing that would
-  need it if that stops being true.
+- ~~**The field grid's own solve is still single-threaded**~~ — **fixed
+  2026-08-24.** `step_pressure`, `step_velocity`, `step_diffusion` and
+  `step_advection` run on rayon, one tile per worker; they were already
+  Jacobi, so no ordering changed. Verified bit-identical at 1, 2 and 4
+  threads by `FIELD_HASH`, not by the suite. Isolated at 8192x2560 the field
+  went 15.06 -> 7.54 ms amortised on four cores, and the scaling curve is
+  13.27 / 9.68 / 7.54 at 1 / 2 / 4 — quote the curve, not the figure, since
+  it was taken on a four-core machine. The two sky walks and the
+  velocity/advection read snapshots were fixed alongside it.
 - **Windows screen capture cannot see this app's rendered canvas on this
   machine** — see M14 status above for the workaround. Worth re-checking
   whether this is machine-specific before assuming every future visual
