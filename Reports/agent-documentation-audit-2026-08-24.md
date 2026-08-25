@@ -789,7 +789,7 @@ re-walking a dead end. This is the mechanical reason behind
 only that the churn "bought nothing a table does not" — the cost is larger
 than that entry states.
 
-### Recommendation
+### Recommendation — both items landed 2026-08-25
 
 **Keep the README as it is.** Not stale, not duplicative, 94% reference, and
 its headings are referenced infrastructure. Two narrow, non-structural items:
@@ -806,3 +806,48 @@ its headings are referenced infrastructure. Two narrow, non-structural items:
 Explicitly **not** recommended: reordering sections, renaming milestone
 headings to subsystem names, splitting the file, or moving status sections
 into `Reports/`.
+
+### 9a. What landed, and the mechanism that was rejected on the way
+
+Both items are in. The two stale identifiers are fixed — and the second was
+not the rename it looked like, which is the transferable part: README claimed
+`a_tree_can_produce_multiple_simultaneous_tips_via_branching` guards that a
+tree produces multiple simultaneous tips. The successor is
+`a_tree_can_branch_into_more_than_one_lineage`, and **the proxy changed
+because the design did** — tip retirement means tips essentially never stay
+alive simultaneously now, so a blind repoint would have re-armed a claim the
+mechanism deliberately abandoned. Read a successor's body before repointing a
+stale name.
+
+**The topic index is an explicit map, and the first cut was not.** The
+obvious mechanism — score each section by counting topic-term hits, keep
+those above a share of the top — produces a table that looks principled and
+is wrong, because it counts *mentions* rather than *ownership*:
+
+- `M18 status` outranked `Materials` for **powders**, purely because a worm
+  burrows through a great many of them;
+- `The ant colony — status` fell out of **creatures** altogether — at 14
+  lines it cannot clear any share bar set by a 254-line section;
+- **worldgen** picked up `Controls`, because `\bseed\b` matches the keys that
+  plant a seed.
+
+Tuning the thresholds until that output looked right is what
+`Reports/design-philosophy.md` 2b calls curve-fitting and what `CLAUDE.md`
+means by *ask what a metric counts when nothing is wrong*. Membership is an
+editorial judgement, so it is written down as data instead.
+
+The scored version had exactly one virtue — a new section could not be
+silently missing — and `--check` buys it back: it fails if a title in
+`TOPICS` stops existing, **and** if any `## ` section belongs to no topic and
+is not on an explicit `UNINDEXED` list. The first guard is worth more than
+its cost on its own, because nothing else in the repo notices when a README
+heading is renamed out from under those 47 `dead-ends.md` addresses.
+
+Every guard was verified by putting its fault back: a renamed heading, an
+unplaced new section, a hand-edited line number in each of the two tables,
+and `docscheck` exiting non-zero for all of them (checked without a pipe —
+`docscheck | tail` reports `tail`'s status, which is the gotcha `CLAUDE.md`
+records).
+
+Cost: **32 lines, ~783 tokens, 1.7% of README**. Navigation is now 3.7% of
+the file.

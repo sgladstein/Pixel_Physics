@@ -111,3 +111,27 @@ essentially never stay alive simultaneously now, so the old assertion would
 be wrong if restored. Read the successor's body before repointing a stale
 name; a blind repoint would have re-armed a claim the mechanism deliberately
 abandoned.
+
+### Topic index landed — and why the *derived* version was rejected
+
+`scripts/readmetoc.py` now emits a third table, **By topic**, mapping
+subsystem -> owning sections (primary first) with line numbers. 32 lines,
+~783 tokens, 1.7% of README.
+
+**Worth knowing if you build any doc-indexing tool here.** The obvious
+mechanism is to score sections by counting topic-term hits. It looks
+principled and it counts *mentions, not ownership*: `M18 status` beat
+`Materials` for "powders" because worms burrow through a lot of them;
+`The ant colony — status` dropped out of "creatures" entirely, because at 14
+lines it cannot clear any share bar a 254-line section sets; "worldgen"
+picked up `Controls` because `\bseed\b` matches the seed-planting keys.
+Tuning thresholds until that looks right is curve-fitting a metric to a
+desired answer. The map is explicit now, and `--check` covers what the
+derived version would have given for free: it fails if a `TOPICS` title
+stops existing, and if any section is in no topic.
+
+**That first guard is the one that matters beyond this table.**
+`Reports/dead-ends.md` addresses 47 of its 594 entries by README section
+*and paragraph* name. Nothing in the repo noticed when a `## ` heading was
+renamed out from under them; `docscheck` does now. If you rename a README
+heading, that is a cross-repo edit.

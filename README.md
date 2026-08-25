@@ -19,39 +19,39 @@ whole, then run `python3 scripts/readmetoc.py`.
 
 | Section | Line |
 |---|---|
-| [Running](#running) | 79 |
-| [Finding things](#finding-things) | 87 |
-| [Controls](#controls) | 104 |
-| [Materials](#materials) | 167 |
-| [Architecture](#architecture) | 241 |
-| [The coarse field grid](#the-coarse-field-grid) | 392 |
-| [M12/M13 status](#m12m13-status) | 654 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 681 |
-| [M14 status](#m14-status) | 707 |
-| [M7 status](#m7-status) | 855 |
-| [M15 status](#m15-status) | 884 |
-| [M6 deferral](#m6-deferral) | 956 |
-| [M5 status](#m5-status) | 966 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1061 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1131 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1183 |
-| [M16 status](#m16-status) | 1248 |
-| [M17 status](#m17-status) | 1434 |
-| [M18 status](#m18-status) | 1661 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 1915 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 1960 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 1991 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2011 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2124 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2185 |
-| [Weather status](#weather-status) | 2300 |
-| [The ant colony — status](#the-ant-colony--status) | 2317 |
-| [M19 status — started](#m19-status--started) | 2331 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2367 |
-| [Performance](#performance) | 2448 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2597 |
-| [Status](#status) | 2638 |
-| [License](#license) | 2739 |
+| [Running](#running) | 110 |
+| [Finding things](#finding-things) | 118 |
+| [Controls](#controls) | 154 |
+| [Materials](#materials) | 217 |
+| [Architecture](#architecture) | 291 |
+| [The coarse field grid](#the-coarse-field-grid) | 442 |
+| [M12/M13 status](#m12m13-status) | 704 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 731 |
+| [M14 status](#m14-status) | 757 |
+| [M7 status](#m7-status) | 905 |
+| [M15 status](#m15-status) | 934 |
+| [M6 deferral](#m6-deferral) | 1006 |
+| [M5 status](#m5-status) | 1016 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1111 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1181 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1233 |
+| [M16 status](#m16-status) | 1298 |
+| [M17 status](#m17-status) | 1484 |
+| [M18 status](#m18-status) | 1711 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 1965 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2010 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2041 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2061 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2174 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2235 |
+| [Weather status](#weather-status) | 2350 |
+| [The ant colony — status](#the-ant-colony--status) | 2367 |
+| [M19 status — started](#m19-status--started) | 2381 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2417 |
+| [Performance](#performance) | 2498 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2647 |
+| [Status](#status) | 2688 |
+| [License](#license) | 2789 |
 
 ### Milestones, in numeric order
 
@@ -60,19 +60,50 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 966 |
-| 6 | [M6 deferral](#m6-deferral) | 956 |
-| 7 | [M7 status](#m7-status) | 855 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2011 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2124 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2185 |
-| 12 | [M12/M13 status](#m12m13-status) | 654 |
-| 14 | [M14 status](#m14-status) | 707 |
-| 15 | [M15 status](#m15-status) | 884 |
-| 16 | [M16 status](#m16-status) | 1248 |
-| 17 | [M17 status](#m17-status) | 1434 |
-| 18 | [M18 status](#m18-status) | 1661 |
-| 19 | [M19 status — started](#m19-status--started) | 2331 |
+| 5 | [M5 status](#m5-status) | 1016 |
+| 6 | [M6 deferral](#m6-deferral) | 1006 |
+| 7 | [M7 status](#m7-status) | 905 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2061 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2174 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2235 |
+| 12 | [M12/M13 status](#m12m13-status) | 704 |
+| 14 | [M14 status](#m14-status) | 757 |
+| 15 | [M15 status](#m15-status) | 934 |
+| 16 | [M16 status](#m16-status) | 1298 |
+| 17 | [M17 status](#m17-status) | 1484 |
+| 18 | [M18 status](#m18-status) | 1711 |
+| 19 | [M19 status — started](#m19-status--started) | 2381 |
+
+### By topic
+
+Which sections own a subsystem, **primary first** — the rest are genuinely
+relevant rather than equal partners. Every subsystem has one clear primary
+write-up, usually a milestone: `M17 status` *is* the structural-collapse
+document, `M14 status` *is* fire. Plants are the exception this table exists
+for — four further top-level sections carry plant material and not one of
+them is named "plants". A section can appear twice; felling is honestly both
+plant work and structural work.
+
+**Known limitations for every topic are collected in one place**:
+[Status](#status), line 2688 — the *last* section in the
+file, not the first. Read it before concluding something is broken.
+
+| Topic | Sections, primary first |
+|---|---|
+| **plants, trees and moss** | [M16 status](#m16-status) 1298, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2417 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1711, [The ant colony](#the-ant-colony--status) 2367 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1484, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2417, [M8 status](#m8-status--started-not-complete) 2061 |
+| **fire, heat and phase change** | [M14 status](#m14-status) 757, [Materials](#materials) 217 |
+| **explosions, particles and debris** | [M15 status](#m15-status) 934, [M7 status](#m7-status) 905 |
+| **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 731, [The coarse field grid](#the-coarse-field-grid) 442 |
+| **powders and granular flow** | [Materials](#materials) 217, [Architecture](#architecture) 291 |
+| **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 442, [M12/M13 status](#m12m13-status) 704 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2235, [Architecture](#architecture) 291 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2174, [Controls](#controls) 154 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2350, [M19 status](#m19-status--started) 2381, [World speed](#world-speed--five-independent-time-axes) 2647 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 1965, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2010, [Rendering performance](#rendering-performance--overnight-run-section-11) 2041, [M6 deferral](#m6-deferral) 1006 |
+| **performance and the parallel sweep** | [Performance](#performance) 2498, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2041 |
+| **materials and the data schema** | [Materials](#materials) 217, [M12/M13 status](#m12m13-status) 704 |
 
 <!-- END GENERATED TOC -->
 
@@ -91,15 +122,34 @@ gnome, the ant colony — is written up in plain language in
 [`wiki/`](wiki/README.md). *Why* it is built that way lives in
 [`Reports/`](Reports/README.md), which is indexed. How to *work* here —
 method, conventions, gotchas — is `CLAUDE.md`. This file holds the
-architecture and the per-milestone build status. Milestone sections are
-titled `M<n> status` and sit in the order they were written, not numeric
-order — the **Contents** table above lists every section with its line
-number, and indexes the milestones numerically, which is the one ordering
-grep cannot give you. That table is generated by `scripts/readmetoc.py` and
-`scripts/docscheck.sh` fails if it goes stale. The order is deliberate: a
-reorder was proposed, approved and then reversed, because agents navigate by
-grep and the churn on a contested file bought nothing a table does not
-(`Reports/documentation-overhaul-plan.md` item 11).
+architecture and the per-milestone build status.
+
+**Start from [By topic](#by-topic)**, not from a grep. Milestone sections are
+titled `M<n> status` and sit in the order they were written, so the heading
+names the *build*, not the subsystem: `M17 status` is the structural-collapse
+document and nothing in its title says so. The topic table maps subsystem to
+sections; the **Contents** table above it lists every section with its line
+number and indexes the milestones numerically, which is the one ordering grep
+cannot give you.
+
+Grep alone has a measured failure here and it is worth knowing before you
+trust one. Every subsystem has a clear primary section — but *plants* have
+four more beyond `M16 status`, none of them named "plants", so a grep for
+`plant` lands in M16 and stops, never reaching the standing-tissue economy or
+the generation loop. That gap is what the topic table exists to close.
+
+All three tables are generated by `scripts/readmetoc.py`, and
+`scripts/docscheck.sh` fails if any goes stale, if a heading the topic index
+names is renamed, or if a new section is added to no topic at all.
+
+The section *order* is deliberate: a reorder was proposed, approved and then
+reversed, because agents navigate by grep and the churn on a contested file
+bought nothing a table does not
+(`Reports/documentation-overhaul-plan.md` item 11). There is a second reason
+that entry does not record — `Reports/dead-ends.md` addresses **47 of its 594
+entries by README section and paragraph name**, so a rename silently
+invalidates pointers into the do-not-retry register. Renaming a `## ` heading
+here is a cross-repo edit, not a cosmetic one.
 
 ## Controls
 
