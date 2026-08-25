@@ -658,41 +658,22 @@ order and must be refused.
 > to another agent, not the user.
 
 **The result: 3/3, in 8 file-opens, with no source file read.** Seventeen
-tool calls total (8 reads, 8 greps, one directory listing). The files opened
-were `Reports/README.md`, `wiki/README.md`, `CLAUDE.md`,
-`Reports/dead-ends.md`, `Reports/load-model-handoff.md`,
-`Reports/tree-architecture-implementation-plan.md`, `PLAN.md`, `README.md`
-— in that order, and the agent's own closing observation was that the first
-two carried most of the weight: *"The index files in this repo are unusually
-load-bearing and worth reading first in any future session."*
+tool calls total (8 reads, 8 greps, one directory listing).
 
-Per question:
+**The graded per-question analysis is deliberately NOT here.** It named the
+trap and said why it was refused, which made the benchmark non-blind on repeat
+runs — the instrument sitting inside the corpus it measures, which is this
+repo's own *"a debug readout must not be a function of the thing it debugs"*
+one level up. The re-run agent flagged it unprompted. It now lives in
+`.claude/workflows/doc-audit-benchmark-key.json`, which the prompt above
+already places **out of bounds**: that prompt restricts the agent to
+`README.md`, `CLAUDE.md`, `PLAN.md`, `PLAN-log.md`, `wiki/` and `Reports/`, and
+`.claude/` is none of them. No new rule was needed — only moving the answers to
+where the instrument's own constraint already excludes them.
 
-- **Q1** — named `src/sim/load.rs`, correctly distinguished it from
-  `structural.rs` (which only orders the support forest by anchor distance),
-  and produced a *prioritised* reading list from the index alone, including
-  the in-flight `load-concentration-review-response.md` on the unmerged
-  `load-share` branch with its hash, i.e. "coordinate rather than duplicate."
-- **Q2** — found the reversal in `dead-ends.md`, quoted the ~5x
-  cell-count ballooning and the vertical-first 1%-compress throttle as the
-  mechanism, gave the re-test condition, and then did the thing that
-  separates a good index from a lucky grep: it **flagged the adjacent
-  near-miss entry** (the landed horizontal-first move whose `Cell::flowing()`
-  gating was rejected) as a distinct case not to confuse with this one.
-- **Q3** — routed to the implementation plan's inline per-phase status,
-  then `PLAN.md`, then the index's in-flight section. And it **refused the
-  trap**: `Reports/load-model-handoff.md` is *not* safe to execute, for two
-  independent reasons it found separately — the index marks it superseded by
-  landing (`7e13e42`), and its §3 instruction (a stored per-cell support
-  parent in a side table on `World`) is a recorded dead end whose entry ends
-  "Do not add the table back."
-
-**Why that third answer is the whole point.** Before this pass, `CLAUDE.md`'s
-knowledge table advertised that same document as "**The next step on
-destruction**, written up to be picked up cold." A cold agent following the
-old table would have executed a superseded work order whose central
-instruction is a dead end — the exact wasted session the overhaul exists to
-prevent.
+The questions stay here on purpose: the runner pastes them in anyway, so
+reading them is no advantage, and keeping them is what makes the numbers
+comparable across runs.
 
 **Re-running it.** Paste the prompt above into a fresh agent with no project
 context (`Explore` is what was used, search breadth medium). The comparable
