@@ -181,10 +181,35 @@ reordered); the velocity/advection read snapshots build in parallel; and
 
 **The release profile's split is the surprising part and is documented at the
 setting.** All of the ~4% is `codegen-units = 1`; `lto = "thin"` **alone
-measured no gain at all** (10.58 ms against a 9.84 ms baseline). And the cost
-is real — +50% build time — so it is stated plainly next to the three lines
-that buy it, since this repo values iteration speed and reverting them changes
-no behaviour.
+measured no gain at all** (10.58 ms against a 9.84 ms baseline).
+
+**Its cost line was measured wrong first, and the error is worth keeping.**
+This report said, and the session claimed, that CI cost was zero. Independent
+review overturned it. The mistake was not the conclusion but the instrument:
+the noise bar used to dismiss a +56 ms slowdown in `cargo test (release)` was
+taken from the *debug* test job — a different job, on a different profile,
+that `[profile.release]` provably cannot affect. Measured on its own terms
+the release job reproduces to **11 s** (two runs on identical code: 695 and
+706), so the slowdown was never inside noise. And the same ±60 s bar had been
+applied asymmetrically: as *noise* where it was inconvenient (+56 s) and as
+*signal* where it was convenient (−52 s on `ascii`).
+
+The isolated A/B — the profile's own commit against its parent, differing
+only in `Cargo.toml` and three markdown files — puts `cargo test (release)`
+at **763 s → 859 s**. A claim that `ascii` and `acceptance` got *faster* is
+withdrawn entirely: the mechanism caps at ~6 s by arithmetic, and two runs
+compiling byte-identical code differ by 70 s.
+
+What stands: CI's **critical path** is unchanged, because the seven jobs are
+independent and the longest (`cargo test (debug)`) never reads the profile —
+though its slack fell from 245 s to 123 s, so one more change of this size
+moves it. The extra compute is **unbilled, not free**; the repo is public.
+Local rebuild is ~+14 s (±5; the measured table contains a `thin`-alone entry
+that "rebuilds faster than no profile at all", which cannot be true).
+
+**Two method rules came out of this**, both now in `CLAUDE.md`: a noise bar
+belongs to the job it was measured on, and whichever bar you pick has to be
+applied to both signs.
 
 **Still over budget.** 26.16 ms against 16.6, with the field ~58% of what
 remains, `step_organisms` ~28% and rising with plant biomass, and the sweep
