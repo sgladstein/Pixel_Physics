@@ -315,13 +315,18 @@ fn worldgen_census(seeds: &[u64], sites_per_seed: usize, gw: i32, gh: i32, frame
                 .collect();
             let brush_zero = plat.iter().filter(|&&(px, py)| brush.get(px, py).aux() == 0).count();
 
-            // The control arm: identical seed, identical platform, placed
-            // without the brush's relax so `compute_world_distances` decides.
+            // **The control arm paints identically and only then overwrites
+            // the field.** Placing the cells directly with `World::set`
+            // instead would have differed from the brush arm in more than the
+            // rule -- `paint_capsule` also records a disturbance per cell and
+            // routes every write through its own path -- and a two-arm
+            // comparison cannot say which of those differences produced the
+            // damage. Painting both arms and then re-deciding the *field*
+            // leaves exactly one difference: which function last answered
+            // "what anchors this".
             let mut gen = World::new(Rect::new(0, 0, gw - 1, gh - 1));
             worldgen::generate_only(&mut gen, Spec::Generated { params: &params, seed });
-            for &(px, py) in &plat {
-                gen.set(px, py, Cell::new(material::STONE, 0));
-            }
+            gen.paint_capsule(a, b, PLATFORM_RADIUS, material::STONE, 1.0);
             structural::compute_world_distances(&mut gen);
             let gen_zero = plat.iter().filter(|&&(px, py)| gen.get(px, py).aux() == 0).count();
 
