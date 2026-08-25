@@ -163,6 +163,64 @@ Two entries move:
 - **Timing overhead is 12 `Instant::now()` calls per frame**, well under
   0.001 ms. Every row under ~0.005 ms should be read as "free", not measured.
 
+## What landed, and what it came to
+
+Five commits, every one bit-identical or pure instrumentation:
+
+| | before | after |
+|---|---|---|
+| whole frame, amortised | 30.10 ms | **26.16 ms** |
+| frames over the 16.6 ms budget | 79.0% | **70.9%** |
+| field phase | 20.74 ms | **15.22 ms** |
+| field isolated (`field_cost`, 4 threads) | 15.06 ms | **7.54 ms** |
+
+The field's two sky walks stopped fetching each tile eight times; its four
+stencil passes moved onto rayon (they were already Jacobi, so nothing
+reordered); the velocity/advection read snapshots build in parallel; and
+`[profile.release]` exists at last.
+
+**The release profile's split is the surprising part and is documented at the
+setting.** All of the ~4% is `codegen-units = 1`; `lto = "thin"` **alone
+measured no gain at all** (10.58 ms against a 9.84 ms baseline). And the cost
+is real — +50% build time — so it is stated plainly next to the three lines
+that buy it, since this repo values iteration speed and reverting them changes
+no behaviour.
+
+**Still over budget.** 26.16 ms against 16.6, with the field ~58% of what
+remains, `step_organisms` ~28% and rising with plant biomass, and the sweep
+~10%. The next lever is `apply_sky_to`: on the common moderate frames it is
+now the single largest pass, because it is the one that walks the whole world
+regardless of how few tiles are awake. Parallelising it needs a two-phase
+split — walk transmission read-only to get each tile's entry values, then
+write tiles in parallel — because `par_iter_mut` partitions by hash bucket and
+this walk must partition by *column*. Worth roughly 1 ms of 26.
+
+**Do not retry the column subset**: recorded dead end, measured 8.26 → 6.55 ms
+and was measuring a bug (a skipped column *loses* its light); corrected, it
+cost 8.26 → 9.06 ms.
+
+## Gates, and one that could not be a comparison
+
+`cargo test --release --locked` (943 + 9 + 2 + 44), clippy under `-D warnings`,
+`docscheck`, and CI's own `acceptance.sh` and `ascii` jobs all green. The real
+app was run once headlessly (xvfb + lavapipe) and renders correctly.
+
+`seedsweep.sh` was run at `FRAMES="start=2 every=900 count=5"` — the budget
+this file's own guidance requires, since the default stops mid-cascade — and
+completed clean. Recorded so a later session has the reading:
+
+```
+cells lost over 24 runs:      total 3868, max 595,  p90 565, median 27, min -625
+rock destroyed over 24 runs:  total 2544, max 1652, p90 213, median 0,  min -562
+```
+
+**It is a reading, not a comparison, and should not be quoted as one.** No
+paired baseline was taken, because nothing here touches the load, bearing or
+fracture models the sweep gates, and bit-identity is already established by
+hash on both the field and the plant side. `cells lost` also rides a
+±1,700-cell oscillation that has not been divided out, so it cannot compare
+two models at any budget.
+
 ## How to retake it
 
 ```
