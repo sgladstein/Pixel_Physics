@@ -1,6 +1,6 @@
 # The instruments — what already exists to measure with
 
-**Status: living index. Current as of 2026-08-24.**
+**Status: living index. Current as of 2026-08-25.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
 **25 of them**, and their names do not say what they can answer. This file
@@ -54,7 +54,7 @@ studies:
 | `wind_probe` | What `weather::exposure` reads across a landscape | |
 | `sky_light_probe` | What a sky-visibility model would say, on the five geometries that decide it | |
 | `underground_probe` | How much open air the renderer draws as cave interior | |
-| `scale_probe` | What a bigger world costs, measured rather than extrapolated | |
+| `scale_probe` | What a bigger world costs, measured rather than extrapolated | **`phases=1` is the whole-frame one** — see below |
 | `pass_ablation` | Which generation pass eats which other pass's output | |
 | `field_cost` | What the coarse field costs per frame, and what decides it | |
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
@@ -98,6 +98,58 @@ therefore already answers:
 the mechanism off and see whether the outcome notices. Before concluding a
 mechanism works, run the ablation — `CLAUDE.md`'s *a test can pass because the
 code under it is dead* has an instrument, and this is it.
+
+**`scale_probe phases=1` is the only thing that times a whole frame**, and it
+was built because nothing did. Every other cost figure in this repo measures
+*part* of a frame, and the three that existed were taken at three different
+world sizes — `ascii` times the CA sweep at 512x320, `field_cost` the field at
+8192x2560, `scale_probe`'s default mode the two together. So "the field is the
+problem" was a reading off two numbers that had never been placed beside the
+other nine phases. It runs `App::update`'s exact order, times each phase, and
+buckets whole frames by sky-step and gust the way `field_cost` does. Beyond
+the question it was built for it answers:
+
+- **"Is this phase worth optimising?"** for any phase, since it prints each
+  one's share. A phase at 2% cannot repay work whatever its internal cost.
+- **"Does a new per-frame subsystem fit?"** — add it to the list and read its
+  share against the 16.6 ms budget before it ships.
+- **The idle cost of a loaded world**, which is what a player experiences most
+  of the time and what M10's streaming has to hold down.
+
+**`ORGANISM_PASS=<every N>` splits `step_organisms` seven ways** (in
+`plant.rs`, same shape as `FIELD_PASS`), and prints `live`/`ticked`/`cells`
+beside the timings. The counters are the point: they are what said the cost is
+per *cell ticked* rather than per live organism, which killed a plausible
+optimisation before it was written. Reach for it for any "is this cost the
+item count or the item size" question.
+
+**`SCHED_PASS=<every N>` splits `scheduler::step` six ways**, one per
+`ActiveKind`, and prints `sites` / `produced` / `deferred` beside the times.
+Same shape as `FIELD_PASS` and `ORGANISM_PASS`, and the counters are again the
+point:
+
+- **`produced` against `sites` is a leak detector.** If a batch schedules as
+  many sites as it drains, each site is replacing itself and the queue is
+  self-sustaining however fast it is served -- which is how
+  `open-bugs-handoff.md` §S was found (~8,100 produced against a 2,000 cap).
+  Reach for it for any "does this backlog drain" question, not only a
+  structural one.
+- **`deferred` is the whole heap after the batch**, not the capped remainder,
+  so it has a meaningful idle value (~5,400 at 8192x2560: ordinary
+  future-dated growth and evaporation sites) and a drained queue is one that
+  comes back to it.
+- **`[struct]`'s second line attributes the structural share to a branch of
+  `structural::tick`** -- `worsened` / `improved` / `unmoved`, plus the two
+  defer reasons and the largest distance written. A `max aux` that keeps
+  rising with the world's material dead still is the count-to-infinity
+  dynamic and nothing else.
+
+**`scale_probe load=blast:EVERY:COUNT` is what makes a cost question about a
+*verb* answerable at all.** With charges still arriving, a queue that never
+drains and one that drains slower than it fills look identical; `COUNT` fires
+a fixed number and lets the world be watched afterwards. The same trick
+applies to any load component added later -- measure the aftermath, not the
+steady state.
 
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a

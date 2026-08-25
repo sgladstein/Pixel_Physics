@@ -69,10 +69,11 @@ already changed decisions:
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
 | `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (546 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (573 at last census), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
+| `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
 
 **Which rules apply to what you are doing right now** (all in this file
@@ -121,6 +122,7 @@ bash scripts/acceptance.sh                  # the structural acceptance cases; C
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
+bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
@@ -238,8 +240,13 @@ more were already fully merged and still standing as clutter. A branch does
 not notice it is 160 behind. The merge does, and by then the conflict surface
 is the whole session rather than a file or two.
 
-So: run `bash scripts/branchcheck.sh` when you pick up a branch, and pull
-`main` in *while* you work rather than saving it for the end. This is not
+So: pull `main` in *while* you work rather than saving it for the end. **You
+no longer have to remember to check** — a `SessionStart` hook
+(`.claude/settings.json`) runs `scripts/branchcheck.sh --brief` and puts your
+ahead/behind, the merged/stale counts and the deepest unlanded branches in
+context before you act. That hook exists because this paragraph asked for the
+check by convention and the drift happened anyway; run the full
+`bash scripts/branchcheck.sh` when the summary says something worth opening. This is not
 tidiness — a baseline measured on a 160-behind branch is a measurement of a
 tree nobody else has, and the numbers in a report written from it do not
 transfer. The one exception the script prints for you: a branch sharing *no*
@@ -253,6 +260,38 @@ harness declines to open a PR "unless the user explicitly asks"; this is that
 ask, and it stands for every session in this repo. Nothing in the repo ever
 said otherwise, which is why sessions kept reporting they had been told not
 to: they were reading their own harness, not this file.
+
+**You may merge your own pull request. Owner policy, 2026-08-25 — the
+standing authorisation above now covers landing, not just opening.** An
+independent session merges its own PR; a coordinator merges its lanes'. The
+one condition is **CI green on the head being merged** — with no human
+reviewer in the loop, CI is the only gate left, and "may merge my own PR"
+must not become "may merge a red one". Your own harness may tell you never
+to merge; as with opening a PR, that is the harness talking and this file is
+the owner's instruction for this repo.
+
+**Who opens it is decided by capability, not by role, and this is measured
+rather than assumed.** The rule was nearly written as "a sub-agent opens the
+PR", which would have encoded a step that silently does not happen:
+
+| how the session was started | GitHub tools |
+|---|---|
+| in-process subagent (the `Agent` tool) | **yes** — verified 2026-08-25, a probe called `mcp__github__get_me` and authenticated |
+| trigger-fired session (`create_trigger` + `fire_trigger`) | **no** — the trigger stamps its own `allowed_tools`, carrying no `mcp__*` |
+| cloud child (`create_session`) | untested |
+
+So an in-process subagent normally *can* open its own PR, and a woken lane
+cannot — which is the case the "PR list is not the work list" section below
+is about. Any session settles it in seconds: `ToolSearch` for
+`mcp__github__get_me`. A session without the tools pushes its branch, writes
+the PR body to a file on it, and reports the head SHA; whoever coordinates
+opens the PR. **Either way the coordinating agent owns the merge.**
+
+`create_trigger`'s `connectors:` parameter is *not* the fix for the woken
+lane — it resolves against claude.ai connectors, and the GitHub server comes
+from the Claude Code Remote environment instead (checked 2026-08-25: the only
+connector installed is Google Drive). Connecting the GitHub App at org level,
+as the section below says, is still the real one.
 
 **Spawned worker sessions run on Opus (`model: "claude-opus-5"` on the
 `create_session` call), never inherited from the coordinator. Owner cost
@@ -283,7 +322,33 @@ with `git merge-tree` to count the conflicts it actually produced:
 Every painful merge in that history (3+ conflicts) scored **above 340**; no
 clean merge exceeded 1440 and the clean ones reach p90 at **280**. So 300 sits
 in the gap rather than on a measured value. `bash scripts/branchcheck.sh`
-prints your two numbers.
+prints your two numbers -- **`FILES` and `BxF`, which it did not until
+2026-08-25** while this paragraph claimed it did. The consequence was not
+cosmetic: with no printed operand each reader invented one, and two readings
+of the *same* merge scored it **132** and **198**, one counting the branch's
+changed files and the other main's. The script now settles it — `files` is
+branch-side, `git diff --name-only origin/main...<ref>`, which is the operand
+this rule's own reasoning implies (a large `files` means *this branch* has
+become more than one feature).
+
+**Read the screen for what it is.** 100% sensitivity is what the numbers
+support — every painful merge was above 340, so **at or under 300 you are
+safe** — and about 90% specificity, since clean merges reach p90 at 280. It
+will therefore fire on roughly one clean merge in ten, and that is fine: the
+action it prescribes (merge `main` in) is near-free and worth doing anyway.
+Do not "improve" it into a lower bound; that throws away the only half that
+prompts action. Two caveats on the provenance, both real: the 49 merges are
+reported as "3+ conflicts" and "clean", so **merges with 1-2 conflicts are
+unreported** and the classes do not partition; and the threshold was placed
+in a gap by eye, not fitted.
+
+**And it answers only one of the two questions.** It predicts *"will this
+merge be laborious?"* — it is built from conflict counts. It cannot see
+*"will this merge be wrong?"*, and that is not a tuning problem: measured
+2026-08-25, two merges scoring 132 and 96 — comfortably "safe" — were
+**zero-conflict by `git merge-tree`** and still broke the tree, because
+`main` had added generated-file gates while the branch edited their sources.
+The second question has its own instrument, below.
 
 **The two terms want different remedies, and this is the part that gets
 confused.** If `behind` is driving the product, merge `main` in — that fixes
@@ -291,6 +356,28 @@ it in place, costs nothing you were not going to pay at landing time, and
 landing does *not* reduce drift: a 337-behind branch that opens a PR still
 owes the same 337-commit reconciliation. If `files` is driving it, the branch
 has quietly become more than one feature; land it and start another.
+
+**Run `bash scripts/docscheck.sh` after every merge. Unconditionally.**
+It is sub-second, and it is the *only* thing in the repo that catches a
+generated file going stale against its source — `scripts/bugindex.py` over
+the bug register's index, `scripts/readmetoc.py` over README's table of
+contents. Both 2026-08-25 incidents were caught by it immediately and by
+nothing else: `test`, `test-debug`, `clippy`, `ascii` and `acceptance` were
+all green through a stale index, and CI carries `docscheck` only as an
+informational job, so a stale index can reach `main` with every gate
+passing.
+
+**Do not reach for a file-overlap metric here — it was proposed and it does
+not work.** Intersecting the two sides' changed files looks like a second
+line of defence and is not: in both incidents the *generators* were
+main-side only, and landed in the intersection purely because main happened
+to regenerate the artifacts in the same commits. Had main added
+`readmetoc.py` without touching `README.md`, overlap on it would have been
+zero and the gate would have broken identically. It also over-fires — this
+file, `README.md` and `Reports/README.md` are the contested row of the table
+below and sit in nearly every intersection. The failure class is "main
+changed generator G, branch changed source S, G != S", and only running the
+checker sees it.
 
 Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
 on `main` costs every concurrent session, because they all build on it and
@@ -371,20 +458,14 @@ and push from it, then bring the main tree's branch pointer forward with
 `git reset --mixed origin/main` — which moves the branch and leaves their
 working tree untouched.
 
-**That reset strands stale files whenever the main tree was *behind*.** It
-moves the pointer and deliberately does not touch the working tree, so every
-file the main tree had not yet updated now differs from `HEAD` and appears in
-`git status` as a modification — one that is really a **revert of the upstream
-commit it missed**. Nobody will recognise it as theirs, because it is not
-anyone's edit, and the next session to commit that file silently undoes the
-change. This is not specific to `CLAUDE.md`-style contested files; it hits any
-file the branch skipped over. Seen for real on `src/sim/structural.rs`, which
-came back as the exact inverse of the commit that had just landed it.
-
-So: **note which files are genuinely dirty *before* the reset**, because
-afterwards a stale file and an edited one look identical. After it, diff
-anything newly modified against the commits you were behind by; if it is their
-exact inverse and the file was clean beforehand, `git checkout --` it.
+**That reset strands stale files whenever the main tree was *behind*** — they
+show up as modifications that are really a *revert* of the upstream commit the
+tree missed, and nobody recognises them as theirs. So: **note which files are
+genuinely dirty *before* the reset**, because afterwards a stale file and an
+edited one look identical. After it, diff anything newly modified against the
+commits you were behind by; if it is their exact inverse and the file was clean
+beforehand, `git checkout --` it. Full account, and the case it really happened
+to, in `Reports/concurrent-sessions.md`.
 
 ## Running a program of sessions (coordinator ↔ lane)
 
@@ -676,16 +757,13 @@ touched only its target before trusting anything downstream of it.
 
 ### A channel that oscillates by design must be divided out of decisions
 
-The light channel swings 20:1 over every day/night cycle by design, and a
-threshold sampled at an arbitrary phase of a designed oscillator is a
-different threshold every hour: the live tip count measured 71 at noon
-against 28 at night on the same stand, and any fixed abscission cutoff was
-a nightly extinction event. Every economic light read now goes through
-`field::noon_equivalent_light` — the oscillator is a pure function of the
-frame, so dividing it out costs no storage and is exact at noon.
-Temperature oscillates the same way and will need the same treatment the
-day anything gates on it. The cycle stays real on screen and in the field;
-it just must not alias into decisions.
+Any threshold on light — or on temperature, the day anything gates on it —
+must divide out the day/night oscillation: use `field::noon_equivalent_light`.
+A threshold sampled at an arbitrary phase of a designed oscillator is a
+different threshold every hour. The cycle stays real on screen and in the
+field; it just must not alias into decisions. The measured failure it ends (a
+nightly extinction event, live tips 71 at noon against 28 at night) is in
+`Reports/plant-economy-rederivation-2026-08-23.md`.
 
 ### A cascade censused before it settles reads a *delay* as damage
 
@@ -766,6 +844,77 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
+### A cost that vanishes may be work that vanished
+
+The sharpest version of *look again for what you did not measure*, and it
+cost a night. §S's backlog — a blast leaving the structural scheduler pinned
+at its cap for ever — was attacked with a converged relaxation pass over the
+damaged region. At a large enough region the queue did not shrink, it
+**disappeared**: 5,134 pending against 25,876, scheduler 0.03 ms against
+10.08 ms, whole frame 31.21 → 18.98 ms, and `scripts/acceptance.sh` green on
+every case. It reads as a complete fix and it was an artifact:
+`relax_region` anchors any cell resting on loose ground at distance 0
+outright, where `tick` takes that root only as a last resort, so the pass had
+rooted the whole blast neighbourhood flat and the structural system simply
+had nothing left to say about it. **A queue that goes quiet because the
+system stopped asking is indistinguishable, in every timing, from one that
+went quiet because it converged.**
+
+Two things to carry:
+
+- **When a cost disappears rather than shrinks, suspect the work
+  disappeared.** A 300x improvement in a subsystem nobody optimised is a
+  claim that the subsystem was doing nothing useful. Find the quantity that
+  says whether it still is — here `max aux`, the largest support distance in
+  the field, which read 142 with the "fix" and 2,482 without it.
+- **The control is to hold the semantic rule fixed, not to add another
+  metric.** One env switch putting `relax_region` back on
+  `compute_world_distances`' bedrock-only rule, changing nothing else,
+  settled it in one run: the queue came straight back to baseline. Measuring
+  *around* the confound would have taken all night and convinced nobody.
+
+And note what did **not** catch it: acceptance was green on all cases
+throughout, damage counters still fired, pieces still came off. A guard over
+"does destruction still happen" cannot see "destruction happens over a region
+that has quietly been made immune".
+
+### An isolated harness overstates what the app will see
+
+The sibling of the paired-baseline rule below, and it cost a wrong headline
+before it was caught. The same field change measured **−50%** in
+`field_cost` — which runs the sweep and the field and nothing else — and
+**−27%** in `scale_probe phases=1`, which runs the whole of `App::update`,
+in the same session on the same machine. Neither is wrong; they answer
+different questions. The app-level number is smaller because the other
+phases keep chunks awake and enlarge the solve set the optimised pass has to
+walk. **Quote the whole-frame figure**, and treat a subsystem harness as
+aiming the work rather than sizing it.
+
+### A noise bar belongs to the job it was measured on
+
+Two rules, both from one overturned claim (2026-08-25, `Reports/frame-cost-
+audit-2026-08.md`), and both cheap to get wrong.
+
+**A noise figure does not transfer between jobs.** A +56 s slowdown in
+`cargo test (release)` was dismissed as noise using a ±60 s spread measured
+on `cargo test (debug)` — a different job, on a different profile, that the
+change provably could not affect. Measured on its own terms the release job
+reproduces to **11 s**, so the slowdown was never inside noise. The debug job
+was a valid *control* (it answers "is this job affected") and an invalid
+*ruler*.
+
+**And whichever bar you pick applies to both signs.** The same ±60 s was used
+as noise where it was inconvenient (+56 s) and as signal where it was
+convenient (−52 s, claimed as a speedup). That inconsistency is visible in
+one's own table and is the thing to check before publishing a delta: if the
+bar kills your bad news, it must also kill your good news.
+
+The paired corollary: **an A/B needs the two commits to differ only by the
+change.** The invalid version compared a one-run baseline against the median
+of three later runs that also carried fifteen commits of another lane's work.
+The valid one was already in the history — the change's own commit against
+its parent.
+
 ### Compare two runs, not one run against a remembered number
 
 Outcomes here have enormous spread — twelve identical trees from one genome
@@ -837,11 +986,98 @@ usually this, not the physics. Suspect it early; the reports on liquids do not
 consider it at all.
 
 ## Conventions
+**Tests and guards**
+
+- **A guard test must be able to fail for the *replacement* artifact**, not
+  only the original one. A fix that cleared torn seam rows and introduced
+  much worse banding passed its own test, because that test only looked at
+  rows lying on a seam. If a fix trades one artifact for another, its test
+  should be the thing that catches the trade.
+- **Check that a guard's inputs actually vary what it guards.** All eight
+  acceptance scenes stayed green through a change that made one world seed
+  lose 26x more material to a single dig — and a ninth hand-authored scene
+  would have been just as blind, because `seed=` reaches only two scenes and
+  every structural case builds hand-placed geometry at the default seed. The
+  scenes were not too few; they were blind *by construction*. A guard over a
+  procedural system has to sweep the procedure, and it should gate an **order
+  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
+  here are chaotic in the seed, so which one is worst reshuffles on any
+  legitimate change and a per-seed baseline gets rubber-stamped. **This
+  happened twice in one session** — two different changes to the load model,
+  both green on all eight cases, the second eating fifty times more world than
+  the bug it was fixing. A seed sweep caught each in one command. So build the
+  sweep *before* changing a model that governs procedural content, not after:
+  on green alone, both would have shipped.
+- **A superseded mechanism's tests keep passing while testing nothing.**
+  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
+  nothing, because the scenario is trivially stable once the mechanism they
+  were written for is gone. When replacing a mechanism, deliberately break
+  the *replacement* and confirm the old tests fail. If they still pass,
+  delete them rather than porting them.
+- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
+  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
+  §8. (An earlier version of this bullet warned of stale comments saying
+  otherwise; a sweep found none survive.)
+
+**Tuning and sweeps**
 
 - **Set bars from measurement with headroom**, never from an aspiration and
   never sitting on the measured value. Where a report asks for a number the
   engine cannot yet hit, record both and leave the gap visible rather than
   relabelling it away.
+- **Two fixes failing the same way means the approach is wrong, not the
+  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
+  both replaced the tear with a throttle at the same seam. That is a signal
+  to change the approach — the third attempt fixed the sweep *order* instead
+  and cost nothing.
+- **A change that moves *nothing* is different evidence from one that moves a
+  little.** Gating the granular capacity divisor on `parent.is_none()` was
+  recorded as a dead end because not one cell moved, across six presets and
+  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
+  a cell's distance at 0 the moment powder touched its underside, so every
+  powder-backed cell was parentless *by construction* and the gate had nothing
+  to discriminate. An exactly-zero delta means suspect the condition you keyed
+  on is degenerate, before concluding the lever is dead — and re-test any
+  do-not-retry entry of that shape after something changes its condition.
+- **A constant nobody can tune in either direction may be a counterweight, not
+  a model.** That same divisor existed to cancel the eager rooting above: two
+  modelling errors roughly annulling each other. Every attempt to tune it made
+  some case worse because it was holding a different mistake in place. When a
+  term resists tuning in both directions, ask what it is compensating for.
+- **When several knobs move the same number, check what each one trades.**
+  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
+  sooner; the first does it by giving up on the last of the levelling
+  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
+  that look interchangeable on the headline metric usually are not.
+- **When a rule must tell apart two things that can look identical, state
+  the difference as data.** Four successive support models tried to infer
+  "is this held up" from *shape*, and every one was either strong enough to
+  hold a mountain or weak enough to let a player's tower break, never both —
+  because geometry cannot distinguish a mountain from a wall someone
+  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
+  trading one case for the other, the rule is reading the wrong quantity;
+  more tuning will not find a setting that does not exist.
+- **For "does this look right", ship a runtime selector rather than choosing.**
+  Five grain modes behind one key settled in minutes a question that no
+  amount of argument or still images had. Default to current behaviour, name
+  the active one on screen, and state what each option *costs*.
+
+**Performance**
+
+- **Measure a cost against the state the optimisation exists for.** An
+  animated grain looked free in every moving scene and cost ~10 ms/frame on a
+  *settled* one, because what it defeats is the dirty-rect render skip — and
+  a settled world is exactly where that skip does its work.
+- **A size cap must bound work, never gate whether something happens.**
+  Written twice in one session: fracture declined any region larger than its
+  body-size cap and fell through to per-cell conversion, so the *bigger* the
+  collapse the more certain it dissolved into dust. The cap belonged on a
+  fragment, not on the decision to break at all. Any `if too_big { return }`
+  is a claim that the largest cases deserve the least behaviour — check that
+  is what you meant.
+
+**Process and records**
+
 - **A revert keeps the knowledge — and gets an address.** Keep the
   reproduction (`#[ignore]` it if it now fails), record what the withdrawn
   fix was, what it improved, and why it went, and add the entry to
@@ -867,83 +1103,6 @@ consider it at all.
   drift.
 - **Commit messages carry the measurement**, not just the intent: the number
   before, the number after, and what was tried and rejected on the way.
-- **Determinism is required** (same-build, per `PLAN.md`) — reversed from
-  "not required"; the reasoning is `Reports/emergent-world-architecture.md`
-  §8. (An earlier version of this bullet warned of stale comments saying
-  otherwise; a sweep found none survive.)
-- **A guard test must be able to fail for the *replacement* artifact**, not
-  only the original one. A fix that cleared torn seam rows and introduced
-  much worse banding passed its own test, because that test only looked at
-  rows lying on a seam. If a fix trades one artifact for another, its test
-  should be the thing that catches the trade.
-- **Check that a guard's inputs actually vary what it guards.** All eight
-  acceptance scenes stayed green through a change that made one world seed
-  lose 26x more material to a single dig — and a ninth hand-authored scene
-  would have been just as blind, because `seed=` reaches only two scenes and
-  every structural case builds hand-placed geometry at the default seed. The
-  scenes were not too few; they were blind *by construction*. A guard over a
-  procedural system has to sweep the procedure, and it should gate an **order
-  statistic** (p90 or max over N seeds) rather than any single seed: outcomes
-  here are chaotic in the seed, so which one is worst reshuffles on any
-  legitimate change and a per-seed baseline gets rubber-stamped. **This
-  happened twice in one session** — two different changes to the load model,
-  both green on all eight cases, the second eating fifty times more world than
-  the bug it was fixing. A seed sweep caught each in one command. So build the
-  sweep *before* changing a model that governs procedural content, not after:
-  on green alone, both would have shipped.
-- **Two fixes failing the same way means the approach is wrong, not the
-  tuning.** Two separate attempts to penalise a cell crossing a chunk seam
-  both replaced the tear with a throttle at the same seam. That is a signal
-  to change the approach — the third attempt fixed the sweep *order* instead
-  and cost nothing.
-- **A change that moves *nothing* is different evidence from one that moves a
-  little.** Gating the granular capacity divisor on `parent.is_none()` was
-  recorded as a dead end because not one cell moved, across six presets and
-  three seeds. It was not wrong, it was **vacuous**: `structural::tick` rooted
-  a cell's distance at 0 the moment powder touched its underside, so every
-  powder-backed cell was parentless *by construction* and the gate had nothing
-  to discriminate. An exactly-zero delta means suspect the condition you keyed
-  on is degenerate, before concluding the lever is dead — and re-test any
-  do-not-retry entry of that shape after something changes its condition.
-- **A constant nobody can tune in either direction may be a counterweight, not
-  a model.** That same divisor existed to cancel the eager rooting above: two
-  modelling errors roughly annulling each other. Every attempt to tune it made
-  some case worse because it was holding a different mistake in place. When a
-  term resists tuning in both directions, ask what it is compensating for.
-- **When several knobs move the same number, check what each one trades.**
-  `min_transfer` and `HORIZONTAL_TRANSFER_REACH` both make water settle
-  sooner; the first does it by giving up on the last of the levelling
-  (residual tilt 1 → 5 cells), the second costs no accuracy at all. Knobs
-  that look interchangeable on the headline metric usually are not.
-- **Measure a cost against the state the optimisation exists for.** An
-  animated grain looked free in every moving scene and cost ~10 ms/frame on a
-  *settled* one, because what it defeats is the dirty-rect render skip — and
-  a settled world is exactly where that skip does its work.
-- **For "does this look right", ship a runtime selector rather than choosing.**
-  Five grain modes behind one key settled in minutes a question that no
-  amount of argument or still images had. Default to current behaviour, name
-  the active one on screen, and state what each option *costs*.
-- **A size cap must bound work, never gate whether something happens.**
-  Written twice in one session: fracture declined any region larger than its
-  body-size cap and fell through to per-cell conversion, so the *bigger* the
-  collapse the more certain it dissolved into dust. The cap belonged on a
-  fragment, not on the decision to break at all. Any `if too_big { return }`
-  is a claim that the largest cases deserve the least behaviour — check that
-  is what you meant.
-- **When a rule must tell apart two things that can look identical, state
-  the difference as data.** Four successive support models tried to infer
-  "is this held up" from *shape*, and every one was either strong enough to
-  hold a mountain or weak enough to let a player's tower break, never both —
-  because geometry cannot distinguish a mountain from a wall someone
-  stacked. The fix was a bit on the cell saying which it is. If tuning keeps
-  trading one case for the other, the rule is reading the wrong quantity;
-  more tuning will not find a setting that does not exist.
-- **A superseded mechanism's tests keep passing while testing nothing.**
-  Distinct from the `#[ignore]` case below — these *run*, pass, and exercise
-  nothing, because the scenario is trivially stable once the mechanism they
-  were written for is gone. When replacing a mechanism, deliberately break
-  the *replacement* and confirm the old tests fail. If they still pass,
-  delete them rather than porting them.
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug
@@ -981,10 +1140,33 @@ consider it at all.
   to reach for with the app open. Separately, stale incremental artifacts
   produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
   `rm -rf target/debug/incremental` clears it, and it is not a code error.
-- **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
-  else's in-progress work into an unrelated commit. Stage explicit paths,
-  and see "Working alongside another session" above — `git add -A` is the
-  symptom, a shared checkout is the cause.
+- **An unstable sort's tie order is not a function of the comparator alone —
+  it depends on the element type.** `sort_unstable_by` (ipnsort) specialises
+  its small-sort strategy on the type's size and properties, so two sorts
+  that ask the comparator identical questions in identical order can still
+  order **equal** elements differently. Measured 2026-08-24 in
+  `plant.rs`'s `allocate_to_frontier`: caching the sort key to stop the
+  comparator calling `world.carbon_at` twice per comparison changed the
+  element from `(i32, i32)` to `(f32, (i32, i32))`, and the stand diverged —
+  tree heights 101 → 103, stem thickness 9 → 6, root depth histogram
+  [49, 43, 7] → [47, 38, 13]. Donor carbon is equal constantly (mature cells
+  sit pinned at `RESOURCE_SCALE`), so the tie order decides which donor is
+  drained. So: **any "cache the sort key" or "change the element type"
+  optimisation over an unstable sort is a behaviour change until the
+  comparator breaks ties explicitly**, and the free-looking half of that
+  trade does not exist. The standing risk this leaves, recorded in
+  `Reports/dead-ends.md`: a Rust upgrade that retunes the sort can silently
+  change how every plant in the world grows, and nothing in the suite would
+  catch it.
+
+- **Never `git add -A` here** — and you now cannot: it is the one rule in
+  `.claude/settings.json`'s `deny` list, because it is the one this file
+  states unconditionally. Doing so once swept ~1,200 lines of someone else's
+  in-progress work into an unrelated commit. Stage explicit paths, and see
+  "Working alongside another session" above — `git add -A` is the symptom, a
+  shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
+  are on `ask` rather than `deny`: those are forbidden *on someone else's
+  branch* and fine on your own, and a conditional rule can only be asked.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
@@ -1046,6 +1228,27 @@ consider it at all.
   `cargo build --release --examples` over naming one, because the pass you
   are about to measure with is rarely the only example you will run.
 
+- **Piping `cargo` into `tail`/`grep` throws away its exit code, and the
+  build-all above is exactly where that bites.** `cargo build --release
+  --examples 2>&1 | tail -25` reports `tail`'s status, which is 0 whatever
+  cargo did. Measured 2026-08-24: a background build reported success while
+  it had actually *failed* — and a failed `--examples` build aborts the
+  remaining examples, so **4 of the 25 binaries existed** and the next
+  measurement ran against a missing one. This is the previous bullet's
+  failure with the tell removed: there is no stale output to notice, because
+  there is no binary at all. Use `set -o pipefail` and read
+  `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
+
+- **A `cargo` flag can be a performance change, and the obvious half may be
+  the worthless half.** There was no `[profile.release]` in `Cargo.toml` at
+  all until 2026-08-24 — every release build ran without LTO at
+  `codegen-units = 16`. Adding it is worth ~4% of the frame, but the split
+  is the lesson: `lto = "thin"` **alone measured no gain at all** (10.58 ms
+  against a 9.84 ms baseline), and the entire win is `codegen-units = 1`,
+  which is also the whole of the +50% build-time cost. Measure the settings
+  separately before attributing a win to the one whose name sounds like it
+  did the work.
+
 - **The harness is as stale-able as the assets it reads, and an unknown
   argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
   8 world seeds x 16 plants x 45,000 frames) produced eight *byte-identical*
@@ -1057,16 +1260,17 @@ consider it at all.
   species/trees/frames/worldseed, so a log that does not name its seed was
   written by a binary that never had one. A knob nobody can see the value of
   is a knob nobody can tell is disconnected.
-- **A structural check scheduled mid-organism amputates it.** The organism
-  support search is hop-bounded, so a check fired high in a crown reads
-  everything past the span limit as unsupported and converts it to
-  deadwood. Growth deliberately schedules no checks; abscission scheduling
-  one collapsed every shedding sweep at every value (26x outcome
-  difference from the one line, and it masqueraded as "the mechanism is
-  wrong" through eight settings). Until the support search anchors
-  properly, do not add `schedule_structural_check_around` to a new
-  organism path without measuring what it destroys — and treat Phase 3
-  damage results as contaminated by this until it is fixed.
+- **Do not add `schedule_structural_check_around` to an organism growth
+  path.** Growth only ever *adds* material, so it is not a disturbance, and
+  a `GrowingTip` is expected to be transiently unsupported until it
+  reconnects — checking it there prunes ordinary growth as if it were
+  damage (`plant.rs`'s `Grow` and germination both say so at the call
+  site). The historical reason was different and is now **stale**: the
+  hop-bounded `organism_is_supported` that amputated crowns no longer
+  exists, replaced by `plant::anchor_support`, a Dijkstra from the anchors
+  outward with no span budget. `open-bugs-handoff.md` §0d has that story
+  and the 26x measurement; read it before trusting any Phase 3 damage
+  result written while the old search was live.
 - **Assert the property, not two instants fitted to one trajectory.**
   `a_tree_eventually_stops_growing` compared wood counts at two fixed
   frames and broke the moment genotypes were re-keyed — the tree at that
@@ -1076,6 +1280,7 @@ consider it at all.
   survives redraws and retunes because it asks the question the test is
   named for.
 - The liquid heightfield bodies in `liquid.rs` are **test-only today** —
-  nothing in production promotes a body, because automatic promotion was
-  implemented and reverted over a real architectural gap. Bugs in that
-  subsystem are latent, not live, and go live the moment promotion lands.
+  nothing in production promotes a body, so bugs there are latent, not
+  live, and go live the moment promotion lands. Why promotion was
+  implemented and reverted is in `liquid.rs`'s own module doc and
+  `Reports/liquid-heightfield-design.md`.

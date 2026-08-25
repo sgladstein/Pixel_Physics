@@ -104,6 +104,100 @@ else
   note "Reports/instruments.md missing -- the instruments index is referenced by CLAUDE.md"
 fi
 
+# --- 6. The bug register: status index current, identifiers unique ----------
+# `CLAUDE.md` tells every session to read the register before touching a listed
+# area. It is ~86k tokens across 93 entries, append-only, and a bug's verdict is
+# written into its own heading rather than by moving the entry -- so a large
+# share of what sits under `## Open` is closed, and a reader cannot tell the
+# live half from the archive without reading all of it.
+#
+# `scripts/bugindex.py` generates the status table at the top of the file from
+# those headings, so the question costs a few hundred tokens instead of eighty
+# thousand. This check keeps it from decaying into one more index nobody
+# updates -- the same reason the instruments index above is a check rather than
+# a convention. It also reports duplicate identifiers: references are textual
+# ("see §Z"), so a repeated letter resolves to whichever heading the reader
+# reaches first. CLAUDE.md records that happening once (two bugs filed as §Q);
+# it has happened three more times since, which is the argument for a check.
+if [ -f scripts/bugindex.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#bugindex: }"
+  done < <(python3 scripts/bugindex.py --check 2>&1 | grep -v 'index current')
+else
+  note "scripts/bugindex.py missing -- the bug register's status index and its duplicate-identifier guard are both unenforced"
+fi
+
+# --- 7. Every user-facing key must appear in the README Controls table ------
+# Same shape as the architecture-map check: the Controls table is the only
+# index of what the app can do, and a key missing from it is a feature no
+# session can discover -- `Y`, the entry point to the whole ant colony, was
+# once missing this way.
+#
+# **Driven off `App::help_columns`, not off `KeyCode::` arms in `main.rs`.**
+# The first version scanned match arms through a hand-written variant list and
+# was wrong twice over: the list omitted `Backquote`, `Backslash` and `Quote`
+# -- three keys bound today, on the app's own help page, and absent from the
+# README -- and scanning arms also sweeps in movement and modifier keys the
+# table documents as groups. `help_columns` is the curated user-facing list:
+# what the player is shown is exactly what the README owes a row.
+#
+# The table is delimited by the next `## ` heading, never by naming the
+# section that follows it. Anchoring on `## Materials` made the check vacuous
+# the moment that heading moved: `sed` printed to EOF, so any key mentioned
+# anywhere in README's 2,600 lines counted as documented.
+if [ -f src/app.rs ] && [ -f README.md ]; then
+  ctl=$(awk '/^## Controls/{f=1; next} f && /^## /{exit} f' README.md)
+  if [ -z "$ctl" ]; then
+    note "README.md: no '## Controls' section found -- check 8 cannot run"
+  else
+    for tok in $(sed -n '/fn help_columns/,/fn draw_help/p' src/app.rs \
+        | grep -oE 'Key\("[^"]+"' | sed 's/Key("//; s/"$//' | tr ' ' '\n' | sort -u); do
+      # Rust source escapes the backslash key as "\\"; the README documents the
+      # character itself, so unescape before comparing.
+      tok="${tok//\\\\/\\}"
+      case "$tok" in
+        # Mouse and spelled-out companions to a punctuation key, plus the
+        # digit range and movement/modifier groups the table documents as one
+        # row rather than per key.
+        LMB|RMB|LMB/RMB|TICK|QUOTE|1-9|A|D|W|S) continue ;;
+        ESC)   disp="Esc" ;;
+        TAB)   disp="Tab" ;;
+        SPACE) disp="Space" ;;
+        SHIFT) disp="Shift" ;;
+        # Rust source escapes the backslash key as "\\"; the README documents
+        # the character itself.
+        '\\\\') disp='\\' ;;
+        *)     disp="$tok" ;;
+      esac
+      # A literal backtick cannot sit inside single backticks; markdown spells
+      # it `` ` ``, so that is what the table is checked for.
+      if [ "$disp" = '`' ]; then pat='`` ` ``'; else pat="\`$disp\`"; fi
+      printf '%s' "$ctl" | grep -qF -- "$pat" \
+        || note "README Controls table: \`$disp\` is on the app's help page (App::help_columns) but has no row"
+    done
+  fi
+else
+  note "src/app.rs or README.md missing -- check 8 (keys vs Controls table) did not run"
+fi
+
+# --- 8. README's table of contents must be current ------------------------
+# README is ~2,600 lines with 33 sections, thirteen of them milestone status
+# write-ups in the order they were written rather than numeric order. A
+# wholesale reorder was approved and then reversed (documentation-overhaul-plan
+# item 11: agents navigate by grep, the reorder is a huge diff on a contested
+# file, "a TOC buys the same navigation for 3% of the churn"). The TOC is that
+# substitute, and it is only worth having while it is true -- same argument as
+# the instruments index and the bug register's status table above.
+if [ -f scripts/readmetoc.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#readmetoc: }"
+  done < <(python3 scripts/readmetoc.py --check 2>&1 | grep -v 'contents current')
+else
+  note "scripts/readmetoc.py missing -- README's table of contents is unenforced"
+fi
+
 # --- result -----------------------------------------------------------------
 if [ "$fail" -eq 0 ]; then
   echo "docscheck: clean"

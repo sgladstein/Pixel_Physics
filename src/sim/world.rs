@@ -4126,7 +4126,7 @@ mod tests {
         // --- an explosion -------------------------------------------------
         // The arm with two halves: a cell the blast *consumes* is meat
         // destroyed, and a cell it *throws* is meat in flight, whose stamp
-        // rides `Particle::aux` (bug Z, fixed alongside this). Booking the
+        // rides `Particle::aux` (bug Z2, fixed alongside this). Booking the
         // throw would put `max_standing_meat` below the truth, so the
         // identity here has to include what is still in the air — which is
         // also the sharpest way to state that the two fixes are halves of

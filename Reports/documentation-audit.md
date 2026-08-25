@@ -617,3 +617,67 @@ the drift protocol.
   follow-up so the approval is not silently dropped.
 - **`wiki/the-gnome.md` is excluded from this pass** — it is dirty with
   another session's uncommitted work in the shared checkout.
+
+---
+
+# Outcome verification — the cold-agent benchmark (2026-08-21)
+
+**Recovered into this report 2026-08-24.** The overhaul's only quantitative
+pass/fail lived in the executing session's subagent transcript and nowhere
+else. It is here so the next documentation review can re-run it and compare
+a number against a number, rather than an impression against a memory.
+
+**The method.** A fresh agent with no context, no memory of this project,
+and one hard constraint — answer from the markdown only; source files may be
+opened to confirm a file *exists*, never to derive an answer. The questions
+are chosen so that each has a right answer that the docs alone must supply,
+and so that one of them is a **trap**: a report that reads as a live work
+order and must be refused.
+
+**The prompt, verbatim, so it replays:**
+
+> You are a fresh agent in the repo at `<repo root>`, a Rust falling-sand
+> physics engine. You know NOTHING about it beyond what its documentation
+> tells you. Answer three questions using ONLY the markdown documentation
+> (`README.md`, `CLAUDE.md`, `PLAN.md`, `PLAN-log.md`, `wiki/`, `Reports/`)
+> — you may open source files ONLY to confirm a file exists, not to derive
+> answers. For each answer, state which document(s) led you there and how
+> many files you had to open to find it.
+>
+> 1. Which source file owns the load/torque structural-failure criterion,
+>    and what should you read before touching that area?
+> 2. Has "horizontal-before-vertical liquid fill transfer" (moving water
+>    sideways before letting it fall/compress) been tried in this engine? If
+>    so, what happened, and under what condition would it be worth
+>    re-testing?
+> 3. Where would you find the current status of the tree-architecture work,
+>    and is the report `Reports/load-model-handoff.md` safe to execute as
+>    written?
+>
+> Answer concisely. Search breadth: medium. Your final message is a report
+> to another agent, not the user.
+
+**The result: 3/3, in 8 file-opens, with no source file read.** Seventeen
+tool calls total (8 reads, 8 greps, one directory listing).
+
+**The graded per-question analysis is deliberately NOT here.** It named the
+trap and said why it was refused, which made the benchmark non-blind on repeat
+runs — the instrument sitting inside the corpus it measures, which is this
+repo's own *"a debug readout must not be a function of the thing it debugs"*
+one level up. The re-run agent flagged it unprompted. It now lives in
+`.claude/workflows/doc-audit-benchmark-key.json`, which the prompt above
+already places **out of bounds**: that prompt restricts the agent to
+`README.md`, `CLAUDE.md`, `PLAN.md`, `PLAN-log.md`, `wiki/` and `Reports/`, and
+`.claude/` is none of them. No new rule was needed — only moving the answers to
+where the instrument's own constraint already excludes them.
+
+The questions stay here on purpose: the runner pastes them in anyway, so
+reading them is no advantage, and keeping them is what makes the numbers
+comparable across runs.
+
+**Re-running it.** Paste the prompt above into a fresh agent with no project
+context (`Explore` is what was used, search breadth medium). The comparable
+numbers are **files opened (8)**, **source files read (0)**, and **traps
+refused (1/1)**. A later review that improves routing should not need more
+than 8; one that regresses it will show up here before it shows up in a
+complaint.

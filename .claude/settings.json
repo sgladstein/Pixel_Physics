@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/branchcheck.sh --brief 2>&1 || true",
+            "timeout": 45,
+            "statusMessage": "Checking branch drift..."
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(cargo test *)",
+      "Bash(cargo clippy *)",
+      "Bash(cargo check *)",
+      "Bash(cargo build *)",
+      "Bash(cargo fmt --check*)",
+      "Bash(bash scripts/docscheck.sh*)",
+      "Bash(bash scripts/branchcheck.sh*)",
+      "Bash(bash scripts/acceptance.sh*)",
+      "Bash(python3 scripts/bugindex.py*)",
+      "Bash(python3 scripts/readmetoc.py*)",
+      "Bash(git status*)",
+      "Bash(git log*)",
+      "Bash(git diff*)",
+      "Bash(git show*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git merge-base*)",
+      "Bash(git rev-list*)",
+      "Bash(git rev-parse*)",
+      "Bash(git check-ignore*)",
+      "Bash(git worktree list*)"
+    ],
+    "deny": [
+      "Bash(git add -A*)",
+      "Bash(git add --all*)"
+    ],
+    "ask": [
+      "Bash(git add .*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git rebase*)",
+      "Bash(git commit --amend*)"
+    ]
+  }
+}

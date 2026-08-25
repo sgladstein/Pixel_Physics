@@ -286,3 +286,29 @@ jobs:
           components: rustfmt
       - run: cargo fmt --check
         continue-on-error: true
+
+  docscheck:
+    # Informational only, not gating -- `scripts/docscheck.sh`'s own header
+    # declines to be a gate, and that decision stands: "a build that fails on
+    # a link typo is its own tax". This job does not change it. It only makes
+    # the finding *visible*, the same trade `fmt` above already makes.
+    #
+    # **Why it is worth a job at all.** The script guards generated files
+    # against their sources -- `scripts/bugindex.py` over the bug register's
+    # index, `scripts/readmetoc.py` over README's table of contents -- and
+    # nothing else in this workflow can see that class. Measured 2026-08-25:
+    # two clean, zero-conflict merges of `main` into a feature branch each
+    # left a generated index stale, and `test`, `test-debug`, `clippy`,
+    # `ascii` and `acceptance` were all green through both. So a stale index
+    # could reach `main` today with every gate passing, which is the hole
+    # this closes -- loudly enough to notice, quietly enough not to block.
+    # `Reports/frame-cost-audit-2026-08.md` has the incidents.
+    #
+    # No Rust toolchain: the script is bash and python only, so this job
+    # finishes in seconds and never competes for a build.
+    name: docscheck (informational)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/docscheck.sh
+        continue-on-error: true

@@ -69,7 +69,7 @@ materials and read by nothing until S5's `gut_bias`.
    (creature-direction §13k/§13n/§13o), and the range cap is partly
    *traffic*.
 4. **Two accounting holes the new economy opened**: a particle drops
-   `Cell::aux`, so a blasted corpse silently reprices 1,020 → 120 (bug Z —
+   `Cell::aux`, so a blasted corpse silently reprices 1,020 → 120 (bug Z2 —
    no existing guard can see it), and nothing tallies a corpse destroyed by
    fire/decay/brush (`meat_lost` is documented as un-hooked,
    `world.rs:202-207`). Harmless today; evolutionary attractors the day S6
@@ -163,9 +163,9 @@ number, from a harness, with its known-good reading — per house rule.
 ### T1 — Close the two meat-accounting holes (before S6, deliberately)
 
 - **T1.1 Bug Z: `Particle` must carry `aux` for `worth_in_aux` materials.**
-  Fix shape per §Z: add the field, write it back only when the landing
+  Fix shape per §Z2: add the field, write it back only when the landing
   material declares `worth_in_aux` (a wet soil grain must not land claiming
-  to be food). Add the guard that §Z notes cannot currently exist: a corpse
+  to be food). Add the guard that §Z2 notes cannot currently exist: a corpse
   census (total standing meat) before/after a blast through a corpse pile,
   asserted equal minus what the blast legitimately destroyed. *Known-good:*
   a thrown corpse lands worth what it left as; `rigid.rs`'s aux-less
