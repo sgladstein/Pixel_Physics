@@ -1134,6 +1134,26 @@ consider it at all.
   under it were always universal; only the framing was not, and the plant
   line had independently rediscovered both. **Gotchas are exempt** —
   they are concrete bugs and their specificity is the whole value.
+- **Removing a rule from this file: a rule earns its place on *frequency x
+  cost of the failure x whether anything else would catch it*, never on
+  frequency alone.** Until 2026-08-25 this file had an addition criterion
+  and **no removal criterion at all**, which is why it ran **+2,583 / -365
+  lines, a 7.1:1 add-to-remove ratio**, over its whole history. A file that
+  only grows dilutes every rule in it.
+  **Low frequency is not grounds for cutting**, and the clearest case says
+  so: measured across 500 commits, `sort_unstable`/tie-order arises **3
+  times** — against 1,029 for "measuring anything" — yet it silently changes
+  how every plant in the world grows and its own entry records that nothing
+  in the suite would catch it. Rare, catastrophic and undetectable earns its
+  place; common, cheap and caught-by-CI does not.
+  **Cut on one of three findings**, all checkable: the mechanism it names no
+  longer exists (grep it); machinery now enforces it, so the prose is a
+  pointer at best (`git add -A` is in `settings.json`'s `deny` list); or a
+  measured recurrence audit shows the situation arises and the rule is not
+  what prevents the failure. **Never cut on "this only happened once"** —
+  measured the same day, 30 of 39 rules cite a single incident, and the bulk
+  of those are environmental facts or method rules that generalise regardless
+  (`cargo fmt` is all-or-nothing for everyone, whoever hit it first).
 - Prefer an independent review before significant commits; batch small ones.
 
 ## Gotchas that have each caused a real bug

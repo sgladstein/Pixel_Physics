@@ -232,3 +232,40 @@ evidence, not evidence of absence.
 Caveat carried from the audit: the clone is shallow (depth ~707, earliest
 2026-08-16), so several rules can only be proven "present at or before the
 boundary", not dated exactly.
+
+## 2026-08-25 — are these rules one-offs? Measured, and the answer reframes the question
+
+Owner asked how many CLAUDE.md rules are one-off write-ups rather than
+generalizable lessons. **77% (30 of 39) cite a single incident — and that
+number is the wrong discriminator.** "Happened once" and "does not
+generalise" are different claims:
+
+| class | n | generalises? |
+|---|---|---|
+| multi-incident | 8 | proven by recurrence |
+| environmental fact | 6 | yes — `cargo fmt` is all-or-nothing for everyone |
+| process convention | 6 | yes by construction |
+| abstract method rule | 15 | yes — "a green suite does not prove a test ran" is not about one bug |
+| tied to named code | 4 | only these depend on live code |
+
+**No rule is currently dead weight.** All four code-tied rules name
+mechanisms that still exist or are correctly recorded as retired — checked
+by grep, including the two CLAUDE.md claims worth doubting
+(`organism_is_supported` and `a_tree_eventually_stops_growing` are both gone
+as definitions, surviving only in source comments that say so).
+
+**The useful proxy is precondition frequency**, measured across 500 commits:
+plant growth 1,127 / measuring 1,029 / tests 704 / cargo tooling 279 /
+coarse-field 214 / size caps 125 / chunk seams 99 / `Cell::aux` 38 /
+**unstable sort 3 / heightfield promotion 3**.
+
+And the two rarest are exactly the two you must not cut: the tie-order rule
+silently changes how every plant grows with nothing in the suite to catch it,
+and the heightfield rule exists precisely to say that code is dormant.
+**Rare, catastrophic and undetectable earns its place.**
+
+**The real finding is structural: this file had an addition criterion and no
+removal criterion, and ran +2,583 / -365 lines (7.1:1) over its history.**
+That is why one-offs accumulate. A removal criterion is now in Conventions —
+cut on a missing mechanism, on machinery that now enforces it, or on a
+measured recurrence audit; never on "this only happened once".
