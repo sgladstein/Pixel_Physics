@@ -54,7 +54,7 @@ studies:
 | `wind_probe` | What `weather::exposure` reads across a landscape | |
 | `sky_light_probe` | What a sky-visibility model would say, on the five geometries that decide it | |
 | `underground_probe` | How much open air the renderer draws as cave interior | |
-| `scale_probe` | What a bigger world costs, measured rather than extrapolated | |
+| `scale_probe` | What a bigger world costs, measured rather than extrapolated | **`phases=1` is the whole-frame one** — see below |
 | `pass_ablation` | Which generation pass eats which other pass's output | |
 | `field_cost` | What the coarse field costs per frame, and what decides it | |
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
@@ -98,6 +98,30 @@ therefore already answers:
 the mechanism off and see whether the outcome notices. Before concluding a
 mechanism works, run the ablation — `CLAUDE.md`'s *a test can pass because the
 code under it is dead* has an instrument, and this is it.
+
+**`scale_probe phases=1` is the only thing that times a whole frame**, and it
+was built because nothing did. Every other cost figure in this repo measures
+*part* of a frame, and the three that existed were taken at three different
+world sizes — `ascii` times the CA sweep at 512x320, `field_cost` the field at
+8192x2560, `scale_probe`'s default mode the two together. So "the field is the
+problem" was a reading off two numbers that had never been placed beside the
+other nine phases. It runs `App::update`'s exact order, times each phase, and
+buckets whole frames by sky-step and gust the way `field_cost` does. Beyond
+the question it was built for it answers:
+
+- **"Is this phase worth optimising?"** for any phase, since it prints each
+  one's share. A phase at 2% cannot repay work whatever its internal cost.
+- **"Does a new per-frame subsystem fit?"** — add it to the list and read its
+  share against the 16.6 ms budget before it ships.
+- **The idle cost of a loaded world**, which is what a player experiences most
+  of the time and what M10's streaming has to hold down.
+
+**`ORGANISM_PASS=<every N>` splits `step_organisms` seven ways** (in
+`plant.rs`, same shape as `FIELD_PASS`), and prints `live`/`ticked`/`cells`
+beside the timings. The counters are the point: they are what said the cost is
+per *cell ticked* rather than per live organism, which killed a plausible
+optimisation before it was written. Reach for it for any "is this cost the
+item count or the item size" question.
 
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a

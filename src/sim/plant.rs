@@ -2799,8 +2799,81 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
 ///   the same set.
 ///
 /// Organisms are staggered by id so they do not all fall due on one frame.
+/// Per-sub-pass wall time inside [`step_organisms`], printed when
+/// `ORGANISM_PASS=<every N frames>` is set. Off by default and free when off.
+///
+/// **Why this exists.** `scale_probe phases=1` put `step_organisms` at 28% of
+/// the frame at the shipped world size -- second only to the field -- and
+/// nothing had ever timed it, so there was no way to tell the two candidate
+/// causes apart. They want opposite fixes: a *per-organism-per-frame*
+/// overhead (the cadence gate runs for every live organism whether or not it
+/// is due) is a hoist, while the ~1-in-45 organisms that actually tick doing
+/// the full economy is real work and an algorithmic question.
+///
+/// It answered decisively, and the counters are what did it -- see
+/// `Reports/frame-cost-audit-2026-08.md`. Cost tracks `cells`, not `live`:
+/// ~300 organisms are alive, 5-6 tick per frame, and the total is almost
+/// exactly linear in cells ticked. So the cadence-gate hoist is worth
+/// nothing, which is the sort of thing that is obvious afterwards and was a
+/// coin-flip before.
+///
+/// **Print the counters, not just the timings.** `live` against `ticked`
+/// says which regime the cost is in and `cells` says whether a tick is
+/// expensive because organisms are big or because there are many of them. A
+/// pass costing 0.00 ms and a pass that never ran look identical in a timing
+/// alone -- this repo's own recorded failure mode.
+struct OrganismTiming {
+    every: u64,
+    ms: [f64; Self::PASSES],
+    live: usize,
+    ticked: usize,
+    cells: usize,
+}
+
+impl OrganismTiming {
+    const PASSES: usize = 7;
+    const NAMES: [&'static str; Self::PASSES] =
+        ["transport", "frontier", "support", "anchor", "buds", "roottips", "upkeep"];
+
+    fn new(live: usize) -> Self {
+        use std::sync::OnceLock;
+        static EVERY: OnceLock<u64> = OnceLock::new();
+        let every =
+            *EVERY.get_or_init(|| std::env::var("ORGANISM_PASS").ok().and_then(|v| v.parse().ok()).unwrap_or(0));
+        OrganismTiming { every, ms: [0.0; Self::PASSES], live, ticked: 0, cells: 0 }
+    }
+
+    fn time<R>(&mut self, slot: usize, f: impl FnOnce() -> R) -> R {
+        if self.every == 0 {
+            return f();
+        }
+        let t = std::time::Instant::now();
+        let r = f();
+        self.ms[slot] += t.elapsed().as_secs_f64() * 1000.0;
+        r
+    }
+
+    fn report(&self, frame: u64) {
+        if self.every == 0 || !frame.is_multiple_of(self.every) {
+            return;
+        }
+        let total: f64 = self.ms.iter().sum();
+        let detail: Vec<String> =
+            Self::NAMES.iter().zip(self.ms.iter()).map(|(n, ms)| format!("{n} {ms:.2}")).collect();
+        println!(
+            "  [organism] frame {frame:>6} live {:>5} ticked {:>4} cells {:>7} total {total:>7.2}ms | {}",
+            self.live,
+            self.ticked,
+            self.cells,
+            detail.join("  ")
+        );
+    }
+}
+
 pub fn step_organisms(world: &mut World) {
-    for organism_id in world.live_organism_ids() {
+    let ids = world.live_organism_ids();
+    let mut timing = OrganismTiming::new(ids.len());
+    for organism_id in ids {
         // Which kind of organism this is, resolved *before* the cadence gate
         // rather than after it -- see the long note below for what the
         // distinction means, and this paragraph for why it has to be known
@@ -2869,25 +2942,27 @@ pub fn step_organisms(world: &mut World) {
             // upkeep has always read an already-diffused value. Running it
             // after would hand `Photosynthesize`/`Absorb`/decay the previous
             // tick's distribution.
-            organism::transport(world, organism_id);
-            allocate_to_frontier(world, organism_id);
+            timing.ticked += 1;
+            timing.cells += world.organism(organism_id).map_or(0, |st| st.cells.len());
+            timing.time(0, || organism::transport(world, organism_id));
+            timing.time(1, || allocate_to_frontier(world, organism_id));
             // Before both of the passes that read it.
-            accumulate_support(world, organism_id);
+            timing.time(2, || accumulate_support(world, organism_id));
             // After `accumulate_support` rather than before, and it does not
             // matter which order they run in -- they share no state. Placed
             // here so both structural passes sit together, and after
             // `allocate_to_frontier` so a cell created this tick is already in
             // the list being walked.
-            anchor_support(world, organism_id);
+            timing.time(3, || anchor_support(world, organism_id));
             // Before upkeep, so a bud that flushes this tick is already a
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
-            break_buds(world, organism_id);
+            timing.time(4, || break_buds(world, organism_id));
             // After `break_buds`, so a tick's single shoot flush is decided
             // before the roots ask -- and after `organism_upkeep` has set
             // `water_status`, which is what this gates on.
-            break_root_tips(world, organism_id);
-            organism_upkeep(world, organism_id);
+            timing.time(5, || break_root_tips(world, organism_id));
+            timing.time(6, || organism_upkeep(world, organism_id));
         }
         // **Outside the guard, and that is load-bearing.** Reclamation is
         // the one thing here that is genuinely for *every* organism: a
@@ -2965,6 +3040,7 @@ pub fn step_organisms(world: &mut World) {
             world.free_organism(organism_id);
         }
     }
+    timing.report(world.frame);
 }
 
 /// Shed a dead organism's remaining cells to litter, one roll per cell per

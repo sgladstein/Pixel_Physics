@@ -125,8 +125,8 @@ done
 # Advisory. Nothing here sets `fail` -- a branch being behind is a fact about
 # a work in progress, not a defect in the tree, and a gate on it would fire
 # on every branch that is merely a few days old.
-printf '\n%-48s %6s %7s  %-8s %s\n' BRANCH AHEAD BEHIND STATE 'LAST COMMIT'
-printf -- '---------------------------------------------------------------------------------\n'
+printf '\n%-42s %6s %7s %6s %7s  %-8s %s\n' BRANCH AHEAD BEHIND FILES 'BxF' STATE 'LAST COMMIT'
+printf -- '-------------------------------------------------------------------------------------------------\n'
 
 # Collected into a variable rather than piped straight to `sort`, because a
 # `while ... done | sort` runs the loop in a subshell and every counter
@@ -138,6 +138,28 @@ rows=$(
     case "$short" in main|master|trunk|HEAD) continue ;; esac
     ahead=$(git rev-list --count "origin/main..$ref")
     behind=$(git rev-list --count "$ref..origin/main")
+    # **The `files` half of `CLAUDE.md`'s `behind x files > 300` rule, which
+    # this script claimed to print and did not.** For a year the document
+    # said "prints your two numbers" while only `behind` existed here, so
+    # every session that tried to apply the rule invented its own `files`
+    # operand -- two readings of the very same merge scored it 132 and 198,
+    # because one counted the branch's changed files and the other main's.
+    #
+    # **Branch-side, and three-dot.** `origin/main...$ref` is the branch's
+    # own changes since the merge base, which is the operand `CLAUDE.md`'s
+    # own reasoning implies: it reads a large `files` as "the branch has
+    # quietly become more than one feature", a statement about this branch's
+    # scope and not about main's. Two-dot would count main's files too and
+    # make the term grow while the branch sat still.
+    #
+    # A DATA branch shares no merge base, so `...` has nothing to resolve
+    # and would error; it is scored 0 and reported as DATA regardless.
+    if git merge-base "$ref" origin/main >/dev/null 2>&1; then
+      files=$(git diff --name-only "origin/main...$ref" | wc -l | tr -d ' ')
+    else
+      files=0
+    fi
+    product=$((behind * files))
     last=$(git log -1 --format=%ad --date=short "$ref")
     # A branch sharing no ancestor with main is not a feature branch that has
     # fallen behind -- it is a deliberate orphan carrying data rather than
@@ -152,14 +174,14 @@ rows=$(
     elif [ "$behind" -gt "$stale_after" ]; then state=STALE
     else state=ok
     fi
-    printf '%s\t%s\t%s\t%s\t%s\n' "$state" "$behind" "$short" "$ahead" "$last"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$state" "$behind" "$short" "$ahead" "$last" "$files" "$product"
   done
 )
 
 printf '%s\n' "$rows" | sort -k1,1 -k2,2nr \
-  | while IFS=$'\t' read -r state behind short ahead last; do
+  | while IFS=$'\t' read -r state behind short ahead last files product; do
       [ -z "$short" ] && continue
-      printf '%-48s %6s %7s  %-8s %s\n' "$short" "$ahead" "$behind" "$state" "$last"
+      printf '%-42s %6s %7s %6s %7s  %-8s %s\n' "$short" "$ahead" "$behind" "$files" "$product" "$state" "$last"
     done
 
 count_state() { printf '%s\n' "$rows" | grep -c "^$1	" || true; }
@@ -183,9 +205,10 @@ printf 'branchcheck: %s merged (0 ahead -- carry nothing main lacks, deletable),
 if [ "$unlanded" != "0" ]; then
   printf 'branchcheck: %s branch(es) carry %s commit(s) main does not have.\n' "$unlanded" "$unlanded_commits"
   printf 'branchcheck: THE PR LIST IS NOT THE WORK LIST -- a finished branch with no PR is invisible, and sessions that cannot reach the GitHub API cannot open one. Check each of these has a PR or an owner before concluding a program is done:\n'
-  printf '%s\n' "$unlanded_rows" | sort -k4,4nr | while IFS=$'\t' read -r state behind short ahead last; do
+  printf '%s\n' "$unlanded_rows" | sort -k4,4nr | while IFS=$'\t' read -r state behind short ahead last files product; do
     [ -z "$short" ] && continue
-    printf '    %-44s %3s ahead  %3s behind  %-6s last %s\n' "$short" "$ahead" "$behind" "$state" "$last"
+    printf '    %-40s %3s ahead  %3s behind  %3s files  BxF %5s  %-6s last %s\n' \
+      "$short" "$ahead" "$behind" "$files" "$product" "$state" "$last"
   done
 fi
 
