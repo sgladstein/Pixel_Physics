@@ -3,7 +3,7 @@
 **Status: living index. Current as of 2026-08-25.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
-**25 of them**, and their names do not say what they can answer. This file
+**26 of them**, and their names do not say what they can answer. This file
 exists because instruments were being rebuilt: a lane needs a number, does not
 know a harness for it already exists, and writes a second one. The specific
 case that prompted this — W3's `divergence` — turned out to answer at least

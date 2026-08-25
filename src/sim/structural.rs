@@ -3551,20 +3551,55 @@ pub fn compute_world_distances(world: &mut World) {
 /// which is `Reports/worldgen-design.md` §6b's landmine in miniature.
 pub fn relax_region(world: &mut World, region: Rect) {
     let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
-    for y in region.min_y..=region.max_y {
-        for x in region.min_x..=region.max_x {
-            let cell = world.get(x, y);
-            if !is_relaxable(world, cell) {
-                continue;
-            }
-            let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
-                || is_resting_on_ground(world, x, y);
-            let distance = if anchored { 0 } else { u16::MAX };
-            world.set(x, y, cell.with_aux(distance));
-            if anchored {
-                heap.push(Reverse((0, x, y)));
+    // **Ground is a last-resort root here too, and it did not used to be.**
+    //
+    // This seeded any `is_resting_on_ground` cell at 0 outright, alongside
+    // bedrock. `tick` takes that root only when relaxation leaves a cell no
+    // path at all -- the distinction its own comment calls *"the whole of the
+    // dig cascade"*, because rooting eagerly makes a cell a **load sink**:
+    // every neighbour with a longer path re-routes into it, which is "a
+    // sprinkle of sand under a beam holds the beam up". Two functions
+    // answering the same question two ways, and this one had no argument
+    // behind it.
+    //
+    // It was not academic. Measured on one geometry with its field written
+    // three ways (`examples/anchor_probe.rs`, `open-bugs-handoff.md` §S2): a
+    // stone deck that stands intact under `compute_world_distances` and under
+    // `tick` lost **59 of 63 cells** under the old rule here, and taken
+    // world-wide it also destroyed **87 cells of a bedrock-founded pier**.
+    // Eager rooting does not confer immunity -- it concentrates the whole
+    // structure's load into a footing the width of a sand contact, and the
+    // load model then fails that footing and takes the subtree. The debug
+    // field pointed the other way throughout: the deck read as *better*
+    // supported (largest distance 9 against 82) and was the arm that fell.
+    //
+    // # Why a fixpoint and not one pass
+    //
+    // "Only if nothing else holds it" is not expressible as a Dijkstra seed
+    // set, because whether a cell has another path is what the search is for.
+    // So: relax from the firm anchors first, then root whatever is still
+    // unreachable *and* resting on ground, and relax again. Each round roots
+    // at least one cell that no earlier round could reach, so it terminates
+    // in at most the region's cell count and in practice in one or two.
+    let firm: Vec<(i32, i32)> = {
+        let mut seeds = Vec::new();
+        for y in region.min_y..=region.max_y {
+            for x in region.min_x..=region.max_x {
+                let cell = world.get(x, y);
+                if !is_relaxable(world, cell) {
+                    continue;
+                }
+                let anchored = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
+                world.set(x, y, cell.with_aux(if anchored { 0 } else { u16::MAX }));
+                if anchored {
+                    seeds.push((x, y));
+                }
             }
         }
+        seeds
+    };
+    for (x, y) in firm {
+        heap.push(Reverse((0, x, y)));
     }
     // The boundary condition: everything just outside the region keeps the
     // distance it already had, and seeds the search inward.
@@ -3580,38 +3615,63 @@ pub fn relax_region(world: &mut World, region: Rect) {
         }
     }
 
-    while let Some(Reverse((distance, x, y))) = heap.pop() {
-        if world.get(x, y).aux() != distance {
-            continue; // superseded by a shorter path already processed
-        }
-        for (dx, dy) in NEIGHBOURS_4 {
-            if edge_is_cracked(world, x, y, dx, dy) {
-                continue;
+    loop {
+        while let Some(Reverse((distance, x, y))) = heap.pop() {
+            if world.get(x, y).aux() != distance {
+                continue; // superseded by a shorter path already processed
             }
-            let (nx, ny) = (x + dx, y + dy);
-            // Only ever writes *inside* the region -- the values outside are
-            // the boundary condition and must not be disturbed by a stroke
-            // that did not touch them.
-            if !region.contains(nx, ny) {
-                continue;
-            }
-            let neighbour = world.get(nx, ny);
-            if !is_relaxable(world, neighbour) {
-                continue;
-            }
-            let step = {
-                let m = world.materials.get(neighbour.material);
-                match dy {
-                    -1 => m.support_cost_below,
-                    1 => m.support_cost_above,
-                    _ => m.support_cost_beside,
+            for (dx, dy) in NEIGHBOURS_4 {
+                if edge_is_cracked(world, x, y, dx, dy) {
+                    continue;
                 }
-            };
-            let candidate = distance.saturating_add(step);
-            if candidate < neighbour.aux() {
-                world.set(nx, ny, neighbour.with_aux(candidate));
-                heap.push(Reverse((candidate, nx, ny)));
+                let (nx, ny) = (x + dx, y + dy);
+                // Only ever writes *inside* the region -- the values outside
+                // are the boundary condition and must not be disturbed by a
+                // stroke that did not touch them.
+                if !region.contains(nx, ny) {
+                    continue;
+                }
+                let neighbour = world.get(nx, ny);
+                if !is_relaxable(world, neighbour) {
+                    continue;
+                }
+                let step = {
+                    let m = world.materials.get(neighbour.material);
+                    match dy {
+                        -1 => m.support_cost_below,
+                        1 => m.support_cost_above,
+                        _ => m.support_cost_beside,
+                    }
+                };
+                let candidate = distance.saturating_add(step);
+                if candidate < neighbour.aux() {
+                    world.set(nx, ny, neighbour.with_aux(candidate));
+                    heap.push(Reverse((candidate, nx, ny)));
+                }
             }
+        }
+
+        // The last resort, applied only to what the relaxation could not
+        // reach -- `tick`'s rule, not the eager one this used to use. A cell
+        // still at `u16::MAX` has no path to a firm anchor through any
+        // uncracked edge, so what it is standing on is genuinely all that
+        // holds it up.
+        let mut rooted = false;
+        for y in region.min_y..=region.max_y {
+            for x in region.min_x..=region.max_x {
+                let cell = world.get(x, y);
+                if !is_relaxable(world, cell) || cell.aux() != u16::MAX {
+                    continue;
+                }
+                if is_resting_on_ground(world, x, y) {
+                    world.set(x, y, cell.with_aux(0));
+                    heap.push(Reverse((0, x, y)));
+                    rooted = true;
+                }
+            }
+        }
+        if !rooted {
+            return;
         }
     }
 }

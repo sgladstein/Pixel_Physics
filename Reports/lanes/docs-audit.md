@@ -188,3 +188,128 @@ quote pairing on apostrophes (`a step's cost`), needed two rounds of markup
 normalisation where all 16 failures were false alarms, and blamed the
 first-named document when an entry's `(also …)` clause attributes fragments
 to a sibling — the PLAN.md/PLAN-log.md split does this constantly.
+
+## 2026-08-25 — recurrence audit: which CLAUDE.md rules actually failed
+
+Ran a read-only audit asking one question: **which mistakes happened more
+than once, and did a CLAUDE.md rule already exist at the time of the
+repeat?** Not "what did we learn" — that is already written down.
+
+**Seven rules existed and the mistake recurred anyway.** The failure is
+almost always *framing*, not content:
+
+- **Worst in the corpus: "ask what a metric counts when nothing is wrong" —
+  six recurrences, two independent sessions, the last two on one day.** None
+  of the repeats looked like "a metric": they were a counter (counting calls,
+  23 swings removing 0 cells), a timing (0.00 / 4.98 / 7.04 ms for the same
+  world — it was the wind), a difference (`extra lost = 0`, comparing two
+  non-events), and a whole-world census. Reworded to name every instrument.
+- **"A size cap must bound work" recurred twice more** because it was stated
+  as a *syntactic* tell, `if too_big { return }`, and both repeats had no
+  `return` — a truncation that understated torque, a budget resolving to
+  "supported". Both reports quoted the rule while failing to be saved by it.
+  Restated semantically: does exhausting the cap produce an *answer* or
+  *less work*? Three live sites named (`load.rs:717`, `:1080`, `:1150`).
+- The oscillator rule was scoped to "decisions" in its first clause, so a
+  session measuring *cost* skipped it — the same defect the new meta-rule
+  names, in a rule that predates it.
+
+**Two failures have recurred with no rule ever written, and both are added:**
+
+- **Block-nearest coarse-field reads** — four occurrences across creatures,
+  plants and liquids; the third was caught only by a reviewer. CLAUDE.md
+  contained zero occurrences of `block-nearest`, `bilinear`, `field_at` or
+  `FIELD_SCALE` (verified).
+- **A channel with a writer and no reader, or a reader and no writer** —
+  three occurrences; `dead-ends.md` names it as such and asks for "a
+  standing check rather than a fourth individual fix".
+
+**Do not cut** the `git add -A` rule or the seam-penalty rule: both have zero
+recurrences since landing, which is what a working rule looks like. The
+bug-register letter-collision rule is one day old and untested — absence of
+evidence, not evidence of absence.
+
+Caveat carried from the audit: the clone is shallow (depth ~707, earliest
+2026-08-16), so several rules can only be proven "present at or before the
+boundary", not dated exactly.
+
+## 2026-08-25 — are these rules one-offs? Measured, and the answer reframes the question
+
+Owner asked how many CLAUDE.md rules are one-off write-ups rather than
+generalizable lessons. **77% (30 of 39) cite a single incident — and that
+number is the wrong discriminator.** "Happened once" and "does not
+generalise" are different claims:
+
+| class | n | generalises? |
+|---|---|---|
+| multi-incident | 8 | proven by recurrence |
+| environmental fact | 6 | yes — `cargo fmt` is all-or-nothing for everyone |
+| process convention | 6 | yes by construction |
+| abstract method rule | 15 | yes — "a green suite does not prove a test ran" is not about one bug |
+| tied to named code | 4 | only these depend on live code |
+
+**No rule is currently dead weight.** All four code-tied rules name
+mechanisms that still exist or are correctly recorded as retired — checked
+by grep, including the two CLAUDE.md claims worth doubting
+(`organism_is_supported` and `a_tree_eventually_stops_growing` are both gone
+as definitions, surviving only in source comments that say so).
+
+**The useful proxy is precondition frequency**, measured across 500 commits:
+plant growth 1,127 / measuring 1,029 / tests 704 / cargo tooling 279 /
+coarse-field 214 / size caps 125 / chunk seams 99 / `Cell::aux` 38 /
+**unstable sort 3 / heightfield promotion 3**.
+
+And the two rarest are exactly the two you must not cut: the tie-order rule
+silently changes how every plant grows with nothing in the suite to catch it,
+and the heightfield rule exists precisely to say that code is dormant.
+**Rare, catastrophic and undetectable earns its place.**
+
+**The real finding is structural: this file had an addition criterion and no
+removal criterion, and ran +2,583 / -365 lines (7.1:1) over its history.**
+That is why one-offs accumulate. A removal criterion is now in Conventions —
+cut on a missing mechanism, on machinery that now enforces it, or on a
+measured recurrence audit; never on "this only happened once".
+
+## 2026-08-25 — Method de-skewed; the metric bottomed out at its floor
+
+Applied the framing lens to Method (6,444 tokens, 22 subsections) and acted
+on the three recurrence-audit findings still outstanding.
+
+**Fixed:**
+
+- **The oscillator rule was titled "divided out of *decisions*"** and
+  recurred twice on that framing, because neither repeat was a decision: a
+  cost measurement (three 600-frame windows on one world giving 0.00 / 4.98 /
+  7.04 ms — it was the wind) and a damage census (`cells lost` riding the
+  water cycle at ±1,700, larger than most damage figures in the sweep). Now
+  covers every number, with one test: *could this have been different if I
+  had sampled it an hour later?*
+- **Two rule families led with a specific mechanism and buried the general
+  check.** The stale-binary family is four bullets with one shared tell
+  (*identical output across a change that must have moved something*) stated
+  only in the middle of them; it now leads, with the one-line standing check.
+  The green-suite family is three bullets each describing a *different*
+  mechanism, so an agent who rules out the two named ones concludes green is
+  informative — which is how a correct finding was once withdrawn. *Put the
+  fault back and watch it go red* now leads instead of trailing.
+
+**Left alone, deliberately — and this is the reusable part.** Five Method
+subsections still measure ≥75% one subsystem, and **all five are correctly
+framed**: their titles are universal and only their evidence is from one
+line, which is exactly what the meta-rule asks for. "Two drivers, and the app
+runs the parallel one" is genuinely scoped (there are literally two drivers);
+chunk decomposition the recurrence audit found to be a *working* rule.
+
+**That is the third time today the ratio metric flagged correct content** —
+Conventions, then "fixing a bug exposes a compensating constant", now these
+five. The metric measures *body vocabulary*; the meta-rule deliberately puts
+the subsystem in the body. So the metric has a floor it cannot go below, and
+reaching it is the stopping condition, not a to-do list. Do not "fix" the
+remaining five — the only way to move them is to delete evidence.
+
+**Cost, honestly:** this pass grew CLAUDE.md ~915 tokens (20,932 → 21,847)
+and removed nothing, which is the same 7:1 pattern the removal criterion was
+just written to stop. The two family leads consolidate seven bullets under
+two general checks and cover the highest-recurrence class in the corpus, so I
+think it pays — but it is an addition, and the next pass over this file
+should be looking for what comes out.

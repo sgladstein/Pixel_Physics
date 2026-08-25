@@ -67,6 +67,14 @@ tried?"*.
   the incidents, their measurements, and the forensics for recognising each
   again. Split out of `CLAUDE.md` by rec 5 — read it when a manoeuvre there
   has gone wrong, not before.
+- [session-programs.md](session-programs.md) — **living.** The coordinator ↔
+  lane protocol, moved out of `CLAUDE.md` 2026-08-25: how a coordinator
+  reaches a lane (`SendMessage` fails; a poke-only trigger works), why a
+  woken lane cannot reply, why the return path must be files, and the four
+  failures that cost an evening. **Read it only if you are coordinating
+  sessions or were spawned by one** — it applies to a minority of sessions
+  and cost every one of them ~2,200 always-loaded tokens while it sat in
+  `CLAUDE.md`.
 - [measurement-under-contention.md](measurement-under-contention.md) —
   **evidence landed; the mechanism it designs was deliberately not.** Why two
   runs of a byte-identical binary disagreed 2.42x and reversed the
