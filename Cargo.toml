@@ -24,3 +24,37 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+# **Measured, and the split matters.** There was no `[profile.release]` at all
+# until the 2026-08-24 frame-cost audit, so every release build ran at cargo's
+# defaults: no LTO and `codegen-units = 16`, which forbids inlining across
+# codegen units. That matters here more than in most crates, because the hot
+# paths are small functions called at CA-sweep scale -- `Cell` accessors,
+# `World::get`, `FieldTile::get_local`/`set_local` -- and `README.md`'s own
+# Performance section makes the argument that a *cheap check* run 1e5 times a
+# frame is not free.
+#
+# **All of the win is `codegen-units`, none of it is LTO**, which is the
+# opposite of what was expected and is why both lines carry a number. Measured
+# paired, three runs a side (`field_cost size=8192x2560`, and `ascii
+# scene=stress` scene 1, whose run-to-run ranges do not overlap and which is
+# therefore the trustworthy one):
+#
+#                        field_cost   ascii s1   incremental rebuild
+#   no profile             9.84 ms    110.4 ms         28 s
+#   lto = "thin" alone    10.58 ms    111.9 ms         23 s   <- no gain at all
+#   thin + cgu = 1         9.19 ms    105.9 ms         42 s
+#   fat  + cgu = 1         9.48 ms       --            42 s
+#
+# So: ~4% frame cost for **+50% build time**, and `fat` is not worth its extra
+# over `thin`. The build cost is real and this repo values iteration speed
+# (see the materials-hot-reload rationale above); if that trade stops being
+# worth it, deleting these three lines costs nothing and changes no behaviour
+# -- verified bit-identical by `FIELD_HASH` and by `plant_probe`, since a
+# codegen change must not move a float and Rust does no fast-math.
+#
+# `panic = "abort"` is deliberately NOT set: it breaks `#[should_panic]` under
+# `cargo test --release`, which is how CI runs the suite, for no measured gain.
+[profile.release]
+lto = "thin"
+codegen-units = 1

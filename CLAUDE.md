@@ -766,6 +766,18 @@ regions `rigid::fracture_failing_region` declined and the cells they took --
 and `filmstrip` prints it as `crumbled to grit` beside the mean. Read that,
 not the mean, whenever the question is whether something turned to dust.
 
+### An isolated harness overstates what the app will see
+
+The sibling of the paired-baseline rule below, and it cost a wrong headline
+before it was caught. The same field change measured **−50%** in
+`field_cost` — which runs the sweep and the field and nothing else — and
+**−27%** in `scale_probe phases=1`, which runs the whole of `App::update`,
+in the same session on the same machine. Neither is wrong; they answer
+different questions. The app-level number is smaller because the other
+phases keep chunks awake and enlarge the solve set the optimised pass has to
+walk. **Quote the whole-frame figure**, and treat a subsystem harness as
+aiming the work rather than sizing it.
+
 ### Compare two runs, not one run against a remembered number
 
 Outcomes here have enormous spread — twelve identical trees from one genome
@@ -981,6 +993,25 @@ consider it at all.
   to reach for with the app open. Separately, stale incremental artifacts
   produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
   `rm -rf target/debug/incremental` clears it, and it is not a code error.
+- **An unstable sort's tie order is not a function of the comparator alone —
+  it depends on the element type.** `sort_unstable_by` (ipnsort) specialises
+  its small-sort strategy on the type's size and properties, so two sorts
+  that ask the comparator identical questions in identical order can still
+  order **equal** elements differently. Measured 2026-08-24 in
+  `plant.rs`'s `allocate_to_frontier`: caching the sort key to stop the
+  comparator calling `world.carbon_at` twice per comparison changed the
+  element from `(i32, i32)` to `(f32, (i32, i32))`, and the stand diverged —
+  tree heights 101 → 103, stem thickness 9 → 6, root depth histogram
+  [49, 43, 7] → [47, 38, 13]. Donor carbon is equal constantly (mature cells
+  sit pinned at `RESOURCE_SCALE`), so the tie order decides which donor is
+  drained. So: **any "cache the sort key" or "change the element type"
+  optimisation over an unstable sort is a behaviour change until the
+  comparator breaks ties explicitly**, and the free-looking half of that
+  trade does not exist. The standing risk this leaves, recorded in
+  `Reports/dead-ends.md`: a Rust upgrade that retunes the sort can silently
+  change how every plant in the world grows, and nothing in the suite would
+  catch it.
+
 - **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
   else's in-progress work into an unrelated commit. Stage explicit paths,
   and see "Working alongside another session" above — `git add -A` is the
@@ -1045,6 +1076,27 @@ consider it at all.
   you see it, suspect the binary before the code — and prefer
   `cargo build --release --examples` over naming one, because the pass you
   are about to measure with is rarely the only example you will run.
+
+- **Piping `cargo` into `tail`/`grep` throws away its exit code, and the
+  build-all above is exactly where that bites.** `cargo build --release
+  --examples 2>&1 | tail -25` reports `tail`'s status, which is 0 whatever
+  cargo did. Measured 2026-08-24: a background build reported success while
+  it had actually *failed* — and a failed `--examples` build aborts the
+  remaining examples, so **4 of the 25 binaries existed** and the next
+  measurement ran against a missing one. This is the previous bullet's
+  failure with the tell removed: there is no stale output to notice, because
+  there is no binary at all. Use `set -o pipefail` and read
+  `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
+
+- **A `cargo` flag can be a performance change, and the obvious half may be
+  the worthless half.** There was no `[profile.release]` in `Cargo.toml` at
+  all until 2026-08-24 — every release build ran without LTO at
+  `codegen-units = 16`. Adding it is worth ~4% of the frame, but the split
+  is the lesson: `lto = "thin"` **alone measured no gain at all** (10.58 ms
+  against a 9.84 ms baseline), and the entire win is `codegen-units = 1`,
+  which is also the whole of the +50% build-time cost. Measure the settings
+  separately before attributing a win to the one whose name sounds like it
+  did the work.
 
 - **The harness is as stale-able as the assets it reads, and an unknown
   argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
