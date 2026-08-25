@@ -858,16 +858,38 @@ out of that, and neither depends on the machine it was measured on:
   asserts is a deterministic count, identical under any load. A wall-clock
   assertion is a flake generator — and usually the counter above it is the
   stronger claim anyway, because "the pass did no work at all" cannot be
-  explained away by a busy box.
+  explained away by a busy box. Measured again independently 2026-08-25 by the
+  perf lane: a scheduler census recompiled between two runs of one scene came
+  back **byte-identical** (`produced 7042 / deferred 61488` at frame 4,800,
+  both times) while the wall-clock column on the same frame moved 9.54 → 8.16
+  ms. The counters reproduced exactly where the clock moved 17%.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
   the counter gates, where load is irrelevant.
 
-And read the *worst* frame with suspicion: measured across three attempts at
-one scene, the worst frame moved **6x** with machine state while the median
-moved ~30%. An untrusted median is worth something; an untrusted worst is
-worth nothing.
+**A worst-frame figure is worthless unless an aggregate independently pins
+it.** This is the corrected form of the rule, and the correction came from the
+perf lane pushing back with a case the original got wrong. The original said
+flatly that an untrusted worst is worth nothing — true for the case it was
+drawn from, where the worst is one frame among thousands of *comparable* ones
+and a single scheduler preemption can set it (measured across three attempts at
+one scene: the worst moved **6x** with machine state while the median moved
+~30%).
+
+It is false when the expensive event is **rare**, because then the mean is not
+independent of the worst — it contains it. The test is arithmetic: **mean ×
+frames ≈ worst**. One blast per run puts essentially all time ever spent in the
+blasts phase into a single frame, and the perf lane's converged-pass figure
+pins at 0.97 (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst), its
+bedrock-only control at 0.96 — while the ascii case above pins at nothing at
+all. Two further independent legs held there: two runs agreeing to **1.2x**,
+not 6x, and a dose-response prediction (the 8x box has 64x the area;
+6.08 × 64 = 389 ms).
+
+So: run the ratio before quoting a worst. If an aggregate pins it, quote it; if
+it is an order statistic over many similar frames, it is noise wearing a
+number. An untrusted *median* is worth something either way.
 
 `Reports/measurement-under-contention.md` has the evidence, and records why the
 machine-wide lock it designed was deliberately not landed.

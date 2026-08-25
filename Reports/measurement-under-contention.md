@@ -28,6 +28,33 @@ counters, never on wall clock*, and *measure one scene, not the suite*. Neither
 needs the lock to be true, and both were the expensive half of what this
 investigation learned.
 
+**The perf lane declined the lock independently, and for a sharper reason than
+the one above.** Reviewing this on 2026-08-25 it reported that every timing it
+had taken was in a cloud container, and that the contention it actually
+suffered was **self-inflicted** — its own `cargo build`, and some spinning
+waiter loops — which a machine-wide lock would not have touched. §6 below
+already declines making `cargo` take the lock, so the mechanism as built would
+not have helped even on a shared box. *Discipline about not building during a
+run is the fix, not a mutex.*
+
+**Both rules were then audited against live work, and one found a real gap.**
+The same lane checked its four load-bearing conclusions: two rest on counters
+(`deferred` 19,674 against 5,134; `max aux` 2,482 against 142) and are
+unaffected. The third — a four-way chain-mode comparison at 9.72 / 9.72 / 10.03
+/ 9.75 ms — is pure wall clock with a **3% spread**, comfortably inside what
+the evidence here says a busy box produces. That conclusion now rests on a
+source-level argument instead, and the timings are marked as decoration. The
+rule caught a number that was reading as evidence and was not.
+
+**One rule in this report's own account was corrected by that review, and the
+correction is in `CLAUDE.md` rather than here.** The blanket claim that an
+untrusted worst frame is worth nothing is true for the case §1 draws it from —
+a worst buried among thousands of comparable frames — and false when the
+expensive event is *rare*, because the mean then contains the worst rather than
+being independent of it. The test is `mean × frames ≈ worst`. See the Method
+section; this report's §5 numbers are unaffected, but do not quote its
+worst-frame reasoning without that qualifier.
+
 **The condition for revisiting**, stated so it can be tested rather than
 remembered: if development returns to a machine where concurrent sessions
 contend for the same cores, this report is the design and `perf-lock` is the
