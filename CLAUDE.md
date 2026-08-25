@@ -73,6 +73,7 @@ already changed decisions:
 | `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
+| `.claude/README.md` | **The Claude Code configuration** — the `SessionStart` check, the permission allow/deny/ask lists, and why `.claude/` is tracked rather than ignored |
 | `.claude/skills/review/SKILL.md` | How to put an artifact in front of the owner and get a verdict back — the primary feedback channel, used constantly |
 
 **Which rules apply to what you are doing right now** (all in this file
@@ -121,6 +122,7 @@ bash scripts/acceptance.sh                  # the structural acceptance cases; C
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
+bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
@@ -238,8 +240,13 @@ more were already fully merged and still standing as clutter. A branch does
 not notice it is 160 behind. The merge does, and by then the conflict surface
 is the whole session rather than a file or two.
 
-So: run `bash scripts/branchcheck.sh` when you pick up a branch, and pull
-`main` in *while* you work rather than saving it for the end. This is not
+So: pull `main` in *while* you work rather than saving it for the end. **You
+no longer have to remember to check** — a `SessionStart` hook
+(`.claude/settings.json`) runs `scripts/branchcheck.sh --brief` and puts your
+ahead/behind, the merged/stale counts and the deepest unlanded branches in
+context before you act. That hook exists because this paragraph asked for the
+check by convention and the drift happened anyway; run the full
+`bash scripts/branchcheck.sh` when the summary says something worth opening. This is not
 tidiness — a baseline measured on a 160-behind branch is a measurement of a
 tree nobody else has, and the numbers in a report written from it do not
 transfer. The one exception the script prints for you: a branch sharing *no*
@@ -1118,10 +1125,14 @@ consider it at all.
   change how every plant in the world grows, and nothing in the suite would
   catch it.
 
-- **Never `git add -A` here.** Doing so once swept ~1,200 lines of someone
-  else's in-progress work into an unrelated commit. Stage explicit paths,
-  and see "Working alongside another session" above — `git add -A` is the
-  symptom, a shared checkout is the cause.
+- **Never `git add -A` here** — and you now cannot: it is the one rule in
+  `.claude/settings.json`'s `deny` list, because it is the one this file
+  states unconditionally. Doing so once swept ~1,200 lines of someone else's
+  in-progress work into an unrelated commit. Stage explicit paths, and see
+  "Working alongside another session" above — `git add -A` is the symptom, a
+  shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
+  are on `ask` rather than `deny`: those are forbidden *on someone else's
+  branch* and fine on your own, and a conditional rule can only be asked.
 - **`cargo fmt` is all-or-nothing.** `cargo fmt -- some/file.rs` formats the
   whole project, not that file — 28 files and ~3,000 lines in one go. The
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
