@@ -91,6 +91,10 @@ fn main() {
     // `load=` puts a *subject* in the world -- see `phase_probe`'s doc on why
     // the default (an empty world) measures the wrong frame.
     let mut load = String::new();
+    // `chain=SPREAD|LOCAL|TIGHT|NONE` -- `structural::CHAIN_MODES`, the
+    // runtime selector for how far a structural failure propagates. The
+    // default is `CHAIN_MODES[0]`, SPREAD, whose reach is `i32::MAX`.
+    let mut chain = String::new();
     // Frames run before measurement starts, discarded. Terrain is at rest by
     // frame 7, but light and moisture start at zero on a fresh world and have
     // to fill it once; `field_cost.rs` uses the same 1500 for the same reason.
@@ -101,6 +105,7 @@ fn main() {
             "scales" => scales = v.split(',').map(|t| t.parse().expect("scales=1,2,4")).collect(),
             "phases" => phases = v != "0",
             "load" => load = v.to_string(),
+            "chain" => chain = v.to_string(),
             "warm" => warm = v.parse().expect("warm=N"),
             "size" => {
                 let (w, h) = v.split_once('x').expect("size=WxH");
@@ -127,7 +132,7 @@ fn main() {
 
     if phases {
         let (w, h) = explicit.unwrap_or((BASE_W * 4, BASE_H * 4));
-        phase_probe(w, h, &params, &name, seed, warm, frames, &load);
+        phase_probe(w, h, &params, &name, seed, warm, frames, &load, &chain);
         return;
     }
 
@@ -411,6 +416,7 @@ fn phase_probe(
     warm: usize,
     frames: usize,
     load: &str,
+    chain: &str,
 ) {
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let t = Instant::now();
@@ -430,6 +436,17 @@ fn phase_probe(
     // **The subject goes in after the warm-up**, so the light and moisture
     // channels have already filled and the colony is not measured against a
     // world still converging.
+    // **Set before the subject goes in**, so every scheduled check is judged
+    // under the mode being measured rather than a few thousand of them being
+    // seeded under the default first.
+    if !chain.is_empty() {
+        let mode = pixel_physics::sim::structural::CHAIN_MODES
+            .iter()
+            .find(|m| m.name.eq_ignore_ascii_case(chain))
+            .unwrap_or_else(|| panic!("chain= must be one of SPREAD, LOCAL, TIGHT, NONE"));
+        world.chain_reach = mode.reach;
+        println!("chain mode: {} (reach {}) -- {}", mode.name, mode.reach, mode.note);
+    }
     let spec = if load == "all" { "ants:64,gnome,blast:600" } else { load };
     let (mut ants, mut gnome, mut blast_every) = (0usize, false, 0usize);
     for part in spec.split(',').filter(|p| !p.is_empty()) {
