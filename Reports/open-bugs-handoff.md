@@ -101,26 +101,26 @@ point.
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 5918 | Three functions answer "what anchors a cell" three different ways, and the most permissiv... |
-| -- | closed | 6011 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6102 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6116 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6128 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6146 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6167 | A material-counting guard cannot see a species |
-| W1c | note | 6180 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6314 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6392 | The structural opt-out did not hold against bearing |
-| T1d | note | 6403 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6437 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6491 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6545 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6574 | §1c's settle loss is now a counter |
-| -- | note | 6591 | What landed |
-| -- | note | 6614 | Do not re-derive these |
-| -- | note | 6642 | Measurements that contradict something written |
-| -- | note | 6662 | Open |
-| -- | note | 6697 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 5918 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6067 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6158 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6172 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6184 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6202 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6223 | A material-counting guard cannot see a species |
+| W1c | note | 6236 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6370 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6448 | The structural opt-out did not hold against bearing |
+| T1d | note | 6459 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6493 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6547 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6601 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6630 | §1c's settle loss is now a counter |
+| -- | note | 6647 | What landed |
+| -- | note | 6670 | Do not re-derive these |
+| -- | note | 6698 | Measurements that contradict something written |
+| -- | note | 6718 | Open |
+| -- | note | 6753 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5915,7 +5915,7 @@ collapse arrives at frame ~350 where it used to arrive at ~150"*, filed as a
 regression.
 
 
-### S2. Three functions answer "what anchors a cell" three different ways, and the most permissive one is the brush's — **OPEN, found 2026-08-25 by reading, one half measured**
+### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
 
 Found while prototyping §S's fix, which is the only reason it is written down:
 the fix calls `structural::relax_region`, and checking whether that call was
@@ -5954,24 +5954,80 @@ An order of magnitude. That is not a rounding difference in a debug channel;
 it is the support field of the whole blast neighbourhood reading as anchored
 where it is not.
 
+#### Measured: `examples/anchor_probe.rs`, 2026-08-25
+
+**The prediction in the first draft of this entry was that a painted
+structure over loose ground would be *harder* to bring down. It is the
+opposite, and by a wide margin.**
+
+One geometry, built once, with its distance field then written three ways —
+so the arms differ in the rule and in nothing else. A stone deck three cells
+thick runs from a pier that reaches bedrock; a sand pile sits under the
+span's marginal region. Default `chain_reach` (SPREAD).
+
+| span | worldgen | tick | **brush** (stroke box) | brush, world-wide |
+|---|---|---|---|---|
+| 40 | **intact** | **intact** | **59 of 63 deck cells gone** | 63 deck + **87 pier** |
+| 45 | **intact** | **intact** | **74 of 78** | 78 + 87 |
+| 50 | **intact** | **intact** | **89 of 93** | 93 + 87 |
+| 55 | 84 of 108 | 84 | 104 of 108 | 108 + 87 |
+| 100 | 219 of 243 | 219 | 239 of 243 | 243 + 87 |
+
+**A deck that stands perfectly under the other two rules is destroyed under
+the brush's.** At every span the brush arm also destroys *more* than the
+others once failure begins (104 against 84; 239 against 219).
+
+**The control says it is the ground rule and nothing else.** Remove the sand
+pile and all four arms are identical at every span — 0 cells at zero, same
+damage, same margin. Every difference above is `is_resting_on_ground` being
+seeded at 0.
+
+**And the debug field points the wrong way**, which is why this could never
+have been found by looking at a support overlay. Under the brush's rule the
+deck's largest distance to an anchor is **9** against worldgen's **82**: it
+reads as *far better supported*, and it is the arm that collapses.
+
+**The mechanism is the one `tick`'s comment already names.** The rooted
+sand-backed cells are distance 0, so every cell in the deck re-routes its
+support chain into them — *"every neighbour with a longer path re-routes its
+load into it"*. The load model then judges that narrow footing as carrying
+the whole deck, fails it, and takes the subtree it was holding, which is the
+deck. Eager rooting does not confer immunity; it **concentrates load into a
+footing the width of a sand contact.**
+
+The world-wide arm additionally destroys **87 cells of the bedrock-founded
+pier** at every span. That is not what a stroke does — `paint_capsule`
+relaxes the stroke's box plus 4, which is the `brush` column — but it is the
+same rule taken to its limit, and it shows the failure is not confined to
+what was painted.
+
 #### What is and is not established
 
-- **Established**: the three rules differ, and the difference is large in the
-  field they all write.
-- **Established**: a freshly generated world therefore has *no* ground roots
-  at all — `compute_world_distances` never makes one — and acquires them
-  lazily, one at a time, as `tick` visits cells. Painted rock gets them
-  immediately and in bulk.
-- **Not established**: what this does to play. The obvious prediction is that
-  a structure built with the brush over loose ground is harder to bring down
-  than the same structure generated or dug, and that has **not** been
-  reproduced. It is a prediction from reading, which this file's own
-  conventions say to mark as such.
+- **Established**: the three rules differ; the difference is large in the
+  field they all write; and on this scene it decides whether a structure
+  stands.
+- **Established**: the direction. Eager rooting makes structures **weaker**.
+- **Established**: a freshly generated world has *no* ground roots at all —
+  `compute_world_distances` never makes one — and acquires them lazily as
+  `tick` visits cells. Painted rock gets them immediately and in bulk.
+- **Not established**: how often a player meets it. This is **one hand-built
+  scene at one geometry**, not a sweep over procedural content, and
+  `CLAUDE.md` is explicit that such a case is blind by construction to what
+  worldgen actually produces. What it demonstrates is the *mechanism*; how
+  common the geometry is, nobody has measured.
 - **Not established**: which rule is right. `compute_world_distances`'
   bedrock-only rule is the most conservative and is what the world is built
   with; `tick`'s is the considered one and has the reasoning behind it;
   `relax_region`'s appears to be neither, and no comment anywhere argues for
   it.
+
+#### For the wiki, when this is fixed
+
+In play this reads as: **building over sand, gravel or rubble with the brush
+makes the thing you built collapse** — entirely, not at its outer end — where
+the identical structure dug out of the hillside or generated would stand.
+That is a trap rather than a mechanic, and `wiki/structural-collapse.md` says
+nothing about it.
 
 #### Why this is not simply "fix `relax_region`"
 
