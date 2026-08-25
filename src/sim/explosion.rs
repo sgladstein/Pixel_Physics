@@ -1031,6 +1031,70 @@ fn push_finished(finished: &mut Vec<(i32, i32, BlastReport)>, cx: i32, cy: i32, 
     finished.push((cx, cy, report));
 }
 
+/// Margin past `damage_extent` for the converged pass below. Four cells, the
+/// same figure `World::paint_capsule` uses for a brush stroke and for the
+/// same reason: the ring just outside the wound has its own distance changed
+/// by what happened inside it.
+const SETTLE_MARGIN: i32 = 4;
+
+/// Re-converge anchor distances over what a finished blast damaged, in one
+/// pass, instead of leaving it to the reactive wavefront.
+///
+/// # Why a blast needs this, measured
+///
+/// `structural::tick` relaxes one cell per scheduled check and reschedules
+/// its neighbours `STRUCTURAL_TICK_INTERVAL` frames later, so a correction
+/// front advances about one cell per five frames. `relax_region`'s own doc
+/// says that is the right shape for a local disturbance and the wrong one
+/// for material appearing from nothing, and cutting a crater is the same
+/// event: every cell that routed to bedrock through the hole has a larger
+/// true distance now.
+///
+/// Left to the wavefront, one radius-20 charge at 8192x2560 put the
+/// scheduler at its `MAX_SITES_PER_FRAME` cap **permanently** -- 117,166
+/// sites still pending and climbing 9,000 frames later, the whole frame at
+/// 31.21 ms against 13.33 ms idle, 97.1% of frames over the 16.6 ms budget,
+/// with the world's material long since still. ~1,300 of every 1,900
+/// structural ticks were a cell whose distance *rose*, against 10-50 that
+/// fell. `Reports/open-bugs-handoff.md` §S has the full reproduction.
+///
+/// `World::paint_capsule` already pays for exactly this pass over what a
+/// stroke touched, and worldgen pays for it world-wide
+/// (`compute_world_distances`). This is the same debt, for the one verb that
+/// was not paying it.
+///
+/// # Why at the end and not per stage
+///
+/// A blast clears cells over several stages, so a pass run at trigger time
+/// would converge a crater that is not finished being cut and hand the
+/// remainder straight back to the wavefront. Once per blast, when its last
+/// stage has run, is both correct and the cheaper of the two.
+///
+/// # What it does not fix
+///
+/// The seeded boundary is *assumed correct*, which is `relax_region`'s
+/// contract. Where a charge severs a load path, cells outside the box
+/// genuinely change too, and those are still the wavefront's job. So this is
+/// expected to shrink the backlog rather than abolish it -- read the
+/// measurement, not the intent.
+/// **A prototype knob, not a shipping one.** `SETTLE_SCALE=<n>` multiplies
+/// the box, because the first measurement of this pass raised a question the
+/// pass itself cannot answer: `relax_region` seeds its boundary from the
+/// values just *outside* the box and treats them as correct, so if a charge
+/// severs a load path the outside is stale-low and the inside converges to a
+/// value that has to rise again later. A box-size sweep separates "the pass
+/// is the wrong idea" from "the box is too small", and nothing else does.
+fn settle_scale() -> i32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<i32> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("SETTLE_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1).max(1))
+}
+
+fn settle_structure(world: &mut World, cx: i32, cy: i32, damage_extent: i32) {
+    let e = (damage_extent + SETTLE_MARGIN) * settle_scale();
+    super::structural::relax_region(world, super::chunk::Rect::new(cx - e, cy - e, cx + e, cy + e));
+}
+
 impl Blasts {
     pub fn new() -> Self {
         Self::default()
@@ -1080,6 +1144,7 @@ impl Blasts {
             // `step`, so it has to be queued here or it is the one blast in
             // a run that produces no per-site report at all.
             push_finished(&mut self.finished, cx, cy, blast.report);
+            settle_structure(world, cx, cy, blast.damage_extent);
         }
     }
 
@@ -1094,14 +1159,22 @@ impl Blasts {
         // goes through `self` as a whole.
         let last_report = &mut self.last_report;
         let finished = &mut self.finished;
+        // Collected rather than settled inside the closure: `retain_mut`
+        // holds `world` through the loop, and `settle_structure` needs it
+        // mutably on its own.
+        let mut settled: Vec<(i32, i32, i32)> = Vec::new();
         self.active.retain_mut(|blast| {
             let still_going = blast.advance(world, particles, &tuning);
             *last_report = blast.report;
             if !still_going {
                 push_finished(finished, blast.cx, blast.cy, blast.report);
+                settled.push((blast.cx, blast.cy, blast.damage_extent));
             }
             still_going
         });
+        for (cx, cy, extent) in settled {
+            settle_structure(world, cx, cy, extent);
+        }
     }
 
     pub fn is_empty(&self) -> bool {
