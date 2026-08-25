@@ -144,12 +144,27 @@ point:
   rising with the world's material dead still is the count-to-infinity
   dynamic and nothing else.
 
-**`scale_probe load=blast:EVERY:COUNT` is what makes a cost question about a
-*verb* answerable at all.** With charges still arriving, a queue that never
-drains and one that drains slower than it fills look identical; `COUNT` fires
-a fixed number and lets the world be watched afterwards. The same trick
-applies to any load component added later -- measure the aftermath, not the
-steady state.
+**`scale_probe load=` is what makes a cost question about a *verb*
+answerable at all**, and it now carries all three destructive ones --
+`blast:EVERY[:COUNT]`, `strike:EVERY[:COUNT]` (the hammer) and
+`mine:EVERY[:COUNT]` (the pick), at the app's own `brush_radius`. Three
+things it answers that were not the question it was built for:
+
+- **`COUNT` separates "never drains" from "drains slower than it fills."**
+  With uses still arriving the two look identical; fire a fixed number and
+  watch the aftermath. This is what turned `open-bugs-handoff.md` §S from an
+  explosion bug into a bug in every destructive verb but the brush.
+- **Two verbs are a control on each other.** The hammer removes *fewer* cells
+  than the pick and costs *more*, which rules out material-removed as the
+  driver without needing a third measurement. Reach for a paired verb before
+  reaching for a new metric.
+- **`cells actually removed` is printed beside uses taken**, and that is not
+  decoration. The first run of this probe reported **200 cuts and 0 cells
+  removed** -- `rigid::is_tool_target` refuses `Powder`, and the probe was
+  aiming at the topmost `Solid | Powder` cell, which on a rolling world is
+  soil. The queue sat flat and it read exactly like "the pick is fine". A
+  counter of *calls* is not a counter of *effect*; any new load component
+  needs its own effect counter before its null means anything.
 
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a
