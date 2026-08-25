@@ -393,6 +393,16 @@ Several small things, grouped since none warrants its own issue.
 - **No LICENSE.** Without one the code is all-rights-reserved by default, which
   matters given the stated intent that games be built on top of this crate as
   separate binaries against the same library.
+
+  > **Superseded 2026-08-24, and the reversal matters more than the original
+  > item.** This was closed with MIT on 2026-08-21 and MIT has since been
+  > reversed to proprietary: the owner intends to sell the game, and MIT
+  > explicitly grants everyone the right to sell the software. The premise
+  > above — separate game binaries linking the engine as a library — no longer
+  > holds either; engine and game ship as one product. All-rights-reserved,
+  > called a defect here, is now the deliberate position. See
+  > [dependency-license-audit.md](dependency-license-audit.md) before acting on
+  > this bullet.
 - **No CI.** `examples/ascii.rs` is written specifically to need no window or GPU
   so it "works over a remote shell and in CI" — and there's no workflow. A minimal
   one running `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`, and

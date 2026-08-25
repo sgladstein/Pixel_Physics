@@ -1,0 +1,48 @@
+# Configuration for `cargo about`, which generates THIRD-PARTY-NOTICES.txt.
+# Regenerate with `bash scripts/notices.sh`; that script is the entry point and
+# explains why the file is committed rather than built on demand.
+#
+# TARGETS ARE THE POINT OF THIS FILE. Reports/dependency-license-audit.md audits
+# the all-targets superset on purpose -- if every target's crate is permissive,
+# no per-platform question can arise. A notices file wants the opposite scope:
+# you attribute what you actually distribute, and shipping Android and UEFI
+# copyright notices in a desktop game's credits is noise that makes the real
+# entries harder to check. Hence the explicit desktop list below.
+targets = [
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
+# Build-dependency code does not link into the shipped binary, so it carries no
+# attribution obligation. Kept anyway: over-attribution is harmless noise,
+# under-attribution is the licence breach, and the delta here is small. The
+# project has no dev-dependencies at all, so that knob is moot.
+ignore-build-dependencies = false
+ignore-dev-dependencies = true
+
+# pixel-physics itself is proprietary (publish = false) and does not belong in
+# a list of third-party notices.
+private = { ignore = true }
+
+# Mirrors scripts/licensecheck.sh's PERMISSIVE set. A licence reaching this file
+# that is not listed here fails the generation rather than being quietly
+# emitted -- the same "unrecognised must fail, not pass by omission" rule.
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "BSL-1.0",
+    "NCSA",
+]
