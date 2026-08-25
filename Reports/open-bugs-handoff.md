@@ -100,27 +100,27 @@ point.
 | R | **OPEN** | 5207 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| S | **OPEN** | 5480 | One explosion leaves the structural scheduler pinned at its cap for ever |
-| S2 | **OPEN** | 5824 | Three functions answer "what anchors a cell" three different ways, and the most permissiv... |
-| -- | closed | 5917 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6008 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6022 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6034 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6052 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6073 | A material-counting guard cannot see a species |
-| W1c | note | 6086 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6220 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6298 | The structural opt-out did not hold against bearing |
-| T1d | note | 6309 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6343 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6397 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6451 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6480 | §1c's settle loss is now a counter |
-| -- | note | 6497 | What landed |
-| -- | note | 6520 | Do not re-derive these |
-| -- | note | 6548 | Measurements that contradict something written |
-| -- | note | 6568 | Open |
-| -- | note | 6603 | Unmerged at close, and one of it is a fix main needs anyway |
+| S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 5918 | Three functions answer "what anchors a cell" three different ways, and the most permissiv... |
+| -- | closed | 6011 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6102 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6116 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6128 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6146 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6167 | A material-counting guard cannot see a species |
+| W1c | note | 6180 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6314 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6392 | The structural opt-out did not hold against bearing |
+| T1d | note | 6403 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6437 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6491 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6545 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6574 | §1c's settle loss is now a counter |
+| -- | note | 6591 | What landed |
+| -- | note | 6614 | Do not re-derive these |
+| -- | note | 6642 | Measurements that contradict something written |
+| -- | note | 6662 | Open |
+| -- | note | 6697 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5477,7 +5477,7 @@ should do the two halves together: fixing only placement leaves an ant that
 wanders onto a pond still walking on it.
 
 
-### S. One explosion leaves the structural scheduler pinned at its cap for ever — **OPEN, found 2026-08-25 by measurement**
+### S. Every destructive verb but the brush leaves the structural scheduler pinned at its cap for ever — **OPEN, found 2026-08-25 by measurement; rescoped the same day from "one explosion" to the pick and the hammer too**
 
 Found by the frame-cost audit (`Reports/frame-cost-audit-2026-08.md`) while
 answering the owner's question — *"saving a few ms in static play but then
@@ -5485,9 +5485,11 @@ everything freezes when actually playing is wasted effort"*. It is the one
 finding of that audit that is a **bug** rather than a cost; everything else it
 turned up was work the frame legitimately has to do.
 
-**One blast, and the world never recovers.** 8192x2560, `preset rolling seed
-1`, a single radius-20 charge at frame 1,700 and nothing else — no ants, no
-player, no second charge — measured to frame 10,500:
+**The clearest single case: one blast, and the world never recovers.** (The
+pick and the hammer do the same thing over a couple of hundred uses — see the
+verb table below, which is what this entry is really about.) 8192x2560,
+`preset rolling seed 1`, a single radius-20 charge at frame 1,700 and nothing
+else — no ants, no player, no second charge — measured to frame 10,500:
 
 | | idle, before the charge | 9,000 frames after it |
 |---|---|---|
@@ -5514,6 +5516,98 @@ whole reason it is readable: with charges still arriving, *a queue that never
 drains* and *a queue that drains slower than it fills* look identical. Fire
 one and the two separate. This entry was first written from an
 eleven-charge run and could not have distinguished them.
+
+#### It is not the explosion. It is every destructive verb but the brush.
+
+**§S was first written as an explosion bug and that was wrong.** Enumerating
+the production callers of `World::record_disturbance` — the engine's "I
+damaged something" signal — there are five, and exactly one pays for a
+converged pass:
+
+| verb | `structural::relax_region`? |
+|---|---|
+| `World::paint_capsule` (the brush) | **yes** |
+| `explosion::trigger` (the charge) | no |
+| `rigid::strike` (the hammer) | no |
+| `rigid::mine_swept` (the pick) | no |
+| `fire.rs` burnout, relayed through `parallel.rs` | no |
+
+The other four stop at `record_disturbance` plus
+`schedule_structural_check_around` and hand the whole correction to the
+reactive wavefront.
+
+**Measured on the pick and the hammer** — the two verbs a player spends most
+of their time in. 200 uses each at the app's own `brush_radius` of 6, one
+every 20 frames, no explosion anywhere in the world, all three arms over the
+same 9,000 measured frames:
+
+| | idle | 200 pick cuts | 200 hammer swings | 1 radius-20 charge |
+|---|---|---|---|---|
+| cells actually removed | — | 10,893 | 7,863 | — |
+| whole frame, amortised | 13.33 ms | **30.44 ms** | **31.68 ms** | 31.21 ms |
+| frames over the 16.6 ms budget | 29.6% | **86.2%** | **97.2%** | 97.1% |
+| scheduler phase | 0.32 ms | 9.81 ms | 12.72 ms | 11.62 ms |
+| pending sites at frame 10,200 | ~5,400 | 88,160 | 110,810 | 117,166 |
+| awake chunks at end | — | 49 of 5,120 | 57 of 5,120 | 63 of 5,120 |
+
+**Ordinary digging costs what a blast costs.** The world is materially still
+at the end of all three — under 60 awake chunks of 5,120 — and every one of
+them is still servicing 2,000 structural checks a frame.
+
+**And the two hand verbs are a control on each other.** The hammer removes
+**fewer** cells than the pick (7,863 against 10,893) and costs **more** (31.68
+against 30.44 ms; queue 110,810 against 88,160). So the driver is not how much
+material came out. The candidate it does fit is **crack reach**, which is the
+one thing that orders the three verbs the same way the cost does:
+
+| verb | cracks out to | leak arrives at |
+|---|---|---|
+| `mine_swept` | `radius + MINE_CRACK_REACH` = 8 | ~105 cuts |
+| `strike` | `radius * CRACK_REACH` = 18 | ~15 swings |
+| `explosion` | the joint halo, far wider | 1 charge |
+
+That is a hypothesis with three points on it and an obvious mechanism —
+`edge_is_cracked` removes edges from the relaxation graph, so a crack halo
+invalidates shortest paths over its whole area rather than over the hole.
+It is **not established**: the three verbs differ in force and staging as
+well as in crack reach, and nothing here varied crack reach alone. The
+measurement that would settle it is `MINE_CRACK_REACH` and `CRACK_REACH`
+swept against the queue, one verb at a time.
+
+**It arrives as a knee, not a ramp**, which is the part worth reading twice:
+
+| frame | pick: cuts / pending | hammer: swings / pending |
+|---|---|---|
+| 1,800 | ~15 / 5,379 | ~15 / 10,512 |
+| 2,400 | ~45 / 5,159 | ~45 / **29,473** |
+| 3,000 | ~75 / 5,588 | ~75 / 43,982 |
+| 3,600 | ~105 / **18,653** | ~105 / 53,322 |
+| 4,200 | ~135 / 30,277 | ~135 / 67,188 |
+| 10,200 | 200 / 88,160 | 200 / 110,810 |
+
+The pick sits at the idle heap through seventy-five cuts and then goes to the
+`MAX_SITES_PER_FRAME` cap and never recovers. So this is not "each cut costs a
+little": it is a **state change**, presumably the point at which the
+excavation becomes large enough to sever a load path rather than nibble a
+face. The hammer reaches the same state within about fifteen swings.
+
+**Anyone reproducing this must dig past the knee.** A twenty-cut probe with
+the pick measures nothing and reads as a clean bill of health.
+
+**The counter is what makes the null defensible, and the first version had
+none.** `rigid::is_tool_target` takes `Solid | Plant` and refuses bedrock, so
+a probe aimed at the topmost `Solid | Powder` cell — soil, on a rolling world
+— swings into dirt every time. The first run of this measurement reported
+**200 cuts, 0 cells removed** and a queue flat at 5,400 for 105 cuts, which
+reads exactly like "the pick is fine". `scale_probe`'s `load:` line now prints
+cells *actually removed* beside swings taken: the runs above removed **10,893**
+and **7,863**.
+
+**Fire is unmeasured and is the same shape.** A burning front reports itself
+disturbed along its whole length, continuously, for as long as it burns —
+a blast's geometry sustained rather than instantaneous — and it takes no
+converged pass either. Nothing here has measured it and nothing should assume
+it either way; there is no `load=fire` component yet.
 
 #### It is not the ants — and that is worth saying, because it was the standing assumption
 
