@@ -2738,4 +2738,24 @@ scripting. Character physics shipped as M9.
 
 ## License
 
-MIT — see [`LICENSE`](LICENSE).
+**Proprietary, all rights reserved** — see [`LICENSE`](LICENSE). The repository
+is source-available for reading; no licence to use, copy, modify or distribute
+is granted.
+
+This reverses the MIT licence that stood from 2026-08-21 to 2026-08-24. MIT
+explicitly grants everyone the right to *sell* the software, which is
+incompatible with shipping this as a paid game; the reversal does not and
+cannot revoke the grant for copies obtained while MIT was in effect (three
+days, zero forks). Third-party dependencies are all permissive and are
+inventoried in
+[`Reports/dependency-license-audit.md`](Reports/dependency-license-audit.md),
+which `scripts/licensecheck.sh` re-checks.
+
+Their attribution obligation is discharged by
+[`THIRD-PARTY-NOTICES.txt`](THIRD-PARTY-NOTICES.txt) — 213 components, 103
+licence blocks, generated from `Cargo.lock` by `bash scripts/notices.sh`. **It
+must ship with the executable** (or be reachable from an in-game credits
+screen): reproducing those notices is what MIT, BSD, ISC and Apache ask in
+return for commercial use. `bash scripts/notices.sh --check` fails if the
+committed copy has gone stale against `Cargo.lock`; run it after changing
+dependencies.

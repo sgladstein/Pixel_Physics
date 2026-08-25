@@ -1,16 +1,26 @@
-MIT License
+Copyright (c) 2026 Scott Gladstein. All rights reserved.
 
-Copyright (c) 2026 Scott Gladstein
+This software, together with its documentation, assets and data files (the
+"Software"), is proprietary. It is made source-available for reading; it is
+not open source.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+No licence, express or implied, is granted to any person to use, copy,
+modify, merge, publish, distribute, sublicense, or sell the Software or any
+portion of it. Access to the Software -- including through any public source
+repository in which it may be hosted, or any mirror, archive or index of
+one -- does not grant any such licence. Any use beyond reading requires the
+prior written permission of the copyright holder.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Third-party components incorporated at build time remain under their own
+licences, which are permissive and are inventoried in
+Reports/dependency-license-audit.md. Nothing above purports to restrict
+rights granted by those licences.
+
+PRIOR MIT RELEASE. From commit a729965 (2026-08-21) up to and including
+commit 1882dc9, the Software was distributed under the MIT Licence. That
+grant is not revoked, and cannot be, for any copy obtained while it was in
+effect; this notice governs every commit after 1882dc9 only. The MIT text as
+it stood is preserved in the repository history.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

@@ -1,0 +1,99 @@
+# Licensing gates. Separate from ci.yml on purpose, and path-filtered.
+#
+# WHY A SEPARATE WORKFLOW. Both checks below can only fail when the dependency
+# graph changes, and that is rare: 2 of the 635 commits in the available
+# history touch `Cargo.lock` or `Cargo.toml`, one of them being the commit
+# that relicensed the project. Bolting them onto ci.yml's nine-job matrix
+# would run them on every push to pay for a failure that is impossible on
+# 99.7% of them. GitHub's `paths:` filter is per-workflow, not per-job, so
+# getting that filtering inside ci.yml would need a third-party action --
+# a separate file is both cheaper and less machinery. It also keeps ci.yml,
+# which CLAUDE.md lists as a contested file, out of this change entirely.
+#
+# WHY GATE AT ALL, rather than trusting the convention in PLAN.md. This
+# failure class has no symptom. A new dependency leaves THIRD-PARTY-NOTICES.txt
+# describing the old graph, and the build succeeds, the tests pass, clippy is
+# clean, the game runs identically, and the notices file still reads as a
+# plausible 4,668 lines of real licence text. Nothing goes red until someone's
+# lawyer makes it red, and by then the binary has shipped. docscheck.sh's own
+# header records the general version of this: "a check that runs catches the
+# third instance; a convention alone did not catch the second."
+#
+# NOT IN docscheck.sh, which would be the obvious home. That script is fast and
+# offline by design and is deliberately not a CI gate; these need network and a
+# two-minute tool build, so folding them in would make docscheck slow and
+# network-dependent AND still leave them unenforced.
+#
+# IF YOU EVER ADD BRANCH PROTECTION: do not make this a required status check.
+# A required check on a path-filtered workflow never reports on PRs that do not
+# touch those paths, and the PR is then blocked for ever. There are no required
+# checks on this repo today.
+name: Licensing
+
+on:
+  # The two path lists are duplicated rather than shared through a YAML
+  # anchor. **GitHub Actions does not support anchors or aliases** -- the
+  # workflow parses fine locally with any YAML library and is rejected on
+  # GitHub, which is the worst possible failure shape for a gate: it looks
+  # correct in the editor and simply never runs. Keep them in sync by hand.
+  push:
+    branches: [main, master, 'claude/**']
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'about.toml'
+      - 'about.hbs'
+      - 'scripts/licensecheck.sh'
+      - 'scripts/notices.sh'
+      - '.github/workflows/notices.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'about.toml'
+      - 'about.hbs'
+      - 'scripts/licensecheck.sh'
+      - 'scripts/notices.sh'
+      - '.github/workflows/notices.yml'
+
+# Same shape as ci.yml's, and for the same reason -- see the long note there
+# on why `head_ref || ref_name` rather than `ref`. `github.workflow` differs
+# from CI's, so these runs land in their own group and never cancel a CI run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  licensing:
+    name: licence audit and third-party notices
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to match ci.yml. Floating `@stable` broke that workflow once
+      # already (run 136) when new lints landed under -D warnings.
+      - uses: dtolnay/rust-toolchain@1.94
+
+      # First, because it is the serious failure and it is cheap: a copyleft
+      # dependency would force source disclosure on a proprietary binary.
+      # Needs only `cargo metadata`, so it runs before the two-minute build
+      # below and fails fast when it fails.
+      - name: no copyleft in the dependency tree
+        run: bash scripts/licensecheck.sh
+
+      # **The version pin is load-bearing, not tidiness.** notices.sh --check
+      # compares byte-for-byte against the committed file, so it is sensitive
+      # to cargo-about's own output formatting. Floating this would let a tool
+      # release turn the gate red on a commit that changed nothing -- a guard
+      # failing for a reason unrelated to the fault it is named for, which is
+      # how a gate earns the reflex of being ignored. 0.9.2 is the version that
+      # generated the committed file.
+      #
+      # `--features cli` is not optional: without it cargo installs no binary
+      # at all and says so as a *warning*, so the step would go green and the
+      # next one would fail with "cargo-about not installed".
+      - name: install cargo-about
+        run: cargo install cargo-about --version 0.9.2 --locked --features cli
+
+      - name: THIRD-PARTY-NOTICES.txt matches Cargo.lock
+        run: bash scripts/notices.sh --check
