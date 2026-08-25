@@ -52,8 +52,9 @@ tried?"*.
   ~306k), the `CLAUDE.md` append-drift figure (5,475 lines added against 56
   ever removed) and its section budget, the bug register's open/closed split,
   and a re-run of the cold-agent benchmark above against today's tree. **§4b
-  lists three live identifier collisions in `open-bugs-handoff.md` — §Z already
-  resolves to two different bugs in two different reports — §5a records that
+  records the three identifier collisions in `open-bugs-handoff.md`, now
+  resolved — §Z had been resolving to two different bugs in two different
+  reports — §5a records that
   the repo version-controls none of its Claude Code configuration, and §5e that
   two in-flight reports and `perf-lock` exist on none of the 49 remote
   branches.**

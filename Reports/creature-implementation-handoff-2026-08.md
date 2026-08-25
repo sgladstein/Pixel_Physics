@@ -47,7 +47,7 @@ has changed.
    this work); `Reports/creature-direction.md` §13 (what actually happened;
    it overrides §§1–12 where they disagree); `Reports/dead-ends.md` lines
    ~755–861 (the creatures section); `Reports/open-bugs-handoff.md` §A, §H,
-   §Z, §F; `.claude/skills/review/SKILL.md` (posting to the owner's queue).
+   §Z2, §F; `.claude/skills/review/SKILL.md` (posting to the owner's queue).
 3. **Open a PR for your branch.** `CLAUDE.md`'s "Working alongside another
    session" is the owner's standing authorisation; do not wait to be asked.
    Land contested files fast (`src/app.rs`, `README.md`, `PLAN.md`,
@@ -257,7 +257,7 @@ record them, don't tune them away.
 
 ## WP-5 — Bug Z: a particle must carry the corpse's worth (0.5 day)
 
-**Why now.** A blasted corpse silently reprices 1,020 → 120 (§Z), no
+**Why now.** A blasted corpse silently reprices 1,020 → 120 (§Z2), no
 existing guard can see it (`max_standing_meat` is a ≤ bound; biomass
 monotone-non-increasing also passes on a loss), and it becomes an
 evolutionary attractor the day S6 lands.
@@ -271,7 +271,7 @@ cell.shade, pierce)` — the `Cell` is in hand at both). Audit any other
 
 **Steps.** Add `aux: u16` to `Particle`, threaded from the source cell at
 spawn; on landing, write it back **only when the landing material declares
-`worth_in_aux`** (§Z's own fix shape — a wet soil grain must not land
+`worth_in_aux`** (§Z2's own fix shape — a wet soil grain must not land
 claiming to be food; `aux` is a tagged union and this is its third
 convention, see `Cell::aux`'s doc). `rigid.rs`'s aux-less `BodyCell` is
 **deliberate** (Solid/Plant only; a landing body must not re-attach) —
@@ -288,7 +288,7 @@ cautionary tale — its first version tested its own literal). Run both
 drivers; the determinism pair (`tests/determinism.rs`) must stay green —
 a new field on `Particle` must not perturb replay.
 
-**Landing:** §Z closed with numbers; `wiki/ants.md`'s "a body is worth
+**Landing:** §Z2 closed with numbers; `wiki/ants.md`'s "a body is worth
 what it was made of" promise now survives a blast — note it there if you
 touch the page (WP-7 owns the page's other fix).
 

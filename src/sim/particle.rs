@@ -181,7 +181,7 @@ impl ParticleSystem {
     /// debug burst). `aux` is 0: there is no stamp to carry.
     ///
     /// **A caller that *does* hold a `Cell` must use `spawn_from_cell`**, or
-    /// it silently reprices whatever it threw. That is bug Z, and the reason
+    /// it silently reprices whatever it threw. That is bug Z2, and the reason
     /// the cell-sourced path takes the `Cell` itself rather than an `aux`
     /// parameter it would be equally easy to forget.
     pub fn spawn(&mut self, x: f32, y: f32, vx: f32, vy: f32, material: MaterialId, shade: u8) {
@@ -696,7 +696,7 @@ mod tests {
     }
 
     /// **A corpse thrown by a blast must land worth what it was worth.**
-    /// The reproduction for `Reports/open-bugs-handoff.md` bug Z, driven
+    /// The reproduction for `Reports/open-bugs-handoff.md` bug Z2, driven
     /// through the *real* explosion path rather than through a hand-built
     /// particle, because the bug is a dropped field in the hand-off between
     /// `explosion::trigger` and `land`, and a hand-built particle would test
@@ -725,7 +725,7 @@ mod tests {
 
         // A stamped corpse worth far more than `corpse.ron`'s fallback, so a
         // dropped stamp is unmistakable rather than a rounding difference.
-        // 1,020 is bug Z's own figure.
+        // 1,020 is bug Z2's own figure.
         const WORTH: u16 = 1_020;
         let fallback = w.materials.get(corpse).food_energy;
         assert!(
@@ -799,7 +799,7 @@ mod tests {
         );
     }
 
-    /// **The other half of bug Z's fix: a thrown grain must not land
+    /// **The other half of bug Z2's fix: a thrown grain must not land
     /// carrying a stamp that means something else.**
     ///
     /// The guard for the *replacement* artifact, per `CLAUDE.md` — the risk

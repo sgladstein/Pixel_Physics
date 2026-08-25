@@ -1642,7 +1642,7 @@ impl Blast {
                 }
                 // **A consumed corpse is meat destroyed; a thrown one is
                 // not.** The particle carries the stamp now (`Particle::aux`,
-                // bug Z), so booking a throw here would charge for meat that
+                // bug Z2), so booking a throw here would charge for meat that
                 // is merely in flight and put `max_standing_meat` below the
                 // truth. The two halves of this branch are the two halves of
                 // one fix and were built together for that reason.
