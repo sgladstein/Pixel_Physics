@@ -619,6 +619,38 @@ fix you build for the wrong reading.
 independent sessions, the last two on one day.** Sanity-check any new number
 against a case you know is fine, before trusting it about a case you don't.
 
+**And against a case you know is broken, which is the half this rule was
+missing.** The sentence above checks *specificity* — that the number stays
+quiet when nothing is wrong. It does not check **sensitivity**: that the
+number *moves* when something is. This file already has the sensitivity rule,
+written for guards — *"before trusting any guard, put the fault it is named
+for back and watch it go red"* — and it was never crossed over to
+measurements. Measured 2026-08-25, in one session: **six numbers that were
+arithmetically correct, plausible, and about the wrong thing**, of which
+five needed the guard rule applied to an instrument.
+
+| what was measured | why it could not answer |
+|---|---|
+| a pick probe's queue depth | would have read flat whether or not the pick leaked, because the swings cut **0 cells** |
+| a whole-world cell census | both arms read ~1,711 whatever the rule did — terrain settling swamped the platform |
+| a flat platform's damage | no span, so no load to concentrate, so no support rule could matter |
+| a queue going quiet | means "converged" *or* "made immune", and queue depth cannot tell them apart |
+| an A/B whose arms differed in two things | the paint path, not the rule under test, carried half the effect |
+| six seeds | 1.64x; the next twelve gave 1.08x and the pooled median was **zero** |
+
+**So run the positive control**: construct the case whose answer you *know* is
+non-zero and check the instrument reports it. It is cheap, and it would have
+caught three of those six outright and pointed straight at a fourth.
+
+**The tell, when there is no control to hand: tidiness.** Outcomes in this
+engine are chaotic, so a clean first result is evidence of an artifact rather
+than of a strong effect. Every wrong number that day was tidy — a queue flat
+at exactly its idle value, two arms agreeing at 1712/1712 and 1710/1710 and
+1711/1711, a clean 2.7x, a clean 1.64x. The true answer was messy: 1.24x, a
+per-seed median of zero, eight seeds worse and six *better*. When the first
+number tells a clean story, something has usually collapsed the complexity —
+often the very thing being measured.
+
 The rule was written as *"ask what a **metric** counts"* and recurred
 anyway, because none of the repeats looked like a metric in the moment. Name
 the instrument and it stops hiding:
