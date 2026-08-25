@@ -582,6 +582,29 @@ fork — *build the fix, or write the finding up and stop, but not a half-built
 fix with no writeup* — the lane chose in one turn and acted. Put the fork in
 the brief.
 
+### Reaching another lane: write a file, do not ask the human to carry it
+
+**Measured 2026-08-25, and it is the same lesson as the section above with the
+cost made visible.** The docs-audit and perf lanes exchanged two substantive
+corrections in one evening — a rule that was too strong, and a counter that was
+measuring nothing, both of which changed `CLAUDE.md`. **Every message was
+copied by hand by the owner.** Both lanes could read each other's branches the
+whole time; neither had a place to write. Direct session-to-session messaging
+is not available across accounts, so the repo is the channel.
+
+`Reports/lanes/<lane>.md` — **one file per lane, and you write only your own.**
+Single-writer files cannot collide, which is why it is not one shared document:
+the three conflicts recorded above were all two sessions appending at the same
+tail. `scripts/branchcheck.sh --brief` names any lane note touched in the last
+seven days at session start, so nobody has to remember to look, and
+`git show origin/<branch>:Reports/lanes/<lane>.md` reads one **without merging
+anything** — which is how both of those corrections were verified before being
+acted on. Protocol in `Reports/lanes/README.md`.
+
+A lane note is a *finding*, not a status update, and it does not replace the
+real record: what belongs in `CLAUDE.md`, a report or `dead-ends.md` goes
+there. The note is how the other lane learns it happened.
+
 ### Handoffs are committed, not replied
 
 A reply dies with the container. Ask for the handoff **as a commit**: what

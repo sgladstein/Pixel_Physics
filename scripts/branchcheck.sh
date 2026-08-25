@@ -231,6 +231,19 @@ if [ "$here" != "main" ] && [ "$here" != "?" ]; then
   fi
 fi
 
+# Cross-lane traffic, surfaced rather than remembered. Two lanes exchanged two
+# substantive corrections on 2026-08-25 and every message was carried by hand,
+# because both could read each other's branches and neither had a place to
+# write. `Reports/lanes/` is that place; this is how you find out somebody
+# wrote. Searched across all refs, so a note on an unmerged branch still shows.
+notes=$(git log --all --since='7 days ago' --name-only --format='%h' -- Reports/lanes/ 2>/dev/null \
+  | grep '^Reports/lanes/' | grep -v 'README.md' | sort -u)
+if [ -n "$notes" ]; then
+  printf 'branchcheck: lane notes touched in the last 7 days: %s\n' \
+    "$(printf '%s\n' "$notes" | sed 's|Reports/lanes/||; s|\.md$||' | tr '\n' ' ')"
+  printf 'branchcheck: read one without checking out --- git show origin/<branch>:Reports/lanes/<lane>.md\n'
+fi
+
 if [ "$shallow" = "1" ]; then
   printf 'branchcheck: shallow clone (depth %s). Ahead/behind counts held against full history when this was measured, but a branch whose common ancestor is beyond the boundary is reported DATA when it is merely old. Run git fetch --unshallow before trusting a DATA verdict.\n' \
     "$(git rev-list --count origin/main 2>/dev/null || echo '?')"
