@@ -60,8 +60,11 @@ Context · Stack · Non-negotiable architecture invariants · Milestones
 architecture (priority order, issues backlog, M10 worldgen redesign) ·
 Execution order · Overall verification · Progress log (split into
 [`PLAN-log.md`](PLAN-log.md)) · M19 — Visual polish · Scientific accuracy
-(M16, M18) · Code review findings · five session-handoff sections, each
-carrying a *(State …)* line under its heading.
+(M16, M18) · Code review findings · four session-handoff sections, each
+carrying a *(State …)* line under its heading — **read that line, not the
+heading**: a heading records what was true when the section was written and
+is never rewritten, because `Reports/dead-ends.md` addresses 32 of its
+entries by PLAN.md heading name.
 
 ## Context
 
@@ -1271,10 +1274,12 @@ A note from the same document worth keeping as a standing rule: two of its
 findings (#4, #7) were cases where `README.md` or a module doc claimed a
 property the code didn't actually have — both were prose claims with no
 regression test behind them, while every claim backed by a *named* test
-(`same_group_chunks_are_never_within_reach_of_each_other`,
-`a_connected_mass_of_cooling_cells_actually_settles`,
-`a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks`)
-held up. **A performance or cost claim in a doc needs either a test or a
+(`concurrent_chunks_are_never_within_reach_of_each_other` — then named
+`same_group_chunks_are_never_within_reach_of_each_other`;
+`a_connected_mass_of_cooling_cells_actually_settles`; and a settled-world
+sleep guard, then keyed on a growing tree and now on a worm,
+`a_settled_world_with_a_worm_still_sleeps_between_movement_ticks`) held
+up. **A performance or cost claim in a doc needs either a test or a
 measurement command next to it, or it should be written as an intention,
 not a fact.**
 
@@ -1656,8 +1661,12 @@ biology — parked because context ran low, not because it's low priority.
 tracking only, no action needed):**
 - Crowding-reads-an-always-empty-cell (`candidate_crowding` now reads
   occupied neighbours, regression test exists).
-- `pack_aux` clobbering canopy density on every resource update
-  (`pack_aux_preserving_density` now wraps every self-update).
+- `pack_aux` clobbering canopy density on every resource update. Fixed
+  twice over: `pack_aux_preserving_density` wrapped every self-update, and
+  the substrate migration then **deleted it as unnecessary** — with the
+  scalars in `OrganismCell` the two fields are no longer co-located, so a
+  cell-type write cannot reach a density at all. `plant.rs` keeps the
+  removal note where the function was. Do not restore it.
 - `World::trees` never shrinking — `TreeState` itself is deleted.
 - Two coexisting tree implementations / `tree.ron` not existing — the old
   `TreeState`/`Tip`/`RootTip` system is fully deleted, `tree.ron` exists and
@@ -1931,7 +1940,7 @@ this phase either way (§8b).
 ---
 
 ## Plant substrate v2 — started, on branch `plant-substrate-v2` (session handoff)
-*(State 2026-08-22: **merged.** `plant-substrate-v2` / `plant-genome` and `plant-ecology-design` both landed on an integration branch off `origin/main`; `plant-branch-angle` has not. The plans of record are `Reports/tree-architecture-implementation-plan.md` and `Reports/plant-implementation-plan.md`, both merged and indexed. The merge left one test red and three unmeasured cross-line inconsistencies — `Reports/open-bugs-handoff.md` §A–§D, which should be read before touching any plant constant.)*
+*(State 2026-08-25: the `plant-substrate-v2` branch named in the heading above **no longer exists on origin** — its work is in `main`. State 2026-08-22: **merged.** `plant-substrate-v2` / `plant-genome` and `plant-ecology-design` both landed on an integration branch off `origin/main`; `plant-branch-angle` has not. The plans of record are `Reports/tree-architecture-implementation-plan.md` and `Reports/plant-implementation-plan.md`, both merged and indexed. The merge left one test red and three unmeasured cross-line inconsistencies — `Reports/open-bugs-handoff.md` §A–§D, which should be read before touching any plant constant.)*
 
 The design above was "fully planned, zero code written" for several sessions.
 Implementation started on a worktree branch off `master` at `a39da4e`, isolated

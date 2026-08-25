@@ -67,6 +67,14 @@ tried?"*.
   the incidents, their measurements, and the forensics for recognising each
   again. Split out of `CLAUDE.md` by rec 5 — read it when a manoeuvre there
   has gone wrong, not before.
+- [measurement-under-contention.md](measurement-under-contention.md) —
+  **evidence landed; the mechanism it designs was deliberately not.** Why two
+  runs of a byte-identical binary disagreed 2.42x and reversed the
+  serial/parallel ordering, and how busy a shared box actually is (8% quiet
+  over 45 minutes). The machine-wide timing lock it specifies lives only on the
+  unmerged `perf-lock` branch and is **not** in the tree — the two findings
+  that generalise are `CLAUDE.md` rules instead. Read it before designing any
+  timing harness; read its header before reaching for anything it names.
 - [instruments.md](instruments.md) — **living index.** What each of the 25
   `examples/` binaries can answer, and which of them generalise past the
   question they were built for. **Grep this before building a measurement
@@ -492,13 +500,15 @@ untracked; the branch `perf-audit` is **zero commits ahead of `main`** and
 never held the report at all; and a worktree's name is not its branch's name
 (plant-branch-angle lives in a worktree called `plant-crown`).
 
-- The contention-measurement report, `scripts/perf.sh`, and a `CLAUDE.md`
-  section — **`origin/perf-lock`** (`bdda4a9`). 6 ahead of `main` and **518
-  behind**, forked at `0efeb24`. Its `CLAUDE.md` is `+91 −1` against that fork
-  but **`+97 −467` against today's `main`**, so a naive merge reverts 467
-  lines of the most contested file in the repo. Re-apply the section onto
-  current `CLAUDE.md` rather than merging the branch. Blocks recommendation 12
-  of the CLAUDE.md review indexed above until it lands.
+- ~~`origin/perf-lock`~~ — **RETIRED 2026-08-25, not landed.** Its report is
+  now in this directory (indexed above) and its two generalising findings are
+  `CLAUDE.md` rules. What stays unlanded is the machine-wide timing lock
+  itself: 1,546 insertions across 11 files including a 317-line rework of the
+  CI-gated `ascii` example, from a branch 547 behind scoring `BxF 6,017`. Its
+  premise is several sessions contending for four cores, which cloud
+  containers do not do. The branch is left standing as the implementation
+  should the condition return; the decision and that condition are in the
+  report's header and in dead-ends under `other`.
 - The frame-cost audit and four measurement harnesses —
   **`origin/claude/perf-audit-recovery`** (`f7bebae`). A rescue, not a merge
   candidate: not built, not checked, its worktree's `src/` changes held as a

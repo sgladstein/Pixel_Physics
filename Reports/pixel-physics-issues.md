@@ -129,8 +129,9 @@ proof, and the interleaved reinsert-then-replay loop in `run_pass`. Both remain
 valid if reach *decreases* (a shorter reach can only shrink the footprints the
 proof calls disjoint), but the reasoning is written against the equality, so it
 needs re-stating as an inequality (`reach <= CHUNK_SIZE / 2`) rather than left
-implicit. The `same_group_chunks_are_never_within_reach_of_each_other` test should
-be parameterised over the reach rather than hardcoding 32.
+implicit. The `concurrent_chunks_are_never_within_reach_of_each_other` test
+(named `same_group_chunks_are_never_within_reach_of_each_other` when this issue
+was written) should be parameterised over the reach rather than hardcoding 32.
 
 **Acceptance:** worst-frame numbers re-measured via `cargo run --release --example
 ascii` for the saturated scene, both drivers; README performance section updated;
@@ -547,9 +548,11 @@ which makes drift more expensive than it would be somewhere nobody reads the
 comments.
 
 Worth noting which invariants held up. Everything with a *named regression test*
-behind it — `same_group_chunks_are_never_within_reach_of_each_other`,
-`a_connected_mass_of_cooling_cells_actually_settles`,
-`a_settled_world_with_a_growing_tree_still_sleeps_between_growth_ticks` — is
+behind it — `concurrent_chunks_are_never_within_reach_of_each_other` (then
+named `same_group_chunks_are_never_within_reach_of_each_other`),
+`a_connected_mass_of_cooling_cells_actually_settles`, and the settled-world
+sleep guard, then keyed on a growing tree and now on a worm
+(`a_settled_world_with_a_worm_still_sleeps_between_movement_ticks`) — is
 accurate. The claims that live only in prose are the ones that slipped. A
 reasonable standing rule for `PLAN.md`'s "standing invariants" section: a
 performance or cost claim in a doc needs either a test or a measurement command
