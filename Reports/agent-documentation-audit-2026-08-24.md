@@ -51,7 +51,7 @@ artifacts, none of which existed in the tree when this audit began:
 |---|---|
 | [`documentation-audit.md`](documentation-audit.md) | the 21 findings, the agent-consumer re-ranking, **and the cold-agent benchmark at its end** |
 | [`documentation-overhaul-plan.md`](documentation-overhaul-plan.md) | what was *done*, in what order, and what was **refused** |
-| [`claude-md-recommendations.md`](claude-md-recommendations.md) | 13 recommendations on `CLAUDE.md` as always-loaded infrastructure; nine landed, four open |
+| [`claude-md-recommendations.md`](claude-md-recommendations.md) | 13 recommendations on `CLAUDE.md` as always-loaded infrastructure; twelve landed, only 12 open |
 | `.claude/workflows/doc-audit-agent-framing.js` | the ten-agent census harness that produced `dead-ends.md`; three of its inputs are stale 2026-08-19 snapshots |
 
 **Two proposals were considered, approved, and then reversed. Do not
@@ -347,7 +347,7 @@ Candidates, in leverage order:
 4. **`.claude/commands/`** — `/gates` (run the suite exactly as CI does,
    `--skip` included), `/land`, `/docs-check`.
 
-### 5b. Three approved CLAUDE.md recommendations are now unblocked — execute them
+### 5b. Recs 5, 6 and 7 — LANDED 2026-08-25. Rec 12 remains
 
 **This supersedes what this report's first draft proposed here.** It argued for
 moving Method/Conventions/Gotchas into skills, having not seen
@@ -360,14 +360,36 @@ re-checked against the remote:
 
 | Rec | What it moves | Deferred behind | State now |
 |---|---|---|---|
-| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **UNBLOCKED, proved** — merged; `9b0cccc` is an ancestor of `main` |
-| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **UNBLOCKED, proved** — merged |
-| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **UNBLOCKED** |
+| 5 | git-reset forensics narrative → a Reports note, keep the recipe | `plant-branch-angle` | **LANDED** — narrative now in `concurrent-sessions.md` |
+| 6 | the day/night oscillator rationale → a design report, keep the rule and `field::noon_equivalent_light` | `load-share` | **LANDED** — needed no new home; `plant-economy-rederivation-2026-08-23.md` already held it |
+| 7 | the amputation gotcha + liquid-heightfield latency note → `open-bugs-handoff.md` | with 5 and 6 | **LANDED — and the gotcha had gone stale**, see below |
 | 12 | cluster Conventions' 93 flat bullets under four sub-leads, no rewording | `perf-lock` | **STILL BLOCKED** — pushing is not merging |
 
-**Recs 5, 6 and 7 are executable now.** All three blockers are discharged and
-each was proved by the ancestor test rather than inferred from a branch's
-absence.
+**Recs 5, 6 and 7 landed 2026-08-25**, and two of the three turned out
+differently from what the recommendation assumed — which is the argument for
+executing an approved plan by *reading the tree*, not by applying its diff.
+
+- **Rec 6 needed no new home.** It asked for the rationale to move to "the
+  relevant design report".
+  `Reports/plant-economy-rederivation-2026-08-23.md` already carried it,
+  including the exact 71-at-noon-against-28-at-night measurement. The move was
+  a pointer.
+- **Rec 7's gotcha had gone stale, which is the failure rec 7 exists to
+  prevent.** It asked for the entry to be *moved* to the register. But
+  `open-bugs-handoff.md` §0d already covered it *and* already recorded the
+  supersession, so filing a second entry would have duplicated it — and the
+  gotcha's stated reason was no longer true. The hop-bounded
+  `organism_is_supported` it named **does not exist anywhere in the tree**;
+  `plant::anchor_support` replaced it, a Dijkstra from the anchors outward
+  with no span budget, which schedules checks for newly-unreached cells
+  itself. So the inline rule was rewritten around the reason that *is* still
+  live — growth adds material, so it is not a disturbance, and a `GrowingTip`
+  is expected to be transiently unsupported — with §0d carrying the history.
+- **The saving was 118 tokens, not the ~350–400 estimated.** Reported rather
+  than padded: rec 7a needed *more* inline text, not less, because a stale
+  reason had to be replaced with a live one rather than deleted. The token
+  figure was never the main value there — an always-loaded gotcha naming a
+  function that no longer exists is worse than a long one that is true.
 
 **Rec 12 is the one that is not what it looks like, and this report got it
 wrong twice.** The first draft said `perf-lock` was unreachable; the second

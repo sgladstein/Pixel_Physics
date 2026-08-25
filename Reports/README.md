@@ -35,8 +35,8 @@ tried?"*.
   the drift protocol, and the two refusals that leave no trace in the tree
   (no README reorder, no `Reports/archive/` — both had been chosen the other
   way first).
-- [claude-md-recommendations.md](claude-md-recommendations.md) — **nine
-  landed, four open.** The thirteen-recommendation review of `CLAUDE.md` as
+- [claude-md-recommendations.md](claude-md-recommendations.md) — **twelve
+  landed, one open.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
   Only **rec 6** is provably unblocked: `load-share` is merged into `main`
   (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
@@ -62,6 +62,11 @@ tried?"*.
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
   not spread) was owner-filed 2026-08-24.
+- [concurrent-sessions.md](concurrent-sessions.md) — **living record.** The
+  narratives behind `CLAUDE.md`'s "Working alongside another session" rules:
+  the incidents, their measurements, and the forensics for recognising each
+  again. Split out of `CLAUDE.md` by rec 5 — read it when a manoeuvre there
+  has gone wrong, not before.
 - [instruments.md](instruments.md) — **living index.** What each of the 25
   `examples/` binaries can answer, and which of them generalise past the
   question they were built for. **Grep this before building a measurement

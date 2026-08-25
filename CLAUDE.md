@@ -371,20 +371,14 @@ and push from it, then bring the main tree's branch pointer forward with
 `git reset --mixed origin/main` — which moves the branch and leaves their
 working tree untouched.
 
-**That reset strands stale files whenever the main tree was *behind*.** It
-moves the pointer and deliberately does not touch the working tree, so every
-file the main tree had not yet updated now differs from `HEAD` and appears in
-`git status` as a modification — one that is really a **revert of the upstream
-commit it missed**. Nobody will recognise it as theirs, because it is not
-anyone's edit, and the next session to commit that file silently undoes the
-change. This is not specific to `CLAUDE.md`-style contested files; it hits any
-file the branch skipped over. Seen for real on `src/sim/structural.rs`, which
-came back as the exact inverse of the commit that had just landed it.
-
-So: **note which files are genuinely dirty *before* the reset**, because
-afterwards a stale file and an edited one look identical. After it, diff
-anything newly modified against the commits you were behind by; if it is their
-exact inverse and the file was clean beforehand, `git checkout --` it.
+**That reset strands stale files whenever the main tree was *behind*** — they
+show up as modifications that are really a *revert* of the upstream commit the
+tree missed, and nobody recognises them as theirs. So: **note which files are
+genuinely dirty *before* the reset**, because afterwards a stale file and an
+edited one look identical. After it, diff anything newly modified against the
+commits you were behind by; if it is their exact inverse and the file was clean
+beforehand, `git checkout --` it. Full account, and the case it really happened
+to, in `Reports/concurrent-sessions.md`.
 
 ## Running a program of sessions (coordinator ↔ lane)
 
@@ -676,16 +670,13 @@ touched only its target before trusting anything downstream of it.
 
 ### A channel that oscillates by design must be divided out of decisions
 
-The light channel swings 20:1 over every day/night cycle by design, and a
-threshold sampled at an arbitrary phase of a designed oscillator is a
-different threshold every hour: the live tip count measured 71 at noon
-against 28 at night on the same stand, and any fixed abscission cutoff was
-a nightly extinction event. Every economic light read now goes through
-`field::noon_equivalent_light` — the oscillator is a pure function of the
-frame, so dividing it out costs no storage and is exact at noon.
-Temperature oscillates the same way and will need the same treatment the
-day anything gates on it. The cycle stays real on screen and in the field;
-it just must not alias into decisions.
+Any threshold on light — or on temperature, the day anything gates on it —
+must divide out the day/night oscillation: use `field::noon_equivalent_light`.
+A threshold sampled at an arbitrary phase of a designed oscillator is a
+different threshold every hour. The cycle stays real on screen and in the
+field; it just must not alias into decisions. The measured failure it ends (a
+nightly extinction event, live tips 71 at noon against 28 at night) is in
+`Reports/plant-economy-rederivation-2026-08-23.md`.
 
 ### A cascade censused before it settles reads a *delay* as damage
 
@@ -1057,16 +1048,17 @@ consider it at all.
   species/trees/frames/worldseed, so a log that does not name its seed was
   written by a binary that never had one. A knob nobody can see the value of
   is a knob nobody can tell is disconnected.
-- **A structural check scheduled mid-organism amputates it.** The organism
-  support search is hop-bounded, so a check fired high in a crown reads
-  everything past the span limit as unsupported and converts it to
-  deadwood. Growth deliberately schedules no checks; abscission scheduling
-  one collapsed every shedding sweep at every value (26x outcome
-  difference from the one line, and it masqueraded as "the mechanism is
-  wrong" through eight settings). Until the support search anchors
-  properly, do not add `schedule_structural_check_around` to a new
-  organism path without measuring what it destroys — and treat Phase 3
-  damage results as contaminated by this until it is fixed.
+- **Do not add `schedule_structural_check_around` to an organism growth
+  path.** Growth only ever *adds* material, so it is not a disturbance, and
+  a `GrowingTip` is expected to be transiently unsupported until it
+  reconnects — checking it there prunes ordinary growth as if it were
+  damage (`plant.rs`'s `Grow` and germination both say so at the call
+  site). The historical reason was different and is now **stale**: the
+  hop-bounded `organism_is_supported` that amputated crowns no longer
+  exists, replaced by `plant::anchor_support`, a Dijkstra from the anchors
+  outward with no span budget. `open-bugs-handoff.md` §0d has that story
+  and the 26x measurement; read it before trusting any Phase 3 damage
+  result written while the old search was live.
 - **Assert the property, not two instants fitted to one trajectory.**
   `a_tree_eventually_stops_growing` compared wood counts at two fixed
   frames and broke the moment genotypes were re-keyed — the tree at that
@@ -1076,6 +1068,7 @@ consider it at all.
   survives redraws and retunes because it asks the question the test is
   named for.
 - The liquid heightfield bodies in `liquid.rs` are **test-only today** —
-  nothing in production promotes a body, because automatic promotion was
-  implemented and reverted over a real architectural gap. Bugs in that
-  subsystem are latent, not live, and go live the moment promotion lands.
+  nothing in production promotes a body, so bugs there are latent, not
+  live, and go live the moment promotion lands. Why promotion was
+  implemented and reverted is in `liquid.rs`'s own module doc and
+  `Reports/liquid-heightfield-design.md`.
