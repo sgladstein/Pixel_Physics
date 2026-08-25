@@ -93,32 +93,32 @@ point.
 | J | **OPEN** | 4570 | A blocked substep still vents the smoke it was only *probing* |
 | Q | **OPEN** | 4600 | Settled debris stands in one-cell vertical needles that never topple |
 | P | **OPEN** | 4655 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 4758 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 4840 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 4908 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 4965 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | **OPEN** | 5175 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| L | closed | 5254 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 5386 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | closed | 5473 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 5564 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 5578 | Grow into soil destroys the soil's stored water |
-| 3 | note | 5590 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 5608 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 5629 | A material-counting guard cannot see a species |
-| W1c | note | 5642 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 5776 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 5854 | The structural opt-out did not hold against bearing |
-| T1d | note | 5865 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 5899 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 5953 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6007 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6036 | §1c's settle loss is now a counter |
-| -- | note | 6053 | What landed |
-| -- | note | 6076 | Do not re-derive these |
-| -- | note | 6104 | Measurements that contradict something written |
-| -- | note | 6124 | Open |
-| -- | note | 6159 | Unmerged at close, and one of it is a fix main needs anyway |
+| K | closed | 4788 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 4870 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 4938 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 4995 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | **OPEN** | 5205 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| L | closed | 5284 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 5416 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | closed | 5503 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 5594 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 5608 | Grow into soil destroys the soil's stored water |
+| 3 | note | 5620 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 5638 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 5659 | A material-counting guard cannot see a species |
+| W1c | note | 5672 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 5806 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 5884 | The structural opt-out did not hold against bearing |
+| T1d | note | 5895 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 5929 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 5983 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6037 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6066 | §1c's settle loss is now a counter |
+| -- | note | 6083 | What landed |
+| -- | note | 6106 | Do not re-derive these |
+| -- | note | 6134 | Measurements that contradict something written |
+| -- | note | 6154 | Open |
+| -- | note | 6189 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
