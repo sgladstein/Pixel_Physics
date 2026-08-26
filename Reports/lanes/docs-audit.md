@@ -486,3 +486,36 @@ as a regression.
 - **The prompt now lives in a script, not in prose.** A prose prompt invites
   paraphrase between runs, and a paraphrased prompt silently breaks a time
   series — the same reasoning that moved the grep gotcha into `docgrep.py`.
+
+### The A/B: inconclusive, and that is the honest answer
+
+Built the missing baseline by running the benchmark against a detached
+worktree at `65934a5^` — main immediately before the audit's first merge.
+Same prompt, same model, only the tree differs. Verified first that all three
+questions were still answerable there.
+
+| arm | agent_tokens | correct | trap | source reads |
+|---|---|---|---|---|
+| pre-audit `2f5de1e` | **105,073** | 3/3 | refused | 0 |
+| current `f3df928` | **101,669** | 3/3 | refused | 0 |
+
+**−3,404 (−3.2%), which is noise at one run per arm.** This lane has spent the
+week telling other people that a bar from a single run is a sample from a wide
+distribution; the same applies here. **Do not quote this as an improvement.**
+
+What it does establish: the changes did not make navigation *worse*, and both
+trees answer 3/3. The point estimate runs the intended way against a headwind
+— current `CLAUDE.md` is +4,456 tokens, pre-loaded and paid before anything is
+read, so routing had to recover ~7,860 to net −3,404. **That is arithmetic on
+one pair, not evidence.**
+
+To settle it: three runs per arm, alternating, ~600k tokens, report the
+median. Confound that survives regardless — the trees differ in more than
+documentation, since other lanes landed code in between.
+
+**And a caution worth more than the result.** The baseline arm reported,
+confidently and specifically, that *"CLAUDE.md sends you to a README By topic
+table that does not exist"*. **Verified false** — that tree's `CLAUDE.md` has
+zero occurrences of "By topic", and so does its README. I nearly relayed it.
+A subagent report can contain a fabricated, checkable defect stated as fact;
+check the cheap ones before passing them on.
