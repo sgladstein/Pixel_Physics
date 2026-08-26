@@ -443,6 +443,35 @@ fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     cell
 }
 
+/// Write a landed particle into the grid **and tell the structural system it
+/// arrived**.
+///
+/// `land` wrote through `World::set` and scheduled nothing, so a landed
+/// `Solid` or `Plant` cell was invisible to `structural::tick` until some
+/// unrelated disturbance happened to wake it. Whatever `landed_cell` chooses
+/// to write then stands unexamined: `Cell::new`'s `aux 0` reads as
+/// *bedrock-adjacent* for as long as nothing asks, and a `u16::MAX` reads as
+/// *no path at all* for just as long. Neither is a value a cell should get to
+/// keep without being asked, and `rigid::settle` -- the other way a piece of
+/// the world comes to rest -- has scheduled around both its aimed-at and its
+/// landed positions since the "stone hanging in open sky over a pond" bug.
+///
+/// **`_around`, not the cell alone**, for `settle`'s reason: the neighbours
+/// have just gained a possible support, and the cell may have come to rest
+/// somewhere it cannot hold itself.
+///
+/// **Gated on body material**, which is the whole cost story. A blast throws
+/// far more sand, water and smoke than rock, and none of it participates in
+/// the support field -- `schedule_structural_check` no-ops on those anyway,
+/// but only after five heap pushes and a chunk lookup each. `is_body_material`
+/// is a `Vec` index on a value already in hand.
+fn place_landed(world: &mut World, x: i32, y: i32, cell: super::cell::Cell) {
+    world.set(x, y, cell);
+    if super::structural::is_body_material(world, cell.material) {
+        world.schedule_structural_check_around(x, y);
+    }
+}
+
 fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
     // Land one cell short if the target itself is occupied or out of bounds —
     // otherwise the particle would overwrite whatever it just collided with,
@@ -453,7 +482,7 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
         (particle.x.round() as i32, particle.y.round() as i32)
     };
     if world.in_bounds(tx, ty) && world.is_empty(tx, ty) {
-        world.set(tx, ty, landed_cell(world, particle));
+        place_landed(world, tx, ty, landed_cell(world, particle));
         return;
     }
     // Neither position is available. Before this, the particle was simply
@@ -479,7 +508,7 @@ fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
                 }
                 let (nx, ny) = (tx + dx, ty + dy);
                 if world.in_bounds(nx, ny) && world.is_empty(nx, ny) {
-                    world.set(nx, ny, landed_cell(world, particle));
+                    place_landed(world, nx, ny, landed_cell(world, particle));
                     return;
                 }
             }
@@ -920,6 +949,46 @@ mod tests {
         ps.step(&mut w);
         let after_y = ps.iter().next().unwrap().y;
         assert!(after_y > start_y, "particle did not fall: {start_y} -> {after_y}");
+    }
+
+    /// **A landed rock has to be asked whether it is held up.**
+    ///
+    /// `land` wrote through `World::set` and scheduled nothing, so a landed
+    /// `Solid` kept whatever `landed_cell` chose for its `aux` until some
+    /// unrelated disturbance woke it -- and `Cell::new`'s `aux 0` reads as
+    /// *bedrock-adjacent*. `Reports/structural-support-model.md` §6.6.
+    ///
+    /// Asserts the *effect* rather than the call: the scheduler has to be
+    /// holding a site afterwards. Sand is the control that says the gate is
+    /// on body material rather than on landing -- it is a `Powder`, it takes
+    /// no part in the support field, and it must schedule nothing.
+    #[test]
+    fn a_landed_solid_schedules_a_structural_check_and_a_landed_powder_does_not() {
+        for (material_id, expect_sites, what) in
+            [(material::STONE, true, "stone"), (material::SAND, false, "sand")]
+        {
+            let mut w = test_world();
+            let mut ps = ParticleSystem::new();
+            let before = w.active_site_count();
+            ps.spawn(30.0, 10.0, 0.0, 0.0, material_id, 2);
+            for _ in 0..200 {
+                ps.step(&mut w);
+                if ps.is_empty() {
+                    break;
+                }
+            }
+            assert!(ps.is_empty(), "{what}: particle never landed after 200 frames");
+            let landed = (0..63).any(|y| w.get(30, y).material == material_id);
+            assert!(landed, "{what}: test setup -- the particle did not become a cell");
+
+            let raised = w.active_site_count() > before;
+            assert_eq!(
+                raised, expect_sites,
+                "{what}: landing raised sites = {raised}, expected {expect_sites} -- \
+                 a landed body cell must be handed to structural::tick, and a landed \
+                 powder must not pay for five heap pushes it cannot use"
+            );
+        }
     }
 
     #[test]

@@ -360,6 +360,34 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if !is_body_material(world, neighbour.material) {
                 continue;
             }
+            // **An organism-owned neighbour's `aux` is not a distance**, and
+            // this loop was the one reader of the field that did not say so.
+            //
+            // Once `organism_id != 0` the slot holds a cell-type tag
+            // (`organism::pack_cell_type`, a bare discriminant in 0..15 --
+            // `Reports/organism-substrate-design.md` §2), which is exactly
+            // the range that reads here as *at or beside an anchor*. So an
+            // inert cell next to live tissue relaxed to `tag + step` and
+            // became a false anchor for everything around it.
+            //
+            // Every other reader already excluded them and this one is now
+            // consistent with all four: `compute_world_distances`'
+            // `relaxable`, `load::support_parent`, `load::support_count` and
+            // `load::dependants`. The disagreement was not academic --
+            // `support_parent` refuses an owned cell as a parent, so a
+            // distance derived from one names a parent the load model
+            // cannot see.
+            //
+            // A plant holds *itself* up through `plant::anchor_support` on
+            // the organism sidecar, which is why dropping the edge here
+            // costs the tree nothing: `organism_structural_tick` is the
+            // branch that judges owned cells and it reads that field, not
+            // this one. Found in `Reports/structural-support-model.md` §6
+            // while trapping a different false anchor; it did not fire on
+            // that scene, and it is the same defect.
+            if neighbour.organism_id() != 0 {
+                continue;
+            }
             // Same conservative defer as the guard above: a burning
             // neighbour's `aux` is a valid distance now, not an aliased burn
             // timer, but the neighbour may still change material out from
@@ -4731,6 +4759,49 @@ mod tests {
     /// no longer produces.
     fn stone_debris(w: &World) -> MaterialId {
         w.materials.get(material::STONE).breaks_into.expect("stone must define a breaks_into")
+    }
+
+    /// **An organism-owned cell's `aux` is a cell-type tag, not a distance,
+    /// and `tick`'s neighbour loop was the one reader that did not know.**
+    ///
+    /// `organism::pack_cell_type` is a bare discriminant in 0..15 -- exactly
+    /// the range that reads here as *at or beside an anchor* -- so an inert
+    /// cell beside live tissue relaxed to `tag + step` and became a false
+    /// anchor for everything around it. `compute_world_distances`'
+    /// `relaxable`, `load::support_parent`, `load::support_count` and
+    /// `load::dependants` all excluded owned cells already.
+    /// `Reports/structural-support-model.md` §6.6.
+    ///
+    /// `load_budget = 0` so the tick writes its distance and defers before
+    /// judging: this is a test about the *field*, and letting the load model
+    /// run would break the subject and leave nothing to read.
+    #[test]
+    fn a_solid_does_not_take_its_distance_from_an_organism_cells_type_tag() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").expect("the registry must carry a Plant material");
+        // One inert stone cell in open air, whose only neighbour is live
+        // tissue. Nothing below it, so the ground root cannot fire either
+        // and `u16::MAX` is the honest answer.
+        w.set(30, 30, Cell::new(material::STONE, 0));
+        w.set(
+            29,
+            30,
+            Cell::new(wood, 0).with_organism_id(7).with_aux(organism::pack_cell_type(organism::CellType::GrowingTip)),
+        );
+        assert!(
+            is_body_material(&w, wood) && w.get(29, 30).aux() < 16,
+            "test setup: the neighbour must be body material carrying a small tag, or this asserts nothing"
+        );
+        w.load_budget = 0;
+
+        let _ = tick(&mut w, &ActiveSite { x: 30, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
+
+        assert_eq!(
+            w.get(30, 30).aux(),
+            u16::MAX,
+            "a stone cell whose only neighbour is organism-owned took that cell's type tag as an \
+             anchor distance -- it has no path at all and must say so"
+        );
     }
 
     fn run(w: &mut World, frames: usize) {

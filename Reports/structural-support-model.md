@@ -591,14 +591,48 @@ converged pass at all**.
 | the powder-`aux` collision | reading | `is_body_material` is `Solid \| Plant`; `rubble`, `gravel` and `soil` are all `Powder`, so the relaxation never reads their moisture |
 | organism-owned neighbours | reading | real gap — `tick`'s neighbour loop filters on `is_body_material` and `is_burning` but **not** `organism_id != 0`, unlike `compute_world_distances`, `support_parent`, `support_count` and `dependants`, so an inert cell beside live tissue relaxes off a cell-type tag. Not what fired here (the trap named `landed_cell` twelve times out of twelve), and worth closing anyway |
 
-### 6.6 Two adjacent gaps this turned up
+### 6.6 Two adjacent gaps this turned up — **both fixed**
 
-- **`land()` schedules nothing.** It writes through `World::set` and raises no
-  `StructuralCheck`, so a landed body cell is invisible to the structural
-  scheduler until something else wakes it. Under `aux 0` that meant it read as
-  anchored indefinitely; under `u16::MAX` it reads as pathless indefinitely.
-  Either way it should be scheduled.
-- **`tick`'s neighbour loop does not exclude organism-owned cells**, as above.
+Neither fired on this scene, and both are the same defect as the one that did:
+something gets to keep an `aux` nobody asked it to justify.
+
+- **`particle::land` scheduled nothing.** It wrote through `World::set` and
+  raised no `StructuralCheck`, so a landed body cell was invisible to
+  `structural::tick` until some unrelated disturbance woke it — and whatever
+  `landed_cell` chose then stood unexamined for as long as that took.
+  Landing now goes through `place_landed`, which schedules
+  `schedule_structural_check_around` for body material only. **Gated on body
+  material** because a blast throws far more sand and water than rock, and
+  none of it participates in the support field.
+  Guard: `a_landed_solid_schedules_a_structural_check_and_a_landed_powder_does_not`,
+  which carries the powder arm as its own control.
+- **`tick`'s neighbour loop did not exclude organism-owned cells.** Once
+  `organism_id != 0` the slot holds `organism::pack_cell_type` — a bare
+  discriminant in 0..15, exactly the range that reads as *at or beside an
+  anchor* — so an inert cell beside live tissue relaxed to `tag + step`.
+  `compute_world_distances`' `relaxable`, `load::support_parent`,
+  `load::support_count` and `load::dependants` all excluded owned cells
+  already, so this was the one reader out of step; and the disagreement was
+  not academic, because `support_parent` refuses an owned cell as a parent, so
+  a distance derived from one names a parent the load model cannot see. A
+  plant holds itself up through `plant::anchor_support` on the organism
+  sidecar, so the edge costs the tree nothing.
+  Guard: `a_solid_does_not_take_its_distance_from_an_organism_cells_type_tag`.
+
+**Both guards were checked by putting their own fault back**, per
+`CLAUDE.md`: each goes red for its own fault and only its own.
+
+**And measured: neither is a fix for §S, which is the point of saying so.**
+Same scene with both landed and `landed_cell` untouched, oracle at +1,300
+frames: **36,348 wrong cells against the baseline's 37,629**, 3.4% — and
+`pending` at frame 3,000 goes 36,818 to 38,322, slightly *worse*, because
+scheduling a landing is extra work on a scene where it changes no answer.
+Scheduling the landed cell cannot help while its `aux` is still 0: the
+neighbours relax off that zero on the same frames the cell is being corrected,
+and the improvement wave is what does the damage. **`landed_cell`'s value is
+the fix and the schedule is not**, which is worth having measured rather than
+assumed — the two changes look interchangeable from the description and are
+two orders of magnitude apart in effect.
 
 ## 7. The cheapest experiment that would falsify each
 
@@ -656,10 +690,13 @@ already paid for once by this bug:
   reactive path calls reachable and the converged pass calls `u16::MAX` —
   genuinely detached fragments reading as attached. Two orders of magnitude
   smaller than the climb, and a different bug.
-- **Whether `PARTICLE_AUX_MAX` is safe to make the default.** It is a
-  behaviour change: a landed grain reads pathless until `tick` relaxes it, and
-  `land()` schedules nothing (§6.6). `acceptance.sh`, `cargo test --lib` and
-  `blastsweep.sh` at the order statistic are the gates.
+- **Whether `PARTICLE_AUX_MAX` should become the default.** Measured green on
+  the first two gates — `scripts/acceptance.sh` all cases met their
+  expectations and `cargo test --lib` 944 passed / 0 failed with it on — and
+  §6.6's landing schedule removes the reason to hesitate, since a landed grain
+  is now asked for its distance rather than keeping whatever it was given.
+  `blastsweep.sh` at the order statistic is the gate still owed, and the
+  judge-by-eye question below is the one that decides it.
 - **A real seed sweep** of §4.4's exposed-cell disagreement.
 - **Fire**, which §S notes is unmeasured and the same shape, and for which
   there is still no `load=fire` component.
@@ -687,9 +724,10 @@ closed**; §5 is in `dead-ends.md`, and it is worth reading for what it got
 wrong — it suppressed a *correction* on the belief that it was manufactured
 error, which the false anchor explains.
 
-**Two adjacent gaps worth closing whatever happens** (§6.6): `land()` raises
-no structural check, and `tick`'s neighbour loop is the one reader of `aux`
-that does not exclude organism-owned cells.
+**Two adjacent gaps are closed** (§6.6), both with guards verified by putting
+their own fault back: `particle::land` now schedules a structural check for
+landed body material, and `tick`'s neighbour loop no longer reads an
+organism-owned cell's type tag as a distance.
 
 **And one that is separable from all of it**: a rise still fans out to five
 sites, because `schedule_solid_neighbours` fires on `moved` rather than on

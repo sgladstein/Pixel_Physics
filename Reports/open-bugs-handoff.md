@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6466 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6655 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6746 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6760 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6772 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6790 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6811 | A material-counting guard cannot see a species |
-| W1c | note | 6824 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6958 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7036 | The structural opt-out did not hold against bearing |
-| T1d | note | 7047 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7081 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7135 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7189 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7218 | §1c's settle loss is now a counter |
-| -- | note | 7235 | What landed |
-| -- | note | 7258 | Do not re-derive these |
-| -- | note | 7286 | Measurements that contradict something written |
-| -- | note | 7306 | Open |
-| -- | note | 7341 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6474 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6663 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6754 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6768 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6780 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6798 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6819 | A material-counting guard cannot see a species |
+| W1c | note | 6832 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6966 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7044 | The structural opt-out did not hold against bearing |
+| T1d | note | 7055 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7089 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7143 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7197 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7226 | §1c's settle loss is now a counter |
+| -- | note | 7243 | What landed |
+| -- | note | 7266 | Do not re-derive these |
+| -- | note | 7294 | Measurements that contradict something written |
+| -- | note | 7314 | Open |
+| -- | note | 7349 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6455,13 +6455,21 @@ needs re-deriving here:
   `grounded_root` (byte-identical, and a new `grounded` counter on the
   `[struct]` census reads **0 every frame** -- vacuous, not negative).
 
-  **Two adjacent gaps this turned up.** `particle::land` writes through
-  `World::set` and raises no `StructuralCheck`, so a landed body cell is
-  invisible to the structural scheduler until something else wakes it. And
-  `structural::tick`'s *neighbour* loop is the one reader of `aux` that does
-  not exclude organism-owned cells -- `compute_world_distances`,
-  `support_parent`, `support_count` and `dependants` all do -- so an inert
-  cell beside live tissue relaxes off a cell-type tag. Neither fired here.
+  **Two adjacent gaps this turned up, both since fixed.** `particle::land`
+  wrote through `World::set` and raised no `StructuralCheck`, so a landed body
+  cell was invisible to the structural scheduler until something else woke it
+  -- it now goes through `place_landed`, which schedules around the landing
+  for body material only. And `structural::tick`'s *neighbour* loop was the
+  one reader of `aux` that did not exclude organism-owned cells
+  (`compute_world_distances`, `support_parent`, `support_count` and
+  `dependants` all do), so an inert cell beside live tissue relaxed off a
+  cell-type tag in 0..15. Neither fired on this scene; both have guards
+  checked by putting the fault back -- and measured, **neither is a fix for
+  §S**: with both in and `landed_cell` untouched the oracle reads 36,348
+  against the baseline's 37,629 (3.4%), and `pending` at frame 3,000 goes
+  36,818 -> 38,322. Scheduling a landing cannot help while its `aux` is still
+  0, because the neighbours relax off that zero on the same frames the cell is
+  being corrected. The value is the fix; the schedule is not.
 
 ### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
 
