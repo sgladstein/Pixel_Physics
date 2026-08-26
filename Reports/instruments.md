@@ -1,9 +1,9 @@
 # The instruments — what already exists to measure with
 
-**Status: living index. Current as of 2026-08-25.**
+**Status: living index. Current as of 2026-08-26.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
-**26 of them**, and their names do not say what they can answer. This file
+**30 of them**, and their names do not say what they can answer. This file
 exists because instruments were being rebuilt: a lane needs a number, does not
 know a harness for it already exists, and writes a second one. The specific
 case that prompted this — W3's `divergence` — turned out to answer at least
@@ -33,6 +33,10 @@ studies:
 | `ascii` | Headless behaviour plus **worst-frame timing** | The number to quote for frame cost. CI runs it |
 | `viewshot` | What the *player's viewport* shows of a world larger than itself | The scale question a full-world render cannot answer |
 | `pixel_stat` | How noisy a rendered region is, as a number | Compares two strips without squinting |
+| `render_cost` | **Where a full-screen redraw spends its time**, broken down | The full branch measured 12.07 ms mean on the shipped 2048x640 world -- 54% of a frame -- and runs on ~100% of frames while the gnome walks, because a camera move invalidates every pixel |
+| `frame_profile` | **Which phase a frame's time went to**, timed separately with a distribution | The thing `ascii` cannot answer: it reports a worst frame, which says "does this fit in 16.6 ms" and nothing about *where* it went. Runs the exact phase list `App::update` runs |
+| `camera_snap` | Whether the camera moves discontinuously through the path the **app** actually uses | Drives `App::update`/`App::draw` as `main.rs` does, rather than calling `Renderer::follow` directly -- so it catches what a harness calling the API itself cannot |
+| `weather_duty` | How often it is raining, swept across seeds and a long window | Built because a single 1,200-frame run measured 89% and that was a sample from inside one wet epoch, not a duty cycle. Generalises to any "is this a duty cycle or one epoch" question |
 
 ## Plants
 
