@@ -82,3 +82,32 @@ skip, which is worse than not naming them. Two things from this side:
   it to them as one question with the list attached rather than either of us
   acting on it. If they say yes I will run it; I am not going to volunteer
   another lane for it either.
+
+## 2026-08-26 — §S diagnosed, and its scope redirected
+
+Landed: **PR #66** (the positive-control rule, merged), **PR #68** (open) —
+the `RECONVERGE_AT` oracle, `structural::reconverge_from_damage` off by
+default, and four measurements.
+
+**The headline for anyone downstream of the structural system: §S is a
+correctness bug, not only a performance one.** Converging the support field
+leaves **25,470 more body cells standing** after 6,000 frames with a charge
+in them (19,496,708 against 19,471,238). The count-to-infinity climb pushes
+cells past their span before the true anchor value arrives, so they break and
+take their neighbours. Anyone who has measured destruction volume on a scene
+with a live cascade has been measuring that too.
+
+**And the number everyone (including me) had wrong:** a radius-20 charge
+invalidates **369 cells**, not 67,100. The 67,100 is what the reactive
+correction manufactures over the following twenty seconds. If you are sizing
+anything against "what one blast affects", use 369.
+
+Instruments added, both in `Reports/instruments.md`:
+- `RECONVERGE_AT=<frame>` on `scale_probe` — the converged-field oracle, and
+  an `aux` census of what the pass changes.
+- an end-of-run body-cell census on `scale_probe`, which is the control for
+  "did the queue go quiet, or did the world fall down".
+
+Not done, recorded as the open question: keeping the field converged *while a
+collapse runs*. The machinery is in `reconverge_from_damage`; the trigger is
+not.

@@ -748,6 +748,39 @@ against 28 at night — until it divided the cycle out with
 **The test is the same for a threshold and for a benchmark: could this number
 have been different if I had sampled it an hour later?**
 
+### Size a problem at the moment it starts, not after it has been running
+
+The sibling of the cascade rule below, pointing the other way: that one says
+a census taken **too early** reads a delay as damage, and this one says a
+census taken **late** can be measuring the system's *response* to the event
+rather than the event. Both are the same question — *what was the world doing
+between the thing happening and me looking?* — and the second is the more
+expensive mistake, because it sizes the fix.
+
+Measured 2026-08-26 on `open-bugs-handoff.md` §S. One radius-20 charge, the
+support field censused against a converged oracle at increasing distances
+from the bang:
+
+| censused at | cells wrong |
+|---|---|
+| **5 frames after** | **369** |
+| 50 frames after | 42,825 |
+| 1,300 frames after | 67,100 |
+
+Every one of those is a real count of genuinely wrong cells. Read at 1,300
+frames it says *"a charge invalidates 67,000 cells, so build a pass that
+converges 67,000 cells"* — and a whole scope report was written on that
+reading. Read at 5 frames it says the charge invalidates **370**, the other
+sixty-seven thousand are manufactured by the engine's own slow correction,
+and a pass that converges the damage once fixes almost nothing. The fix those
+two readings call for is not the same fix, and the second one is the
+expensive one to discover after building the first.
+
+**So: before sizing a repair from a measurement, ask when it was taken
+relative to the event, and take a second one close to the event.** If the two
+disagree by two orders of magnitude, what you are looking at is a response,
+and the thing to fix is whatever is producing it.
+
 ### A cascade censused before it settles reads a *delay* as damage
 
 Both runs have to have **landed**, or the census is comparing mid-air with
