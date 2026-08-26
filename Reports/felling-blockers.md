@@ -1,6 +1,10 @@
 # Felling a tree: what has to be true first
 
-**Status:** scope only, nothing built. Written because cutting trees down
+**Status: scope only — and both its sections are now superseded.** §1 was
+superseded by the plant-line merge and §2 by
+`Reports/physical-trees-design-2026-08-23.md`; felling itself shipped
+(`43adeb6`, `bbbd789`) and is gated by `scripts/acceptance.sh`'s `fell` case.
+Nothing here is a work order. Written because cutting trees down
 was designed, costed, and then cut from the tree-interaction pass by the
 owner — and the costing turned up three things that would have been
 rediscovered expensively. A rejected direction keeps its knowledge.
