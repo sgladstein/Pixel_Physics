@@ -580,3 +580,53 @@ indistinguishable, in the record, from the documentation changing.
 
 **Set B has not been run.** Its first pair should be current `main` against
 `2f5de1e`. If the old tree scores well, the questions are wrong, not the docs.
+
+### Set B ran the same day, and falsified three of its own four premises
+
+| | current (`bfc8582`) | pre-audit (`2f5de1e`) |
+|---|---|---|
+| correct | **4/4** | **3/4** |
+| agent tokens | **95,518** | **135,580** (+42%) |
+| files opened | 10 | 14 |
+| tool calls | 23 | 29 |
+
+Predicted 4/4 against 1/4. **The prediction was wrong because the
+qualification method was wrong:** each question was checked against the old
+`CLAUDE.md` and never against the old *corpus*. This documentation is
+redundant — the same fact lives in a report, an index and a wiki page — so
+*"`CLAUDE.md` did not say it"* is not *"the agent cannot find it"*.
+
+- **B2 does not discriminate.** The old tree produced three non-destruction
+  precedents: `wiki/plants.md`'s *"gradual and it is graded"*,
+  `dead-ends.md:754` (hard-threshold leaf shedding rejected in favour of
+  graded, with numbers), and `rot_remains` senescence from the bug register.
+  What the ethos reframing bought shows up only in the baseline's own caveat —
+  *"framed entirely in destruction vocabulary, so you have to read it across
+  to plants"* — which is work, not failure.
+- **B4 does not discriminate, and its premise was false.** `Reports/README.md`
+  already carried "superseded by landing" on the old tree; the baseline arm
+  refused the trap through it, calling it *"a clean case of the header being
+  stale and the index being right"*. The audit moved the warning one hop
+  earlier. It did not defuse an armed trap.
+- **B1 partly discriminates.** No counts on the old tree, correctly — but it
+  never said "uncontested". It reached the same land-quickly instruction via
+  `plant-implementation-split-2026-08-23.md` and `plant-work-split.md`, and
+  caught the old table's false `app.rs` claim against the split report's
+  *"filmstrip.rs is the most-collided file in the repo"*.
+
+**The finding that outlives the question set: correctness saturates on this
+corpus whatever you ask.** Set A: 3/3 across four runs. Set B, written
+specifically to break, 3/4 on the tree it was built to fail. The quantity that
+separated the arms was **cost**, and three independent measures moved together
+— tokens +42%, files 14 vs 10, tool calls 29 vs 23.
+
+**So the audit did not change what is answerable. It changed what answering
+costs.** That also explains the inconclusive A/B above: set A is a correctness
+instrument, and correctness was never the thing that moved.
+
+Confounds, on the record: one run per arm; and the baseline prompt carried an
+extra anti-contamination preamble the current arm did not, which plausibly
+costs tokens by itself — so **+42% is an upper bound on the routing effect,
+not a clean estimate**. The isolation itself held: the baseline arm reported
+*"the documentation gives no numbers for either file"* and named the revision
+difference it had been told to disregard.

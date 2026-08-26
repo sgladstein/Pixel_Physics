@@ -103,6 +103,42 @@
       },
       "notes": "Run to give agent_tokens a pre-change baseline, since the 2026-08-21 and 2026-08-24 runs cannot be back-filled. Same prompt, same model, only the tree differs (a detached worktree at 65934a5^). Verified before running that all three questions were still answerable on that tree, so a poor score would be the docs and not a broken arm.",
       "set": "A"
+    },
+    {
+      "date": "2026-08-26",
+      "set": "B",
+      "tree": "bfc8582 -- main fce7c7a plus the set B commit (no answer-bearing change)",
+      "arm": "current",
+      "correct": "4/4",
+      "traps_refused": "1/1",
+      "agent_tokens": 95518,
+      "files_opened": 10,
+      "source_files_read": 0,
+      "tool_calls": {
+        "total": 23,
+        "reads": 9,
+        "greps": 11,
+        "listings": 3
+      },
+      "notes": "B2 volunteered a second non-destruction precedent that was not planted: seed viability as a constant per-species hazard rather than a lifespan, so the bank 'thins rather than emptying on a cliff'. B3 reached the repo's own position -- the complaint is CPU on invisible fill shuffling after the pool looks flat, so the target is stopping early, not levelling faster."
+    },
+    {
+      "date": "2026-08-26",
+      "set": "B",
+      "tree": "2f5de1e -- BASELINE ARM, pre-audit main, detached worktree",
+      "arm": "pre-audit control",
+      "correct": "3/4",
+      "traps_refused": "1/1",
+      "agent_tokens": 135580,
+      "files_opened": 14,
+      "source_files_read": 0,
+      "tool_calls": {
+        "total": 29,
+        "reads": 14,
+        "greps": 14,
+        "listings": 2
+      },
+      "notes": "Contamination check clean: it reported 'the documentation gives no numbers for either file' and named the revision difference it was told to disregard. No new-tree-only string in any answer. B1 failed only on numbers and reached the same instruction via plant-implementation-split-2026-08-23.md and plant-work-split.md."
     }
   ],
   "_metric_change": "2026-08-26: the headline moved from files_opened to agent_tokens. files_opened could not move when routing improved (6 both before and after this week's work, with tool calls UP 17 -> 23), counts a 200-token grep and a 30k read alike, and is blind to the pre-loaded CLAUDE.md. See scripts/docbench.py for the full reasoning. Do not tune for files_opened.",
@@ -125,5 +161,12 @@
     "cost_of_the_fault_injection": "2.0-2.3 s wall clock for all six, zero rebuild, no test suite. Landed as `docbench.py selftest` so it is a command rather than a discipline.",
     "rubrics": "Set A ran four times with no written rubric and was graded by whoever ran it -- two graders disagreeing is indistinguishable, in the record, from the documentation changing. Both sets now have one: `docbench.py rubric a|b`.",
     "not_yet_run": "Set B has no runs. Its first pair should be the same A/B the cost question got: current main against 2f5de1e. The expected result is the point -- 4/4 current, at most 1/4 pre-audit -- and if the old tree scores well, the questions are wrong, not the documentation."
+  },
+  "_set_b_result_2026_08_26": {
+    "headline": "Current 4/4 at 95,518 tokens; pre-audit 3/4 at 135,580. Predicted 4/4 against 1/4. THREE OF FOUR QUALIFICATIONS WERE WRONG.",
+    "root_cause": "Each question was qualified against the old CLAUDE.md, never the old corpus. This documentation is redundant -- the same fact lives in a report, an index and a wiki page -- so 'CLAUDE.md did not say it' is not 'the agent cannot find it'. B2's precedent was in wiki/plants.md, dead-ends.md:754 and open-bugs-handoff.md; B4's warning was already in Reports/README.md, which the baseline arm used to refuse the trap, calling it 'the header being stale and the index being right'.",
+    "what_it_establishes": "Correctness saturates on this corpus whatever you ask -- set A at 3/3 for four runs, and set B, built to break, at 3/4 on the tree it was built to fail. The separating quantity is cost: +42% tokens, 14 files against 10, 29 tool calls against 23. Three independent quantities, same direction. The audit did not change what is answerable; it changed what answering costs.",
+    "confounds_not_to_forget": "One run per arm. The baseline prompt carried an extra anti-contamination preamble the current one did not, which plausibly costs tokens on its own -- so +42% is an upper bound on the routing effect, not a clean estimate. The trees also differ in code, though the questions are markdown-only.",
+    "for_the_next_question_author": "Qualify against the whole old corpus, not the one file you changed, and expect a well-posed question to be answerable on any revision. Aim at cost."
   }
 }

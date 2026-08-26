@@ -25,29 +25,72 @@ defects that specific changes fixed, and a future change that fixes something
 else will not move it. Read a set B score as "are these particular repairs
 still holding", never as "is the documentation good".
 
-The old-tree answers, verified 2026-08-26 by reading `2f5de1e`:
+**Set B was run 2026-08-26 and three of its four qualifications were wrong.**
+Current tree 4/4, pre-audit tree **3/4** -- not the 4/4 against 1/4 that was
+predicted. The error was in the method, and it is worth more than the result:
+each question was qualified by checking the old **`CLAUDE.md`**, never the old
+**corpus**. This documentation is redundant -- the same fact lives in a report,
+an index and a wiki page -- so "`CLAUDE.md` did not say it" is not "the agent
+cannot find it". What actually happened, per question, is in the table below.
+
+The consequence generalises past set B: **correctness saturates on this corpus
+whatever you ask.** Set A has been at 3/3 for four runs; set B, written
+specifically to break, came back 3/4 on the tree it was built to fail. The
+quantity that separated the arms was **cost -- 95,518 tokens against 135,580,
++42%, with 10 files opened against 14 and 23 tool calls against 29.** Read that
+as the shape of the whole benchmark: the audit did not change what is
+answerable, it changed what answering costs. Which is also why set A, a
+correctness instrument, could never have shown it.
+
+The old-tree answers as claimed when the questions were written, against what
+the run actually produced:
 
 ===  ==================================================================
-B1   The file-ownership table had **no plants row at all** and asserted
+B1   CLAIMED: the ownership table had no plants row and asserted
      *"Everything that has actually collided here collided in
-     `src/app.rs`"* -- measurably false (`app.rs` is 6th at 51 landings).
-     An agent asking about `src/sim/plant.rs` was told, in effect, that it
-     is uncontested and safe to hold. It is 60 landings.
-B2   The ethos section was framed *"Destroying something should feel like
-     destroying it"* and stated both its laws purely in destruction terms.
-     The generic clause *"a graded outcome beats a binary one"* was there,
-     so the rule was findable -- but there was **no precedent outside
-     destruction to point at**, which is what the second half asks for.
-B3   The `dead-ends.md` row said *"grep your area"*. This is the cost
-     question, and it deliberately **does not name a mechanism**, so the
-     agent has to choose its own unit of search. Area grep measured
-     ~12k-31k tokens against ~250-2,460 for a mechanism grep.
-B4   `fracture-mechanics-design.md` said *"Read that to **build** this"* of
-     `load-model-handoff.md`, with no warning anywhere, and the report
-     index said nothing either. The referral trap: set A hands the agent
-     the unsafe document directly, set B hands it a document that
-     recommends the unsafe one.
+     `src/app.rs`"* -- measurably false (`app.rs` is 6th at 51 landings) --
+     so an agent was told its files were uncontested and safe to hold.
+     RAN: **partly discriminating.** No counts, correctly, since they do
+     not exist there. But it never said "uncontested": it reached the same
+     instruction through `plant-implementation-split-2026-08-23.md`
+     (*"one of the two shared substrates ... strictly one session at a
+     time"*) and `plant-work-split.md` (*"`plant.rs` is where everything
+     collides"*), and caught the table's false claim against the split
+     report's *"filmstrip.rs is the most-collided file in the repo"*.
+     KEEP -- it separates "has numbers" from "has prose", which is the
+     real difference, but it is not the pass/fail it was written as.
+B2   CLAIMED: the ethos was framed *"Destroying something should feel like
+     destroying it"*, so the rule was findable but there was **no
+     precedent outside destruction to point at**.
+     RAN: **does not discriminate.** The old tree produced three --
+     `wiki/plants.md`'s *"gradual and it is graded"*, `dead-ends.md:754`
+     (hard-threshold leaf shedding rejected in favour of graded, with
+     numbers), and `rot_remains` senescence from `open-bugs-handoff.md`.
+     The precedent was in the corpus; only `CLAUDE.md` lacked it, and only
+     `CLAUDE.md` was checked. What the reframing bought is visible in the
+     answer's own caveat -- *"framed entirely in destruction vocabulary, so
+     you have to read it across to plants"* -- which is work, not failure.
+B3   CLAIMED: the `dead-ends.md` row said *"grep your area"*; the question
+     names no mechanism, so the agent must choose its own unit of search.
+     RAN: **both arms answered well**, the baseline in more detail (line
+     numbers). This is the cost question and it stays one; it is not a
+     correctness question and should not be scored as one.
+B4   CLAIMED: `fracture-mechanics-design.md` said *"Read that to build
+     this"* of the superseded handoff, unwarned, and the index said
+     nothing either -- a referral trap.
+     RAN: **does not discriminate, and the claim about the index was
+     false.** `Reports/README.md` already carried "superseded by landing"
+     on the old tree, and the baseline arm refused the trap through it,
+     calling it *"a clean case of the header being stale and the index
+     being right"*. The audit moved the warning one hop earlier; it did
+     not defuse an armed trap.
 ===  ==================================================================
+
+**Do not read B2 or B4 as correctness gates.** They are retained as cost
+probes and as the record of a wrong prediction. The lesson for anyone adding
+a question here: qualify it against the **whole old corpus**, not against the
+one file you changed -- and expect that a well-posed question is usually
+answerable on any revision of this repo, so aim at cost.
 
 What it measures, and why that changed
 --------------------------------------
@@ -162,19 +205,26 @@ B1  PASS requires BOTH files identified as contested WITH the landing
     instruction that follows from it -- land quickly, do not hold the diff.
     FAIL if it reports either file as uncontested, or gives the advice with
     no numbers. (Old tree: no plants row existed; answer was 'you're fine'.)
-B2  Two halves, both required. (a) quotes the graded-outcome law; (b) cites
-    a precedent OUTSIDE destruction -- `rot_remains` senescence at the
-    species half-life, or the `Felling status` verb. Half credit is a FAIL:
-    the old tree could do (a) and structurally could not do (b).
+B2  COST PROBE, not a gate -- measured 2026-08-26 as non-discriminating
+    (the old tree produced three non-destruction precedents from the wider
+    corpus). Score it for (a) the graded-outcome law and (b) a precedent
+    outside destruction, but record HOW FAR it had to go for (b): from
+    `CLAUDE.md` directly, or reconstructed from `wiki/`, `dead-ends.md` and
+    the bug register. The distance is the measurement.
 B3  PASS if it consults the dead-end register BEFORE proposing anything and
     reports real liquid-levelling entries (MIN_LIQUID_TRANSFER's dead band,
     flow_rate not fixing wide-body levelling, the dispersion-search model).
     This is also the COST question -- record agent_tokens against it
     specifically if the harness reports per-question cost. It names no
     mechanism on purpose: the agent must choose its own unit of search.
-B4  TRAP. PASS only if it answers NO and redirects to
-    `load-model-fit-review.md`. (Old tree: the report said 'read that to
-    build this' with no warning, so the expected old answer is YES.)"""
+B4  COST PROBE, not a gate -- measured 2026-08-26 as non-discriminating.
+    Both trees refuse it; the old one via `Reports/README.md`, which
+    already said "superseded by landing". PASS is still NO plus a redirect
+    to `load-model-fit-review.md`; what to record is whether the refusal
+    came from the report header (one hop) or from the index (two).
+
+A run scores 4/4 on both trees more often than not. The separating number is
+`agent_tokens`; see the module docstring."""
 
 # Each question's answer must still exist. (question, what to look for, where)
 CONTROLS_A = [
@@ -330,9 +380,11 @@ def main():
                   f"{(str(tok) if tok else '-- (pre-metric)'):>13s} "
                   f"{r['files_opened']:>6d}  {r['tree'][:44]}")
         print("\nagent_tokens is the headline; files_opened is colour, not a target.")
-        print("Set A is at ceiling (3/3 in every run ever taken, pre-audit included) --")
-        print("read it as a floor check, not as evidence of improvement. Set B is the")
-        print("half that can go red; see the module docstring for what it is aimed at.")
+        print("Correctness saturates on this corpus: set A has scored 3/3 in every run")
+        print("ever taken, pre-audit included, and set B -- written specifically to")
+        print("break on the old tree -- came back 4/4 against 3/4. Read both as floor")
+        print("checks. The quantity that separates the arms is agent_tokens: 95,518")
+        print("against 135,580, +42%, one run each. See the module docstring.")
         return 0
 
     if what == "selftest":
