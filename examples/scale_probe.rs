@@ -654,10 +654,23 @@ fn phase_probe(args: ProbeArgs) {
             let mut changed = 0usize;
             let mut rose = 0usize;
             let mut max_delta = 0u16;
+            // **How much of `changed` is a rule difference, not staleness.**
+            // `compute_world_distances` anchors on bedrock and the world edge
+            // only. `structural::tick` additionally roots a cell at 0 as a
+            // *last resort* when nothing else reaches it and it is resting on
+            // ground. So every cell `tick` ground-rooted reads 0 before this
+            // pass and a long distance (or `u16::MAX`) after -- two rules
+            // disagreeing, not a stale value the reactive path failed to
+            // correct. Splitting them is what says whether this oracle is
+            // measuring the bug or measuring the difference.
+            let mut was_ground_root = 0usize;
             for ((x, y), old) in &before_aux {
                 let now = world.get(*x, *y).aux();
                 if now != *old {
                     changed += 1;
+                    if *old == 0 {
+                        was_ground_root += 1;
+                    }
                     if now > *old {
                         rose += 1;
                         max_delta = max_delta.max(now.saturating_sub(*old));
@@ -666,7 +679,7 @@ fn phase_probe(args: ProbeArgs) {
             }
             let body = before_aux.len().max(1);
             println!(
-                "  [oracle] frame {step:>6} compute_world_distances {cost:.1}ms over {body} body cells |                  changed {changed} ({:.2}% of body), of which rose {rose}, largest rise {max_delta} |                  pending {before} -> {}",
+                "  [oracle] frame {step:>6} compute_world_distances {cost:.1}ms over {body} body cells |                  changed {changed} ({:.2}% of body), of which rose {rose}, largest rise {max_delta} | of changed, was at 0 (tick ground-root) {was_ground_root} |                  pending {before} -> {}",
                 100.0 * changed as f64 / body as f64,
                 world.active_site_count()
             );
