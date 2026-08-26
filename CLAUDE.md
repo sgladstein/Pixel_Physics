@@ -619,6 +619,22 @@ fix you build for the wrong reading.
 independent sessions, the last two on one day.** Sanity-check any new number
 against a case you know is fine, before trusting it about a case you don't.
 
+The rule was written as *"ask what a **metric** counts"* and recurred
+anyway, because none of the repeats looked like a metric in the moment. Name
+the instrument and it stops hiding:
+
+| instrument | how it lied |
+|---|---|
+| a **metric** | the whisker hunt defined a "film" as water with air above and below — *what falling water looks like* — so it counted every droplet in the world |
+| a **counter** | 200 cuts reported against a flat queue; the counter counted **calls**, the harness aimed at soil, and 23 swings removed **0** cells |
+| a **timing** | three 600-frame windows on the same world gave **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost" — it was the wind |
+| a **difference** | `extra lost = 0`, comparing two things that had both not happened |
+| a **census** | counted every `Solid` in the world rather than the platform under test |
+
+Its numbers are real every time. That is the point: a number that is
+arithmetically correct and answers a different question than the one asked
+looks exactly like a result.
+
 **And against a case you know is broken, which is the half this rule was
 missing.** The sentence above checks *specificity* — that the number stays
 quiet when nothing is wrong. It does not check **sensitivity**: that the
@@ -627,12 +643,12 @@ written for guards — *"before trusting any guard, put the fault it is named
 for back and watch it go red"* — and it was never crossed over to
 measurements. Measured 2026-08-25, in one session: **six numbers that were
 arithmetically correct, plausible, and about the wrong thing**, of which
-five needed the guard rule applied to an instrument.
+five needed the guard rule applied to an instrument. Two of the six are the
+counter and the census in the table above, seen from the other side — they
+did not merely count the wrong thing, they *could not have moved*. The rest:
 
 | what was measured | why it could not answer |
 |---|---|
-| a pick probe's queue depth | would have read flat whether or not the pick leaked, because the swings cut **0 cells** |
-| a whole-world cell census | both arms read ~1,711 whatever the rule did — terrain settling swamped the platform |
 | a flat platform's damage | no span, so no load to concentrate, so no support rule could matter |
 | a queue going quiet | means "converged" *or* "made immune", and queue depth cannot tell them apart |
 | an A/B whose arms differed in two things | the paint path, not the rule under test, carried half the effect |
@@ -650,22 +666,6 @@ at exactly its idle value, two arms agreeing at 1712/1712 and 1710/1710 and
 per-seed median of zero, eight seeds worse and six *better*. When the first
 number tells a clean story, something has usually collapsed the complexity —
 often the very thing being measured.
-
-The rule was written as *"ask what a **metric** counts"* and recurred
-anyway, because none of the repeats looked like a metric in the moment. Name
-the instrument and it stops hiding:
-
-| instrument | how it lied |
-|---|---|
-| a **metric** | the whisker hunt defined a "film" as water with air above and below — *what falling water looks like* — so it counted every droplet in the world |
-| a **counter** | 200 cuts reported against a flat queue; the counter counted **calls**, the harness aimed at soil, and 23 swings removed **0** cells |
-| a **timing** | three 600-frame windows on the same world gave **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost" — it was the wind |
-| a **difference** | `extra lost = 0`, comparing two things that had both not happened |
-| a **census** | counted every `Solid` in the world rather than the platform under test |
-
-Its numbers are real every time. That is the point: a number that is
-arithmetically correct and answers a different question than the one asked
-looks exactly like a result.
 
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
