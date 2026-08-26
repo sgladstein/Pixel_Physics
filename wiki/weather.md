@@ -1,6 +1,6 @@
 # Weather
 
-*Current as of: 2026-08-23 (how fast the weather changes its mind is now a
+*Current as of: 2026-08-26 (how fast the weather changes its mind is now a
 setting, separate from the length of a day; rain now reaches the soil through
 leaf litter, grass and other loose cover instead of being stopped dead by it,
 and bare ground goes on drying downwards after its surface is dry, so
@@ -149,6 +149,15 @@ Wind blows whether or not anything is falling — a dry gale is weather too.
 It slants rain and snow as they fall, and above a certain strength it
 arrives in **gusts**: sudden pushes of air that shove smoke around and
 lean trees, then die away.
+
+**A gust is not the same everywhere.** How hard one lands depends on how
+exposed the ground under it is — what stands upwind of that spot, and how
+far. An open ridge takes the full push; a hollow with a rise upwind of it,
+or a place deep inside a wood, takes a fraction of it. The same gale is
+therefore fierce along a skyline and mild in a sheltered pocket a short
+way off, and shelter is a property of the terrain rather than of the
+weather: it does not change as the storm passes, only what the storm does
+there.
 
 The heaviest storms throw **lightning**: a forked bolt down to the ground
 and a flash that lifts the whole world for an instant, brighter the closer

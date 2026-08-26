@@ -519,3 +519,178 @@ table that does not exist"*. **Verified false** — that tree's `CLAUDE.md` has
 zero occurrences of "By topic", and so does its README. I nearly relayed it.
 A subagent report can contain a fabricated, checkable defect stated as fact;
 check the cheap ones before passing them on.
+
+## 2026-08-26 — the benchmark could not have shown improvement
+
+The A/B I ran to answer *"did the audit help?"* came back inconclusive
+(105,073 → 101,669 agent tokens, −3.2%, one run per arm). Re-reading the
+series explains why, and the explanation is not noise.
+
+**Set A has scored 3/3 correct and 1/1 trap in every run it has ever had,
+including the pre-audit baseline arm.** The correctness half has never
+discriminated. `check` verified that every question still *has* an answer —
+specificity — and nothing ever verified that the score could *move*. That is
+this repo's own rule (*put the fault back and watch it go red*) applied to an
+instrument rather than a test, and it was not applied when the instrument was
+built.
+
+Worse, the one change with a 10–50x token effect — `dead-ends.md`'s search
+unit, area → mechanism — is invisible to set A. Q2 **names the mechanism in
+the question**, so the agent never has to choose a unit of search. The
+guidance that changed is bypassed by the question meant to exercise it.
+
+### Set B
+
+Four questions, each verified against `2f5de1e` **before** it was written and
+kept only because the old answer was wrong or missing:
+
+| | old-tree answer | why it was wrong |
+|---|---|---|
+| B1 ownership | "plant.rs is uncontested" | no plants row existed; the table asserted everything collided in `app.rs` (6th, at 51) |
+| B2 ethos | rule found, precedent absent | generic graded-outcome clause present, zero precedent outside destruction |
+| B3 search unit | grep the liquids area | ~12k–31k tokens vs ~250–2,460; **names no mechanism**, so the agent must choose |
+| B4 referral trap | "yes, safe" | `fracture-mechanics-design.md` said *read that to build this* of the superseded handoff, unwarned |
+
+B4 is deliberately a *different* trap from set A's: A hands the agent the
+unsafe document, B hands it a document that recommends the unsafe one.
+
+**Set B is a regression set, not a capability test.** It is aimed at four
+specific repairs. A future change that fixes something else will not move it,
+and a score on it must never be read as "the documentation is good".
+
+### What fault injection found, in 2.0 seconds
+
+Both are recorded because neither was findable any other way — both passed
+`check`, and both would have passed it with the documentation they guard
+deleted:
+
+- **B2 was blind.** It searched the whole of `CLAUDE.md` for `rot_remains`,
+  which also appears in the dead-ends row as an example of a grep that returns
+  *nothing*. Rescoped to the ethos section.
+- **B3b's injection was blind**, not its control: it replaced 1 of 6
+  occurrences, so a surviving copy hid the fault. Replace every occurrence.
+
+Landed as `python3 scripts/docbench.py selftest` — six injections, ~2 s, no
+rebuild. **The discipline was expensive as prose and is nearly free as a
+command**, which is the same finding that produced `docgrep.py`.
+
+Also added: written rubrics for both sets (`docbench.py rubric a|b`). Set A
+ran four times with none, graded by whoever ran it — two graders disagreeing is
+indistinguishable, in the record, from the documentation changing.
+
+**Set B has not been run.** Its first pair should be current `main` against
+`2f5de1e`. If the old tree scores well, the questions are wrong, not the docs.
+
+### Set B ran the same day, and falsified three of its own four premises
+
+| | current (`bfc8582`) | pre-audit (`2f5de1e`) |
+|---|---|---|
+| correct | **4/4** | **3/4** |
+| agent tokens | **95,518** | **135,580** (+42%) |
+| files opened | 10 | 14 |
+| tool calls | 23 | 29 |
+
+Predicted 4/4 against 1/4. **The prediction was wrong because the
+qualification method was wrong:** each question was checked against the old
+`CLAUDE.md` and never against the old *corpus*. This documentation is
+redundant — the same fact lives in a report, an index and a wiki page — so
+*"`CLAUDE.md` did not say it"* is not *"the agent cannot find it"*.
+
+- **B2 does not discriminate.** The old tree produced three non-destruction
+  precedents: `wiki/plants.md`'s *"gradual and it is graded"*,
+  `dead-ends.md:754` (hard-threshold leaf shedding rejected in favour of
+  graded, with numbers), and `rot_remains` senescence from the bug register.
+  What the ethos reframing bought shows up only in the baseline's own caveat —
+  *"framed entirely in destruction vocabulary, so you have to read it across
+  to plants"* — which is work, not failure.
+- **B4 does not discriminate, and its premise was false.** `Reports/README.md`
+  already carried "superseded by landing" on the old tree; the baseline arm
+  refused the trap through it, calling it *"a clean case of the header being
+  stale and the index being right"*. The audit moved the warning one hop
+  earlier. It did not defuse an armed trap.
+- **B1 partly discriminates.** No counts on the old tree, correctly — but it
+  never said "uncontested". It reached the same land-quickly instruction via
+  `plant-implementation-split-2026-08-23.md` and `plant-work-split.md`, and
+  caught the old table's false `app.rs` claim against the split report's
+  *"filmstrip.rs is the most-collided file in the repo"*.
+
+**The finding that outlives the question set: correctness saturates on this
+corpus whatever you ask.** Set A: 3/3 across four runs. Set B, written
+specifically to break, 3/4 on the tree it was built to fail. The quantity that
+separated the arms was **cost**, and three independent measures moved together
+— tokens +42%, files 14 vs 10, tool calls 29 vs 23.
+
+**So the audit did not change what is answerable. It changed what answering
+costs.** That also explains the inconclusive A/B above: set A is a correctness
+instrument, and correctness was never the thing that moved.
+
+Confounds, on the record: one run per arm; and the baseline prompt carried an
+extra anti-contamination preamble the current arm did not, which plausibly
+costs tokens by itself — so **+42% is an upper bound on the routing effect,
+not a clean estimate**. The isolation itself held: the baseline arm reported
+*"the documentation gives no numbers for either file"* and named the revision
+difference it had been told to disregard.
+
+## 2026-08-26 — the wiki audit
+
+The last unaudited documentation. **The mechanical half is clean**: 11 of 12
+pages carry a real date, and every one matches its file's last commit exactly
+— no `this build` placeholders, no invented dates. `wiki/README.md` has none
+and needs none; it is an index, and `docscheck` does not ask for one.
+
+**A drift proxy was built and it over-fires**, which is worth recording before
+its output: "commits to a page's mapped source since the page's date" scored
+`structural-collapse.md` at 10, `powders.md` 7, `world-cycles.md` 6. All three
+are **clean**. The count is inflated three ways — merge commits carry no
+content; perf commits say so themselves (four of `world-cycles.md`'s six are
+explicitly *bit-identical*); and a change to one subsystem's *code* is often
+documented on a different *page*, correctly. Felling lives in `structural.rs`
+and `rigid.rs`; the player-facing account of it belongs on `plants.md` and
+`the-gnome.md`, and `plants.md` had it. This is the same failure class as the
+file-overlap metric `CLAUDE.md` warns about under merges: a proxy that looks
+like a defence and fires on correct content. Use it to order the reading, never
+as a finding.
+
+### Two real findings, both on pages nobody would have suspected
+
+**`wiki/the-gnome.md` carried two statements that were false**, and the timing
+is the interesting part. The page was last written at **10:18 on 2026-08-23**.
+`43adeb6` — *"let a tool hurt a plant"* — landed at **09:56 the same day,
+twenty-two minutes earlier**. So the page was revised *after* the behaviour
+changed and did not pick it up:
+
+- *"the pick sees straight through living wood to the rock behind, so you can
+  dig in a wood and dig while standing inside a tree"* — false.
+  `rigid::is_tool_target` (`rigid.rs:308`) accepts `Solid | Plant`, and the D2
+  guard `a_blow_cuts_living_wood` asserts a blow on a living trunk removes
+  living trunk. Bedrock stays exempt, guarded separately.
+- *"Cutting a tree down is deliberately not in yet."* — false, and gated in CI.
+  `scripts/acceptance.sh:490` runs `scene=fell fell=6000 … min_severed=1000`.
+  `43adeb6` measures it: six bites sever the bole, standing living tissue
+  2,906 → 409, both drivers agreeing (2,360 parallel, 2,398 serial). `bbbd789`
+  then made the crown come down as pieces rather than sawdust, ten hours after
+  the page was written.
+
+This is the page an agent consults about what the player can *do*. It was
+answering "can he cut down a tree?" with "no".
+
+**`wiki/weather.md` never documented exposure-scaled gusts.** `ea061eb` and
+`107355c` (both 2026-08-23) made a gust's strength a function of how sheltered
+the ground under it is — `weather.rs:1022`'s `exposure`, guarded by
+`exposure_is_read_only`. The page's "Wind and storms" section described gusts
+as uniform. Added.
+
+Both pages re-dated 2026-08-26.
+
+### Why this mattered more than it looks
+
+The set B run the same day showed a wiki page is a route agents actually take
+for design answers — the baseline arm got its non-destruction precedent from
+`wiki/plants.md`. A stale wiki page is not cosmetic; it is a confident wrong
+answer on a path we now have evidence gets walked.
+
+**One thing left for the owner, not fixable from the code.** The exact
+button-level interaction is worth a playtest check: left-clicking a plant you
+are *pointing at* still shakes it (the `shake_*` tuning is intact), while a
+blow that lands on wood now cuts it. Which one you get when both could apply is
+stated here from the code's structure, not from playing it.

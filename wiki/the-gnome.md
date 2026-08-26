@@ -1,18 +1,19 @@
 # The Gnome
 
-*Current as of: 2026-08-23. New since the last pass: loose grains at
+*Current as of: 2026-08-26. New since the last pass: loose grains at
 chest height no longer wall him, living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
 and behind trees and a tree in front hides him, a crown breaks a fall, a
 lip at the top of a jump is mantled, the sprite faces where it's going,
 holding `W` out of water puts him on the bank, left-clicking **a plant
-you are pointing at** shakes it while the pick sees straight through
-living wood to the rock behind, and with nobody summoned WASD scrolls the
-map instead. Cutting a tree down is deliberately not in yet. Since
-2026-08-23: mining leaves about a tenth of what it cuts as spoil by
-default, and `F2` steps to none at all, or up through a third, a half and
-all of it.*
+you are pointing at** shakes it, and with nobody summoned WASD scrolls the
+map instead. Since 2026-08-23: mining leaves about a tenth of what it cuts
+as spoil by default, and `F2` steps to none at all, or up through a third,
+a half and all of it. Since 2026-08-26 this page no longer says the pick
+passes through living wood, or that felling is not in — both stopped being
+true on 2026-08-23, twenty-two minutes before the previous pass was
+written.*
 
 The world can be inhabited. Press `U` with the cursor over an open spot
 and a small gnome — pointed red hat, green tunic — appears there; press
@@ -86,10 +87,22 @@ way through is a thing you can do.
 
 Left-clicking a plant shakes it instead of cutting it. It has to be a
 plant you are actually **pointing at** — a tree merely standing between
-you and where you clicked doesn't take the blow, and the pick sees
-straight through living wood to the rock behind, so you can dig in a wood
-and dig while standing inside a tree. There's no marker beforehand; the
-shake marks itself where it lands, for a moment, as it happens.
+you and where you clicked doesn't take the blow. There's no marker
+beforehand; the shake marks itself where it lands, for a moment, as it
+happens.
+
+**A blow does cut living wood, though, and that is new.** The pick used to
+pass straight through a trunk to the rock behind, so you could dig in a
+wood and dig while standing inside a tree; it no longer does. Living
+tissue is now something a hand tool reaches, on the same footing as rock —
+bedrock stays exempt, as it always has.
+
+**So a tree can be cut down.** Bite through a bole and the trunk parts;
+what is above the cut has lost its way back to the roots, and the crown
+comes down. It does not come down as a puff of sawdust: it comes apart
+into pieces, big ones and small ones, and the foliage rides the piece it
+was hanging on rather than turning to dust on its own. The stump and the
+roots stay where they are.
 
 A shake does three things and takes nothing structural. Whatever was
 resting on the branches — snow, sand, your own spoil — comes off them.

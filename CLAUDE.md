@@ -642,8 +642,8 @@ looks exactly like a result.
 missing.** The sentence above checks *specificity* — that the number stays
 quiet when nothing is wrong. It does not check **sensitivity**: that the
 number *moves* when something is. This file already has the sensitivity rule,
-written for guards — *"before trusting any guard, put the fault it is named
-for back and watch it go red"* — and it was never crossed over to
+written for guards — *"before you cite a guard's green as evidence, put the
+fault it is named for back and watch it go red"* — and it was never crossed to
 measurements. Measured 2026-08-25, in one session: **six numbers that were
 arithmetically correct, plausible, and about the wrong thing**, of which
 five needed the guard rule applied to an instrument. Two of the six are the
@@ -1327,13 +1327,29 @@ consider it at all.
   full-format pass is deliberately deferred work (`PLAN.md` issue #10) and
   CI keeps `cargo fmt --check` informational for exactly that reason, so do
   not let it ride along with an unrelated change.
-- **Before trusting any guard, put the fault it is named for back and watch
-  it go red.** This is the general remedy for the three bullets below, and it
-  is stated first because each of them describes a *different* mechanism by
-  which green means nothing — so an agent who has ruled out the two named
-  mechanisms concludes green is informative, which is how a correct finding
-  was once withdrawn. If the guard does not go red, it is not weak, it is
-  **blind**, and it needs replacing rather than a wider assertion.
+- **Before you cite a guard's green as evidence, put the fault it is named
+  for back and watch it go red.** This is the general remedy for the three
+  bullets below, and it is stated first because each of them describes a
+  *different* mechanism by which green means nothing — so an agent who has
+  ruled out the two named mechanisms concludes green is informative, which is
+  how a correct finding was once withdrawn. If the guard does not go red it is
+  not weak, it is **blind**: replace it rather than widening its assertion.
+  **The trigger is citing the green, not owning the guard** — a blind guard
+  costs nothing sitting there and costs a day when someone argues from it.
+  **Two exemptions keep this cheap.** A guard written *before* the fix has
+  already been watched going red; you have it for free, and the rule only
+  costs extra when the test came after the code. And a tight assertion on a
+  deterministic function cannot be blind in an interesting way. What it is
+  *for* is the case where green is the **default state** — loose assertions
+  over emergent behaviour, hand-constructed inputs, order statistics — which
+  is most of this engine. **Make it a command rather than a discipline.**
+  Measured 2026-08-26: six controls over the documentation benchmark, written
+  by an agent that had just finished writing this rule down, **two of them
+  blind** — caught in 2.3 s by `scripts/docbench.py selftest`, and by nothing
+  else, since both passed the positive control and would have passed it with
+  the documentation they guard deleted. As prose the same check runs 1–3k
+  tokens a time and its own injection can silently match nothing, which reads
+  as a pass.
 - **A green suite does not prove a test ran.** Deleting an `#[ignore]` took
   the `#[test]` above it with it; the test compiled, was never collected, and
   the suite stayed green. Clippy's dead-code warning caught it, not the tests.
@@ -1346,10 +1362,7 @@ consider it at all.
   insensitive to a single reordered draw; the other built a fresh `Rng` per
   call to model production, so it never observed a caller that continues.
   Green was evidence about the tests, not about the code, and it was used to
-  withdraw a correct finding. **Before trusting a guard, put the fault it is
-  named for back and watch it go red** — and if it does not, the guard is not
-  weak, it is blind, and a new one is needed rather than a wider assertion in
-  the old one. The same session found a `let generation = state.generation;`
+  withdraw a correct finding. The same session found a `let generation = state.generation;`
   shadowing the parent's `generation` — every bred child pinned at generation 1
   for ever, silently flattening lineage depth — and it was caught only because
   one guard hashed enough state to notice.
