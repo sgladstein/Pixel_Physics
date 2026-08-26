@@ -51,7 +51,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Performance](#performance) | 2498 |
 | [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2647 |
 | [Status](#status) | 2688 |
-| [License](#license) | 2789 |
+| [License](#license) | 2799 |
 
 ### Milestones, in numeric order
 
@@ -2765,8 +2765,18 @@ Known limitations:
   threads by `FIELD_HASH`, not by the suite. Isolated at 8192x2560 the field
   went 15.06 -> 7.54 ms amortised on four cores, and the scaling curve is
   13.27 / 9.68 / 7.54 at 1 / 2 / 4 — quote the curve, not the figure, since
-  it was taken on a four-core machine. The two sky walks and the
-  velocity/advection read snapshots were fixed alongside it.
+  it was taken on a four-core machine. The velocity/advection read snapshots
+  were fixed alongside it, and **the two sky walks followed on 2026-08-26**:
+  they had only been restructured to one tile fetch per column-row, which
+  left them serial and therefore the largest single pass on a quiet frame.
+  Both are now two-phase — entry amplitudes computed read-only in parallel
+  over chunk *columns*, then every tile written in parallel — because
+  `par_iter_mut` partitions a `HashMap` by hash bucket and a sky descent has
+  to partition by column. Measured in the whole app at 8192x2560, paired:
+  `sky` 2.65 -> 1.55 ms on a busy frame and 1.31 -> 0.42 ms on a quiet one,
+  `sky temperature` 2.19 -> 1.23 ms, and the whole frame 21.98 -> 20.67 ms.
+  Bit-identical by `FIELD_HASH`, with the guard's own sensitivity confirmed
+  by injecting a 0.1% error into one sub-column and watching every hash move.
 - **Windows screen capture cannot see this app's rendered canvas on this
   machine** — see M14 status above for the workaround. Worth re-checking
   whether this is machine-specific before assuming every future visual
