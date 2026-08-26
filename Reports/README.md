@@ -300,6 +300,15 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-morphology-evolvability-2026-08-26.md](plant-morphology-evolvability-2026-08-26.md)
+  — **findings note, answering a direct owner question**; successor in role
+  to the reach note above. Can those forms *evolve*, or must they be
+  authored? Primitives must be hand-built; combinations can be evolved only
+  if the identity switches land as priced genome loci rather than the
+  per-species `.ron` defaults the reach report's §3 assumes. Records the
+  three structural stops (species id is immovable, the genome cannot change
+  the behaviour graph, the existing dials are measured not to reach) and two
+  open owner calls in §8.
 
 ## Creatures and ecology
 
