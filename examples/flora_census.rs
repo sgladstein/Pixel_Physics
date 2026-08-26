@@ -384,7 +384,7 @@ fn report_where(params: &pixel_physics::worldgen::WorldgenParams, seeds: usize, 
                 run -= cols[(x - window) as usize];
                 sums.push((run, x - window + 1));
             }
-            sums.sort_by(|a, b| b.0.cmp(&a.0));
+            sums.sort_by_key(|s| std::cmp::Reverse(s.0));
             let mut taken: Vec<i32> = Vec::new();
             println!("  seed {seed}: top {window}-column windows for {target} ({total} cells world-wide)");
             for (count, x0) in sums {

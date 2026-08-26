@@ -1130,7 +1130,7 @@ mod tests {
                         steps.push((d.abs(), x));
                     }
                 }
-                steps.sort_by(|a, b| b.0.cmp(&a.0));
+                steps.sort_by_key(|s| std::cmp::Reverse(s.0));
                 for &(mag, x) in steps.iter().take(3) {
                     let d = surf(x) - surf(x - 1);
                     // How much of the drop is given back within four columns

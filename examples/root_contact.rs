@@ -189,7 +189,7 @@ fn main() {
     // individual dragging the mean (`plant-species-authoring.md` §7).
     let c = census(&world, soil);
     let mut per: Vec<(usize, f32)> = c.values().map(|v| (v.cells, 100.0 * v.touching_4 as f32 / v.cells.max(1) as f32)).collect();
-    per.sort_by(|a, b| a.0.cmp(&b.0));
+    per.sort_by_key(|p| p.0);
     println!("\n  per plant at {frames}, smallest root system first:");
     for (cells, pct) in &per {
         println!("    {cells:>6} root cells   {pct:>5.1}% touching soil");

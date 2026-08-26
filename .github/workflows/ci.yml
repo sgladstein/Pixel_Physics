@@ -80,10 +80,37 @@ concurrency:
 # right trade here. Bump it deliberately, as its own change, fixing whatever
 # the new release flags in the same commit.
 #
-# Not fixed in place instead, because `examples/filmstrip.rs` is touched by
-# five unmerged branches right now and it is the most-collided file in the
-# repo. `src/worldgen/column.rs` is uncontested and could be fixed today, but
-# fixing one of two leaves the gate red anyway.
+# **Bumped to 1.98 on 2026-08-26**, deliberately and with its own fixes in the
+# same commit, which is the rule the paragraph above exists to enforce. The
+# deferral it used to record -- that `examples/filmstrip.rs` was contested by
+# five unmerged branches -- had expired: four of the five had landed.
+#
+# **1.98 flags ten sites, not the two named above, and the count is itself a
+# trap.** Under `-D warnings` cargo aborts at the first failing crate, so a red
+# clippy run reports a *lower bound* and never a total; two separate attempts
+# at this bump were sized from such a run and undercounted (three, then seven,
+# against a true ten). Enumerate with `--keep-going` and confirm no target
+# failed to compile before trusting the list.
+#
+#   5x unnecessary_sort_by       column.rs (in `mod tests`), filmstrip.rs x2,
+#                                flora_census.rs, root_contact.rs
+#   3x unnecessary_sort_by       filmstrip.rs, underground_probe.rs x2
+#      (these three are *unstable* sorts -- see below)
+#   2x manual_checked_ops        filmstrip.rs x2
+#
+# **All ten are in `examples/` or inside a test module**, so nothing the
+# simulation runs changed. The five stable-sort rewrites are order-identical by
+# construction: `sort_by` and `sort_by_key` are both stable, so equal elements
+# keep their input order either way.
+#
+# **The three `sort_unstable` rewrites were verified rather than argued.**
+# `CLAUDE.md` records that an unstable sort's tie order depends on the element
+# *type*, not the comparator alone, and that a Rust upgrade retuning the sort
+# would change behaviour with nothing in the suite to catch it. The element
+# type is unchanged here and both forms lower to the same `is_less` predicate,
+# but that is reasoning, so the change was also checked against a byte-exact
+# baseline of `acceptance.sh`, `underground_probe`, `flora_census` and
+# `root_contact`, with the rebuild proven by binary checksum.
 #
 # **One job per gate, and the split is a bug fix rather than tidying.**
 # These were six steps of a single job, and a step only runs if the one
@@ -194,7 +221,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo test --release --locked
 
   test-debug:
@@ -208,7 +235,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo test --locked
 
   clippy:
@@ -216,7 +243,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
         with:
           components: clippy
       - run: cargo clippy --all-targets --release --locked -- -D warnings
@@ -248,7 +275,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: cargo run --release --example ascii --locked
 
   acceptance:
@@ -263,7 +290,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
       - run: bash scripts/acceptance.sh
 
   fmt:
@@ -281,7 +308,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: dtolnay/rust-toolchain@1.98
         with:
           components: rustfmt
       - run: cargo fmt --check
