@@ -1,0 +1,90 @@
+{
+  "id": "20260826T230359889Z-abd55f",
+  "created": "2026-08-26T23:03:59Z",
+  "board": "structural",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/structural-support-model-meus6w",
+    "commit": "91a0ad8",
+    "agent": null,
+    "session_id": "cd1c696b-acc0-53c6-888f-f4129e87343b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Roofing the same 103-cell chamber: flat vs curved",
+  "question": "Watching these side by side, would a player work out that the SHAPE was the reason — or does it just look like one of them got unlucky?",
+  "context_md": "Same piers, same opening, same 1,500 frames, both scrubbers step together.\n\n**This is not a proposal — nothing was added to the engine.** I built the same chamber two ways and the existing load model did the rest. Measured over a span sweep: an arch holds a **1.63x wider** opening than a flat slab **using the same amount of stone**, and to roof this particular 103-cell hole flat you need **1,507 cells against the arch's 493 — 3.1x**.\n\n**What I already measured, so you can ignore it:** that the arch wins, by how much, and that it is not just extra material (an equal-mass flat roof still falls). Full numbers in `Reports/arch-vs-lintel-measurement.md`.\n\n**What I am unsure about, and actually want your eye on:**\n\n1. Does the flat roof's failure read as *breakage* — pieces, a graded outcome — or as a dissolve? The counters say 4 overloaded + 2 unsupported failures, but a count is not a look.\n2. The chamber interior renders near-black because it is genuinely unlit. It reads as a shadowed gallery to me, but it may just be hiding the thing you need to see.\n3. The arch pane barely moves (2 distinct frames of 16). That is the correct answer — it holds — but a static pane next to a collapsing one may read as a broken capture rather than a result.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — flat lintel, 3 thick",
+      "files": [
+        "20260826T230359889Z-abd55f/000-lintel_00.png",
+        "20260826T230359889Z-abd55f/001-lintel_01.png",
+        "20260826T230359889Z-abd55f/002-lintel_02.png",
+        "20260826T230359889Z-abd55f/003-lintel_03.png",
+        "20260826T230359889Z-abd55f/004-lintel_04.png",
+        "20260826T230359889Z-abd55f/005-lintel_05.png",
+        "20260826T230359889Z-abd55f/006-lintel_06.png",
+        "20260826T230359889Z-abd55f/007-lintel_07.png",
+        "20260826T230359889Z-abd55f/008-lintel_08.png",
+        "20260826T230359889Z-abd55f/009-lintel_09.png",
+        "20260826T230359889Z-abd55f/010-lintel_10.png",
+        "20260826T230359889Z-abd55f/011-lintel_11.png",
+        "20260826T230359889Z-abd55f/012-lintel_12.png",
+        "20260826T230359889Z-abd55f/013-lintel_13.png",
+        "20260826T230359889Z-abd55f/014-lintel_14.png",
+        "20260826T230359889Z-abd55f/015-lintel_15.png"
+      ],
+      "caption": "363 cells placed across the opening",
+      "meta": {
+        "cells placed": 363,
+        "still up at rest": 177,
+        "share standing": "48.8%",
+        "overloaded failures": 4,
+        "unsupported failures": 2,
+        "clear span": 103
+      },
+      "focus": null
+    },
+    {
+      "label": "B — arch, same 3 thickness",
+      "files": [
+        "20260826T230359889Z-abd55f/016-arch_00.png",
+        "20260826T230359889Z-abd55f/017-arch_01.png",
+        "20260826T230359889Z-abd55f/018-arch_02.png",
+        "20260826T230359889Z-abd55f/019-arch_03.png",
+        "20260826T230359889Z-abd55f/020-arch_04.png",
+        "20260826T230359889Z-abd55f/021-arch_05.png",
+        "20260826T230359889Z-abd55f/022-arch_06.png",
+        "20260826T230359889Z-abd55f/023-arch_07.png",
+        "20260826T230359889Z-abd55f/024-arch_08.png",
+        "20260826T230359889Z-abd55f/025-arch_09.png",
+        "20260826T230359889Z-abd55f/026-arch_10.png",
+        "20260826T230359889Z-abd55f/027-arch_11.png",
+        "20260826T230359889Z-abd55f/028-arch_12.png",
+        "20260826T230359889Z-abd55f/029-arch_13.png",
+        "20260826T230359889Z-abd55f/030-arch_14.png",
+        "20260826T230359889Z-abd55f/031-arch_15.png"
+      ],
+      "caption": "493 cells, a semicircular ring off the same piers",
+      "meta": {
+        "cells placed": 493,
+        "still up at rest": 493,
+        "share standing": "100%",
+        "overloaded failures": 0,
+        "unsupported failures": 0,
+        "clear span": 103
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
