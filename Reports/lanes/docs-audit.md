@@ -751,3 +751,45 @@ owner's prose. Proposed, not applied.
 `world-cycles` still have zero page-to-page inbound links. Same class as the
 `plants.md` fix and the same cheap remedy; not done because only `plants.md`
 was scoped.
+
+## 2026-08-26 — `structural-collapse.md` restructured
+
+Owner-approved: headings, prune the note to current, move the footing
+paragraph. **358 → 328 lines, and the note 88 → 20 (24% of the page → 6%),
+in line with every other page.**
+
+**Eleven sections where there was one.** The page had a single heading, at
+line 291 of 358, so 290 lines ran unbroken. Its 13 bold leads were sentence
+openers rather than titles (*"**And it arrives as rock.**"*), so the headings
+were authored, not derived: *What holds something up · How weight is shared ·
+What cracks do · What a collapse looks like · Rock in water · Why what you
+build stands · Seeing the strain · What rubble does · What floats · Building
+and cutting on purpose ·* then the existing *How far damage travels*. Roughly
+25 lines each, matching `plants.md`'s 13-across-400. No prose was rewritten to
+fit them.
+
+**The prune could not be a deletion, and this is the part worth carrying.**
+The 88-line note had become an append-only changelog across three builds, and
+four facts existed *only* there — nowhere in the body:
+
+| fact | now lives in |
+|---|---|
+| falling rock shoves smoke aside | *What a collapse looks like* |
+| a tumbling piece cannot turn through the rock beside it | *What a collapse looks like* |
+| rock has a grain and breaks follow it | *What cracks do* |
+| breaks are one cell wide, straight and closed | *What cracks do* |
+
+A fifth was nearly lost: *"**LOCAL** is the one to try first if SPREAD feels
+too loose"* is guidance the body's `F9` list does not give, and it went back
+into that list after the prune had dropped it.
+
+**One check nearly went the other way.** Grepping the body for `grain` returned
+three hits, which read as "already covered" — all three are *grains of sand*,
+not the rock's grain. Had that stood, pruning the note would have deleted the
+grain rule outright. A token that means two things in one document cannot
+answer a coverage question; the hits have to be read.
+
+What was dropped is only what the body already says in its own words: the
+2026-08-22 water and rubble entries (the *Rock in water* and *What rubble
+does* sections carry all of it), the `F9` fixes (the damage section states all
+three), the TIGHT-as-default experiment, and resolved open questions.
