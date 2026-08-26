@@ -660,6 +660,30 @@ order and must be refused.
 **The result: 3/3, in 8 file-opens, with no source file read.** Seventeen
 tool calls total (8 reads, 8 greps, one directory listing).
 
+**The instrument was corrected on 2026-08-26, and the prompt now lives in
+`scripts/docbench.py` rather than only here** — paraphrasing it between runs
+would break the series, and a prose prompt invites paraphrase. Run
+`python3 scripts/docbench.py prompt` to get it verbatim, `runs` for the
+history, and **`check` before every run**: that is the positive control, and
+it is not optional. A question whose answer has since left the corpus would
+score the *instrument* rather than the documentation, and the low run would be
+misread as a regression.
+
+**The headline metric moved from `files_opened` to `agent_tokens`.** The
+2026-08-26 re-run is why: a week of routing work that deliberately trades
+file-opens for narrower reads — grep the mechanism rather than the area, enter
+the bug register by its generated index — came back at **6 files, unchanged**,
+with tool calls *up* 17 → 23. A metric that cannot move when the thing it
+measures improves is not measuring it. It also counts a 200-token grep and a
+30,000-token read alike, and it is blind to `CLAUDE.md`, which the harness
+pre-loads into a subagent — so earlier runs that *read* it counted it and later
+runs that merely *used* it did not, leaving the series incomparable in a way
+nothing in the record admitted. `agent_tokens` is the harness's own
+`subagent_tokens` figure: objective rather than self-reported, and it absorbs
+the pre-loaded file instead of needing a correction. **Do not tune for
+`files_opened`** — it is kept as colour. The first two runs cannot be
+back-filled, so the new series starts at 101,669 on 2026-08-26.
+
 **The graded per-question analysis is deliberately NOT here.** It named the
 trap and said why it was refused, which made the benchmark non-blind on repeat
 runs — the instrument sitting inside the corpus it measures, which is this

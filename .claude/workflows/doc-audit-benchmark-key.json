@@ -79,7 +79,10 @@
         "Reports/documentation-audit.md"
       ],
       "notes": "files_opened held at 6, unchanged from 2026-08-24, while tool calls rose 17 -> 23. Do NOT read that as no improvement: the routing landed this day deliberately trades file-opens for narrower reads, so files_opened is the wrong metric for it. The qualitative evidence that it worked is that the run USED the new routing and said so -- it entered README by the By topic table, entered dead-ends.md by mechanism grep rather than by area, read only the bug register's generated index, and quoted PLAN.md's dated State line. CLAUDE.md was pre-loaded by the harness and never opened, so it is absent from files_in_order here where earlier runs counted it -- the counts are not strictly comparable and that confound is the reason to prefer the qualitative read.",
-      "new_defect_found": "Three documents pointed at load-model-handoff.md -- superseded by landing -- with no marker, the worst being fracture-mechanics-design.md's 'Read that to *build* this'. A cold agent arriving from that report is sent straight at a stale work order whose section 3 is a recorded dead end. Fixed 2026-08-26. Neither earlier run found this, because neither approached the handoff from a referring document."
+      "new_defect_found": "Three documents pointed at load-model-handoff.md -- superseded by landing -- with no marker, the worst being fracture-mechanics-design.md's 'Read that to *build* this'. A cold agent arriving from that report is sent straight at a stale work order whose section 3 is a recorded dead end. Fixed 2026-08-26. Neither earlier run found this, because neither approached the handoff from a referring document.",
+      "agent_tokens": 101669,
+      "metric_note": "agent_tokens back-filled from the harness's own subagent_tokens report for this run. The 2026-08-21 and 2026-08-24 runs cannot be back-filled -- their transcripts are gone -- so this is the first point on the new series, not a comparison."
     }
-  ]
+  ],
+  "_metric_change": "2026-08-26: the headline moved from files_opened to agent_tokens. files_opened could not move when routing improved (6 both before and after this week's work, with tool calls UP 17 -> 23), counts a 200-token grep and a 30k read alike, and is blind to the pre-loaded CLAUDE.md. See scripts/docbench.py for the full reasoning. Do not tune for files_opened."
 }

@@ -451,3 +451,38 @@ locally* — but its specific instance is closed and now says so.
 skip"*) is where staleness hides longest, because the emphasis discourages the
 check. When applying the procedure-wants-a-command lens, **test the premise of
 the command, not only whether a script exists.**
+
+### The benchmark measured the wrong thing; fixed
+
+Re-ran the cold-agent benchmark after this week's routing work: **3/3, trap
+refused, 0 source reads, 6 files opened — unchanged**, with tool calls *up*
+17 → 23.
+
+**That is the instrument failing, not the docs.** The routing landed this week
+deliberately trades file-opens for narrower reads (grep the mechanism not the
+area; enter the bug register by its index). A metric that cannot move when the
+thing it measures improves is not measuring it. Two more defects: it counts a
+200-token grep and a 30k read alike, and it is blind to `CLAUDE.md`, which the
+harness **pre-loads** into a subagent — so earlier runs that *read* it counted
+it and later runs that merely *used* it did not. The series was incomparable
+and nothing in the record said so.
+
+**Headline is now `agent_tokens`** — the harness's own `subagent_tokens`
+figure. Objective rather than self-reported, absorbs the pre-loaded file
+instead of needing a correction, denominated in what routing actually changes.
+First point: **101,669** on 2026-08-26. The two earlier runs cannot be
+back-filled and stay in the record unconverted, so the change is visible.
+
+`scripts/docbench.py` holds the canonical prompt (`prompt`), the history
+(`runs`), and a **positive control** (`check`) that verifies each question
+still has an answer — fault-injected to confirm it fires. Without it a
+question whose answer had left the corpus would score the instrument and read
+as a regression.
+
+**Two general points worth carrying past this instrument:**
+
+- **A metric you chose before the change is a hypothesis about what the change
+  will do.** Re-examine it when the change lands, not only the number.
+- **The prompt now lives in a script, not in prose.** A prose prompt invites
+  paraphrase between runs, and a paraphrased prompt silently breaks a time
+  series — the same reasoning that moved the grep gotcha into `docgrep.py`.
