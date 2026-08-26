@@ -159,6 +159,15 @@ tried?"*.
   what actually changed rather than over a box, why both withdrawn attempts
   failed the same way, and why the delay timer is nearly free while the
   convergence is not. Read with §S and `dead-ends.md`'s scheduler section.
+- [structural-support-model.md](structural-support-model.md) — **design and
+  measurement, nothing built.** Sizes §S's sketched replacement for the
+  support field. The coarse-layer half is confirmed within 1% (5,169 nodes,
+  and the potential packs into the existing `u16`); the saturating-gradient
+  half is falsified (a horizon of 64 strands 95.38% of body cells); and the
+  error's *sign* is the other way round from the reading in circulation — the
+  damaged region reads stale-**low**, not high, which makes it a load sink.
+  Carries the instrument (`examples/support_census.rs`) and the cheapest
+  falsifying experiment for what is left standing.
 
 ## Liquids and granular
 

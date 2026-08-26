@@ -2766,6 +2766,19 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // is a different colour, not the same grain -- the one case where
         // `BodyCell::shade`'s "never re-roll" rule does not apply, since
         // the material changed underneath it.
+        // **A probe, not a mechanism** -- `SETTLE_AUX_MAX=1`, for
+        // `Reports/structural-support-model.md`. `Cell::new` writes `aux 0`,
+        // which reads as *anchored*; this writes `u16::MAX`, which reads as
+        // "no known path", and lets `tick` relax the cell from its
+        // neighbours instead. The two errors are not symmetric and that is
+        // the thing being measured: a `u16::MAX` is corrected by one
+        // improvement wave, and a `0` inside a massif has to *climb* to the
+        // true distance at one unit per relaxation round.
+        let settle_aux_max = {
+            use std::sync::OnceLock;
+            static ON: OnceLock<bool> = OnceLock::new();
+            *ON.get_or_init(|| std::env::var("SETTLE_AUX_MAX").map(|v| v != "0").unwrap_or(false))
+        };
         let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
             Some(into) => {
                 let shades = world.materials.get(into).palette.len().max(1) as u32;
@@ -2785,6 +2798,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
             None => Cell::new(cell.material, cell.shade),
         };
+        let fresh = if settle_aux_max { fresh.with_aux(u16::MAX) } else { fresh };
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             world.set(x, y, fresh);
             landed.push((x, y));

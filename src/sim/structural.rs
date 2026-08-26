@@ -236,11 +236,22 @@ pub struct TickCensus {
     pub uninteresting: u32,
     /// Largest distance written this frame.
     pub max_aux: u16,
+    /// Took the last-resort ground root -- nothing relaxed to a path and the
+    /// cell is resting on loose material, so it wrote **0**.
+    ///
+    /// Counted because `Reports/structural-support-model.md` needed to know
+    /// whether the false zero a blast leaves behind comes from here, and a
+    /// census over *stored* values cannot see a root that has since climbed
+    /// away from 0. Pairs with `STRUCT_NO_GROUND_ROOT`: an ablation whose
+    /// mechanism never fired reads exactly like an ablation that changed
+    /// nothing.
+    pub grounded: u32,
 }
 
 thread_local! {
     static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
         worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
+        grounded: 0,
     }) };
 }
 
@@ -390,7 +401,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // material that can flow away without scheduling anything. See
     // `GROUNDED_RECHECK_INTERVAL`, which is what the tail of this function
     // does about it.
-    let grounded_root = relaxed == u16::MAX && is_resting_on_ground(world, x, y);
+    let grounded_root = relaxed == u16::MAX && !no_ground_root() && is_resting_on_ground(world, x, y);
+    if grounded_root {
+        census(|c| c.grounded += 1);
+    }
     let new_distance: u16 = if grounded_root { 0 } else { relaxed };
 
     // Written *before* the failure test, not after, and the order is
@@ -441,6 +455,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         }
         c.max_aux = c.max_aux.max(new_distance);
     });
+    // The `STRUCT_NO_CLIMB` probe -- see `no_climb`. A suppressed rise is
+    // treated as though the distance had not moved: judged (the rise is
+    // still the signal that support got worse), not written, and not fanned
+    // out. Everything below reads `moved` through this, so the cell takes
+    // exactly the unmoved path and stops rescheduling itself.
+    let moved = moved && !(worsened && no_climb());
     if moved {
         world.set(x, y, cell.with_aux(new_distance));
         propagate.push(reschedule(world, x, y));
@@ -3706,6 +3726,47 @@ fn reconverge_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("STRUCT_RECONVERGE").map(|v| v != "0").unwrap_or(false))
+}
+
+/// **A probe, not a mechanism.** `STRUCT_NO_CLIMB=1` takes away `tick`'s
+/// authority to *raise* a stored distance: a relaxation that comes back
+/// worse is judged, as it is today, but is neither written nor fanned out.
+///
+/// It exists to measure one claim in `Reports/structural-support-model.md`:
+/// that count-to-infinity is caused by *increases being handled locally*
+/// rather than by the field's range, so forbidding the local increase
+/// should stop the manufacturing that turns 369 genuinely-invalid cells
+/// into 67,100 wrong ones. On its own it is not a shipping shape — it
+/// leaves the field permanently stale-low wherever a rise is real, and only
+/// `reconverge_from_damage` (`STRUCT_RECONVERGE=1`) puts the rise back. The
+/// two are meant to be measured together, and separately, which is why they
+/// are two switches.
+fn no_climb() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("STRUCT_NO_CLIMB").map(|v| v != "0").unwrap_or(false))
+}
+
+/// **A probe, not a mechanism.** `STRUCT_NO_GROUND_ROOT=1` removes `tick`'s
+/// last-resort ground root, so a cell that relaxes to no path at all stays at
+/// `u16::MAX` instead of writing 0.
+///
+/// It is an *ablation*, in `ant_ablation`'s sense: turn the mechanism off and
+/// see whether the outcome notices. The outcome under test is the stale-low
+/// region a blast leaves behind
+/// (`Reports/structural-support-model.md`) -- every cell in it stores a value
+/// far *below* the truth, which means something wrote a false zero nearby and
+/// the region measured itself from that. `grounded_root` is the only writer
+/// of a 0 that is not adjacent to bedrock, and a crater full of settling
+/// rubble is exactly the state it fires in.
+///
+/// Not a proposal: its own doc records what removing it costs -- a lone stone
+/// left hanging in open water for the rest of a run, because a cell that
+/// stops asking is never re-asked.
+fn no_ground_root() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("STRUCT_NO_GROUND_ROOT").map(|v| v != "0").unwrap_or(false))
 }
 
 /// What one `reconverge_from_damage` call did, for `SCHED_PASS` to print.

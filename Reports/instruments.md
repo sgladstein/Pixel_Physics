@@ -65,6 +65,7 @@ studies:
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
 | `fire_probe` | The grassfire instrument | |
 | `anchor_probe` | **Does it matter which code path last wrote a field?** One geometry, its anchor distances written three ways, swept for the margin | Built for `open-bugs-handoff.md` §S2; the shape generalises — see below |
+| `support_census` | **What the support field is made of, and what a replacement would cost.** The distance histogram, the coarse chunk layer's true node and edge count, and a cell-by-cell comparison of a candidate field's *load DAG* against the exact field's | Read-only — builds candidate fields beside the real one and never writes. `control=1` runs both controls; see below |
 
 ## Creatures
 
@@ -124,6 +125,32 @@ indifferent to what the field is. Three properties worth reusing:
 Reach for its shape for any "does this code path's version of X differ from
 that one's" question — two writers of the same cached field, two builders of
 the same state, a fast path against its slow reference.
+
+**`support_census` compares two fields by the *question their consumers ask*,
+not by their values**, and that is the transferable part. `load.rs` never
+reads a support distance as a magnitude — it reads four bits per cell, "which
+of my neighbours are below me" — so two fields with wildly different numbers
+can be identical to every rule downstream, and two fields with similar numbers
+need not be. The census computes those bits under each field and diffs them.
+Reach for the shape whenever a replacement is proposed for a cached quantity:
+**diff the predicate the consumers evaluate, not the cache**.
+
+Three things it does that are worth copying:
+
+- **Two controls, opposite in sign.** A flat-zero field must read ~97%
+  disagreement (the instrument can see a difference) and the exact field
+  against itself must read exactly 100% same (it does not manufacture one). A
+  set-comparison that is silently comparing a thing with itself reports
+  perfect agreement, which is the answer a proposal wants.
+- **It splits by whether anything ever looks.** At 8192x2560 only **10,344 of
+  19.4 M** body cells pass `load::is_structurally_interesting`, so a
+  whole-world agreement figure is 99.95% a statement about rock no rule
+  evaluates. The headline and the meaningful number differed by 2.3x
+  (50.49% against 21.82%).
+- **It reports a chunk-boundary breakdown as a rate per band, never a
+  count.** The interior band holds far more cells and wins on a count
+  whatever the truth is; `CLAUDE.md`'s chunk-decomposition warning needs the
+  rate to be checkable.
 
 **`ant_ablation` and `pass_ablation` are the same idea in two domains**: turn
 the mechanism off and see whether the outcome notices. Before concluding a
