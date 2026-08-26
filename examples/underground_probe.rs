@@ -276,7 +276,7 @@ fn overdark_report(world: &World) {
         }
         clusters.push((n, x0, y0, x1, y1));
     }
-    clusters.sort_unstable_by(|a, c| c.0.cmp(&a.0));
+    clusters.sort_unstable_by_key(|c| std::cmp::Reverse(c.0));
     for (n, (cells, x0, y0, x1, y1)) in clusters.iter().take(3).enumerate() {
         println!("    corrected patch #{}: {cells:>5} cells at x {x0}..{x1}, y {y0}..{y1}", n + 1);
     }
@@ -461,7 +461,7 @@ fn survey(world: &World) -> Survey {
             s.regions.push((n, x0, y0, x1, y1));
         }
     }
-    s.regions.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+    s.regions.sort_unstable_by_key(|r| std::cmp::Reverse(r.0));
     s
 }
 
