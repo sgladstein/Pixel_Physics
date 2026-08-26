@@ -1647,6 +1647,15 @@ pub struct OrganismState {
     /// while the body count was zero for the whole run. Every card this
     /// mechanism is posted on carries this number in its `meta`.
     pub starved_cells: u32,
+    /// **Consecutive organism ticks on which this plant could not pay even
+    /// the mass term of its own maintenance** — the clock that ends in
+    /// death by starvation.
+    ///
+    /// Reset to zero the moment it can pay, so this counts a *sustained*
+    /// failure rather than a bad afternoon. See
+    /// `plant::STARVATION_DEATH_TICKS` for what it is measured against and
+    /// why the comparison is the mass term rather than the whole bill.
+    pub starving_ticks: u16,
     /// The **root collar** — the lowest row this organism's *shoot* tissue
     /// occupies, refreshed once per organism tick in the walk
     /// `plant::organism_upkeep` is already doing.

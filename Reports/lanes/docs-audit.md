@@ -313,3 +313,141 @@ just written to stop. The two family leads consolidate seven bullets under
 two general checks and cover the highest-recurrence class in the corpus, so I
 think it pays — but it is an addition, and the next pass over this file
 should be looking for what comes out.
+
+## 2026-08-26 — the compression estimate was wrong; the routing gap was the real find
+
+Asked to compress `CLAUDE.md`. **I had estimated 400–600 recoverable tokens
+and that was optimistic — the honest figure is ~40–100**, which is now taken
+(a worst-frame rule's two corroborating legs, which prove the rule right
+rather than telling you how to apply it, and one bullet's pointer prose).
+
+Measured the obvious remaining class, sentences that are provenance about the
+*document* rather than instruction: **~300 tokens across 7 sentences**. Read
+individually, most is load-bearing — *"an earlier version of this section
+blamed it on weathering accruing rubble"* is a do-not-retry signal, and *"the
+rule was written as 'ask what a metric counts' and recurred anyway"* is why
+the rule is framed as it is. **Cutting it would be the exact mistake this repo
+records.** The file is not meaningfully compressible without losing content.
+
+**The find is in the other files, and it is systematic.** Checking every row
+of the knowledge table for whether it says *how* to consume the file:
+
+| file | tokens | said how? |
+|---|---|---|
+| `Reports/dead-ends.md` | 97,214 | yes — "grep your area" |
+| `Reports/open-bugs-handoff.md` | 96,582 | **no — "Read this before touching a listed area"** |
+| `PLAN.md` | 60,199 | **none** |
+| `README.md` | 46,060 | **none** |
+
+Two registers of near-identical size, routed in opposite ways: one correctly
+grepped, one instructed to be *read whole* at ~97k tokens — and it has had a
+generated status index the guidance never mentioned. An agent obeying that
+literally burns 97k; one that balks reads nothing. `PLAN.md` and `README.md`
+carry no guidance at all, which is another 106k, despite both having
+navigation built for them this week.
+
+All four rows now name the size and the entry point. That is worth far more
+than any compression pass: it changes what a session *loads*, not what it
+*carries*.
+
+**Standing check for anyone editing the knowledge table:** a row that names a
+file over ~15k tokens must say how to enter it. Naming the file is not
+routing.
+
+## 2026-08-26 — "grep your area" was the wrong unit; the index it seemed to need is a dead end
+
+Audited the four documents `CLAUDE.md` routes to (~300k tokens, **26% of all
+documentation**: 1.14M across 131 files). Three hypotheses tested and
+**disproved** — record these so nobody re-runs them:
+
+- **`dead-ends.md` is stale.** A mechanism-existence check over all 594
+  entries found **1** naming symbols mostly absent from `src/`, and it is the
+  `perf-lock` retirement, correct by design. Entries are substantial (0%
+  under 200 characters). Content is sound.
+- **The bug register's index is untrustworthy.** `bugindex.py --check` is
+  clean; the index carries status, line and description for 77 bugs (39
+  open), and the recommended path costs **~4,334 tok** against 96,582 whole.
+- **`PLAN.md`'s issues backlog is rotting.** Better maintained than expected —
+  resolved issues struck through with closing evidence, #2 explicitly
+  *"deprioritised by measurement, not closed"*.
+
+**The real problem was the unit of search, not the file.** Measured cost of
+following "grep your area" in `dead-ends.md`:
+
+| grep unit | plants | structural | liquids |
+|---|---|---|---|
+| prose, by area | ~29,101 | ~12,240 | ~12,335 |
+| by address prefix | ~15,455 | ~11,728 | ~4,953 |
+| **by mechanism** | `thicken` ~2,458 · `max_unsupported_span` ~651 · `chunk seam` ~251 · `rot_remains` **0** | | |
+
+**A 10–50x reduction from changing one noun.** A zero-hit mechanism grep is a
+real answer, delivered for nothing.
+
+**I was one step from building a generated topic index for it, and that would
+have been the wrong fix.** It would add a generated block to a 97k co-owned
+file, need a new script and `--check`, and still leave a floor of ~8.4k tokens
+for plants (128 address-matched entries x ~66 tok each). A wording change beat
+it at zero cost and zero maintenance. **`dead-ends.md` needs no structural
+change** — do not propose one.
+
+Useful structural fact found on the way: **592 of 595 entries (99%) open with
+a machine-readable file address** across 77 distinct files, 30 covering 80%
+of entries. That is what makes the address-prefix grep work as a second
+resort.
+
+### The grep false-negative got a tool, because a rule was not a fix
+
+Asked whether writing the rule had actually fixed anything. It had not — the
+rule asked the reader to strip markup and collapse whitespace **by hand,
+mid-task**, which is the exact discipline this file's own recurrence audit
+found does not survive a real session (seven rules existed and the mistake
+recurred anyway). I made this mistake twice today with `CLAUDE.md` loaded.
+
+`python3 scripts/docgrep.py "the phrase as it reads"` now does it. It imports
+`addrcheck.normalise` rather than reimplementing it, so the two agree by
+construction, and prints `file:line`, exiting 1 on no match. Verified against
+the two phrases that actually fooled me (`Six seeds is not a sweep`, `By topic
+table maps subsystem` — both **0 hits** under plain `grep`, both found), a
+heavily marked-up phrase quoted as it reads, and a negative control that must
+still fail.
+
+**The general point, which is the reusable half:** when a rule asks for a
+multi-step manual procedure, that is a signal the fix is a command, not
+prose. Check whether the normalisation, parsing or comparison the rule
+describes already exists somewhere in `scripts/` — here it did, in a checker
+built the same day, and the rule had been written without noticing.
+
+### Applying "a procedure wants a command" found a stale command
+
+Swept `CLAUDE.md` for rules that ask for a multi-step manual procedure and
+checked each against `scripts/`. Three real candidates, three different
+verdicts — the mix is the useful part:
+
+**1. Genuinely prose, left alone.** *"Before trusting any guard, put the fault
+it is named for back and watch it go red."* Constructing the fault a guard is
+named for is judgement, not a procedure. No command can do it.
+
+**2. Prose duplicating machinery that already exists.** The bug-register rule
+said to *"check the letter is not taken"* by hand. `bugindex.py --check`
+already does it and is gated by `docscheck` — fault-injected to confirm rather
+than trusting its "identifiers unique" message: a duplicated `### D3.` gives
+`identifier 'D3' is used by 2 entries (lines 468, 501)`, exit 1. The rule now
+names the command.
+
+**3. A command that had gone stale, and nobody noticed because it was
+asserted so firmly.** The Commands section read `cargo test -- --skip
+root_and_shoot_branching_read_different_slots   # the --skip is not optional`.
+**It is optional.** Bug A's test is `#[ignore]`d, so it never runs. Measured
+2026-08-26: `cargo test --lib` with no flag at all gives **943 passed / 0
+failed / 54 ignored**, exit 0. The premise was true when that test ran red;
+someone later ignored it and the guidance never caught up, in the most-followed
+section of the file.
+
+The general rule in the red-suite gotcha survives and is why the entry stays —
+*while any gate is quarantined, whatever runs after it is not being run
+locally* — but its specific instance is closed and now says so.
+
+**Carry this:** an emphatic qualifier (*"not optional"*, *"always"*, *"never
+skip"*) is where staleness hides longest, because the emphasis discourages the
+check. When applying the procedure-wants-a-command lens, **test the premise of
+the command, not only whether a script exists.**

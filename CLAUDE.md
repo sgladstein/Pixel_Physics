@@ -76,12 +76,12 @@ already changed decisions:
 
 | File | Holds |
 |---|---|
-| `README.md` | Architecture, and per-milestone status |
+| `README.md` | Architecture, and per-milestone status. **~46k tokens — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers, and milestone sections are named for the *build*, not the subsystem (`M17 status` is the structural-collapse write-up) |
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
-| `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
+| `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
-| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (594 at last census, 2026-08-25), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
-| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
+| `Reports/dead-ends.md` | **Tried-and-reverted approaches** (595 at last census, 2026-08-26), each with the condition its rejection depended on and where the full record lives. **~97k tokens — grep the *mechanism* you are about to touch or propose, never your subsystem.** Measured 2026-08-26: `thicken` returns ~2,460 tokens, `max_unsupported_span` ~650, `chunk seam` ~250, and `rot_remains` **zero** — a real answer, cheaply. Grepping an area instead costs ~12k–31k, more than this file. For a genuine survey, grep the address prefix (`^- \*\*.\?src/sim/plant`) rather than the prose: 99% of entries open with the file they apply to, which halves it |
+| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. **~97k tokens — do not read it whole**: its generated status index is the first table in the file, so read that, then only the sections it lists for your area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/session-programs.md` | **Coordinator ↔ lane protocol** — only if you are coordinating sessions or were spawned by one |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
@@ -124,7 +124,7 @@ something that cost effort to find.
 ## Commands
 
 ```
-cargo test -- --skip root_and_shoot_branching_read_different_slots   # unit + integration; the --skip is not optional -- see the red-suite gotcha
+cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
@@ -486,7 +486,10 @@ line at once:
   which is the failure §M's own entry opens by warning about.
 
 So before adding a section: **grep the file for the thing you are about to
-file, and check the letter is not taken.** And when a merge conflicts there,
+file** — and for the letter, run `python3 scripts/bugindex.py --check`, which
+names both lines when one is used twice (`identifier 'D3' is used by 2
+entries`) and is already gated by `docscheck`. Do not check the letter by
+eye; that is what the tool is for. And when a merge conflicts there,
 ask which side is *newer* rather than which is yours — a stale copy of an
 entry the other side has since closed looks exactly like your own work.
 
@@ -898,11 +901,10 @@ out of that, and neither depends on the machine it was measured on:
   rather than to metrics — a null is where it hides, because a null looks the
   same whether the mechanism is quiet or the probe never reached it.
 - **…and a *positive* hides from the opposite direction.** A null hides from
-  **inattention** — nothing demands an explanation. A positive hides from
-  **motivated reasoning** — it is the result you wanted, and every check you
-  reach for is one it passes. Same session, both shapes, and neither had a
-  control. *A cost that vanishes may be work that vanished* below is the worked
-  case and carries the remedy.
+  **inattention**: nothing demands an explanation. A positive hides from
+  **motivated reasoning**: it is the result you wanted, and every check you
+  reach for is one it passes. Worked case and remedy: *A cost that vanishes
+  may be work that vanished*, below.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
@@ -923,9 +925,7 @@ frames ≈ worst**. One blast per run puts essentially all time ever spent in th
 blasts phase into a single frame, and the perf lane's converged-pass figure
 pins at 0.97 (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst), its
 bedrock-only control at 0.96 — while the ascii case above pins at nothing at
-all. Two further independent legs held there: two runs agreeing to **1.2x**,
-not 6x, and a dose-response prediction (the 8x box has 64x the area;
-6.08 × 64 = 389 ms).
+all. (Two further independent legs held there; they are in the report.)
 
 So: run the ratio before quoting a worst. If an aggregate pins it, quote it; if
 it is an order statistic over many similar frames, it is noise wearing a
@@ -1357,16 +1357,18 @@ consider it at all.
   test binary, so a known-red lib test hides every integration test from a
   local run.** Bug A lives in the lib target, so plain `cargo test` fails
   there and never runs `tests/worldgen.rs` or `tests/determinism.rs` — they
-  do not appear in the output at all, not even as skipped. CI does not have
-  this blind spot, because its `test` jobs pass `--skip
-  root_and_shoot_branching_read_different_slots`: the lib goes green and the
-  integration binaries then run. That asymmetry hid **two gating failures on
-  `main` for a whole day** (`Reports/open-bugs-handoff.md` §M). So run the
-  gate the way CI runs it — `cargo test --release --locked -- --skip
-  root_and_shoot_branching_read_different_slots` — and treat the *absence*
-  of `Running tests/worldgen.rs` from the output as the tell, since it reads
-  as a pass rather than an error. The general rule: **while any gate is
-  quarantined, whatever runs after it is not being run locally.**
+  do not appear in the output at all, not even as skipped. That asymmetry hid
+  **two gating failures on `main` for a whole day**
+  (`Reports/open-bugs-handoff.md` §M). **The specific instance is closed and
+  the general rule is not.** Bug A's test is now `#[ignore]`d, so it no longer
+  runs and no longer blocks anything: measured 2026-08-26, `cargo test --lib`
+  with no flag gives **943 passed / 0 failed / 54 ignored**. The `--skip
+  root_and_shoot_branching_read_different_slots` this bullet and the Commands
+  section both insisted on is therefore vestigial, and CI still passes it
+  harmlessly. What survives, and is the reason to keep this entry: **while any
+  gate is quarantined, whatever runs after it is not being run locally** — so
+  treat the *absence* of `Running tests/worldgen.rs` from the output as the
+  tell, since it reads as a pass rather than an error.
 - **You are probably measuring a binary that is not the code you wrote.**
   Four separate bullets below are one failure — the artifact under test is
   stale, and it happens on *every* route into it. **The shared tell is
@@ -1457,6 +1459,26 @@ consider it at all.
   live, and go live the moment promotion lands. Why promotion was
   implemented and reverted is in `liquid.rs`'s own module doc and
   `Reports/liquid-heightfield-design.md`.
+- **Grepping a prose phrase gives false negatives, and a false negative here
+  reads as "the content is gone".** Two causes, both structural rather than
+  careless. **The prose is hard-wrapped** at a median 72-73 characters, and
+  `grep` is line-based, so a phrase that straddles a wrap can never match:
+  measured 2026-08-26, **750 of 3,233 bolded phrases across `CLAUDE.md`,
+  `README.md`, `PLAN.md` and the two registers span a line break — 23%, very
+  nearly one in four.** And the house style puts `**bold**` and `` `code` ``
+  *inside* sentences, so a phrase quoted the way it reads does not match the
+  way it is stored. Both were hit in one session: a post-merge check reported
+  two lanes' work missing when it was present and intact, which nearly became
+  a report that the merge had dropped it. **Use
+  `python3 scripts/docgrep.py "the phrase as it reads"`**, which normalises
+  both sides and prints `file:line`; with no file arguments it searches the
+  documents agents are routed to, and it exits 1 on no match so it can be used
+  in a conditional. A short unique token (`rot_remains`,
+  `max_unsupported_span`) greps fine; a sentence does not. This is a tool
+  rather than a rule deliberately -- the rule that stood here first asked the
+  reader to strip the markup and collapse the whitespace by hand, mid-task,
+  which is exactly the discipline this file's own recurrence audit found does
+  not survive a real session.
 - **A coarse-field read is block-nearest, so neighbouring cells sample the
   same value — never build a per-cell decision on the difference between
   two of them.** At `FIELD_SCALE`, four sensors one cell apart land in the
