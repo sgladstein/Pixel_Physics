@@ -519,3 +519,64 @@ table that does not exist"*. **Verified false** — that tree's `CLAUDE.md` has
 zero occurrences of "By topic", and so does its README. I nearly relayed it.
 A subagent report can contain a fabricated, checkable defect stated as fact;
 check the cheap ones before passing them on.
+
+## 2026-08-26 — the benchmark could not have shown improvement
+
+The A/B I ran to answer *"did the audit help?"* came back inconclusive
+(105,073 → 101,669 agent tokens, −3.2%, one run per arm). Re-reading the
+series explains why, and the explanation is not noise.
+
+**Set A has scored 3/3 correct and 1/1 trap in every run it has ever had,
+including the pre-audit baseline arm.** The correctness half has never
+discriminated. `check` verified that every question still *has* an answer —
+specificity — and nothing ever verified that the score could *move*. That is
+this repo's own rule (*put the fault back and watch it go red*) applied to an
+instrument rather than a test, and it was not applied when the instrument was
+built.
+
+Worse, the one change with a 10–50x token effect — `dead-ends.md`'s search
+unit, area → mechanism — is invisible to set A. Q2 **names the mechanism in
+the question**, so the agent never has to choose a unit of search. The
+guidance that changed is bypassed by the question meant to exercise it.
+
+### Set B
+
+Four questions, each verified against `2f5de1e` **before** it was written and
+kept only because the old answer was wrong or missing:
+
+| | old-tree answer | why it was wrong |
+|---|---|---|
+| B1 ownership | "plant.rs is uncontested" | no plants row existed; the table asserted everything collided in `app.rs` (6th, at 51) |
+| B2 ethos | rule found, precedent absent | generic graded-outcome clause present, zero precedent outside destruction |
+| B3 search unit | grep the liquids area | ~12k–31k tokens vs ~250–2,460; **names no mechanism**, so the agent must choose |
+| B4 referral trap | "yes, safe" | `fracture-mechanics-design.md` said *read that to build this* of the superseded handoff, unwarned |
+
+B4 is deliberately a *different* trap from set A's: A hands the agent the
+unsafe document, B hands it a document that recommends the unsafe one.
+
+**Set B is a regression set, not a capability test.** It is aimed at four
+specific repairs. A future change that fixes something else will not move it,
+and a score on it must never be read as "the documentation is good".
+
+### What fault injection found, in 2.0 seconds
+
+Both are recorded because neither was findable any other way — both passed
+`check`, and both would have passed it with the documentation they guard
+deleted:
+
+- **B2 was blind.** It searched the whole of `CLAUDE.md` for `rot_remains`,
+  which also appears in the dead-ends row as an example of a grep that returns
+  *nothing*. Rescoped to the ethos section.
+- **B3b's injection was blind**, not its control: it replaced 1 of 6
+  occurrences, so a surviving copy hid the fault. Replace every occurrence.
+
+Landed as `python3 scripts/docbench.py selftest` — six injections, ~2 s, no
+rebuild. **The discipline was expensive as prose and is nearly free as a
+command**, which is the same finding that produced `docgrep.py`.
+
+Also added: written rubrics for both sets (`docbench.py rubric a|b`). Set A
+ran four times with none, graded by whoever ran it — two graders disagreeing is
+indistinguishable, in the record, from the documentation changing.
+
+**Set B has not been run.** Its first pair should be current `main` against
+`2f5de1e`. If the old tree scores well, the questions are wrong, not the docs.
