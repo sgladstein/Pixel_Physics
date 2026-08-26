@@ -65,6 +65,7 @@ studies:
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
 | `fire_probe` | The grassfire instrument | |
 | `anchor_probe` | **Does it matter which code path last wrote a field?** One geometry, its anchor distances written three ways, swept for the margin | Built for `open-bugs-handoff.md` §S2; the shape generalises — see below |
+| `arch_probe` | **Does the shape a player builds change what stands?** One opening, four roof forms, swept for the span each one drops at | Builds and runs scenes; changes no default. Refuses to print a margin it did not bracket — see below |
 | `support_census` | **What the support field is made of, and what a replacement would cost.** The distance histogram, the coarse chunk layer's true node and edge count, and a cell-by-cell comparison of a candidate field's *load DAG* against the exact field's | Read-only — builds candidate fields beside the real one and never writes. `control=1` runs both controls; see below |
 
 ## Creatures
@@ -125,6 +126,26 @@ indifferent to what the field is. Three properties worth reusing:
 Reach for its shape for any "does this code path's version of X differ from
 that one's" question — two writers of the same cached field, two builders of
 the same state, a fast path against its slow reference.
+
+**`arch_probe` is `anchor_probe`'s margin logic with the variable moved.**
+`anchor_probe` holds one geometry and varies the *rule*; this holds one rule
+and varies the *geometry*, and the transferable part is what sits between
+them: **a comparison of two ways of doing something can only show itself in
+where the margin is**, because on either side of it both arms agree. Three
+things worth copying:
+
+- **It refuses to report an unbracketed margin.** Its first sweep had every
+  arm at 100% and it printed *"the sweep never reached its margin"* rather
+  than a number. `anchor_probe`'s own first run produced exactly that null and
+  did not say so.
+- **It carries a control for each rival explanation, not just one.** The arch
+  uses more stone than the lintel, so there is a cell-count-matched arm; and
+  "it is really just depth" is a live alternative, so there is a
+  triple-thickness arm. The second one *worked* (the margin went 56 → 96),
+  which is what makes the arch's win over it meaningful.
+- **It measures the scene rather than assuming it.** The clear span is read
+  back off the built world as the widest empty run below the springing line,
+  so two arms cannot silently be roofing different holes.
 
 **`support_census` compares two fields by the *question their consumers ask*,
 not by their values**, and that is the transferable part. `load.rs` never
