@@ -313,3 +313,43 @@ just written to stop. The two family leads consolidate seven bullets under
 two general checks and cover the highest-recurrence class in the corpus, so I
 think it pays — but it is an addition, and the next pass over this file
 should be looking for what comes out.
+
+## 2026-08-26 — the compression estimate was wrong; the routing gap was the real find
+
+Asked to compress `CLAUDE.md`. **I had estimated 400–600 recoverable tokens
+and that was optimistic — the honest figure is ~40–100**, which is now taken
+(a worst-frame rule's two corroborating legs, which prove the rule right
+rather than telling you how to apply it, and one bullet's pointer prose).
+
+Measured the obvious remaining class, sentences that are provenance about the
+*document* rather than instruction: **~300 tokens across 7 sentences**. Read
+individually, most is load-bearing — *"an earlier version of this section
+blamed it on weathering accruing rubble"* is a do-not-retry signal, and *"the
+rule was written as 'ask what a metric counts' and recurred anyway"* is why
+the rule is framed as it is. **Cutting it would be the exact mistake this repo
+records.** The file is not meaningfully compressible without losing content.
+
+**The find is in the other files, and it is systematic.** Checking every row
+of the knowledge table for whether it says *how* to consume the file:
+
+| file | tokens | said how? |
+|---|---|---|
+| `Reports/dead-ends.md` | 97,214 | yes — "grep your area" |
+| `Reports/open-bugs-handoff.md` | 96,582 | **no — "Read this before touching a listed area"** |
+| `PLAN.md` | 60,199 | **none** |
+| `README.md` | 46,060 | **none** |
+
+Two registers of near-identical size, routed in opposite ways: one correctly
+grepped, one instructed to be *read whole* at ~97k tokens — and it has had a
+generated status index the guidance never mentioned. An agent obeying that
+literally burns 97k; one that balks reads nothing. `PLAN.md` and `README.md`
+carry no guidance at all, which is another 106k, despite both having
+navigation built for them this week.
+
+All four rows now name the size and the entry point. That is worth far more
+than any compression pass: it changes what a session *loads*, not what it
+*carries*.
+
+**Standing check for anyone editing the knowledge table:** a row that names a
+file over ~15k tokens must say how to enter it. Naming the file is not
+routing.

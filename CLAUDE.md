@@ -76,12 +76,12 @@ already changed decisions:
 
 | File | Holds |
 |---|---|
-| `README.md` | Architecture, and per-milestone status |
+| `README.md` | Architecture, and per-milestone status. **~46k tokens — do not read it whole**: its **By topic** table maps subsystem to owning sections with line numbers, and milestone sections are named for the *build*, not the subsystem (`M17 status` is the structural-collapse write-up) |
 | `wiki/*.md` | What a material or mechanic *does*, in plain language — no code, no file names. `Reports/*.md` is *why it's built that way*; this is *what it looks like when it's right*. |
-| `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md` |
+| `PLAN.md` | Roadmap, settled decisions, the issues backlog; the append-only progress log lives beside it in `PLAN-log.md`. **~60k tokens — do not read it whole**: start from its Contents, and in any session-handoff section read the dated *(State …)* line rather than the heading, which records only what was true when written |
 | `Reports/README.md` | **The index of every design report**, with per-report status and an in-flight section for documents still on unmerged branches — check a report's standing there before trusting it or writing a new one |
 | `Reports/dead-ends.md` | **Tried-and-reverted approaches** (594 at last census, 2026-08-25), each with the condition its rejection depended on and where the full record lives — grep your area before proposing or retrying anything in it |
-| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. Read this before touching a listed area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
+| `Reports/open-bugs-handoff.md` | **Open bugs.** Working reproductions and what has been ruled out *by measurement*. **~97k tokens — do not read it whole**: its generated status index is the first table in the file, so read that, then only the sections it lists for your area. (`dead-ends.md` owns "was this tried?"; this owns "is this broken?") |
 | `Reports/design-philosophy.md` | Settles arguments about constants, hardcoding, and scope boundaries |
 | `Reports/session-programs.md` | **Coordinator ↔ lane protocol** — only if you are coordinating sessions or were spawned by one |
 | `Reports/instruments.md` | **What every `examples/` binary can already answer** — grep it before building a measurement harness. Several generalise well past the question they were built for, which is not guessable from their names |
@@ -833,11 +833,10 @@ out of that, and neither depends on the machine it was measured on:
   rather than to metrics — a null is where it hides, because a null looks the
   same whether the mechanism is quiet or the probe never reached it.
 - **…and a *positive* hides from the opposite direction.** A null hides from
-  **inattention** — nothing demands an explanation. A positive hides from
-  **motivated reasoning** — it is the result you wanted, and every check you
-  reach for is one it passes. Same session, both shapes, and neither had a
-  control. *A cost that vanishes may be work that vanished* below is the worked
-  case and carries the remedy.
+  **inattention**: nothing demands an explanation. A positive hides from
+  **motivated reasoning**: it is the result you wanted, and every check you
+  reach for is one it passes. Worked case and remedy: *A cost that vanishes
+  may be work that vanished*, below.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
@@ -858,9 +857,7 @@ frames ≈ worst**. One blast per run puts essentially all time ever spent in th
 blasts phase into a single frame, and the perf lane's converged-pass figure
 pins at 0.97 (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst), its
 bedrock-only control at 0.96 — while the ascii case above pins at nothing at
-all. Two further independent legs held there: two runs agreeing to **1.2x**,
-not 6x, and a dose-response prediction (the 8x box has 64x the area;
-6.08 × 64 = 389 ms).
+all. (Two further independent legs held there; they are in the report.)
 
 So: run the ratio before quoting a worst. If an aggregate pins it, quote it; if
 it is an order statistic over many similar frames, it is noise wearing a
