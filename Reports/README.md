@@ -303,12 +303,17 @@ field rework — see `open-bugs-handoff.md`.
 - [plant-morphology-evolvability-2026-08-26.md](plant-morphology-evolvability-2026-08-26.md)
   — **findings note, answering a direct owner question**; successor in role
   to the reach note above. Can those forms *evolve*, or must they be
-  authored? Primitives must be hand-built; combinations can be evolved only
-  if the identity switches land as priced genome loci rather than the
-  per-species `.ron` defaults the reach report's §3 assumes. Records the
-  three structural stops (species id is immovable, the genome cannot change
-  the behaviour graph, the existing dials are measured not to reach) and two
-  open owner calls in §8.
+  authored? The deciding question is what the genome *holds*: a parametric
+  genome (today) buys a blob around whatever ancestor was authored however
+  many loci it gets, while a **developmental** genome — the `ByOrder`
+  production set made heritable and structurally mutable — is where novel
+  body plans come from. Records the three structural stops, why the engine
+  is already an L-system, the Bornhofen/Ochoa precedent from
+  `plant-simulation-research.md` §7, how far creature decision **D4**
+  transfers (one objection of three — plants are asexual, so no crossover to
+  protect), and the clade-as-inventory / program-as-genome split. §5a
+  withdraws its own first draft's loci recommendation and says why. Four
+  gates in §7, three open owner calls in §8.
 
 ## Creatures and ecology
 
