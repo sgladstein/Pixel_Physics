@@ -710,7 +710,7 @@ fn phase_probe(args: ProbeArgs) {
                 // different bugs and a count merges them.
                 let mut buckets = [0usize; 6];
                 for (_, _, o, n) in &wrong {
-                    let d = if n >= o { n - o } else { o - n };
+                    let d = n.abs_diff(*o);
                     let i = match d {
                         0..=2 => 0,
                         3..=10 => 1,
