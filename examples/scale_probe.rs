@@ -762,8 +762,26 @@ fn phase_probe(args: ProbeArgs) {
     // counter in this repo is: a loaded run and an idle one produce the same
     // *table*, and only these numbers say which one you are looking at.
     if !spec.is_empty() {
+            {
+        // **The demolition check.** A queue that goes quiet is not evidence
+        // of convergence -- `CLAUDE.md`, *a cost that vanishes may be work
+        // that vanished*. If a pass raises 70,000 cells' distances, some of
+        // them exceed their span, fail, and fall; the world then goes quiet
+        // because there is less of it. Counting the body cells that survive
+        // to the end of the run is what separates the two, and it costs one
+        // scan of a run that has already finished.
+        let mut body = 0usize;
+        for y in 0..h {
+            for x in 0..w {
+                if structural::is_body_material(&world, world.get(x, y).material) {
+                    body += 1;
+                }
+            }
+        }
+        println!("body cells standing at end: {body}");
+    }
         println!(
-            "load: {planted} ants planted, gnome {}, {blasts_fired} blasts fired, {strikes} strikes, {mines} mine cuts, {dug_cells} cells actually removed by them, {} particles in flight at end",
+        "load: {planted} ants planted, gnome {}, {blasts_fired} blasts fired, {strikes} strikes, {mines} mine cuts, {dug_cells} cells actually removed by them, {} particles in flight at end",
             if gnome { "on" } else { "off" },
             particles.len(),
         );

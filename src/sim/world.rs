@@ -408,6 +408,30 @@ pub struct World {
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
     pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    /// Positions where a structural check was scheduled on a cell that is
+    /// **not** body material — i.e. a hole. The seed set for
+    /// `structural::reconverge_from_damage`.
+    ///
+    /// # Why this is not the enumeration trap
+    ///
+    /// `Reports/dead-ends.md` rejects "hook each mutating call site
+    /// individually" for liquid-body disturbance, because *there* a missed
+    /// site is a correctness bug — a promoted body silently keeps stale
+    /// geometry. Here a missed site costs **work, not correctness**: the
+    /// cell falls back to the reactive wavefront in `structural::tick`,
+    /// which is exactly what every cell does today. That is the difference
+    /// `CLAUDE.md` asks for when a cap or a gate is involved — does
+    /// exhausting it produce an *answer*, or merely *less work*? Less work.
+    ///
+    /// So one funnel is enough, and `schedule_structural_check` is it: every
+    /// destructive verb reaches the heap through it (the brush's erase arm,
+    /// `rigid::strike`, `rigid::mine_swept`, `explosion::trigger`, and
+    /// `fire.rs`'s burnout via `parallel.rs`'s relay). **The known gap is
+    /// `parallel::ChunkView::set`**, which writes a same-chunk cell without
+    /// going through `World::set` at all — see `reindex_organism_cell`'s doc
+    /// for the same gap biting the organism index. Under-seeding is the safe
+    /// direction and this one is deliberate rather than unnoticed.
+    pub(crate) damage_seeds: Vec<(i32, i32)>,
     /// The same dedup index, for `ActiveKind::Evaporate`, and needed for a
     /// reason that is about correctness rather than cost.
     ///
@@ -1422,6 +1446,7 @@ impl World {
             spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
             pending_structural_checks: std::collections::HashSet::new(),
+            damage_seeds: Vec::new(),
             pending_evaporation: std::collections::HashSet::new(),
             pending_dissipation: std::collections::HashSet::new(),
             sky_surface: Vec::new(),

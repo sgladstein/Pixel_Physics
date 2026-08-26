@@ -3207,6 +3207,11 @@ fn break_free(world: &mut World, x: i32, y: i32) -> bool {
     // `FLAG_ATTACHED`, and note it is what turns digging into a cliff into
     // debris that actually falls.
     world.set(x, y, Cell::new(into, shade).with_temperature(temp));
+    // Structurally this is a hole: `breaks_into` is a `Powder`, which does
+    // not participate in the support field at all. Seed the reconvergence
+    // pass explicitly, because nothing else on this path does -- see
+    // `World::record_structural_hole`.
+    world.record_structural_hole(x, y);
     world.add_pressure_impulse(x, y, COLLAPSE_IMPULSE_RADIUS, COLLAPSE_IMPULSE_STRENGTH);
     true
 }
@@ -3676,6 +3681,356 @@ pub fn relax_region(world: &mut World, region: Rect) {
     }
 }
 
+/// Cap on the seed list, and on the invalidated set the pass derives from
+/// it. **Both bound work rather than gating whether the pass happens**, per
+/// `CLAUDE.md`: exhausting either drops the affected cells back onto the
+/// reactive wavefront, which is what happens to every cell today. Nothing
+/// resolves to "supported" because a budget ran out.
+///
+/// Sized from measurement, not aspiration: one radius-20 charge at
+/// 8192x2560 changes **67,100** cells (`open-bugs-handoff.md` §S), so
+/// 250,000 carries a 3.7x margin over the loudest verb in the game.
+pub(crate) const MAX_DAMAGE_SEEDS: usize = 250_000;
+const MAX_RECONVERGE_CELLS: usize = 250_000;
+
+/// Whether the damage-driven reconvergence pass runs at all.
+///
+/// **Off by default, deliberately.** It is a behaviour change, not only a
+/// performance one: converging the field removes the wavefront crawl that
+/// is currently *part of* the delay a player sees between a blast and the
+/// collapse it causes (`open-bugs-handoff.md` §S, "it is still a behaviour
+/// change, for the owner to judge"). `STRUCT_RECONVERGE=1` turns it on, and
+/// the intended shipping form is that this constant flips once the
+/// judge-by-eye question has been in front of the owner.
+fn reconverge_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("STRUCT_RECONVERGE").map(|v| v != "0").unwrap_or(false))
+}
+
+/// What one `reconverge_from_damage` call did, for `SCHED_PASS` to print.
+#[derive(Default, Clone, Copy)]
+pub struct ReconvergeStats {
+    /// Holes reported by the verbs this frame.
+    pub seeds: usize,
+    /// Cells whose stored distance was found unachievable and rebuilt.
+    pub invalidated: usize,
+    /// Cells that came back with a real path (the rest are `u16::MAX` or
+    /// ground-rooted).
+    pub repathed: usize,
+    /// The set overflowed `MAX_RECONVERGE_CELLS` and was abandoned.
+    pub abandoned: bool,
+}
+
+/// Repair the support field over exactly what the frame's damage
+/// invalidated — the increase-aware dynamic shortest-path update.
+///
+/// # Why this exists, and why the two obvious versions do not work
+///
+/// `structural::tick` corrects the field reactively, one cell per five
+/// frames, by taking the minimum over its neighbours. That is Bellman-Ford,
+/// and after a support path is severed the neighbour it relaxes from is
+/// itself stale-low: the cell rises one step, tells its five neighbours,
+/// and the region climbs together **for ever**. Measured at 8192x2560,
+/// eleven thousand frames after a single charge, with the world materially
+/// still: `worsened 1,464` per frame, `improved 7-48`, 2,000 sites drained
+/// against 7,631 produced, and exactly *one* site per frame reaching the
+/// load model. `open-bugs-handoff.md` §S.
+///
+/// Two cheaper shapes were built and measured, and both are in
+/// `dead-ends.md`:
+///
+/// - **`relax_region` over a box.** It computes exact distances inside its
+///   box *given correct boundary values*, and after a charge the values just
+///   outside are stale-low for every cell that routed through the crater.
+///   Growing the box moves the boundary without removing it. An 8x box was
+///   not better in kind, only differently wrong -- and cost a 440 ms frame,
+///   because it converges ~30x more cells than actually changed.
+/// - **Making `tick` increase-aware per cell** -- jump to `u16::MAX` on a
+///   rise instead of climbing. It *fires* (`improved` 30 -> 900 per frame)
+///   and does not converge: pending still climbs 23,227 -> 130,403. A cell
+///   cannot tell locally whether a neighbour's `u16::MAX` is an invalidation
+///   about to be undone or a genuine dead end, so the monotone climb becomes
+///   a stable oscillation at the same throughput.
+///
+/// What both are missing is a **closed** affected set. This has one.
+///
+/// # The shape
+///
+/// 1. **Phase A, invalidate.** From every hole the verbs reported, walk
+///    outward in *increasing stored distance* order asking one question per
+///    cell: is the value it holds still achievable? A cell is fine if a
+///    neighbour it can reach through an uncracked edge offers exactly that
+///    value and is not itself invalid. If none does, the value came through
+///    something that is gone, and the cell joins the set. Increasing order
+///    matters: a cell is decided only after everything that could be its
+///    parent has been.
+/// 2. **Phase B, Dijkstra from the boundary.** Every cell adjacent to the
+///    set but not in it still holds a **correct** distance, by construction
+///    -- it did not route through anything destroyed. That is the boundary
+///    condition the box never had. Seed from it, relax inward.
+/// 3. **The ground fixpoint**, identical to `relax_region`'s and for the
+///    identical reason: "only if nothing else holds it" is not expressible
+///    as a Dijkstra seed set, so root the still-unreachable cells that rest
+///    on ground and search again.
+///
+/// Nothing is written until Phase A closes, so an overflow abandons the job
+/// cleanly rather than leaving `u16::MAX` scattered through live rock.
+///
+/// # What it costs
+///
+/// The affected set for one radius-20 charge is **67,100 cells**, censused
+/// (§S), against **45** on an idle control. At `compute_world_distances`'
+/// own measured rate that is ~7 ms, once -- against the ~14 ms *per frame,
+/// for ever* that it removes. That margin is why §3 of
+/// `Reports/structural-reconvergence-design.md` (amortising the pass across
+/// frames) is not built here: it is optional at this size, and a second
+/// commit can add it without changing anything below.
+pub fn reconverge_from_damage(world: &mut World) -> ReconvergeStats {
+    let seeds = std::mem::take(&mut world.damage_seeds);
+    let mut stats = ReconvergeStats { seeds: seeds.len(), ..Default::default() };
+    if seeds.is_empty() {
+        return stats;
+    }
+
+    // ---- Phase A: close the invalidated set -------------------------------
+    //
+    // Ordered by the distance the cell *currently* stores, so a cell is only
+    // asked whether it still has a parent after every candidate parent has
+    // been decided. Ties are possible -- `support_cost_below` is 0 for stone,
+    // so a cell can share its parent's distance exactly -- which is why a
+    // neighbour is re-queued on each invalidation rather than once: a cell
+    // that answered "I am fine" against a parent that has since been
+    // invalidated gets asked again. Each cell can only be invalidated once,
+    // so total pops are bounded by seeds + 4x invalidations.
+    let mut invalid: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut queue: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
+    for (x, y) in seeds {
+        for (dx, dy) in NEIGHBOURS_4 {
+            let (nx, ny) = (x + dx, y + dy);
+            let cell = world.get(nx, ny);
+            if is_relaxable(world, cell) {
+                queue.push(Reverse((cell.aux(), nx, ny)));
+            }
+        }
+    }
+    while let Some(Reverse((stored, x, y))) = queue.pop() {
+        if invalid.contains(&(x, y)) {
+            continue;
+        }
+        let cell = world.get(x, y);
+        if !is_relaxable(world, cell) || cell.aux() != stored {
+            continue; // gone, or moved under us since it was queued
+        }
+        if distance_is_achievable(world, x, y, cell, &invalid) {
+            continue;
+        }
+        if invalid.len() >= MAX_RECONVERGE_CELLS {
+            // Bounds work, does not decide anything: nothing has been
+            // written yet, so dropping the whole set leaves the field
+            // exactly as the reactive path would have found it.
+            stats.abandoned = true;
+            return stats;
+        }
+        invalid.insert((x, y));
+        for (dx, dy) in NEIGHBOURS_4 {
+            if edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            let (nx, ny) = (x + dx, y + dy);
+            let neighbour = world.get(nx, ny);
+            if !is_relaxable(world, neighbour) || invalid.contains(&(nx, ny)) {
+                continue;
+            }
+            // A cell strictly closer than this one cannot have routed
+            // through it, so its value survives whatever happened here.
+            if neighbour.aux() < stored {
+                continue;
+            }
+            queue.push(Reverse((neighbour.aux(), nx, ny)));
+        }
+    }
+    stats.invalidated = invalid.len();
+    if invalid.is_empty() {
+        return stats;
+    }
+
+    // ---- Phase B: Dijkstra inward from the correct boundary ---------------
+    for &(x, y) in &invalid {
+        let cell = world.get(x, y);
+        world.set(x, y, cell.with_aux(u16::MAX));
+    }
+    let mut heap: BinaryHeap<Reverse<(u16, i32, i32)>> = BinaryHeap::new();
+    for &(x, y) in &invalid {
+        // Bedrock is the only outright anchor, exactly as in `tick` and in
+        // `relax_region` since PR #64. Ground is the last resort below, not
+        // a seed -- rooting it here is §S2's bug, which cost a stone deck
+        // 59 of its 63 cells.
+        if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK) {
+            let cell = world.get(x, y);
+            world.set(x, y, cell.with_aux(0));
+            heap.push(Reverse((0, x, y)));
+            continue;
+        }
+        let cell = world.get(x, y);
+        let (below, beside, above) = step_costs(world, cell);
+        let mut best = u16::MAX;
+        for (dx, dy) in NEIGHBOURS_4 {
+            if edge_is_cracked(world, x, y, dx, dy) {
+                continue;
+            }
+            let (nx, ny) = (x + dx, y + dy);
+            if invalid.contains(&(nx, ny)) {
+                continue; // not boundary -- it has no value yet either
+            }
+            let neighbour = world.get(nx, ny);
+            if !is_relaxable(world, neighbour) || neighbour.aux() == u16::MAX {
+                continue;
+            }
+            let step = match dy {
+                1 => below,
+                -1 => above,
+                _ => beside,
+            };
+            best = best.min(neighbour.aux().saturating_add(step));
+        }
+        if best < u16::MAX {
+            world.set(x, y, cell.with_aux(best));
+            heap.push(Reverse((best, x, y)));
+        }
+    }
+
+    loop {
+        while let Some(Reverse((distance, x, y))) = heap.pop() {
+            if world.get(x, y).aux() != distance {
+                continue; // superseded by a shorter path already processed
+            }
+            for (dx, dy) in NEIGHBOURS_4 {
+                if edge_is_cracked(world, x, y, dx, dy) {
+                    continue;
+                }
+                let (nx, ny) = (x + dx, y + dy);
+                // Writes only inside the invalidated set. Everything outside
+                // it already holds its true distance -- that is the whole
+                // boundary condition -- so a write there could only be
+                // wrong.
+                if !invalid.contains(&(nx, ny)) {
+                    continue;
+                }
+                let neighbour = world.get(nx, ny);
+                if !is_relaxable(world, neighbour) {
+                    continue;
+                }
+                let (below, beside, above) = step_costs(world, neighbour);
+                let step = match dy {
+                    -1 => below,
+                    1 => above,
+                    _ => beside,
+                };
+                let candidate = distance.saturating_add(step);
+                if candidate < neighbour.aux() {
+                    world.set(nx, ny, neighbour.with_aux(candidate));
+                    heap.push(Reverse((candidate, nx, ny)));
+                }
+            }
+        }
+        // The last resort, applied only to what the search could not reach.
+        // Same fixpoint as `relax_region`'s, same argument: whether a cell
+        // has another path is what the search is *for*, so it cannot be a
+        // seed. Each round roots at least one cell no earlier round reached.
+        let mut rooted = false;
+        for &(x, y) in &invalid {
+            let cell = world.get(x, y);
+            if !is_relaxable(world, cell) || cell.aux() != u16::MAX {
+                continue;
+            }
+            if is_resting_on_ground(world, x, y) {
+                world.set(x, y, cell.with_aux(0));
+                heap.push(Reverse((0, x, y)));
+                rooted = true;
+            }
+        }
+        if !rooted {
+            break;
+        }
+    }
+
+    // Every rebuilt cell is now a *settled* answer, which is the state
+    // `tick` judges on (`!moved`). Scheduling them is what hands the load
+    // model a converged field to read instead of a wavefront mid-flight --
+    // `Reports/load-model-handoff.md` §5.2's stale-parent hazard, avoided
+    // by construction rather than by waiting.
+    let rebuilt: Vec<(i32, i32)> = invalid.iter().copied().collect();
+    stats.repathed = rebuilt.iter().filter(|&&(x, y)| world.get(x, y).aux() != u16::MAX).count();
+    // Sorted before scheduling: `HashSet` iteration order is randomised per
+    // process and same-build determinism is required (`PLAN.md`), and the
+    // heap this feeds is ordered by `(next_frame, x, y)` -- so an unsorted
+    // walk would change dispatch order between runs. `dead-ends.md` records
+    // this exact trap biting twice already.
+    let mut rebuilt = rebuilt;
+    rebuilt.sort_unstable();
+    for (x, y) in rebuilt {
+        world.schedule_structural_check(x, y);
+    }
+    stats
+}
+
+/// The three directional step costs for `cell`'s own material, copied out
+/// rather than held as a borrow because every caller needs `&mut World`
+/// afterwards.
+fn step_costs(world: &World, cell: Cell) -> (u16, u16, u16) {
+    let m = world.materials.get(cell.material);
+    (m.support_cost_below, m.support_cost_beside, m.support_cost_above)
+}
+
+/// Whether the distance `cell` stores is still reachable — the parent test
+/// Phase A of `reconverge_from_damage` turns on.
+///
+/// **`==`, not `<=`, and that is the whole point.** A stored distance is
+/// correct exactly when some neighbour achieves it: `<=` would accept a
+/// cell whose value is an over-estimate, and an over-estimated distance
+/// reads as *weaker support* and gets things destroyed that should stand.
+/// A value nothing achieves is wrong in one direction or the other, so it
+/// is rebuilt either way.
+fn distance_is_achievable(world: &World, x: i32, y: i32, cell: Cell, invalid: &std::collections::HashSet<(i32, i32)>) -> bool {
+    let stored = cell.aux();
+    // Already "no path". Nothing destroyed can make that more true, and the
+    // improvement direction is not this pass's business.
+    if stored == u16::MAX {
+        return true;
+    }
+    if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK) {
+        return stored == 0;
+    }
+    if stored == 0 {
+        // A 0 with no bedrock beside it is `tick`'s last-resort ground root
+        // (`grounded_root`). It was taken when nothing else reached the
+        // cell, and destruction only removes paths, so it is still the right
+        // answer -- unless what it was standing on is what went.
+        return is_resting_on_ground(world, x, y);
+    }
+    let (below, beside, above) = step_costs(world, cell);
+    NEIGHBOURS_4.iter().any(|&(dx, dy)| {
+        if edge_is_cracked(world, x, y, dx, dy) {
+            return false;
+        }
+        let (nx, ny) = (x + dx, y + dy);
+        if invalid.contains(&(nx, ny)) {
+            return false;
+        }
+        let neighbour = world.get(nx, ny);
+        if !is_relaxable(world, neighbour) {
+            return false;
+        }
+        let step = match dy {
+            1 => below,
+            -1 => above,
+            _ => beside,
+        };
+        neighbour.aux().saturating_add(step) == stored
+    })
+}
+
 /// Whether this cell's `aux` is a structural distance that
 /// `compute_world_distances` may read and write.
 ///
@@ -3885,12 +4240,50 @@ impl World {
     /// structural system (`Solid`/`Plant`) at all; `tick` above no-ops
     /// immediately in that case.
     pub fn schedule_structural_check(&mut self, x: i32, y: i32) {
+        // **A check scheduled on a hole is a report that material left.**
+        self.record_structural_hole_if_empty(x, y);
         // Deduped inside `schedule_active_site` itself, not here -- see
         // that method's own doc for why the check needed to move there
         // (this was its first home, but `fire.rs`'s burnout fan-out
         // reaches the heap through a different path that skipped it).
         let frame = self.frame;
         self.schedule_active_site(ActiveSite { x, y, kind: ActiveKind::StructuralCheck, next_frame: frame });
+    }
+
+    /// Record `(x, y)` as a seed for `structural::reconverge_from_damage` if
+    /// nothing structural is there any more.
+    ///
+    /// Gated on `reconverge_enabled()` first, so the default build pays one
+    /// relaxed atomic load and nothing else; the `is_body_material` read
+    /// behind it costs a chunk lookup, and the caller runs ~7,600 times a
+    /// frame while a wound is settling.
+    pub(crate) fn record_structural_hole_if_empty(&mut self, x: i32, y: i32) {
+        if reconverge_enabled() && !is_body_material(self, self.get(x, y).material) && self.damage_seeds.len() < MAX_DAMAGE_SEEDS {
+            self.damage_seeds.push((x, y));
+        }
+    }
+
+    /// Record `(x, y)` as a seed unconditionally — for callers that know
+    /// they have just removed structural material and would rather not pay
+    /// a lookup to confirm it.
+    ///
+    /// **`break_free` needs this and `schedule_structural_check` cannot give
+    /// it**, which was the bug that made the first version of the whole pass
+    /// look inert. A collapse converts rock to debris through `break_free`,
+    /// which never calls `schedule_structural_check` at all: the failing
+    /// region reaches the heap through `schedule_solid_neighbours`, which
+    /// builds `ActiveSite`s with `reschedule()` and hands them back to
+    /// `scheduler::step` to push directly. So every hole a *cascade* opens
+    /// bypassed the seed funnel, while every hole the *player* opened did
+    /// not — and the measurement said exactly that: the queue went quiet at
+    /// frame 1,800 (the blast, seeded and converged) and climbed straight
+    /// back from 2,700 (the cascade, unseeded). `World::damage_seeds`'s doc
+    /// says under-seeding costs work rather than correctness, and this is
+    /// what that cost looks like when the miss is the common case.
+    pub(crate) fn record_structural_hole(&mut self, x: i32, y: i32) {
+        if reconverge_enabled() && self.damage_seeds.len() < MAX_DAMAGE_SEEDS {
+            self.damage_seeds.push((x, y));
+        }
     }
 
     /// Schedule structural checks for `(x, y)` itself and every 4-neighbour

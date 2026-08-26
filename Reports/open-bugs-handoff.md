@@ -101,26 +101,26 @@ point.
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6025 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6214 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6305 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6319 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6331 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6349 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6370 | A material-counting guard cannot see a species |
-| W1c | note | 6383 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6517 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6595 | The structural opt-out did not hold against bearing |
-| T1d | note | 6606 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6640 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6694 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6748 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6777 | §1c's settle loss is now a counter |
-| -- | note | 6794 | What landed |
-| -- | note | 6817 | Do not re-derive these |
-| -- | note | 6845 | Measurements that contradict something written |
-| -- | note | 6865 | Open |
-| -- | note | 6900 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6112 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6301 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6392 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6406 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6418 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6436 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6457 | A material-counting guard cannot see a species |
+| W1c | note | 6470 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6604 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6682 | The structural opt-out did not hold against bearing |
+| T1d | note | 6693 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6727 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6781 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6835 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6864 | §1c's settle loss is now a counter |
+| -- | note | 6881 | What landed |
+| -- | note | 6904 | Do not re-derive these |
+| -- | note | 6932 | Measurements that contradict something written |
+| -- | note | 6952 | Open |
+| -- | note | 6987 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6005,6 +6005,93 @@ the largest rise is `u16::MAX` — cells that genuinely lost every path.
   it is the price of converging the wrong 97% of the region — which makes
   amortisation (scope report §3) genuinely optional rather than merely
   deferrable.
+
+#### The queue goes quiet because it converged, not because the world fell
+
+The control this finding needed and did not have when it was first written.
+`CLAUDE.md`'s *a cost that vanishes may be work that vanished* has already
+caught one §S prototype whose queue went silent because the whole blast
+neighbourhood had been rooted flat — and **the same reading fits this
+oracle**: a pass that raises 67,100 distances pushes some of them past their
+span, so they fail, fall, and leave a quiet world with less in it. `max aux`
+is the wrong instrument for that; it says the field is live, not that the
+rock is.
+
+The instrument that answers it is a body-cell census at the end of the run.
+Same scene, same charge, 6,000 frames, the only difference being whether the
+converged pass ran at frame 3,000:
+
+| | body cells standing at end | whole frame | over budget |
+|---|---|---|---|
+| no pass | 19,471,238 | 42.27 ms | 96.9% |
+| **converged pass at 3,000** | **19,496,708** | **33.29 ms** | **85.3%** |
+
+**25,470 *more* cells survive with the pass.** So the direction is the
+opposite of the demolition reading, and it should have been predictable:
+`compute_world_distances`' own doc says the count-to-infinity dynamic makes
+*"a cell whose true distance is small climb past its own span before the real
+anchor value reaches it, break, and take its neighbours with it"*. Converging
+the field does not merely stop the scheduler thrashing — it stops the engine
+destroying rock that was never unsupported. §S is a correctness bug wearing a
+performance bug's clothes.
+
+(The mean-frame figures span the whole 6,000 frames, half of them before the
+pass, so 33.29 ms understates the settled improvement; the scheduler table
+above is the one to read for that.)
+
+#### The error is *manufactured*, not delivered — and this redirects the fix
+
+The single most important number here, and it overturns this entry's own
+scope. The oracle run at increasing distances from the charge:
+
+| oracle at | cells wrong | of body |
+|---|---|---|
+| **5 frames after the charge** | **369** | 0.00% |
+| 50 frames after | 42,825 | 0.22% |
+| 1,300 frames after | 67,100 | 0.35% |
+
+**A radius-20 charge invalidates about three hundred and seventy cells.** The
+other sixty-seven thousand are produced afterwards, by the reactive
+correction itself — the climb spreading a small, real error across a huge
+region while the collapse cascade keeps feeding it.
+
+`Reports/structural-reconvergence-design.md` §1 is scoped as *"converge the
+field over what actually changed"*, sized at the affected set. That set is
+369 cells and converging it is nearly free — **but converging it once does
+not fix §S**, because the manufacturing continues for as long as the cascade
+does. Whatever ships has to keep the field converged *while a collapse is
+running*, not repair it once at the bang.
+
+#### Ruled out: damage-seeded reconvergence alone — 2026-08-26
+
+Built, measured, landed **off by default** as `STRUCT_RECONVERGE=1`
+(`structural::reconverge_from_damage`). It is §1 of the scope report as
+written: seeds from every hole a verb opens, closes the invalidated set in
+increasing-stored-distance order, Dijkstras inward from the boundary that is
+still correct by construction, and takes `relax_region`'s ground fixpoint.
+
+**It fires and it is not enough.** Firing evidence, from `SCHED_PASS`: the
+charge frame invalidates and repaths in the hundreds to low thousands, at
+0.02–5 ms a pass, and the queue is genuinely quiet immediately afterwards —
+frame 1,800 reads `deferred 8,216 / worsened 71` where the control reads
+`8,723 / 199`. Then the cascade starts and it climbs back to 106,444 by frame
+8,100, which is the control's curve.
+
+Against the oracle it recovers 369 → **292** wrong cells five frames after
+the charge, and 67,100 → **70,683** at frame 3,000. So the immediate repair
+is real and small, and it buys nothing downstream **because the error was
+never downstream of the damage — it is downstream of the correction.**
+
+One implementation trap found on the way and fixed, worth keeping because it
+made the pass look inert for a whole measurement: `structural::break_free`
+converts rock to debris — a structural hole — and **never calls
+`schedule_structural_check`**. The failing region reaches the heap through
+`schedule_solid_neighbours`, which builds `ActiveSite`s with `reschedule()`
+and hands them to `scheduler::step` to push directly, bypassing the seed
+funnel entirely. So every hole a *cascade* opened went unseeded while every
+hole the *player* opened did not. `World::record_structural_hole` is the fix.
+It changed the aggregate by 4 cells, which is its own lesson: the seeding gap
+was real and was not what was wrong.
 
 #### Ruled out: doing it reactively, inside `tick` — 2026-08-26
 

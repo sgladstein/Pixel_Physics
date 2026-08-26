@@ -18,14 +18,42 @@ tables in `open-bugs-handoff.md` §S.
   artifact this bug has produced before: `max aux` afterwards reads 203/443/683,
   live and honest, and the anchor rule is untouched. **Converging is worth
   ~14 ms of a ~40 ms frame, permanently.**
-- **The affected set is 67,100 cells, not 250,000.** Censused directly, every
-  body cell's `aux` either side of the pass, against an idle control that reads
-  **45**. That is **0.35% of the body**, and every changed cell rose.
-- **So §3's amortisation is optional, not merely deferrable.** At the
-  whole-world pass's own rate (~99 ns/cell) 67,100 cells is **~7 ms once**.
-  The withdrawn prototype's 440 ms was never the price of converging — it was
-  the price of converging an 8x box, a ~30x overshoot of the set that actually
-  changed.
+- **It is a correctness fix, not only a speed one.** 6,000-frame runs
+  differing only in whether the pass ran: **19,496,708** body cells standing
+  at the end with it against **19,471,238** without. *More* rock survives,
+  which `compute_world_distances`' own doc predicts — the climb pushes cells
+  past their span before the true anchor value arrives, so they break and take
+  their neighbours. Converging stops the engine destroying rock that was never
+  unsupported.
+- **The affected set is manufactured, not delivered, and this is the finding
+  that redirects §1.** Censused at increasing distances from the charge:
+
+  | oracle at | cells wrong |
+  |---|---|
+  | **5 frames after** | **369** |
+  | 50 frames after | 42,825 |
+  | 1,300 frames after | 67,100 |
+
+  A radius-20 charge invalidates about **370 cells**. The other 67,000 are
+  produced by the reactive correction itself over the following twenty
+  seconds. So §1 as written below — converge once, over what the damage
+  changed — is aimed at a set that is nearly free to fix and **is not where
+  the cost lives**.
+
+- **Damage-seeded reconvergence has therefore been built, measured, and left
+  off.** `structural::reconverge_from_damage`, behind `STRUCT_RECONVERGE=1`.
+  It is §1 exactly as specified and it works as specified: the queue is
+  genuinely quiet on the frames after a charge (`deferred 8,216 / worsened 71`
+  against a control's `8,723 / 199`). It recovers 369 -> 292 wrong cells at
+  +5 frames and 67,100 -> 70,683 at +1,300, because the manufacturing
+  continues for as long as the cascade does. **Whatever ships has to keep the
+  field converged *while a collapse is running*, not repair it once at the
+  bang.** The machinery is in place for that; what is missing is the trigger.
+- **§3's amortisation is not the constraint either.** At the whole-world
+  pass's own rate (~99 ns/cell) even 67,100 cells is ~7 ms once, and the
+  measured per-firing costs are 0.02-5 ms with one 27 ms outlier. The
+  withdrawn prototype's 440 ms was never the price of converging — it was the
+  price of converging an 8x box, a ~30x overshoot of the set that changed.
 
 **And the cheap shortcut is closed.** Making `tick` increase-aware per cell —
 invalidate to `u16::MAX` on a rise instead of climbing — was built and
