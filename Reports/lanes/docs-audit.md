@@ -353,3 +353,44 @@ than any compression pass: it changes what a session *loads*, not what it
 **Standing check for anyone editing the knowledge table:** a row that names a
 file over ~15k tokens must say how to enter it. Naming the file is not
 routing.
+
+## 2026-08-26 — "grep your area" was the wrong unit; the index it seemed to need is a dead end
+
+Audited the four documents `CLAUDE.md` routes to (~300k tokens, **26% of all
+documentation**: 1.14M across 131 files). Three hypotheses tested and
+**disproved** — record these so nobody re-runs them:
+
+- **`dead-ends.md` is stale.** A mechanism-existence check over all 594
+  entries found **1** naming symbols mostly absent from `src/`, and it is the
+  `perf-lock` retirement, correct by design. Entries are substantial (0%
+  under 200 characters). Content is sound.
+- **The bug register's index is untrustworthy.** `bugindex.py --check` is
+  clean; the index carries status, line and description for 77 bugs (39
+  open), and the recommended path costs **~4,334 tok** against 96,582 whole.
+- **`PLAN.md`'s issues backlog is rotting.** Better maintained than expected —
+  resolved issues struck through with closing evidence, #2 explicitly
+  *"deprioritised by measurement, not closed"*.
+
+**The real problem was the unit of search, not the file.** Measured cost of
+following "grep your area" in `dead-ends.md`:
+
+| grep unit | plants | structural | liquids |
+|---|---|---|---|
+| prose, by area | ~29,101 | ~12,240 | ~12,335 |
+| by address prefix | ~15,455 | ~11,728 | ~4,953 |
+| **by mechanism** | `thicken` ~2,458 · `max_unsupported_span` ~651 · `chunk seam` ~251 · `rot_remains` **0** | | |
+
+**A 10–50x reduction from changing one noun.** A zero-hit mechanism grep is a
+real answer, delivered for nothing.
+
+**I was one step from building a generated topic index for it, and that would
+have been the wrong fix.** It would add a generated block to a 97k co-owned
+file, need a new script and `--check`, and still leave a floor of ~8.4k tokens
+for plants (128 address-matched entries x ~66 tok each). A wording change beat
+it at zero cost and zero maintenance. **`dead-ends.md` needs no structural
+change** — do not propose one.
+
+Useful structural fact found on the way: **592 of 595 entries (99%) open with
+a machine-readable file address** across 77 distinct files, 30 covering 80%
+of entries. That is what makes the address-prefix grep work as a second
+resort.
