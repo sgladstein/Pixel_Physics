@@ -34,12 +34,13 @@ show:
 4. **§S's "the error is manufactured, not delivered" needs one correction of
    sign**, and it redirects the fix: the affected cells read *too low*, not
    too high, which makes the damaged region a **load sink**. See §1.2.
-5. **And the thing that makes them low is a handful of `stone` cells written
-   at `aux 0` — "anchored" — at the crater**, ten frames after the charge,
-   where the truth is 2,398. Measured, and its writer is *not* the three
-   obvious candidates: two were ablated and one read out of the source (§6).
-   The architecture is what makes the consequence enormous; the trigger may
-   be one line.
+5. **And the trigger is one line.** A write-seam trap named it: every thrown
+   rock lands at `aux 0` — *bedrock-adjacent* — because
+   `particle.rs::landed_cell` carries `aux` only for materials flagged
+   `worth_in_aux`, which is the **food-value** flag. Landing at `u16::MAX`
+   instead takes the oracle's wrong-cell count from **37,629 to 186** and the
+   scheduler from 14.68 ms to **0.03 ms**, with the queue back at its idle
+   value and *more* rock standing. **§S is not a framework bug** (§6).
 
 Read `open-bugs-handoff.md` §S first for the bug, and `dead-ends.md`'s
 structural section for the three attempts already withdrawn.
@@ -450,73 +451,154 @@ field's range is bounded first, which removes the thing it was suppressing.
 
 ---
 
-## 6. A measured false anchor at the crater, and three writers it is not
+## 6. Found: a thrown rock lands claiming to be bedrock
 
-The hunt this report did not set out to run, kept because it narrows §S from
-an architecture question to a bug with an address.
+The hunt this report did not set out to run, and it ends §S rather than
+informing it.
+
+### 6.1 The symptom
 
 §5.1 says the stored region is ~2,200 *below* the truth and climbing at one
-unit per round. That is a statement about how the error is *corrected*; this
-is where the error comes from. Something writes a **zero** at the crater, the
-neighbourhood relaxes from it — downhill, which is the cheap direction, so one
-improvement wave drags tens of thousands of cells down inside a few hundred
-frames — and every one of them then owes the full climb back.
+unit per round. That is how the error is *corrected*; this is where it comes
+from. Something writes a **zero** at the crater, the neighbourhood relaxes
+from it — downhill, the cheap direction, so one improvement wave drags tens of
+thousands of cells down inside a few hundred frames — and every one of them
+then owes the full climb back.
 
-`ORACLE_COLUMN=1` on `scale_probe` prints a column through the wrong region
-and the ten lowest stored values in it. Ten frames after the charge
-(`RECONVERGE_AT=210`, charge at frame 200, blast at x=3904):
+`ORACLE_COLUMN=1` on `scale_probe`, ten frames after the charge
+(`RECONVERGE_AT=210`, charge at world frame 1,700, blast at x=3904):
 
 ```
-[oracle] wrong-cell bbox x 3873..3936 (64 wide) y 163..203 (41 tall)   -- 595 cells
+[oracle] wrong-cell bbox x 3873..3936 (64 wide) y 163..203 (41 tall)  -- 595 cells
 (3898,173) stone fg stored 0 -> true 2398 | nbrs rubble soil rubble stone
 (3906,168) stone fg stored 1 -> true 65535
-(3907,168) stone fg stored 1 -> true 65535
-...
 ```
 
-**`stone` cells storing 0 and 1 where the truth is 2,398, or where there is
-no path at all.** The column at +50 frames shows the consequence exactly — a
-smooth ramp rising *away* from that point, and a one-cell cliff where it meets
-untouched rock:
+At +50 frames the same column shows the consequence — a smooth ramp rising
+away from that point and a one-cell cliff where it meets untouched rock:
 
 ```
 y=  209 stone bg    133 ->   2374
 y=  210 stone bg   2373 ->   2373
 ```
 
-By +1,300 frames the same column reads 219–252 against a truth of 2,368–2,428
-— **the same shape, offset by a near-constant ~2,160**, which is the region
-climbing back in lockstep and is why no local test can see it.
+By +1,300 frames it reads 219–252 against a truth of 2,368–2,428: **the same
+shape, offset by a near-constant ~2,160**, which is the region climbing back
+in lockstep and is why no local test can see it.
 
-**Three candidate writers, ruled out:**
+### 6.2 The trap, and what it caught
+
+Two ablations had already ruled out the obvious writers by name (§6.4), which
+is exactly the situation a **write-seam trap** is for — `World::set`'s own doc
+records the principle: *"an enumeration that has to stay complete is the
+failure mode this project keeps rediscovering."*
+
+`AUX_TRAP=<frame>` reports any write that makes a cell body material reading
+`aux <= 2` where nothing adjacent is bedrock and the cell it replaced was
+nowhere near an anchor — a **false anchor** — with a backtrace, capped at 12.
+
+**Twelve reports, on the two frames after the charge, one caller:**
+
+```
+[auxtrap] frame 1701 (3901,168) empty aux 0 -> stone aux 0 | nbrs stone:2405 empty:0 empty:0 stone:2405
+   1: pixel_physics::sim::world::World::set
+   2: pixel_physics::sim::particle::ParticleSystem::step
+[auxtrap] frame 1702 (3908,168) empty aux 0 -> stone aux 0 | nbrs stone:0 empty:0 gravel:0 stone:0
+```
+
+All twelve are `ParticleSystem::step`, and the spread is visible in the
+neighbour column: the first reports sit beside `stone:2405`, the last beside
+`stone:0`.
+
+### 6.3 The line
+
+`particle.rs::landed_cell`:
+
+```rust
+let cell = Cell::new(particle.material, particle.shade);   // aux = 0
+if world.materials.get(particle.material).worth_in_aux {
+    cell.with_aux(particle.aux)
+} else {
+    cell                                                    // stone lands at 0
+}
+```
+
+`worth_in_aux` is the **food-value** flag. Stone does not carry it, so every
+thrown rock lands claiming `aux == 0` — *adjacent to bedrock*.
+
+The function's doc is careful and is right about what it enumerates: a free
+particle must not carry a `Liquid`'s fill or a `Powder`'s moisture, and *"on
+`Solid`/`Plant` it is the organism packing"*. On an **inert** `Solid` there is
+a third convention — the anchor distance — and there `Cell::new`'s 0 does not
+decline to make a claim, it makes the strongest one available. This is
+`CLAUDE.md`'s *two conventions for `Cell::aux` point opposite ways* with a
+third, and §Z2's corpse fix is what put the `worth_in_aux` gate in front of it.
+
+**It explains §S completely**, including the parts §S could not attribute:
+
+- **Only verbs that throw material leak.** The brush throws no particles,
+  which is exactly §S's verb table — §S credited that to `relax_region` and
+  this is a simpler second reason.
+- **It scales with crack reach**, because more cracks make more fragments make
+  more particles. That is §S's unexplained hammer-vs-pick ordering (the hammer
+  removes *fewer* cells than the pick and costs *more*).
+- **It is at the surface**, where debris lands, and an idle world has none.
+- No organism, no ground root and no landed rigid body is required.
+
+### 6.4 The fix, measured
+
+`PARTICLE_AUX_MAX=1` lands a body-material particle at `u16::MAX` — "no known
+path, earn one" — instead of 0. That is both the honest value and the cheap
+one: an improvement is a **single** relaxation round whatever its size, while
+climbing out of a false 0 costs one round per unit of a 2,577-deep field.
+
+Same scene as §5.2, oracle at +1,300 frames:
+
+| | baseline | `PARTICLE_AUX_MAX=1` |
+|---|---|---|
+| wrong cells vs the converged oracle | 37,629 | **186** |
+| of those, the climb (`\|delta\|` 1k–60k) | 37,593 | **0** |
+| `produced` per frame @3,000 | 7,491 | **13** |
+| `pending` @3,000 | 36,818 | **5,957** (idle ~5,400) |
+| structural sites drained @3,000 | 2,000 (the cap) | **10** |
+| scheduler phase @3,000 | 14.68 ms | **0.03 ms** |
+| frames over the 16.6 ms budget | 86.9% | **72.8%** |
+| body cells standing at end | 19,409,002 | **19,410,719** |
+
+That is essentially the state §S's whole-world `compute_world_distances`
+oracle reached (12.49 → 0.25 ms, pending 53,077 → 6,094), reached with **no
+converged pass at all**.
+
+**Four controls, because this bug has faked a quiet queue before**
+(`CLAUDE.md`: *a cost that vanishes may be work that vanished*):
+
+- **The trap goes to 0 reports** with the fix in, so the ablation hit its
+  target rather than missing it.
+- **`max aux` reads 2,422** — a live, honest field. The rooted-flat prototype
+  §S withdrew read 142.
+- **More rock survives** (+1,717), the same direction as §S's converged-pass
+  control (+25,470). The queue is not quiet because the world emptied.
+- **The residual 186 are all `>60k (detached)`** — cells the reactive path
+  calls reachable and the converged pass calls `u16::MAX`. The climb bucket is
+  **empty**. That residual is a different and much smaller question.
+
+### 6.5 What was ruled out on the way
 
 | candidate | how | result |
 |---|---|---|
-| `rigid::settle` — landed body cells go in through `Cell::new`, whose `aux` is **0** | `SETTLE_AUX_MAX=1` writes `u16::MAX` instead | **fires** (arms diverge from +100 frames: `produced 8,316 / deferred 26,450` against the baseline's `7,651 / 25,876`) and the oracle reads **37,036 against 37,629** — a 1.6% change on a quantity that moves 2x between other arms |
-| `structural::tick`'s `grounded_root` — the one writer of a 0 with no bedrock beside it, and a crater full of rubble is its firing condition | `STRUCT_NO_GROUND_ROOT=1`, with a new `grounded` counter on the `[struct]` census as the control | **the counter reads 0 on every frame** and the ablation arm is **byte-identical** to the baseline (37,629 both, same `\|delta\|` histogram). A vacuous null, and the counter is the only reason that is knowable |
-| debris and particles | reading: `break_free` writes a `Powder`, which is not body material; `ParticleSystem::spawn_from_cell` carries `cell.aux()` (§Z2's fix); every `world.set` in `explosion.rs` mutates a copy of the cell it just read, preserving `aux` | not a source |
+| `rigid::settle` — landed body cells go in through `Cell::new`, `aux` **0** | `SETTLE_AUX_MAX=1` writes `u16::MAX` | **fires** (arms diverge from +100 frames) and the oracle reads **37,036 against 37,629** — 1.6% |
+| `structural::tick`'s `grounded_root` | `STRUCT_NO_GROUND_ROOT=1`, with a new `grounded` counter as the control | **byte-identical** to baseline, and the counter reads **0 every frame**. A vacuous null, and the counter is the only reason that is knowable |
+| the powder-`aux` collision | reading | `is_body_material` is `Solid \| Plant`; `rubble`, `gravel` and `soil` are all `Powder`, so the relaxation never reads their moisture |
+| organism-owned neighbours | reading | real gap — `tick`'s neighbour loop filters on `is_body_material` and `is_burning` but **not** `organism_id != 0`, unlike `compute_world_distances`, `support_parent`, `support_count` and `dependants`, so an inert cell beside live tissue relaxes off a cell-type tag. Not what fired here (the trap named `landed_cell` twelve times out of twelve), and worth closing anyway |
 
-**And not the powder-`aux` collision either**, which was the best remaining
-guess: the zero-storing cell's neighbours are `rubble`, `soil` and `gravel`
-all reading `aux 0`, and on a `Powder` that is *dry soil*, not a distance
-(`CLAUDE.md`'s two-conventions gotcha). But `structural::is_body_material` is
-`Solid | Plant` only and all three are `Powder`, so the relaxation never reads
-them.
+### 6.6 Two adjacent gaps this turned up
 
-**So the writer is unidentified**, and one limitation of the dump above should
-be stated rather than glossed: the neighbour values it prints are read *after*
-the converged pass, so they are the neighbours' true distances, not what the
-zero-storing cell actually saw. Identifying the writer wants the stored values
-of the neighbourhood at the moment of the write, which is a different probe.
-
-This is worth someone's afternoon before any of §4 is built. If a handful of
-cells per charge are being written at `aux 0` inside a massif, that is a bug
-with an address, and it is upstream of everything §S describes. **The
-architecture is what makes the consequence enormous — the recovery is one
-round per unit of a 2,577-deep field — but the trigger may be one line.** Both
-are worth fixing and they are not the same fix: the trigger stops this
-particular accident, and the range stops the *next* one costing eleven
-thousand frames.
+- **`land()` schedules nothing.** It writes through `World::set` and raises no
+  `StructuralCheck`, so a landed body cell is invisible to the structural
+  scheduler until something else wakes it. Under `aux 0` that meant it read as
+  anchored indefinitely; under `u16::MAX` it reads as pathless indefinitely.
+  Either way it should be scheduled.
+- **`tick`'s neighbour loop does not exclude organism-owned cells**, as above.
 
 ## 7. The cheapest experiment that would falsify each
 
@@ -526,18 +608,16 @@ One per candidate, smallest first. None needs a new harness.
 |---|---|---|
 | **A — saturating clamp** | none needed; §3.2 *is* the falsification | — |
 | **C — no climb** | §5.2, already run | already falsified as a fix |
-| **the false anchor (§6)** | print the *stored* aux of a cell's neighbourhood on the frame it first writes 0 — §6's dump reads post-pass values and so localises the zeros without naming their writer | finding no such write: the zeros would then be a relaxation *result* rather than a write, and §6 is chasing a symptom |
+| **the false anchor (§6)** | done — `AUX_TRAP` at the `World::set` seam, and `PARTICLE_AUX_MAX=1` as the ablation | already answered: 12/12 backtraces name `ParticleSystem::step`, and the fix takes 37,629 wrong cells to 186 |
 | **B — hierarchy, cost** | a per-frame counter of **distinct chunks whose body-material topology changed**, printed beside `SCHED_PASS`'s `[struct]` line, on the same `load=blast:200:1` scene | a cascade dirtying tens of chunks a frame: at ~0.4 ms per chunk rebuild that is worse than the bug it replaces (§4.7) |
 | **B — hierarchy, behaviour** | `examples/anchor_probe` with a third arm whose field is the hierarchical potential | the **margin** moving |
 
-**Run the false anchor first, then B's cost.** The false anchor is the
-cheapest and the highest-leverage: it is one probe, it needs no model built,
-and if a handful of cells per charge really are written at `aux 0` inside a
-massif, that is a bug with an address sitting upstream of the whole
-architecture question. B's cost counter is next, one line, and the only thing
-that can kill candidate B outright — §4.4's orientation figures cannot, because
-they say a fifth of evaluated cells change support, not that any *verdict*
-changes, and a verdict is what a player feels.
+**The false anchor was the cheapest and it was the whole thing** — one probe,
+no model built, and it turned §S from an architecture question into a
+one-line write. What is left for candidate B is B's own cost counter: one
+line, and the only thing that can kill it outright. §4.4's orientation figures
+cannot, because they say a fifth of evaluated cells change support, not that
+any *verdict* changes, and a verdict is what a player feels.
 
 **Then `anchor_probe` for the behaviour**, and `anchor_probe` specifically
 rather than a whole-world census, because the instruments index says to reach
@@ -572,45 +652,52 @@ already paid for once by this bug:
   specifically, the reading is right and a replacement's job is to get the four
   bits right rather than the distances. Nothing in `scale_probe` prints that
   split today.
-- **Who writes the false anchor.** §6 localises it to a handful of `stone`
-  cells at the crater and rules out three candidates, two by ablation. It does
-  not name the writer, and the dump that found it cannot: it reads
-  neighbour values *after* the converged pass.
+- **The residual 186.** With the false anchor fixed, what is left is cells the
+  reactive path calls reachable and the converged pass calls `u16::MAX` —
+  genuinely detached fragments reading as attached. Two orders of magnitude
+  smaller than the climb, and a different bug.
+- **Whether `PARTICLE_AUX_MAX` is safe to make the default.** It is a
+  behaviour change: a landed grain reads pathless until `tick` relaxes it, and
+  `land()` schedules nothing (§6.6). `acceptance.sh`, `cargo test --lib` and
+  `blastsweep.sh` at the order statistic are the gates.
 - **A real seed sweep** of §4.4's exposed-cell disagreement.
 - **Fire**, which §S notes is unmeasured and the same shape, and for which
   there is still no `load=fire` component.
 
 ## 9. Recommendation
 
-**Take the coarse layer seriously and stop looking for a cheap fix in `tick`.**
-Three tactics and now a fourth have all died in that function, and §5.1 says
-why in one line: a correction costs one round per unit of distance change, and
-the change is 2,200. Nothing local can beat that, because nothing local can
-make the number smaller.
+**Do not replace the structural model for §S.** §S is a one-line bug in
+`particle.rs::landed_cell` (§6), and the measured fix reaches the same state
+as §S's own whole-world converged-pass oracle with no converged pass at all:
+wrong cells 37,629 → **186**, scheduler 14.68 → **0.03 ms**, queue back at its
+idle value, and *more* rock standing. Land that, with its gates, before
+anything else here is considered.
 
-**Candidate B is the only measured design that makes it smaller** — max offset
-239, and level changes recomputed rather than relaxed. Its two open questions
-are in §7 and the first of them is a one-line counter. Take that measurement
-before committing to anything.
+**What survives of the architecture argument, and it is real but no longer
+urgent.** Recovering a wrong distance *upward* costs one relaxation round per
+unit, so the field's depth is the price of any accident in it: 2,577 deep
+means an accident can cost 2,577 rounds. This one cost eleven thousand frames
+for that reason. Candidate B bounds it to 239 by construction and is what
+`worldgen-design.md` §6b already plans for M10 — so it is a roadmap item that
+also happens to cap the blast radius of the *next* mistake of this shape, not
+a rescue.
 
-**But run §6's probe before either.** The architecture question is real and
-large; the thing that triggers it on every charge may be a single write of
-`aux 0` into a massif, and that is an afternoon rather than a milestone. A
-model chosen without knowing which of the two is doing the damage is a model
-chosen on the wrong evidence — and this report's own arm C is what that looks
-like.
+**Candidate A is closed**; §3.2's table is in `dead-ends.md`. **Candidate C is
+closed**; §5 is in `dead-ends.md`, and it is worth reading for what it got
+wrong — it suppressed a *correction* on the belief that it was manufactured
+error, which the false anchor explains.
 
-**Candidate A is closed**; §3.2's table belongs in `dead-ends.md`.
+**Two adjacent gaps worth closing whatever happens** (§6.6): `land()` raises
+no structural check, and `tick`'s neighbour loop is the one reader of `aux`
+that does not exclude organism-owned cells.
 
-**One thing is worth doing whatever wins**: a rise that produces no useful
-information should not fan out to five sites. §5.2 shows that change alone
-takes `produced` from 7,491 to 2,568. It is separable from the model question
-and it is where the queue cost actually lives.
+**And one that is separable from all of it**: a rise still fans out to five
+sites, because `schedule_solid_neighbours` fires on `moved` rather than on
+direction. §5.2 shows that alone is `produced` 7,491 → 2,568.
 
-**And this is a behaviour change before it is an engineering one.** §S already
-flags that some of the delay a player sees after a blast *is* this crawl, and
+**Finally, the behaviour question does not go away.** §S flags that part of
+the delay a player sees after a blast *is* this crawl, and
 `CHAIN_WINDOW_FRAMES` is 600 frames of deliberate generosity built around it.
-Converging the field quickly could make collapse arrive nearly instantly and
-read as worse even while the frame cost falls off a cliff. That belongs in
-front of the owner as a blind A/B with the failure counts in the card's `meta`,
-not in a commit message.
+Removing the crawl could make collapse arrive nearly instantly and read worse
+even as the frame cost falls off a cliff. That is a blind A/B with the failure
+counts in the card's `meta`, not a commit message.

@@ -409,10 +409,38 @@ fn advance_and_check_landing(world: &mut World, particle: &mut Particle) -> Opti
 fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     let cell = super::cell::Cell::new(particle.material, particle.shade);
     if world.materials.get(particle.material).worth_in_aux {
-        cell.with_aux(particle.aux)
-    } else {
-        cell
+        return cell.with_aux(particle.aux);
     }
+    // **A probe, not a mechanism** -- `PARTICLE_AUX_MAX=1`, for
+    // `Reports/structural-support-model.md` §6.
+    //
+    // The doc above enumerates two `aux` conventions a free particle must
+    // not carry and concludes it should carry none. On an inert `Solid`
+    // there is a **third**, and dropping to `Cell::new`'s 0 does not decline
+    // to make a claim there -- it makes the strongest one available:
+    // `structural.rs` reads `aux == 0` as *at an anchor*. A thrown rock
+    // therefore lands claiming to be bedrock-adjacent, and the massif around
+    // it relaxes downhill off that.
+    //
+    // Trapped at the write seam (`World::report_false_anchor`): twelve
+    // consecutive false anchors on the two frames after a radius-20 charge,
+    // every one of them `empty aux 0 -> stone aux 0` beside `stone:2405`,
+    // and every backtrace `ParticleSystem::step`.
+    //
+    // `u16::MAX` is the honest value and the cheap one -- "no known path,
+    // earn one". `tick` relaxes it to `min(neighbour + step)` in a *single*
+    // round, because an improvement is one step whatever its size, whereas
+    // climbing out of a false 0 costs one round per unit of the field's
+    // depth (~2,400 at the shipped size).
+    let particle_aux_max = {
+        use std::sync::OnceLock;
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("PARTICLE_AUX_MAX").map(|v| v != "0").unwrap_or(false))
+    };
+    if particle_aux_max && super::structural::is_body_material(world, particle.material) {
+        return cell.with_aux(u16::MAX);
+    }
+    cell
 }
 
 fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {

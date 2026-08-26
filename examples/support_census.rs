@@ -684,12 +684,12 @@ fn main() {
         // orientation: a coarse layer that says a piece is connected when
         // the cells are not has traded a slow wrong answer for a fast one.
         let (mut only_exact, mut only_hier) = (0usize, 0usize);
-        for i in 0..g.mat.len() {
+        for (i, &h) in hier.iter().enumerate() {
             if !g.body[i] {
                 continue;
             }
             let e = g.exact[i] != u16::MAX;
-            let hh = hier[i] != u64::MAX;
+            let hh = h != u64::MAX;
             if e && !hh {
                 only_hier += 1;
             }

@@ -247,6 +247,30 @@ built for:
 It is a probe, not a proposal — the pass takes ~2,000 ms and walks all 21 M
 cells. Nothing would ship it per blast.
 
+**`AUX_TRAP` is a *write-seam trap*, and the shape is the reusable part.**
+It is not an example — it is an env-gated report inside `World::set` that
+fires on any write matching a predicate and prints a backtrace. Reach for it
+when you know *what* wrong state exists and not *who* wrote it, and when
+guessing writers by name has already failed twice: `Reports/structural-support-
+model.md` §6 ablated `rigid::settle` and `structural::tick`'s `grounded_root`
+before trapping the seam, and the answer was neither (`particle.rs::
+landed_cell`, twelve backtraces out of twelve). Three things that generalise:
+
+- **Trap the invariant, not the caller.** `World::set`'s own doc already
+  states the principle for a different problem — *"an enumeration that has to
+  stay complete is the failure mode this project keeps rediscovering"* — and
+  a predicate over (old cell, new cell, position) is complete by construction
+  where a list of suspects is not.
+- **State the predicate as the bug, not as the symptom.** Here: *this write
+  makes a cell body material reading `aux <= 2` with no bedrock adjacent, and
+  the cell it replaced was nowhere near an anchor.* That is "a false anchor is
+  being created" in one line, and it fired 12 times in two frames with no
+  false positives.
+- **Cap the reports and print the neighbourhood.** The cap keeps the first
+  report readable through a cascade; the neighbourhood is what showed the
+  error spreading — the first traps sit beside `stone:2405` and the last
+  beside `stone:0`.
+
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a
 card's `meta` cannot say whether the thing is even in frame.
