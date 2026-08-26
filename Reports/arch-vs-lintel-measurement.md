@@ -42,8 +42,8 @@ costs. Thickness bisected until the lintel holds:
 
 | clear span | arch (T=3) | thinnest lintel that holds | flat costs |
 |---|---|---|---|
-| 79 | **389 cells** | T=6, 618 cells (T=5 falls at 24.6%) | **1.59x** |
-| 103 | **493 cells** | T=11, 1,507 cells (T=10 falls at 24.4%) | **3.06x** |
+| 79 | **389 cells** | T=6, 618 cells (T=5 falls at 49.9%) | **1.59x** |
+| 103 | **493 cells** | T=11, 1,507 cells (T=10 falls at 33.9%) | **3.06x** |
 
 **The gap widens with span** — 1.6x at 79 cells of opening, 3.1x at 103. That
 is the same shape masonry has, arrived at for a different reason (below), and
@@ -58,9 +58,9 @@ arch runs 1.26–1.43x the plain lintel's cell count across the sweep. "More
 material holds better" is not a discovery. `lintel=` thickens the flat slab
 until it matches the arch's own cell count, and at the decisive spans it
 matches or **exceeds** it: at span 80, `lintel=` places **396 cells against
-the arch's 389** and falls to 28.0% while the arch holds 100%. With material
-held equal, and in fact tilted against the arch, the geometry alone decides
-it.
+the arch's 389** and keeps only 60.4% of them in the air while the arch holds
+100%. With material held equal, and in fact tilted against the arch, the
+geometry alone decides it.
 
 **The alternative explanation, tested rather than argued.** `capacity` goes as
 depth squared, so "the arch is really just depth where it counts" is the
@@ -77,6 +77,30 @@ nothing. The first sweeps here (spans 8–48) had every arm at 100% and the prob
 refused to report a margin, printing *"the sweep never reached its margin"*
 instead. The reported margins are only printed once every arm has both a
 standing span and a fallen one.
+
+**A defect in this harness, found after the first run and corrected.**
+`rigid::step_chunk_bodies` is called **only from `App::update`** — it is not
+inside `parallel::step` and not inside `World::step_active_sites`. So the
+first version of this probe stepped the sweep and the scheduler and stopped,
+which left every promoted rigid body frozen in the air: never landing, never
+crushing, never triggering the secondary collapse a landing causes.
+
+Corrected and re-run, and the correction is worth recording in both
+directions:
+
+- **The margins did not move at all** — 56 / 64 / 96 / 104 before and after —
+  and neither did the cost bisect (T=6 at 79, T=11 at 103). Which is what the
+  reasoning predicts: a promoted body's cells have already left the grid, so
+  they count as off the roof whether or not they then fall.
+- **The failing arms' shares moved a long way.** Span 80's plain lintel went
+  30.2% → **47.1%** and its failure count `overloaded 2` → `overloaded 4
+  unsupported 1`, because landed pieces re-enter the grid and some come to
+  rest on the stub of the roof. Every share quoted in this report is the
+  corrected one.
+
+So the headline survived a harness bug that changed half the numbers under it.
+That is luck rather than design, and the reason to state it is that the *next*
+probe built on this shape will step the same two functions and stop.
 
 **Settling, checked rather than assumed.** `CLAUDE.md`: a cascade censused
 before it settles reads a delay as damage. Spans 80 and 120, all four arms, at

@@ -235,11 +235,68 @@ impl Row {
     }
 }
 
+/// Write one frame of a scene as a PNG, cropped to the roof band and scaled
+/// up by an integer factor.
+///
+/// **Rendered wide, declared tight** is the review queue's rule, and the
+/// crop here is the band that holds the whole question: sky above the arch's
+/// crown, both abutments, and the floor the debris lands on. Scaled because
+/// the scenes are ~143 cells across and the stills the owner has been able to
+/// judge are 700-950 px — `image-rendering: pixelated` on the page means an
+/// integer upscale costs nothing but bytes and is exactly what a zoom control
+/// would have produced anyway.
+fn shot(world: &World, path: &std::path::Path, band: (i32, i32), zoom: usize) {
+    let bounds = world.bounds().expect("bounded");
+    let (w, h) = ((bounds.max_x + 1) as usize, (bounds.max_y + 1) as usize);
+    let mut renderer = pixel_physics::render::Renderer::new();
+    let particles = pixel_physics::sim::particle::ParticleSystem::new();
+    let mut buf = vec![0u8; w * h * 4];
+    renderer.draw(world, &particles, &std::collections::HashSet::new(), &mut buf, (w as u32, h as u32), true);
+
+    let (y0, y1) = (band.0.max(0) as usize, (band.1 as usize).min(h));
+    let (cw, ch) = (w * zoom, (y1 - y0) * zoom);
+    let mut out = vec![0u8; cw * ch * 4];
+    for y in 0..ch {
+        for x in 0..cw {
+            let src = ((y0 + y / zoom) * w + x / zoom) * 4;
+            out[(y * cw + x) * 4..(y * cw + x) * 4 + 4].copy_from_slice(&buf[src..src + 4]);
+        }
+    }
+    image::save_buffer(path, &out, cw as u32, ch as u32, image::ColorType::Rgba8).expect("write png");
+}
+
 fn run(form: Form, span: i32, thickness: i32, frames: usize) -> Row {
+    run_with_shots(form, span, thickness, frames, None)
+}
+
+/// `shots = Some((dir, every, count))` writes `<dir>/<form>_NN.png` as the
+/// scene runs, so the same run that produces the number produces the picture.
+/// `CLAUDE.md`: post the artifact you actually judged by, not a re-render.
+fn run_with_shots(form: Form, span: i32, thickness: i32, frames: usize, shots: Option<(&str, usize, usize)>) -> Row {
     let mut scene = build(form, span, thickness);
-    for _ in 0..frames {
+    let band = (scene.spring_y - (span / 2 + thickness) - 8, FLOOR_Y + 3);
+    let mut taken = 0usize;
+    for f in 0..frames {
+        if let Some((dir, every, count)) = shots {
+            if f % every == 0 && taken < count {
+                let p = std::path::Path::new(dir).join(format!("{}_{taken:02}.png", form.label().replace('=', "eq")));
+                shot(&scene.world, &p, band, 6);
+                taken += 1;
+            }
+        }
         parallel::step(&mut scene.world);
         scene.world.step_active_sites();
+        // **`step_chunk_bodies` is only called from `App::update`.** It is
+        // not inside `parallel::step` and not inside `step_active_sites`, so
+        // a harness that steps those two and stops leaves every promoted
+        // rigid body frozen in the air: it never lands, never crushes, and
+        // never triggers the secondary collapse a landing causes. The first
+        // version of this probe did exactly that. It does not change what
+        // this probe measures -- a promoted body's cells have already left
+        // the grid, so they count as off the roof either way -- but it
+        // understates the cascade, and it renders as slabs hanging in the
+        // sky. Verified against the margins either way; see the report.
+        pixel_physics::sim::rigid::step_chunk_bodies(&mut scene.world);
     }
     let f = scene.world.structural_failures;
     Row {
@@ -271,6 +328,8 @@ fn main() {
     let mut thickness = 3i32;
     let mut frames = 1500usize;
     let mut verbose = false;
+    // `shots=<dir>` renders the run as well as measuring it.
+    let mut shots_dir: Option<String> = None;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -278,6 +337,7 @@ fn main() {
             "thickness" => thickness = v.parse().expect("thickness=N"),
             "frames" => frames = v.parse().expect("frames=N"),
             "verbose" => verbose = v != "0",
+            "shots" => shots_dir = Some(v.to_string()),
             _ => eprintln!("ignoring unknown argument {arg}"),
         }
     }
@@ -310,7 +370,10 @@ fn main() {
                 Form::LintelDeep => thickness * 3,
                 _ => thickness,
             };
-            let r = run(form, span, t, frames);
+            let r = match shots_dir.as_deref() {
+                Some(dir) => run_with_shots(form, span, t, frames, Some((dir, 12, 16))),
+                None => run(form, span, t, frames),
+            };
             println!(
                 "{:>8} {:>6} {:>6} {:>4} {:>7} {:>8} {:>7.1}%   overloaded {} unsupported {}",
                 r.form.label(),
