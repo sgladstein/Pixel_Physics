@@ -35,23 +35,23 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1111 |
 | [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1181 |
 | [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1233 |
-| [M16 status](#m16-status) | 1298 |
-| [M17 status](#m17-status) | 1484 |
-| [M18 status](#m18-status) | 1711 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 1965 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2010 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2041 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2061 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2174 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2235 |
-| [Weather status](#weather-status) | 2350 |
-| [The ant colony — status](#the-ant-colony--status) | 2367 |
-| [M19 status — started](#m19-status--started) | 2381 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2417 |
-| [Performance](#performance) | 2498 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2647 |
-| [Status](#status) | 2688 |
-| [License](#license) | 2799 |
+| [M16 status](#m16-status) | 1333 |
+| [M17 status](#m17-status) | 1519 |
+| [M18 status](#m18-status) | 1746 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2000 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2045 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2076 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2096 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2209 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2270 |
+| [Weather status](#weather-status) | 2385 |
+| [The ant colony — status](#the-ant-colony--status) | 2402 |
+| [M19 status — started](#m19-status--started) | 2416 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2452 |
+| [Performance](#performance) | 2533 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2682 |
+| [Status](#status) | 2723 |
+| [License](#license) | 2834 |
 
 ### Milestones, in numeric order
 
@@ -63,16 +63,16 @@ order they were written.
 | 5 | [M5 status](#m5-status) | 1016 |
 | 6 | [M6 deferral](#m6-deferral) | 1006 |
 | 7 | [M7 status](#m7-status) | 905 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2061 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2174 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2235 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2096 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2209 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2270 |
 | 12 | [M12/M13 status](#m12m13-status) | 704 |
 | 14 | [M14 status](#m14-status) | 757 |
 | 15 | [M15 status](#m15-status) | 934 |
-| 16 | [M16 status](#m16-status) | 1298 |
-| 17 | [M17 status](#m17-status) | 1484 |
-| 18 | [M18 status](#m18-status) | 1711 |
-| 19 | [M19 status — started](#m19-status--started) | 2381 |
+| 16 | [M16 status](#m16-status) | 1333 |
+| 17 | [M17 status](#m17-status) | 1519 |
+| 18 | [M18 status](#m18-status) | 1746 |
+| 19 | [M19 status — started](#m19-status--started) | 2416 |
 
 ### By topic
 
@@ -85,24 +85,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2688 — the *last* section in the
+[Status](#status), line 2723 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1298, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2417 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1711, [The ant colony](#the-ant-colony--status) 2367 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1484, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2417, [M8 status](#m8-status--started-not-complete) 2061 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1333, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1111, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1233, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1181, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2452 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1746, [The ant colony](#the-ant-colony--status) 2402 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1519, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2452, [M8 status](#m8-status--started-not-complete) 2096 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 757, [Materials](#materials) 217 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 934, [M7 status](#m7-status) 905 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 731, [The coarse field grid](#the-coarse-field-grid) 442 |
 | **powders and granular flow** | [Materials](#materials) 217, [Architecture](#architecture) 291 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 442, [M12/M13 status](#m12m13-status) 704 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2235, [Architecture](#architecture) 291 |
-| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2174, [Controls](#controls) 154 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2350, [M19 status](#m19-status--started) 2381, [World speed](#world-speed--five-independent-time-axes) 2647 |
-| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 1965, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2010, [Rendering performance](#rendering-performance--overnight-run-section-11) 2041, [M6 deferral](#m6-deferral) 1006 |
-| **performance and the parallel sweep** | [Performance](#performance) 2498, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2041 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2270, [Architecture](#architecture) 291 |
+| **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2209, [Controls](#controls) 154 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2385, [M19 status](#m19-status--started) 2416, [World speed](#world-speed--five-independent-time-axes) 2682 |
+| **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2000, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2045, [Rendering performance](#rendering-performance--overnight-run-section-11) 2076, [M6 deferral](#m6-deferral) 1006 |
+| **performance and the parallel sweep** | [Performance](#performance) 2533, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2076 |
 | **materials and the data schema** | [Materials](#materials) 217, [M12/M13 status](#m12m13-status) 704 |
 
 <!-- END GENERATED TOC -->
@@ -1276,17 +1276,52 @@ cell with something hanging further out than it, and never takes one whose
 removal would disconnect its neighbours. A plant comes apart into pieces at
 no point, which took three attempts to get right.
 
-**Known limitations, both measured.** Adult mortality now has a cause that
-fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
-kills nothing. A *shaded* plant settling at a stunted size is a suppressed
-tree waiting for a gap and is correct; a *droughted* one doing the same is
-not, and is filed with a reproduction as `open-bugs-handoff.md` §V2 —
-transpirational demand is summed over foliage only, so shedding a leaf
-reduces the very signal that shed it and a plant escapes drought by
-starving. Ninety thousand frames at maximum desiccation leave a tree larger
-than it was twenty thousand frames earlier. The general form is that an
-unpayable deficit has no consequence but shedding: there is starvation
-shedding and no starvation death. And selection
+**Judged by eye, and it went this way.** Posted as a blind A/B of the same
+stand at 28,800 frames (card `20260824T014630073Z-a10698`): the priced
+economy is the arm that reads as separate trees with clear trunks, and the
+current build is the one that reads as one mass. That is the first
+eye-judged evidence that the re-derivation improves the *silhouette* rather
+than only the numbers — and the numbers say why, median plant 4,740 → 3,659
+cells with the stem above the base 15 → 13. The root systems were posted the
+same way (`20260824T014648426Z-e32fca`) and both arms improved, with the
+priced one chosen.
+
+**The economy can kill, since 2026-08-24.** A plant that cannot pay even the
+mass term of its own maintenance — the price of keeping the tissue it
+already has, ignoring the superlinear girth term — for two hundred
+consecutive organism ticks is dead, and its remains rot at the species
+half-life. That is the owner's ruling on the finding below (*"if a tree
+doesn't get watered, it will eventually die"*), and it is measured against
+the mass term rather than the whole bill because a mature tree is in deficit
+on the full bill essentially always. Eight seeds: organisms senescent 0 → 4
+at 45,000 frames, organism slots reclaimed for the first time, and the
+survivors of a death visibly larger. A tree denied water now dies; a watered
+one does not.
+
+**Known limitations, both measured.** The first is in the *water* book and
+the death rule above only half closes it. Transpirational demand is summed
+over foliage only, `settle_water` returns a desiccation of exactly zero at
+zero demand, and `drought_death` is a parameter on photosynthesis — so
+shedding a leaf reduces the very signal that shed it, and wood and root have
+no drought path at all. A plant can no longer *escape* by starving, because
+starving now kills it, but nothing yet makes bare tissue ask for water.
+`open-bugs-handoff.md` §V2 has the three sites, a reproduction, and the
+ranked follow-ons — including one found *by* the death rule: intercepted
+light is summed over `CellType::Leaf` only, so a species with no leaf stage
+reads as earning nothing however much it earns, and grass has to be exempted
+from starving until that is repaired. Inherited-genome establishment is also **still zero** at
+both horizons: mortality was necessary and is not sufficient.
+
+The second is visible and is this package's: **die-back's shed tissue feeds
+a pile of soil that grows up through the canopy.** `shed_to_litter` stops at
+the first non-air cell that is not organism-owned, so every shed cell stacks
+on what is already lying there and the accumulation has no bound. Censused
+against `main` at one seed and 28,800 frames, mid-canopy soil is 301 cells
+against **1,890** — and against the same branch with die-back switched off,
+193 against 1,890, which is the isolation. The pile is pre-existing (`main`
+carries 4,817 cells of it) and this makes it 71% larger and nine rows
+taller. `open-bugs-handoff.md` §V3, with three ranked candidate fixes and
+`examples/crown_census.rs` as the instrument. And selection
 throughput moved the *wrong way*: fecundity is canopy size, every plant is
 smaller, and inherited-genome establishments went from 1 to 0 over eight
 seeds. No selection claim can be made for trees on this branch. Secondary

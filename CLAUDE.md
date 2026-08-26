@@ -979,6 +979,27 @@ phases keep chunks awake and enlarge the solve set the optimised pass has to
 walk. **Quote the whole-frame figure**, and treat a subsystem harness as
 aiming the work rather than sizing it.
 
+**A sub-phase breakdown of the *same* harness overstates in the same way, and
+the mechanism is different enough to be worth stating separately: removing
+work is not the same as removing cost.** Measured 2026-08-26 on the field's
+momentum passes. A gate that skipped them for tiles whose neighbourhood
+provably could not give them momentum removed **91% of that work** — 1,497
+solved tiles down to 147 — and the per-pass timings moved a long way with it:
+pressure 0.92 → 0.39, velocity 2.87 → 1.11, advection 3.25 → 1.49, the field
+step 14.50 → 9.87 ms. It was bit-identical, and it made the frame **slower**:
+eight alternating paired runs of two fixed binaries put the difference at
+**+0.59 ms, slower in 7 of 8**. The gate's own bookkeeping was timed and is
+not the answer (0.15 ms amortised). What was left is that the skipped passes
+had been *touching every solved tile*, and the full-set pass that runs after
+them then paid the cold misses instead — the arithmetic went away and the
+memory traffic only moved. On a `HashMap` of tiles walked by pointer-chasing,
+the traffic is the cost.
+
+So when a change makes one phase cheaper, **the phase it was made cheaper
+against is the whole frame**, measured paired and alternating. A sub-phase
+row that falls by a third while the frame does not move is not a partial win
+being masked by noise; it is usually the cost relocating.
+
 ### A noise bar belongs to the job it was measured on
 
 Two rules, both from one overturned claim (2026-08-25, `Reports/frame-cost-
