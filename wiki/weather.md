@@ -115,7 +115,7 @@ times thicker.
 **And snow on top slows it down.** A drift lying on a frozen pond is the
 best insulator in the world — it is mostly trapped air — so the ice under a
 snow-covered patch stays thinner than the ice beside it that the wind kept
-clear. This is a reversal: until this build, snow *sped up* freezing, and a
+clear. This is a reversal: until 2026-08-22, snow *sped up* freezing, and a
 snowfall arriving mid-freeze made a pond ice over several times faster.
 
 Ice is real footing. It floats, it carries the snow that drifts onto it,

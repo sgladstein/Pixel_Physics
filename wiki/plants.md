@@ -36,7 +36,7 @@ ground is the same organism sharing one economy.
 
 Plants are made of ordinary cells like everything else in the world. You can
 dig them, burn them, bury them, and cut them — and that sentence has only
-been true of *all four* since this build. See **Cutting a plant down**.
+been true of *all four* since 2026-08-24. See **Cutting a plant down**.
 
 ## The two things a plant needs
 
@@ -293,7 +293,7 @@ reach it. See `ants.md`.
 
 ## Cutting a plant down
 
-**New this build, and the honest half of it is in the second paragraph.**
+**New on 2026-08-24, and the honest half of it is in the second paragraph.**
 Until now a tree was the one thing in the world a tool could not touch. The
 pick and the chisel both asked "is this rock?" before they cut, and a trunk
 is not rock — so you could bore through a mountain and not through a

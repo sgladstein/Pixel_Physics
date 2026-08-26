@@ -60,6 +60,20 @@ for f in wiki/*.md; do
   if grep -q 'Current as of: this build' "$f"; then
     note "undated freshness note in $f -- 'this build' cannot go stale; use a date"
   fi
+  # ...and the same disease in the BODY, which this check did not look at until
+  # 2026-08-26. Six instances were standing across four pages -- "New this
+  # build", "until this build", "as of this build" -- each of which reads as
+  # current for ever. One of them had already gone wrong in the way that is
+  # hardest to notice: weather.md's "until this build" meant 2026-08-23, and
+  # re-dating the page for an UNRELATED edit silently repointed it at 2026-08-26.
+  # A phrase whose meaning depends on the freshness note is broken by any later
+  # edit to that note, so the anchor has to be written in.
+  # Deliberately narrow: only "this build". "currently" and "recently" have
+  # legitimate uses in this prose ("ground where nothing is currently growing"),
+  # and a check that fires on correct content stops being read.
+  if grep -qi 'this build' "$f"; then
+    note "$f: 'this build' in body prose -- name the date instead; it cannot go stale"
+  fi
 done
 
 # --- 4. Every report must be indexed, and in-flight entries must promote ----

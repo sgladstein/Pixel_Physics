@@ -258,7 +258,8 @@ at all, and **flat** — the structural test bed — is deliberately empty so
 that nothing is standing on it.
 
 **Grass comes with a new world too, and it grows where the woody plants
-thin out.** It is a separate layer rather than a fifth kind of tree: the
+thin out.** (How any of them actually grow is [Plants](plants.md); this is
+only where a new world puts them.) It is a separate layer rather than a fifth kind of tree: the
 budget above is for the woody plants, and grass takes the ground between
 them. Where that ground is open — the dry margin, a thin skin of soil over
 rock, anywhere the country supports woody cover poorly — a sward comes up.
