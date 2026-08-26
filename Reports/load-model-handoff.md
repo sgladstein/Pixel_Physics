@@ -1,8 +1,20 @@
 # Load/torque failure — implementation handoff
 
-**Status:** not started. This is the single remaining step of
-`Reports/fracture-mechanics-design.md`, and the one that document says must
-not be rushed: it changes the failure criterion for every material at once.
+**Status: SUPERSEDED BY LANDING — do not execute this document.** The step
+it hands off shipped in `7e13e42`; `src/sim/load.rs` is the result. Read
+`Reports/load-model-fit-review.md` instead, which reviews what actually
+landed. Parts of this are now on the do-not-retry register: its §3 asks for
+the support-parent side table on `World` that `load.rs`'s module doc records
+as rejected. Kept for the rationale written before the work.
+
+*(This header read "not started" until 2026-08-26, long after the step
+landed. The report index had it right throughout; the header is what an
+agent opening the file directly sees first.)*
+
+What it was: the single remaining step of
+`Reports/fracture-mechanics-design.md`, and the one that document said must
+not be rushed, because it changes the failure criterion for every material
+at once.
 
 **Read first, in order:** `CLAUDE.md` (method and conventions),
 `Reports/design-philosophy.md` §0a (satisfying is the requirement, and this

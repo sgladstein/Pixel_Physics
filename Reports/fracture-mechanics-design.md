@@ -1,6 +1,9 @@
 # Fracture: load, capacity and cracks
 
-**Status:** design, not built. Written after playtesting rejected three
+**Status: design; its load/torque step has since landed** (`7e13e42`,
+`src/sim/load.rs`) — so this is the rationale, not a work order. What remains
+live here is *why*: the four support models already tried and rejected, the
+repo gotchas, and the acceptance cases. Written after playtesting rejected three
 successive support models, and after the owner identified the defect the
 third one still had.
 

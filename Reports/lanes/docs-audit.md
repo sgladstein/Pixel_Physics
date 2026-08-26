@@ -793,3 +793,57 @@ What was dropped is only what the body already says in its own words: the
 2026-08-22 water and rubble entries (the *Rock in water* and *What rubble
 does* sections carry all of it), the `F9` fixes (the damage section states all
 three), the TIGHT-as-default experiment, and resolved open questions.
+
+## 2026-08-26 — the reports: the index is kept, the headers drift
+
+`Reports/` is **105 files, ~917k tokens — 80% of the whole corpus**, and this
+audit had only ever sampled it. Reading it for accuracy is not the job; there
+is a bounded check with a far better hit rate.
+
+**`Reports/README.md` is well maintained** — every report indexed (`docscheck`
+gates it, 0 missing) and standings accurate. **Nothing checked that a report's
+own `**Status:**` header agrees with its index entry**, and of the seven
+reports declaring *not built / not started / nothing built*, **four were
+contradicted by their own index entry — and the index was right every time:**
+
+| report | its header said | the index said |
+|---|---|---|
+| `load-model-handoff.md` | *"not started"* | superseded by landing, shipped `7e13e42` |
+| `fracture-mechanics-design.md` | *"design, not built"* | its load/torque step has since landed |
+| `physical-trees-design-2026-08-23.md` | *"design, nothing built"* | §8's T1 stage is built |
+| `felling-blockers.md` | *"scope only, nothing built"* | §1 and §2 both superseded |
+
+This is the trap class the benchmark tests for. `CLAUDE.md` says to check a
+report's standing in the index — but an agent that opens the file directly
+reads the header first and takes *"Status: not started"* as a live work order.
+
+**One of the four was this audit's own miss.** `fracture-mechanics-design.md`
+had its *referral* line fixed earlier today — the pointer at the superseded
+handoff — while `**Status:** design, not built` stood three lines above it in
+the same file, contradicting the index. Hunting referrals, never looked up.
+
+All four restated, each naming the commit that landed it. `building-rethink.md`
+and `destruction-plan.md` keep their *not built* headers: their index entries
+agree, so they are correct rather than stale.
+
+### The gate, and its own false positive
+
+`docscheck` now flags a report whose header claims nothing is built while its
+index entry says it landed. **It false-positived on its first run** — the
+lookup used `grep -A3` for the index entry, and on `destruction-plan.md`
+(whose own entry says *"plan."*) the context window bled across the entry
+boundary into two later entries that mention landings. Scoped to one entry
+with awk, it goes quiet on both correct reports. Fault-injected: restoring
+*"not started"* to `load-model-handoff.md` turns it red, removing it green.
+
+Worth carrying: the gate written to catch this class *itself* fired on correct
+content the first time it ran. Third instance today, after the drift proxy that
+ranked three clean pages 10/7/6 and the `grain` grep whose three hits were all
+grains of sand.
+
+### Not done
+
+**The other ~89 reports carry no `Status:` line at all**, so this check cannot
+see them. Sweeping those for the same trap shape — a document reading as an
+executable work order for something already shipped — is a real pass and has
+not been attempted.
