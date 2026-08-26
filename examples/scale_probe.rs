@@ -480,6 +480,9 @@ fn phase_probe(args: ProbeArgs) {
     // `usize::MAX` is "keep firing", so the common case needs no sentinel
     // check at the trigger site below.
     let mut blast_limit = usize::MAX;
+    // Env rather than an argument: `ProbeArgs` is already at clippy's
+    // `too_many_arguments` limit, and this is a one-shot diagnostic.
+    let reconverge_at: usize = std::env::var("RECONVERGE_AT").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     let (mut strike_every, mut strike_limit) = (0usize, usize::MAX);
     let (mut mine_every, mut mine_limit) = (0usize, usize::MAX);
     // `EVERY[:COUNT]`, shared by the three verbs so they cannot drift apart.
@@ -613,6 +616,60 @@ fn phase_probe(args: ProbeArgs) {
                 blasts.trigger_with(&mut world, &mut particles, x, sy + 8, 20, 200.0);
                 blasts_fired += 1;
             }
+        }
+        // **The oracle for §S.** `RECONVERGE_AT=<frame>` runs the converged
+        // whole-world pass once, at that frame, and prints the pending count
+        // either side of it.
+        //
+        // It exists to answer a question no amount of tuning the reactive
+        // path can: *is a converged support field a fixpoint under the
+        // scheduler at all?* If the queue goes quiet and stays quiet, §S is
+        // a convergence bug and `Reports/structural-reconvergence-design.md`
+        // is aimed correctly. If it refills, the churn is being driven by
+        // something that is not the field's disagreement with itself, and
+        // the whole scope is aimed at the wrong quantity.
+        //
+        // This is a *probe*, not a proposal: `compute_world_distances` walks
+        // all 21M cells and takes seconds. Nothing would ship it per blast.
+        if reconverge_at > 0 && step == reconverge_at {
+            let before = world.active_site_count();
+            // **The size of the affected set, which is what decides whether
+            // the real fix needs amortising.** Snapshot every body cell's
+            // stored distance, converge, and count how many actually moved.
+            // The whole-world pass is the numerator's oracle; this is the
+            // denominator -- a scoped reconvergence has to touch at least
+            // the cells that changed and (being conservative) not many more.
+            let mut before_aux: Vec<((i32, i32), u16)> = Vec::new();
+            for y in 0..h {
+                for x in 0..w {
+                    let c = world.get(x, y);
+                    if structural::is_body_material(&world, c.material) && c.organism_id() == 0 {
+                        before_aux.push(((x, y), c.aux()));
+                    }
+                }
+            }
+            let t = Instant::now();
+            structural::compute_world_distances(&mut world);
+            let cost = t.elapsed().as_secs_f64() * 1000.0;
+            let mut changed = 0usize;
+            let mut rose = 0usize;
+            let mut max_delta = 0u16;
+            for ((x, y), old) in &before_aux {
+                let now = world.get(*x, *y).aux();
+                if now != *old {
+                    changed += 1;
+                    if now > *old {
+                        rose += 1;
+                        max_delta = max_delta.max(now.saturating_sub(*old));
+                    }
+                }
+            }
+            let body = before_aux.len().max(1);
+            println!(
+                "  [oracle] frame {step:>6} compute_world_distances {cost:.1}ms over {body} body cells |                  changed {changed} ({:.2}% of body), of which rose {rose}, largest rise {max_delta} |                  pending {before} -> {}",
+                100.0 * changed as f64 / body as f64,
+                world.active_site_count()
+            );
         }
         // The hammer and the pick, at the app's own sizes: `App::strike`
         // passes `brush_radius * STRIKE_FORCE_PER_RADIUS` (0.9) as force, and

@@ -101,26 +101,26 @@ point.
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 5918 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6107 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6198 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6212 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6224 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6242 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6263 | A material-counting guard cannot see a species |
-| W1c | note | 6276 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6410 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6488 | The structural opt-out did not hold against bearing |
-| T1d | note | 6499 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6533 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6587 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6641 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6670 | §1c's settle loss is now a counter |
-| -- | note | 6687 | What landed |
-| -- | note | 6710 | Do not re-derive these |
-| -- | note | 6738 | Measurements that contradict something written |
-| -- | note | 6758 | Open |
-| -- | note | 6793 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6025 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6214 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6305 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6319 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6331 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6349 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6370 | A material-counting guard cannot see a species |
+| W1c | note | 6383 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6517 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6595 | The structural opt-out did not hold against bearing |
+| T1d | note | 6606 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6640 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6694 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6748 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6777 | §1c's settle loss is now a counter |
+| -- | note | 6794 | What landed |
+| -- | note | 6817 | Do not re-derive these |
+| -- | note | 6845 | Measurements that contradict something written |
+| -- | note | 6865 | Open |
+| -- | note | 6900 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5913,6 +5913,113 @@ than a GIF, with the failure counts in the card's `meta`), not in a commit
 message. See also §D2, the same quantity from the other side: *"a room's
 collapse arrives at frame ~350 where it used to arrive at ~150"*, filed as a
 regression.
+
+
+#### What the cost actually is — the census, 2026-08-26
+
+**It is not the load model, and §S was filed believing it was.** The entry
+above says the correction "advances one cell per five frames"; the `[struct]`
+census says the correction never arrives at all, because the cells are not
+advancing, they are climbing.
+
+`scale_probe size=8192x2560 phases=1 warm=1500 frames=12000 load=blast:200:1`
+with `SCHED_PASS`, one radius-20 charge at frame 200, read at **frame 13,200 —
+eleven thousand frames after the only event**, with the world materially still
+(59 awake chunks of 5,120, 0 particles in flight):
+
+| | per frame |
+|---|---|
+| `worsened` | **1,464** |
+| `improved` | 7–48 |
+| reached the chain walk (`chain_deferred`) | **1** |
+| `uninteresting` | 941–1,056 |
+| sites drained / produced | 2,000 / **7,631** |
+| `max aux` | 438–725, oscillating, never settling |
+
+**One in two thousand sites reaches `failing_along_support_chain` at all.**
+The 12–15 ms the scheduler spends is the distance relaxation itself: ~1,400
+cells per frame each raising their distance by one step and fanning out to
+five sites through `schedule_solid_neighbours`, which is the whole of the
+~7,600 produced against the 2,000 drained. `improved` sitting near zero is the
+tell — a converging field improves, and this one only ever worsens. It is
+Bellman-Ford's count-to-infinity, which `compute_world_distances`' own doc
+already names as the reason worldgen must not route through the reactive path.
+
+So the load model is not the target, and neither is `MAX_SITES_PER_FRAME`.
+
+#### The oracle: a converged field *is* a fixpoint — measured 2026-08-26
+
+The question no amount of tuning the reactive path can answer, and the one
+that decides whether `Reports/structural-reconvergence-design.md` is aimed at
+the right quantity at all: **if the field were converged, would it stay
+converged?** `RECONVERGE_AT=<frame>` in `scale_probe` runs
+`compute_world_distances` once, mid-run, and prints the queue either side.
+
+Same scene, charge at frame 200, converged pass at frame 3,000:
+
+| frame | scheduler | pending | `worsened` | structural sites drained | `max aux` |
+|---|---|---|---|---|---|
+| 2,400 | 13.72 ms | 25,876 | 1,400 | 1,678 | 438 |
+| 3,000 | 14.36 ms | 36,818 | 1,401 | 1,971 | 550 |
+| 4,200 | 12.49 ms | 53,077 | 1,464 | 1,924 | 725 |
+| — | *converged pass, 2,016 ms, one-off* | | | | |
+| 4,800 | **0.25 ms** | **6,094** | — | **14** | — |
+| 6,000 | **0.45 ms** | **6,932** | **2** | **9** | 203 |
+| 7,200 | **1.04 ms** | **7,832** | **10** | **58** | 683 |
+
+The queue collapses to its honest idle value and stays there; the scheduler
+goes to ~1% of its loaded cost. **§S is a convergence bug, confirmed**, and
+the target state is stable rather than something the world walks back out of.
+
+*And it is not the immunity artifact this bug has already produced once*
+(`CLAUDE.md`, *a cost that vanishes may be work that vanished*): `max aux`
+after the pass reads **203, 443, 683** — live, honest, non-degenerate values,
+not the 142 the rooted-flat prototype gave. The anchor rule is untouched here;
+only the field's disagreement with itself is removed.
+
+#### How big the real fix has to be — 67,100 cells, not 250,000
+
+The same oracle censuses every body cell's `aux` either side of the pass, so
+the affected set is now measured rather than estimated:
+
+| | body cells | changed | of body | of which rose | largest rise |
+|---|---|---|---|---|---|
+| **idle, no blast** (the control) | 19,386,874 | **45** | 0.00% | 45 | 65,535 |
+| **one radius-20 charge** | 19,386,483 | **67,100** | **0.35%** | 67,100 | 65,535 |
+
+The idle arm is the sanity check the number needs: with nothing wrong it reads
+45 cells out of 19.4 million, so 67,100 is the charge and not the instrument.
+Every changed cell **rose**, which is what an increase-aware update is for, and
+the largest rise is `u16::MAX` — cells that genuinely lost every path.
+
+**Three consequences for the fix.**
+
+- The scope report's estimate of *"~63 chunks, about 250,000 cells"* is **3.7x
+  too pessimistic**. The true set is 67,100.
+- At the whole-world pass's own rate (1,918 ms / 19.4 M ≈ **99 ns/cell**), a
+  scoped pass over 67,100 cells is **~7 ms, once** — against the ~14 ms *every
+  frame, for ever* that it removes. One frame's spike buys the rest of the
+  session.
+- **That is why the box prototype cost 440 ms**: an 8x box is a ~30x overshoot
+  of the set that actually changed. The 440 ms is not the price of converging,
+  it is the price of converging the wrong 97% of the region — which makes
+  amortisation (scope report §3) genuinely optional rather than merely
+  deferrable.
+
+#### Ruled out: doing it reactively, inside `tick` — 2026-08-26
+
+The cheap version anyone would try first, and it does not work. Full record in
+`Reports/dead-ends.md`; the short form is that `tick` was made increase-aware
+in place (a risen distance jumps straight to `u16::MAX` instead of writing the
+one-step-worse value, and the invalidation step propagates without judging).
+**It fires** — `improved` goes from ~30/frame to ~900/frame, so the field
+starts doing convergence-shaped work — **and it does not converge**: pending
+still climbs linearly 23,227 → 130,403 between frames 2,400 and 13,200, and
+the whole frame is 41.19 ms against the control's 40.14 ms. A monotone climb
+is traded for a stable oscillation at the same throughput, because a cell
+cannot tell locally whether a neighbour's `u16::MAX` is an invalidation that
+will be undone or a genuine dead end. **The closed affected set and the
+ordered pass are necessary, not merely tidier.**
 
 
 ### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
