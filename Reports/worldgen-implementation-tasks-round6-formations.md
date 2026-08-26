@@ -294,8 +294,9 @@ that produced it, unchanged from frame ~400 on). **This is not a defect
 terrain in this engine today — an ordinary massif overhang undermined the
 same way would read identically — because nothing between here and
 `load.rs`'s still-unbuilt failure step converts "cannot reach an anchor"
-into "comes down" on its own; `Reports/load-model-handoff.md` is the
-document already tracking that gap. What round 6 adds is simply the first
+into "comes down" on its own; `Reports/load-model-handoff.md` stated that
+gap, but is **superseded by landing** and is not a live tracker --
+`Reports/load-model-fit-review.md` and the bug register are. What round 6 adds is simply the first
 measurement of how often a *residual specifically* lands in it (~20% at
 this dig geometry), which the load-model work should have on hand once it
 picks the step back up — a residual is exactly the "first object a player

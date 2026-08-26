@@ -56,6 +56,30 @@
         "Reports/load-model-handoff.md"
       ],
       "notes": "Routing improved across 258 commits and ~14 new reports since the overhaul. Found a third reason to refuse the trap that the baseline run did not report: load-model-handoff.md's own header still reads 'Status: not started', which the index contradicts. This run also flagged, unprompted, that the answer key was then inside Reports/ and made the benchmark non-blind -- which is why the key now lives here."
+    },
+    {
+      "date": "2026-08-26",
+      "tree": "f3df928 -- after the agent-consumption audit's routing work",
+      "correct": "3/3",
+      "files_opened": 6,
+      "source_files_read": 0,
+      "traps_refused": "1/1",
+      "tool_calls": {
+        "total": 23,
+        "reads": 9,
+        "greps": 11,
+        "listings": 3
+      },
+      "files_in_order": [
+        "README.md",
+        "Reports/README.md",
+        "Reports/dead-ends.md",
+        "Reports/open-bugs-handoff.md",
+        "PLAN.md",
+        "Reports/documentation-audit.md"
+      ],
+      "notes": "files_opened held at 6, unchanged from 2026-08-24, while tool calls rose 17 -> 23. Do NOT read that as no improvement: the routing landed this day deliberately trades file-opens for narrower reads, so files_opened is the wrong metric for it. The qualitative evidence that it worked is that the run USED the new routing and said so -- it entered README by the By topic table, entered dead-ends.md by mechanism grep rather than by area, read only the bug register's generated index, and quoted PLAN.md's dated State line. CLAUDE.md was pre-loaded by the harness and never opened, so it is absent from files_in_order here where earlier runs counted it -- the counts are not strictly comparable and that confound is the reason to prefer the qualitative read.",
+      "new_defect_found": "Three documents pointed at load-model-handoff.md -- superseded by landing -- with no marker, the worst being fracture-mechanics-design.md's 'Read that to *build* this'. A cold agent arriving from that report is sent straight at a stale work order whose section 3 is a recorded dead end. Fixed 2026-08-26. Neither earlier run found this, because neither approached the handoff from a referring document."
     }
   ]
 }

@@ -6,9 +6,11 @@ ask the question that was never asked before building it: *what have the
 games that already solved this actually done, and where does our approach sit
 among them?*
 
-**Read `Reports/fracture-mechanics-design.md` and
-`Reports/load-model-handoff.md` first** — this document assumes the model and
-argues about it, it does not restate it.
+**Read `Reports/fracture-mechanics-design.md` first** — this document assumes
+the model and argues about it, it does not restate it.
+`Reports/load-model-handoff.md` is background only: it is **superseded by
+landing** and must not be executed as written. For what shipped, read
+`Reports/load-model-fit-review.md`.
 
 **Evidence discipline.** This engine has been burned by reports taken on
 faith (`CLAUDE.md`: "a mechanism whose advantage only appears at large width
