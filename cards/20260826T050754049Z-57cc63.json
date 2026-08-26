@@ -1,0 +1,43 @@
+{
+  "id": "20260826T050754049Z-57cc63",
+  "created": "2026-08-26T05:07:54Z",
+  "board": "perf",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/perf-s-invalidate",
+    "commit": "db9d484",
+    "agent": null,
+    "session_id": "97d6df1b-4aaa-5b6a-9e7e-d591ff14fc20",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Blasts destroy rock that was never unsupported",
+  "question": "The engine is currently breaking rock that had real support — it just hadn't found out yet. Converging the support field leaves 25,470 MORE cells standing after one charge. Before I build the shipping version: is the amount of collapse you get after a blast today about right, or already more than you want? If it's about right, this fix will make blasts visibly LESS destructive and I should give some of it back on purpose.",
+  "context_md": "**No A/B image — this is a \"how much should break\" question and the number is the claim.** The picture is one cascade run to rest, so you can judge the amount against something.\n\n**What is going on.** The support field corrects itself reactively, one cell per five frames, and after a charge that correction never catches up. Measured eleven thousand frames after a single radius-20 blast at the shipped 8192x2560, with the world materially still: **1,464 cells per frame are still raising their distance**, and roughly 1 site in 2,000 ever reaches the load model. Every value written on the way up is wrong, and a cell that climbs past its own span **breaks and takes its neighbours with it** before the true value arrives.\n\nYou can see it in the sheet below. `what came off` is flat at 202 cells across all five tiles — nothing new is actually moving — while `unsupported` climbs 323 → 503 → 683. That climb is the bug.\n\n**The measurement.** Two 6,000-frame runs, identical except that one converges the field once at frame 3,000:\n\n| | body cells standing at the end | mean frame | frames over budget |\n|---|---|---|---|\n| today | 19,471,238 | 42.27 ms | 96.9% |\n| **converged** | **19,496,708** | **33.29 ms** | **85.3%** |\n\nSo converging is worth ~14 ms of a ~40 ms frame **and** 25,470 cells of rock that should never have fallen.\n\n**Why I am asking instead of just building it.** It changes a blast two ways at once — less total collapse, and it arrives sooner, because part of the delay you see today is literally the wavefront crawling. `CHAIN_WINDOW_FRAMES` is 600 frames of deliberate generosity built around that crawl. If today's blast already feels too destructive, this is a straight win. If it feels right, a performance fix should not quietly retune your game.\n\nNothing has shipped: the machinery is in PR #68, off by default.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "one cascade, run to rest",
+      "files": [
+        "20260826T050754049Z-57cc63/000-collapse.png"
+      ],
+      "caption": "scene=worldcrack strike=12, frames 2 / 902 / 1802 / 2702 / 3602",
+      "meta": {
+        "unsupported failures, tile 0 to 4": "323 -> 503 -> 683",
+        "overloaded failures (flat)": 2,
+        "what came off (flat, all tiles)": "202 cells as chunks, 62 as dust",
+        "cells the converged field saves, 6000-frame run": 25470,
+        "mean frame with / without converging (ms)": "33.29 / 42.27"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
