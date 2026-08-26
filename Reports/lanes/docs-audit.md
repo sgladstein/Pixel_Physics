@@ -630,3 +630,67 @@ costs tokens by itself — so **+42% is an upper bound on the routing effect,
 not a clean estimate**. The isolation itself held: the baseline arm reported
 *"the documentation gives no numbers for either file"* and named the revision
 difference it had been told to disregard.
+
+## 2026-08-26 — the wiki audit
+
+The last unaudited documentation. **The mechanical half is clean**: 11 of 12
+pages carry a real date, and every one matches its file's last commit exactly
+— no `this build` placeholders, no invented dates. `wiki/README.md` has none
+and needs none; it is an index, and `docscheck` does not ask for one.
+
+**A drift proxy was built and it over-fires**, which is worth recording before
+its output: "commits to a page's mapped source since the page's date" scored
+`structural-collapse.md` at 10, `powders.md` 7, `world-cycles.md` 6. All three
+are **clean**. The count is inflated three ways — merge commits carry no
+content; perf commits say so themselves (four of `world-cycles.md`'s six are
+explicitly *bit-identical*); and a change to one subsystem's *code* is often
+documented on a different *page*, correctly. Felling lives in `structural.rs`
+and `rigid.rs`; the player-facing account of it belongs on `plants.md` and
+`the-gnome.md`, and `plants.md` had it. This is the same failure class as the
+file-overlap metric `CLAUDE.md` warns about under merges: a proxy that looks
+like a defence and fires on correct content. Use it to order the reading, never
+as a finding.
+
+### Two real findings, both on pages nobody would have suspected
+
+**`wiki/the-gnome.md` carried two statements that were false**, and the timing
+is the interesting part. The page was last written at **10:18 on 2026-08-23**.
+`43adeb6` — *"let a tool hurt a plant"* — landed at **09:56 the same day,
+twenty-two minutes earlier**. So the page was revised *after* the behaviour
+changed and did not pick it up:
+
+- *"the pick sees straight through living wood to the rock behind, so you can
+  dig in a wood and dig while standing inside a tree"* — false.
+  `rigid::is_tool_target` (`rigid.rs:308`) accepts `Solid | Plant`, and the D2
+  guard `a_blow_cuts_living_wood` asserts a blow on a living trunk removes
+  living trunk. Bedrock stays exempt, guarded separately.
+- *"Cutting a tree down is deliberately not in yet."* — false, and gated in CI.
+  `scripts/acceptance.sh:490` runs `scene=fell fell=6000 … min_severed=1000`.
+  `43adeb6` measures it: six bites sever the bole, standing living tissue
+  2,906 → 409, both drivers agreeing (2,360 parallel, 2,398 serial). `bbbd789`
+  then made the crown come down as pieces rather than sawdust, ten hours after
+  the page was written.
+
+This is the page an agent consults about what the player can *do*. It was
+answering "can he cut down a tree?" with "no".
+
+**`wiki/weather.md` never documented exposure-scaled gusts.** `ea061eb` and
+`107355c` (both 2026-08-23) made a gust's strength a function of how sheltered
+the ground under it is — `weather.rs:1022`'s `exposure`, guarded by
+`exposure_is_read_only`. The page's "Wind and storms" section described gusts
+as uniform. Added.
+
+Both pages re-dated 2026-08-26.
+
+### Why this mattered more than it looks
+
+The set B run the same day showed a wiki page is a route agents actually take
+for design answers — the baseline arm got its non-destruction precedent from
+`wiki/plants.md`. A stale wiki page is not cosmetic; it is a confident wrong
+answer on a path we now have evidence gets walked.
+
+**One thing left for the owner, not fixable from the code.** The exact
+button-level interaction is worth a playtest check: left-clicking a plant you
+are *pointing at* still shakes it (the `shake_*` tuning is intact), while a
+blow that lands on wood now cuts it. Which one you get when both could apply is
+stated here from the code's structure, not from playing it.
