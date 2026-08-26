@@ -1443,13 +1443,16 @@ consider it at all.
   *inside* sentences, so a phrase quoted the way it reads does not match the
   way it is stored. Both were hit in one session: a post-merge check reported
   two lanes' work missing when it was present and intact, which nearly became
-  a report that the merge had dropped it. **Verify presence with a
-  whitespace-and-markup-normalised search, never a raw `grep` for a
-  multi-word phrase** -- read the file, strip `` ` ``/`*`/`~`, collapse
-  whitespace, then test. `scripts/addrcheck.py`'s `normalise()` is the
-  worked version and covers dashes, arrows, section signs and smart quotes
-  too. A short unique token (`rot_remains`, `max_unsupported_span`) greps
-  fine; a sentence does not.
+  a report that the merge had dropped it. **Use
+  `python3 scripts/docgrep.py "the phrase as it reads"`**, which normalises
+  both sides and prints `file:line`; with no file arguments it searches the
+  documents agents are routed to, and it exits 1 on no match so it can be used
+  in a conditional. A short unique token (`rot_remains`,
+  `max_unsupported_span`) greps fine; a sentence does not. This is a tool
+  rather than a rule deliberately -- the rule that stood here first asked the
+  reader to strip the markup and collapse the whitespace by hand, mid-task,
+  which is exactly the discipline this file's own recurrence audit found does
+  not survive a real session.
 - **A coarse-field read is block-nearest, so neighbouring cells sample the
   same value — never build a per-cell decision on the difference between
   two of them.** At `FIELD_SCALE`, four sensors one cell apart land in the

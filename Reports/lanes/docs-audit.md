@@ -394,3 +394,25 @@ Useful structural fact found on the way: **592 of 595 entries (99%) open with
 a machine-readable file address** across 77 distinct files, 30 covering 80%
 of entries. That is what makes the address-prefix grep work as a second
 resort.
+
+### The grep false-negative got a tool, because a rule was not a fix
+
+Asked whether writing the rule had actually fixed anything. It had not — the
+rule asked the reader to strip markup and collapse whitespace **by hand,
+mid-task**, which is the exact discipline this file's own recurrence audit
+found does not survive a real session (seven rules existed and the mistake
+recurred anyway). I made this mistake twice today with `CLAUDE.md` loaded.
+
+`python3 scripts/docgrep.py "the phrase as it reads"` now does it. It imports
+`addrcheck.normalise` rather than reimplementing it, so the two agree by
+construction, and prints `file:line`, exiting 1 on no match. Verified against
+the two phrases that actually fooled me (`Six seeds is not a sweep`, `By topic
+table maps subsystem` — both **0 hits** under plain `grep`, both found), a
+heavily marked-up phrase quoted as it reads, and a negative control that must
+still fail.
+
+**The general point, which is the reusable half:** when a rule asks for a
+multi-step manual procedure, that is a signal the fix is a command, not
+prose. Check whether the normalisation, parsing or comparison the rule
+describes already exists somewhere in `scripts/` — here it did, in a checker
+built the same day, and the rule had been written without noticing.
