@@ -416,3 +416,38 @@ multi-step manual procedure, that is a signal the fix is a command, not
 prose. Check whether the normalisation, parsing or comparison the rule
 describes already exists somewhere in `scripts/` — here it did, in a checker
 built the same day, and the rule had been written without noticing.
+
+### Applying "a procedure wants a command" found a stale command
+
+Swept `CLAUDE.md` for rules that ask for a multi-step manual procedure and
+checked each against `scripts/`. Three real candidates, three different
+verdicts — the mix is the useful part:
+
+**1. Genuinely prose, left alone.** *"Before trusting any guard, put the fault
+it is named for back and watch it go red."* Constructing the fault a guard is
+named for is judgement, not a procedure. No command can do it.
+
+**2. Prose duplicating machinery that already exists.** The bug-register rule
+said to *"check the letter is not taken"* by hand. `bugindex.py --check`
+already does it and is gated by `docscheck` — fault-injected to confirm rather
+than trusting its "identifiers unique" message: a duplicated `### D3.` gives
+`identifier 'D3' is used by 2 entries (lines 468, 501)`, exit 1. The rule now
+names the command.
+
+**3. A command that had gone stale, and nobody noticed because it was
+asserted so firmly.** The Commands section read `cargo test -- --skip
+root_and_shoot_branching_read_different_slots   # the --skip is not optional`.
+**It is optional.** Bug A's test is `#[ignore]`d, so it never runs. Measured
+2026-08-26: `cargo test --lib` with no flag at all gives **943 passed / 0
+failed / 54 ignored**, exit 0. The premise was true when that test ran red;
+someone later ignored it and the guidance never caught up, in the most-followed
+section of the file.
+
+The general rule in the red-suite gotcha survives and is why the entry stays —
+*while any gate is quarantined, whatever runs after it is not being run
+locally* — but its specific instance is closed and now says so.
+
+**Carry this:** an emphatic qualifier (*"not optional"*, *"always"*, *"never
+skip"*) is where staleness hides longest, because the emphasis discourages the
+check. When applying the procedure-wants-a-command lens, **test the premise of
+the command, not only whether a script exists.**

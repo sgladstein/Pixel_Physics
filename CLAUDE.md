@@ -124,7 +124,7 @@ something that cost effort to find.
 ## Commands
 
 ```
-cargo test -- --skip root_and_shoot_branching_read_different_slots   # unit + integration; the --skip is not optional -- see the red-suite gotcha
+cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
@@ -486,7 +486,10 @@ line at once:
   which is the failure §M's own entry opens by warning about.
 
 So before adding a section: **grep the file for the thing you are about to
-file, and check the letter is not taken.** And when a merge conflicts there,
+file** — and for the letter, run `python3 scripts/bugindex.py --check`, which
+names both lines when one is used twice (`identifier 'D3' is used by 2
+entries`) and is already gated by `docscheck`. Do not check the letter by
+eye; that is what the tool is for. And when a merge conflicts there,
 ask which side is *newer* rather than which is yours — a stale copy of an
 entry the other side has since closed looks exactly like your own work.
 
@@ -1333,16 +1336,18 @@ consider it at all.
   test binary, so a known-red lib test hides every integration test from a
   local run.** Bug A lives in the lib target, so plain `cargo test` fails
   there and never runs `tests/worldgen.rs` or `tests/determinism.rs` — they
-  do not appear in the output at all, not even as skipped. CI does not have
-  this blind spot, because its `test` jobs pass `--skip
-  root_and_shoot_branching_read_different_slots`: the lib goes green and the
-  integration binaries then run. That asymmetry hid **two gating failures on
-  `main` for a whole day** (`Reports/open-bugs-handoff.md` §M). So run the
-  gate the way CI runs it — `cargo test --release --locked -- --skip
-  root_and_shoot_branching_read_different_slots` — and treat the *absence*
-  of `Running tests/worldgen.rs` from the output as the tell, since it reads
-  as a pass rather than an error. The general rule: **while any gate is
-  quarantined, whatever runs after it is not being run locally.**
+  do not appear in the output at all, not even as skipped. That asymmetry hid
+  **two gating failures on `main` for a whole day**
+  (`Reports/open-bugs-handoff.md` §M). **The specific instance is closed and
+  the general rule is not.** Bug A's test is now `#[ignore]`d, so it no longer
+  runs and no longer blocks anything: measured 2026-08-26, `cargo test --lib`
+  with no flag gives **943 passed / 0 failed / 54 ignored**. The `--skip
+  root_and_shoot_branching_read_different_slots` this bullet and the Commands
+  section both insisted on is therefore vestigial, and CI still passes it
+  harmlessly. What survives, and is the reason to keep this entry: **while any
+  gate is quarantined, whatever runs after it is not being run locally** — so
+  treat the *absence* of `Running tests/worldgen.rs` from the output as the
+  tell, since it reads as a pass rather than an error.
 - **You are probably measuring a binary that is not the code you wrote.**
   Four separate bullets below are one failure — the artifact under test is
   stale, and it happens on *every* route into it. **The shared tell is
