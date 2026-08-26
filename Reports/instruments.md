@@ -192,6 +192,29 @@ things it answers that were not the question it was built for:
   counter of *calls* is not a counter of *effect*; any new load component
   needs its own effect counter before its null means anything.
 
+**`RECONVERGE_AT=<frame>` on `scale_probe` is the *oracle* for any question
+of the form "would converging this help?"** It runs one whole-world
+`compute_world_distances` mid-run and prints the pending count, the scheduler
+cost and the census either side of it. Two uses well past the one it was
+built for:
+
+- **It separates "the reactive path is slow" from "the reactive path never
+  arrives".** No amount of tuning a reactive relaxation can say what the
+  converged state costs, because the converged state is what it never reaches.
+  One pass says it directly: on `load=blast:200:1` the scheduler went 12.49 ms
+  -> **0.25 ms** and pending 53,077 -> **6,094**, and stayed there. That is the
+  measurement that made `Reports/structural-reconvergence-design.md` a scope
+  worth building rather than a hypothesis.
+- **It sizes the fix, because it censuses every body cell's `aux` either side
+  of the pass.** "How much of the world does one charge actually invalidate?"
+  is otherwise unanswerable, and the guess in circulation (250,000 cells,
+  inferred from woken chunks) was **3.7x** the censused figure of 67,100.
+  Run it on an idle world first: that arm reads **45 cells out of 19.4 M**,
+  which is what makes the loaded arm's number mean anything.
+
+It is a probe, not a proposal — the pass takes ~2,000 ms and walks all 21 M
+cells. Nothing would ship it per blast.
+
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a
 card's `meta` cannot say whether the thing is even in frame.

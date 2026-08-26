@@ -1276,7 +1276,7 @@ pub fn step(world: &mut World) {
     // first attempt look like a win.
     // `Reports/field-settling-2026-08.md` has the full measurement.
     timing.time("sky", || {
-        let _lit = apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
+        apply_sky_to(amplitude, &coords, world.fields_ref(), &mut next);
     });
     // Strictly after `step_advection` and strictly before `mark_converged`,
     // for the reason the block comment above `next` spells out with a
@@ -2043,10 +2043,9 @@ fn apply_sky_to(
     coords: &[ChunkCoord],
     old: &HashMap<ChunkCoord, FieldTile>,
     next: &mut HashMap<ChunkCoord, FieldTile>,
-) -> HashSet<ChunkCoord> {
-    let mut lit: HashSet<ChunkCoord> = HashSet::new();
+) {
     if coords.is_empty() {
-        return lit;
+        return;
     }
     // Group the chunk grid into columns so each can be walked top to
     // bottom. A chunk row with no chunk at all is open sky and passes light
@@ -2074,11 +2073,48 @@ fn apply_sky_to(
     // eight per-`lx` updates into one per-tile update lands on the same
     // state. What changes is only the order tiles are *touched* in, which
     // nothing here reads.
-    for cx in columns {
-        let mut carried = [amplitude; FIELD_TILE_SIZE as usize];
-        for cy in min_cy..=max_cy {
-            let coord = ChunkCoord::new(cx, cy);
-            let Some(tile) = next.get_mut(&coord) else {
+    // # Why this is two passes, and why it could not be one
+    //
+    // The descent is per *column* and strictly serial within a column: a
+    // tile's entry amplitude is the previous tile's exit. Columns never
+    // interact, so the parallelism is there — but `next` is one `HashMap`
+    // and `par_iter_mut` partitions it by **hash bucket**, which cuts
+    // across columns. Handing each thread a column would mean handing it
+    // `&mut` access to tiles interleaved with every other thread's.
+    //
+    // So the walk is split at the one place it is safe to cut: **the tile
+    // boundary.** Nothing a tile writes is read by the descent — the
+    // descent reads `transmission`, and this pass writes only `light` and
+    // `sky_lit` — so the entry amplitudes can all be computed read-only
+    // first, and then every tile can be written independently.
+    //
+    // - **Phase 1, parallel over columns, read-only.** Descend each column
+    //   accumulating attenuation and record the eight-value entry vector
+    //   each solved tile sees.
+    // - **Phase 2, parallel over tiles.** Replay the attenuation inside one
+    //   tile from its own entry vector, writing light on the way down.
+    //
+    // Bit-identical, for the same reason the one-fetch-per-tile restructure
+    // above is: every cell's value is the product of the same transmissions
+    // in the same order, and each cell is written exactly once from its own
+    // sub-column's chain. Phase 2 recomputes the in-tile attenuation that
+    // phase 1 already did -- 64 multiplies a tile, paid twice -- which is
+    // the price of the cut and is far below what the threading returns.
+    //
+    // **The `HashSet<ChunkCoord>` of lit tiles is gone rather than
+    // parallelised.** It was built every frame, returned, and bound to
+    // `_lit` at the single call site: an allocation and up to 5,120 inserts
+    // per sky pass feeding nothing. `tile.sky_lit`, which `sky_drifted`
+    // genuinely reads, is unaffected and still written below.
+    let solved = &*next;
+    let entries: HashMap<ChunkCoord, [f32; FIELD_TILE_SIZE as usize]> = columns
+        .par_iter()
+        .flat_map_iter(|&cx| {
+            let mut carried = [amplitude; FIELD_TILE_SIZE as usize];
+            let mut out = Vec::new();
+            for cy in min_cy..=max_cy {
+                let coord = ChunkCoord::new(cx, cy);
+                let Some(tile) = solved.get(&coord) else {
                     // Not in the solved subset. A *sleeping* tile still
                     // stands in the light's way — treating it as open sky
                     // would pour daylight through a sleeping mountain onto
@@ -2089,64 +2125,81 @@ fn apply_sky_to(
                     // sleeping tile either already holds this amplitude's
                     // value (max-write no-op) or is dark (nothing to
                     // write). No tile at all is genuinely open sky.
-                if let Some(sleeping) = old.get(&coord) {
-                    for lx in 0..FIELD_TILE_SIZE {
-                        let c = &mut carried[lx as usize];
-                        for ly in 0..FIELD_TILE_SIZE {
-                            if *c <= 0.0 {
-                                break;
+                    if let Some(sleeping) = old.get(&coord) {
+                        for lx in 0..FIELD_TILE_SIZE {
+                            let c = &mut carried[lx as usize];
+                            for ly in 0..FIELD_TILE_SIZE {
+                                if *c <= 0.0 {
+                                    break;
+                                }
+                                *c *= sleeping.transmission_local(lx, ly);
                             }
-                            *c *= sleeping.transmission_local(lx, ly);
                         }
                     }
-                }
-                continue;
-            };
-            let mut any_lit = false;
-            for lx in 0..FIELD_TILE_SIZE {
-                let c = &mut carried[lx as usize];
-                for ly in 0..FIELD_TILE_SIZE {
-                    if *c <= 0.0 {
-                        continue;
+                    continue;
+                };
+                // Recorded *before* attenuating: this is what arrives at
+                // the tile's top row, which is what phase 2 needs.
+                out.push((coord, carried));
+                for lx in 0..FIELD_TILE_SIZE {
+                    let c = &mut carried[lx as usize];
+                    for ly in 0..FIELD_TILE_SIZE {
+                        if *c <= 0.0 {
+                            continue;
+                        }
+                        *c *= tile.transmission_local(lx, ly);
                     }
-                    // **The light reaching this block is written here even
-                    // when the block is occupied**, before attenuation.
-                    // A leaf's own reading should be what arrives at it --
-                    // it is the thing doing the intercepting. The previous
-                    // rule skipped occupied blocks entirely, so every leaf
-                    // in a canopy read only whatever lateral diffusion left
-                    // behind, which is why 88% of them measured under 0.05
-                    // and why both shade-pruning and phototropism had no
-                    // gradient to work with.
-                    let mut cell = tile.get_local(lx, ly);
-                    // Max, never assignment: diffusion may legitimately
-                    // have brought *more* light here from a neighbouring
-                    // column, and this pass must not darken it.
-                    if *c > cell.light {
-                        cell.light = *c;
-                        tile.set_local(lx, ly, cell);
-                    }
-                    // **Graded, and graded per column.** The block's own
-                    // transmission is Beer-Lambert over how deep each of
-                    // its CA columns is, averaged — see
-                    // `FieldTile::transmission`. `blocked` is
-                    // all-or-nothing over 8x8 CA cells, far too coarse for
-                    // foliage (one twig made a whole block opaque and a
-                    // canopy read as a wall); an occupancy *fraction* fixed
-                    // that and introduced its own error, reading a
-                    // horizontal plate and a vertical trunk identically
-                    // when only one of them is in a downward ray's way.
-                    *c *= tile.transmission_local(lx, ly);
                 }
-                any_lit |= *c > 0.0;
             }
-            if any_lit {
-                lit.insert(coord);
+            out.into_iter()
+        })
+        .collect();
+
+    next.par_iter_mut().for_each(|(coord, tile)| {
+        let Some(entry) = entries.get(coord) else {
+            return; // outside [min_cy, max_cy], or in no walked column
+        };
+        let mut carried = *entry;
+        let mut any_lit = false;
+        for lx in 0..FIELD_TILE_SIZE {
+            let c = &mut carried[lx as usize];
+            for ly in 0..FIELD_TILE_SIZE {
+                if *c <= 0.0 {
+                    continue;
+                }
+                // **The light reaching this block is written here even
+                // when the block is occupied**, before attenuation.
+                // A leaf's own reading should be what arrives at it --
+                // it is the thing doing the intercepting. The previous
+                // rule skipped occupied blocks entirely, so every leaf
+                // in a canopy read only whatever lateral diffusion left
+                // behind, which is why 88% of them measured under 0.05
+                // and why both shade-pruning and phototropism had no
+                // gradient to work with.
+                let mut cell = tile.get_local(lx, ly);
+                // Max, never assignment: diffusion may legitimately
+                // have brought *more* light here from a neighbouring
+                // column, and this pass must not darken it.
+                if *c > cell.light {
+                    cell.light = *c;
+                    tile.set_local(lx, ly, cell);
+                }
+                // **Graded, and graded per column.** The block's own
+                // transmission is Beer-Lambert over how deep each of
+                // its CA columns is, averaged — see
+                // `FieldTile::transmission`. `blocked` is
+                // all-or-nothing over 8x8 CA cells, far too coarse for
+                // foliage (one twig made a whole block opaque and a
+                // canopy read as a wall); an occupancy *fraction* fixed
+                // that and introduced its own error, reading a
+                // horizontal plate and a vertical trunk identically
+                // when only one of them is in a downward ray's way.
+                *c *= tile.transmission_local(lx, ly);
             }
-            tile.sky_lit = any_lit || tile.sky_lit;
+            any_lit |= *c > 0.0;
         }
-    }
-    lit
+        tile.sky_lit = any_lit || tile.sky_lit;
+    });
 }
 
 /// The day/night temperature boundary condition: warm days, cool nights,
@@ -2229,38 +2282,65 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
     // is per-`lx`, the eight sub-columns never interact, and each cell is
     // written exactly once from its own chain. This one has no shared
     // per-tile write at all, so the argument is simpler still.
-    for cx in columns {
-        // Starts at 1.0, not at the offset: this is the fraction of the
-        // sky's forcing that reaches a block, so it is the same quantity
-        // for the warm half of the day and the cool half. `apply_sky_to`
-        // folds the amplitude into its carried value instead, because
-        // light has no negative half to keep symmetric.
-        let mut reach = [1.0f32; FIELD_TILE_SIZE as usize];
-        for cy in min_cy..=max_cy {
-            let coord = ChunkCoord::new(cx, cy);
-            let Some(tile) = next.get_mut(&coord) else {
-                continue; // no chunk here: open sky, carry on unchanged
-            };
-            for lx in 0..FIELD_TILE_SIZE {
-                let r = &mut reach[lx as usize];
-                for ly in 0..FIELD_TILE_SIZE {
-                    let sky = offset * *r;
-                    let mut cell = tile.get_local(lx, ly);
-                    if cell.sky_temperature != sky {
-                        cell.temperature += sky - cell.sky_temperature;
-                        cell.sky_temperature = sky;
-                        tile.set_local(lx, ly, cell);
+    // Two phases, for exactly `apply_sky_to`'s reason and with the same
+    // bit-identity argument: the descent is serial within a column and
+    // independent across columns, `par_iter_mut` partitions by hash bucket
+    // rather than by column, and nothing the pass *writes* (`temperature`,
+    // `sky_temperature`) is read by the descent, which reads only
+    // `transmission`. So compute every solved tile's entry `reach`
+    // read-only, then write the tiles independently.
+    let solved = &*next;
+    let entries: HashMap<ChunkCoord, [f32; FIELD_TILE_SIZE as usize]> = columns
+        .par_iter()
+        .flat_map_iter(|&cx| {
+            // Starts at 1.0, not at the offset: this is the fraction of the
+            // sky's forcing that reaches a block, so it is the same quantity
+            // for the warm half of the day and the cool half. `apply_sky_to`
+            // folds the amplitude into its carried value instead, because
+            // light has no negative half to keep symmetric.
+            let mut reach = [1.0f32; FIELD_TILE_SIZE as usize];
+            let mut out = Vec::new();
+            for cy in min_cy..=max_cy {
+                let coord = ChunkCoord::new(cx, cy);
+                let Some(tile) = solved.get(&coord) else {
+                    continue; // no chunk here: open sky, carry on unchanged
+                };
+                out.push((coord, reach));
+                for lx in 0..FIELD_TILE_SIZE {
+                    let r = &mut reach[lx as usize];
+                    for ly in 0..FIELD_TILE_SIZE {
+                        *r *= tile.transmission_local(lx, ly);
                     }
-                    // Attenuated *after* writing, so a block reads the
-                    // forcing that arrives at it rather than what survives
-                    // it — the same choice `apply_sky_to` documents for a
-                    // leaf's own light, and for the same reason: sun-warmed
-                    // rock is warm at its surface.
-                    *r *= tile.transmission_local(lx, ly);
                 }
             }
+            out.into_iter()
+        })
+        .collect();
+
+    next.par_iter_mut().for_each(|(coord, tile)| {
+        let Some(entry) = entries.get(coord) else {
+            return; // outside [min_cy, max_cy], or in no walked column
+        };
+        let mut reach = *entry;
+        for lx in 0..FIELD_TILE_SIZE {
+            let r = &mut reach[lx as usize];
+            for ly in 0..FIELD_TILE_SIZE {
+                let sky = offset * *r;
+                let mut cell = tile.get_local(lx, ly);
+                if cell.sky_temperature != sky {
+                    cell.temperature += sky - cell.sky_temperature;
+                    cell.sky_temperature = sky;
+                    tile.set_local(lx, ly, cell);
+                }
+                // Attenuated *after* writing, so a block reads the
+                // forcing that arrives at it rather than what survives
+                // it — the same choice `apply_sky_to` documents for a
+                // leaf's own light, and for the same reason: sun-warmed
+                // rock is warm at its surface.
+                *r *= tile.transmission_local(lx, ly);
+            }
         }
-    }
+    });
 }
 
 /// Constant moisture source wherever a `Liquid` CA cell is present —

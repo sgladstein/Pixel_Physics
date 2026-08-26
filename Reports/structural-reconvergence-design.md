@@ -1,9 +1,68 @@
 # Making the support field converge — a scope for §S
 
-**Status: design, nothing built.** Written 2026-08-25 after §S was measured
-and after two attempts at it were withdrawn. It exists because the third
-attempt should start from what the first two established rather than
-rediscovering it.
+**Status: design, nothing built — but its premise is now measured rather than
+argued.** Written 2026-08-25 after §S was measured and after two attempts at it
+were withdrawn. It exists because the third attempt should start from what the
+first two established rather than rediscovering it. Updated 2026-08-26 with the
+oracle below, which is the only thing here that was ever in real doubt.
+
+## What the 2026-08-26 measurements changed
+
+Three numbers, all from `RECONVERGE_AT` in `examples/scale_probe.rs`. Full
+tables in `open-bugs-handoff.md` §S.
+
+- **The premise holds: a converged field is a fixpoint.** One
+  `compute_world_distances` mid-run takes the scheduler from **12.49 ms to
+  0.25 ms** and pending from **53,077 to 6,094**, and it stays there for the
+  rest of the run (`worsened` 1,464/frame → 2). It is not the immunity
+  artifact this bug has produced before: `max aux` afterwards reads 203/443/683,
+  live and honest, and the anchor rule is untouched. **Converging is worth
+  ~14 ms of a ~40 ms frame, permanently.**
+- **It is a correctness fix, not only a speed one.** 6,000-frame runs
+  differing only in whether the pass ran: **19,496,708** body cells standing
+  at the end with it against **19,471,238** without. *More* rock survives,
+  which `compute_world_distances`' own doc predicts — the climb pushes cells
+  past their span before the true anchor value arrives, so they break and take
+  their neighbours. Converging stops the engine destroying rock that was never
+  unsupported.
+- **The affected set is manufactured, not delivered, and this is the finding
+  that redirects §1.** Censused at increasing distances from the charge:
+
+  | oracle at | cells wrong |
+  |---|---|
+  | **5 frames after** | **369** |
+  | 50 frames after | 42,825 |
+  | 1,300 frames after | 67,100 |
+
+  A radius-20 charge invalidates about **370 cells**. The other 67,000 are
+  produced by the reactive correction itself over the following twenty
+  seconds. So §1 as written below — converge once, over what the damage
+  changed — is aimed at a set that is nearly free to fix and **is not where
+  the cost lives**.
+
+- **Damage-seeded reconvergence has therefore been built, measured, and left
+  off.** `structural::reconverge_from_damage`, behind `STRUCT_RECONVERGE=1`.
+  It is §1 exactly as specified and it works as specified: the queue is
+  genuinely quiet on the frames after a charge (`deferred 8,216 / worsened 71`
+  against a control's `8,723 / 199`). It recovers 369 -> 292 wrong cells at
+  +5 frames and 67,100 -> 70,683 at +1,300, because the manufacturing
+  continues for as long as the cascade does. **Whatever ships has to keep the
+  field converged *while a collapse is running*, not repair it once at the
+  bang.** The machinery is in place for that; what is missing is the trigger.
+- **§3's amortisation is not the constraint either.** At the whole-world
+  pass's own rate (~99 ns/cell) even 67,100 cells is ~7 ms once, and the
+  measured per-firing costs are 0.02-5 ms with one 27 ms outlier. The
+  withdrawn prototype's 440 ms was never the price of converging — it was the
+  price of converging an 8x box, a ~30x overshoot of the set that changed.
+
+**And the cheap shortcut is closed.** Making `tick` increase-aware per cell —
+invalidate to `u16::MAX` on a rise instead of climbing — was built and
+measured on 2026-08-26. It *fires* (`improved` 30 → 900 per frame) and does
+not converge (pending 23,227 → 130,403; whole frame 41.19 ms against 40.14 ms
+control). A cell cannot tell locally whether a neighbour's `u16::MAX` will be
+undone, so the climb becomes a stable oscillation at the same throughput.
+`dead-ends.md`, structural. **§1 below is therefore necessary, not just
+tidier.**
 
 Read `open-bugs-handoff.md` §S for the bug and `dead-ends.md`'s scheduler
 section for what has already been rejected.
@@ -56,8 +115,11 @@ shortest-path update:
    the box never had.
 
 Cost is O(affected log affected) with the affected set discovered rather than
-guessed. The measured affected region for one radius-20 charge is ~63 chunks,
-about 250,000 cells — which is why the next section matters.
+guessed. **Measured 2026-08-26, the affected set for one radius-20 charge is
+67,100 cells** — 0.35% of the body, against 45 on an idle control. An earlier
+version of this line said "~63 chunks, about 250,000 cells", inferred from the
+chunks the blast woke rather than censused; the woken-chunk figure overstates
+by 3.7x, because a chunk is woken by any cell in it changing.
 
 **Do not build this on `relax_region` as it stood before PR #64.** Its ground
 rule differed from `tick`'s, and the first attempt's spectacular result was

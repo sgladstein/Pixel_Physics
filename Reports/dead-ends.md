@@ -12,7 +12,11 @@ after package P2's economy re-derivation added seven the same day — six of
 them mechanisms that package built, measured and withdrew inside one
 session, which is the shape this file exists to make cheap; 573 after the
 frame-cost audit's converged-pass prototype on 2026-08-25, which is that
-shape again and is worth reading for its control rather than its verdict.
+shape again and is worth reading for its control rather than its verdict;
+574 after §S's reactive-invalidation arm on 2026-08-26, which is the same
+shape a third time and whose value is that it *fired* — a null with a
+working positive control is a far stronger rejection than a null without
+one.
 Re-attempting a known dead end costs a whole session, and it
 has happened here; this file exists so it stops happening.
 
@@ -183,7 +187,10 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/update.rs test a_straight_fall_leaves_a_hole_anything_may_drop_into (FLAG_UNDERCUT scope)** - The undercut rule cannot simply flag "any hole a move leaves": a falling column descends as a unit precisely because each cell drops into the vacancy below within the same sweep, so flagging straight-fall holes too would stretch every falling column by one cell per frame. Only sideways escapes flag their vacancy, for exactly one frame.
   *Re-test when:* Holds while the sweep is bottom-to-top and columns are meant to fall as units; the test pins the distinction.
 
-## structural  (77 entries)
+## structural  (78 entries)
+
+- **`Reports/open-bugs-handoff.md` §S, "Ruled out: doing it reactively, inside `tick`"; measured 2026-08-26** - **Making `structural::tick` increase-aware in place** — a distance that *rose* jumps straight to `u16::MAX` instead of writing the one-step-worse value, the invalidation step propagates but does not judge, and `grounded_root` additionally requires the cell to already read `u16::MAX` so a transient invalidation cannot root it flat. It is the textbook remedy for an increase in a shortest-path field, done per cell instead of over a closed set, and it is the cheap version anyone reaching §S will try first. **It fires and it does not converge.** Positive control: `improved` goes from ~30/frame to ~900/frame, so the field genuinely starts doing convergence-shaped work rather than climbing. Null: pending still grows linearly 23,227 to 130,403 between frames 2,400 and 13,200 on `scale_probe size=8192x2560 load=blast:200:1`, `worsened` holds at ~1,000/frame eleven thousand frames after the only event, and the whole frame is **41.19 ms against the control arm's 40.14 ms**. A monotone climb is traded for a *stable oscillation at the same throughput*, because a cell cannot tell locally whether a neighbour's `u16::MAX` is an invalidation about to be undone or a genuine dead end — so it invalidates in response, and the two ping-pong. The fan-out is the cost and it is direction-blind: `schedule_solid_neighbours` fires on `moved`, not on `worsened`, so trading 1,300 upward moves for 900 downward ones buys nothing.
+  *Re-test when:* Do not retry any purely local rule in `tick` for §S. The measured alternative works and is not local: `RECONVERGE_AT` in `scale_probe` shows one `compute_world_distances` takes the scheduler from 12.49 ms to **0.25 ms** and pending from 53,077 to **6,094**, permanently — so the affected set must be *closed* (invalidate the subtree in old-distance order) and the search run from its boundary, per `Reports/structural-reconvergence-design.md` §1. The set is 67,100 cells, 0.35% of the body, against 45 on an idle control.
 
 - **PLAN.md M17-adjacent progress entry 'Structural integrity extended to Plant'** - Reserving Cell::aux for a plant growth stage (M16's original plan) was abandoned without ever being implemented: real per-tip growth state (attractor lists, channel strength) cannot fit a u16 and belongs in per-organism state, which freed the aux slot for structural distance and later the cell-type/resource encoding.
 - **README.md 'M17 status' — 'A step's cost now depends on which direction the support comes from' paragraph** - Charging a flat cost of 1 per relaxation step regardless of support direction: a 1-cell tower snapped at exactly the reach a 1-cell cantilever managed, contradicting rock being strong in compression and weak in bending/tension. Split into support_cost_below/_beside/_above (stone 0/1/3).

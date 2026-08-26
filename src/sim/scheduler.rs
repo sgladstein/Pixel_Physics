@@ -411,6 +411,31 @@ pub fn step(world: &mut World) {
     if timing.every > 0 {
         timing.staged_ms = t.elapsed().as_secs_f64() * 1000.0;
     }
+    // Repair the support field over what this frame's damage invalidated,
+    // outside the site loop for the same reason `advance_staged_fractures`
+    // is: it is work already decided by a verb that fired, not a question
+    // about a cell, so it must neither compete for `MAX_SITES_PER_FRAME`
+    // nor be starved by the load budget those sites drain. Off unless
+    // `STRUCT_RECONVERGE=1` -- see `structural::reconverge_from_damage`.
+    let t = std::time::Instant::now();
+    let r = structural::reconverge_from_damage(world);
+    // **Printed on the frame it fires, not on the reporting frame.** A
+    // charge lands on one frame in ten thousand, so folding this into
+    // `SchedTiming`'s per-frame line would report it as zero every time it
+    // was sampled -- the reporting cadence would silently hide the only
+    // event worth reading. `CLAUDE.md`'s "did it fire at all needs a
+    // counter, not a picture", applied to a counter that fires rarely.
+    if timing.every > 0 && r.seeds > 0 {
+        println!(
+            "  [reconv] frame {:>6} seeds {:>6} invalidated {:>6} repathed {:>6}{} | {:.2}ms",
+            world.frame,
+            r.seeds,
+            r.invalidated,
+            r.repathed,
+            if r.abandoned { " ABANDONED (over cap)" } else { "" },
+            t.elapsed().as_secs_f64() * 1000.0
+        );
+    }
     // Drained unconditionally, not only on a reporting frame: the counters
     // are per-frame, and leaving them to accumulate on the frames between
     // reports would make every printed line a running total wearing a
