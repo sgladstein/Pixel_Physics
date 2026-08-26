@@ -451,3 +451,71 @@ locally* — but its specific instance is closed and now says so.
 skip"*) is where staleness hides longest, because the emphasis discourages the
 check. When applying the procedure-wants-a-command lens, **test the premise of
 the command, not only whether a script exists.**
+
+### The benchmark measured the wrong thing; fixed
+
+Re-ran the cold-agent benchmark after this week's routing work: **3/3, trap
+refused, 0 source reads, 6 files opened — unchanged**, with tool calls *up*
+17 → 23.
+
+**That is the instrument failing, not the docs.** The routing landed this week
+deliberately trades file-opens for narrower reads (grep the mechanism not the
+area; enter the bug register by its index). A metric that cannot move when the
+thing it measures improves is not measuring it. Two more defects: it counts a
+200-token grep and a 30k read alike, and it is blind to `CLAUDE.md`, which the
+harness **pre-loads** into a subagent — so earlier runs that *read* it counted
+it and later runs that merely *used* it did not. The series was incomparable
+and nothing in the record said so.
+
+**Headline is now `agent_tokens`** — the harness's own `subagent_tokens`
+figure. Objective rather than self-reported, absorbs the pre-loaded file
+instead of needing a correction, denominated in what routing actually changes.
+First point: **101,669** on 2026-08-26. The two earlier runs cannot be
+back-filled and stay in the record unconverted, so the change is visible.
+
+`scripts/docbench.py` holds the canonical prompt (`prompt`), the history
+(`runs`), and a **positive control** (`check`) that verifies each question
+still has an answer — fault-injected to confirm it fires. Without it a
+question whose answer had left the corpus would score the instrument and read
+as a regression.
+
+**Two general points worth carrying past this instrument:**
+
+- **A metric you chose before the change is a hypothesis about what the change
+  will do.** Re-examine it when the change lands, not only the number.
+- **The prompt now lives in a script, not in prose.** A prose prompt invites
+  paraphrase between runs, and a paraphrased prompt silently breaks a time
+  series — the same reasoning that moved the grep gotcha into `docgrep.py`.
+
+### The A/B: inconclusive, and that is the honest answer
+
+Built the missing baseline by running the benchmark against a detached
+worktree at `65934a5^` — main immediately before the audit's first merge.
+Same prompt, same model, only the tree differs. Verified first that all three
+questions were still answerable there.
+
+| arm | agent_tokens | correct | trap | source reads |
+|---|---|---|---|---|
+| pre-audit `2f5de1e` | **105,073** | 3/3 | refused | 0 |
+| current `f3df928` | **101,669** | 3/3 | refused | 0 |
+
+**−3,404 (−3.2%), which is noise at one run per arm.** This lane has spent the
+week telling other people that a bar from a single run is a sample from a wide
+distribution; the same applies here. **Do not quote this as an improvement.**
+
+What it does establish: the changes did not make navigation *worse*, and both
+trees answer 3/3. The point estimate runs the intended way against a headwind
+— current `CLAUDE.md` is +4,456 tokens, pre-loaded and paid before anything is
+read, so routing had to recover ~7,860 to net −3,404. **That is arithmetic on
+one pair, not evidence.**
+
+To settle it: three runs per arm, alternating, ~600k tokens, report the
+median. Confound that survives regardless — the trees differ in more than
+documentation, since other lanes landed code in between.
+
+**And a caution worth more than the result.** The baseline arm reported,
+confidently and specifically, that *"CLAUDE.md sends you to a README By topic
+table that does not exist"*. **Verified false** — that tree's `CLAUDE.md` has
+zero occurrences of "By topic", and so does its README. I nearly relayed it.
+A subagent report can contain a fabricated, checkable defect stated as fact;
+check the cheap ones before passing them on.

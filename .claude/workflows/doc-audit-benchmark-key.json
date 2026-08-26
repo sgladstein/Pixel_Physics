@@ -56,6 +56,61 @@
         "Reports/load-model-handoff.md"
       ],
       "notes": "Routing improved across 258 commits and ~14 new reports since the overhaul. Found a third reason to refuse the trap that the baseline run did not report: load-model-handoff.md's own header still reads 'Status: not started', which the index contradicts. This run also flagged, unprompted, that the answer key was then inside Reports/ and made the benchmark non-blind -- which is why the key now lives here."
+    },
+    {
+      "date": "2026-08-26",
+      "tree": "f3df928 -- after the agent-consumption audit's routing work",
+      "correct": "3/3",
+      "files_opened": 6,
+      "source_files_read": 0,
+      "traps_refused": "1/1",
+      "tool_calls": {
+        "total": 23,
+        "reads": 9,
+        "greps": 11,
+        "listings": 3
+      },
+      "files_in_order": [
+        "README.md",
+        "Reports/README.md",
+        "Reports/dead-ends.md",
+        "Reports/open-bugs-handoff.md",
+        "PLAN.md",
+        "Reports/documentation-audit.md"
+      ],
+      "notes": "files_opened held at 6, unchanged from 2026-08-24, while tool calls rose 17 -> 23. Do NOT read that as no improvement: the routing landed this day deliberately trades file-opens for narrower reads, so files_opened is the wrong metric for it. The qualitative evidence that it worked is that the run USED the new routing and said so -- it entered README by the By topic table, entered dead-ends.md by mechanism grep rather than by area, read only the bug register's generated index, and quoted PLAN.md's dated State line. CLAUDE.md was pre-loaded by the harness and never opened, so it is absent from files_in_order here where earlier runs counted it -- the counts are not strictly comparable and that confound is the reason to prefer the qualitative read.",
+      "new_defect_found": "Three documents pointed at load-model-handoff.md -- superseded by landing -- with no marker, the worst being fracture-mechanics-design.md's 'Read that to *build* this'. A cold agent arriving from that report is sent straight at a stale work order whose section 3 is a recorded dead end. Fixed 2026-08-26. Neither earlier run found this, because neither approached the handoff from a referring document.",
+      "agent_tokens": 101669,
+      "metric_note": "agent_tokens back-filled from the harness's own subagent_tokens report for this run. The 2026-08-21 and 2026-08-24 runs cannot be back-filled -- their transcripts are gone -- so this is the first point on the new series, not a comparison."
+    },
+    {
+      "date": "2026-08-26",
+      "tree": "2f5de1e -- BASELINE ARM, main immediately before the audit's first merge (65934a5^)",
+      "arm": "pre-audit control",
+      "correct": "3/3",
+      "traps_refused": "1/1",
+      "agent_tokens": 105073,
+      "files_opened": 5,
+      "source_files_read": 0,
+      "tool_calls": {
+        "total": 24,
+        "reads": 10,
+        "greps": 10,
+        "listings": 4
+      },
+      "notes": "Run to give agent_tokens a pre-change baseline, since the 2026-08-21 and 2026-08-24 runs cannot be back-filled. Same prompt, same model, only the tree differs (a detached worktree at 65934a5^). Verified before running that all three questions were still answerable on that tree, so a poor score would be the docs and not a broken arm."
     }
-  ]
+  ],
+  "_metric_change": "2026-08-26: the headline moved from files_opened to agent_tokens. files_opened could not move when routing improved (6 both before and after this week's work, with tool calls UP 17 -> 23), counts a 200-token grep and a 30k read alike, and is blind to the pre-loaded CLAUDE.md. See scripts/docbench.py for the full reasoning. Do not tune for files_opened.",
+  "_ab_result_2026_08_26": {
+    "verdict": "INCONCLUSIVE -- does not demonstrate an improvement, and must not be quoted as one.",
+    "pre_audit_agent_tokens": 105073,
+    "current_agent_tokens": 101669,
+    "delta": "-3,404 (-3.2%)",
+    "why_inconclusive": "One run per arm. This repo's own rule is that a bar set from a single run is a sample from a wide distribution, and 3.2% is comfortably inside any plausible spread. No variance estimate exists for this instrument at all.",
+    "what_it_does_establish": "Both trees answer 3/3 with the trap refused and no source file read, so the changes did not make navigation worse. The point estimate is in the intended direction against a headwind: current CLAUDE.md is +4,456 tokens, pre-loaded and paid before anything is read, so the routing had to recover ~7,860 to net -3,404. That framing is arithmetic, not evidence -- it rests on the same single pair.",
+    "what_would_settle_it": "Three runs per arm, alternating, ~600k tokens total. Report the median.",
+    "confound": "The trees differ in more than documentation -- other lanes landed code between 2f5de1e and f3df928. The questions are documentation questions so it matters less, but this is not a clean isolation.",
+    "caution_about_agent_reports": "The baseline arm reported, confidently and specifically, that 'CLAUDE.md sends you to a README By topic table that does not exist'. Verified false: that tree's CLAUDE.md contains zero occurrences of 'By topic' and so does its README. A subagent report can contain a fabricated, checkable defect stated as fact. Check before relaying."
+  }
 }

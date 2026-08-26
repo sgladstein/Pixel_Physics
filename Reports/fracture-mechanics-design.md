@@ -4,10 +4,15 @@
 successive support models, and after the owner identified the defect the
 third one still had.
 
-**Implementation handoff: `Reports/load-model-handoff.md`** — the remaining
-step written up file-by-file, with the four support models already tried and
-rejected, the repo gotchas, and the acceptance cases. Read that to *build*
-this; read on to understand *why*.
+**Implementation handoff: `Reports/load-model-handoff.md` — SUPERSEDED BY
+LANDING, do not execute it.** The step it hands off shipped (`7e13e42`); it is
+kept as the rationale written before the work, and parts of it are now on the
+do-not-retry register (its §3 asks for the support-parent side table on
+`World` that `load.rs`'s module doc records as rejected). **Read
+`Reports/load-model-fit-review.md` instead** — the review of what actually
+landed. What remains useful here is the four support models already tried and
+rejected, the repo gotchas, and the acceptance cases; read on to understand
+*why*.
 
 **Read `Reports/design-philosophy.md` §0a first.** Satisfying is the
 requirement here, and this subsystem is the worked example of failing it.
