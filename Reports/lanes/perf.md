@@ -111,3 +111,31 @@ Instruments added, both in `Reports/instruments.md`:
 Not done, recorded as the open question: keeping the field converged *while a
 collapse runs*. The machinery is in `reconverge_from_damage`; the trigger is
 not.
+
+## 2026-08-26 (later) — the sky walks landed; the momentum gate did not
+
+**Landed: PR #69**, both sky walks threaded (two-phase: entry amplitudes
+read-only in parallel over chunk columns, then tiles written in parallel,
+because `par_iter_mut` partitions a `HashMap` by hash bucket and a sky
+descent has to partition by column). Bit-identical by `FIELD_HASH` at
+2048x640 *and* at the shipped 8192x2560, guard sensitivity confirmed by
+injecting a 0.1% error. `sky` 2.65 → 1.55 ms busy / 1.31 → 0.42 ms quiet,
+`sky temperature` 2.19 → 1.23 ms.
+
+**Rejected, and worth knowing about if you touch `field.rs`:** the
+`skip_momentum` fast path is **vacuous in the shipped world**. It needs
+`!any_fluid`, which is `chunk_awake` ORed over every coord, so a sea, rain or
+one ant keeps it true — `momentum` has equalled `solved` on every line the
+pass printer has ever produced. A per-tile version fires on 91% of tiles and
+is bit-identical, and it made the frame **0.59 ms slower over 8 paired runs**.
+Full record and the re-test condition in `dead-ends.md`, field section. The
+short version: the momentum passes were warming the tiles for the full-set
+pass that follows them, so skipping the arithmetic just moved the cache
+misses. **Do not re-derive this from the per-pass timings — they look like a
+4.6 ms win.**
+
+Numbers anyone measuring the field will want: on an idle shipped world the
+solve set swings **27 → 1,506**, a fifth of frames carry 59% of the work, and
+on those frames **89% of solved tiles are seeded by the sky alone**
+(`FIELD_DRIFT` prints the attribution). Field cost is essentially linear in
+`solved`.
