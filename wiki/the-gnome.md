@@ -97,7 +97,8 @@ wood and dig while standing inside a tree; it no longer does. Living
 tissue is now something a hand tool reaches, on the same footing as rock —
 bedrock stays exempt, as it always has.
 
-**So a tree can be cut down.** Bite through a bole and the trunk parts;
+**So a tree can be cut down.** ([Plants](plants.md) describes what a tree
+is made of and what it does with the wound.) Bite through a bole and the trunk parts;
 what is above the cut has lost its way back to the roots, and the crown
 comes down. It does not come down as a puff of sawdust: it comes apart
 into pieces, big ones and small ones, and the foliage rides the piece it

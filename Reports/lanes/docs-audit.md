@@ -694,3 +694,60 @@ button-level interaction is worth a playtest check: left-clicking a plant you
 are *pointing at* still shakes it (the `shake_*` tuning is intact), while a
 blow that lands on wood now cuts it. Which one you get when both could apply is
 stated here from the code's structure, not from playing it.
+
+## 2026-08-26 — wiki structure: what the evaluation found, and three of four fixed
+
+Measured shape, not impressions:
+
+- **Index complete** — `wiki/README.md` lists all 11 pages, no orphans.
+- **Two organising conventions.** Six pages use `##` sections (plants 13,
+  the-world 8, the-gnome 8, weather 7); four use none —
+  `structural-collapse.md` is **357 lines with one heading, at line 291**,
+  then `fire-and-heat` 131, `explosions` 112, `liquids-and-gases` 110.
+- **The link graph splits by kind, not by age.** Material pages cross-link
+  densely (weather 7 inbound, structural-collapse 5, fire-and-heat 4);
+  entity and system pages were islands reachable only from the index —
+  `plants.md`, `the-gnome.md`, `ants.md`, `the-world.md`, `world-cycles.md`
+  at **0 each**. Checked and rejected the obvious explanation: all 12 pages
+  were created within three days of each other, so this is not age.
+- **`this build` ×6 in body prose**, across four pages.
+
+### Fixed
+
+**1. The `this build` class, and a gate so it cannot come back.** The phrase
+`CLAUDE.md` bans in freshness notes was standing in the body, where
+`docscheck` never looked. All six now name a date. The gate is deliberately
+narrow — only `this build`, not `currently`/`recently`, which have honest uses
+here (*"ground where nothing is currently growing"*); a check that fires on
+correct content stops being read, which is the lesson from the drift proxy
+above. Fault-injected: appending the phrase to a page turns `docscheck` red
+and removing it turns it green again.
+
+**The strongest argument for the gate is that this audit broke one itself.**
+`weather.md`'s *"until this build, snow sped up freezing"* meant 2026-08-22.
+Re-dating that page earlier the same day, for the unrelated exposure fix,
+silently repointed the sentence at 2026-08-26. A phrase anchored to the
+freshness note is broken by any later edit to the note — including a correct
+one — so the anchor has to be written into the sentence.
+
+**2. The subsystem → page map**, in `CLAUDE.md`'s knowledge row rather than in
+the wiki. It was drafted for `wiki/README.md` first; that page's own contract
+is *"no code, no file names, no implementation detail"*, so putting a map of
+`src/` paths there would have broken the premise the page opens with. Half the
+mappings are not guessable — nothing suggests `field.rs`, `decay.rs` and
+`sky.rs` land on `world-cycles.md`.
+
+**3. `plants.md` back-linked from the four pages with a reason to**: fire,
+structural collapse, the gnome, the world. **0 → 4** inbound.
+
+### Left, deliberately
+
+**Section headings for `structural-collapse.md`.** Its 13 bold leads are
+sentence openers, not titles (*"**And it arrives as rock.**"*), so this needs
+authored headings rather than a script, and that is putting words in the
+owner's prose. Proposed, not applied.
+
+**The other four island pages** — `the-gnome`, `ants`, `the-world`,
+`world-cycles` still have zero page-to-page inbound links. Same class as the
+`plants.md` fix and the same cheap remedy; not done because only `plants.md`
+was scoped.

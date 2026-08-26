@@ -58,12 +58,13 @@ quietly go back to the default while the title bar kept naming what you
 picked, so anyone comparing settings across a re-roll was comparing the
 default with itself); it now bounds *what a collapse eats* rather than
 only where the question gets asked; and trees obey it, which they never
-did at any setting. The thing to judge in play is the trade the second of
+did at any setting — what a felled tree comes apart into is in
+[Plants](plants.md). The thing to judge in play is the trade the second of
 those buys, which is real and is described below: at the tighter settings
 a collapse can now stop part way and leave rock standing that is holding
 nothing up.
 
-**New this build, and the two worth watching.** What comes away from a
+**New on 2026-08-23, and the two worth watching.** What comes away from a
 collapse is now sized the way a hammer blow's debris is sized, so a big
 failure calves blocks where it used to shed chips and grit — fewer, larger
 pieces, and rather less dust. And falling rock now shoves smoke aside

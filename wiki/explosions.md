@@ -2,11 +2,11 @@
 
 *Current as of: 2026-08-22. A blast breaks rock along the grain the rock
 already has, rather than drawing a star of fissures across it, and as of
-this build so does every collapse that follows it — that is the newest
+2026-08-22 so does every collapse that follows it — that is the newest
 part of this page and the half most likely to change again; see also the
 note at the top of [Structural Collapse](structural-collapse.md), and
-confinement, the crack halo and per-material blast resistance. New this
-build: shallow and surface charges crack a visible web instead of almost
+confinement, the crack halo and per-material blast resistance. New on
+2026-08-22: shallow and surface charges crack a visible web instead of almost
 nothing, and a charge going off in mid-air marks the ground under it. Newer still:
 what falls in after the bang now comes apart on the same size ladder a
 hammer blow uses, so a big collapse calves blocks where it used to shed
