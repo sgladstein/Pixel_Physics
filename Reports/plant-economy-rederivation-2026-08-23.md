@@ -416,7 +416,41 @@ retired.
 
 ---
 
-## 7. Adult mortality: the cause is built, it fires, and nothing dies
+## 7. Adult mortality: the economy can now kill
+
+**Superseded in part, 2026-08-24.** This section was written when the cause
+fired and nothing died. The owner then ruled on it — *"but economics should
+be able to cause tree death right. if a tree doesn't get watered, it will
+eventually die."* — and `STARVATION_DEATH_TICKS` is that ruling: a plant
+that cannot pay even the **mass term** of its own maintenance for 200
+consecutive organism ticks is marked `senescent`, and `rot_remains` carries
+it out.
+
+| | before the rule | with it |
+|---|---|---|
+| organisms senescent, 8 seeds at 28,800 | 0 | **2** |
+| organisms senescent, 8 seeds at 45,000 | 0 | **4** |
+| slots reclaimed (seed 4, 28,800) | none — 27 live in 27 | **19 live in 25** |
+| a tree denied water | never dies | **dies** — guard `a_tree_denied_water_dies_and_a_watered_one_does_not` |
+
+**The mass term, not the whole bill.** A mature plant is in deficit on the
+full bill essentially always (median bill-to-income 1.27–1.45), so a rule
+keyed on "deficit" empties a healthy stand; a healthy tree clears the *mass*
+line by about 2.6x. And the survivors of a death are **larger** — seed 4's
+median plant went 4,034 → 5,324 cells — which is competitive release, the
+thing this program has been short of.
+
+**What it does not do**, and §7.2 below is still the record of why: it gives
+an unpayable deficit a consequence, but it does not make wood and root *ask*
+for water, so the zero-demand immunity is still in the water book.
+Inherited-genome establishment is **still 0** at both horizons; mortality
+was necessary and is not yet sufficient.
+
+The rest of this section is the diagnosis that led there, kept because the
+mechanisms it names are still live.
+
+### 7.0 The state this section was written in
+
 
 P3 handed this package the cause and said so: *"Nothing kills a healthy
 tree; a mature tree always holds dormant buds, so it is never senescent,
@@ -678,7 +712,63 @@ every window. Verified green on both binaries. **This is lane S's file and
 the change is flagged rather than assumed**: the alternative was leaving a
 gate red, or reverting an economy over a guard the base fails half the time.
 
-## 13. Three things the merges brought, and what they mean here
+## 13. The two cards came back, and one of them needs its blinding applied
+
+**Both were answered 2026-08-24.** The root card
+(`20260824T014648426Z-e32fca`): *"These both look better. If I had to choose
+between A and B, I'd choose B, but I prefer heterogeneity in root structure
+across plants, environments, etc."* Both arms improved and this branch won.
+The second clause is the standing directive restated rather than a verdict
+on the result, and the sharpest thing anyone has measured against it is
+PR #30's: per-plant soil contact already spans **51–79% at comparable
+mass**, so the heterogeneity being asked for partly exists already and is
+invisible because nothing prices it. That is a better argument for the
+contact price than "the blob is wasteful", and §4 is written on it.
+
+**The bole card (`20260824T014630073Z-a10698`) reads as a contradiction and
+is not one.** The comment: *"I think B looks like a mass of trees instead of
+separate. A looks better in that regard, but the soil build-up in between
+the branches is horrible."* The stored choice is item 1, label `B`.
+
+**Apply the blinding before reading either.** The card was posted `--blind`,
+and `review_page.html` labels a blind pane `Option ${String.fromCharCode(65
++ slot)}` — **by display slot, not by the poster's item label** — while
+`blind_was` records the permutation. This card's is `[1, 0]`:
+
+| what the owner saw | is my item | which file |
+|---|---|---|
+| "Option A" | item 1 | `stand-p2.png` — **this branch** |
+| "Option B" | item 0 | `stand-main.png` — **`main`** |
+
+So *"A looks better in that regard"* is **this branch reading as separate
+trees**, and *"B looks like a mass"* is **`main`**. The stored choice —
+item 1 — is the same arm. **The click and the comment agree, and both favour
+this branch**; the apparent contradiction comes from reading the comment's
+letters as the poster's labels. Anyone acting on this card should re-derive
+the mapping from `blind_was` rather than from the letters, and any future
+blind card in this repo has the same trap in it — it is now written up in
+`.claude/skills/review/SKILL.md`, with this card as the worked example.
+
+So **the stand with the priced economy is the one that reads as separate
+trees with clear trunks, and `main` is the mass.** §1's numbers say why:
+median plant 4,740 → 3,659 cells and stem above the base 15 → 13 — crown
+recession thinned the stand until the trunks showed. The owner confirmed the
+mapping himself afterwards: *"I selected the correct image B… I am 99%
+positive the images were switched around when shown to me, so I wrote it
+right and selected it right."*
+
+The rest of that sentence — *"but the soil build-up in between the branches
+is horrible"* — therefore attaches to **this branch**, and it is a real
+regression in this package. Censused, isolated to the die-back, and filed as
+`open-bugs-handoff.md` §V3: mid-canopy soil is **6.3x `main` and 9.8x this
+branch with the die-back switched off**, and the row profile shows a pile
+occupying 104 of the 111 rows above the ground line rather than material
+stranded in a crown. `shed_to_litter` stops at the first non-air,
+non-organism cell, so every shed cell stacks on what is already there and
+the pile grows without bound while shedding continues. Not fixed here; three
+ranked candidates are in §V3.
+
+## 14. Three things the merges brought, and what they mean here
 
 **`sim::clock` gives the sky its own frame counter.** `night_income_factor`
 now reads `world.sky_frame()`, not `world.frame` — the shipped world is an
@@ -704,7 +794,7 @@ away rather than by keeping leaves. Whether the *bole* reads is the question
 on card `20260824T014630073Z-a10698` and is not something the numbers can
 settle.
 
-## 14. Freshness
+## 15. Freshness
 
 Written 2026-08-23 and 2026-08-24. §1 is measured against `main` at
 `cfee870`, which this branch merged mid-session; §1.1, §2, §3, §6, §7, §8

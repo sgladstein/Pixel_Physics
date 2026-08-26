@@ -1276,17 +1276,52 @@ cell with something hanging further out than it, and never takes one whose
 removal would disconnect its neighbours. A plant comes apart into pieces at
 no point, which took three attempts to get right.
 
-**Known limitations, both measured.** Adult mortality now has a cause that
-fires hard — 6,600 to 9,900 cells shed to starvation per stand — and still
-kills nothing. A *shaded* plant settling at a stunted size is a suppressed
-tree waiting for a gap and is correct; a *droughted* one doing the same is
-not, and is filed with a reproduction as `open-bugs-handoff.md` §V2 —
-transpirational demand is summed over foliage only, so shedding a leaf
-reduces the very signal that shed it and a plant escapes drought by
-starving. Ninety thousand frames at maximum desiccation leave a tree larger
-than it was twenty thousand frames earlier. The general form is that an
-unpayable deficit has no consequence but shedding: there is starvation
-shedding and no starvation death. And selection
+**Judged by eye, and it went this way.** Posted as a blind A/B of the same
+stand at 28,800 frames (card `20260824T014630073Z-a10698`): the priced
+economy is the arm that reads as separate trees with clear trunks, and the
+current build is the one that reads as one mass. That is the first
+eye-judged evidence that the re-derivation improves the *silhouette* rather
+than only the numbers — and the numbers say why, median plant 4,740 → 3,659
+cells with the stem above the base 15 → 13. The root systems were posted the
+same way (`20260824T014648426Z-e32fca`) and both arms improved, with the
+priced one chosen.
+
+**The economy can kill, since 2026-08-24.** A plant that cannot pay even the
+mass term of its own maintenance — the price of keeping the tissue it
+already has, ignoring the superlinear girth term — for two hundred
+consecutive organism ticks is dead, and its remains rot at the species
+half-life. That is the owner's ruling on the finding below (*"if a tree
+doesn't get watered, it will eventually die"*), and it is measured against
+the mass term rather than the whole bill because a mature tree is in deficit
+on the full bill essentially always. Eight seeds: organisms senescent 0 → 4
+at 45,000 frames, organism slots reclaimed for the first time, and the
+survivors of a death visibly larger. A tree denied water now dies; a watered
+one does not.
+
+**Known limitations, both measured.** The first is in the *water* book and
+the death rule above only half closes it. Transpirational demand is summed
+over foliage only, `settle_water` returns a desiccation of exactly zero at
+zero demand, and `drought_death` is a parameter on photosynthesis — so
+shedding a leaf reduces the very signal that shed it, and wood and root have
+no drought path at all. A plant can no longer *escape* by starving, because
+starving now kills it, but nothing yet makes bare tissue ask for water.
+`open-bugs-handoff.md` §V2 has the three sites, a reproduction, and the
+ranked follow-ons — including one found *by* the death rule: intercepted
+light is summed over `CellType::Leaf` only, so a species with no leaf stage
+reads as earning nothing however much it earns, and grass has to be exempted
+from starving until that is repaired. Inherited-genome establishment is also **still zero** at
+both horizons: mortality was necessary and is not sufficient.
+
+The second is visible and is this package's: **die-back's shed tissue feeds
+a pile of soil that grows up through the canopy.** `shed_to_litter` stops at
+the first non-air cell that is not organism-owned, so every shed cell stacks
+on what is already lying there and the accumulation has no bound. Censused
+against `main` at one seed and 28,800 frames, mid-canopy soil is 301 cells
+against **1,890** — and against the same branch with die-back switched off,
+193 against 1,890, which is the isolation. The pile is pre-existing (`main`
+carries 4,817 cells of it) and this makes it 71% larger and nine rows
+taller. `open-bugs-handoff.md` §V3, with three ranked candidate fixes and
+`examples/crown_census.rs` as the instrument. And selection
 throughput moved the *wrong way*: fecundity is canopy size, every plant is
 smaller, and inherited-genome establishments went from 1 to 0 over eight
 seeds. No selection claim can be made for trees on this branch. Secondary
