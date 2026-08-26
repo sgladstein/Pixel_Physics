@@ -677,6 +677,63 @@ fn phase_probe(args: ProbeArgs) {
                     }
                 }
             }
+            // **Where the still-wrong cells are.** The residual after
+            // `reconverge_from_damage` runs is either clustered at the crater
+            // rim -- meaning Phase A's achievability test wrongly accepted
+            // the cells one step beyond what it invalidated -- or scattered,
+            // meaning the seed set missed a region outright. Those want
+            // opposite fixes, and a count cannot tell them apart.
+            let wrong: Vec<(i32, i32, u16, u16)> = before_aux
+                .iter()
+                .filter_map(|((x, y), old)| {
+                    let now = world.get(*x, *y).aux();
+                    (now != *old).then_some((*x, *y, *old, now))
+                })
+                .collect();
+            if !wrong.is_empty() {
+                let (mut lo_x, mut hi_x, mut lo_y, mut hi_y) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+                for (x, y, _, _) in &wrong {
+                    lo_x = lo_x.min(*x);
+                    hi_x = hi_x.max(*x);
+                    lo_y = lo_y.min(*y);
+                    hi_y = hi_y.max(*y);
+                }
+                println!(
+                    "  [oracle] wrong-cell bbox x {lo_x}..{hi_x} ({} wide) y {lo_y}..{hi_y} ({} tall)",
+                    hi_x - lo_x + 1,
+                    hi_y - lo_y + 1
+                );
+                // **How wrong, not just how many.** A cell whose distance is
+                // 2 too low out of 2,400 cannot be pushed past its own span
+                // by that error; a cell reading 2,397 when the truth is
+                // `u16::MAX` is detached and reading as sound. Those are
+                // different bugs and a count merges them.
+                let mut buckets = [0usize; 6];
+                for (_, _, o, n) in &wrong {
+                    let d = if n >= o { n - o } else { o - n };
+                    let i = match d {
+                        0..=2 => 0,
+                        3..=10 => 1,
+                        11..=100 => 2,
+                        101..=1000 => 3,
+                        1001..=60000 => 4,
+                        _ => 5,
+                    };
+                    buckets[i] += 1;
+                }
+                println!(
+                    "  [oracle] |delta|: <=2 {} | 3-10 {} | 11-100 {} | 101-1k {} | 1k-60k {} | >60k (detached) {}",
+                    buckets[0], buckets[1], buckets[2], buckets[3], buckets[4], buckets[5]
+                );
+                let step_n = (wrong.len() / 8).max(1);
+                let sample: Vec<String> = wrong
+                    .iter()
+                    .step_by(step_n)
+                    .take(8)
+                    .map(|(x, y, o, n)| format!("({x},{y}) {o}->{n}"))
+                    .collect();
+                println!("  [oracle] sample: {}", sample.join("  "));
+            }
             let body = before_aux.len().max(1);
             println!(
                 "  [oracle] frame {step:>6} compute_world_distances {cost:.1}ms over {body} body cells |                  changed {changed} ({:.2}% of body), of which rose {rose}, largest rise {max_delta} | of changed, was at 0 (tick ground-root) {was_ground_root} |                  pending {before} -> {}",

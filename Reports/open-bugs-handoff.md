@@ -101,26 +101,26 @@ point.
 | L | closed | 5286 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5418 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5480 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6112 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6301 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6392 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6406 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6418 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6436 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6457 | A material-counting guard cannot see a species |
-| W1c | note | 6470 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6604 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6682 | The structural opt-out did not hold against bearing |
-| T1d | note | 6693 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6727 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 6781 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 6835 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 6864 | §1c's settle loss is now a counter |
-| -- | note | 6881 | What landed |
-| -- | note | 6904 | Do not re-derive these |
-| -- | note | 6932 | Measurements that contradict something written |
-| -- | note | 6952 | Open |
-| -- | note | 6987 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6189 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6378 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6469 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6483 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6495 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6513 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6534 | A material-counting guard cannot see a species |
+| W1c | note | 6547 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6681 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 6759 | The structural opt-out did not hold against bearing |
+| T1d | note | 6770 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 6804 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 6858 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 6912 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 6941 | §1c's settle loss is now a counter |
+| -- | note | 6958 | What landed |
+| -- | note | 6981 | Do not re-derive these |
+| -- | note | 7009 | Measurements that contradict something written |
+| -- | note | 7029 | Open |
+| -- | note | 7064 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6092,6 +6092,83 @@ funnel entirely. So every hole a *cascade* opened went unseeded while every
 hole the *player* opened did not. `World::record_structural_hole` is the fix.
 It changed the aggregate by 4 cells, which is its own lesson: the seeding gap
 was real and was not what was wrong.
+
+#### The framework is the bug, not the tactics — 2026-08-26
+
+Three fixes have now failed on the same rock, and the pattern names the
+cause. Reactive per-cell invalidation, damage-seeded reconvergence, and a box
+drawn around the risers all founder on one thing: **whether a stored distance
+is correct is not locally observable.** A climbing region is *internally
+consistent* — every cell in it has a neighbour offering exactly its own value
+— and it is wrong only relative to an anchor it can no longer reach. No local
+test, and no box that trusts its boundary, can see that.
+
+So it is worth stating what the field is actually for, because the answer
+says the model is carrying about fifty times more than anything reads.
+
+**Every consumer of `aux` in `load.rs` is a comparison, not a magnitude.**
+Checked by grep, all of them:
+
+| site | what it asks |
+|---|---|
+| `support_parent`, `neighbour.aux() >= own` | is this neighbour closer to an anchor than I am |
+| `support_parent`, `aux().saturating_add(step)` | which of the closer ones is closest |
+| `:856`, `n.aux() < own` | same ordering |
+| `:897`, `cell.aux() > own` | same ordering |
+| `tick`, `relaxed == u16::MAX` | is there any path at all |
+
+Nothing multiplies by it, divides by it, or compares it to a span.
+`load::capacity` is built from section depth and span, not from distance.
+
+**And the walk is bounded at 48 hops.** `ROOTWARD_CHECK_STEPS = 48`. The load
+model never traverses the chain to bedrock; it climbs at most 48 support
+parents from the cell being judged.
+
+So the field is doing **two jobs** that have been fused into one number:
+
+1. **A gradient** — "which way is downhill toward support" — which is
+   consumed over at most 48 hops and needs no magnitude at all.
+2. **Reachability** — "is there any path to an anchor" — which is a binary
+   question about connectivity, and is what `u16::MAX` encodes.
+
+At the shipped size, distances run to ~2,400. Job 1 needs 48 of those steps.
+**The other ~2,350 exist only to answer job 2**, and answering a connectivity
+question by iterated shortest-path relaxation is precisely what produces
+count-to-infinity: the error is a value climbing along a chain that only
+exists to prove a chain exists.
+
+That reframes every measurement in this entry. The climb is not a bug in the
+relaxation; it is the relaxation being asked a question it is the wrong
+algorithm for.
+
+**The direction this points, and the repo already half-agrees.** README's M17
+status records that raw distance-to-bedrock "condemns the interior of every
+mountain — a cell buried 500 deep scores 500 while being the most supported
+cell in the world", and that the fix was `confinement_radius`, a **local**
+anchor. `worldgen-design.md` §6b's M10 plan is "a cheap BFS from bedrock,
+once per chunk, with anchor distance living on the coarse layer". Both are
+the same instinct: the long-range part of this field belongs somewhere other
+than a per-cell relaxation.
+
+Concretely, splitting the two jobs:
+
+- **Gradient**: a short-horizon field, saturating at something like 64. It is
+  local by construction, so damage propagates 64 cells and stops, and the
+  affected set after a charge is genuinely small rather than the whole
+  massif. Count-to-infinity has nowhere to run.
+- **Reachability**: a connectivity structure over the **coarse layer** —
+  5,120 chunks at the shipped size, against 19.4 M cells. A blast dirties a
+  handful of chunks; recompute their internal components and the coarse graph
+  edges, then answer "does this component reach an anchor" over a
+  five-thousand-node graph in microseconds.
+
+**Nothing here is built, and it is a real piece of work** — every consumer of
+`u16::MAX` becomes a query against the connectivity structure. It is recorded
+because three sessions of tactics have now bought the same lesson, and the
+fourth should not be a fourth tactic. The measurements that motivate it are
+all in this entry; the ones that would judge it are the same:
+`RECONVERGE_AT`'s wrong-cell count and delta histogram, the body-cell census,
+and `scripts/acceptance.sh`.
 
 #### Ruled out: doing it reactively, inside `tick` — 2026-08-26
 
