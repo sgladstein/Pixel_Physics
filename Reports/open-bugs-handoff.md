@@ -2734,7 +2734,77 @@ the walk seeds its heap from it and drops it — so an anchorage term wanting
 inside that seeding loop, not a new traversal. `OrganismCell::support` is the
 per-cell distance the same walk already writes.
 
-### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **OPEN, reproduced 2026-08-24**
+### V3. Die-back's shed tissue feeds a pile that grows up through the canopy — **OPEN, isolated to P2's die-back, 2026-08-24**
+
+The owner, on card `20260824T014630073Z-a10698`: *"the soil build-up in
+between the branches is horrible."* Attached to the arm he was otherwise
+praising, so it is this package's.
+
+**Not a colour misreading — it is literal soil.** At contact-sheet zoom
+soil, litter, deadwood and thickened wood are all mid-brown speckle and are
+indistinguishable by eye, which is the case `CLAUDE.md` says wants a counter
+rather than a picture. `examples/crown_census.rs` (new, and how this was
+established) censuses every material above the ground line by height band.
+One seed, 8 founders, 28,800 frames, ground line at y=200:
+
+| band | rows | `main` `fcaa3d0` | P2, die-back **off** | P2, die-back **on** |
+|---|---|---|---|---|
+| 0 | y 160–200 | 4,503 | 4,122 | **6,285** |
+| 1 | y 120–160 | 301 | **193** | **1,890** |
+| 2 | y 80–120 | 13 | 4 | 72 |
+| | **total above ground** | **4,817** | — | **8,247** |
+| | **reaches up to** | y 98 | — | **y 89** |
+
+**Isolated to the die-back, one variable, same seed.** With the die-back
+block switched off, this branch sits *at or below* `main` (193 against 301
+in mid-canopy). With it on, mid-canopy soil is **9.8x the die-back-off arm
+and 6.3x `main`**. Nothing else in the package moves it.
+
+**It is a pile, not lodged blobs**, and the row profile is what says so:
+soil occupies **104 of the 111 rows** between y 89 and y 199, thinning from
+thousands of cells per row at the bottom to one or two at the top. That is
+material stacking upward from the forest floor, not material stranded in a
+crown.
+
+**Mechanism.** `shed_to_litter` probes downward for air and **stops at the
+first non-air cell that is not organism-owned** — which includes litter
+already lying there, and the soil that litter rots into. So every shed cell
+stacks on the pile, and the pile grows without bound while shedding
+continues. Die-back sheds 6,595–6,886 cells per stand at 28,800 frames on
+top of what abscission already sheds, and it sheds from *high in the crown*
+(most distal first), so its material has the furthest to fall and the most
+chances to land on something.
+
+**Pre-existing, and made substantially worse.** `main` already carries 4,817
+cells of it reaching to y 98 — this is the same defect the owner named
+during WP-11 (*"leaves are just falling too fast … creating a giant pile of
+soil"*), which WP-11 addressed by cutting leaf fall to a quarter. P2 re-opens
+it through a second source: **+71% total and +6.3x in mid-canopy.**
+
+**Not fixed here, and the reason is in this package's own measurements.**
+Every candidate touches `shed_to_litter`, which abscission, `rot_remains`
+and the decay/ant/fire consumers all share, on top of an unmerged 2,800-line
+diff — the half-calibrated-model failure `plant-economy-rederivation-2026-08-23.md`
+opens by warning against. Ranked candidates, none started:
+
+1. **Let shed tissue fall through what is already lying there**, to the
+   first *solid* rest rather than the first non-organism cell. It is the
+   narrowest description of the bug and it fixes abscission's contribution
+   too. Wants care: the existing early-return exists so a leaf low over the
+   ground is not deleted, and `CLAUDE.md` records that as a bound that must
+   never gate whether the thing happens at all.
+2. **Cap the standing litter/soil column above the original ground line**,
+   so the floor rises and then stops. Cruder, but it is a bound on an
+   accumulation that currently has none, and `filmstrip`'s `floor:` counter
+   already measures the quantity.
+3. **Give die-back its own disposal** that is not `shed_to_litter`. Least
+   attractive — it splits one mechanism into two and the litter layer is
+   exactly what the decay, ant and fire layers want fed.
+
+`examples/crown_census.rs` is the instrument for any of them, and the
+die-back-off arm is the control.
+
+### V2. A tree cannot die of drought — shedding a leaf reduces the signal that shed it — **FIXED 2026-08-24 by `STARVATION_DEATH_TICKS`; two corrections to the entry below**
 
 Raised by the owner against `plant-economy-rederivation-2026-08-23.md` §7,
 which had folded the water case in with the light case: *"but economics
@@ -2758,7 +2828,51 @@ So drought sheds leaves, fewer leaves means less demand, less demand means
 less desiccation. **Drought is a negative feedback on itself and a plant
 escapes it by starving.**
 
-**Reproduction: `plant::tests::print_a_tree_with_the_water_withheld`**
+**FIXED, and by the owner's own ruling rather than by tuning.** *"but
+economics should be able to cause tree death right. if a tree doesn't get
+watered, it will eventually die."* `STARVATION_DEATH_TICKS`: a plant that
+cannot pay even the **mass term** of its own maintenance —
+`income >= MAINTENANCE_PER_CELL x cells` — for 200 consecutive organism
+ticks is marked `senescent`, which is the seam P3 shaped for exactly this
+(*"gated by a cause other than starvation"*), and `rot_remains` carries it
+out at the species half-life so the death is graded.
+
+**The mass term and not the whole bill, and that is the load-bearing
+choice.** A mature plant is in deficit on the *full* bill essentially
+always — the girth term is superlinear and a grove's median tree runs
+bill-to-income at 1.27–1.45 — so a rule keyed on "deficit" empties a healthy
+stand. What separates a tree at its ceiling from a tree that is dying is
+whether it can pay to keep the tissue it already has alive; a healthy tree
+clears that line by about 2.6x.
+
+Guard: `a_tree_denied_water_dies_and_a_watered_one_does_not`, paired, in a
+bed large enough that "watered" means supplied. Ensemble effect, eight
+seeds: **organisms senescent 0 → 4 at 45,000 frames** and 0 → 2 at 28,800,
+with slots reclaimed for the first time (seed 4: 19 live in 25 slots against
+27-in-27 without the rule) and the survivors *larger* — competitive release.
+
+**Two corrections to what this entry originally claimed.**
+
+1. **The recovery in the table below is partly rain, not purely the
+   self-extinguishing loop.** The reproduction re-pinned the bed to the
+   wilting point every *thousand* frames, and `run_with_fields` steps the
+   weather — so rain fell between pins and the plant drank it. At a
+   hundred-frame pin the drought is airtight and the plant does not recover.
+   The same defect made the guard's first deep-bed run read as the rule
+   failing (`starving_ticks` back to 0 at 3,871 cells) when it was the
+   scene. **The mechanism below is unaffected** — it is read from source,
+   not from that table — but the *"grows back at the wilting point"* reading
+   was overstated.
+2. **The general form is only half closed.** `STARVATION_DEATH_TICKS` gives
+   an unpayable deficit a consequence, which is what §7.4 of the economy
+   report said it lacked. It does **not** make wood and root *ask* for
+   water, so the zero-demand immunity is still there in the water book:
+   desiccation still collapses with foliage and `drought_death` still
+   reaches leaves only. Fix 2 below is therefore still wanted — it is what
+   makes the desiccation number mean something on a bare stump — and fix 3
+   with it.
+
+**Reproduction (records the pre-fix behaviour): `plant::tests::print_a_tree_with_the_water_withheld`**
 (`#[ignore]`d; `cargo test --release print_a_tree_with_the_water --
 --ignored --nocapture --test-threads=1`, `DROUGHT_EPOCHS=90` for the full
 table). A grown tree, every soil cell in its bed pinned to
@@ -2796,21 +2910,31 @@ carbon one.
 second economy change on an unmerged one, which is the half-calibrated-model
 failure its own report opens by warning against:
 
-1. **A sustained unpayable deficit kills the plant outright.** One rule
-   closing both this entry and the stump case. The hook exists: P3 shaped
-   `senescent` to be gated by a cause other than starvation, and
-   `rot_remains` already carries the remains out at a species half-life. The
-   design question is what "sustained" is measured over — a whole-plant
-   quantity with hysteresis, not a per-tick test, or a bad afternoon kills a
-   healthy tree.
-2. **Living non-foliage tissue carries a small water demand.** Breaks the
+1. ~~**A sustained unpayable deficit kills the plant outright.**~~ **DONE** —
+   `STARVATION_DEATH_TICKS`, above. The design question it posed answered
+   itself in the measurement: "sustained" had to be measured against the
+   *mass term* with a reset on any solvent tick, because the full bill is
+   unpayable for healthy trees too.
+2. **Make `allocate_to_frontier`'s `intercepted` ask the species, not the
+   cell type.** It sums over `CellType::Leaf` only, so **`OrganismState::income`
+   is exactly zero for any species with no `Leaf` stage however much it is
+   earning** — grass photosynthesises from `MatureBody` and `GrowingTip`.
+   Found by `STARVATION_DEATH_TICKS` reading that zero as starvation and
+   killing **12 of 12 blades in the fully lit arm** of
+   `a_shaded_sward_thins_and_a_lit_one_does_not`; the rule now exempts
+   leafless species, which is a workaround and not the fix. `is_foliage`
+   already asks the species and is what die-back and P3's abscission both
+   use — this is the third place in one package to need it. Fixing it would
+   also close `break_buds`' recorded grass defect, where `supportable` is 0
+   for exactly this reason, so it is one change closing three things.
+3. **Living non-foliage tissue carries a small water demand.** Breaks the
    self-extinguishing loop at its root, because demand would floor at the
    plant's own mass rather than at zero. It is also the biology: trees lose
    water through bark and respire in wood and root, and do not stop needing
    water when the leaves drop. Cheapest of the three, and it re-derives the
    water constants, so it wants the `plantsweep.sh` ensemble before and
    after.
-3. **A drought consequence for wood and root.** The real mechanism is
+4. **A drought consequence for wood and root.** The real mechanism is
    cavitation, which kills conducting tissue rather than leaves. The most
    faithful and the most work; it needs a per-cell channel that does not
    exist.
@@ -2948,6 +3072,20 @@ amount of economy tuning reaches it: a stand of eight immortal founders at
 bears directly on the owner's question about plasticity deriving itself
 from selection — selection cannot act until something dies.
 
+**Both review cards came back, and the bole card needs its blinding applied
+before it is read.** Root card `20260824T014648426Z-e32fca`: both arms
+better, this branch chosen. Bole card `20260824T014630073Z-a10698` reads as
+a contradiction and is not one — it was posted `--blind`, and
+`review_page.html` labels a blind pane by *display slot*
+(`"Option " + String.fromCharCode(65 + slot)`), not by the poster's item
+label, with `blind_was` recording the permutation. This card's is `[1, 0]`,
+so the owner's "A" is item 1 (`stand-p2`, this branch) and his "B" is item 0
+(`main`). **"A looks better in that regard" is this branch reading as
+separate trees; the stored choice is the same arm; click and comment agree.**
+Anyone acting on that card must re-derive the mapping from `blind_was`
+rather than from the letters — the trap applies to every blind card in this
+repo. The rest of that sentence is §V3 above, and it is this branch's.
+
 **If there were one more session, I would take §V2's fix 1 and 2 together,
 in that order.** A sustained unpayable deficit killing the plant closes the
 stump case and the drought case with one rule and uses P3's existing hook;
@@ -2965,6 +3103,62 @@ and withdrawn — it cost establishment at full pressure and bought nothing
 measurable at the pressure that restored it. In `dead-ends.md` with the
 re-test condition: the charge belongs in the allocation pool, not in the
 thickening cell's own carbon, which transport refills within a tick.
+
+**ADDENDUM, 2026-08-24 — §V2's fix 1 was taken, and this is P2's final
+state.** Head `bd16112fb093df7d36e06650cd04b00a0e5d1b5f` on
+`claude/p2-economy`. Everything above this addendum still stands except the
+mortality paragraphs, which it supersedes.
+
+`STARVATION_DEATH_TICKS = 200`: a plant that cannot pay the **mass term** of
+its maintenance — `income >= MAINTENANCE_PER_CELL x cells` — for 200
+consecutive organism ticks is marked `senescent`, and `rot_remains` carries
+it out. The mass term and not the whole bill is the load-bearing choice; a
+mature plant is in deficit on the full bill essentially always. Eight seeds:
+organisms senescent 0 -> 2 at 28,800 and 0 -> 4 at 45,000, **organism slots
+reclaimed for the first time** (seed 4: 27 live in 27 -> 19 live in 25) and
+the survivors larger, median 4,034 -> 5,324 cells. Guard
+`a_tree_denied_water_dies_and_a_watered_one_does_not`, paired. Full account
+in §V2 and in the economy report §7.
+
+**The recruitment paragraph above predicted this and was half right.** It
+said establishment is gated on a founder dying rather than on fecundity.
+Founders now die and **inherited-genome establishment is still 0 at both
+horizons.** Mortality was necessary and is not sufficient. Whatever the
+remaining gate is, it is not "nothing ever dies", and the next session
+should stop re-deriving that hypothesis. Turnover also fell 25-30%.
+
+**Three things the next session must not re-derive, because they are
+measured and written down.**
+
+1. **`CellType::Leaf` is not foliage, and `income` is zero for any species
+   without a `Leaf` stage.** `allocate_to_frontier` sums intercepted light
+   over `CellType::Leaf` only. This package hit it three times. The death
+   rule exempts leafless species as a *workaround*; the repair is to make
+   `intercepted` ask `is_foliage`, which also closes `break_buds`' grass
+   defect. §V2 fix 2.
+2. **A grow-out probe that re-pins a bed every thousand frames is measuring
+   rain, not drought.** `run_with_fields` steps the weather. This produced a
+   published table showing a droughted tree *recovering*, and read as a rule
+   failing when it was the scene. Pin at a hundred frames. §V2 correction 1.
+3. **The 17x8 `plant_tree_on_ground` bed is water-limited for a grown
+   tree.** Income floors near 0.04 there whatever the soil says, so a
+   "watered" arm in it starves. Use `root_slot_run`'s 61x30 bed for anything
+   that compares watered against droughted.
+
+**Gates, on `bd16112` after merging `origin/main` (bfcb879), all four run in
+one session on that exact SHA and confirmed identical to the pushed head:**
+tests 999 passed / 0 failed / 71 ignored; clippy clean; `docscheck` clean;
+`acceptance.sh` all cases OK, including `wood` at 1091 cells over 4 windows
+against a bar of 400. `ascii` on the same SHA: M16 tree-from-seed worst frame
+growing 0.9352 ms, settled 0.4944 ms; moss 0.2827 / 0.0683; the organism
+scene's mean 3.808 ms over 12,000 frames.
+
+`lavadrop` failed three earlier acceptance runs on this box (85.12, 63.21,
+71.65 ms against a 60 ms bar) and passed on the gating run. That is §T1d's
+recorded flake and not this branch's: `lavadrop` builds no plant, this
+change adds one float compare per organism per tick, and §T1d's uncontended
+measurement has unmodified `main` itself at 74.96 ms — over the bar.
+Recorded rather than waved away.
 
 ### G. Grassfire arrives with a standing negative verdict — **SPREAD AND MOISTURE FIXED 2026-08-23 (W2); the *colour* is open and is render's**
 
