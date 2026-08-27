@@ -20,7 +20,7 @@ inventory this corrects in two places), and
 | 2 | What a lever needs, and the four verdicts |
 | 3 | The audit — every authored parameter, by verdict |
 | 4 | Why *construction is free and upkeep is pooled* is the whole retune loop |
-| 5 | Measured: turgor is the "cost, no benefit" row |
+| 5 | Measured: turgor is the "cost, no benefit" row; **5c** probes the water economy |
 | 6 | Fences — where the tuner has already compensated by hand |
 | 7 | The second mechanism, which is not costs at all: denomination |
 | 8 | The instrumental half: what this does and does not buy for diversity |
@@ -49,9 +49,12 @@ read-the-consumer is exactly the method that produced §4a's wrong turgor
 row, because a cost paid through *tissue quantity* is not a term at any
 call site. The instance was corrected in §5 without the lesson about the
 technique being inherited; the PR #80 session raised that in review and it
-is right. §5c now probes the water economy the way turgor was probed, which
-converts one strand of this into a measurement. **The rest remains a
-reading, and the audit table in §3 carries the same warning.**
+is right. §5c probes the water economy the way turgor was probed —
+`Absorb.rate` swept 0.75/1.5/3.0, and it **saturates** as the audit
+classifies it, with a live downward arm proving the probe is not blind. So
+one strand of this is now a measurement. **The rest remains a reading, the
+carbon economy has had no equivalent probe, and the audit table in §3
+carries the same warning.**
 
 The gap is one structural asymmetry, and it is the mechanism of the retune
 loop:
@@ -301,6 +304,51 @@ not width-pinned, because grass never approaches the ceiling this section is
 about. Its honest framing is *"trees carry 5-8x more mature cells"* rather
 than *"trees are more fecund"* — a claim about mass, not about fecundity.
 Agreed with the PR #80 session, whose report that is to fix.
+
+### 5c. Probing the water economy the way turgor was probed
+
+§1's *"no hole in either economy"* was a read-through conclusion, and the
+PR #80 review is right that read-through is the method that produced the
+wrong turgor row. So one lever was probed properly instead of read.
+
+**`Absorb.rate` was chosen because it is the best candidate for a hole**
+that the audit's own classification produces: raising it buys more water
+uptake and costs nothing at the call site. §3 files it under *"benefit, no
+cost — but it **saturates** against `water_capacity_of`, which is bought
+with root tissue"*. If that saturation is real, the lever self-limits
+against a priced ceiling and there is no hole. If it is not, §1 is wrong.
+
+Swept 0.75 / 1.5 (authored) / 3.0 on the dense bed, 4 world seeds, 28,800
+frames, rebuilt between arms. **`tree.ron` carries two `Absorb` lines** —
+`RootTip` and `MatureBody`, both root uptake — and the sweep changes both
+together, which is the plant's water uptake as one quantity; the script
+asserts it edited exactly two lines before running, because a blind edit
+over a repeated field name has invalidated a whole sweep here before.
+
+| `Absorb.rate` | stomatal term (median) | cells (median) | seeds | soil left behind |
+|---|---|---|---|---|
+| **0.75** | 0.58–0.91 | ~2,290 | 130–161 | 0, 0, 0, 0 |
+| **1.5** (authored) | **0.95–1.00** | ~2,630 | 120–154 | 0–190 |
+| **3.0** | **1.00, 1.00, 1.00, 1.00** | ~2,500 | 118–146 | 180–526 |
+
+**It saturates, and the classification holds.** The stomatal term is
+already pinned at 1.00 at the authored rate, so doubling uptake cannot buy
+income — and it doesn't: cells do not rise from 1.5 to 3.0 (they fall
+slightly) and seeds overlap completely across all three arms. The soil
+column is the mechanism made visible: a fast-drinking plant fills its
+storage to `water_capacity_of` and *stops drawing*, so it leaves **more**
+water in the ground (180–526) than a slow one that never catches up and
+drains the bed to zero.
+
+**The probe is not blind, which is the half that makes the null mean
+something.** The downward arm moves: at 0.75 the stomatal term falls to
+0.58–0.91 and mass drops. So the knob is connected and the ceiling is the
+thing stopping it, not a dead lever.
+
+**What this does and does not buy.** It upgrades **one strand** of §1 from
+a reading to a measurement: the one lever most likely to be a hole in the
+water economy is not one. It says nothing about the other levers, and the
+carbon economy has had no equivalent probe. §1's confidence note stands.
 
 ## 6. Fences — where the tuner has already compensated by hand
 
