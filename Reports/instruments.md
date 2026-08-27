@@ -268,6 +268,19 @@ built for:
 It is a probe, not a proposal — the pass takes ~2,000 ms and walks all 21 M
 cells. Nothing would ship it per blast.
 
+**Put it on the *last* measured frame, not in the middle.** `step` counts the
+measured frames only (`for step in 0..frames`), so a `RECONVERGE_AT` above
+`frames=` never fires at all and prints nothing — which reads exactly like a
+run where the oracle had nothing to say. And the pass itself converges the
+field, so every frame after it is cheap: at `RECONVERGE_AT=frames-1` the
+timing table is untouched and the census is still taken at the end of the run.
+
+**`scale_probe` echoes its own landing-aux arms** (`landing aux: settle=…
+particle=…`) as of 2026-08-27, because `SETTLE_AUX` and `PARTICLE_AUX` decide
+where §S's false anchors come from and a log that does not name them cannot be
+told from one written before they existed. Each takes `zero|max|seed`. A run
+whose header lacks that line came out of an older binary.
+
 **`AUX_TRAP` is a *write-seam trap*, and the shape is the reusable part.**
 It is not an example — it is an env-gated report inside `World::set` that
 fires on any write matching a predicate and prints a backtrace. Reach for it

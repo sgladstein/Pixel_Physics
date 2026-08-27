@@ -571,8 +571,19 @@ fn phase_probe(args: ProbeArgs) {
         w as i64 * h as i64
     );
     println!(
-        "{warm} warm-up frames discarded, {frames} measured ({:.1} day/night cycles)\n",
+        "{warm} warm-up frames discarded, {frames} measured ({:.1} day/night cycles)",
         frames as f64 / field::DAY_NIGHT_PERIOD_FRAMES as f64
+    );
+    // **The harness echoes its own arm.** `CLAUDE.md`: a knob nobody can see
+    // the value of is a knob nobody can tell is disconnected -- a 3.5-hour
+    // megastudy once produced eight byte-identical logs per species because
+    // `worldseed=` was not yet in the binary and nothing said so. These two
+    // decide where §S's false anchors come from, and a log that does not name
+    // them cannot be told apart from one taken before they existed.
+    println!(
+        "landing aux: settle={} particle={}\n",
+        pixel_physics::sim::rigid::settle_aux_mode_name(),
+        pixel_physics::sim::particle::particle_aux_mode_name()
     );
 
     // In `App::update`'s order, and the order is load-bearing: several phases

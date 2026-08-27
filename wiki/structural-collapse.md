@@ -1,6 +1,10 @@
 # Structural Collapse
 
-*Current as of: 2026-08-26. Changed on 2026-08-23: the brush and fire now
+*Current as of: 2026-08-27. Changed on 2026-08-27: debris that comes to rest
+now inherits its surroundings' sense of what holds it up instead of assuming
+bedrock, so the ground around a crater settles and stops instead of crumbling
+on for minutes — see **What rubble does**. Changed on 2026-08-23: the
+brush and fire now
 license a collapse the way a blow does, so erasing a pillar or burning
 through a trunk brings down what it was holding — see **How far damage
 travels**; a wall carries its roof through all of its thickness rather than
@@ -220,6 +224,16 @@ One rough edge worth knowing: a pile that grows very slowly, a grain at a
 time, may not be noticed by the rock underneath until something else
 happens nearby. Anything that *arrives* — a slab landing, a blast, a
 blow — is noticed immediately.
+
+**And what arrives knows where it is.** Debris that comes to rest — a
+thrown rock, a fallen slab, the rubble of a collapse — takes on the same
+sense of what is holding it up that the rock around it already has, at the
+moment it lands. It used to arrive believing it was sitting on bedrock,
+whatever it had actually landed on, and that one mistaken belief spread: the
+stone around a fresh crater would gradually come to believe it was
+standing on something solid, and then gradually work out that it wasn't,
+and go on quietly crumbling for a long time after the explosion was over.
+A crater now settles and stops.
 
 ## What floats
 

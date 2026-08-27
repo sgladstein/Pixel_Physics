@@ -342,6 +342,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // else to hold it still roots, still reads as supported, and still does
     // not shatter. Measured on `scene=worldcrack preset=flat`, one radius-6
     // dig, seeds 1 / 7 / 24301: 894 / 23,042 / 3,844 cells lost before.
+    // **`seed_landing_aux` below duplicates the rule from here to the end
+    // of `relaxed`**, so that a cell being *placed* can be given the value
+    // this would compute rather than a placeholder. If the neighbourhood,
+    // the cost match or the four exclusions change here, change them there.
     let firm_anchor = NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK);
 
     let relaxed: u16 = if firm_anchor {
@@ -1016,6 +1020,81 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // tracking it from 2.5 ms to 3,160 ms. Walking the chain inside this
     // tick does the same work without putting anything new in the queue.
     Vec::new()
+}
+
+/// The anchor distance a body cell that has just been **placed** at
+/// `(x, y)` should carry — `tick`'s own relaxation rule, run once at the
+/// moment of the write.
+///
+/// **This exists because `Cell::new`'s `aux` of 0 is not "no claim", it is
+/// the strongest claim available.** On an inert `Solid` the slot is a
+/// distance to bedrock, so a piece of rock that lands claiming 0 claims to
+/// be bedrock-adjacent, and every cell around it relaxes downhill off that.
+/// `Reports/structural-support-model.md` §6 has the write-seam trap that
+/// caught it: twelve consecutive `empty aux 0 -> stone aux 0` beside
+/// `stone:2405`, on the two frames after a charge.
+///
+/// **`u16::MAX` is the honest answer and this is the *correct* one.** MAX
+/// says "no known path, earn one", which `tick` corrects in a single
+/// improvement round — but only at the next structural check, and until
+/// then the cell offers no support to anything above it (`load::
+/// support_count` wants `n.aux() < own`) while registering as a dependant
+/// of every neighbour (`load::dependants` wants `n.aux() > own`). A landing
+/// is exactly where that matters: debris arrives in bulk into a wound that
+/// is already being evaluated. This returns the value the next round would
+/// have computed anyway, so the transient never exists.
+///
+/// It cannot be worse than MAX for the field's *accuracy*, because it is
+/// arithmetically one relaxation step and nothing more — the same
+/// neighbourhood (`NEIGHBOURS_4`), the same cost table, the same four
+/// exclusions (a cracked edge carries no load; non-body material is not in
+/// the field; an organism-owned neighbour's `aux` is a cell-type tag and
+/// not a distance; a burning neighbour may change material out from under
+/// the read). If a neighbour is itself a false anchor then the field is
+/// already wrong there and this is not the writer that made it so.
+///
+/// **Deliberately no ground root.** `tick` will root a cell at 0 when
+/// relaxation leaves it at MAX and it is resting on loose material, and
+/// that root is a *last resort* which `GROUNDED_RECHECK_INTERVAL` then has
+/// to keep re-examining. Doing it eagerly here is the load sink `tick`'s
+/// own comment warns about — "a sprinkle of sand under a beam holds the
+/// beam up" — and it is how the dig cascade used to eat 23,042 cells. A
+/// piece that has genuinely landed on rubble gets MAX from here and its
+/// root from `tick`, on the check the caller is required to schedule.
+///
+/// The caller must have established that `material` is body material;
+/// `aux` means something else entirely on every other kind.
+pub fn seed_landing_aux(world: &World, x: i32, y: i32, material: MaterialId) -> u16 {
+    // Bedrock adjacency is a *true* zero, not the false one above, and it
+    // is the common case for debris arriving on the floor.
+    if NEIGHBOURS_4.iter().any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK) {
+        return 0;
+    }
+    let (cost_below, cost_beside, cost_above) = {
+        let m = world.materials.get(material);
+        (m.support_cost_below, m.support_cost_beside, m.support_cost_above)
+    };
+    let mut best = u16::MAX;
+    for (dx, dy) in NEIGHBOURS_4 {
+        if edge_is_cracked(world, x, y, dx, dy) {
+            continue;
+        }
+        let neighbour = world.get(x + dx, y + dy);
+        if !is_body_material(world, neighbour.material) || neighbour.organism_id() != 0 || neighbour.is_burning() {
+            continue;
+        }
+        // `y` grows downward: `dy == 1` is the cell beneath (standing on
+        // it, compression, cheap) and `dy == -1` the cell above (hanging
+        // from it, tension, dear). Same match as `tick`'s, and getting it
+        // backwards silently prices a landed slab as a cantilever.
+        let step = match dy {
+            1 => cost_below,
+            -1 => cost_above,
+            _ => cost_beside,
+        };
+        best = best.min(neighbour.aux().saturating_add(step));
+    }
+    best
 }
 
 /// Structural check for an organism-owned cell (`cell.organism_id() != 0`)
@@ -6204,6 +6283,96 @@ mod tests {
         assert_ne!(w.get(32, 25).material, material::STONE, "a foreground blob with nothing under it should not hang in mid-air");
     }
 
+
+    /// **A cell that has just been placed must store the distance the field
+    /// would have given it** — the guard over `seed_landing_aux`, and over
+    /// the fact that it duplicates `tick`'s relaxation rule by hand.
+    ///
+    /// The oracle is `compute_world_distances`, which is a *different*
+    /// implementation of the same shortest path (a dial queue over a flat
+    /// array, against `tick`'s four-neighbour scan), so this is not the
+    /// function checking its own arithmetic.
+    ///
+    /// **The two values it must not return are asserted explicitly.** 0 is
+    /// `Cell::new`'s default and reads as *bedrock-adjacent* — the whole of
+    /// §S. `u16::MAX` is the honest placeholder that shipped first and reads
+    /// as *no path at all*. A scene where the right answer happened to be
+    /// either of those could not tell a working seed from a broken one, so
+    /// the position is chosen to be neither and the test says so.
+    #[test]
+    fn a_seeded_landing_stores_the_distance_the_field_would_have_given_it() {
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        // A column, so the interesting position is a long way from bedrock
+        // in the field but one step from a cell that knows the way.
+        for y in 20..63 {
+            w.set(10, y, Cell::new(material::STONE, 0));
+        }
+        compute_world_distances(&mut w);
+        let wall = w.get(10, 30).aux();
+        assert!(wall > 1, "test setup: the column at y=30 must be well away from bedrock, read {wall}");
+
+        // Beside the column, resting on nothing: exactly the case a landing
+        // creates, and one where neither 0 nor `u16::MAX` is the answer.
+        let (tx, ty) = (11, 30);
+        let seeded = seed_landing_aux(&w, tx, ty, material::STONE);
+        assert_ne!(seeded, 0, "a cell one step from a column at {wall} is not bedrock-adjacent");
+        assert_ne!(seeded, u16::MAX, "a cell touching the column has a path; `u16::MAX` says it has none");
+
+        // The oracle: place it, converge the whole world, and see what the
+        // field itself thinks the cell is worth.
+        w.set(tx, ty, Cell::new(material::STONE, 0).with_aux(seeded));
+        compute_world_distances(&mut w);
+        assert_eq!(w.get(tx, ty).aux(), seeded, "the seeded value disagrees with the converged field");
+
+        // **Hanging, not standing** -- the case that catches a flipped `dy`.
+        // `y` grows downward, so support from *above* is tension and stone
+        // prices it at `support_cost_above: 3` against `_below: 1`. A cell
+        // beside a column pays `_beside`, so the position above alone cannot
+        // tell the two vertical costs apart and a swap would sail through.
+        for x in 10..24 {
+            w.set(x, 20, Cell::new(material::STONE, 0));
+        }
+        compute_world_distances(&mut w);
+        let (hx, hy) = (22, 21);
+        let hung = seed_landing_aux(&w, hx, hy, material::STONE);
+        let beam = w.get(hx, 20).aux();
+        assert_eq!(
+            hung,
+            beam + w.materials.get(material::STONE).support_cost_above,
+            "a cell hanging under a beam at {beam} pays tension, not compression"
+        );
+        w.set(hx, hy, Cell::new(material::STONE, 0).with_aux(hung));
+        compute_world_distances(&mut w);
+        assert_eq!(w.get(hx, hy).aux(), hung, "the hanging seed disagrees with the converged field");
+    }
+
+    /// The same rule at the far end: a cell placed with **nothing** to relax
+    /// from must say so rather than inventing an anchor.
+    ///
+    /// This is the half that keeps `seed_landing_aux` from being "return the
+    /// smallest number you can find". `tick` has a ground root for a piece
+    /// that has genuinely landed on rubble, and it is applied *after* the
+    /// relaxation fails and re-examined on a timer; doing it eagerly here is
+    /// the load sink that used to eat 23,042 cells from one dig.
+    #[test]
+    fn a_seeded_landing_with_no_neighbours_claims_nothing() {
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        compute_world_distances(&mut w);
+        assert_eq!(
+            seed_landing_aux(&w, 30, 20, material::STONE),
+            u16::MAX,
+            "open air on every side is 'no known path', not 'at an anchor'"
+        );
+        // ...and against bedrock it *is* an anchor, which is the one 0 that
+        // is a true statement rather than a default.
+        assert_eq!(seed_landing_aux(&w, 30, 62, material::STONE), 0, "a cell on bedrock is bedrock-adjacent");
+    }
     // --- Organism-owned cells: the real `organism_structural_tick` -------
     //
     // Tree rewrite step 5: `organism_structural_tick` was a documented,

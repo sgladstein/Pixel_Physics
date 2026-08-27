@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6507 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6696 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6787 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6801 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6813 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6831 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6852 | A material-counting guard cannot see a species |
-| W1c | note | 6865 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6999 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7077 | The structural opt-out did not hold against bearing |
-| T1d | note | 7088 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7122 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7176 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7230 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7259 | §1c's settle loss is now a counter |
-| -- | note | 7276 | What landed |
-| -- | note | 7299 | Do not re-derive these |
-| -- | note | 7327 | Measurements that contradict something written |
-| -- | note | 7347 | Open |
-| -- | note | 7382 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6517 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6706 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6797 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6811 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6823 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6841 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6862 | A material-counting guard cannot see a species |
+| W1c | note | 6875 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7009 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7087 | The structural opt-out did not hold against bearing |
+| T1d | note | 7098 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7132 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7186 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7240 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7269 | §1c's settle loss is now a counter |
+| -- | note | 7286 | What landed |
+| -- | note | 7309 | Do not re-derive these |
+| -- | note | 7337 | Measurements that contradict something written |
+| -- | note | 7357 | Open |
+| -- | note | 7392 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6430,15 +6430,21 @@ needs re-deriving here:
   them. `dead-ends.md`, structural. The coarse-layer half is confirmed within
   1% (5,169 nodes for 5,120 chunks) and the hierarchical potential built on
   it packs into the existing `u16`.
-- **Half the fix has shipped, half is blocked — 2026-08-27.**
-  `particle::landed_cell` is on by default; `rigid::settle` is not, because
-  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes red *and
-  inverts* with it (367 cells away with the wound licensed against 418 with a
-  point licence, where the recorded figures are 840 and 649). Either a real
-  regression or the fourth mode shift that count has caught. **§S is
-  therefore still open**, at roughly a quarter of the available win. The
-  measurement that would unblock it is in
-  `Reports/structural-support-model.md` §6.5b.
+- **The whole fix now ships — 2026-08-27, later the same day.** Both seams
+  give a landed cell the distance the field would have computed for it
+  (`structural::seed_landing_aux`) rather than `Cell::new`'s 0. **The blocker
+  above was resolved, not merged past.** It was recorded as "either a real
+  regression or the fourth mode shift that count has caught"; the named
+  measurement was run and **both quantities inverted** — `promoted_cells`
+  367/418 *and* `stone destroyed` 608/638 — so it was real. What was wrong
+  with `u16::MAX` is its *timing*, not its value: for one
+  `STRUCTURAL_TICK_INTERVAL` a MAX cell satisfies `load::dependants`'
+  `n.aux() > own` against every neighbour, so freshly settled debris hangs its
+  whole weight on the rock beside it at exactly the moment the licence is
+  judging that rock. Seeding from `tick`'s own rule removes the window: same
+  **186** wrong cells against a 38,325 baseline, guard green, and the
+  scheduler phase 15.511 → **4.325 ms** mean. `Reports/structural-support-
+  model.md` §6.5c, with the five-arm table and the noise bar it hands you.
 - **And §S has a root cause — two of them, and both are needed.**
   `particle.rs::landed_cell` and `rigid::settle` both land body material
   through `Cell::new`, whose `aux` is **0**. Landing each at `u16::MAX`
@@ -6486,7 +6492,11 @@ needs re-deriving here:
   Ruled out on the way, and both worth keeping: `rigid::settle`'s `Cell::new`
   default (`SETTLE_AUX_MAX=1`, 37,629 -> 37,036, 1.6%) and `tick`'s
   `grounded_root` (byte-identical, and a new `grounded` counter on the
-  `[struct]` census reads **0 every frame** -- vacuous, not negative).
+  `[struct]` census reads **0 every frame** -- vacuous, not negative). **The
+  first of those was overturned**: the 1.6% was true of the code at that
+  moment and false an hour later, because `particle::land` raised no
+  structural check so nothing evaluated the cells around landed debris.
+  `settle` is half the fix, not a dead end -- see §6.4a.
 
   **Two adjacent gaps this turned up, both since fixed.** `particle::land`
   wrote through `World::set` and raised no `StructuralCheck`, so a landed body

@@ -1,18 +1,23 @@
 # Replacing the support field — what it is for, and what each replacement costs
 
-**Status: measured; half the fix ships, half is blocked. 2026-08-27.**
-`particle::landed_cell` is now **on by default** (`PARTICLE_AUX_MAX=0`
-restores the old behaviour for measurement). **`rigid::settle` is not** —
-see §6.5b, it turns a documented ordering guard red and *inverts* it, which
-is not a thing to merge past even when the diagnosis behind it is solid.
-Both halves are needed for the full result, so this is unfinished business
-rather than a rejected idea. Everything else here remains design-only, and
-the diagnostic probes stay off. One new read-only instrument
-(`examples/support_census.rs`) and four env-gated
-probes: `STRUCT_NO_CLIMB` and `STRUCT_NO_GROUND_ROOT` in `structural.rs`,
-`SETTLE_AUX_MAX` in `rigid.rs`, and `ORACLE_COLUMN` on `scale_probe`. None
-changes a default, and one `[struct]` census field (`grounded`) was added
-because an ablation without it is unreadable. Arm A in §5 reproduces
+**Status: measured; the whole fix ships. 2026-08-27.** Both seams that write
+body material at rest — `particle::place_landed` and `rigid::settle` — now
+give a landed cell the anchor distance the field would have computed for it,
+`structural::seed_landing_aux`, instead of `Cell::new`'s `aux 0`. **The
+blocker in §6.5b is resolved rather than merged past**: it turned out to be a
+real regression and not the fourth mode shift, and what was wrong with
+`u16::MAX` was its *timing*, not its value. §6.5c is what shipped and carries
+the five-arm measurement; §6.4 remains correct about the diagnosis (two
+seams, jointly necessary) and superseded about the value.
+
+Everything else here remains design-only and the diagnostic probes stay off.
+One new read-only instrument (`examples/support_census.rs`) and four
+env-gated probes: `STRUCT_NO_CLIMB` and `STRUCT_NO_GROUND_ROOT` in
+`structural.rs`, `ORACLE_COLUMN` on `scale_probe`, and the landing-value
+knobs `SETTLE_AUX` / `PARTICLE_AUX` (each `zero|max|seed`, with
+`SETTLE_AUX_MAX` / `PARTICLE_AUX_MAX` kept as aliases so §6.4's ablation
+still reproduces). One `[struct]` census field (`grounded`) was added because
+an ablation without it is unreadable. Arm A in §5 reproduces
 `open-bugs-handoff.md` §S's recorded line byte-for-byte (`worsened 1400
 improved 9 unmoved 267 | budget0 723 | max aux 438` at frame 2,400), which is
 what says the default path is untouched.
@@ -557,6 +562,16 @@ third, and §Z2's corpse fix is what put the `worth_in_aux` gate in front of it.
 
 ### 6.4 The fix, measured — **two sources, jointly necessary**
 
+> **What shipped is §6.5c, not this section's `u16::MAX`.** The two sources
+> and their joint necessity are unchanged and are the finding; the *value*
+> written at each of them is not. `u16::MAX` was blocked by a guard for a
+> real reason (§6.5b) and replaced by a seeded value (§6.5c). The
+> `*_AUX_MAX` knobs below still exist and still reproduce these runs. The
+> over-budget percentages in this section are also superseded: see §6.5c on
+> why that metric is saturated on this scene and why the whole-frame mean is
+> the one to quote.
+
+
 **This section said `PARTICLE_AUX_MAX` alone and that is wrong at the branch's
 current head.** The correction came from the perf session (§S's author) on PR
 #77, was reproduced here independently, and the reason it changed is a finding
@@ -603,7 +618,7 @@ each other in a way a cross-run figure is not):
 | flags off | 78.3% | 50.13 ms | 38,322 | 19,408,829 |
 | `PARTICLE_AUX_MAX` only | 63.3% | 54.34 ms | — | — |
 | `SETTLE_AUX_MAX` only | 71.9% | 46.17 ms | — | — |
-| **both** (only `PARTICLE_AUX_MAX` ships — see §6.5b) | **25.8%** | **41.75 ms** | **5,950** | **19,410,636** |
+| **both** | **25.8%** | **41.75 ms** | **5,950** | **19,410,636** |
 
 Independently at 6,000 frames rather than 1,600, by the perf session: whole
 frame **38.347 → 25.771 ms (−33%)**, frames over budget **96.6% → 72.9%**, body
@@ -719,40 +734,167 @@ property of the write, not of the scene.
 
 **What stands behind the landing value instead is whole-world**: the
 `RECONVERGE_AT` oracle (36,348 → **186**, climb bucket **0**),
-`scripts/acceptance.sh` green on all 23 cases, and the 78.3% → **25.8%**
-over-budget figure below. A unit test that cannot fail would have added
-nothing to that.
+`scripts/acceptance.sh` green on all 23 cases, and the over-budget figure
+below. A unit test that cannot fail would have added nothing to that. (That
+figure is superseded — §6.5c re-measures all of it and explains why
+over-budget percentage is the wrong column on this scene.)
 
-### 6.5b What blocked the second half
+### 6.5b What blocked the second half — **answered, and it was not a mode shift**
 
 Flipping `SETTLE_AUX_MAX` on turns
 `a_disturbance_extent_licenses_the_wound_but_not_the_chain` red, and not
-marginally:
+marginally. The guard's claim is that a wider disturbance licence brings
+*more* of the blast's own seams away than a point licence does; with the
+second half of the fix in, it brought away less.
 
-| | licensed wound | point licence | ordering |
-|---|---|---|---|
-| recorded in the test's own comment | 840 | 649 | wound +29% |
-| with `SETTLE_AUX_MAX` on | **367** | **418** | **inverted** |
+Two readings were open. Either the licence had really stopped working, or
+this was the **fourth** time this particular count had caught a mode shift
+rather than a behaviour change — its own comment records three previous
+occasions, and `CLAUDE.md`'s *a failure count is not a damage count* is why
+it keeps happening. The named measurement was `promoted_cells` against
+`stone destroyed` across both arms: if stone-destroyed still ordered
+correctly while promoted-cells inverted, mode shift; if both inverted, real.
 
-The guard's claim is that a wider disturbance licence brings *more* of the
-blast's own seams away than a point licence does. With the second half of the
-fix in, it brings away less. That is either a real regression or the **fourth**
-time this particular count has caught a mode shift rather than a behaviour
-change — its own comment records three previous occasions, and `CLAUDE.md`'s
-*a failure count is not a damage count* is the reason it keeps happening.
+**Both inverted.** Measured 2026-08-27 on the guard's own scene (a 256x160
+massif, one radius-20 charge, 600 frames, `chain_reach` at `TIGHT`):
 
-Both readings are plausible and neither is settled here. **Fewer cells coming
-away is the direction the whole fix is for** — it exists to stop the engine
-destroying rock that was never unsupported — so a drop is expected; the
-*inversion* is what is not. Isolated cleanly: `PARTICLE_AUX_MAX` alone leaves
-the guard green, so this is `SETTLE_AUX_MAX` and nothing else.
+| landing value | `promoted_cells` wound / point | stone destroyed wound / point |
+|---|---|---|
+| `Cell::new`'s 0 (the bug) | 1001 / 570 — **wound +76%** | 686 / 644 — wound +6.5% |
+| `u16::MAX` | **367 / 418 — inverted** | **608 / 638 — inverted** |
+| seeded (§6.5c) | 701 / 506 — **wound +38%** | 631 / 653 — wound −3.4% |
 
-**The measurement that would settle it** is `promoted_cells` against
-`stone destroyed` across both arms with the flag on: if stone-destroyed still
-orders correctly while promoted-cells inverts, it is a mode shift (rock
-crumbling in place rather than coming away as bodies) and the guard needs
-re-basing on the quantity that survives. If both invert, the licence really
-has stopped doing its job and the fix needs work before it ships.
+So the guard was right and `u16::MAX` was wrong. Not wrong about the *value* —
+0 is a false anchor and MAX is not — but wrong about the *timing*, which
+§6.5c is about. (Read the stone-destroyed column with care in either
+direction: the test's own comment records +1.4% there and rejects it as too
+thin for a bar, so −3.4% on the seeded row is inside the same band and is not
+evidence of anything. `promoted_cells` is the column with a margin.)
+
+**Why the same change is invisible on the blast scene.** `SETTLE_AUX=max` and
+`SETTLE_AUX=seed` produce **identical non-timing output** on
+`scale_probe`'s 8192x2560 blast — the same 186 wrong cells, the same 6,139
+pending, the same 19,410,636 body cells standing. The transient only matters
+where a load evaluation lands inside it, and on the licence scene the wound is
+being evaluated for the whole run while on the blast scene the damage has
+finished being judged long before the oracle reads it. Two scenes, one
+mechanism, and only one of them can see it: which is the argument for keeping
+both.
+
+### 6.5c The seeded landing — **what ships, and the second half unblocked**
+
+`u16::MAX` is the honest answer and it is not the *correct* one, and the gap
+between those two is the whole of §6.5b.
+
+**What MAX costs.** A cell written at `u16::MAX` reads as *no known path* for
+as long as it holds that value — one `STRUCTURAL_TICK_INTERVAL` (5 frames) at
+best, and longer whenever the scheduler is at its cap, which after a blast it
+is. Inside that window the cell is wrong in the direction the load model is
+most sensitive to: `load::dependants` counts a neighbour as hanging off you
+when `n.aux() > own`, so a freshly settled cell at MAX hangs its whole weight
+on every neighbour it has. A landing is exactly where that bites, because
+debris arrives in bulk into a wound the licence is actively evaluating.
+
+**What replaces it.** `structural::seed_landing_aux` runs `tick`'s own
+relaxation once, at the moment of the write — the same `NEIGHBOURS_4`, the
+same `support_cost_*` match on `dy`, the same four exclusions (a cracked edge
+carries no load; non-body material is not in the field; an organism-owned
+neighbour's `aux` is a cell-type tag and not a distance; a burning neighbour
+may change material out from under the read). It is not a new heuristic; it
+is the value the next round would have written, written now, so the transient
+never exists.
+
+It cannot manufacture a false anchor, and that is structural rather than
+lucky: every value it can return is some neighbour's stored value plus a
+strictly positive step, or a true 0 from bedrock adjacency, or `u16::MAX`. If
+a neighbour is stale the field was already wrong there, and this is not the
+writer that made it so.
+
+**Deliberately no ground root.** `tick` roots a cell at 0 when relaxation
+leaves it at MAX and it is resting on loose material, and that root is a *last
+resort* re-examined on `GROUNDED_RECHECK_INTERVAL`. Doing it eagerly at the
+write is the load sink `tick`'s own comment warns about — a sprinkle of sand
+under a beam holding the beam up — and it is how one dig used to eat 23,042
+cells. A piece that has genuinely landed on rubble gets MAX from here and its
+root from `tick`, on the check the caller is required to schedule.
+
+**Both seams take the same rule**, `rigid::settle` and
+`particle::place_landed`, through a shared `LandingAux` and one env knob each
+(`SETTLE_AUX` / `PARTICLE_AUX`, each `zero|max|seed`, with the old
+`*_AUX_MAX` names kept as aliases so §6.4's ablation still reproduces). A
+model in which the two seams answer the same question differently is a model
+with two answers.
+
+#### Measured — five arms, one box, back to back
+
+`scale_probe size=8192x2560 phases=1 warm=1500 frames=1600 load=blast:200:1`,
+oracle at frame 1599, 2026-08-27 at this branch's head:
+
+| settle / particle | wrong cells | `pending` | body cells standing | whole frame mean | over 16.6 ms |
+|---|---|---|---|---|---|
+| zero / zero — both bugs | 38,325 | 41,473 | 19,408,291 | 39.10 ms | 88.3% |
+| zero / max — what shipped 2026-08-27 | 29,931 | 34,755 | 19,408,498 | 36.41 ms | 88.3% |
+| max / max | 186 | 6,139 | 19,410,636 | 30.74 ms | 86.6% |
+| **seed / max** | **186** | 6,139 | 19,410,636 | 25.04 ms | 72.7% |
+| **seed / seed — ships** | **189** | 6,125 | 19,410,563 | **24.74 ms** | 70.9% |
+
+**Read the timing column against the noise bar this table hands you for
+free.** Rows 3 and 4 are *the same simulation* — identical oracle, identical
+`pending`, identical standing census, identical everything that is not a
+clock — so their 5.7 ms gap is the machine and nothing else. That is a **20%
+bar on a ~28 ms mean**, and it is the bar every timing claim here has to
+clear. Row 1 → row 2 (2.7 ms) does not clear it and must not be quoted as a
+speedup. Row 2 → row 5 (11.7 ms) clears it twice over. The wrong-cell column
+is deterministic and needs no such caveat: **29,931 → 189.**
+
+The earlier session's over-budget figures (78.3% → 25.8%) do not reproduce
+here at all, and the reason is visible in the phase table rather than
+mysterious: `field` alone means 15.7–19.3 ms against a 16.6 ms budget, so
+"frames over budget" is a saturated metric on this scene and moves with
+whatever the field is doing. **Quote the whole-frame mean.** The phase the fix
+actually targets tells the cleanest story of any column:
+
+| settle / particle | `active sites: scheduler` mean |
+|---|---|
+| zero / zero | 15.511 ms |
+| zero / max | 13.178 ms |
+| max / max | 5.262 ms |
+| seed / max | 4.574 ms |
+| seed / seed | **4.325 ms** |
+
+#### Three cells
+
+Worth stating plainly, because it is §S's thesis in one number and because
+the volume reading is the tempting one. Instrumented at the write, the whole
+8192x2560 run lands **five particles: two `Powder`, three `stone`.** Three
+body-material particle landings, in 1,600 frames. Those three cells are the
+entire difference between row 1 and row 2 of the table above — 38,325 wrong
+cells against 29,931. The seeded values for them read `2406`, `65535`, `2407`:
+one genuinely had nothing to relax from and two were beside the massif and got
+its distance immediately.
+
+A false anchor is not expensive because there are many of them. It is
+expensive because one of them, at depth 2,406 inside a massif, drags the whole
+neighbourhood downhill and takes one relaxation round per unit to climb back.
+
+#### Guards
+
+`seed_landing_aux` duplicates a rule that lives in `tick`, which is exactly
+the thing that rots, so the guard is aimed at the duplication rather than at
+the fix. `a_seeded_landing_stores_the_distance_the_field_would_have_given_it`
+compares it against `compute_world_distances` — a *third* implementation of
+the same shortest path, a dial queue over a flat array — at three positions,
+and asserts explicitly that the answer is neither 0 nor `u16::MAX`, which are
+the two values a broken seed would return. Put back, each fault turns it red:
+
+| injected fault | result |
+|---|---|
+| `seed_landing_aux` returns 0 (the bug) | **red**, both guards |
+| ...returns `u16::MAX` (the placeholder) | **red**, both guards |
+| `dy` match swapped, so tension prices as compression | **red** — this is what the hanging-under-a-beam position is for |
+
+`a_seeded_landing_with_no_neighbours_claims_nothing` holds the other end: open
+air is `u16::MAX`, bedrock adjacency is 0, and the ground root stays `tick`'s.
 
 ### 6.6 Two adjacent gaps this turned up — **both fixed**
 
