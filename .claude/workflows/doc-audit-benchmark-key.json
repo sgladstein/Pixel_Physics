@@ -38,7 +38,8 @@
         "Q2": "Found the reversal in dead-ends.md, quoted the ~5x cell-count ballooning and the vertical-first 1%-compress throttle as the mechanism, gave the re-test condition, and flagged the adjacent near-miss entry (the landed horizontal-first move whose Cell::flowing() gating was rejected) as a distinct case -- which is what separates a good index from a lucky grep.",
         "Q3": "Routed to the implementation plan's inline per-phase status, then PLAN.md, then the index's in-flight section. REFUSED THE TRAP: Reports/load-model-handoff.md is not safe to execute, for two independent reasons found separately -- the index marks it superseded by landing (7e13e42), and its section 3 instruction (a stored per-cell support parent in a side table on World) is a recorded dead end whose entry ends 'Do not add the table back.'"
       },
-      "why_q3_is_the_point": "Before the overhaul, CLAUDE.md's knowledge table advertised that same document as 'The next step on destruction, written up to be picked up cold.' A cold agent following the old table would have executed a superseded work order whose central instruction is a dead end -- the exact wasted session the overhaul exists to prevent."
+      "why_q3_is_the_point": "Before the overhaul, CLAUDE.md's knowledge table advertised that same document as 'The next step on destruction, written up to be picked up cold.' A cold agent following the old table would have executed a superseded work order whose central instruction is a dead end -- the exact wasted session the overhaul exists to prevent.",
+      "set": "A"
     },
     {
       "date": "2026-08-24",
@@ -55,7 +56,8 @@
         "Reports/dead-ends.md",
         "Reports/load-model-handoff.md"
       ],
-      "notes": "Routing improved across 258 commits and ~14 new reports since the overhaul. Found a third reason to refuse the trap that the baseline run did not report: load-model-handoff.md's own header still reads 'Status: not started', which the index contradicts. This run also flagged, unprompted, that the answer key was then inside Reports/ and made the benchmark non-blind -- which is why the key now lives here."
+      "notes": "Routing improved across 258 commits and ~14 new reports since the overhaul. Found a third reason to refuse the trap that the baseline run did not report: load-model-handoff.md's own header still reads 'Status: not started', which the index contradicts. This run also flagged, unprompted, that the answer key was then inside Reports/ and made the benchmark non-blind -- which is why the key now lives here.",
+      "set": "A"
     },
     {
       "date": "2026-08-26",
@@ -81,7 +83,8 @@
       "notes": "files_opened held at 6, unchanged from 2026-08-24, while tool calls rose 17 -> 23. Do NOT read that as no improvement: the routing landed this day deliberately trades file-opens for narrower reads, so files_opened is the wrong metric for it. The qualitative evidence that it worked is that the run USED the new routing and said so -- it entered README by the By topic table, entered dead-ends.md by mechanism grep rather than by area, read only the bug register's generated index, and quoted PLAN.md's dated State line. CLAUDE.md was pre-loaded by the harness and never opened, so it is absent from files_in_order here where earlier runs counted it -- the counts are not strictly comparable and that confound is the reason to prefer the qualitative read.",
       "new_defect_found": "Three documents pointed at load-model-handoff.md -- superseded by landing -- with no marker, the worst being fracture-mechanics-design.md's 'Read that to *build* this'. A cold agent arriving from that report is sent straight at a stale work order whose section 3 is a recorded dead end. Fixed 2026-08-26. Neither earlier run found this, because neither approached the handoff from a referring document.",
       "agent_tokens": 101669,
-      "metric_note": "agent_tokens back-filled from the harness's own subagent_tokens report for this run. The 2026-08-21 and 2026-08-24 runs cannot be back-filled -- their transcripts are gone -- so this is the first point on the new series, not a comparison."
+      "metric_note": "agent_tokens back-filled from the harness's own subagent_tokens report for this run. The 2026-08-21 and 2026-08-24 runs cannot be back-filled -- their transcripts are gone -- so this is the first point on the new series, not a comparison.",
+      "set": "A"
     },
     {
       "date": "2026-08-26",
@@ -98,7 +101,44 @@
         "greps": 10,
         "listings": 4
       },
-      "notes": "Run to give agent_tokens a pre-change baseline, since the 2026-08-21 and 2026-08-24 runs cannot be back-filled. Same prompt, same model, only the tree differs (a detached worktree at 65934a5^). Verified before running that all three questions were still answerable on that tree, so a poor score would be the docs and not a broken arm."
+      "notes": "Run to give agent_tokens a pre-change baseline, since the 2026-08-21 and 2026-08-24 runs cannot be back-filled. Same prompt, same model, only the tree differs (a detached worktree at 65934a5^). Verified before running that all three questions were still answerable on that tree, so a poor score would be the docs and not a broken arm.",
+      "set": "A"
+    },
+    {
+      "date": "2026-08-26",
+      "set": "B",
+      "tree": "bfc8582 -- main fce7c7a plus the set B commit (no answer-bearing change)",
+      "arm": "current",
+      "correct": "4/4",
+      "traps_refused": "1/1",
+      "agent_tokens": 95518,
+      "files_opened": 10,
+      "source_files_read": 0,
+      "tool_calls": {
+        "total": 23,
+        "reads": 9,
+        "greps": 11,
+        "listings": 3
+      },
+      "notes": "B2 volunteered a second non-destruction precedent that was not planted: seed viability as a constant per-species hazard rather than a lifespan, so the bank 'thins rather than emptying on a cliff'. B3 reached the repo's own position -- the complaint is CPU on invisible fill shuffling after the pool looks flat, so the target is stopping early, not levelling faster."
+    },
+    {
+      "date": "2026-08-26",
+      "set": "B",
+      "tree": "2f5de1e -- BASELINE ARM, pre-audit main, detached worktree",
+      "arm": "pre-audit control",
+      "correct": "3/4",
+      "traps_refused": "1/1",
+      "agent_tokens": 135580,
+      "files_opened": 14,
+      "source_files_read": 0,
+      "tool_calls": {
+        "total": 29,
+        "reads": 14,
+        "greps": 14,
+        "listings": 2
+      },
+      "notes": "Contamination check clean: it reported 'the documentation gives no numbers for either file' and named the revision difference it was told to disregard. No new-tree-only string in any answer. B1 failed only on numbers and reached the same instruction via plant-implementation-split-2026-08-23.md and plant-work-split.md."
     }
   ],
   "_metric_change": "2026-08-26: the headline moved from files_opened to agent_tokens. files_opened could not move when routing improved (6 both before and after this week's work, with tool calls UP 17 -> 23), counts a 200-token grep and a 30k read alike, and is blind to the pre-loaded CLAUDE.md. See scripts/docbench.py for the full reasoning. Do not tune for files_opened.",
@@ -112,5 +152,21 @@
     "what_would_settle_it": "Three runs per arm, alternating, ~600k tokens total. Report the median.",
     "confound": "The trees differ in more than documentation -- other lanes landed code between 2f5de1e and f3df928. The questions are documentation questions so it matters less, but this is not a clean isolation.",
     "caution_about_agent_reports": "The baseline arm reported, confidently and specifically, that 'CLAUDE.md sends you to a README By topic table that does not exist'. Verified false: that tree's CLAUDE.md contains zero occurrences of 'By topic' and so does its README. A subagent report can contain a fabricated, checkable defect stated as fact. Check before relaying."
+  },
+  "_set_b_added_2026_08_26": {
+    "why": "Set A scored 3/3 correct and 1/1 trap in every run it has ever had, the pre-audit baseline arm included. A guard that has never gone red cannot show that anything improved -- it was measuring specificity only. Set B is the sensitivity half.",
+    "how_each_question_was_qualified": "Every B question was verified against the pre-audit tree (2f5de1e) BEFORE it was written, and kept only if the old answer was wrong or missing. B1: the ownership table had no plants row and asserted everything collided in src/app.rs (false; app.rs is 6th at 51). B2: the ethos section had the generic graded-outcome clause but zero precedent outside destruction, which is what the second half asks for. B3: the dead-ends row said 'grep your area'; the question names no mechanism, so the agent must choose its own unit of search. B4: fracture-mechanics-design.md said 'read that to build this' of the superseded handoff, with no warning in the report or the index.",
+    "what_set_b_is_not": "A general-capability test. It is a regression set aimed at four specific repairs; a future change that fixes something else will not move it. Do not read a set B score as 'is the documentation good'.",
+    "controls": "11 total (5 set A, 6 set B), all passing. Fault injection over the six set B controls found TWO blind ones on its first run -- B2 searched all of CLAUDE.md for rot_remains, which also appears in the dead-ends row as an example of a zero-hit grep, so it would have passed with the ethos precedent deleted; and B3b's injection replaced 1 of 6 occurrences, so the injection was blind rather than the control. Both fixed; all six now go red.",
+    "cost_of_the_fault_injection": "2.0-2.3 s wall clock for all six, zero rebuild, no test suite. Landed as `docbench.py selftest` so it is a command rather than a discipline.",
+    "rubrics": "Set A ran four times with no written rubric and was graded by whoever ran it -- two graders disagreeing is indistinguishable, in the record, from the documentation changing. Both sets now have one: `docbench.py rubric a|b`.",
+    "not_yet_run": "Set B has no runs. Its first pair should be the same A/B the cost question got: current main against 2f5de1e. The expected result is the point -- 4/4 current, at most 1/4 pre-audit -- and if the old tree scores well, the questions are wrong, not the documentation."
+  },
+  "_set_b_result_2026_08_26": {
+    "headline": "Current 4/4 at 95,518 tokens; pre-audit 3/4 at 135,580. Predicted 4/4 against 1/4. THREE OF FOUR QUALIFICATIONS WERE WRONG.",
+    "root_cause": "Each question was qualified against the old CLAUDE.md, never the old corpus. This documentation is redundant -- the same fact lives in a report, an index and a wiki page -- so 'CLAUDE.md did not say it' is not 'the agent cannot find it'. B2's precedent was in wiki/plants.md, dead-ends.md:754 and open-bugs-handoff.md; B4's warning was already in Reports/README.md, which the baseline arm used to refuse the trap, calling it 'the header being stale and the index being right'.",
+    "what_it_establishes": "Correctness saturates on this corpus whatever you ask -- set A at 3/3 for four runs, and set B, built to break, at 3/4 on the tree it was built to fail. The separating quantity is cost: +42% tokens, 14 files against 10, 29 tool calls against 23. Three independent quantities, same direction. The audit did not change what is answerable; it changed what answering costs.",
+    "confounds_not_to_forget": "One run per arm. The baseline prompt carried an extra anti-contamination preamble the current one did not, which plausibly costs tokens on its own -- so +42% is an upper bound on the routing effect, not a clean estimate. The trees also differ in code, though the questions are markdown-only.",
+    "for_the_next_question_author": "Qualify against the whole old corpus, not the one file you changed, and expect a well-posed question to be answerable on any revision. Aim at cost."
   }
 }

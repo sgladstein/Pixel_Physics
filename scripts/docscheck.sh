@@ -60,7 +60,52 @@ for f in wiki/*.md; do
   if grep -q 'Current as of: this build' "$f"; then
     note "undated freshness note in $f -- 'this build' cannot go stale; use a date"
   fi
+  # ...and the same disease in the BODY, which this check did not look at until
+  # 2026-08-26. Six instances were standing across four pages -- "New this
+  # build", "until this build", "as of this build" -- each of which reads as
+  # current for ever. One of them had already gone wrong in the way that is
+  # hardest to notice: weather.md's "until this build" meant 2026-08-23, and
+  # re-dating the page for an UNRELATED edit silently repointed it at 2026-08-26.
+  # A phrase whose meaning depends on the freshness note is broken by any later
+  # edit to that note, so the anchor has to be written in.
+  # Deliberately narrow: only "this build". "currently" and "recently" have
+  # legitimate uses in this prose ("ground where nothing is currently growing"),
+  # and a check that fires on correct content stops being read.
+  if grep -qi 'this build' "$f"; then
+    note "$f: 'this build' in body prose -- name the date instead; it cannot go stale"
+  fi
 done
+
+# --- 3b. A report's own Status must not contradict its index entry ---------
+# The index is maintained; the headers drift. Measured 2026-08-26: of the
+# seven reports declaring "not built"/"not started"/"nothing built", FOUR were
+# contradicted by their own index entry, and the index was right every time --
+# load-model-handoff ("not started" vs "superseded by landing"),
+# fracture-mechanics-design, physical-trees-design-2026-08-23, felling-blockers.
+#
+# This is the trap class the benchmark tests for: CLAUDE.md tells you to check
+# a report's standing in the index, but an agent that opens the file directly
+# reads the header first and takes "not started" as a live work order.
+#
+# Narrow on purpose. It fires only when the header claims nothing is built AND
+# the index says something landed -- the two reports whose "not built" the
+# index AGREES with (building-rethink, destruction-plan) stay silent.
+if [ -f Reports/README.md ]; then
+  for f in Reports/*.md; do
+    base=$(basename "$f")
+    case "$base" in README.md) continue ;; esac
+    grep -qiE '^\*\*Status:?\*\*?[^|]*(not started|not built|nothing built)' "$f" || continue
+    # Scope to THIS entry only: from its "- [base]" line to the next "- [".
+    # `grep -A3` was tried first and false-positived on destruction-plan.md,
+    # whose own entry says "plan." while the two entries after it mention
+    # landings -- the context window bled across the boundary.
+    idx=$(awk -v b="[$base]" 'index($0,b){f=1} f&&/^- \[/&&!index($0,b){exit} f' \
+          Reports/README.md | tr '\n' ' ')
+    if printf '%s' "$idx" | grep -qiE 'landed|superseded|implemented|stage is built|has been built|shipped'; then
+      note "$base: its own Status says nothing is built, but the index says it landed -- an agent opening the file directly reads the header, not the index"
+    fi
+  done
+fi
 
 # --- 4. Every report must be indexed, and in-flight entries must promote ----
 if [ -f Reports/README.md ]; then

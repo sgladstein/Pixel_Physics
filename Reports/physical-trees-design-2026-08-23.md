@@ -1,7 +1,9 @@
 # Physical trees: sway, impact breakage, and a tree that falls over
 
-**Status:** design, nothing built. **No engine code ships with this
-document.** The prototype quoted throughout was written on a scratch branch,
+**Status: design; §8's T1 stage has since been built** — a felled tree comes
+down as pieces (`bbbd789`), and a hand tool cuts living wood (`43adeb6`,
+`rigid::is_tool_target`). The rest is not built. **No engine code shipped
+with this document when it was written.** The prototype quoted throughout was written on a scratch branch,
 measured, and deleted; it is reproducible from §3.2 and §5.3 in about forty
 lines and it is not proposed as shipping code.
 

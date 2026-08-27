@@ -42,7 +42,8 @@ That is what makes weather matter to a fire. Rain soaks into the ground and
 stays there for a long time, so a burnt landscape is one that was dry when
 something lit it, and a wet season is one where nothing catches.
 
-The living world is where fire really lives, and it has a clear ladder.
+The living world is where fire really lives, and it has a clear ladder —
+what is burning here is described in [Plants](plants.md).
 **Leaves catch easiest of anything in the world** — a canopy is tinder,
 and a forest fire is mostly a leaf fire spreading — followed by the small
 living things: ants, worms and seeds catch about as readily as oil,
