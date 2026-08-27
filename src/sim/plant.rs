@@ -3242,24 +3242,16 @@ const MAINTENANCE_PER_NODE: f32 = 2.0e-5;
 /// hard enough never gets back to where it was.
 const MAINTENANCE_EXPONENT: f32 = 1.5;
 
-/// **What fraction of a plant's surplus is set aside for reproduction**,
-/// out of the same `(income - maintenance)` pool that funds growth.
+/// Whether a plant has enough shoot to bear seed at all.
 ///
-/// See `OrganismState::reproductive_budget` for why this exists at all:
-/// before it, seeds were debited from a `MatureBody` cell's own carbon,
-/// which `transport` keeps pinned at `RESOURCE_SCALE`, so reproduction was
-/// funded from an effectively bottomless account and did not compete with
-/// growth in any way.
-///
-/// **First-pass value, and it wants the sweep.** Reproductive allocation
-/// in real plants runs roughly 5-30% of net primary production and is
-/// itself one of the larger strategy axes, so 0.15 is a mid-range starting
-/// point rather than a derived one. It is deliberately a single engine
-/// constant for now and not per-species data: making it a species scalar
-/// before it has been swept would author a strategy axis nobody has
-/// measured, which is the mistake `plant-heritability-survey-design-
-/// 2026-08-27.md` §2 exists to prevent.
-const REPRODUCTIVE_ALLOCATION: f32 = 0.15;
+/// A fence, and `Reports/plant-equilibrium-costs-2026-08-27.md` §6 says so:
+/// it makes precocious reproduction unreachable rather than expensive. Kept
+/// for now because removing it is its own change with its own measurement —
+/// the §10b decision — and one mechanism per change is what makes either
+/// readable.
+fn seed_maturity_met(shoot_cells: u32, seed_maturity: u32) -> bool {
+    shoot_cells >= seed_maturity
+}
 
 /// **Most reproductive reserve a plant may bank**, in carbon.
 ///
@@ -4331,6 +4323,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // The species' own node size, for the income currency — see
     // `INCOME_PER_NODE`. A species with no shoot `Grow` has no light
     // economy to allocate.
+    let species_of = state.species;
     let leaf_cluster = world
         .species
         .get(state.species)
@@ -4483,7 +4476,22 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // this would have made a mature, finished plant sterile -- the same
     // shape of bug as `break_buds`' known recovery defect, where the event
     // that should drive a response instead removes the drive.
-    let reproductive_share = surplus * REPRODUCTIVE_ALLOCATION;
+    // **Per species, not a global constant** — see
+    // `Behavior::Reproduce::reproductive_allocation`. This is the strategy
+    // trait: a ruderal commits a large share of its surplus to seed and
+    // stays small, a competitor commits little and grows. Read the same way
+    // `leaf_cluster` is read above.
+    let reproductive_allocation = world
+        .species
+        .get(species_of)
+        .behaviors(CellType::MatureBody)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Reproduce { reproductive_allocation, .. } => Some(*reproductive_allocation),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+    let reproductive_share = surplus * reproductive_allocation;
     if let Some(state) = world.organism_mut(organism_id) {
         state.reproductive_budget = (state.reproductive_budget + reproductive_share).min(REPRODUCTIVE_BUDGET_CAP);
     }
@@ -5107,31 +5115,42 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
                 }
-                Behavior::Reproduce { seed_cost, seed_chance, seed_maturity } => {
-                    // Runs on every `MatureBody` cell, so the *organism's*
-                    // seed rate is this chance times its canopy size -- a
-                    // big tree out-breeds a small one with no rule saying
-                    // so, which is the coupling that makes selection on
-                    // size mean anything.
-                    if seed_chance > 0.0 && shoot_cells >= seed_maturity {
-                        // **Spent from the organism's reproductive budget,
-                        // not from this cell's carbon.** The cell is a
-                        // donor sitting at `RESOURCE_SCALE`, so the old
-                        // test passed essentially always and `seed_cost`
-                        // priced nothing. See
-                        // `OrganismState::reproductive_budget`.
+                Behavior::Reproduce { seed_cost, reproductive_allocation: _, seed_maturity } => {
+                    // **The number of seeds is carbon; only the placement
+                    // is a roll.** This used to be the other way round —
+                    // `seed_chance` decided the rate per mature cell and
+                    // the budget was consulted afterwards, which measured
+                    // as carbon binding **0.7% of the time**
+                    // (`Reports/plant-equilibrium-costs-2026-08-27.md` §13).
+                    // A price sitting behind a rate fence is not a price:
+                    // quadrupling the carbon allocation moved seed output
+                    // by nothing.
+                    //
+                    // So the organism's affordable seed count for this tick
+                    // is `budget / seed_cost`, and it is spread over the
+                    // mature cells as a probability. Every cell that draws
+                    // is charged, and the budget runs out when it runs out
+                    // — which is what makes reproduction compete with
+                    // growth rather than sit beside it.
+                    //
+                    // The roll stays because *where* a seed is borne should
+                    // not be the first cell in a sorted walk: that would
+                    // put every seed at one corner of the crown. It no
+                    // longer decides *how many*.
+                    if seed_maturity_met(shoot_cells, seed_maturity) {
                         let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
-                        // Counted here, before the chance roll, so the
-                        // instrument consumes no randomness and cannot
-                        // move the stand -- see `World::seed_budget_blocked`
-                        // for why the narrower "did a seed fail" question
-                        // is the wrong one to ask.
                         if budget >= seed_cost {
                             world.seed_budget_available += 1;
                         } else {
                             world.seed_budget_blocked += 1;
                         }
-                        if budget >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
+                        // Affordable this tick, spread over the mature
+                        // tissue that could bear one. `shoot_cells` is the
+                        // census this same pass already computed.
+                        let affordable = if seed_cost > 0.0 { budget / seed_cost } else { 0.0 };
+                        let bearers = shoot_cells.max(1) as f32;
+                        let place_here = (affordable / bearers).clamp(0.0, 1.0);
+                        if budget >= seed_cost && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
                             if let Some(state) = world.organism_mut(organism_id) {
                                 state.reproductive_budget -= seed_cost;
                             }

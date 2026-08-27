@@ -792,17 +792,32 @@ pub enum Behavior {
         /// afford to reproduce does not.
         #[serde(default)]
         seed_cost: f32,
-        /// Chance per organism tick that an eligible cell sets a seed.
+        /// **What fraction of its surplus this species commits to
+        /// reproduction** — the strategy trait that replaced a rate fence.
         ///
-        /// Small on purpose: this runs on every `MatureBody` cell of every
-        /// plant, so the *organism's* seed rate is this times its canopy
-        /// size — which is the coupling wanted. A big tree should out-breed
-        /// a small one without a rule saying so.
+        /// **This field was `seed_chance`, a per-cell dice roll, and the
+        /// swap is the point rather than a rename.** Measured
+        /// (`Reports/plant-equilibrium-costs-2026-08-27.md` §13): with a
+        /// roll in the way, carbon was the binding constraint on
+        /// reproduction **0.7% of the time** — the roll decided the rate
+        /// and the economy was decoration. Quadrupling the carbon
+        /// allocation changed seed output by nothing. A price behind a
+        /// fence is not a price.
         ///
-        /// `0.0` disables reproduction, which is the default and what moss
-        /// and any species predating this get.
+        /// Now the *number* of seeds a plant sets is `budget / seed_cost`,
+        /// which is carbon, and the only randomness left decides *which*
+        /// mature cell bears each one. So a big tree still out-breeds a
+        /// small one — through the surplus it earns rather than through a
+        /// count of cells to roll on — and raising this trades directly
+        /// against growth, because `allocate_to_frontier` takes it off the
+        /// top before funding the frontier.
+        ///
+        /// Real plants run roughly 5-30% of net primary production into
+        /// reproduction, and that is the range these values are authored
+        /// in. `0.0` disables reproduction, which is what moss and any
+        /// species predating this get.
         #[serde(default)]
-        seed_chance: f32,
+        reproductive_allocation: f32,
         /// Shoot cells a plant needs before it sets any seed at all.
         ///
         /// Without it a seedling reproduces on its first mature cell and

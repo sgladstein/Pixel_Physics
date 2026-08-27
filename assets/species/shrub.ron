@@ -166,7 +166,7 @@
             // Rates are a first pass and explicitly untuned against an
             // outcome: they want a sweep once a population has run long
             // enough to measure generations per unit time.
-            Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
+            Reproduce(seed_cost: 0.25, reproductive_allocation: 0.18, seed_maturity: 250),
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             // Same water economy as tree.ron -- see its own entries for

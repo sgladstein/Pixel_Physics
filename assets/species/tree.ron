@@ -415,7 +415,7 @@
             // Rates are a first pass and explicitly untuned against an
             // outcome: they want a sweep once a population has run long
             // enough to measure generations per unit time.
-            Reproduce(seed_cost: 0.3, seed_chance: 4e-05, seed_maturity: 600),
+            Reproduce(seed_cost: 0.3, reproductive_allocation: 0.10, seed_maturity: 600),
             // **Nodes of foliage per cell of stem width** -- the pipe model
             // gate, in the `L_node` currency (`plant::INCOME_PER_NODE`'s
             // doc has the unit). 5.5 is the previous operating point

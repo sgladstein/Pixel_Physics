@@ -287,7 +287,7 @@
             // the sheet it was rendered for -- and the acceptance asks for
             // the slot high-water mark precisely because of that. ~4x a
             // tree is still a pioneer and leaves room to sweep upward.
-            Reproduce(seed_cost: 0.12, seed_chance: 8e-05, seed_maturity: 10),
+            Reproduce(seed_cost: 0.12, reproductive_allocation: 0.30, seed_maturity: 10),
 
             // **`seed_maturity` is SHOOT CELLS, not frames.** Read as
             // frames it looks like "seed early"; it is a hard size gate,

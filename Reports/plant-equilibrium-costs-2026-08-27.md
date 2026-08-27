@@ -29,6 +29,7 @@ inventory this corrects in two places), and
 | 11 | **Built**: §9 steps 3a and 4, and what 16 paired runs measured |
 | 12 | The owner's verdict, and the binding instrument it unblocked |
 | 13 | The re-derivation — and `seed_chance` is the real fence |
+| 14 | **Built**: the fence comes out — reproduction priced, not rolled |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -1007,3 +1008,69 @@ reasons that are about scope rather than about the evidence:
 **Recommendation:** the second shape, applied per species, as its own change
 with its own before/after. The measurement above is what makes it arguable
 rather than speculative, and it is banked either way.
+
+## 14. Built: the fence comes out — reproduction is priced, not rolled
+
+Owner's ruling on §13c: *"Yes to 'raising the roll until carbon binds makes
+`seed_chance` vestigial.'"* — i.e. the recommended shape, not the workaround.
+Built, with the owner's standing note that **regressions are acceptable while
+the infrastructure is being made correct**.
+
+**The swap, and it is a swap rather than a rename.** `Behavior::Reproduce`'s
+`seed_chance` is gone. In its place, `reproductive_allocation`: what fraction
+of its surplus a species commits to reproduction. The number of seeds a plant
+sets is now `budget / seed_cost` — carbon — and the only randomness left
+decides *which* mature cell bears each one, because the first cell in a sorted
+walk would put every seed in one corner of the crown. The roll no longer
+decides how many.
+
+`REPRODUCTIVE_ALLOCATION`, the global constant this report introduced two
+sections ago, is **deleted**. It was the right idea in the wrong place: an
+engine-wide number where the thing it describes is a per-species strategy.
+
+**Authored along the competitor↔ruderal axis, not tuned to reproduce old
+output** — 5–30% of NPP is the range real plants occupy, and the spread is the
+strategy:
+
+| | tree | conifer | shrub | creeper | grass |
+|---|---|---|---|---|---|
+| `reproductive_allocation` | 0.10 | 0.10 | 0.18 | 0.18 | **0.30** |
+
+**Measured, dense bed, seed 1, 28,800 frames:**
+
+| | before (§12b) | after |
+|---|---|---|
+| reproductive budget binds | **0.7%** | **80.8%** |
+| seeds set | 136 | 585 |
+| germinations | 25 | 30 |
+| cells (median) | 3,053 | 2,474 |
+| leaves (median) | 1,079 | 766 |
+| established | 12 | 16 |
+
+**Carbon is now the constraint four times in five**, at a *lower* allocation
+for `tree` than the deleted global used (0.10 against 0.15) — the 4.3x rise in
+seed output is the fence coming out, not a richer budget.
+
+**And the coupling that was the whole point now exists: reproduction costs
+growth.** Cells fall 20% and foliage 29%, because 10% of surplus is taken off
+the top *and actually spent* instead of accruing to a cap and being wasted.
+Before this change a plant could reproduce for free; now it cannot. That is a
+regression in stand size and it is the mechanism working — the same trade the
+owner accepted for foliage in §12a, arriving one account over.
+
+Gates: `cargo test --lib` **954 passed / 0 failed**; clippy `--all-targets -D
+warnings` clean; `scripts/acceptance.sh` all cases; docscheck clean.
+
+### 14a. What this does to the audit
+
+Three rows of §3 move, and one fence in §6 is gone:
+
+- `seed_chance` — **deleted**. It was the clearest "rate fence sitting on top
+  of a price" in the engine, and §6's table can drop its row.
+- `reproductive_allocation` — **both**: raising it buys seed and costs growth,
+  measurably, in the same currency.
+- `seed_cost` — now a real price rather than a nominal one, because the
+  account it draws on can actually run dry.
+
+`seed_maturity` is still a fence and is still deliberately in place —
+removing it is §10b's open decision and belongs in its own change.
