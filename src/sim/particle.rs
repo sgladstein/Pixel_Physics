@@ -411,8 +411,13 @@ fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     if world.materials.get(particle.material).worth_in_aux {
         return cell.with_aux(particle.aux);
     }
-    // **A probe, not a mechanism** -- `PARTICLE_AUX_MAX=1`, for
-    // `Reports/structural-support-model.md` §6.
+    // **The shipping behaviour since 2026-08-27.** `PARTICLE_AUX_MAX=0`
+    // restores `Cell::new`'s zero, for measurement only -- the four-arm
+    // ablation in `Reports/structural-support-model.md` §6.4 is what set this
+    // default and is worth being able to re-run. **The sibling case is
+    // `rigid::settle`, and neither alone is enough**: closing one leaves the
+    // damaged region relaxing off the other, 23% and 1% against 99.5%
+    // together.
     //
     // The doc above enumerates two `aux` conventions a free particle must
     // not carry and concludes it should carry none. On an inert `Solid`
@@ -435,7 +440,7 @@ fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     let particle_aux_max = {
         use std::sync::OnceLock;
         static ON: OnceLock<bool> = OnceLock::new();
-        *ON.get_or_init(|| std::env::var("PARTICLE_AUX_MAX").map(|v| v != "0").unwrap_or(false))
+        *ON.get_or_init(|| std::env::var("PARTICLE_AUX_MAX").map(|v| v != "0").unwrap_or(true))
     };
     if particle_aux_max && super::structural::is_body_material(world, particle.material) {
         return cell.with_aux(u16::MAX);

@@ -1,7 +1,14 @@
 # Replacing the support field — what it is for, and what each replacement costs
 
-**Status: design and measurement. Nothing here is proposed for merge.** One
-new read-only instrument (`examples/support_census.rs`) and four env-gated
+**Status: measured; half the fix ships, half is blocked. 2026-08-27.**
+`particle::landed_cell` is now **on by default** (`PARTICLE_AUX_MAX=0`
+restores the old behaviour for measurement). **`rigid::settle` is not** —
+see §6.5b, it turns a documented ordering guard red and *inverts* it, which
+is not a thing to merge past even when the diagnosis behind it is solid.
+Both halves are needed for the full result, so this is unfinished business
+rather than a rejected idea. Everything else here remains design-only, and
+the diagnostic probes stay off. One new read-only instrument
+(`examples/support_census.rs`) and four env-gated
 probes: `STRUCT_NO_CLIMB` and `STRUCT_NO_GROUND_ROOT` in `structural.rs`,
 `SETTLE_AUX_MAX` in `rigid.rs`, and `ORACLE_COLUMN` on `scale_probe`. None
 changes a default, and one `[struct]` census field (`grounded`) was added
@@ -588,6 +595,16 @@ With both flags, same scene as §5.2, oracle at +1,300 frames:
 | frames over the 16.6 ms budget | 86.9% | **72.8%** |
 | body cells standing at end | 19,409,002 | **19,410,719** |
 
+Same-session, same-box, all four arms in one run (so these are comparable to
+each other in a way a cross-run figure is not):
+
+| branch arm | frames over the 16.6 ms budget | worst | `pending` @3,000 | body cells standing |
+|---|---|---|---|---|
+| flags off | 78.3% | 50.13 ms | 38,322 | 19,408,829 |
+| `PARTICLE_AUX_MAX` only | 63.3% | 54.34 ms | — | — |
+| `SETTLE_AUX_MAX` only | 71.9% | 46.17 ms | — | — |
+| **both** (only `PARTICLE_AUX_MAX` ships — see §6.5b) | **25.8%** | **41.75 ms** | **5,950** | **19,410,636** |
+
 Independently at 6,000 frames rather than 1,600, by the perf session: whole
 frame **38.347 → 25.771 ms (−33%)**, frames over budget **96.6% → 72.9%**, body
 cells standing **19,472,372 → 19,501,886 (+29,514)**, and
@@ -668,6 +685,74 @@ number.
 | `structural::tick`'s `grounded_root` | `STRUCT_NO_GROUND_ROOT=1`, with a new `grounded` counter as the control | **byte-identical** to baseline, and the counter reads **0 every frame**. A vacuous null, and the counter is the only reason that is knowable |
 | the powder-`aux` collision | reading | `is_body_material` is `Solid \| Plant`; `rubble`, `gravel` and `soil` are all `Powder`, so the relaxation never reads their moisture |
 | organism-owned neighbours | reading | real gap — `tick`'s neighbour loop filters on `is_body_material` and `is_burning` but **not** `organism_id != 0`, unlike `compute_world_distances`, `support_parent`, `support_count` and `dependants`, so an inert cell beside live tissue relaxes off a cell-type tag. Not what fired here (the trap named `landed_cell` twelve times out of twelve), and worth closing anyway |
+
+### 6.5a Landing the fix, and a guard that turned out to be blind
+
+Flipping both defaults broke `rigid::tests::a_settled_body_does_not_immediately_re_break`,
+and the way it broke is worth more than the assertion was.
+
+It asserted a **proxy** — `aux <= max_unsupported_span` on the landed cells —
+and never ran a structural check, so it could not observe re-breaking at all,
+only infer it from a stored number. `u16::MAX` violates the proxy while the
+behaviour it stands for is fine: `tick` writes the relaxed distance *before*
+the failure test (its own comment calls that ordering load-bearing), and an
+improvement is a **single** round whatever its size, so a landed cell is
+corrected before it is ever judged.
+
+The obvious repair was to assert the property instead — settle, run the
+structural system, check the debris is still there. **That was written, it
+passes, and it is blind.** Two faults were injected and it stayed green
+through both:
+
+| injected fault | result |
+|---|---|
+| `settle` writes `span + 1` instead of `u16::MAX` | green |
+| `is_resting_on_ground` returns `false` outright | green |
+
+The reason is the scene: the slab lands on the bedrock floor, so
+`load::is_anchor` answers through `touches_bedrock` whatever the stored
+distance says, and debris on bedrock cannot fail. `CLAUDE.md` — *"if the guard
+does not go red, it is not weak, it is **blind**, and it needs replacing
+rather than a wider assertion"* — so it was not kept. The `!attached()`
+assertion stays, because that one *is* checkable here: re-attaching is a
+property of the write, not of the scene.
+
+**What stands behind the landing value instead is whole-world**: the
+`RECONVERGE_AT` oracle (36,348 → **186**, climb bucket **0**),
+`scripts/acceptance.sh` green on all 23 cases, and the 78.3% → **25.8%**
+over-budget figure below. A unit test that cannot fail would have added
+nothing to that.
+
+### 6.5b What blocked the second half
+
+Flipping `SETTLE_AUX_MAX` on turns
+`a_disturbance_extent_licenses_the_wound_but_not_the_chain` red, and not
+marginally:
+
+| | licensed wound | point licence | ordering |
+|---|---|---|---|
+| recorded in the test's own comment | 840 | 649 | wound +29% |
+| with `SETTLE_AUX_MAX` on | **367** | **418** | **inverted** |
+
+The guard's claim is that a wider disturbance licence brings *more* of the
+blast's own seams away than a point licence does. With the second half of the
+fix in, it brings away less. That is either a real regression or the **fourth**
+time this particular count has caught a mode shift rather than a behaviour
+change — its own comment records three previous occasions, and `CLAUDE.md`'s
+*a failure count is not a damage count* is the reason it keeps happening.
+
+Both readings are plausible and neither is settled here. **Fewer cells coming
+away is the direction the whole fix is for** — it exists to stop the engine
+destroying rock that was never unsupported — so a drop is expected; the
+*inversion* is what is not. Isolated cleanly: `PARTICLE_AUX_MAX` alone leaves
+the guard green, so this is `SETTLE_AUX_MAX` and nothing else.
+
+**The measurement that would settle it** is `promoted_cells` against
+`stone destroyed` across both arms with the flag on: if stone-destroyed still
+orders correctly while promoted-cells inverts, it is a mode shift (rock
+crumbling in place rather than coming away as bodies) and the guard needs
+re-basing on the quantity that survives. If both invert, the licence really
+has stopped doing its job and the fix needs work before it ships.
 
 ### 6.6 Two adjacent gaps this turned up — **both fixed**
 

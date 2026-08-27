@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6484 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6673 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6764 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6778 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6790 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6808 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6829 | A material-counting guard cannot see a species |
-| W1c | note | 6842 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6976 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7054 | The structural opt-out did not hold against bearing |
-| T1d | note | 7065 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7099 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7153 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7207 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7236 | §1c's settle loss is now a counter |
-| -- | note | 7253 | What landed |
-| -- | note | 7276 | Do not re-derive these |
-| -- | note | 7304 | Measurements that contradict something written |
-| -- | note | 7324 | Open |
-| -- | note | 7359 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6493 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6682 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6773 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6787 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6799 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6817 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6838 | A material-counting guard cannot see a species |
+| W1c | note | 6851 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6985 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7063 | The structural opt-out did not hold against bearing |
+| T1d | note | 7074 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7108 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7162 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7216 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7245 | §1c's settle loss is now a counter |
+| -- | note | 7262 | What landed |
+| -- | note | 7285 | Do not re-derive these |
+| -- | note | 7313 | Measurements that contradict something written |
+| -- | note | 7333 | Open |
+| -- | note | 7368 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6416,6 +6416,15 @@ needs re-deriving here:
   them. `dead-ends.md`, structural. The coarse-layer half is confirmed within
   1% (5,169 nodes for 5,120 chunks) and the hierarchical potential built on
   it packs into the existing `u16`.
+- **Half the fix has shipped, half is blocked — 2026-08-27.**
+  `particle::landed_cell` is on by default; `rigid::settle` is not, because
+  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes red *and
+  inverts* with it (367 cells away with the wound licensed against 418 with a
+  point licence, where the recorded figures are 840 and 649). Either a real
+  regression or the fourth mode shift that count has caught. **§S is
+  therefore still open**, at roughly a quarter of the available win. The
+  measurement that would unblock it is in
+  `Reports/structural-support-model.md` §6.5b.
 - **And §S has a root cause — two of them, and both are needed.**
   `particle.rs::landed_cell` and `rigid::settle` both land body material
   through `Cell::new`, whose `aux` is **0**. Landing each at `u16::MAX`
