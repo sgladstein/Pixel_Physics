@@ -16,6 +16,81 @@ cd "$(dirname "$0")/.."
 fail=0
 note() { printf 'docscheck: %s\n' "$*"; fail=1; }
 
+# --- --selftest: put each fault back and watch its check go red -------------
+# `docscheck` had no sensitivity test until 2026-08-27, and on that day it
+# came back CLEAN against a tree carrying four instances of the defect class
+# it is named for -- three stale `**Status:**` headers and a report claiming
+# to live on a branch that had merged. Green was evidence about the checks,
+# not about the documentation.
+#
+# This is CLAUDE.md's standing rule ("before you cite a guard's green as
+# evidence, put the fault it is named for back and watch it go red") built as
+# a command rather than left as a discipline, for the reason that file gives:
+# as prose the same check costs 1-3k tokens a time and its own injection can
+# silently match nothing, which reads as a pass. `scripts/docbench.py
+# selftest` is the same device over the documentation benchmark, and found two
+# blind controls on its first run.
+#
+# Restores every file it touches, including on failure. Add a row whenever you
+# add a check -- a check with no row here has never been shown able to fire.
+if [ "${1:-}" = "--selftest" ]; then
+  st_ok=0
+  # id | file | exact text to break | what to break it to
+  while IFS='|' read -r cid sf needle repl; do
+    [ -z "$cid" ] && continue
+    # Rows are `|`-separated with no escaping, so a needle may not contain a
+    # pipe -- which rules out editing a generated table cell directly, and is
+    # why 8b's fault renames a HEADING instead (also the realistic failure:
+    # someone retitles a section and does not re-run the generator).
+    # `#` starts a comment; without this the comment lines below were read as
+    # faults, and each one reported ITSELF as a missing needle.
+    case "$cid" in \#*) continue ;; esac
+    # Back up by copy, never by `orig=$(cat ...)`: command substitution strips
+    # trailing newlines, so a restore through it silently rewrites the last
+    # line of every file the selftest touches.
+    bak=$(mktemp); cp "$sf" "$bak"
+    if ! python3 - "$sf" "$needle" "$repl" <<'INNER'
+import sys, pathlib
+# `\n` in a fault row is a real newline. Needed because the faults that matter
+# span the hard-wrapped prose: 3c's stale header is a whole paragraph, and a
+# one-line injection left the correcting sentence ("the branch is gone from
+# the remote, which in this repo means merged") standing, which kept the check
+# quiet. That is a blind INJECTION, not a blind check -- the same trap
+# docbench.py's docstring records hitting on its own B3b row.
+#
+# The presence check lives HERE rather than in a `grep -qF` upstream, because
+# upstream still holds the escaped form and would report every multi-line
+# fault as missing.
+f, needle, repl = (a.replace('\\n', '\n') for a in sys.argv[1:4])
+p = pathlib.Path(f); t = p.read_text(encoding='utf-8')
+if needle not in t:
+    sys.exit(3)
+p.write_text(t.replace(needle, repl), encoding='utf-8')
+INNER
+    then
+      echo "docscheck: $cid INJECTION FAILED -- its needle is not in $sf"
+      echo "  -> the check may be fine; the fault this test injects has moved."
+      rm -f "$bak"; st_ok=1; continue
+    fi
+    out=$(bash "$0" 2>&1)
+    cp "$bak" "$sf"; rm -f "$bak"
+    if printf '%s' "$out" | grep -qF "$cid"; then
+      echo "docscheck: $cid went red"
+    else
+      echo "docscheck: $cid STAYED GREEN -- the check is blind, not weak."
+      echo "  -> widening its assertion will not help. Replace it."
+      st_ok=1
+    fi
+  done <<'FAULTS'
+plant-substrate-v2-design.md|Reports/plant-substrate-v2-design.md|**Status: implemented and merged.**|**Status:** design only. No code in this pass.
+branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|**Status: merged. Corrected 2026-08-27**, having stood four days after\n`plant-project-review-2026-08-23.md` §3 named it stale with the address\nattached. `branch_angle`, `straightness`, `internode` and `path_len` all\nstand in `src/sim/plant.rs` and `src/sim/organism.rs`; `branch_angle` and\n`internode` are authored in five species files; the branch is gone from the\nremote, which in this repo means merged (branch deletion returns HTTP 403,\nso nothing else prunes one). §4's width bound is closed in code too — the\nturgor gate reads `path_len`.|**Status: built, measured, working, and NOT merged.** It lives on branch\n`plant-branch-angle`.
+debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
+plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
+FAULTS
+  [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
+  exit "$st_ok"
+fi
+
 doc_files() {
   ls README.md PLAN.md PLAN-log.md CLAUDE.md 2>/dev/null
   ls wiki/*.md Reports/*.md docs/*.md research/*.md 2>/dev/null
@@ -76,6 +151,70 @@ for f in wiki/*.md; do
   fi
 done
 
+# --- 3b/3c helpers ---------------------------------------------------------
+# A report's `**Status:**` block, flattened to one whitespace-normalised line.
+# Read as a BLOCK, not a line: the prose here is hard-wrapped, so
+# plant-substrate-v2-design.md's "No code in this pass" sits three lines below
+# the word `Status` and a line-based grep could never see it. That is the
+# false-negative class `scripts/docgrep.py` exists for, in a check written
+# before it -- and it is why 3b came back clean on 2026-08-27 against a tree
+# carrying three instances of the defect it is named for.
+status_block() {
+  # Ends at a blank line OR at the next line-initial `**Label:**`. The second
+  # terminator is not optional: these headers run several bolded labels
+  # together with no blank line between them, and without it
+  # plant-substrate-v2-design.md's block swallowed the `**Companion to:**`
+  # line that follows -- which reads "(the shipped ...)" and so matched
+  # $POSITIVE, silencing the check on the very report it was widened for.
+  # Caught by --selftest on its first run, and by nothing else: the check was
+  # green, the injection was faithful, and the block was simply too long.
+  awk 'tolower($0) ~ /^\*\*status/ && !f {f=1; print; next}
+       f && /^[[:space:]]*$/ {exit}
+       f && /^\*\*/ {exit}
+       f {print}' "$1" \
+    | tr '\n' ' ' | tr -s ' '
+}
+
+NEGATIVE='not started|not built|nothing built|no code|no implementation|not implemented|not merged|unmerged|lives on branch'
+# Two positive vocabularies, because BUILT and INTEGRATED are different axes
+# and a single list conflates them. `branch-angle-and-the-width-bound.md` read
+# "built, measured, working, and NOT merged" -- true on both counts when
+# written -- and one shared list saw the word "built" and fell silent on a
+# report whose whole defect was the merge status. This is CLAUDE.md's "when a
+# rule must tell apart two things that can look identical, state the
+# difference as data", found the expensive way by --selftest.
+BUILT='implemented|merged|shipped|landed|built'
+INTEGRATED='merged|landed|superseded|corrected'
+
+# Does this status block claim nothing is built -- and NOT also say something
+# is? The second half is what lets a corrected report keep its old claim.
+#
+# **The negatives are stripped before the positives are looked for**, and that
+# ordering is the whole mechanism. Both alternatives were tried on 2026-08-27
+# and both were wrong: matching positives directly silences a header that says
+# "not implemented" (the substring is there), and matching only the header's
+# first sentence splits on a house style that has two forms in the tree
+# (`**Status: claim**` and `**Status:** claim`, the second with nothing bolded
+# to read). Stripping first means "No code in this pass" cancels itself and
+# "implemented and merged" in the same block still counts.
+#
+# The payoff is that a report can quote the claim it is retracting -- which is
+# this repo's own convention, since how a record went wrong is usually worth
+# more than the correction -- without the quotation re-arming the check.
+_claims_negative() {
+  local st="$1" positive="$2" rest
+  printf '%s' "$st" | grep -qiE "$NEGATIVE" || return 1
+  rest=$(printf '%s' "$st" | sed -E "s/($NEGATIVE)//gI")
+  printf '%s' "$rest" | grep -qiE "$positive" && return 1
+  return 0
+}
+
+# "Nothing is built here" -- 3b's question.
+claims_nothing_built() { _claims_negative "$1" "$BUILT"; }
+
+# "This has not landed" -- 3c's question, and deliberately NOT the same one.
+claims_unintegrated() { _claims_negative "$1" "$INTEGRATED"; }
+
 # --- 3b. A report's own Status must not contradict its index entry ---------
 # The index is maintained; the headers drift. Measured 2026-08-26: of the
 # seven reports declaring "not built"/"not started"/"nothing built", FOUR were
@@ -87,23 +226,64 @@ done
 # a report's standing in the index, but an agent that opens the file directly
 # reads the header first and takes "not started" as a live work order.
 #
-# Narrow on purpose. It fires only when the header claims nothing is built AND
-# the index says something landed -- the two reports whose "not built" the
-# index AGREES with (building-rethink, destruction-plan) stay silent.
+# **Vocabulary widened 2026-08-27.** The original list was drawn from the four
+# structural reports that prompted it, so it knew "not built" and not the three
+# other ways a report in this tree says the same thing: "No code in this pass"
+# (plant-substrate-v2-design, the most-cited plant report at 28 source
+# citations), "No implementation" (plant-evolution-design), "NOT merged"
+# (branch-angle-and-the-width-bound). Adding a phrase to $NEGATIVE is cheap and
+# the failure it prevents is expensive, so prefer widening to arguing -- but a
+# phrase no report uses is dead weight, and one that fires on a report whose
+# index AGREES with it is noise (building-rethink and destruction-plan both say
+# "not built" truthfully and must stay silent).
 if [ -f Reports/README.md ]; then
   for f in Reports/*.md; do
     base=$(basename "$f")
     case "$base" in README.md) continue ;; esac
-    grep -qiE '^\*\*Status:?\*\*?[^|]*(not started|not built|nothing built)' "$f" || continue
+    claims_nothing_built "$(status_block "$f")" || continue
     # Scope to THIS entry only: from its "- [base]" line to the next "- [".
     # `grep -A3` was tried first and false-positived on destruction-plan.md,
     # whose own entry says "plan." while the two entries after it mention
     # landings -- the context window bled across the boundary.
     idx=$(awk -v b="[$base]" 'index($0,b){f=1} f&&/^- \[/&&!index($0,b){exit} f' \
           Reports/README.md | tr '\n' ' ')
-    if printf '%s' "$idx" | grep -qiE 'landed|superseded|implemented|stage is built|has been built|shipped'; then
+    if printf '%s' "$idx" | grep -qiE 'landed|superseded|implemented|stage is built|has been built|shipped|merged'; then
       note "$base: its own Status says nothing is built, but the index says it landed -- an agent opening the file directly reads the header, not the index"
     fi
+  done
+fi
+
+# --- 3c. A report must not claim to live on a branch that has since merged --
+# The sibling of 3b, for the case 3b structurally cannot see: when BOTH the
+# header and the index are wrong, comparing them finds nothing.
+# `branch-angle-and-the-width-bound.md` said "built, measured, working, and NOT
+# merged. It lives on branch `plant-branch-angle`" while `branch_angle`,
+# `straightness`, `internode` and `path_len` all stood in `plant.rs` and
+# `organism.rs` -- and its index entry said only "measured study", so 3b had
+# nothing to contradict. It had also been named stale, with the address
+# attached, four days earlier by `plant-project-review-2026-08-23.md` §3, and
+# was still standing: a defect named in prose does not get fixed, a check does.
+#
+# Reports get written on branches here (branchcheck reports 12 carrying 132
+# commits main lacks), so a report outliving its branch is a recurring class.
+# The remote is the oracle: this repo cannot delete branches (HTTP 403,
+# CLAUDE.md), so a named branch that is absent has merged and been pruned.
+#
+# Guarded twice: on the remote being fetched at all -- in a bare or unfetched
+# clone every branch looks absent -- and on the report not already saying it
+# merged, so a corrected report may quote the claim it retracted.
+if [ -n "$(git branch -r 2>/dev/null)" ]; then
+  for rf in Reports/*.md; do
+    # Whole file, newlines flattened: the branch name wraps onto the next line
+    # in the one report that does this, so a line-based grep finds the phrase
+    # and an empty name. Same false-negative class as 3b, and it bit this check
+    # on its own first run.
+    br=$(tr '\n' ' ' < "$rf" | tr -s ' ' \
+         | grep -oE 'lives on branch `[^`]+`' | head -1 | sed 's/.*`\(.*\)`/\1/')
+    [ -z "$br" ] && continue
+    claims_unintegrated "$(status_block "$rf")" || continue
+    git branch -r 2>/dev/null | grep -qE "origin/$br\$" && continue
+    note "$(basename "$rf"): says it lives on branch '$br', which is not on the remote -- this repo cannot delete branches, so it merged. Re-read the code before trusting the header"
   done
 fi
 
@@ -147,6 +327,56 @@ if [ -f Reports/instruments.md ]; then
   done < <(grep -oE '^\| `[a-z0-9_]+`' Reports/instruments.md | tr -d '|` ' | sort -u)
 else
   note "Reports/instruments.md missing -- the instruments index is referenced by CLAUDE.md"
+fi
+
+# --- 5b. An example must not emit a species field the engine no longer has --
+# Check 5 asserts every examples/ binary has a row in the instruments index and
+# every row has a binary. Neither half can see whether the binary still RUNS.
+#
+# `examples/debug_tree_variants.rs` emitted `Germinate(moisture_threshold: ...)`
+# into the species RON it generates. That field was renamed to
+# `soil_water_threshold` in `organism.rs`; the example was never updated, so it
+# panicked on start -- while holding a live row in the instruments index whose
+# only caveat was "marked throwaway in its own header". An agent picking an
+# instrument by that index gets a crash, and it stood that way long enough for
+# `plant-project-review-2026-08-23.md` §3 to report it four days before this.
+#
+# It is the assets gotcha wearing an example: species RON is compiled in via
+# `include_str!`, so a rename lands in the source and the emitters drift.
+#
+# Deliberately a WHITELIST check: it flags a field name used in a Behavior
+# constructor that appears NOWHERE in organism.rs. Broad whitelist, narrow
+# accusation -- the failure mode is a missed rename, never a false alarm.
+if [ -f src/sim/organism.rs ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "$line"
+  done < <(python3 - <<'PYCHK'
+import pathlib, re
+root = pathlib.Path(".")
+org = (root / "src/sim/organism.rs").read_text(encoding="utf-8")
+
+# Every identifier organism.rs uses in `name:` position -- struct fields,
+# enum-variant fields, and incidentally some locals. Over-inclusive on
+# purpose: this is the set of names an example is ALLOWED to emit.
+known = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", org))
+
+# The Behavior variants, so we only inspect lines that construct one.
+m = re.search(r"pub enum Behavior\s*\{(.*?)\n\}", org, re.S)
+variants = set(re.findall(r"^\s*([A-Z][A-Za-z0-9]*)", m.group(1), re.M)) if m else set()
+
+for ex in sorted((root / "examples").glob("*.rs")):
+    for n, ln in enumerate(ex.read_text(encoding="utf-8").splitlines(), 1):
+        for v in re.findall(r"\b([A-Z][A-Za-z0-9]*)\s*\(", ln):
+            if v not in variants:
+                continue
+            for f in re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", ln):
+                if f not in known:
+                    print(f"{ex}:{n}: emits `{f}:` into a {v}(...) but "
+                          f"organism.rs declares no such field -- a rename the "
+                          f"example did not follow; it will panic on start")
+PYCHK
+)
 fi
 
 # --- 6. The bug register: status index current, identifiers unique ----------
@@ -241,6 +471,31 @@ if [ -f scripts/readmetoc.py ]; then
   done < <(python3 scripts/readmetoc.py --check 2>&1 | grep -v 'contents current')
 else
   note "scripts/readmetoc.py missing -- README's table of contents is unenforced"
+fi
+
+# --- 8b. The long reports' contents tables must be current ------------------
+# Same argument as check 8, one directory down. Measured 2026-08-27: plants are
+# 42 of Reports/'s 110 documents and ~269,000 tokens, and SEVEN reports carry
+# 115,000 of it -- 43% in seven files, none of which had a table of contents.
+# An agent wanting one fact from plant-substrate-v2-design.md (~29,800 tokens,
+# 28 source citations) could read it whole, grep it -- which false-negatives on
+# this hard-wrapped prose -- or skip it and re-derive.
+#
+# The tables carry a token count per section, which is the column that changes
+# behaviour: §7 of that report is 9,754 tokens and §2 is 2,729, so "read the
+# report" becomes a priced decision. Worth having only while true, hence a
+# check rather than a convention.
+#
+# `--candidates` lists unmanaged reports over the size bar; membership stays
+# editorial, because a size threshold would splice a table into another lane's
+# report mid-session.
+if [ -f scripts/reporttoc.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#reporttoc: }"
+  done < <(python3 scripts/reporttoc.py --check 2>&1 | grep -v 'tables current')
+else
+  note "scripts/reporttoc.py missing -- the long reports' contents tables are unenforced"
 fi
 
 # 9. Every cross-document address in `Reports/dead-ends.md` still resolves.
