@@ -1619,6 +1619,34 @@ pub struct OrganismState {
     ///
     /// Night-scaled, like the pool it feeds: this is money, not policy.
     pub income: f32,
+    /// **Carbon set aside for reproduction, out of the same surplus growth
+    /// draws on** — `plant::allocate_to_frontier` accrues it,
+    /// `Behavior::Reproduce` spends it.
+    ///
+    /// **This exists because reproduction and growth were not competing
+    /// at all.** `Reproduce` runs on `MatureBody` cells and used to debit
+    /// `seed_cost` from *that cell's* carbon — and a mature cell sits
+    /// pinned at `RESOURCE_SCALE`, refilled by `transport` rather than out
+    /// of the growth pool (`plant.rs`'s own diagnostic: *"the trunk pinned
+    /// at the `RESOURCE_SCALE` cap. The plant was never out of carbon."*).
+    /// Meanwhile `allocate_to_frontier` distributes surplus **only to
+    /// frontier cells**. Two separate accounts, so `tree.ron`'s
+    /// `seed_cost: 0.3` was not a price in any meaningful sense, and the
+    /// `seed_maturity` fence had to exist to stop what the price could
+    /// not.
+    ///
+    /// Routing it here makes reproducing *not growing*, automatically,
+    /// which is the standard allocation hierarchy — reproduction comes out
+    /// of surplus after maintenance, and the cost of reproduction
+    /// (reproducing trees measurably grow less that season) is among the
+    /// better-documented plant allocation trade-offs.
+    ///
+    /// **Accrued and capped rather than spent-or-lost.** `Reproduce` fires
+    /// on a per-cell chance, so a tick's surplus has to still be there
+    /// when the roll lands; and provisioning seeds from stored reserve is
+    /// what real plants do. The cap is what stops a long-lived plant
+    /// banking an unbounded seed run — see `plant::REPRODUCTIVE_BUDGET_CAP`.
+    pub reproductive_budget: f32,
     /// **The bill at unit price** — `Σ (q_peak / L_node)^MAINTENANCE_EXPONENT`
     /// over shoot tissue, before `MAINTENANCE_PER_NODE` multiplies it.
     ///

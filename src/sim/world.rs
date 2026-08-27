@@ -1953,6 +1953,7 @@ impl World {
             anchor_status: 1.0,
             slenderness: 0.0,
             income: 0.0,
+            reproductive_budget: 0.0,
             maintenance_basis: 0.0,
             maintenance: 0.0,
             maintenance_unpaid: 0.0,

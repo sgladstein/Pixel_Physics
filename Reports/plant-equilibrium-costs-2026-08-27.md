@@ -1,7 +1,8 @@
 # Does every lever in the plant engine have a cost and a benefit? (2026-08-27)
 
-**Status: audit, with two measured results. No engine change proposed for
-landing — §9 is a plan, §10 are the owner's calls.**
+**Status: audit, with four measured results and the first increment of §9
+built and landed (§11).** §9 is the ordered plan; §10 carries the owner's
+calls, three answered and one deferred with a trigger.
 
 The question this answers is the owner's, stated directly: *make the plant
 system one that finds its own equilibrium, so that adding a feature does not
@@ -25,6 +26,7 @@ inventory this corrects in two places), and
 | 8 | The instrumental half: what this does and does not buy for diversity |
 | 9 | What to do, in order |
 | 10 | Owner calls — three answered, one deferred with a trigger |
+| 11 | **Built**: §9 steps 3a and 4, and what 16 paired runs measured |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -594,3 +596,123 @@ From `plant-evolvability-handoff-2026-08-27.md` §6, unchanged by this
 audit: what replaces the withdrawn §6.2 (what *should* be heritable);
 which clades and in what order; and whether the niche table keeps naming
 species.
+
+## 11. Built: §9 steps 3a and 4, and what they measured
+
+**Landed together as one change, at the owner's direction**, because they
+are the same defect one account apart: a decision debiting the wrong
+ledger. Leaves debited nothing; seeds debited a `MatureBody` cell's carbon,
+which `transport` keeps pinned at `RESOURCE_SCALE`.
+
+**What changed**
+
+- `LEAF_CONSTRUCTION_MULTIPLE` (1.2): every leaf cell is charged
+  `multiple x tissue_cost` against the bearing node's carbon, which
+  `allocate_to_frontier` has already funded out of `(income - maintenance)`
+  — so this is surplus-funded like every other growth cost, not a new
+  account. The species' `leaf_cluster` becomes a **maximum**: a node builds
+  the spray it can pay for and no more. Truncating rather than refusing is
+  deliberate — `CLAUDE.md`'s first ethos law, an outcome is a distribution
+  and not a binary — so a rich node in open sky builds its full spray and a
+  poor one in shade builds two cells.
+- `OrganismState::reproductive_budget`, accrued in `allocate_to_frontier`
+  as `REPRODUCTIVE_ALLOCATION` (0.15) of the surplus **taken off the top
+  before the frontier is funded** — that subtraction *is* the trade-off —
+  and spent by `Reproduce`. Accrued above the `frontier.is_empty()` return,
+  because a plant whose tips have all retired is exactly the plant that
+  should be spending on seed.
+- `seed_maturity` is **left in place**. Option C says the fence becomes
+  redundant; proving that is a separate change with its own measurement,
+  and one mechanism per change is the rule that makes either readable.
+
+**Gates**: `cargo test --lib` 948 passed / 0 failed / 54 ignored; `cargo
+clippy --all-targets -D warnings` clean; `scripts/acceptance.sh` all cases;
+`scripts/docscheck.sh` clean.
+
+### 11a. The measurement — 16 paired runs, 8 world seeds x 2 beds
+
+Same seeds, same scenes, 28,800 frames, `plant_probe`. The baseline binary
+was verified to predate the source edits by mtime before any of it was
+trusted. Medians over 8 seeds:
+
+| | leaves | seeds set | germinations |
+|---|---|---|---|
+| **dense** (24 trees) | 1,227 → **857** (−30%) | 42 → **140** (3.3x) | 24 → 24 |
+| **sparse** (8 trees) | 1,681 → **1,411** (−16%) | 34 → **102** (3.0x) | 8–9 → 8–10 |
+
+**All 16 logs differ from their baseline**, which is the check that matters
+first: a green suite on a behaviour change is exactly the case `CLAUDE.md`
+says to distrust, and byte-identical output would have meant the knob was
+never connected.
+
+**1. The leaf charge works and is the dominant effect.** Foliage is down in
+**15 of 16 runs**. Total cells move in no consistent direction (7 up, 9
+down), which is what a *reallocation* looks like rather than a tax: the
+carbon not spent on foliage goes somewhere else.
+
+**2. Seeds tripled, which is the opposite of what was predicted, and the
+reason is worth recording.** The expectation was that pricing reproduction
+would suppress it. Instead the *old* path was the tighter one — and by
+accident: `allocate_to_frontier` **drains donor cells** to fund the
+frontier (`write_carbon(dx, dy, available - moved)`), so a growing plant's
+mature cells were frequently below `seed_cost` when the roll landed.
+Reproduction was being throttled by drain order, not by design. Routing it
+through an explicit budget replaced an accidental throttle with an
+intentional one, and the intentional one is currently looser.
+
+**3. Tripling seed supply moved recruitment by nothing** — germinations are
+flat in both beds. This is a much better-controlled confirmation of the
+handoff's §2 finding than the seed-bank inference it rests on: supply was
+increased threefold and establishment did not respond, so **germination and
+not seed supply is the blocked stage.** It also means the extra seeds have
+no downstream consequence today beyond the carbon spent on them.
+
+### 11b. The open item, and the trap in it
+
+`REPRODUCTIVE_ALLOCATION = 0.15` is a first-pass value sitting inside the
+5–30% of NPP that real plants allocate to reproduction. It is not derived,
+and deriving it is the re-derivation this change owes.
+
+**The trap, and it is this report's own thesis pointed at its own work:
+do not tune it until seed output matches the old number.** The old number
+was produced by donor-drain order, not by a design decision. Matching it
+would calibrate a new mechanism against a broken behaviour — precisely what
+`pipe_ratio` against a broken `thicken()`, and `light_weight` against a
+codomain that could only say "up", already cost this project. The target
+has to be a stated allocation fraction with a reason, or an outcome
+somebody argues for on its own merits.
+
+**What the sweep needs first is an instrument.** Nothing currently reports
+whether the budget *binds* — whether a seed was refused for want of carbon
+or simply never rolled. That is the paired effect-counter `CLAUDE.md`
+requires beside every "it fired" counter, and without it a sweep over
+`REPRODUCTIVE_ALLOCATION` cannot tell a real ceiling from a chance roll.
+
+### 11c. Method note: the first guard was blind, and only the control found it
+
+Recorded because it is the exact failure `CLAUDE.md` names and it happened
+anyway, to a session that had just written that rule into a report.
+
+The first version of
+`reproduction_spends_the_budget_and_not_the_cell_it_runs_on` placed **one**
+full `MatureBody` cell, set the budget to zero, and asserted no seed was
+set. It passed. Reverting only the spend site to the old
+`carbon >= seed_cost` form — the fault it is named for — **it passed
+again.** One cell never clears `tree.ron`'s `seed_maturity: 600`, so the
+spend was never reached and the assertion was true for a reason that had
+nothing to do with the change.
+
+Two things fixed it, and both are now in the test:
+
+- **A positive control inside the guard.** The funded arm must actually set
+  seeds, or the starved arm proves nothing. It is asserted, not assumed.
+- **The clock has to move.** `Reproduce`'s roll comes off a stream keyed on
+  `(organism, cell, frame)`, so calling `organism_upkeep` in a loop against
+  a frozen world draws the *same* value every pass — 400 identical ticks
+  rather than 400 independent ones. The positive control caught this too,
+  by reading zero.
+
+With both in place the guard fails against the old implementation with
+`got 2 against 2 when funded` — the old path setting the same number of
+seeds whether the budget is full or empty, which is the defect stated as a
+number.
