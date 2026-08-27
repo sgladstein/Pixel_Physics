@@ -188,7 +188,44 @@ that is simultaneously the real mechanism, visible on screen, performed by
 an agent that already exists, and free of the water-pump trap that A has to
 solve first.
 
-## 5. Provenance and what is not measured here
+## 5. What it measures
+
+`scene=forest`, one build, same seed, `DECAY_YIELD` the only thing varied.
+The stand grows from 805 to ~13,300 cells of living tissue over the window.
+
+| frame | yield 1.0 net soil | 0.05 | 0 |
+|---|---|---|---|
+| 8,000 | −319 | −615 | −635 |
+| 14,000 | −637 | −1,529 | −1,613 |
+| 20,000 | −819 | −2,435 | −2,766 |
+| 26,000 | −832 | −3,060 | −3,432 |
+
+The yield itself does exactly what it says — the `rot:` line reports 100%,
+5% and 0% against 2,383 / 4,370 / 4,376 decay events at frame 26,000 — and
+the reseed and shed counts move as they should.
+
+**The surprise is the sign, and it is worth understanding before anyone
+quotes these numbers.** The world-wide soil census *falls* in all three
+arms, and falls further the lower the yield. That is not the floor
+subsiding: it is root growth, which overwrites a soil cell to occupy it
+(`plant.rs::displace_soil_water`). A stand in its expansion phase consumes
+more soil into root tissue than its litter returns, so the global count is
+dominated by a term that has nothing to do with the complaint.
+
+**So the census answers a different question than the owner asked, and the
+picture is what settles it** — this repo's own rule that a metric says *how
+much* while an image says *what and where*. The burial is local: a mound
+heaped around each trunk, where the litter actually falls. Rendered at
+frames 14k / 26k / 38k, the 1.0 arm grows conical mounds that climb the
+trunks until they are swallowing the lower canopy, and the 0.05 arm holds a
+flat ground line across all three. A world-wide count cannot see a mound;
+it averages it against root uptake happening everywhere else.
+
+Anyone sizing this later wants a **local** census — soil depth in the
+columns under a crown, against columns in the open — not the global count.
+That instrument does not exist yet.
+
+## 6. Provenance and what is not measured here
 
 Everything in §2 is background knowledge, not measurement from this engine —
 the figures are ranges from the soil-science literature as commonly cited,
@@ -196,6 +233,12 @@ and they are here to size the problem, not to be tuned against. Nothing in
 this report should be read as a calibrated constant.
 
 **§3's 0.05 is chosen from §2's range, not fitted to anything in this
-engine.** Nobody has yet measured how the floor reads at 0.05 against 0 or
-1 in a long run. That measurement is the obvious next step and it is not in
-this report.
+engine.** §5 checks that it does what it says and that the mounds go away;
+it does not derive 0.05, and no sweep has been run over the value. If the
+floor later reads as too bare, moving it is a free change.
+
+**§5 is one scene, one seed, one build.** Outcomes here are chaotic in the
+seed and this repo's own convention is that six seeds is not a sweep, so
+treat the table as "the mechanism fires and the mounds go" rather than as a
+calibrated magnitude. The visual comparison is paired and same-seed, which
+is what makes it worth more than the census here.
