@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**39 open, 78 bugs** (plus 18 landing-note items,
+**38 open, 78 bugs** (plus 18 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -101,27 +101,27 @@ point.
 | R | **OPEN** | 5402 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6622 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6811 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6902 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6916 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6928 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6946 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6967 | A material-counting guard cannot see a species |
-| W1c | note | 6980 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7114 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7192 | The structural opt-out did not hold against bearing |
-| T1d | note | 7203 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7237 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7291 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7345 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7374 | §1c's settle loss is now a counter |
-| -- | note | 7391 | What landed |
-| -- | note | 7414 | Do not re-derive these |
-| -- | note | 7442 | Measurements that contradict something written |
-| -- | note | 7462 | Open |
-| -- | note | 7497 | Unmerged at close, and one of it is a fix main needs anyway |
+| S | closed | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 6672 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6861 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6952 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6966 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6978 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6996 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7017 | A material-counting guard cannot see a species |
+| W1c | note | 7030 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7164 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7242 | The structural opt-out did not hold against bearing |
+| T1d | note | 7253 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7287 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7341 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7395 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7424 | §1c's settle loss is now a counter |
+| -- | note | 7441 | What landed |
+| -- | note | 7464 | Do not re-derive these |
+| -- | note | 7492 | Measurements that contradict something written |
+| -- | note | 7512 | Open |
+| -- | note | 7547 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5672,7 +5672,7 @@ should do the two halves together: fixing only placement leaves an ant that
 wanders onto a pond still walking on it.
 
 
-### S. Every destructive verb but the brush leaves the structural scheduler pinned at its cap for ever — **OPEN, found 2026-08-25 by measurement; rescoped the same day from "one explosion" to the pick and the hammer too**
+### S. ~~Every destructive verb but the brush leaves the structural scheduler pinned at its cap for ever~~ — **FIXED AND GUARDED 2026-08-27. Three false anchors, all the same mistake: a writer making the strongest claim available when it meant a weaker one.**
 
 Found by the frame-cost audit (`Reports/frame-cost-audit-2026-08.md`) while
 answering the owner's question — *"saving a few ms in static play but then
@@ -6618,6 +6618,56 @@ needs re-deriving here:
   36,818 -> 38,322. Scheduling a landing cannot help while its `aux` is still
   0, because the neighbours relax off that zero on the same frames the cell is
   being corrected. The value is the fix; the schedule is not.
+
+#### Closed out — what the three fixes were, and what was left alone
+
+All three verbs land at the world's idle scheduler depth (~5,400 `pending`
+at 8192x2560), and the `1k-60k` climb bucket — the count-to-infinity
+signature this entry is about — is **zero at every world size tested**.
+
+| verb | before | after |
+|---|---|---|
+| charge (`blast:200:1`) | 38,325 wrong cells | **189** |
+| pick (`mine:20:200`) | 4,490 | **3** |
+| hammer (`strike:20:200`) | 45,248 | **1,337** |
+
+Scheduler phase mean **15.511 -> 4.325 ms**; whole frame **36.41 -> 24.74
+ms** on the blast scene.
+
+**Three writers, one mistake.** `particle::place_landed` and `rigid::settle`
+both wrote `Cell::new`'s `aux 0` into landed body material, and
+`structural::tick`'s ground root wrote `0` when it meant "held by a pile".
+On an inert `Solid` that slot is a distance to bedrock, so all three were
+claiming the world's floor was one step away. Each was replaced with the
+value the field would have computed anyway --
+`structural::seed_landing_aux` at the two landing seams,
+`load::ground_footing_distance` at the root.
+
+**Guarded, and watched going red.** `scripts/acceptance.sh`'s `strike` case
+now carries `max_sites=1500`, a counter on the *final* backlog, because the
+property is that it drains: 958 / 968 / 824 / **289** shipped against 958 /
+2747 / 5034 / **7145** reverted. It goes red for the settle seam and for the
+ground root; it does not cover the particle seam, which lands three body
+cells in a whole 8192x2560 run.
+
+**One case deliberately left, and it is not a punt.** A pile deeper than
+`GRAIN_FOOTING_PROBE` with nothing found under it still takes the flat `0`
+(`unwrap_or(0)` in `tick`). Measured harm, as an *upper* bound -- cells
+stored at 0 that a converged whole-world pass disagrees with -- is **0, 1
+and 2** across the three verbs at 8192x2560, 3 at 2048x1280 and 0 at
+4096x1600, with the climb bucket empty in every one. The obvious
+alternative, `unwrap_or(u16::MAX)`, is **worse and for a known reason**: a
+cell permanently at MAX satisfies `load::dependants`' `n.aux() > own`
+against every neighbour, so it hangs its whole weight on the rock beside it
+for ever. That is the exact mechanism that inverted
+`a_disturbance_extent_licenses_the_wound_but_not_the_chain` and got
+`u16::MAX` recorded as a dead end. Trading a three-cell false anchor for a
+permanent load spike is a bad trade; if this ever needs revisiting, the
+quantity to watch is the climb bucket, not the stored-zero count.
+
+**Retracted along the way**: a "third source" at 2048x1280, which was
+`scale_probe`'s fixed-width cut band (19% of that world against 4.7% of
+8192) and not the model. See `Reports/structural-support-model.md` §6.5d.
 
 ### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
 
