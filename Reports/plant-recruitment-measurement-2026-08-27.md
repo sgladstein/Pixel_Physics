@@ -218,6 +218,40 @@ grass carbon number in this report is used for anything. This is
 figure is arithmetically correct and answers a different question than the
 one asked.
 
+## 5d. MEASURED: the germination counter, added 2026-08-27, confirms §5a
+
+§5a reached its conclusion by arithmetic against a decay model and said so.
+`World::germinations` now counts every germination at `plant::germinate`, the
+single chokepoint, and settles it directly. Logs in
+`Reports/data/germination-2026-08-27/`.
+
+| run | seeds set | germinations | **minus 16 founders** | rate | established w/ inherited genome |
+|---|---|---|---|---|---|
+| tree 1 | 155 | 17 | **1** | 0.6% | 1 of 17 |
+| tree 2 | 153 | 19 | **3** | 2.0% | 0 of 16 |
+| tree 3 | 170 | 16 | **0** | 0% | 0 of 16 |
+| grass 1 | 24 | 26 | **10** | 42% | 4 of 12 |
+| grass 2 | 32 | 24 | **8** | 25% | 2 of 8 |
+| grass 3 | 21 | 22 | **6** | 29% | 0 of 7 |
+
+**Pooled: tree 4 germinations from 478 seeds (0.8%); grass 24 from 77 (31%).
+A ~40x difference in germination rate, measured rather than inferred.**
+
+**Read the counter with the founders subtracted.** The 16 founders are
+planted as seeds and germinate like any other, so a raw "17 germinations"
+looks like healthy recruitment until you take them out. This is the trap the
+counter creates and it is why the table above has that column.
+
+**Three independent quantities agree on tree seed 1**: the counter says 1,
+the `inherited genome` line says 1 of 17, and the decay prediction said ~43
+standing against 40 observed. §5a stands.
+
+**One refinement it does add.** Germination is necessary and not sufficient,
+for both species: tree 2 germinated 3 and established none, and grass 3
+germinated 6 and established none. So there is a real
+germinate-then-fail-to-establish component — it is simply dwarfed, on tree,
+by the fact that almost nothing germinates at all.
+
 ## 5c. A confound in this report's own headline: grass cannot starve
 
 **`plant.rs:4810` gates starvation death on `has_leaf_stage`:**
