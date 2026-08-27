@@ -76,6 +76,7 @@ BAR_CHARS = 40_000
 # Add a path here after deciding it is worth the churn in a file others may be
 # holding; `--candidates` tells you what is eligible.
 MANAGED = [
+    # Plants -- the seven over the bar, 43% of the plant corpus by tokens.
     "plant-substrate-v2-design.md",
     "plant-genome-design.md",
     "physical-trees-design-2026-08-23.md",
@@ -83,6 +84,25 @@ MANAGED = [
     "tree-architecture-variety-review.md",
     "grass-sowing-and-divergence-2026-08-23.md",
     "plant-economy-rederivation-2026-08-23.md",
+    # Everything else that was over the bar on 2026-08-27, added on the owner's
+    # call after the plant seven proved out. Every one carries 6-17 `##`
+    # sections, so a table is a real read unit rather than a formality -- the
+    # thinnest is prior-art-destruction at 6 sections over ~10,800 tokens.
+    # Checked before adding: neither open PR (#80, #12) touches any of them.
+    "worldgen-implementation-tasks-2026-08.md",
+    "creature-evolution-plan.md",
+    "creature-direction.md",
+    "explosion-stone-review.md",
+    "liquid-heightfield-design.md",
+    "prior-art-worldgen-slicing.md",
+    "next-session-handoff.md",
+    "agent-documentation-audit-2026-08-24.md",
+    "worldgen-design.md",
+    "emergent-world-architecture.md",
+    "structural-support-model.md",
+    "world-review-2026-08.md",
+    "liquid-simulation-research.md",
+    "prior-art-destruction.md",
 ]
 
 # Never eligible: they carry their own generated index already.
