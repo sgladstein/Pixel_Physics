@@ -2691,6 +2691,96 @@ fn displace(world: &mut World, occupied: &HashSet<(i32, i32)>, x: i32, y: i32) -
     false // nowhere to put it -- treat as solid rather than deleting it
 }
 
+/// What a landing writes into a body cell's `aux` — shared by the two
+/// seams, `rigid::settle` and `particle::place_landed`.
+///
+/// Three-valued rather than a pair of booleans because the three are
+/// mutually exclusive answers to one question, and `CLAUDE.md`'s harness
+/// rule wants a knob whose value can be read back rather than inferred
+/// from which of two flags happened to be set.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum LandingAux {
+    /// `Cell::new`'s 0 — **the bug**, kept only as the measurement baseline.
+    /// On an inert `Solid` that reads as *bedrock-adjacent*.
+    Zero,
+    /// "No known path, earn one." Honest, and corrected by `tick` in a
+    /// single improvement round — but not until the next structural check.
+    Max,
+    /// The value `tick` would compute, computed now. The shipping default.
+    Seed,
+}
+
+/// `SETTLE_AUX=zero|max|seed`, defaulting to `seed`.
+///
+/// `SETTLE_AUX_MAX=1` is still honoured as an alias for `max`: the four-arm
+/// ablation in `Reports/structural-support-model.md` §6.4 and the two
+/// entries in `Reports/dead-ends.md` name it, and those runs have to stay
+/// reproducible.
+fn settle_aux_mode() -> LandingAux {
+    use std::sync::OnceLock;
+    static MODE: OnceLock<LandingAux> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("SETTLE_AUX").as_deref() {
+        Ok("zero") => LandingAux::Zero,
+        Ok("max") => LandingAux::Max,
+        Ok("seed") => LandingAux::Seed,
+        // The legacy alias. `SETTLE_AUX_MAX=1` is what §6.4's ablation and
+        // two `dead-ends.md` entries name, so it has to keep reproducing
+        // those runs; `=0` is the `Cell::new` baseline they were measured
+        // against. Absent, the shipping default applies.
+        _ => match std::env::var("SETTLE_AUX_MAX").as_deref() {
+            Ok("0") => LandingAux::Zero,
+            Ok(_) => LandingAux::Max,
+            Err(_) => LandingAux::Seed,
+        },
+    })
+}
+
+/// Which `LandingAux` arm is live, for harnesses and diagnostics.
+/// `CLAUDE.md`: a knob nobody can see the value of is a knob nobody can
+/// tell is disconnected.
+pub fn settle_aux_mode_name() -> &'static str {
+    match settle_aux_mode() {
+        LandingAux::Zero => "zero",
+        LandingAux::Max => "max",
+        LandingAux::Seed => "seed",
+    }
+}
+
+/// Write one landed body cell, giving it an anchor distance rather than
+/// `Cell::new`'s 0.
+///
+/// **`Cell::new` starts a landed cell unattached and at `aux` 0, and only
+/// the first of those is right.** Unattached is deliberate and stays: a
+/// body exists because it broke out of something, so landing must not
+/// silently re-attach it. The 0 was never a decision — it is the struct's
+/// default, and on an inert `Solid` the slot is a distance to bedrock, so
+/// it reads as *at an anchor*. `settle` and `particle::land` are the two
+/// seams through which the world writes body material at rest, and both
+/// were writing it; `Reports/structural-support-model.md` §6 has the
+/// write-seam trap, and §6.4 the four-arm ablation that showed neither seam
+/// alone accounts for it (23% and 1% apart, 99.5% together).
+///
+/// **Called at the landing position, not the aimed-at one.** `settle`'s
+/// four arms can relocate a cell several rows from `body.cell_position`,
+/// and the seeded value is a function of where it ended up. Getting this
+/// wrong would seed from the neighbours of a hole the cell is not in.
+///
+/// This does **not** schedule the structural check — `settle` schedules
+/// around both the aimed-at and the landed position afterwards, and the
+/// union of the two is load-bearing for a reason its own comment gives.
+fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
+    let placed = if !super::structural::is_body_material(world, fresh.material) {
+        fresh
+    } else {
+        match settle_aux_mode() {
+            LandingAux::Zero => fresh,
+            LandingAux::Max => fresh.with_aux(u16::MAX),
+            LandingAux::Seed => fresh.with_aux(super::structural::seed_landing_aux(world, x, y, fresh.material)),
+        }
+    };
+    world.set(x, y, placed);
+}
+
 /// Write a settled body's cells back into the grid as ordinary CA material.
 ///
 /// Three things here are easy to leave out and each is a real bug:
@@ -2766,34 +2856,12 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // is a different colour, not the same grain -- the one case where
         // `BodyCell::shade`'s "never re-roll" rule does not apply, since
         // the material changed underneath it.
-        // **The other half of §S's fix, and the half that is NOT yet on.**
-        // `SETTLE_AUX_MAX=1`. Its sibling `particle::landed_cell` ships on by
-        // default as of 2026-08-27; this one does not, and the reason is a
-        // guard rather than a doubt about the diagnosis:
-        // `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes
-        // red with it on, and **inverts** -- 367 cells came away with the
-        // wound licensed against 418 with a point licence, where the
-        // recorded figures are 840 and 649. A wider disturbance licence
-        // bringing away *less* than a point licence is backwards from what
-        // the licence is for, and that is either a real regression or the
-        // fourth mode shift this particular count has caught (its own
-        // comment records three). Neither is a thing to merge past.
-        //
-        // **Both halves are needed for the full result** -- 23% and 1% alone
-        // against 99.5% together (`Reports/structural-support-model.md` §6.4)
-        // -- so this is unfinished business, not a rejected idea.
-        // `Cell::new` writes `aux 0`,
-        // which reads as *anchored*; this writes `u16::MAX`, which reads as
-        // "no known path", and lets `tick` relax the cell from its
-        // neighbours instead. The two errors are not symmetric and that is
-        // the thing being measured: a `u16::MAX` is corrected by one
-        // improvement wave, and a `0` inside a massif has to *climb* to the
-        // true distance at one unit per relaxation round.
-        let settle_aux_max = {
-            use std::sync::OnceLock;
-            static ON: OnceLock<bool> = OnceLock::new();
-            *ON.get_or_init(|| std::env::var("SETTLE_AUX_MAX").map(|v| v != "0").unwrap_or(false))
-        };
+        // **The `aux` a landed cell gets is decided at the write, by
+        // `place_settled` below** -- not here, because it depends on where
+        // the cell actually ends up and the four arms below can relocate it
+        // several rows from where it was aimed. `Cell::new`'s 0 is the
+        // false anchor §S is about; see `place_settled` for what replaces
+        // it and why.
         let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
             Some(into) => {
                 let shades = world.materials.get(into).palette.len().max(1) as u32;
@@ -2813,9 +2881,8 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
             None => Cell::new(cell.material, cell.shade),
         };
-        let fresh = if settle_aux_max { fresh.with_aux(u16::MAX) } else { fresh };
         if world.in_bounds(x, y) && world.is_empty(x, y) {
-            world.set(x, y, fresh);
+            place_settled(world, x, y, fresh);
             landed.push((x, y));
             continue;
         }
@@ -2859,14 +2926,14 @@ fn settle(world: &mut World, body: &ChunkBody) {
                 let home = nearest_free(world, x, y).or_else(|| surface_above(world, x, y));
                 if let Some((nx, ny)) = home {
                     world.set(nx, ny, occupant);
-                    world.set(x, y, fresh);
+                    place_settled(world, x, y, fresh);
                     landed.push((x, y));
                     continue;
                 }
             }
         }
         if let Some((nx, ny)) = nearest_free(world, x, y) {
-            world.set(nx, ny, fresh);
+            place_settled(world, nx, ny, fresh);
             landed.push((nx, ny));
             continue;
         }
@@ -2899,7 +2966,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
         });
         if let Some((nx, ny, occupant, (sx, sy))) = swapped {
             world.set(sx, sy, occupant);
-            world.set(nx, ny, fresh);
+            place_settled(world, nx, ny, fresh);
             landed.push((nx, ny));
             continue;
         }

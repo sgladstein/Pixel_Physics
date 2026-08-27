@@ -411,55 +411,80 @@ fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
     if world.materials.get(particle.material).worth_in_aux {
         return cell.with_aux(particle.aux);
     }
-    // **The shipping behaviour since 2026-08-27.** `PARTICLE_AUX_MAX=0`
-    // restores `Cell::new`'s zero, for measurement only -- the four-arm
-    // ablation in `Reports/structural-support-model.md` §6.4 is what set this
-    // default and is worth being able to re-run. **The sibling case is
-    // `rigid::settle`, and neither alone is enough**: closing one leaves the
-    // damaged region relaxing off the other, 23% and 1% against 99.5%
-    // together.
-    //
-    // The doc above enumerates two `aux` conventions a free particle must
-    // not carry and concludes it should carry none. On an inert `Solid`
-    // there is a **third**, and dropping to `Cell::new`'s 0 does not decline
-    // to make a claim there -- it makes the strongest one available:
-    // `structural.rs` reads `aux == 0` as *at an anchor*. A thrown rock
-    // therefore lands claiming to be bedrock-adjacent, and the massif around
-    // it relaxes downhill off that.
-    //
-    // Trapped at the write seam (`World::report_false_anchor`): twelve
-    // consecutive false anchors on the two frames after a radius-20 charge,
-    // every one of them `empty aux 0 -> stone aux 0` beside `stone:2405`,
-    // and every backtrace `ParticleSystem::step`.
-    //
-    // `u16::MAX` is the honest value and the cheap one -- "no known path,
-    // earn one". `tick` relaxes it to `min(neighbour + step)` in a *single*
-    // round, because an improvement is one step whatever its size, whereas
-    // climbing out of a false 0 costs one round per unit of the field's
-    // depth (~2,400 at the shipped size).
-    let particle_aux_max = {
-        use std::sync::OnceLock;
-        static ON: OnceLock<bool> = OnceLock::new();
-        *ON.get_or_init(|| std::env::var("PARTICLE_AUX_MAX").map(|v| v != "0").unwrap_or(true))
-    };
-    if particle_aux_max && super::structural::is_body_material(world, particle.material) {
-        return cell.with_aux(u16::MAX);
-    }
+    // **The structural `aux` is decided by `place_landed` below, not here.**
+    // It depends on *where* the particle comes to rest, and `land`'s two
+    // fallback arms can put it several cells from where it was aimed. What
+    // this function still owns is the `worth_in_aux` case above, which is a
+    // property of the particle and not of the position.
     cell
 }
 
-/// Write a landed particle into the grid **and tell the structural system it
-/// arrived**.
+/// Which structural `aux` a landing particle's cell gets.
+///
+/// `PARTICLE_AUX=zero|max|seed`. `PARTICLE_AUX_MAX=0` is still honoured as
+/// an alias for `zero`, because the four-arm ablation in
+/// `Reports/structural-support-model.md` §6.4 and two entries in
+/// `Reports/dead-ends.md` name it and those runs have to stay reproducible.
+///
+/// Same three answers as `rigid::LandingAux`, and the same type, deliberately: these
+/// are the **two seams** through which the world writes body material at
+/// rest, and a model in which they disagree is a model with two answers to
+/// one question.
+fn particle_aux_mode() -> super::rigid::LandingAux {
+    use super::rigid::LandingAux;
+    use std::sync::OnceLock;
+    static MODE: OnceLock<LandingAux> = OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PARTICLE_AUX").as_deref() {
+        Ok("zero") => LandingAux::Zero,
+        Ok("max") => LandingAux::Max,
+        Ok("seed") => LandingAux::Seed,
+        // The legacy alias, and it must keep meaning exactly what it meant:
+        // `=0` restored `Cell::new`'s zero, anything else asked for
+        // `u16::MAX`. Absent, the shipping default applies.
+        _ => match std::env::var("PARTICLE_AUX_MAX").as_deref() {
+            Ok("0") => LandingAux::Zero,
+            Ok(_) => LandingAux::Max,
+            Err(_) => LandingAux::Seed,
+        },
+    })
+}
+
+/// Which `LandingAux` arm is live for particle landings, for harnesses and
+/// diagnostics — the sibling of `rigid::settle_aux_mode_name`.
+pub fn particle_aux_mode_name() -> &'static str {
+    match particle_aux_mode() {
+        super::rigid::LandingAux::Zero => "zero",
+        super::rigid::LandingAux::Max => "max",
+        super::rigid::LandingAux::Seed => "seed",
+    }
+}
+
+/// Write a landed particle into the grid, **give it an honest anchor
+/// distance**, and tell the structural system it arrived.
 ///
 /// `land` wrote through `World::set` and scheduled nothing, so a landed
 /// `Solid` or `Plant` cell was invisible to `structural::tick` until some
-/// unrelated disturbance happened to wake it. Whatever `landed_cell` chooses
-/// to write then stands unexamined: `Cell::new`'s `aux 0` reads as
-/// *bedrock-adjacent* for as long as nothing asks, and a `u16::MAX` reads as
-/// *no path at all* for just as long. Neither is a value a cell should get to
-/// keep without being asked, and `rigid::settle` -- the other way a piece of
-/// the world comes to rest -- has scheduled around both its aimed-at and its
-/// landed positions since the "stone hanging in open sky over a pond" bug.
+/// unrelated disturbance happened to wake it. Whatever gets written then
+/// stands unexamined: `Cell::new`'s `aux 0` reads as *bedrock-adjacent* for
+/// as long as nothing asks, and a `u16::MAX` reads as *no path at all* for
+/// just as long. Neither is a value a cell should get to keep without being
+/// asked, and `rigid::settle` -- the other way a piece of the world comes to
+/// rest -- has scheduled around both its aimed-at and its landed positions
+/// since the "stone hanging in open sky over a pond" bug.
+///
+/// **The `aux` is decided here rather than in `landed_cell`** because it is
+/// a function of the position, which `landed_cell` does not have: `land`'s
+/// fallback arms can put a particle several cells from where it was aimed,
+/// and a value seeded from the neighbours of the wrong hole is worse than
+/// no value at all.
+///
+/// On an inert `Solid` the slot is a distance to bedrock, so `Cell::new`'s 0
+/// does not decline to make a claim -- it makes the strongest one available.
+/// A thrown rock landed claiming to be bedrock-adjacent and the massif
+/// around it relaxed downhill off that. Trapped at the write seam
+/// (`World::report_false_anchor`): twelve consecutive false anchors on the
+/// two frames after a radius-20 charge, every one `empty aux 0 -> stone
+/// aux 0` beside `stone:2405`, every backtrace `ParticleSystem::step`.
 ///
 /// **`_around`, not the cell alone**, for `settle`'s reason: the neighbours
 /// have just gained a possible support, and the cell may have come to rest
@@ -469,12 +494,32 @@ fn landed_cell(world: &World, particle: &Particle) -> super::cell::Cell {
 /// far more sand, water and smoke than rock, and none of it participates in
 /// the support field -- `schedule_structural_check` no-ops on those anyway,
 /// but only after five heap pushes and a chunk lookup each. `is_body_material`
-/// is a `Vec` index on a value already in hand.
+/// is a `Vec` index on a value already in hand, and it gates the seed walk
+/// for the same reason.
 fn place_landed(world: &mut World, x: i32, y: i32, cell: super::cell::Cell) {
-    world.set(x, y, cell);
-    if super::structural::is_body_material(world, cell.material) {
-        world.schedule_structural_check_around(x, y);
+    if !super::structural::is_body_material(world, cell.material) {
+        world.set(x, y, cell);
+        return;
     }
+    // A `worth_in_aux` material carries a food value in this slot, written
+    // by `landed_cell` above, and must not have a distance put over it. The
+    // two conventions genuinely collide if such a material is ever `Solid`;
+    // that collision predates this function and resolves itself on the
+    // first structural check, which overwrites the slot with a distance
+    // regardless. Declining here at least keeps *this* write honest.
+    let placed = if world.materials.get(cell.material).worth_in_aux {
+        cell
+    } else {
+        match particle_aux_mode() {
+            super::rigid::LandingAux::Zero => cell,
+            super::rigid::LandingAux::Max => cell.with_aux(u16::MAX),
+            super::rigid::LandingAux::Seed => {
+                cell.with_aux(super::structural::seed_landing_aux(world, x, y, cell.material))
+            }
+        }
+    };
+    world.set(x, y, placed);
+    world.schedule_structural_check_around(x, y);
 }
 
 fn land(world: &mut World, particle: &Particle, at: (i32, i32)) {
