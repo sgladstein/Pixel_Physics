@@ -134,6 +134,20 @@ constraint on record is a *system* where morphologies develop or evolve.
 
 ## 3. Stale records this review found (fix-in-passing list)
 
+**Status as of 2026-08-27 — 8 items, all now closed, but four of them stood
+for four days after this list named them with the address attached.** Closed
+by the session that noticed the pattern: the amputation gotcha, `wiki/ants.md`
+and `grass.ron` were fixed within a day *because each sat in a file someone
+had to open anyway*; `branch-angle`'s "NOT merged", `debug_tree_variants`'s
+panic, `plant-appearance-design` §6 and the root-level sweep all sat in files
+nobody had reason to open, and none moved. **That is the finding this list
+accidentally produced: a defect named in prose does not get fixed, a defect a
+check can see does.** Three checks now cover these classes —
+`docscheck` 3b (widened), 3c (a report outliving its branch) and 5b (an
+example emitting a field the engine no longer has) — plus `--selftest`, so
+their green means something. Individual items below are left as written; the
+record of what was wrong is worth more than a tidied list.
+
 Each of these will misdirect the next session that reads it:
 
 - **`CLAUDE.md`'s structural-check amputation gotcha has expired.** The
@@ -161,7 +175,7 @@ Each of these will misdirect the next session that reads it:
   deleted *because* the economy now kills epiphytes emergently, and
   `wiki/plants.md` documents that behaviour as shipped. Its still-live items
   are the megastudy re-run and the seed-bank leak, both queued below.
-- **`genome-sweep-2026-08-18.txt` (repo root) is an ant sweep** —
+- **`genome-sweep-2026-08-18.txt` (repo root) is an ant sweep** — *(closed 2026-08-27: moved to `docs/ant-genome-sweep-2026-08-18.txt`.)*
   `creature_space` stdout, nothing to do with plants, committed incidentally.
   Move it under `docs/` with a name that says ants, or delete it.
 - **`wiki/ants.md` still says litter does not rot**; it has rotted since

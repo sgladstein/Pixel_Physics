@@ -49,7 +49,7 @@ studies:
 | `flora_census` | Which species a generated world actually contains, per seed | `where=1 focus=NAME at=X` audits one *window*. Built after a card came back "I don't see a difference" and the window held 125 grass cells against 7,853 woody |
 | `litter_probe` | Where shed litter comes to rest, and whether it rots | |
 | `crown_census` | **What the brown cells in a crown actually are** — every material standing above the ground line, split into 40-row bands | Built because soil, litter, deadwood and thickened wood are one mid-brown speckle at contact-sheet zoom, so the eye cannot separate them and only a count can. Generalises well past plants: it is a material-by-height histogram, so it answers *what is stacked where* for any vertical structure — a collapse's debris column, a drift's profile. Echoes its own parameters |
-| `debug_tree_variants` | Multi-variant comparison of `tree.ron`'s economy | Marked throwaway in its own header |
+| `debug_tree_variants` | Multi-variant comparison of `tree.ron`'s economy | **Parse fixed 2026-08-27, scene still dead — do not reach for this.** It emitted `moisture_threshold`, renamed to `soil_water_threshold` in `organism.rs` some time ago, so it panicked on start for anyone who tried; the rename is corrected but its scene is a bare stone floor that can germinate nothing, so it answers no question today. `plant_probe` took over ensembles. Kept, not deleted, because its header records why the shipped tree stalled at ~10 wood cells. Its row said only "marked throwaway in its own header" for the whole time it was broken, which is why check 5b now exists |
 
 ## World, terrain and weather
 

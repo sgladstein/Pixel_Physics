@@ -39,7 +39,7 @@ fn variant_ron(v: &Variant) -> String {
     name: "{name}",
     cell_types: [
         (Seed, [
-            Germinate(light_threshold: 0.1, moisture_threshold: 0.0, instant: false),
+            Germinate(light_threshold: 0.1, soil_water_threshold: 0.0, instant: false),
         ]),
         (GrowingTip, [
             Grow(

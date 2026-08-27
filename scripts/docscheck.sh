@@ -77,8 +77,9 @@ INNER
   done <<'FAULTS'
 plant-substrate-v2-design.md|Reports/plant-substrate-v2-design.md|**Status: implemented and merged.**|**Status:** design only. No code in this pass.
 branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|**Status: merged. Corrected 2026-08-27**, having stood four days after\n`plant-project-review-2026-08-23.md` §3 named it stale with the address\nattached. `branch_angle`, `straightness`, `internode` and `path_len` all\nstand in `src/sim/plant.rs` and `src/sim/organism.rs`; `branch_angle` and\n`internode` are authored in five species files; the branch is gone from the\nremote, which in this repo means merged (branch deletion returns HTTP 403,\nso nothing else prunes one). §4's width bound is closed in code too — the\nturgor gate reads `path_len`.|**Status: built, measured, working, and NOT merged.** It lives on branch\n`plant-branch-angle`.
+debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
 FAULTS
-  [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- 3b and 3c can go red"
+  [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
   exit "$st_ok"
 fi
 
@@ -318,6 +319,56 @@ if [ -f Reports/instruments.md ]; then
   done < <(grep -oE '^\| `[a-z0-9_]+`' Reports/instruments.md | tr -d '|` ' | sort -u)
 else
   note "Reports/instruments.md missing -- the instruments index is referenced by CLAUDE.md"
+fi
+
+# --- 5b. An example must not emit a species field the engine no longer has --
+# Check 5 asserts every examples/ binary has a row in the instruments index and
+# every row has a binary. Neither half can see whether the binary still RUNS.
+#
+# `examples/debug_tree_variants.rs` emitted `Germinate(moisture_threshold: ...)`
+# into the species RON it generates. That field was renamed to
+# `soil_water_threshold` in `organism.rs`; the example was never updated, so it
+# panicked on start -- while holding a live row in the instruments index whose
+# only caveat was "marked throwaway in its own header". An agent picking an
+# instrument by that index gets a crash, and it stood that way long enough for
+# `plant-project-review-2026-08-23.md` §3 to report it four days before this.
+#
+# It is the assets gotcha wearing an example: species RON is compiled in via
+# `include_str!`, so a rename lands in the source and the emitters drift.
+#
+# Deliberately a WHITELIST check: it flags a field name used in a Behavior
+# constructor that appears NOWHERE in organism.rs. Broad whitelist, narrow
+# accusation -- the failure mode is a missed rename, never a false alarm.
+if [ -f src/sim/organism.rs ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "$line"
+  done < <(python3 - <<'PYCHK'
+import pathlib, re
+root = pathlib.Path(".")
+org = (root / "src/sim/organism.rs").read_text(encoding="utf-8")
+
+# Every identifier organism.rs uses in `name:` position -- struct fields,
+# enum-variant fields, and incidentally some locals. Over-inclusive on
+# purpose: this is the set of names an example is ALLOWED to emit.
+known = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", org))
+
+# The Behavior variants, so we only inspect lines that construct one.
+m = re.search(r"pub enum Behavior\s*\{(.*?)\n\}", org, re.S)
+variants = set(re.findall(r"^\s*([A-Z][A-Za-z0-9]*)", m.group(1), re.M)) if m else set()
+
+for ex in sorted((root / "examples").glob("*.rs")):
+    for n, ln in enumerate(ex.read_text(encoding="utf-8").splitlines(), 1):
+        for v in re.findall(r"\b([A-Z][A-Za-z0-9]*)\s*\(", ln):
+            if v not in variants:
+                continue
+            for f in re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", ln):
+                if f not in known:
+                    print(f"{ex}:{n}: emits `{f}:` into a {v}(...) but "
+                          f"organism.rs declares no such field -- a rename the "
+                          f"example did not follow; it will panic on start")
+PYCHK
+)
 fi
 
 # --- 6. The bug register: status index current, identifiers unique ----------

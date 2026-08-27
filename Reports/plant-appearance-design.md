@@ -278,9 +278,11 @@ first time (§4a). Flagged rather than claimed either way.
   was the only lever with a nonzero frame cost. It is also the only one of
   the set that changes *texture* rather than statistics, and it is what makes
   a conifer read as tiers.
-- There is no `wiki/plants.md`. Every other subsystem has a page describing
-  what it looks like when it is right; plants do not, and the appearance work
-  is exactly the kind this repo's own convention says should have one.
+- ~~There is no `wiki/plants.md`.~~ **Closed.** It exists — 400 lines, its
+  own freshness note, and it is where the appearance work's bar is written
+  down. Struck 2026-08-27; it had been named stale, with this address, by
+  `plant-project-review-2026-08-23.md` §3 four days earlier and was still
+  standing, which is the argument for `docscheck` over a review list.
 
 ## 7. The end state: colour as a readout, and heritable
 
