@@ -137,6 +137,87 @@ positional draws the unblocking change rather than a tidiness.
 4. **Do not treat the slot ceiling or recruitment as blockers** without
    re-measuring at the scene scale in question.
 
+## 5a. Which stage of the life cycle actually fails, and why
+
+Decomposed on `tree` seed 1 (the run with the census time series). **The
+blocked step is germination, not fecundity and not seedling survival.**
+
+| stage | outcome | evidence |
+|---|---|---|
+| set seed | **works** | 155 seeds set in one run; 143-196 across seeds |
+| land viably | works | 40 standing above the surface, **0 buried** (buried can never germinate) |
+| **germinate** | **essentially never** | see the decay arithmetic below |
+| establish | 1 of 155, at 23 cells / 9 rows | `established plants carrying an inherited genome: 1 of 17`, and **0 of 16** in the other seven seeds |
+| reproduce | never | no established gen-2 plant in any tree run |
+
+**The discriminator is the standing seed bank against a pure-decay
+prediction.** `default_seed_half_life()` is **9,000 frames**
+(`organism.rs:1192`) and `tree.ron` does not override it, so tree seeds
+half every 9,000 frames — five half-lives over a 45,000-frame run.
+`grass.ron:127` sets **18,000**. For seeds set uniformly across the run, the
+expected standing count is `n x (1 - e^-Lt)/(Lt)`:
+
+| | seeds set | half-life | expected standing under **decay alone** | observed |
+|---|---|---|---|---|
+| tree | 155 | 9,000 | **~43** | **40** |
+| grass | 24 | 18,000 | ~11 | **6** |
+
+**Tree's bank sits almost exactly where decay alone puts it** — so it is
+being emptied by the half-life clock, essentially undrawn by germination,
+and the 114 deaths are overwhelmingly seeds expiring in the bank rather than
+seedlings starving. **Grass's bank sits well below its decay prediction** —
+seeds are leaving it by germinating, which is what its 6-of-8 established
+inherited genomes are made of.
+
+*(Assumption stated: seed-set uniform over the run. The census series
+supports it — standing seeds accumulate steadily 1, 5, 9, 15, 20 ... 40 —
+but this is an estimate against a model, not a direct measurement of
+germination events. A germination counter would settle it outright and does
+not exist.)*
+
+**Why germination fails is measured, not inferred.** `Behavior::Germinate`
+is gated on `light_threshold` **and** `soil_water_threshold`
+(`organism.rs:822`), and by frame 45,000 the founders have removed both:
+
+| | tree | grass |
+|---|---|---|
+| canopy fusion | **84%** | **0%** |
+| leaves below 0.5 noon-equivalent light | 14,183 of 22,648 (**63%**) | n/a |
+| median leaf light | **0.14** of 4.0 | n/a |
+| soil at or below wilting point | **55%** | **7%** |
+| stomatal term (1.0 = demand met) | median **0.81** | **1.00** |
+| cells shed to starvation, cumulative | **16,730** | 109 |
+
+**And the founders do not leave.** 10-13 senescent against 16 founders over
+45,000 frames, and the stand has stopped growing outright — **6
+`GrowingTip` cells in the entire world** at frame 45,000, against 395
+`DormantBud`. The founders are themselves running a deficit (bill/income
+median **1.31**, max 3.08) and shedding cells to starvation, but they hold
+their ground and their canopy.
+
+So: **this is forest gap dynamics with the gaps missing.** A real seed bank
+waits for a treefall. Here the canopy never opens, the germination gate never
+clears, and the bank expires on its half-life clock. That is the precise
+content of `open-bugs-handoff.md`'s *"mortality was necessary and is not
+sufficient"*.
+
+### 5b. An instrument bug found on the way, and it invalidates one column
+
+`plant_probe`'s carbon book reported `bill / income median inf` for grass,
+with `income min 0.000 median 0.000 max 0.000`. It is not a night-phase
+sample: **grass owns no `CellType::Leaf` cells at all** — its census is 410
+`MatureBody` and 6 `Seed`, photosynthesising on `grassblade` material
+through `MatureBody`. The probe sums income over cells whose type is
+`CellType::Leaf` (`plant_probe.rs:475`), so for any species without a leaf
+stage it sums nothing and reports exactly zero.
+
+**Consequence: the carbon book cannot measure grass, moss, or any future
+leafless species, and reads a plausible `0.000` rather than failing.** No
+grass carbon number in this report is used for anything. This is
+`CLAUDE.md`'s *"ask what your number counts when nothing is wrong"* — the
+figure is arithmetically correct and answers a different question than the
+one asked.
+
 ## 6. What this does not show
 
 - Nothing here says architecture *does* read to the owner. §4 says the
