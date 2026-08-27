@@ -8,7 +8,17 @@ was measured on `tree`. `grass` ships as a pioneer and had never been
 measured.
 
 **Everything below is from one build, one harness, one sitting.** Logs are in
-`Reports/data/recruitment-2026-08-27-{grass,tree}/`.
+`Reports/data/recruitment-2026-08-27-{grass,tree}/`. **Read §6 before
+generalising any of it** — the bed is flat, uniform and undisturbed by
+construction.
+
+**Determinism control, run after the fact and passed**: re-running seed 1
+produced a **byte-identical** log (`7b499d6d102ab66fb351de766542c04a` both
+times), so the eight distinct md5s below are eight distinct worlds rather
+than eight samples of run-to-run noise. Environment: ephemeral container, 4
+cores, headless, release profile (`lto = "thin"`, `codegen-units = 1`). **No
+timing is quoted anywhere in this report** — every number here is a count,
+which is why a shared box cannot reach it.
 
 ```
 cargo build --release --example plant_probe     # set -o pipefail; BUILD_EXIT=0
@@ -132,8 +142,22 @@ positional draws the unblocking change rather than a tidiness.
 - Nothing here says architecture *does* read to the owner. §4 says the
   question is still open because the axes have never varied; it is not
   evidence for the affirmative.
-- One scene (`common::PlantScene`, width 1024, soil 34), one frame budget,
-  one growth rate. `plant-evolvability-three-reviews` §6's method traps —
+- **The scene is flat, uniform and undisturbed, and that bounds this
+  hard.** `common::PlantScene` at `trees=16`: 1024x320 cells, ground line at
+  y=200, **34 rows of soil at `SOIL_FIELD_CAPACITY` everywhere**, 16 plants
+  evenly spaced ~60 columns apart, `start_frame=0`. Day/night (3,600 frames,
+  so 45,000 is ~12.5 cycles), wind, gusts and rain are live. There is **no
+  terrain, no slope, no moisture gradient, no water table at depth, no fire,
+  no structural collapse, no creatures and no player**. It is also a test
+  bed: the shipped world is 8192x2560.
+
+  So this scene can answer *"can a lineage complete a life cycle"* — which is
+  what it was run for — and **cannot speak to selection, niche
+  differentiation or coexistence at all**. Spatial heterogeneity plus
+  disturbance is exactly what review B and the Bornhofen work name as the
+  mechanism, and this bed has neither. Gate 3 of the three-way review is
+  untouched by anything here.
+- One frame budget, one growth rate. `plant-evolvability-three-reviews` §6's method traps —
   especially the day/night and rain oscillators, and reading a descriptor
   before it has stopped moving — apply to anything built on this.
 - Generation 2 is a low bar. It is the difference between "no selection is
