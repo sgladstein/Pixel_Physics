@@ -275,11 +275,66 @@ run where the oracle had nothing to say. And the pass itself converges the
 field, so every frame after it is cheap: at `RECONVERGE_AT=frames-1` the
 timing table is untouched and the census is still taken at the end of the run.
 
+**`scale_probe band=N` sets how wide a strip the pick and hammer work
+along, and without it no two world sizes are comparable.** The walk puts 64
+cuts at a stride of `band / 64`, so the default 384 spans the same absolute
+384 cells whatever the world is — **4.7% of an 8192-wide world and 19% of a
+2048-wide one**. A size sweep run that way damages the small arm four times
+harder than the large one and then compares absolute counts, which is how
+`Reports/structural-support-model.md` §6.5d briefly acquired a third bug
+that did not exist. Pass `band=$((w * 384 / 8192))` to hold the fraction
+fixed.
+
+**Its default owes a positive control and it is cheap to run**: at
+`band=384` the 8192 arm must reproduce **4,490 wrong / 10,033 pending**
+byte-for-byte. That check earned its keep immediately — an initial default
+of 378 floored to a stride of **5** against the historical **6**, which
+would have silently moved every recorded number in that report while looking
+like a no-op.
+
 **`scale_probe` echoes its own landing-aux arms** (`landing aux: settle=…
 particle=…`) as of 2026-08-27, because `SETTLE_AUX` and `PARTICLE_AUX` decide
 where §S's false anchors come from and a log that does not name them cannot be
 told from one written before they existed. Each takes `zero|max|seed`. A run
 whose header lacks that line came out of an older binary.
+
+**The `[struct]` census is a *per-frame sample*, not a total, and that makes
+`grounded` a one-way instrument.** `scheduler::step` drains
+`structural::take_tick_census()` every frame and prints only on reporting
+frames — deliberately, since a running total wearing a per-frame label would
+be worse — and the line is further gated on that frame having done work. So a
+counter in it answers "how many fired on *this* frame", and on a scene where
+the mechanism is rare it prints **no line at all**: measured 2026-08-27, the
+hammer arm at `SCHED_PASS=20` over 600 frames produced zero `[struct]` lines
+on both arms of an A/B whose oracle counts differed 26-fold.
+
+Read it accordingly: **a non-zero reading is real evidence the mechanism
+fires; a zero is nearly none.** That was written on 2026-08-27 and then
+immediately violated by its own author: "`acceptance` cannot see the ground
+root, `grounded` reads 0 through `rockdrop` and `ligament`" went into two
+documents before anyone tested it properly. **The test that works is
+differential** -- run the suite with the rule at both values and diff
+everything that is not a wall clock. Three of the 22 cases turned out to see
+it, and `scene=strike` turned out to be §S in miniature. See
+`Reports/structural-support-model.md` §6.5e. `Reports/structural-support-model.md` §6.5's
+"`grounded` reads 0 on every frame, so the ablation is vacuous" stands on the
+byte-identical output beside it rather than on the counter. When the question
+is "how much is left", use a whole-world census instead — `RECONVERGE_AT`'s
+`of changed, was at 0 (tick ground-root)` is the one that answers it for this
+particular rule.
+
+**`filmstrip`'s `max_sites=N` asserts that the structural scheduler
+*drains*, and it is the one gate in the suite that states
+`open-bugs-handoff.md` §S directly.** A **final** count rather than a peak,
+deliberately: §S is "pinned at its cap for ever", so the refutation is not
+that the backlog stays small -- a real blow should spike it -- but that it
+comes back down. On `scene=strike` the shipped engine reads 958 / 968 / 824
+/ **289** across frames 2-182 and a reverted one reads 958 / 2747 / 5034 /
+**7145**, so only the last reading separates them by more than 3x.
+
+A counter and not a wall clock, which is why it can be trusted where this
+suite's two `max_frame_ms` gates cannot: those flaked twice on a loaded box
+inside one session, and this one is bit-identical under any load.
 
 **`AUX_TRAP` is a *write-seam trap*, and the shape is the reusable part.**
 It is not an example — it is an env-gated report inside `World::set` that

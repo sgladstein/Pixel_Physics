@@ -612,6 +612,97 @@ fn grain_is_footing(world: &World, x: i32, y: i32) -> bool {
     true // deeper than the probe: a pile, not a pocket
 }
 
+
+/// The anchor distance implied by whatever the loose column under `(x, y)`
+/// is standing on — the *value* half of `grain_is_footing`'s question.
+///
+/// **`structural::tick`'s ground root used to answer this with a `0`, and
+/// that was the hammer's whole residual.** The root is right about the
+/// physics: a chunk that has landed on a pile with nothing else holding it
+/// must read as supported and must not shatter. It said so by writing
+/// `aux = 0`, which in this field means *bedrock-adjacent* — so every
+/// neighbour relaxed off a claim that the world's floor was one cell away.
+/// Measured 2026-08-27 on `scale_probe load=strike:20:200` at 8192x2560:
+/// **eight** cells stored at 0 produced **34,009** wrong ones, and removing
+/// the root outright took the climb bucket from 34,009 to zero.
+/// `Reports/structural-support-model.md` §6.5d.
+///
+/// **A distance is a path length, not a strength**, and conflating the two
+/// is what the `0` did. How much a pile can actually carry is `capacity`'s
+/// question and `capacity` already answers it. All this owes is *how far
+/// the load has to travel* to reach something that is genuinely anchored —
+/// which is the rock under the scree, plus the scree it goes through.
+///
+/// So this walks the identical column `grain_is_footing` walks, by the
+/// identical rules, and returns what it finds instead of whether it found
+/// something:
+///
+/// - bedrock, or out of bounds — the world floor really is right there,
+///   and **0 is the true answer** rather than the default one.
+/// - `attached` body material — its own stored distance, plus the grain
+///   walked through.
+/// - unattached body material, empty, or liquid — not a footing, and
+///   `grain_is_footing` says so too. `None`.
+/// - deeper than the probe — a pile with nothing found under it. `None`,
+///   and the caller keeps the old behaviour for that case; see below.
+///
+/// **Each grain cell costs its own material's `support_cost_below`**, which
+/// is the same question the field asks of a cell standing on another one,
+/// asked of the material that is actually there. That is deliberately not a
+/// new constant: `CLAUDE.md` warns that a constant nobody can tune in either
+/// direction is usually a counterweight, and anyone who wants scree to be a
+/// worse path than stone can say so in its `.ron` exactly the way stone
+/// already prices tension at `support_cost_above: 3`.
+///
+/// **`None` is not "unsupported"** — it means *this* rule has no distance to
+/// offer, and `is_anchor` still answers `rests_on_ground` for the load model
+/// independently of anything stored here. The caller decides what to do with
+/// it; `tick` keeps its old `0`, so the deep-pile case is left exactly as it
+/// was rather than traded for a new failure mode.
+pub(crate) fn ground_footing_distance(world: &World, x: i32, y: i32) -> Option<u16> {
+    // Liquid is the other half of `rests_on_ground` and has no column to
+    // walk: a floating cell is held by displacement, not by a path down to
+    // rock. Declining here leaves `tick`'s old behaviour for it untouched.
+    if world.materials.kind(world.get(x, y + 1).material) != MaterialKind::Powder {
+        return None;
+    }
+    let mut probe = (x, y + 1);
+    let mut through = 0u16;
+    for _ in 0..GRAIN_FOOTING_PROBE {
+        // The grain at `probe` is part of the path, so it is charged before
+        // whatever is under it is examined.
+        through = through.saturating_add(world.materials.get(world.get(probe.0, probe.1).material).support_cost_below);
+        let below = (probe.0, probe.1 + 1);
+        if !world.in_bounds(below.0, below.1) {
+            return Some(through); // the floor of the world holds everything up
+        }
+        let cell = world.get(below.0, below.1);
+        if cell.material == super::material::BEDROCK {
+            return Some(through);
+        }
+        if is_body_material(world, cell.material) {
+            // Unattached rock under the grain is the circular case
+            // `grain_is_footing` refuses, for its reason: the grain is
+            // resting on the very piece that is asking.
+            if !cell.attached() {
+                return None;
+            }
+            // **Its stored distance, and the lag is the point rather than a
+            // flaw.** `is_anchor` refuses to read `aux` because a stored
+            // distance lags the world by a tick and the decision it feeds is
+            // a yes/no that must not be circular. This is the opposite
+            // situation: the answer *is* a distance, the field is the only
+            // thing that has one, and being a tick stale is what every other
+            // reader of it already tolerates.
+            return Some(cell.aux().saturating_add(through));
+        }
+        if world.materials.kind(cell.material) != MaterialKind::Powder {
+            return None; // air or liquid under the pile: it is on its way down
+        }
+        probe = below;
+    }
+    None // deeper than the probe: a pile, but nothing found to measure from
+}
 /// How far down a column of loose material `grain_is_footing` looks for
 /// something holding it up.
 ///
@@ -2153,6 +2244,97 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 63, 63))
+    }
+
+    /// **A cell held up by a pile is not bedrock-adjacent**, and this pins
+    /// the distance the pile actually implies.
+    ///
+    /// `structural::tick`'s ground root wrote a flat `0` for this case,
+    /// which in this field means *at the world's floor* — so a chunk that
+    /// had landed on scree told every neighbour bedrock was one step away
+    /// and they all relaxed off it. Eight such cells produced 34,009 wrong
+    /// ones on `scale_probe load=strike:20:200`
+    /// (`Reports/structural-support-model.md` §6.5d).
+    ///
+    /// A tight assertion on a pure function over a hand-built world, which
+    /// per `CLAUDE.md` cannot be blind in an interesting way — and the two
+    /// values a broken version would return, `0` and `None`, are asserted
+    /// against explicitly rather than left to arithmetic.
+    #[test]
+    fn a_pile_over_rock_roots_at_the_rock_not_at_bedrock() {
+        let mut w = test_world();
+        // Attached rock at a known distance, two grains of scree on top of
+        // it, and the question asked from just above the scree.
+        w.set(20, 55, Cell::new(material::STONE, 0).with_attached(true).with_aux(500));
+        w.set(20, 54, Cell::new(material::GRAVEL, 0));
+        w.set(20, 53, Cell::new(material::GRAVEL, 0));
+        let grain = w.materials.get(material::GRAVEL).support_cost_below;
+        assert!(grain >= 1, "test setup: a step through grain must cost something, read {grain}");
+
+        let d = ground_footing_distance(&w, 20, 52).expect("scree over attached rock is a footing");
+        assert_ne!(d, 0, "0 means bedrock-adjacent, and the rock under this pile is at 500");
+        assert_eq!(d, 500 + 2 * grain, "the path is the rock's own distance plus the scree walked through");
+    }
+
+    /// The one `0` that is a true statement rather than a default: the
+    /// world's floor really is under the pile.
+    #[test]
+    fn a_pile_directly_on_bedrock_still_roots_near_zero() {
+        let mut w = test_world();
+        for x in 0..64 {
+            w.set(x, 63, Cell::new(material::BEDROCK, 0));
+        }
+        w.set(20, 62, Cell::new(material::GRAVEL, 0));
+        let grain = w.materials.get(material::GRAVEL).support_cost_below;
+        assert_eq!(
+            ground_footing_distance(&w, 20, 61),
+            Some(grain),
+            "one grain above bedrock is one grain from the floor, not zero and not unreachable"
+        );
+    }
+
+    /// The three refusals, each of which `grain_is_footing` also refuses or
+    /// declines to measure — so the two functions cannot drift into
+    /// disagreeing about what a footing is.
+    #[test]
+    fn the_footing_walk_refuses_what_grain_is_footing_refuses() {
+        let mut w = test_world();
+
+        // Unattached rock under the grain: the circular case, where the
+        // grain is resting on the very piece that is asking.
+        w.set(20, 55, Cell::new(material::STONE, 0).with_aux(500));
+        w.set(20, 54, Cell::new(material::GRAVEL, 0));
+        assert_eq!(ground_footing_distance(&w, 20, 53), None, "unattached rock under the scree is not a footing");
+        assert!(!grain_is_footing(&w, 20, 54), "and `grain_is_footing` agrees");
+
+        // Air under the grain: the pile is on its way down.
+        let mut w = test_world();
+        w.set(20, 54, Cell::new(material::GRAVEL, 0));
+        assert_eq!(ground_footing_distance(&w, 20, 53), None, "a grain falling through air holds nothing up");
+        assert!(!grain_is_footing(&w, 20, 54), "and `grain_is_footing` agrees");
+
+        // Nothing loose below at all: this rule has no column to walk, and
+        // says so rather than inventing one.
+        let mut w = test_world();
+        w.set(20, 55, Cell::new(material::STONE, 0).with_attached(true).with_aux(7));
+        assert_eq!(ground_footing_distance(&w, 20, 54), None, "rock directly under rock is the relaxation's job, not this one");
+    }
+
+    /// A pile deeper than the probe has nothing to measure from, and the
+    /// caller keeps its old behaviour there rather than being handed a
+    /// number this cannot justify.
+    #[test]
+    fn a_pile_deeper_than_the_probe_declines_to_measure() {
+        let mut w = test_world();
+        for y in 40..63 {
+            w.set(20, y, Cell::new(material::GRAVEL, 0));
+        }
+        assert_eq!(
+            ground_footing_distance(&w, 20, 39),
+            None,
+            "past `GRAIN_FOOTING_PROBE` there is no footing in sight to take a distance from"
+        );
+        assert!(grain_is_footing(&w, 20, 40), "`grain_is_footing` still calls a deep pile a footing -- the two answer different questions");
     }
 
     /// `capacity` and `capacity_within` must agree on every cell, always.
