@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6556 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6745 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6836 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6850 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6862 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6880 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6901 | A material-counting guard cannot see a species |
-| W1c | note | 6914 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7048 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7126 | The structural opt-out did not hold against bearing |
-| T1d | note | 7137 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7171 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7225 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7279 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7308 | §1c's settle loss is now a counter |
-| -- | note | 7325 | What landed |
-| -- | note | 7348 | Do not re-derive these |
-| -- | note | 7376 | Measurements that contradict something written |
-| -- | note | 7396 | Open |
-| -- | note | 7431 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6582 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6771 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6862 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6876 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6888 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6906 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6927 | A material-counting guard cannot see a species |
+| W1c | note | 6940 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7074 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7152 | The structural opt-out did not hold against bearing |
+| T1d | note | 7163 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7197 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7251 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7305 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7334 | §1c's settle loss is now a counter |
+| -- | note | 7351 | What landed |
+| -- | note | 7374 | Do not re-derive these |
+| -- | note | 7402 | Measurements that contradict something written |
+| -- | note | 7422 | Open |
+| -- | note | 7457 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6456,8 +6456,34 @@ needs re-deriving here:
   does not scale with the world. Whatever dominates it is plausibly what
   leaves the hammer at 35,102.
 
-  **The hammer is therefore a different source, and the control for that is
-  already in the table.** Both tool arms damage on the identical cadence
+  **The hammer's source is now found: `tick`'s ground root writes a `0`.**
+  Measured 2026-08-27 with `STRUCT_NO_GROUND_ROOT=1` on the hammer arm,
+  everything else identical: wrong cells **35,102 -> 1,542**, the `1k-60k`
+  climb bucket **34,009 -> 0**, `pending` **39,492 -> 6,036** against a
+  ~5,400 idle. `score_cracks` was the first suspect and is ruled out by
+  reading -- it already schedules a check on every cell it scores.
+
+  The positive control is what makes that trustworthy, and it is the same
+  knob §6.5 correctly called vacuous: `STRUCT_NO_GROUND_ROOT` reads
+  byte-identical on the *blast* scene with `grounded` at 0 every frame, and
+  fires on the *hammer* scene. Same instrument, opposite standing, decided by
+  whether the mechanism runs.
+
+  **It is a value bug, not a rule bug.** The root is right about the physics
+  -- a chunk landed on a pile must read as supported and must not shatter --
+  but it says so by writing `aux = 0`, which in this field means
+  *bedrock-adjacent*, and everything around it inherits that stronger claim.
+  `load::is_anchor` is `touches_bedrock || rests_on_ground` and consults the
+  world directly, so the 0 is redundant to the consumer that needs it and
+  corrupting to every consumer that does not. Eight cells stored at 0 produce
+  34,009 wrong ones. **The ablation is a diagnosis, not a proposal**: it
+  turns `a_cell_left_standing_on_nothing_is_asked_again` and
+  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` red. Note that
+  `scripts/acceptance.sh` is *green* with the root removed and the `grounded`
+  counter reads 0 through `rockdrop` and `ligament` -- the behaviour gate
+  cannot see this rule, so judge any change to it on `cargo test --lib`.
+
+  **The control for "you censused it mid-damage" is in the table above.** Both tool arms damage on the identical cadence
   (every 20 frames, last blow at ~1,580) and are censused at the identical
   frame, so "the census is taken mid-damage" cannot explain a gap of four
   orders of magnitude between them — the pick converges to **3** under
