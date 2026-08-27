@@ -1,0 +1,58 @@
+{
+  "id": "20260827T225021923Z-08b0bc",
+  "created": "2026-08-27T22:50:21Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/soil-buildup-trees-e1rh23",
+    "commit": "0bec68c",
+    "agent": null,
+    "session_id": "3dcffd98-4d0c-56c6-a9df-1ebe4b7659ec",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Leaf litter: how much of it should become soil?",
+  "question": "Which forest floor is right — the trees standing on their litter rather than sinking into it?",
+  "context_md": "You reported trees being buried by their own leaf fall. Reproduced here: `scene=forest`, one build, three frames each at **14,000 / 26,000 / 38,000**, same seed, cropped to the ground band.\n\nThe pipeline was 1:1 — a shed leaf becomes one litter cell, a settled litter cell weathers into one soil cell, and soil never weathers back. A plant builds its tissue from carbon fixed out of light, so that is matter entering the world from nothing and never leaving.\n\n- **A** is current behaviour: every rotting leaf leaves a soil cell.\n- **B** is the proposed 5%: one rotting leaf in twenty leaves soil, the rest leave nothing. That is roughly the real number — rotting is mostly the leaf being breathed away as CO2, and published humification puts the stabilised fraction in the low single digits to ~10%.\n\n**What I am unsure of and want your eye on:** whether B now reads as *too* clean — a wood should still look like it has a floor, and I may have taken the litter layer with the soil.\n\n**Please ignore** the root tangle and the canopy shape; neither changed, and the arms are the same seed.\n\nOne thing the numbers say that the picture does not: this only changes the *slope*. 5% of an unbounded stream is still unbounded, so a long enough run buries the trees either way. There is no sink for soil in the engine at all — a real fix needs one, and that is not this change.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — 1:1 (current)",
+      "files": [
+        "20260827T225021923Z-08b0bc/000-ab_1.png"
+      ],
+      "caption": "every rotting leaf becomes soil",
+      "meta": {
+        "rot left solid": 3478,
+        "rot left nothing": 0,
+        "measured yield": "100%",
+        "net soil vs first sample": -669,
+        "frames": "14k/26k/38k"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — 5% yield (proposed)",
+      "files": [
+        "20260827T225021923Z-08b0bc/001-ab_0.05.png"
+      ],
+      "caption": "1 leaf in 20 leaves soil",
+      "meta": {
+        "rot left solid": 294,
+        "rot left nothing": 5675,
+        "measured yield": "5%",
+        "net soil vs first sample": -3213,
+        "frames": "14k/26k/38k"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
