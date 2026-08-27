@@ -1,10 +1,11 @@
 # Structural Collapse
 
-*Current as of: 2026-08-27. Changed on 2026-08-27: debris that comes to rest
-now inherits its surroundings' sense of what holds it up instead of assuming
-bedrock — which stops ground near a fresh cut from crumbling on long after
-the digging, though only in a world deep enough for it to have mattered; see
-**What rubble does**. Changed on 2026-08-23: the
+*Current as of: 2026-08-27. Changed on 2026-08-27: debris that comes to
+rest, and anything held up by a pile, now take their sense of what holds
+them up from what is actually underneath instead of assuming bedrock — which
+stops ground near a fresh cut or a hammered cliff from crumbling on long
+after the work stopped, though only in a world deep enough for it to have
+mattered; see **What rubble does**. Changed on 2026-08-23: the
 brush and fire now
 license a collapse the way a blow does, so erasing a pillar or burning
 through a trunk brings down what it was holding — see **How far damage
@@ -235,8 +236,16 @@ outward: the stone around a fresh crater would come to believe it was
 standing on something solid, then slowly work out that it wasn't, and go on
 quietly crumbling long after the digging stopped.
 
-**How much of that you can see depends on how deep the world is**, and at
-the size the test world is now it is honestly nothing — the belief has to
+The same correction applies to anything **held up by a pile** rather than
+by rock. Resting on scree is real support and always was — but it is support
+at the far end of a longer path, through the loose stuff and then along
+whatever the loose stuff is sitting on. It used to be recorded as though the
+pile were bedrock itself, which is the same mistaken belief in a second
+place, and it is why hammering a cliff face left the ground around it
+working away at itself long after the blows stopped.
+
+**How much of any of that you can see depends on how deep the world is**,
+and at the size the test world is now it is honestly nothing — the belief has to
 travel a long way down to bedrock and back before it costs anything, and in
 a shallow world it does not have far to go. In a world several thousand
 cells deep it is the difference between ground that settles and ground that

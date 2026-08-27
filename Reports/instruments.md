@@ -281,6 +281,24 @@ where §S's false anchors come from and a log that does not name them cannot be
 told from one written before they existed. Each takes `zero|max|seed`. A run
 whose header lacks that line came out of an older binary.
 
+**The `[struct]` census is a *per-frame sample*, not a total, and that makes
+`grounded` a one-way instrument.** `scheduler::step` drains
+`structural::take_tick_census()` every frame and prints only on reporting
+frames — deliberately, since a running total wearing a per-frame label would
+be worse — and the line is further gated on that frame having done work. So a
+counter in it answers "how many fired on *this* frame", and on a scene where
+the mechanism is rare it prints **no line at all**: measured 2026-08-27, the
+hammer arm at `SCHED_PASS=20` over 600 frames produced zero `[struct]` lines
+on both arms of an A/B whose oracle counts differed 26-fold.
+
+Read it accordingly: **a non-zero reading is real evidence the mechanism
+fires; a zero is nearly none.** `Reports/structural-support-model.md` §6.5's
+"`grounded` reads 0 on every frame, so the ablation is vacuous" stands on the
+byte-identical output beside it rather than on the counter. When the question
+is "how much is left", use a whole-world census instead — `RECONVERGE_AT`'s
+`of changed, was at 0 (tick ground-root)` is the one that answers it for this
+particular rule.
+
 **`AUX_TRAP` is a *write-seam trap*, and the shape is the reusable part.**
 It is not an example — it is an env-gated report inside `World::set` that
 fires on any write matching a predicate and prints a backtrace. Reach for it

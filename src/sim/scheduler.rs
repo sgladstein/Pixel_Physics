@@ -353,8 +353,8 @@ impl SchedTiming {
         let c = self.census;
         if c.worsened + c.improved + c.unmoved > 0 {
             println!(
-                "  [struct] frame {frame:>6} worsened {:>5} improved {:>5} unmoved {:>5} | budget0 {:>5} chain-deferred {:>5} uninteresting {:>5} | grounded {:>5} | max aux {}",
-                c.worsened, c.improved, c.unmoved, c.budget0, c.chain_deferred, c.uninteresting, c.grounded, c.max_aux
+                "  [struct] frame {frame:>6} worsened {:>5} improved {:>5} unmoved {:>5} | budget0 {:>5} chain-deferred {:>5} uninteresting {:>5} | grounded {:>5} (flat {:>5}) | max aux {}",
+                c.worsened, c.improved, c.unmoved, c.budget0, c.chain_deferred, c.uninteresting, c.grounded, c.grounded_flat, c.max_aux
             );
         }
     }

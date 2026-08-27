@@ -246,12 +246,22 @@ pub struct TickCensus {
     /// mechanism never fired reads exactly like an ablation that changed
     /// nothing.
     pub grounded: u32,
+    /// Of those, how many had **no** footing distance to root at and fell
+    /// back to the flat `0` -- a pile deeper than `GRAIN_FOOTING_PROBE`
+    /// with nothing found under it, or the buoyant arm of
+    /// `load::rests_on_ground`.
+    ///
+    /// Exists so the size of what `load::ground_footing_distance` does
+    /// *not* cover is readable rather than assumed. `grounded` alone cannot
+    /// tell a root that derived a real distance from one that wrote the old
+    /// bedrock claim anyway, and those are the two halves §6.5d is about.
+    pub grounded_flat: u32,
 }
 
 thread_local! {
     static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
         worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
-        grounded: 0,
+        grounded: 0, grounded_flat: 0,
     }) };
 }
 
@@ -437,7 +447,36 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     if grounded_root {
         census(|c| c.grounded += 1);
     }
-    let new_distance: u16 = if grounded_root { 0 } else { relaxed };
+    // **The root's *value*, which used to be a flat 0 and was the hammer's
+    // whole residual.** `aux == 0` reads as *bedrock-adjacent* in this
+    // field, so a cell rooted here told every neighbour the world's floor
+    // was one step away, and they relaxed off it. Measured 2026-08-27 on
+    // `scale_probe load=strike:20:200` at 8192x2560: **eight** cells stored
+    // at 0 produced **34,009** wrong ones, and the `1k-60k` climb bucket
+    // went to zero with the root removed outright.
+    //
+    // Removing it is not the fix -- it is what the rule exists to prevent,
+    // and the ablation turns two guards here red. What is wrong is the
+    // number, not the rule: the load path really does reach ground, it
+    // just does not reach *bedrock*, and `load::ground_footing_distance`
+    // walks the same column `is_resting_on_ground` walks to find out how
+    // far away the real footing is.
+    //
+    // **`unwrap_or(0)` keeps the old behaviour where no distance can be
+    // derived** -- a pile deeper than `GRAIN_FOOTING_PROBE` with nothing
+    // found under it, or the buoyant arm. That case is left exactly as it
+    // was rather than traded for a new failure mode, and it is counted
+    // (`grounded_flat`) so the size of what is left is readable rather
+    // than assumed. `Reports/structural-support-model.md` §6.5d.
+    let new_distance: u16 = if grounded_root {
+        let footing = if ground_root_flat() { None } else { super::load::ground_footing_distance(world, x, y) };
+        if footing.is_none() {
+            census(|c| c.grounded_flat += 1);
+        }
+        footing.unwrap_or(0)
+    } else {
+        relaxed
+    };
 
     // Written *before* the failure test, not after, and the order is
     // load-bearing: `load::failing_region` reads stored distances, and the
@@ -3853,6 +3892,20 @@ fn no_climb() -> bool {
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("STRUCT_NO_CLIMB").map(|v| v != "0").unwrap_or(false))
 }
+/// `GROUND_ROOT=flat` restores the flat `0` the ground root wrote before
+/// 2026-08-27, for measurement only.
+///
+/// Kept because §6.5d's arms have to stay reproducible: the whole finding is
+/// the gap between rooting at 0 and rooting at what the pile is standing on,
+/// and a report whose arms cannot be re-run is a report nobody can check.
+/// `STRUCT_NO_GROUND_ROOT=1` is the third arm -- no root at all, which is a
+/// diagnosis rather than a proposal and turns two guards in this file red.
+fn ground_root_flat() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("GROUND_ROOT").map(|v| v == "flat").unwrap_or(false))
+}
+
 
 /// **A probe, not a mechanism.** `STRUCT_NO_GROUND_ROOT=1` removes `tick`'s
 /// last-resort ground root, so a cell that relaxes to no path at all stays at
