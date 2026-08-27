@@ -303,7 +303,6 @@
                 shade_death: 0.0,
                 // Transpirational demand per tick at full light. A live tip
                 // is foliage too and pays like one.
-                transpiration: 0.05,
                 // A tip is the frontier, not sheddable foliage -- the same
                 // reasoning `shade_death: 0.0` above carries.
                 drought_death: 0.0,
@@ -565,7 +564,6 @@
                 // control that isolates it, at its gentlest setting". The
                 // sweep that sets it properly is the economy re-derivation,
                 // together with INCOME_PER_NODE and Grow.cost.
-                transpiration: 0.05,
                 // Drought shedding, the counterpart of shade_death and the
                 // same order of magnitude. This is what makes a plant that
                 // cannot reach soil thin out and die rather than stand

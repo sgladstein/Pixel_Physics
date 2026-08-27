@@ -945,6 +945,7 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             "  leaf construction binds: {} of {} wanted leaf cells refused for want of carbon ({leaf_pct:.1}%)",
             w.leaf_cells_unaffordable, leaf_want
         );
+        println!("  wood cells laid (secondary thickening, now charged): {}", w.wood_cells_built);
         let seed_ops = w.seed_budget_blocked + w.seed_budget_available;
         let seed_pct = if seed_ops > 0 { 100.0 * w.seed_budget_blocked as f64 / seed_ops as f64 } else { 0.0 };
         println!(

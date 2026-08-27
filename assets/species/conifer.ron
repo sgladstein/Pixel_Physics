@@ -120,7 +120,7 @@
                 // under plagiotropic everything-else.
                 tropism: [Orthotropic, Plagiotropic, Plagiotropic, Plagiotropic],
             ),
-            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, drought_death: 0.0),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
@@ -223,7 +223,7 @@
             // executing the answer he already gave, not a new call; if a
             // species should shed faster than the others that is a
             // separate, per-species decision and wants its own card.
-            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, drought_death: 0.00075),
         ]),
     ],
 )

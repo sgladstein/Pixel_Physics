@@ -758,6 +758,10 @@ pub struct World {
     /// `leaf_cells_unaffordable`.
     pub leaf_cells_built: u64,
 
+    /// Cells of secondary thickening actually laid, once wood costs carbon
+    /// — the effect counter for `plant::WOOD_CONSTRUCTION_MULTIPLE`.
+    pub wood_cells_built: u64,
+
     /// **Times `Reproduce` was eligible on a cell and the reproductive
     /// budget could not cover a seed** — the same effect counter for
     /// `plant::REPRODUCTIVE_ALLOCATION`.
@@ -1525,6 +1529,7 @@ impl World {
             germinations: 0,
             leaf_cells_unaffordable: 0,
             leaf_cells_built: 0,
+            wood_cells_built: 0,
             seed_budget_blocked: 0,
             seed_budget_available: 0,
             decayed_damp: 0,

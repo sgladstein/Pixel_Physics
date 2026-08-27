@@ -2571,7 +2571,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // species: for anything with a `Leaf` stage it is false on a
             // `GrowingTip` by construction, so this arm is inert on `tree`,
             // `conifer`, `shrub` and `creeper` exactly as before.
-            Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
+            Behavior::Photosynthesize { rate, shade_death, drought_death } => {
                 let light = ambient_light_above(world, x, y);
                 if is_foliage(world, x, y, cell_type, species_id, has_leaf_stage) {
                     // Cubed, and checked before the credit, for the same two
@@ -2605,7 +2605,6 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // **Spend water, then earn carbon in proportion to what is
                 // left.** The order is the physical one: stomata open, water
                 // goes out, and carbon comes in only while they are open.
-                let _ = transpiration; // demand is charged once per organism, in `organism_upkeep`
                 // The leaf-economy allele scales every credit -- a live
                 // tip is foliage and runs the same strategy its leaves do.
                 // (Its demand side is scaled where demand is summed, in
@@ -3241,6 +3240,57 @@ const MAINTENANCE_PER_NODE: f32 = 2.0e-5;
 /// plant's bill-to-income ratio, so a tree that is shaded or droughted
 /// hard enough never gets back to where it was.
 const MAINTENANCE_EXPONENT: f32 = 1.5;
+
+/// **Water a leaf spends per unit of carbon it earns** — transpirational
+/// demand, derived from `Photosynthesize::rate` rather than authored beside
+/// it.
+///
+/// **This exists because the pairing the genome enforces was not enforced
+/// one layer down.** `LEAF_RATE_ALLELES` is paired with
+/// `LEAF_TRANSPIRATION_ALLELES` at every consumer, and its own doc says why:
+/// *"a free rate axis would be selection candy with no bill attached."* The
+/// species file had no such coupling — `rate` and `transpiration` were
+/// independent fields of the same struct, so an author could raise income
+/// without raising demand. Measured before this change: `transpiration` read
+/// **0.05 in all ten declarations across five species** while `rate` ranged
+/// 0.35-0.55. It was a constant standing next to a free lever.
+///
+/// So demand is now `rate * this`, one number instead of two, in the same
+/// spirit as `WOOD_DENSITY_ALLELES` scaling strength and price together
+/// *"so tuning cannot quietly turn the trade into a free lunch."*
+///
+/// 0.1 is the ratio the shipped files already carried (0.05 against a rate
+/// of 0.5), so a species at the old rate pays exactly the old demand. What
+/// changes is that a *faster* leaf now drinks proportionally more, which is
+/// the leaf economics spectrum's central trade and was previously available
+/// only through the genome.
+const TRANSPIRATION_PER_RATE: f32 = 0.1;
+
+/// **What one cell of secondary thickening costs to build**, as a multiple
+/// of the species' own shoot `Grow.cost`.
+///
+/// The second half of growth respiration, after
+/// `LEAF_CONSTRUCTION_MULTIPLE`. `thicken()` laid wood for **nothing** until
+/// now, and `WOOD_DENSITY_ALLELES`' own doc recorded the gap rather than
+/// hiding it: *"Secondary thickening pays no carbon today, so the price
+/// binds on extension only."* This is that price.
+///
+/// **Below 1.0, and the ordering is the biology.** Construction cost runs
+/// about 1.2-1.4 g glucose per g dry mass for stem tissue against 1.4-1.6
+/// for leaf, so wood is the *cheaper* tissue per unit — the opposite of the
+/// intuition that a trunk is expensive. A trunk is expensive because there
+/// is a great deal of it, not because each cell is dear, and that is exactly
+/// what a per-cell price expresses correctly.
+///
+/// **What this does not fix, and must not be confused with.** Biology says
+/// wood is cheap to *build* and nearly free to *keep* — heartwood is dead
+/// and does not respire. This engine still charges every wood cell
+/// `MAINTENANCE_PER_CELL` for ever, which is the inverted half. That is a
+/// separate change and it is strictly *after* this one: `MAINTENANCE_PER_CELL`
+/// is currently the only thing stopping abandoned wood and blob interiors
+/// standing free for ever, and removing it before construction was charged
+/// would bring the blob back. See the report's §10a.3.
+const WOOD_CONSTRUCTION_MULTIPLE: f32 = 0.8;
 
 /// Whether a plant has enough shoot to bear seed at all.
 ///
@@ -4719,7 +4769,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // knife-edge margins and sums separate cleanly.
             if let Some(t) = ty {
                 let transpiration = world.species.get(species_id).behaviors(t).iter().find_map(|b| match b {
-                    Behavior::Photosynthesize { transpiration, .. } => Some(*transpiration),
+                    // **Derived from the rate, not authored beside it**
+                    // -- see `TRANSPIRATION_PER_RATE`.
+                    Behavior::Photosynthesize { rate, .. } => Some(*rate * TRANSPIRATION_PER_RATE),
                     _ => None,
                 });
                 if let Some(rate) = transpiration {
@@ -5021,7 +5073,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
         for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
             match behavior {
-                Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
+                Behavior::Photosynthesize { rate, shade_death, drought_death } => {
                     let light = ambient_light_above(world, cx, cy);
                     // Abscission — **a graded pressure, not a threshold**,
                     // chosen on a fair paired measurement and not on the
@@ -5074,7 +5126,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // frontier arm for the ordering, and
                     // `Behavior::Photosynthesize::transpiration` for why
                     // this charge is what makes a root worth having.
-                    let _ = transpiration; // charged once per organism -- see `organism_upkeep`
+                    // Demand is charged once per organism in `organism_upkeep`, derived from `rate`.
                     let status = water_status(world, cx, cy);
                     // **Drought abscission, the exact counterpart of the
                     // shade rule above and cubed for the same reason.** A
@@ -6046,6 +6098,27 @@ const MAX_STEM_RUN: i32 = 32;
 
 #[allow(clippy::too_many_arguments)]
 fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: f32, bud_survival: f32, rng: &mut Rng) {
+    // The species' own shoot extension price, scaled to wood -- see
+    // `WOOD_CONSTRUCTION_MULTIPLE`. Read the same way `allocate_to_frontier`
+    // reads `leaf_cluster`; wood density deliberately does *not* scale it,
+    // for the reason `tissue_cost` carries at the leaf site.
+    let wood_cost = world
+        .organism(organism_id)
+        .map(|st| st.species)
+        .map(|sp| {
+            world
+                .species
+                .get(sp)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    Behavior::Grow { cost, .. } => Some(*cost),
+                    _ => None,
+                })
+                .unwrap_or(0.0)
+        })
+        .unwrap_or(0.0)
+        * WOOD_CONSTRUCTION_MULTIPLE;
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
@@ -6171,7 +6244,18 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             let n = world.get(nx, ny);
             n.organism_id() == organism_id && organism::cell_type(n.aux()) == Some(CellType::Leaf)
         };
-        if world.is_empty(nx, ny) || own_leaf {
+        // **Wood is built from carbon now.** See
+        // `WOOD_CONSTRUCTION_MULTIPLE`. Charged against the cell doing the
+        // thickening, which `allocate_to_frontier` has funded out of
+        // `(income - maintenance)` like every other growth cost -- so a
+        // plant thickens as fast as it can pay for, and no faster.
+        //
+        // Refusing rather than truncating, because unlike a leaf spray
+        // there is nothing to truncate: this places one cell or none. The
+        // gradedness lives in *how often* a stem can afford one.
+        if (world.is_empty(nx, ny) || own_leaf) && world.carbon_at(x, y) >= wood_cost {
+            write_carbon(world, x, y, world.carbon_at(x, y) - wood_cost);
+            world.wood_cells_built += 1;
             let cell = world.get(x, y);
             // **Banded here too, and this is the site that matters most for
             // bark colour**: secondary thickening lays far more wood than
@@ -6826,7 +6910,25 @@ so nothing below this line would be about shade"
             // drizzle. Measured at that interval the droughted tree
             // *recovered* — 3,871 cells and `starving_ticks` back to 0 —
             // which reads exactly like the rule failing and was the scene.
-            for _ in 0..200 {
+            // **450 hundred-frame steps, raised from 200 when construction
+            // charging landed, and the property is unchanged.** Charging
+            // carbon to build leaves and wood makes a plant *smaller*, so
+            // its mass term (`MAINTENANCE_PER_CELL x cells`) is smaller, so
+            // the `income >= mass term` line this test's death rule keys on
+            // is easier to clear and a droughted tree accumulates its
+            // `STARVATION_DEATH_TICKS` more slowly. At the old budget it
+            // reached 133 consecutive starving ticks of the 200 needed and
+            // the assertion below fired.
+            //
+            // The window was widened, not the assertion weakened, and that
+            // it still dies was *measured* rather than assumed before the
+            // number was changed. `CLAUDE.md`: a termination claim wants a
+            // budget set from a measured curve. Re-deriving
+            // `STARVATION_DEATH_TICKS` against the new economy is the other
+            // option and is deliberately not taken here -- it is tuning,
+            // and it belongs with the rest of the re-derivation rather than
+            // inside a bug fix.
+            for _ in 0..450 {
                 if withhold {
                     // Re-applied every epoch because the plant's own root tissue
                     // keeps converting soil and the bed would otherwise

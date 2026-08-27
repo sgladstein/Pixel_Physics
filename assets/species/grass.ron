@@ -224,7 +224,7 @@
             // right and the channel that feeds it is empty. Widening the
             // demand sum to a photosynthetic `MatureBody` is an economy
             // change and belongs to P2's single re-derivation, not here.
-            Photosynthesize(rate: 0.55, shade_death: 0.004, transpiration: 0.05, drought_death: 0.002),
+            Photosynthesize(rate: 0.55, shade_death: 0.004, drought_death: 0.002),
         ]),
         (RootTip, [
             Absorb(rate: 1.6),
@@ -303,7 +303,7 @@
             // Standing blades keep earning, at a lower rate than the
             // growing tip. With no `Leaf` cell type in the species, this
             // and the tip arm above are the entire carbon income.
-            Photosynthesize(rate: 0.4, shade_death: 0.004, transpiration: 0.05, drought_death: 0.002),
+            Photosynthesize(rate: 0.4, shade_death: 0.004, drought_death: 0.002),
         ]),
         (DormantBud, [
             BudBreak(

@@ -705,31 +705,6 @@ pub enum Behavior {
         /// that foliage sits above it.
         #[serde(default)]
         shade_death: f32,
-        /// **Transpirational demand**: water this cell spends per organism
-        /// tick at full light, scaled by the light it actually reads.
-        /// `0.0` disables it, which is what every species that has not
-        /// opted in gets.
-        ///
-        /// This is the charge that makes roots matter. Before it, `Absorb`
-        /// credited the same pool `Photosynthesize` filled and nothing
-        /// consumed water at all, so a plant with no soil contact ran no
-        /// deficit and grew on light alone — which is why a canopy filled
-        /// with epiphytes and why a germination guard had to forbid what
-        /// the economy should have made fatal.
-        ///
-        /// **Driven by foliage, not by root count**, which is what
-        /// `plant::TRANSPIRATION_PER_ROOT_CELL`'s own doc says it should
-        /// have been all along: "real transpiration is driven by *leaf*
-        /// area and evaporative demand, not by root count — the canopy is
-        /// the pump… driving it from a real leaf count needs the
-        /// whole-organism totals Decision 2's sidecar introduces". The
-        /// sidecar is here now.
-        ///
-        /// Scaled by light because stomata open in light: a leaf at night
-        /// spends almost nothing, which keeps the day/night oscillator out
-        /// of the *decisions* while leaving it real in the flow.
-        #[serde(default)]
-        transpiration: f32,
         /// Shedding **pressure** under drought, the exact counterpart of
         /// `shade_death` and cubed for the same reason: the chance per tick
         /// that a leaf with no water is shed, falling away steeply as its

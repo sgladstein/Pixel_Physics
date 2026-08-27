@@ -30,6 +30,7 @@ inventory this corrects in two places), and
 | 12 | The owner's verdict, and the binding instrument it unblocked |
 | 13 | The re-derivation — and `seed_chance` is the real fence |
 | 14 | **Built**: the fence comes out — reproduction priced, not rolled |
+| 15 | **Built**: steps 2 and 3b — the last two free tissue levers get a price |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -1074,3 +1075,111 @@ Three rows of §3 move, and one fence in §6 is gone:
 
 `seed_maturity` is still a fence and is still deliberately in place —
 removing it is §10b's open decision and belongs in its own change.
+
+## 15. Built: steps 2 and 3b — the last two free tissue levers get a price
+
+Implemented rather than swept, on the owner's steer that the work should be
+building infrastructure rather than tuning constants.
+
+### 15a. Step 2 — `rate` and `transpiration` are one number now
+
+§6 named this the smallest real finding: the genome pairs
+`LEAF_RATE_ALLELES` with `LEAF_TRANSPIRATION_ALLELES` at every consumer
+*"because a free rate axis would be selection candy with no bill attached"*,
+and the species file left them as independent fields of the same struct.
+
+**Measured before touching it: `transpiration` read `0.05` in all ten
+declarations across five species while `rate` ranged 0.35–0.55.** It was a
+constant standing next to a free lever — the exact shape the audit exists to
+find.
+
+`transpiration` is deleted from `Behavior::Photosynthesize`. Demand is now
+`rate * TRANSPIRATION_PER_RATE` (0.1), the ratio the shipped files already
+carried, so a species at the old rate pays exactly the old demand. What
+changes is that a *faster* leaf now drinks proportionally more — the leaf
+economics spectrum's central trade, previously reachable only through the
+genome.
+
+One authored number instead of two, and the trade can no longer be authored
+away.
+
+### 15b. Step 3b — secondary thickening costs carbon
+
+`thicken()` laid wood for nothing, and `WOOD_DENSITY_ALLELES`' own doc
+recorded the gap rather than hiding it: *"Secondary thickening pays no carbon
+today, so the price binds on extension only."*
+
+`WOOD_CONSTRUCTION_MULTIPLE` (0.8) charges each thickening cell against the
+cell doing the thickening, which `allocate_to_frontier` has already funded out
+of surplus. **Below 1.0 deliberately**: stem construction runs ~1.2–1.4 g
+glucose/g against leaf's 1.4–1.6, so wood is the *cheaper* tissue per unit. A
+trunk is expensive because there is a great deal of it, not because each cell
+is dear — which is what a per-cell price expresses correctly.
+
+Refusing rather than truncating, because unlike a leaf spray there is nothing
+to truncate: this places one cell or none, and the gradedness lives in how
+often a stem can afford one.
+
+**Measured, dense bed, seed 1, 28,800 frames** (against §14's post-conversion
+state):
+
+| | before 15a/15b | after |
+|---|---|---|
+| cells (median) | 2,474 | 2,623 |
+| **leaves (median)** | 766 | **1,014** |
+| wood cells laid | — | 6,896 |
+| germinations | 30 | **37** |
+| leaf charge binds | 66.6% | 68.0% |
+
+**Foliage went *up* when a cost was added, and that is the whole point.**
+Wood now competes for the same carbon, so the plant lays less of it and the
+freed carbon reaches the leaves. The economy is trading between tissue types
+instead of each being separately free — which is the first time in this report
+that adding a price *improved* a stand rather than shrinking it.
+
+### 15c. The one regression, and why the fix was a window and not a constant
+
+`a_tree_denied_water_dies_and_a_watered_one_does_not` went red: the droughted
+tree reached **133 consecutive starving ticks of the 200** needed, inside the
+test's 20,000-frame window.
+
+**The cause is the change working.** Charging construction makes a plant
+smaller; a smaller plant has a smaller mass term (`MAINTENANCE_PER_CELL x
+cells`); so the `income >= mass term` line that the death rule keys on is
+easier to clear, and starvation accrues more slowly.
+
+Two available fixes, and they are not equivalent:
+
+- **Re-derive `STARVATION_DEATH_TICKS`** against the new economy. That is
+  tuning, and it belongs with the rest of the re-derivation rather than
+  buried inside a change.
+- **Widen the test's window**, which is what was done — 200 hundred-frame
+  steps to 450. The property is unchanged (*a droughted tree dies*); only the
+  measurement window moved to match slower dynamics.
+
+**And it was measured before the number was changed, not after.** The tree
+does still die at the wider budget; the assertion passes on its own terms
+rather than being weakened. `CLAUDE.md` asks for a termination claim's budget
+to come from a measured curve, and this one now does. The reason is written at
+the call site so a later reader does not mistake a widened window for a
+softened test.
+
+Gates: `cargo test --lib` **954 passed / 0 failed**; clippy `--all-targets -D
+warnings` clean; `scripts/acceptance.sh` all cases; docscheck clean.
+
+### 15d. Where the audit stands now
+
+Every tissue a plant can build is priced, and the two economies close:
+
+| lever | was | now |
+|---|---|---|
+| leaf construction | free | priced, binds ~68% |
+| secondary thickening | free | priced |
+| `rate` | free at the authored layer | coupled to demand |
+| reproduction | rate-fenced | priced, binds ~79% |
+| `seed_chance` | a rate fence | **deleted** |
+
+Still outstanding, and each is its own change: **3c** (stop billing interior
+wood — strictly after 3b, per §10a.3, and now unblocked); **step 5**
+(normalise the direction score); `seed_maturity`'s fence (§10b); and the
+denominator work in step 1.
