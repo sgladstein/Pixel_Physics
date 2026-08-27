@@ -21,6 +21,30 @@ This repo's own stated lesson, from `docscheck.sh`'s header and from
 runs catches what a convention does not**. The removal criterion is a
 convention. This is the check.
 
+The term this file measured first is the smaller one
+--------------------------------------------------
+Added 2026-08-27, after the always-loaded gate had already landed. Decomposing a
+**real** measured agent run -- docbench's 95,518 `agent_tokens`, 2026-08-26 --
+against the floor this file gates:
+
+    always-loaded prefix   ~24,295   26%
+    everything else        ~71,223   74%   <- reading
+
+So three quarters of what an agent spends is **reading**, and the gate below
+covers the other quarter. That is worth stating plainly because this file was
+built first and could otherwise be mistaken for the whole picture: shrinking the
+prefix is real and bounded, and it is not where the money is.
+
+`--corpus` ranks the read side. It exists because a materiality floor was missing
+and small savings kept looking actionable: a prompt-prefix repair worth ~2,940
+tokens per run was surfaced as a finding in the same session that a **67,027**
+token repair sat unmeasured. One unguided read of `Reports/open-bugs-handoff.md`
+costs more than relocating CLAUDE.md across a seven-agent fan-out.
+
+**The floor: 10,000 tokens per affected run.** Below it, fix it if it is free and
+do not report it as a finding. Roughly 10% of one agent run and 1% of a fan-out
+-- set so that the arithmetic, not enthusiasm, decides what gets a session.
+
 The second number: cache-prefix churn
 -------------------------------------
 `CLAUDE.md` renders inside the cached prompt prefix (render order is
@@ -156,6 +180,44 @@ def churn(days=7):
     return [(d, len(v)) for d, v in list(by_day.items())[:days]]
 
 
+# The floor below which a saving is not worth a session. See the docstring.
+MATERIALITY_FLOOR = 10_000
+
+# The documents CLAUDE.md routes sessions into. Each carries an explicit
+# "do not read it whole" warning, which is a convention -- so the number that
+# matters is what one unguided read costs when the convention does not hold.
+CORPUS = (
+    "Reports/open-bugs-handoff.md",
+    "Reports/dead-ends.md",
+    "PLAN.md",
+    "PLAN-log.md",
+    "README.md",
+    "Reports/README.md",
+)
+
+
+def corpus():
+    """Rank the read side by what one unguided read costs."""
+    rows = []
+    for rel in CORPUS:
+        f = ROOT / rel
+        if f.exists():
+            b = f.stat().st_size
+            rows.append((rel, b, tokens(b)))
+    rows.sort(key=lambda r: -r[1])
+    print("contextbudget: the READ side -- ~74% of a measured agent run")
+    print(f"  (floor for acting: {MATERIALITY_FLOOR:,} tokens per affected run)\n")
+    print(f"  {'document':<34} {'~tokens':>9}  {'vs floor':>9}")
+    for rel, _, tok in rows:
+        print(f"  {rel:<34} {tok:>9,}  {tok / MATERIALITY_FLOOR:>8.1f}x")
+    total = sum(r[2] for r in rows)
+    print(f"\n  corpus total if read whole: ~{total:,} tokens")
+    print(f"  always-loaded floor, for scale: ~{measure()['tokens']:,} "
+          f"({100 * measure()['tokens'] / total:.0f}% of it)")
+    print("\n  A single unguided read of the largest of these outweighs every")
+    print("  prompt-prefix repair in the repo combined. Aim here first.")
+
+
 def measure():
     text = ALWAYS_LOADED.read_text(encoding="utf-8")
     nbytes = len(text.encode("utf-8"))
@@ -261,6 +323,10 @@ def write_block(m):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
     m = measure()
+
+    if mode == "--corpus":
+        corpus()
+        return 0
 
     if mode == "--write":
         write_block(m)
