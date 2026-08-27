@@ -1266,9 +1266,44 @@ water balance, per established plant:");
                 let (_, umed, umax, _) = q(&mut unpaid);
                 let (nmin, nmed, nmax, _) = q(&mut bases);
                 println!("\ncarbon book, per established plant (per organism tick):");
-                println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                // **`OrganismState::income` is derived from `CellType::Leaf`
+                // cells only, so it is structurally zero for a species whose
+                // photosynthetic surface is its shoot.** `allocate_to_frontier`
+                // accumulates `intercepted` in its `Some(CellType::Leaf)` arm
+                // (`plant.rs`), so a leafless species records 0 however much it
+                // actually earns -- and `grass.ron`'s own header says so at
+                // length: "Income is NOT zero ... What is zero is every
+                // quantity derived from `Leaf` cells".
+                //
+                // Printed as an explicit refusal rather than as `0.000` and a
+                // `bill / income` of `inf`, which is what this block used to
+                // emit. That pair reads as a measurement -- a plant earning
+                // nothing and infinitely in debt -- and it is not one: it is
+                // the readout not applying. `CLAUDE.md`, "ask what your number
+                // counts when nothing is wrong".
+                //
+                // **The zero is still behaviourally real**, which is why this
+                // says "not measurable here" rather than "ignore this": the
+                // same field gates `break_buds`' `supportable` and the die-back
+                // trigger, so a leafless species genuinely cannot flush a bud.
+                // Fixing *that* is an economy change filed as
+                // `open-bugs-handoff.md` §V2, deliberately not made from a
+                // harness.
+                let has_leaves = w.species.get(w.organism_state(*per_plant.keys().next().unwrap()).map(|s| s.species).unwrap()).has_leaf_stage();
+                if has_leaves {
+                    println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                } else {
+                    println!("  income         NOT MEASURABLE for a species with no `Leaf` stage -- `OrganismState::income`");
+                    println!("                 is summed over `CellType::Leaf` only, so it reads 0 however much this");
+                    println!("                 species earns (see grass.ron's header, open-bugs-handoff.md §V2).");
+                    println!("                 The 0 IS real for decisions: `break_buds` sees it, so no bud can flush.");
+                }
                 println!("  maintenance    min {bmin:>7.3} median {bmed:>7.3} max {bmax:>7.3} mean {bmean:>7.3}");
-                println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                if has_leaves {
+                    println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                } else {
+                    println!("  bill / income  n/a -- see the income line above");
+                }
                 println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
                 println!("  cells shed to starvation, cumulative: {starved}");
                 println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");
