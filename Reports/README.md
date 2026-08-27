@@ -300,6 +300,15 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-recruitment-measurement-2026-08-27.md](plant-recruitment-measurement-2026-08-27.md)
+  — **measurement, 16 paired runs.** Overturns the three-way review's
+  unanimous "nothing can evolve yet": **grass reaches generation 2 in 7 of 8
+  seeds; tree reaches generation 1 in 8 of 8 and never more**, despite
+  setting 5-8x more seeds. Fecundity is not the bottleneck, establishment is.
+  Also: the 4,095-slot ceiling is at 0.7-0.9% with 0 refusals, and branch
+  angle and internode are `1` in every morph of all 16 runs — review C's
+  monomorphism finding confirmed on live data, and shown to survive a working
+  generational loop. Logs in `Reports/data/recruitment-2026-08-27-*`.
 - [plant-evolvability-three-reviews-2026-08-27.md](plant-evolvability-three-reviews-2026-08-27.md)
   — **review synthesis, disagreements preserved.** Three reviewers with
   different mandates, two firewalled from the design note. Unanimous and from
