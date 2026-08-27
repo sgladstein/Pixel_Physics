@@ -16,6 +16,16 @@ tried?"*.
 
 ## Method and architecture — read these first
 
+- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
+  — **method finding, from a live instance.** Why every change here seems to
+  demand a global retune: most large levers have **no counterweight**, so
+  every constant is calibrated against every other constant's current
+  behaviour and any change reallocates a fixed budget. Costs are not a feature
+  competing with features — they are what makes features composable. Also
+  names the bias that compounds it (judging a change before its retune
+  systematically rejects the changes worth making, ratcheting toward a local
+  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
+  rather than making one.
 - [design-philosophy.md](design-philosophy.md) — **settled.** The short,
   opinionated statement the other reports imply: constants, hardcoding,
   scope boundaries, outcome-vs-mechanism. Read before arguing about any of
@@ -370,16 +380,21 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
-- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
-  — **method finding, from a live instance.** Why every change here seems to
-  demand a global retune: most large levers have **no counterweight**, so
-  every constant is calibrated against every other constant's current
-  behaviour and any change reallocates a fixed budget. Costs are not a feature
-  competing with features — they are what makes features composable. Also
-  names the bias that compounds it (judging a change before its retune
-  systematically rejects the changes worth making, ratcheting toward a local
-  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
-  rather than making one.
+
+**The plant-evolvability line (2026-08-26/27). Read the handoff first —
+it carries the reading order, what is established, and an owner-caught
+drift that two of these documents still reflect.**
+
+- [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
+  — **handoff; read first when picking this line up.** Reading order for the
+  six documents, what is actually established, and **§3: an owner-caught
+  drift** — the session slid from *build the missing machinery* to
+  *characterise the machinery we have*, which are different projects. The
+  morphospace census answers the second and is **not on the critical path**
+  to the first; its honest value is hedging one reviewer's challenge and
+  building the descriptor set the machinery work will need anyway. Also: why
+  founder allele variance is not a prerequisite for a sampling harness, and
+  why a disturbance process must be a neutral hazard rather than an age cull.
 - [plant-phototropism-lateral-2026-08-27.md](plant-phototropism-lateral-2026-08-27.md)
   — **finding; change built, proved, and NOT landed.** `phototropism_dir`'s
   codomain held no horizontal component, so `light_weight` was inert *by
@@ -398,16 +413,6 @@ field rework — see `open-bugs-handoff.md`.
   Carries the two criteria — it must move the phenotype **and** have a
   counterweight, since a free lever made heritable produces uniformity — plus
   both required controls and the traps.
-- [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
-  — **handoff; read first when picking this line up.** Reading order for the
-  six documents, what is actually established, and **§3: an owner-caught
-  drift** — the session slid from *build the missing machinery* to
-  *characterise the machinery we have*, which are different projects. The
-  morphospace census answers the second and is **not on the critical path**
-  to the first; its honest value is hedging one reviewer's challenge and
-  building the descriptor set the machinery work will need anyway. Also: why
-  founder allele variance is not a prerequisite for a sampling harness, and
-  why a disturbance process must be a neutral hazard rather than an age cull.
 - [plant-recruitment-measurement-2026-08-27.md](plant-recruitment-measurement-2026-08-27.md)
   — **measurement, 16 paired runs.** Overturns the three-way review's
   unanimous "nothing can evolve yet": **grass reaches generation 2 in 7 of 8

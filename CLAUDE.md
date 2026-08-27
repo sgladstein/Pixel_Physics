@@ -702,6 +702,24 @@ unreachable. Infiltration's conservation test passed against a version whose
 gate meant infiltration never ran at all. A test can pass because the code
 under it is dead, which looks exactly like passing because it is correct.
 
+**The same rule has a second shape, and it has to fire *before* you start
+rather than after.** A term in a weighted sum is not an independent knob:
+changing what one term can *express* reallocates the whole sum, even when no
+number's meaning changed. Measured 2026-08-27 on the plant line, though the
+shape is any scored choice or economy: `phototropism_dir`'s codomain was
+`{(0,-1), (0,0)}`, so `light_weight` — authored up to 0.6 — could only ever
+reinforce the up-vector. Reshaping it into a real 2D gradient, **the repair
+`dead-ends.md` itself prescribes**, gave those weights a direction they had
+never had; trees spread instead of climbing, never reached `seed_maturity`,
+and reproduction went to **zero**. Every gate stayed green but one, and that
+one fired for an unrelated reason. **So before starting a change that
+reallocates a shared budget, name the constants calibrated against the
+current behaviour and budget re-deriving them as part of the work — if that
+is unaffordable, the change is not scoped, it is merely started.** A correct
+mechanism at inherited constants is a regression. Full account, including why
+a system of *unpriced* levers makes this the normal case rather than the
+exception: `Reports/why-changes-cost-so-much-2026-08-27.md`.
+
 ### When every setting of a sweep fails the same way, suspect the sweep
 
 The sibling of "two fixes failing the same way means the approach is
