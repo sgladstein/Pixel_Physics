@@ -380,7 +380,12 @@ field rework — see `open-bugs-handoff.md`.
   account (most of a leaf's mass leaves as CO2 — 1–10% humification, plus ~2
   orders of magnitude of volume collapse) and §4's ranked menu for an actual
   fix, of which **bioturbation is the recommendation**. Read §4's dead-end
-  warning before building the obvious "litter enriches the soil" version.
+  warning before building the obvious "litter enriches the soil" version,
+  and §5 before trusting any soil census: the global count has the *wrong
+  sign* for the first 60k frames because root growth eats soil, and over
+  212k frames the two yields bracket the defect rather than fixing it —
+  1.0 accumulates and buries, 0.05 depletes to half the world's soil and
+  stalls.
 
 ## Creatures and ecology
 

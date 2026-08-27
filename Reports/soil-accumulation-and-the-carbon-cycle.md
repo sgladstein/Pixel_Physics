@@ -225,6 +225,51 @@ Anyone sizing this later wants a **local** census — soil depth in the
 columns under a crown, against columns in the open — not the global count.
 That instrument does not exist yet.
 
+### The long horizon, and a second failure mode at the other end
+
+Same scene, both arms run to 212,000 frames — long enough for the stand to
+saturate at ~16,000–18,000 cells of tissue around frame 62,000, which is
+where the root-uptake transient above finishes.
+
+| frame | 1.0 | 0.05 |
+|---|---|---|
+| 32,000 | −922 | −3,891 |
+| 62,000 | **−2,210** | −6,555 |
+| 92,000 | −1,705 | −7,847 |
+| 122,000 | −1,804 | −8,587 |
+| 152,000 | −1,138 | −9,162 |
+| 182,000 | −774 | −9,663 |
+| 212,000 | **−491** | **−9,923** |
+
+**At 1.0 the floor bottoms out and comes back.** Once roots stop expanding,
+litter return exceeds uptake and the count climbs steadily from −2,210
+toward zero and past it. That is the accumulation, finally visible in the
+global census once the transient it was hiding behind is over — and it is
+the trunk mounds, arriving in a number.
+
+**At 0.05 it never turns around inside this window, and that is worth
+taking seriously rather than filing as success.** The forest converts soil
+into standing tissue through its roots and gets a twentieth of it back, so
+the floor falls to roughly half the soil it started with (20,343 → 10,420).
+The fall is decelerating hard — the last three intervals are −575, −501,
+−260 per 30,000 frames — so within this run it is heading for a plateau
+near −10,000 rather than stripping the world. But it plateaus **because the
+stand stopped growing**, not because anything balances it.
+
+**So the two arms bracket the defect rather than one of them solving it.**
+1.0 accumulates and buries; 0.05 depletes and then stalls. Neither is a
+cycle, because a cycle needs the return path *and* a sink, and this engine
+has a broken version of the first and none of the second. The honest
+reading of 0.05 is that it trades a visible failure for a slower and less
+visible one, and buys time to build §4.
+
+**Untested and worth knowing before this runs much longer: multiple
+generations.** Every figure here is one cohort growing and saturating. When
+those trees die, `rot_remains` sheds their tissue — roots included — to
+litter, and at 0.05 only a twentieth of that mass returns to soil. Whether
+a second and third cohort keep drawing the floor down is not measured, and
+it is the question this report would ask next.
+
 ## 6. Provenance and what is not measured here
 
 Everything in §2 is background knowledge, not measurement from this engine —
