@@ -24,7 +24,7 @@ inventory this corrects in two places), and
 | 7 | The second mechanism, which is not costs at all: denomination |
 | 8 | The instrumental half: what this does and does not buy for diversity |
 | 9 | What to do, in order |
-| 10 | Owner calls — three answered, and what they change |
+| 10 | Owner calls — three answered, one deferred with a trigger |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -530,6 +530,63 @@ a behaviour-general genome that survives as *"this tissue is dense"* rather
 than *"this tree has dense wood"* — a relocation, not a cut. The one thing
 that would make it genuinely not worth its cost is if nothing ever loads
 structural tissue, which is the half the owner says is coming.
+
+### 10e. Deferred, with a trigger: do we ever need a third currency?
+
+**Owner's question, 2026-08-27, deliberately parked rather than answered:**
+*"is our water and carbon only system going to survive longterm... or will
+we eventually need nitrogen/phosphorus/other elements? I don't want to
+complicate the system if we don't need to."*
+
+**Recorded position: probably yes eventually — as *one soil fertility
+scalar*, not N/P/K — and the reason is soil memory rather than nutrition.**
+
+The nutrition argument is weak here. The leaf economics spectrum is already
+proxied by carbon cost against water demand, and that proxy demonstrably
+works: §8d's crossover is measured. Nitrogen would sharpen an existing axis
+rather than adding one.
+
+The soil-memory argument is the real one. Carbon arrives from the sky and is
+spatially uniform; water arrives with weather and replenishes. **Neither can
+record what grew somewhere.** A nutrient is depleted by uptake and returned
+by litter decomposition — a feedback loop between a plant and the ground it
+stands on, carrying history. That is what produces **succession**: poor
+ground favours one strategy, its litter enriches the ground, a different
+strategy wins next. Succession is a large source of over-time visible
+diversity that carbon and water structurally cannot produce.
+
+Two thirds of that loop already exist and return nothing to the soil —
+litter materials, `rot_remains`, `decay.rs`. And §8d shows the shape
+arriving by accident: the acquisitive stand *"drinks its own bed dry"*,
+leaving soil at the wilting point where the conservative stand leaves it at
+620. A plant degrading its own resource base — it simply does not persist,
+because water replenishes.
+
+**Why the decision is deferred rather than taken.** Nutrients are primarily
+a constraint on **construction**, and construction costs nothing today
+(§10a). A nutrient currency added before 3a lands would have nothing to
+bind on — the exact "channel with a reader and no writer" shape
+`dead-ends.md` calls the failure this project has hit three times. After
+3a the question becomes concrete and answerable: *is carbon alone a rich
+enough construction currency?*
+
+**The trigger, named as a symptom so this is a measurement and not a
+vibe.** Revisit when, after construction charging:
+
+- species still converge on one strategy within a given soil, **and** soil
+  depth/water is the only environmental axis that separates them — that is
+  running out of axes, and argues for a third; or
+- the world shows **no succession** — the same species wins on the same
+  ground indefinitely, regardless of what grew there before. That is the
+  specific symptom a fertility loop fixes, and *"plants look samey"* is
+  not: that one has other causes (§8, and the texture/palette finding in
+  `plant-appearance-design.md`).
+
+**The cheap version, if it is needed.** One `fertility` scalar on the soil
+field, which already carries moisture — litter decomposition raises it,
+root uptake depletes it, and it enters the Liebig minimum beside light and
+water. One channel, not three, and no new global field. A full multi-element
+model should be argued for separately and against this, not instead of it.
 
 ### 10d. Still open
 
