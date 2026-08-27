@@ -1,0 +1,130 @@
+plant_probe: species=tree trees=24 frames=28800 worldseed=1 width=512 soil=34 growth=1
+after 28800 frames: 276 active sites, 5 awake chunks
+soil: 15734 cells, min 0 median 605 max 1000, mean 441; 4420 cells at or below wilting point (28%)
+chunks were awake on 27981/28800 frames (97.2%) -- the CA sweep's duty cycle for this scene
+
+population: 36 organisms -- 17 established (>= 20 cells), 19 seeds or seedlings; 36 seeds set in total
+  generations  [gen 0: 24, gen 1: 12]
+  rooted above ground: 0 organisms (0 of them more than 25 rows up)
+  morphs among established plants: 6 distinct of 17 plants  [foliage, angle, internode, sympodial, tropism]
+    [0, 1, 1, 0, 0, 0]  x6
+    [0, 1, 1, 0, 0, 1]  x3
+    [1, 1, 1, 0, 0, 0]  x3
+    [1, 1, 1, 0, 0, 1]  x2
+    [1, 1, 1, 0, 0, 2]  x2
+    [0, 1, 1, 0, 0, 2]  x1
+
+ensemble of 17 trees, identical species and scene:
+  cells     min   21  median 1458  max 2591  mean  1302.6
+  leaves    min    0  median  610  max 1333  mean   519.9
+  height    min   15  median   79  max  100  mean    77.4   (scene ceiling: 200 rows of sky)
+  canopy top  row 125   (125 rows of clearance remain)
+  thickness min    3  median   18  max   36  mean    19.2   (whole tree, incl. ground-level spread)
+  stem thick min   0  median   10  max   19  mean     9.1   (above the base -- the real trunk)
+  rows >1 cell wide, as % of each tree's occupied rows: min 5  median 58  max 69  mean 52
+  per-tree sizes     [1151, 2150, 1458, 2355, 903, 1919, 177, 1602, 1463, 404, 1635, 800, 1387, 2026, 21, 2591, 103]
+  per-tree heights   [100, 99, 86, 91, 76, 89, 61, 90, 72, 69, 97, 79, 70, 82, 15, 79, 60]
+  per-tree thickness [14, 24, 34, 30, 16, 36, 22, 33, 15, 20, 11, 14, 12, 22, 3, 18, 3]
+  crown profile (top->bottom, % of each plant's widest band, median): [81, 95, 85, 86, 62]
+  foliage centre (0 = collar, 100 = apex, median): 54
+  foliage share  (% of cells that are leaf, median): 37
+
+  per-tree genotype and outcome (variance [0.5, 0.5, 0.4, 0.18, 0.7, 0.4, 0.4, 0.5, 0.25, 0.7]):
+    id  branch rootbr  plast turgor   pipe roottr  alloc  stoma penetr strain    cells leaves height   stem
+     1   0.901  1.198  0.627  0.830  0.610  1.184  0.822  1.457  0.778  1.322     1151    504    100     14
+     2   0.622  0.674  1.117  0.840  1.232  0.939  0.970  0.932  0.881  1.547     2150    787     99     19
+     4   0.898  0.543  0.763  1.142  1.367  1.325  0.641  1.098  0.825  0.733     1458    610     86     11
+     6   1.448  1.408  1.037  1.091  0.364  0.996  1.354  1.030  0.916  1.548     2355    641     91     12
+     7   1.260  1.190  1.253  0.997  1.361  1.309  1.176  1.058  1.172  0.530      903    265     76     11
+     9   1.266  1.461  1.058  0.958  1.158  1.395  1.316  0.525  1.147  1.435     1919    724     89      9
+    10   1.406  0.782  1.245  0.908  0.861  0.925  0.832  0.979  0.955  0.677      177     51     61      2
+    11   0.994  1.253  0.702  1.118  1.602  0.843  0.902  0.648  1.074  0.677     1602    605     90      8
+    12   0.671  1.493  0.665  1.097  0.919  1.197  0.819  0.516  0.887  1.472     1463    756     72      8
+    14   1.467  1.331  1.202  1.131  0.331  1.186  1.094  1.247  1.218  1.555      404     70     69     10
+    15   1.482  0.901  0.780  0.910  1.484  0.673  1.051  0.711  1.209  0.415     1635    735     97     11
+    16   0.893  0.989  0.764  1.156  0.858  0.685  1.147  1.454  1.058  1.662      800    237     79      6
+    17   0.757  1.229  0.782  0.958  0.897  0.940  1.368  0.828  0.888  0.707     1387    670     70     12
+    19   1.266  1.283  1.132  0.960  0.509  0.996  0.790  0.780  0.993  1.573     2026    813     82     12
+    21   0.503  1.103  1.231  1.017  1.673  1.206  1.128  1.328  1.209  1.296       21      0     15      0
+    22   1.297  1.299  0.825  0.872  1.528  0.759  0.692  1.317  0.825  0.370     2591   1333     79      9
+    24   1.460  0.655  1.306  0.952  1.530  0.795  1.174  1.482  0.957  0.652      103     38     60      1
+  alleles: economy 10/7/0  angle 0/17/0  internode 0/17/0  sympody 17/0/0  tropism 17/0/0  density 9/5/3
+  architecture events  [1: gen 0 seeds 2 forks 0 plag 0 rigid 100 lat 34 angle 71deg, 2: gen 0 seeds 1 forks 0 plag 0 rigid 272 lat 62 angle 78deg, 4: gen 0 seeds 2 forks 0 plag 0 rigid 217 lat 53 angle 83deg, 6: gen 0 seeds 0 forks 0 plag 0 rigid 243 lat 96 angle 74deg, 7: gen 0 seeds 2 forks 0 plag 0 rigid 144 lat 37 angle 85deg, 9: gen 0 seeds 4 forks 0 plag 0 rigid 262 lat 84 angle 85deg, 10: gen 0 seeds 0 forks 0 plag 0 rigid 0 lat 0 angle 0deg, 11: gen 0 seeds 1 forks 0 plag 0 rigid 116 lat 32 angle 65deg, 12: gen 0 seeds 0 forks 0 plag 0 rigid 114 lat 22 angle 86deg, 14: gen 0 seeds 0 forks 0 plag 0 rigid 22 lat 7 angle 81deg, 15: gen 0 seeds 2 forks 0 plag 0 rigid 225 lat 76 angle 79deg, 16: gen 0 seeds 0 forks 0 plag 0 rigid 55 lat 22 angle 71deg, 17: gen 0 seeds 3 forks 0 plag 0 rigid 211 lat 49 angle 76deg, 19: gen 0 seeds 9 forks 0 plag 0 rigid 238 lat 75 angle 83deg, 21: gen 0 seeds 0 forks 0 plag 0 rigid 6 lat 1 angle 96deg, 22: gen 0 seeds 7 forks 0 plag 0 rigid 385 lat 115 angle 81deg, 24: gen 0 seeds 0 forks 0 plag 0 rigid 0 lat 0 angle 0deg]
+
+distinguishability (§Z / C4), 24 founders planted:
+  canopy components at field resolution, >=  1 leaf/block:   1   largest holds 100% of canopy blocks
+  canopy components at field resolution, >=  2 leaf/block:   1   largest holds  97% of canopy blocks
+  canopy components at field resolution, >=  4 leaf/block:   1   largest holds  92% of canopy blocks
+  canopy components at field resolution, >=  8 leaf/block:   2   largest holds  84% of canopy blocks
+  interior sky gaps: 0 (a fully separate stand of 24 shows 23), widths []
+  founder spacing is 20 cells; gaps at least 8 cells wide: 0
+  --> canopy fusion 100%, 0 raw sky gaps (0 at least 8 cells) -- so this run reads 1 distinguishable crowns of 24 founders
+  (CALIBRATION FAILED against the owner's eye, 2026-08-23: on the three stands he counted,
+   these read 2 / 2 / 3 where he read 2 / 4 / 3, and fusion called the 4-founder stand 100% ONE MASS
+   when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z has the table.
+   He later said the cue IS sky gaps, read at canopy level -- so census the canopy band next, not the whole column.)
+
+lineage turnover over 28800 frames: 60 born, 24 died (2.08 and 0.83 per 1,000 frames); 36 live in 37 slots
+  germinations: 24 -- read against `seeds set in total` above
+  organism slots: high-water 37 of 4095 (0.9%), 0 births refused at the ceiling
+  standing seed bank: 12 seeds; 1 organisms senescent (dead, remains rotting)
+  established plants carrying an inherited genome: 0 of 17 (deepest generation 0) -- at ~0 every claim from this run is about founders
+
+22235 organism cells
+  Some(DormantBud)        50
+  Some(Leaf)            8844
+  Some(MatureBody)     13294
+  Some(RootTip)           35
+  Some(Seed)              12
+  palette bands in use (material, band -> cells):
+    leaf       band  2    5367
+    leaf       band  3    3477
+    rootwood   band  0    5427
+    seed       band  0      12
+    wood       band  0    5724
+    wood       band  1    2228
+  bounding box x 0..=498, y 125..=233
+  thickest contiguous run, above ground: 42 cells
+  thickest contiguous run, below ground: 37 cells (roots spread by design)
+
+root system (17 established plants, soil is 34 rows deep):
+  root cells        min    8  median  270  max  870  mean   315.4
+  root share of plant  min   7%  median  23%  max 100%  mean  29.7%
+  deepest row below surface  min   3  median  25  max  34  mean  22.8
+  lateral spread (cells)     min   4  median  43  max  82  mean  43.2
+  median root cell sits 12 rows down; quartiles 6 / 21
+  root cells with 3+ root neighbours: 69% (a 1-cell-wide run reads ~0 whichever way it points)
+  depth histogram, surface->bedrock (% of all root cells): [27, 26, 19, 14, 12]
+  seeds standing: 12 above the surface, 0 buried (buried can never germinate)
+
+water balance, per established plant:
+  stock          min    13.5 median   374.7 max  1664.4 mean   494.9
+  stomatal term  min    0.55 median    1.00 max    1.00 mean    0.97   (1.0 = demand fully met)
+  uptake/tick    min    0.00 median    8.35 max   45.73 mean   11.31
+  demand/tick    min    0.00 median    8.06 max   23.27 mean    9.06
+
+carbon book, per established plant (per organism tick):
+  income         min   0.000 median   0.615 max   1.522 mean   0.593   (over a whole day, not at this instant)
+  maintenance    min   0.003 median   0.339 max   0.724 mean   0.326
+  bill / income  median    0.52 max     inf   (>1 = running the stock down)
+  unpaid         median   0.001 max   0.018
+  cells shed to starvation, cumulative: 627
+  bill at unit price  min      0.0 median   5783.7 max  20092.6   (x MAINTENANCE_PER_NODE = the shoot bill)
+  anchor reach ratio  min   0.0024 median   0.0635 max   0.2881   (anchor moment / crown moment; ANCHOR_DEMAND is set from this)
+  anchor status  min    0.06 median    1.00 max    1.00   (1.0 = crown fully anchored)
+  slenderness    min     0.0 median    15.8 max    55.0   (shoot height / base width)
+  root soil contact  min  29.8% median  57.2% max 100.0%   (the rest earns nothing and still respires)
+  support (cantilever reach from anchors): p50 8  p90 22  p99 38  max 55; 12 unreached
+
+vein conductance (max face per cell), 1..10:
+  min 1.00  p50 9.25  p90 9.99  p99 10.00  max 10.00
+  4476/22235 cells still at the basal floor (20%) -- undifferentiated tissue
+  differentiation: 26% undifferentiated / 22% partial / 52% vascular
+  strand strength, p99 vs the basal floor: 10.00x of a possible 10x
+
+leaf light (noon-equivalent): min 0.00  p10 0.01  p50 0.39  p90 3.81  max 4.00
+  below 0.5: 4770   below 1.0: 5567   below 1.5: 5995   of 8844 leaves
+
+max resource 4.000 / 4.0
+max canopy   1.500 / 4.0
+one fresh canopy deposit is 1.500 (GROW_CANOPY_DEPOSIT), decaying by half per organism tick

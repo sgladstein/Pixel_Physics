@@ -418,9 +418,15 @@ drift that two of these documents still reflect.**
   charged hard through the basipetal girth term, while its only benefit
   (escaping a neighbour's shade) is switched off by the standard plant bed's
   56-cell spacing, which no plant measurement in this line has ever varied.
-  Also: fences against prices as the distinction that says what to build, and
-  the `rate`/`transpiration` pair the genome couples and the species file does
-  not.
+  Measured both ways: at the standard spacing height costs an order of
+  magnitude in bill-to-income and moves nothing reachable, and at
+  crown-contact spacing (`trees=24 width=512`, no build needed) the same two
+  arms separate cleanly on **who survives at all** — 17–23 established of 24
+  against 11–16. Also: why stand seed totals can never have been the fitness
+  signal (they are pinned by world width, so morphology decides who gets the
+  light and not how much there is); fences against prices as the distinction
+  that says what to build; and the `rate`/`transpiration` pair the genome
+  couples at every consumer and the species file leaves independent.
 - [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
   — **method, not results.** How to decide *which authored parameters should
   become heritable* by measurement rather than by a fifth design opinion:

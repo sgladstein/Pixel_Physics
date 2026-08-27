@@ -45,7 +45,10 @@ score that costs nothing to move.
 
 **And exactly one arrangement axis is priced — vertical position under
 foliage — but its reward is switched off in the bed every plant measurement
-in this line is taken on.** That is §5, and it is measured.
+in this line is taken on.** That is §5, and it is measured both ways: height
+costs an order of magnitude in bill-to-income and changes nothing reachable
+at the standard 56-cell spacing, and at 20-cell spacing the same two arms
+separate cleanly on who survives at all.
 
 **So "attach costs" is the wrong instruction to give this engine, and would
 produce the uniformity it is trying to avoid.** The instruction that fits
@@ -238,6 +241,45 @@ output moves when it is paid.**
 
 
 
+### 5b. Measured: turning competition on changes what height *is*
+
+The same two turgor arms, same seeds, same 512-column world, same 28,800
+frames — **24 trees instead of 8**, so spacing falls from 56.9 cells to
+20.5 and crowns overlap. Density is the only difference, and the world is
+byte-identical in width, soil and light, so nothing is traded for the extra
+plants except room. No run hit the ceiling.
+
+| arm | established, of 24 sown | median cells / plant | seeds set | bill / income |
+|---|---|---|---|---|
+| **0.55** | 17, 19, 21, 23 | 825–1,458 | 36, 36, 43, 47 | 0.45–0.56 |
+| **1.0** | **11, 13, 13, 16** | 2,100–2,851 | 29, 40, 44, 46 | 0.99–1.53 |
+
+All 24 germinated in every run of both arms, so the difference is not
+recruitment — it is **which seedlings got past 20 cells**. The two arms do
+not overlap: the tall stand carries roughly two-thirds as many established
+plants, each about 2.5x bigger.
+
+**That is competition, and it does not exist in the standard bed.** At 8
+trees the same two arms establish 8/8/8/8 and 9/8/8/6 — everybody makes it,
+in both arms. At 24 trees, height buys the survivors their neighbours'
+share and costs the losers everything. Height stops being a tax and becomes
+a **contest with an outcome**: tall is fewer, larger and riskier; short is
+more, smaller and safer. That is a strategy trade-off of exactly the kind
+§3's condition 3 requires, and it appeared purely from changing the spacing
+— no engine change, no new cost.
+
+**And it exposes why seeds-set can never have been the signal.** Total
+seeds barely move (39.5 against 42 by median, fully overlapping) in either
+bed, at either turgor. The reason is structural: stand seed output is
+`seed_chance x total mature cells`, total mass is bounded by intercepted
+light, and intercepted light is fixed by the width of the world. **The
+stand's output is set by the resource, not by the plants' morphology; what
+morphology decides is who gets it.** So a stand total is the wrong
+denominator for every fitness question in this line, and a *per-genotype
+share against its own competitors* is the right one. That is a measurement
+change, not an engine change, and it is a prerequisite for reading any
+costs work at all.
+
 ## 6. Fences and prices — the corrected inventory
 
 The distinction §4a's binary (free / priced) misses, and the one that says
@@ -305,13 +347,18 @@ Nothing here is proposed for landing in this session; each step is scoped
 against `CLAUDE.md`'s rule that a shared-budget change is a tuning change,
 not a fix.
 
-1. **Turn competition on before pricing anything.** A second plant bed at
-   crown-contact spacing, alongside the existing one rather than replacing
-   it — the current bed is a valid *isolated-individual* instrument and its
-   baselines are banked. Without it, every lever whose payoff is
-   competitive is measured with its benefit disabled, and a costs pass
-   measured there will read as a pure tax. This is the prerequisite for
-   steps 2 and 4 and it is the cheapest item on the list.
+1. **Turn competition on before pricing anything, and fix the
+   denominator.** The bed already exists — §5b is `trees=24 width=512` on
+   the shipped `plant_probe`, no build required — so this is a *convention*
+   rather than a feature: a competitive arm alongside the existing sparse
+   one, which stays valid as an isolated-individual instrument with its
+   baselines banked. The denominator is the other half and is the part that
+   needs work: §5b shows stand seed totals are pinned by world width, so
+   fitness has to be read as a genotype's share against its own competitors.
+   Without both, every lever whose payoff is competitive is measured with
+   its benefit disabled and its scoreboard held constant, and a costs pass
+   measured there will read as a pure tax. Prerequisite for steps 2 and 4,
+   and the cheapest item on the list.
 2. **Couple `rate` and `transpiration` at the authored layer**, the way
    `WOOD_DENSITY_ALLELES` couples strength and price. Smallest diff on the
    list, states a principle the engine already holds, and is a real
