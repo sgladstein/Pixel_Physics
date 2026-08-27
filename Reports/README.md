@@ -370,6 +370,16 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-phototropism-lateral-2026-08-27.md](plant-phototropism-lateral-2026-08-27.md)
+  — **finding; change built, proved, and NOT landed.** `phototropism_dir`'s
+  codomain held no horizontal component, so `light_weight` was inert *by
+  construction*. The repair `dead-ends.md` prescribes was built and its guard
+  proved non-blind — then withdrawn, because it takes tree reproduction to
+  **zero**: the authored `light_weight` values (up to 0.6) were calibrated
+  against a lever that could only say "up", and given a real 2D direction they
+  steer plants sideways until they never reach `seed_maturity`. The working
+  patch, a committed 6-seed baseline sweep, and the re-derivation the fix
+  needs are all banked for the next session.
 - [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
   — **method, not results.** How to decide *which authored parameters should
   become heritable* by measurement rather than by a fifth design opinion:
