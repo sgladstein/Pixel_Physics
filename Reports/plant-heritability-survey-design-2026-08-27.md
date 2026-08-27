@@ -109,6 +109,93 @@ prefer `grass`'s 4/5.
   `allocate_to_frontier`'s tie order is element-type-dependent and silently
   changes how every plant grows.
 
+## 4a. The candidate list, from a parameter inventory (2026-08-27)
+
+A read-only inventory traced all ~45 authored per-species parameters to their
+consumers. Full table in the commit that added this section; the three claims
+below were re-verified in source by the coordinating session before being
+recorded.
+
+**The headline is not which parameter is biggest. It is that most of the big
+ones are free.**
+
+### Free levers — do NOT make these heritable without adding a cost first
+
+`turgor_source` and `turgor_yield` (raising the height ceiling costs
+nothing), `plastochron` (leaves cost no carbon — flagged in-code at
+`plant.rs:2411-2416` as a known gap), `heading_inertia`, `juvenile_size`,
+`juvenile_plastochron`, `seed_maturity` (lowering it is free), the
+`Photosynthesize` `rate` scalar, `branch_angle` on the scoring side
+(`plant.rs:2218-2224` bypasses scoring entirely for the wide path), and
+`seed_half_life` / `remains_half_life`.
+
+`crowding_weight` is the sharpest case: its counterweight was **deliberately
+removed**. Since the cliff fix (`plant.rs:1897-1919`) crowding *divides*
+rather than subtracts, so a fully crowded tip still takes its least-bad
+direction and high values no longer kill tips.
+
+**Why this matters more than the effect-size ranking.** Per §2, a heritable
+parameter with no counterweight has one optimum and selection pins every
+individual there. So making these genes produces **uniformity**, which is the
+exact failure this programme exists to avoid. **The machinery package must
+ship costs alongside the loci, not merely the loci** — and that is a
+conclusion about the design, reached from the parameter surface rather than
+from an opinion.
+
+### Priced levers — the defensible candidates
+
+`leaf_cluster` is the strongest: it is the single largest contributor to
+visible foliage mass, and it is *partially* priced — `l_node()`
+(`plant.rs:3151`) normalises per-node policy income in both the bud-break
+budget and the frontier pool, while the per-cell carbon credit is **not**
+normalised, and self-shading via `ambient_light_above` bites. Also priced:
+`Grow.cost` (already heritable through wood density, and traded against
+structural strength), `max_active_tips` (capped by `supportable` and splits
+one carbon pool), `shade_death`/`drought_death` (cubed, and shed cells become
+litter rather than nothing), `stomatal_reserve` (closing cuts the carbon
+credit), `transpiration` (it *is* the counterweight to `rate` and
+`leaf_cluster`), and `seed_cost` (debited from the parent, so dearer seeds
+means fewer).
+
+### The special case: materials
+
+`shoot_material` / `root_material` / `leaf_material` have no counterweight in
+the plant economy — **and are the largest measured screen effect in the whole
+record**, since `grass` scored 4/5 (*"looks different from trees"*) and
+material is what it moved. They may be self-pricing through physics rather
+than through the economy: a material carries `density`,
+`max_cantilever_reach`, `flammability` and `breaks_into`, so "everyone
+converges on the best material" is only a risk if one material dominates on
+all of those at once. **Unverified, and worth checking before designing
+around it.**
+
+### Three verified findings that change existing records
+
+1. **`light_weight` is not "inert because the light field is flat".**
+   `organism::phototropism_dir` (`organism.rs:3422-3430`) returns **only
+   `(0,-1)` or `(0,0)`** — it has no lateral term at all, so it is a
+   conditional duplicate of `upward_weight` and structurally cannot steer
+   sideways. That is a different and more fixable diagnosis than the one
+   `plant-species-authoring.md` records.
+2. **Bud break is entirely dead for `grass`.** `break_buds` sums
+   `intercepted` over `CellType::Leaf` only (`plant.rs:4066`), and grass
+   declares no `Leaf` type, so `supportable` is 0 on every call and
+   `grass.ron`'s `acrotony` and BudBreak `cost` can never reach the screen.
+   Same root cause as the §5b carbon-book bug.
+3. **`leaf_cluster` never runs for grass at all** — `leaf_due` requires
+   `plastochron_interval > 0` and `grass.ron` is `plastochron: [0,0]`.
+
+**Consequence for the survey: it must be run per species, not once.** A
+parameter measured inert on grass may be live on tree and vice versa, and
+three of the largest levers are already known to be dead for one of them.
+
+### Also found
+
+`Behavior::Transpire` has live consumers (`plant.rs:2572`, `4972`) and **no
+shipped species declares it**. Genotype slot 9 is drawn at width 0.5-0.7 in
+every shoot vector and has no consumer — already stated at
+`organism.rs:1925-1933`, confirmed here.
+
 ## 5. What the survey cannot answer
 
 It ranks parameters by whether varying them moves a plant. It does **not**
