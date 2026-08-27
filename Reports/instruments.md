@@ -275,6 +275,23 @@ run where the oracle had nothing to say. And the pass itself converges the
 field, so every frame after it is cheap: at `RECONVERGE_AT=frames-1` the
 timing table is untouched and the census is still taken at the end of the run.
 
+**`scale_probe band=N` sets how wide a strip the pick and hammer work
+along, and without it no two world sizes are comparable.** The walk puts 64
+cuts at a stride of `band / 64`, so the default 384 spans the same absolute
+384 cells whatever the world is — **4.7% of an 8192-wide world and 19% of a
+2048-wide one**. A size sweep run that way damages the small arm four times
+harder than the large one and then compares absolute counts, which is how
+`Reports/structural-support-model.md` §6.5d briefly acquired a third bug
+that did not exist. Pass `band=$((w * 384 / 8192))` to hold the fraction
+fixed.
+
+**Its default owes a positive control and it is cheap to run**: at
+`band=384` the 8192 arm must reproduce **4,490 wrong / 10,033 pending**
+byte-for-byte. That check earned its keep immediately — an initial default
+of 378 floored to a stride of **5** against the historical **6**, which
+would have silently moved every recorded number in that report while looking
+like a no-op.
+
 **`scale_probe` echoes its own landing-aux arms** (`landing aux: settle=…
 particle=…`) as of 2026-08-27, because `SETTLE_AUX` and `PARTICLE_AUX` decide
 where §S's false anchors come from and a log that does not name them cannot be
