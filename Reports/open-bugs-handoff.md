@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6474 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6663 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6754 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6768 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6780 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6798 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6819 | A material-counting guard cannot see a species |
-| W1c | note | 6832 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6966 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7044 | The structural opt-out did not hold against bearing |
-| T1d | note | 7055 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7089 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7143 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7197 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7226 | §1c's settle loss is now a counter |
-| -- | note | 7243 | What landed |
-| -- | note | 7266 | Do not re-derive these |
-| -- | note | 7294 | Measurements that contradict something written |
-| -- | note | 7314 | Open |
-| -- | note | 7349 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6484 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6673 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6764 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6778 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6790 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6808 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6829 | A material-counting guard cannot see a species |
+| W1c | note | 6842 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6976 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7054 | The structural opt-out did not hold against bearing |
+| T1d | note | 7065 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7099 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7153 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7207 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7236 | §1c's settle loss is now a counter |
+| -- | note | 7253 | What landed |
+| -- | note | 7276 | Do not re-derive these |
+| -- | note | 7304 | Measurements that contradict something written |
+| -- | note | 7324 | Open |
+| -- | note | 7359 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6416,7 +6416,15 @@ needs re-deriving here:
   them. `dead-ends.md`, structural. The coarse-layer half is confirmed within
   1% (5,169 nodes for 5,120 chunks) and the hierarchical potential built on
   it packs into the existing `u16`.
-- **And §S has a root cause: `particle.rs::landed_cell`.** Ten frames after
+- **And §S has a root cause — two of them, and both are needed.**
+  `particle.rs::landed_cell` and `rigid::settle` both land body material
+  through `Cell::new`, whose `aux` is **0**. Landing each at `u16::MAX`
+  recovers **23% and 1% alone and 99.5% together**: at the branch head,
+  36,348 wrong cells → **186**, with the climb bucket at **0**. Closing either
+  alone leaves the damaged region relaxing off the other. The paragraphs below
+  were written when only the first was known; the correction, and why an
+  ablation that honestly read 1.6% stopped being true an hour later, is
+  `Reports/structural-support-model.md` §6.4a. Ten frames after
   the charge, `stone` cells at the crater store **0 and 1** where the truth is
   2,398 or `u16::MAX`; the region then relaxes downhill off them, which is how
   595 wrong cells become 37,629. A write-seam trap in `World::set`
@@ -6444,7 +6452,9 @@ needs re-deriving here:
   whole-world converged pass, reached with none.
 
   Controls, because this bug has faked a quiet queue before: the trap goes to
-  **0 reports** with the fix in; `max aux` reads **2,422**, live and honest
+  **0 reports** with *both* fixes in — with `PARTICLE_AUX_MAX` alone it fires
+  12/12 and names `rigid::step_chunk_bodies` on eleven of them, which is how
+  the misattribution was caught; `max aux` reads **2,422**, live and honest
   rather than the withdrawn prototype's 142; **1,717 more** body cells stand
   at the end, the same direction as the converged-pass control's +25,470; and
   the residual 186 are *all* `>60k (detached)`, a different and much smaller

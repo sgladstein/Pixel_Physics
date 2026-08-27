@@ -34,13 +34,16 @@ show:
 4. **§S's "the error is manufactured, not delivered" needs one correction of
    sign**, and it redirects the fix: the affected cells read *too low*, not
    too high, which makes the damaged region a **load sink**. See §1.2.
-5. **And the trigger is one line.** A write-seam trap named it: every thrown
-   rock lands at `aux 0` — *bedrock-adjacent* — because
-   `particle.rs::landed_cell` carries `aux` only for materials flagged
-   `worth_in_aux`, which is the **food-value** flag. Landing at `u16::MAX`
-   instead takes the oracle's wrong-cell count from **37,629 to 186** and the
-   scheduler from 14.68 ms to **0.03 ms**, with the queue back at its idle
-   value and *more* rock standing. **§S is not a framework bug** (§6).
+5. **And the trigger is two lines, in two files.** A write-seam trap named
+   the first: every thrown rock lands at `aux 0` — *bedrock-adjacent* —
+   because `particle.rs::landed_cell` carries `aux` only for materials flagged
+   `worth_in_aux`, the **food-value** flag. `rigid::settle` does the same for
+   landed rigid bodies through `Cell::new`. Landing both at `u16::MAX` takes
+   the oracle's wrong-cell count from **37,629 to 186** and the scheduler from
+   14.68 ms to **0.03 ms**, with the queue back at its idle value and *more*
+   rock standing. **Both are needed** — 23% and 1% alone, 99.5% together — and
+   §6.4a is why this report first credited one of them: the second was latent
+   until §6.6's landing schedule woke it. **§S is not a framework bug** (§6).
 
 Read `open-bugs-handoff.md` §S first for the bug, and `dead-ends.md`'s
 structural section for the three attempts already withdrawn.
@@ -545,16 +548,36 @@ third, and §Z2's corpse fix is what put the `worth_in_aux` gate in front of it.
 - **It is at the surface**, where debris lands, and an idle world has none.
 - No organism, no ground root and no landed rigid body is required.
 
-### 6.4 The fix, measured
+### 6.4 The fix, measured — **two sources, jointly necessary**
 
-`PARTICLE_AUX_MAX=1` lands a body-material particle at `u16::MAX` — "no known
-path, earn one" — instead of 0. That is both the honest value and the cheap
-one: an improvement is a **single** relaxation round whatever its size, while
-climbing out of a false 0 costs one round per unit of a 2,577-deep field.
+**This section said `PARTICLE_AUX_MAX` alone and that is wrong at the branch's
+current head.** The correction came from the perf session (§S's author) on PR
+#77, was reproduced here independently, and the reason it changed is a finding
+in its own right — see §6.4a.
 
-Same scene as §5.2, oracle at +1,300 frames:
+There are **two** false anchors, not one, and closing either alone leaves the
+damaged region relaxing off the other:
 
-| | baseline | `PARTICLE_AUX_MAX=1` |
+| arm (branch head, oracle at +1,300) | wrong cells | the climb (`\|delta\|` 1k–60k) |
+|---|---|---|
+| flags off | 36,348 | 36,308 |
+| `PARTICLE_AUX_MAX=1` — landing particles | 27,844 | 27,652 |
+| `SETTLE_AUX_MAX=1` — landing rigid bodies | 35,989 | 35,955 |
+| **both** | **186** | **0** |
+
+23% and 1% alone; **99.5% together.** Anyone shipping `PARTICLE_AUX_MAX` on
+its own gets a quarter of the win. Both write `u16::MAX` instead of
+`Cell::new`'s 0 — the honest value and the cheap one, since an improvement is
+a **single** relaxation round whatever its size while climbing out of a false
+0 costs one round per unit of a 2,577-deep field.
+
+(The perf session's table carried **37,036** for the `settle` arm, reusing
+§6.5's figure below, which predates §6.6's landing schedule. Re-measured at the
+current head it is **35,989**.)
+
+With both flags, same scene as §5.2, oracle at +1,300 frames:
+
+| | baseline | both flags |
 |---|---|---|
 | wrong cells vs the converged oracle | 37,629 | **186** |
 | of those, the climb (`\|delta\|` 1k–60k) | 37,593 | **0** |
@@ -565,6 +588,16 @@ Same scene as §5.2, oracle at +1,300 frames:
 | frames over the 16.6 ms budget | 86.9% | **72.8%** |
 | body cells standing at end | 19,409,002 | **19,410,719** |
 
+Independently at 6,000 frames rather than 1,600, by the perf session: whole
+frame **38.347 → 25.771 ms (−33%)**, frames over budget **96.6% → 72.9%**, body
+cells standing **19,472,372 → 19,501,886 (+29,514)**, and
+`scripts/acceptance.sh` green on all 23 cases with both flags on.
+
+**One caveat on the 37,629 in that table:** it is `main`'s baseline. This
+branch flag-off reads **36,348**, because §6.6's landing schedule is on by
+default here. So `37,629 → 186` folds in a branch change; branch-to-branch it
+is **36,348 → 186**, which is the cleaner attribution and the same story.
+
 That is essentially the state §S's whole-world `compute_world_distances`
 oracle reached (12.49 → 0.25 ms, pending 53,077 → 6,094), reached with **no
 converged pass at all**.
@@ -572,8 +605,20 @@ converged pass at all**.
 **Four controls, because this bug has faked a quiet queue before**
 (`CLAUDE.md`: *a cost that vanishes may be work that vanished*):
 
-- **The trap goes to 0 reports** with the fix in, so the ablation hit its
-  target rather than missing it.
+- **The trap goes to 0 reports** with both flags in, so the ablation hit its
+  target rather than missing it. **With `PARTICLE_AUX_MAX` alone it does not**
+  — it fires 12/12, and `RUST_BACKTRACE=1` names `rigid::step_chunk_bodies` on
+  eleven of them. That is how the perf session caught the misattribution, and
+  it is this report's own control working as designed against this report.
+
+  Two weaknesses in that control, both worth knowing before reusing the trap.
+  **The window has to outlast the thing being trapped**: the run that reported
+  0 went to 15 frames past the charge, and rigid bodies have not settled by
+  then, so it proved particles were fixed and nothing more. Re-run at 400
+  frames it fires immediately. And **`report_false_anchor`'s `SEEN` cap is a
+  process-global `AtomicUsize` at 12**, so once twelve reports fire from any
+  path, later paths are silenced — not the cause here (fresh process, `SEEN`
+  at 0) but a live way for a future null to be vacuous.
 - **`max aux` reads 2,422** — a live, honest field. The rooted-flat prototype
   §S withdrew read 142.
 - **More rock survives** (+1,717), the same direction as §S's converged-pass
@@ -582,11 +627,44 @@ converged pass at all**.
   calls reachable and the converged pass calls `u16::MAX`. The climb bucket is
   **empty**. That residual is a different and much smaller question.
 
+### 6.4a Why the attribution changed: this report's own fix exposed the second source
+
+The 186-from-`PARTICLE_AUX_MAX`-alone in the first version of §6.4 was **not a
+mistake**. It was measured, correctly, against the code as it stood — and
+§6.6's landing schedule, added an hour later in the same session, is what
+invalidated it. Isolated directly, by reverting only `place_landed`'s two
+call sites and changing nothing else:
+
+| | wrong cells | the climb |
+|---|---|---|
+| `PARTICLE_AUX_MAX=1`, **without** the landing schedule | **186** | **0** |
+| `PARTICLE_AUX_MAX=1`, **with** it (branch head) | 27,844 | 27,652 |
+
+So `settle`'s false anchor was there the whole time and was **latent because
+nothing asked**. `particle::land` raised no structural check, so the cells
+around landed debris slept, and a false 0 that nothing evaluates propagates
+nowhere. Closing that gap woke them, and the second source went live.
+
+This is `CLAUDE.md`'s *"a gate can hide a second bug by making it
+unreachable"* — the entry about infiltration's conservation test passing
+against a version whose gate meant infiltration never ran — arriving in a new
+place, and its sibling *"fixing a bug often exposes a constant that was
+compensating for it"*.
+
+**The general lesson, which is the reason this subsection exists rather than a
+silent edit:** a per-source ablation is only valid while every *other* gate is
+held fixed. §6.5's table ranked four candidates by how much each moved the
+number, and ranking assumes independence. Two of them were not independent —
+one was masking the other — and the ranking inverted the moment an unrelated
+correctness fix landed between them. **When an ablation returns "small",
+record what else was true at the time**, because that is the claim, not the
+number.
+
 ### 6.5 What was ruled out on the way
 
 | candidate | how | result |
 |---|---|---|
-| `rigid::settle` — landed body cells go in through `Cell::new`, `aux` **0** | `SETTLE_AUX_MAX=1` writes `u16::MAX` | **fires** (arms diverge from +100 frames) and the oracle reads **37,036 against 37,629** — 1.6% |
+| ~~`rigid::settle` — landed body cells go in through `Cell::new`, `aux` **0**~~ | `SETTLE_AUX_MAX=1` writes `u16::MAX` | **NOT ruled out — this is half the fix.** It read 1.6% when measured, and that number was true of the code at that moment and false of the code an hour later. See §6.4 and §6.4a |
 | `structural::tick`'s `grounded_root` | `STRUCT_NO_GROUND_ROOT=1`, with a new `grounded` counter as the control | **byte-identical** to baseline, and the counter reads **0 every frame**. A vacuous null, and the counter is the only reason that is knowable |
 | the powder-`aux` collision | reading | `is_body_material` is `Solid \| Plant`; `rubble`, `gravel` and `soil` are all `Powder`, so the relaxation never reads their moisture |
 | organism-owned neighbours | reading | real gap — `tick`'s neighbour loop filters on `is_body_material` and `is_burning` but **not** `organism_id != 0`, unlike `compute_world_distances`, `support_parent`, `support_count` and `dependants`, so an inert cell beside live tissue relaxes off a cell-type tag. Not what fired here (the trap named `landed_cell` twelve times out of twelve), and worth closing anyway |

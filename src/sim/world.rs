@@ -2881,6 +2881,21 @@ impl World {
 
     /// One report per false anchor, with a backtrace, capped so a cascade
     /// cannot bury the first one. See `AUX_TRAP` at the call site.
+    ///
+    /// **Two ways a null from this is vacuous, both paid for.**
+    /// `Reports/structural-support-model.md` §6.4 reported "the trap goes to
+    /// 0 reports with the fix in" and that control was weak twice over:
+    ///
+    /// - **The window has to outlast the thing being trapped.** That run went
+    ///   to 15 frames past the charge; rigid bodies have not settled by then,
+    ///   so it proved landing *particles* were fixed and nothing more. At 400
+    ///   frames the same arm fires 12/12 and names `rigid::step_chunk_bodies`
+    ///   on eleven of them — a second false-anchor source the null had hidden.
+    /// - **`SEEN` is process-global**, so once twelve reports fire from *any*
+    ///   path, every later path is silenced. It was not the cause above (the
+    ///   run was fresh, `SEEN` at 0) but it is a live way for a future null to
+    ///   mean nothing. If you are trapping a path that fires late, raise it or
+    ///   narrow the predicate rather than trusting the zero.
     #[cold]
     fn report_false_anchor(&self, x: i32, y: i32, old: Cell, cell: Cell) {
         use std::sync::atomic::{AtomicUsize, Ordering};
