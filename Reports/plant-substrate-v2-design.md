@@ -1,10 +1,15 @@
 # Plant substrate v2: growth mode, storage, soil moisture, leaves, environment, and polarity
 
 **Audience:** the coding agent implementing this.
-**Status:** design only, written just-in-time before implementation, per
-`design-philosophy.md` §3's standing instruction and the precedent
-`organism-substrate-design.md` / `tree-rewrite-design.md` both set. No code
-in this pass.
+**Status: implemented and merged.** *Design only, written just-in-time
+before implementation, per `design-philosophy.md` §3's standing instruction
+and the precedent `organism-substrate-design.md` / `tree-rewrite-design.md`
+both set. No code in this pass* — that was true when this was written and
+has not been true for some time; it is quoted rather than deleted because
+the just-in-time precedent is the part worth keeping. **Corrected
+2026-08-27.** This is the most-cited plant report in the tree (28 source
+citations), so an agent opening it directly and reading "no code in this
+pass" is the most expensive instance of that mistake available.
 **Companion to:** `Reports/organism-substrate-design.md` (the shipped
 substrate), `Reports/tree-rewrite-design.md` (the shipped tree),
 `research/m16-plant-biology.md` (the biology this whole system is grounded

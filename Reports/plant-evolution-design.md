@@ -1,6 +1,10 @@
 # From trees to plants: materials, ecology, evolution, speciation
 
-**Status:** design and comparison, 2026-08-18. No implementation. This
+**Status: partly implemented** — all nine §8 calls were signed off
+2026-08-19, and litter, decay, grass and the creeper have since landed; §4a's
+register holds the probe verdicts and the do-not-retry notes. *Design and
+comparison, 2026-08-18. No implementation* was the standing at the time of
+writing and is kept for the date it carries. **Corrected 2026-08-27.** This
 document does three things the owner asked for in one sitting: it answers
 the plant-materials brief (how this engine grows a plant that is not a
 tree), it compares the creature evolution plan against the plant genome
