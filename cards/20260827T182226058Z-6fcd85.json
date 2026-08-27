@@ -1,0 +1,46 @@
+{
+  "id": "20260827T182226058Z-6fcd85",
+  "created": "2026-08-27T18:22:26Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-equilibrium-costs-6mr4rj",
+    "commit": "4946731",
+    "agent": null,
+    "session_id": "c709b350-d2ea-58e9-ab56-b13c912deaf1",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Charging carbon to build a leaf: does the canopy still read as canopy?",
+  "question": "Leaves now cost carbon to build, so a node builds the spray it can pay for instead of always a full one. Foliage is down ~30% per plant. Does the thinner stand still read as trees with crowns, or has it tipped into brown speckle?",
+  "context_md": "24 trees in 512 columns so crowns touch; frame 28,800. Over 8 world seeds: median leaf cells per plant 1227 -> 857 (-30%), leaves down in 15 of 16 runs. Total cells move in no consistent direction (7 up, 9 down) -- a reallocation, not a tax. Seeds set 42 -> 140. Germinations 24 -> 24, i.e. tripling seed supply changed recruitment by nothing.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "leaves free to build (current main)",
+      "files": [
+        "20260827T182226058Z-6fcd85/000-before.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "leaf construction charged",
+      "files": [
+        "20260827T182226058Z-6fcd85/001-after.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
