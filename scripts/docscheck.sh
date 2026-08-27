@@ -86,6 +86,7 @@ plant-substrate-v2-design.md|Reports/plant-substrate-v2-design.md|**Status: impl
 branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|**Status: merged. Corrected 2026-08-27**, having stood four days after\n`plant-project-review-2026-08-23.md` §3 named it stale with the address\nattached. `branch_angle`, `straightness`, `internode` and `path_len` all\nstand in `src/sim/plant.rs` and `src/sim/organism.rs`; `branch_angle` and\n`internode` are authored in five species files; the branch is gone from the\nremote, which in this repo means merged (branch deletion returns HTTP 403,\nso nothing else prunes one). §4's width bound is closed in code too — the\nturgor gate reads `path_len`.|**Status: built, measured, working, and NOT merged.** It lives on branch\n`plant-branch-angle`.
 debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
 plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
+contextbudget|.claude/README.md|**Always-loaded floor: ~24,255 tokens**|**Always-loaded floor: ~12,000 tokens**
 FAULTS
   [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
   exit "$st_ok"
@@ -518,6 +519,20 @@ if [ -f scripts/addrcheck.py ]; then
   done < <(python3 scripts/addrcheck.py --check 2>&1 | grep -v 'addresses resolve')
 else
   note "scripts/addrcheck.py missing -- dead-ends.md's cross-document addresses are unenforced"
+fi
+
+# --- 9. The always-loaded context budget must be recorded and current -------
+# CLAUDE.md is loaded into every session, agent and subagent, so its size is
+# multiplied by every head you run -- the one file with that property. The
+# 2026-08-24 audit measured 16,300 tokens and a 98:1 add-to-remove ratio; the
+# thirteen repairs landed 2026-08-25 and the file was +49% three days later.
+# A removal criterion was added in the same window and did not hold, which is
+# this script's own founding argument: a check catches what a convention does
+# not. `--check` is staleness only. `--gate` is the ceiling and is deliberately
+# a separate exit -- a repo can be honestly over budget with a current record,
+# and conflating the two makes neither actionable.
+if [ -f scripts/contextbudget.py ]; then
+  cb=$(python3 scripts/contextbudget.py --check 2>&1) || note "$cb"
 fi
 
 # --- result -----------------------------------------------------------------

@@ -133,6 +133,7 @@ python3 scripts/review.py serve --lan       # ...also reachable from a phone on 
 bash scripts/acceptance.sh                  # the structural acceptance cases; CI gates this
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
+python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
 bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
 ```
