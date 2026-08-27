@@ -107,6 +107,28 @@ fn main() {
     // frame 7, but light and moisture start at zero on a fresh world and have
     // to fill it once; `field_cost.rs` uses the same 1500 for the same reason.
     let mut warm = 1500usize;
+    // **How wide a strip the pick and the hammer work along, in cells.**
+    //
+    // **Default 384, which is 64 positions at the historical stride of 6**,
+    // so every measurement in `Reports/structural-support-model.md` still
+    // reproduces. The stride is `band / 64`, and it is the stride rather
+    // than the span that the walk actually uses -- 378 would floor to 5 and
+    // silently change every recorded number, which is the shape of mistake
+    // `CLAUDE.md` warns about under *editing an asset does nothing until
+    // the next build*: a knob that looks like it preserves behaviour and
+    // does not.
+    //
+    // It is a parameter because that geometry is *absolute* and the worlds
+    // it gets compared across are not: 384 cells is **4.7% of an 8192-wide
+    // world and 19% of a 2048-wide one**, so the small arm of any size
+    // sweep is proportionally four times more damaged than the large one,
+    // and the two are not comparable on any absolute count.
+    //
+    // That confound is why §6.5d's 2048x1280 residual could not be read:
+    // 2.28% of body cells wrong there against ~0.00% at 8192, which is the
+    // damage ratio as much as it is anything about the model. Pass
+    // `band=$((w * 384 / 8192))` to hold the *proportion* fixed instead.
+    let mut band = 384i32;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -115,6 +137,7 @@ fn main() {
             "load" => load = v.to_string(),
             "chain" => chain = v.to_string(),
             "warm" => warm = v.parse().expect("warm=N"),
+            "band" => band = v.parse().expect("band=N"),
             "size" => {
                 let (w, h) = v.split_once('x').expect("size=WxH");
                 explicit = Some((w.parse().expect("width"), h.parse().expect("height")));
@@ -140,7 +163,7 @@ fn main() {
 
     if phases {
         let (w, h) = explicit.unwrap_or((BASE_W * 4, BASE_H * 4));
-        phase_probe(ProbeArgs { w, h, params: &params, name: &name, seed, warm, frames, load: &load, chain: &chain });
+        phase_probe(ProbeArgs { w, h, params: &params, name: &name, seed, warm, band, frames, load: &load, chain: &chain });
         return;
     }
 
@@ -439,13 +462,14 @@ struct ProbeArgs<'a> {
     name: &'a str,
     seed: u64,
     warm: usize,
+    band: i32,
     frames: usize,
     load: &'a str,
     chain: &'a str,
 }
 
 fn phase_probe(args: ProbeArgs) {
-    let ProbeArgs { w, h, params, name, seed, warm, frames, load, chain } = args;
+    let ProbeArgs { w, h, params, name, seed, warm, band, frames, load, chain } = args;
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
     let t = Instant::now();
     worldgen::generate_only(&mut world, Spec::Generated { params, seed });
@@ -580,6 +604,10 @@ fn phase_probe(args: ProbeArgs) {
     // `worldseed=` was not yet in the binary and nothing said so. These two
     // decide where §S's false anchors come from, and a log that does not name
     // them cannot be told apart from one taken before they existed.
+    println!(
+        "cut band: {band} cells ({:.1}% of width)",
+        100.0 * band as f64 / w as f64
+    );
     println!(
         "landing aux: settle={} particle={}\n",
         pixel_physics::sim::rigid::settle_aux_mode_name(),
@@ -829,7 +857,7 @@ fn phase_probe(args: ProbeArgs) {
         // surface rather than hitting one spot for ever, because a player
         // does and because a single hole stops finding fresh rock.
         if strike_every > 0 && step > 0 && step % strike_every == 0 && strikes < strike_limit {
-            let x = w / 2 + (strikes as i32 % 64 - 32) * 6;
+            let x = w / 2 + (strikes as i32 % 64 - 32) * (band / 64).max(1);
             if let Some(sy) = rock_at(&world, x) {
                 // **Census the swing's own neighbourhood either side of it**,
                 // because `strike` returns nothing and a count of *calls* is
@@ -846,7 +874,7 @@ fn phase_probe(args: ProbeArgs) {
             }
         }
         if mine_every > 0 && step > 0 && step % mine_every == 0 && mines < mine_limit {
-            let x = w / 2 + (mines as i32 % 64 - 32) * 6;
+            let x = w / 2 + (mines as i32 % 64 - 32) * (band / 64).max(1);
             if let Some(sy) = rock_at(&world, x) {
                 let to = (x, sy + 2);
                 let from = (x, sy + 1);
