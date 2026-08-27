@@ -406,27 +406,27 @@ drift that two of these documents still reflect.**
   patch, a committed 6-seed baseline sweep, and the re-derivation the fix
   needs are all banked for the next session.
 - [plant-equilibrium-costs-2026-08-27.md](plant-equilibrium-costs-2026-08-27.md)
-  — **investigation, with one measured correction to the survey's §4a.** Where
-  the plant engine's costs actually are: the carbon and water economies are
-  closed loops with real equilibria and no hole was found in either; what is
-  unpriced is the **morphology layer** on top of them, where the direction
-  score decides shape and nothing charges for it. Adds the third condition a
-  cost must meet — *the environment has to vary which arm wins* — which is why
-  equilibrium and diversity are **not** the same question, and why a costs
-  pass alone will not produce plants that look different. **The correction:**
-  `turgor_source` is not a free lever, it is an *unrewarded* one — height is
-  charged hard through the basipetal girth term, while its only benefit
-  (escaping a neighbour's shade) is switched off by the standard plant bed's
-  56-cell spacing, which no plant measurement in this line has ever varied.
-  Measured both ways: at the standard spacing height costs an order of
-  magnitude in bill-to-income and moves nothing reachable, and at
-  crown-contact spacing (`trees=24 width=512`, no build needed) the same two
-  arms separate cleanly on **who survives at all** — 17–23 established of 24
-  against 11–16. Also: why stand seed totals can never have been the fitness
-  signal (they are pinned by world width, so morphology decides who gets the
-  light and not how much there is); fences against prices as the distinction
-  that says what to build; and the `rate`/`transpiration` pair the genome
-  couples at every consumer and the species file leaves independent.
+  — **audit: does every lever have a cost and a benefit?** Every `Behavior`
+  field and `SpeciesDef` scalar traced to its consumer and sorted into four
+  verdicts — *both* (self-limiting), *benefit with no cost* (runs away, held
+  by a hand-placed fence), *cost with no benefit* (a pure tax that detonates
+  the day its benefit is switched on), and *neither*. **The mechanism of the
+  global retune, in one sentence: the engine prices tissue upkeep and almost
+  never prices tissue construction**, so a morphology lever's cost is not
+  charged where the decision is made but deferred into one pooled maintenance
+  bill that every other constant is calibrated against. Leaves and secondary
+  thickening — the two largest tissue producers — are both free to build and
+  say so in their own comments. **Two corrections to the survey's §4a,
+  measured over four world seeds:** `turgor_source` is not free, it is
+  *unrewarded* — it costs 0.5 → 1.3 in bill-to-income and 200x in starvation
+  shedding while nothing reachable moves — and at crown-contact spacing
+  (`trees=24 width=512`, no build needed) the same two arms separate cleanly
+  on who survives at all, 17–23 established of 24 against 11–16. Also: why
+  stand seed totals can never have been the signal (pinned by world width);
+  fences against prices, with `turgor_taper` as the in-repo model for a
+  graded stop; the unnormalised direction score as a second retune mechanism
+  that is not costs at all; and why a costs pass buys equilibrium but not, on
+  its own, diversity.
 - [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
   — **method, not results.** How to decide *which authored parameters should
   become heritable* by measurement rather than by a fifth design opinion:
