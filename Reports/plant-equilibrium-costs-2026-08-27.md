@@ -24,7 +24,7 @@ inventory this corrects in two places), and
 | 6 | Fences — where the tuner has already compensated by hand |
 | 7 | The second mechanism, which is not costs at all: denomination |
 | 8 | The instrumental half: what this does and does not buy for diversity |
-| 9 | What to do, in order |
+| 9 | What to do, in order — and **9a**, what step 3 costs |
 | 10 | Owner calls — three answered, one deferred with a trigger |
 | 11 | **Built**: §9 steps 3a and 4, and what 16 paired runs measured |
 
@@ -33,13 +33,25 @@ inventory this corrects in two places), and
 **No — but the gap is not where §4a puts it, and it is narrower and more
 systematic than "most levers are free".**
 
-The two resource economies are close to finished. Carbon has income bounded
-by intercepted light, superlinear maintenance charged on a monotone girth
-memory, growth funded from *surplus* rather than income, functional-balance
-allocation to the limiting organ, die-back, and starvation death. Water has
-capacity bought with contacting root tissue, demand driven by foliage,
-stomatal closure that throttles income, and a separate desiccation term that
-sheds. This audit found no hole in either.
+The two resource economies are far more finished than the gap above them.
+Carbon has income bounded by intercepted light, superlinear maintenance
+charged on a monotone girth memory, growth funded from *surplus* rather than
+income, functional-balance allocation to the limiting organ, die-back, and
+starvation death. Water has capacity bought with contacting root tissue,
+demand driven by foliage, stomatal closure that throttles income, and a
+separate desiccation term that sheds.
+
+**How far to trust that, stated up front because it frames everything
+after it and it is the weakest claim in this report.** An earlier draft
+said flatly *"this audit found no hole in either"*. That was a
+**read-through** conclusion — every parameter traced to its consumer — and
+read-the-consumer is exactly the method that produced §4a's wrong turgor
+row, because a cost paid through *tissue quantity* is not a term at any
+call site. The instance was corrected in §5 without the lesson about the
+technique being inherited; the PR #80 session raised that in review and it
+is right. §5c now probes the water economy the way turgor was probed, which
+converts one strand of this into a measurement. **The rest remains a
+reading, and the audit table in §3 carries the same warning.**
 
 The gap is one structural asymmetry, and it is the mechanism of the retune
 loop:
@@ -95,6 +107,18 @@ the same shape, measured.
 
 Every field of `Behavior` and every `SpeciesDef` scalar, traced to its
 consumer in source. `ByOrder` fields are one entry.
+
+> **Health warning on this method — the same one that produced §4a's wrong
+> turgor row.** Tracing a parameter to its consumer and looking for an
+> opposing term *at the call site* systematically under-reports any cost
+> paid through **tissue quantity**, because that cost is not a term at the
+> call site at all: it is emergent through the maintenance walk. Turgor is
+> the measured instance (§5a). The rows most likely to be wrong the same
+> way are the ones that **produce tissue** — `plastochron`,
+> `juvenile_plastochron`, `leaf_cluster`, `pipe_ratio`, `branch_chance`.
+> Each is classified below from its consumer and none has been swept the
+> way turgor was, so read every "benefit, no cost" row as a **candidate**
+> rather than a finding. Raised by the PR #80 session in review.
 
 ### Both — self-limiting today
 
@@ -268,6 +292,16 @@ morphology decides who gets it.** §9 step 1 carries the consequence: until
 the readout is a genotype's share against its own competitors, a costs pass
 measured on stand totals reports nothing whichever way it goes.
 
+**Scope limit, and it matters for anyone citing this.** The claim holds for
+a stand that **saturates the light available to it**, which both beds here
+do. It does *not* hold for a sparse stand that never closes canopy — and
+`plant-recruitment-measurement-2026-08-27.md` §1 contains exactly such a
+case, grass at 416 organism cells against tree's 54,800. That comparison is
+not width-pinned, because grass never approaches the ceiling this section is
+about. Its honest framing is *"trees carry 5-8x more mature cells"* rather
+than *"trees are more fecund"* — a claim about mass, not about fecundity.
+Agreed with the PR #80 session, whose report that is to fix.
+
 ## 6. Fences — where the tuner has already compensated by hand
 
 A **price** is continuous, paid in a currency the plant is already
@@ -398,7 +432,9 @@ Nothing here is proposed for landing in this session.
 
    Shared-budget throughout: re-deriving `INCOME_PER_NODE`,
    `MAINTENANCE_PER_NODE`, `Grow.cost` and `supportable` is part of the
-   work, gated on a seed sweep either side.
+   work, gated on a seed sweep either side. **Priced in §9a below** — an
+   earlier draft named the re-derivation without estimating it, which is
+   `CLAUDE.md`'s rule quoted and then not followed.
 
 4. **Route reproduction through the surplus pool** (§10b option C), which
    is the same fix as 3a one account over: seeds should draw from
@@ -415,6 +451,48 @@ Nothing here is proposed for landing in this session.
    rather than on effect size — a lever in the "benefit, no cost" row is
    disqualified from heritability until step 3 or a bespoke counterweight
    reaches it, because a free lever made heritable produces uniformity.
+
+### 9a. What step 3 costs — and the part of it that already shipped unpriced
+
+Raised in review by the PR #80 session, and the criticism is right twice
+over: the plan ordered step 3 without pricing it, **and 3a then landed
+anyway** (§11). `CLAUDE.md`: *"if that is unaffordable, the change is not
+scoped, it is merely started."*
+
+**What 3a actually cost, measured rather than estimated.** The reallocation
+was absorbed: 948 tests green, acceptance green, foliage down 30%, seeds up
+3.3x, and **not one constant re-derived**. That is the useful data point
+and it must not be over-read. *Absorbed* is not *calibrated* —
+`INCOME_PER_NODE`, `MAINTENANCE_PER_NODE` and everything that budgets in
+units of `Grow.cost` were all calibrated against an economy in which
+foliage was free to build, and they now describe a different one. The stand
+still works; nobody has checked that it works *for the right reasons*. That
+debt is real and it is 3a's, not 3b's.
+
+**What 3b will cost, estimated before starting, which is the point.** The
+size of a construction charge is the number of cells it bills for. 3a bills
+foliage: a median 857 leaf cells per plant after the change. 3b bills
+thickening, and thickening is the majority of the rest — median 2,400 total
+cells against 857 leaf, so roughly 1,500 non-foliage cells per plant, of
+which stem widening is the bulk (median stem thickness ~10, with ~39% of
+each plant's rows more than one cell wide). **So 3b's reallocation is on
+the order of 1.5-2x the size of 3a's**, against an economy that has not yet
+re-derived for 3a.
+
+**Therefore: 3b does not start until two things are true.**
+
+1. **The instrument in §11b exists** — a counter that says whether a
+   construction charge *binds* or whether the decision simply never fired.
+   Without it a sweep cannot tell a real ceiling from a chance roll, and
+   3b's sweep is the one that will need it.
+2. **3a's constants are re-derived**, on the competitive bed, gated on a
+   seed sweep either side. Stacking a 1.5-2x larger reallocation on top of
+   an uncalibrated one is how two changes become one un-attributable
+   regression — which is the loop this whole report was written to
+   diagnose, arriving from inside it.
+
+3c (stop billing interior wood) stays strictly after both, for the reason
+in §10a.3: it is the half that resurrects the blob if it goes first.
 
 ## 10. Owner calls — three answered 2026-08-27, and what they change
 
