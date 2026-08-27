@@ -337,6 +337,14 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
+  — **method, not results.** How to decide *which authored parameters should
+  become heritable* by measurement rather than by a fifth design opinion:
+  point `plant-species-authoring.md`'s existing lever-table method at the
+  ~25-30 authored constants that set phenotype and are not heritable today.
+  Carries the two criteria — it must move the phenotype **and** have a
+  counterweight, since a free lever made heritable produces uniformity — plus
+  both required controls and the traps.
 - [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
   — **handoff; read first when picking this line up.** Reading order for the
   six documents, what is actually established, and **§3: an owner-caught
