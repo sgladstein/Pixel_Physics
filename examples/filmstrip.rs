@@ -2511,6 +2511,25 @@ struct Args {
     /// slower, so the fastest of several runs is the closest thing to the
     /// machine's real cost, and a bar it still fails is a real regression.
     max_frame_ms: Option<f64>,
+    /// `max_sites=N` -- exit non-zero if the structural scheduler still has
+    /// more than N sites pending when the run ends.
+    ///
+    /// **The one counter that states `open-bugs-handoff.md` §S directly**,
+    /// and the reason it is a *final* count rather than a peak. §S is
+    /// "every destructive verb leaves the structural scheduler pinned at
+    /// its cap for ever", so the refutation is not that the backlog stays
+    /// small -- a real blow should spike it -- but that it **drains**.
+    /// Measured on `scene=strike` 2026-08-27, sites at frames 2/62/122/182:
+    /// **958, 968, 824, 289** with the shipped ground root and **958, 2747,
+    /// 5034, 7145** with the pre-2026-08-27 flat `0`. One drains, one
+    /// climbs monotonically, and only the final reading separates them by
+    /// more than a factor of three.
+    ///
+    /// A counter rather than a wall clock, deliberately -- `CLAUDE.md`
+    /// gates on counters because a bar over a clock is a flake generator,
+    /// and the two cases in this file that do gate on `max_frame_ms` have
+    /// flaked on a loaded box within this session.
+    max_sites: Option<usize>,
     /// `min_bodies=N` -- exit non-zero unless at least N coherent chunk
     /// bodies were in flight at once at some point in the run.
     ///
@@ -2795,6 +2814,7 @@ fn parse() -> Args {
         max_unconfined: None,
         max_failures: None,
         max_frame_ms: None,
+        max_sites: None,
         min_bodies: None,
         ice: None,
         min_travelled: None,
@@ -3014,6 +3034,7 @@ fn parse() -> Args {
             "crack_rays" => a.crack_rays = Some(v.parse().expect("crack_rays")),
             "smoke" => a.smoke = Some(v.parse().expect("smoke=<fraction 0..1>")),
             "max_frame_ms" => a.max_frame_ms = Some(v.parse().expect("max_frame_ms")),
+            "max_sites" => a.max_sites = Some(v.parse().expect("max_sites")),
             "min_bodies" => a.min_bodies = Some(v.parse().expect("min_bodies")),
             "ice" => {
                 let (cols, cells) = v.split_once(',').expect("ice=minCols,maxCells");
@@ -4458,6 +4479,15 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             ok = false;
         }
     }
+    if let Some(max) = args.max_sites {
+        let pending = world.active_site_count();
+        if pending > max {
+            println!(
+                "  FAIL: the structural scheduler still has {pending} sites pending at the end of the run, wanted at most {max} -- see open-bugs-handoff.md §S, a backlog that climbs instead of draining"
+            );
+            ok = false;
+        }
+    }
     if let Some(min) = args.min_bodies {
         if peak_bodies < min {
             println!("  FAIL: expected at least {min} chunk bodies in flight at once, peaked at {peak_bodies}");
@@ -4551,6 +4581,7 @@ fn check_expectations(world: &World, args: &Args, gnome: &Gnome, best_ms: f64, p
             || args.max_failures.is_some()
             || args.max_unconfined.is_some()
             || args.max_frame_ms.is_some()
+            || args.max_sites.is_some()
             || args.min_bodies.is_some()
             || args.ice.is_some()
             || args.min_travelled.is_some())

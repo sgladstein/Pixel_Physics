@@ -340,7 +340,7 @@ run coldsheet scene=coldsnap start=1800 every=1800 count=6 crop=180,228,160,44 z
 #    an earlier bar on overload failures duly broke when an unrelated
 #    change to the fragment ladder shifted how many separate events the
 #    same material came away in. Measure what the scene is about.
-run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_bodies=2 repeat=2 max_frame_ms=$BUDGET_MS
+run strike   scene=strike   start=2 every=60 count=4 crop=200,90,120,120 zoom=3 min_bodies=2 max_sites=1500 repeat=2 max_frame_ms=$BUDGET_MS
 
 # 8. The gnome gets through a wood.
 #
