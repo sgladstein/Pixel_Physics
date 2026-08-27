@@ -720,6 +720,24 @@ pub struct World {
     /// behaviour and is not evidence of anything.
     pub seeds_germinated_after_waiting: u32,
 
+    /// **Every germination, deferred or not** — the total count of `Seed`
+    /// cells that became a growing shoot.
+    ///
+    /// Distinct from `seeds_germinated_after_waiting` above, which counts
+    /// only the dormancy-deferred subset and therefore cannot answer "did
+    /// any seed germinate at all". That gap made a real conclusion rest on
+    /// arithmetic instead of a count: `Reports/plant-recruitment-measurement-
+    /// 2026-08-27.md` §5a inferred that tree seeds were expiring in the bank
+    /// rather than germinating, by comparing the standing bank against a
+    /// pure-decay prediction (155 set, half-life 9,000, ~43 expected, 40
+    /// observed). That inference is sound and it is still an inference — it
+    /// assumes a uniform seed-set rate, and the report says so. This counter
+    /// is what settles it directly.
+    ///
+    /// Incremented in `plant::germinate`, which every germination passes
+    /// through, so it cannot drift from the thing it counts.
+    pub germinations: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -1468,6 +1486,7 @@ impl World {
             organisms_refused: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
+            germinations: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             shed_shade: 0,

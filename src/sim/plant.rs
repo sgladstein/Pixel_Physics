@@ -5673,6 +5673,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     if world.organism(organism_id).is_some_and(|st| st.deferred_germination) {
         world.seeds_germinated_after_waiting += 1;
     }
+    // **Every germination, not just the deferred ones** — see
+    // `World::germinations` for why the narrower counter above could not
+    // answer "did any seed germinate at all", and which published inference
+    // this exists to replace with a measurement.
+    world.germinations += 1;
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child
     // creation above. A freshly germinated seed is not yet connected to any

@@ -919,6 +919,20 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
         // the failure the counter exists to end.
         let (high_water, ceiling) = w.organism_slot_high_water();
         let refused = w.organisms_refused();
+        // **Germinations, against the "seeds set in total" printed above** --
+        // the pair that says which stage of the life cycle is failing, and the
+        // reason it has to be a pair.
+        //
+        // A seed count alone cannot separate a bank being drawn down by
+        // germination from one expiring on its half-life clock, and those two
+        // call for entirely different fixes. `Reports/plant-recruitment-
+        // measurement-2026-08-27.md` §5a had to reach that conclusion by
+        // comparing the standing bank against a pure-decay prediction (tree:
+        // 155 set, half-life 9,000, ~43 expected, 40 observed) -- sound, and
+        // an inference resting on an assumed uniform seed-set rate. This line
+        // answers it outright. `CLAUDE.md`: pair every "it fired" counter with
+        // an effect counter from the far side of the call.
+        println!("  germinations: {} -- read against `seeds set in total` above", w.germinations);
         println!(
             "  organism slots: high-water {high_water} of {ceiling} ({:.1}%), {refused} births refused at the ceiling",
             100.0 * high_water as f64 / ceiling as f64
