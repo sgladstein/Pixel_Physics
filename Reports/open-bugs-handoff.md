@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6382 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6571 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6662 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6676 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6688 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6706 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6727 | A material-counting guard cannot see a species |
-| W1c | note | 6740 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6874 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 6952 | The structural opt-out did not hold against bearing |
-| T1d | note | 6963 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 6997 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7051 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7105 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7134 | §1c's settle loss is now a counter |
-| -- | note | 7151 | What landed |
-| -- | note | 7174 | Do not re-derive these |
-| -- | note | 7202 | Measurements that contradict something written |
-| -- | note | 7222 | Open |
-| -- | note | 7257 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6507 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6696 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6787 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6801 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6813 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6831 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6852 | A material-counting guard cannot see a species |
+| W1c | note | 6865 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 6999 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7077 | The structural opt-out did not hold against bearing |
+| T1d | note | 7088 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7122 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7176 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7230 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7259 | §1c's settle loss is now a counter |
+| -- | note | 7276 | What landed |
+| -- | note | 7299 | Do not re-derive these |
+| -- | note | 7327 | Measurements that contradict something written |
+| -- | note | 7347 | Open |
+| -- | note | 7382 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6336,6 +6336,22 @@ what the wrong story got right by accident:
 186, and the scheduler from 14.68 ms to 0.03 ms, with no converged pass at
 all** (measured by the support-model session, not re-run here).
 
+**Corrected 2026-08-27, twice over — read this before acting on the
+paragraphs above.** They say *"a one-line aux carry"* and credit
+`particle::landed_cell` alone. There are **two** false anchors and both are
+needed: `rigid::settle` lands rigid bodies through the same `Cell::new` zero.
+Alone they recover **23% and 1%**; together, **99.5%** (36,348 wrong cells →
+186). The 37,629 → 186 figure above pairs `main`'s baseline with a branch
+that has *both* flags, so it folds in more than the one line it names.
+
+`landed_cell` **ships on by default**; `settle` does **not** — it turns
+`a_disturbance_extent_licenses_the_wound_but_not_the_chain` red and inverts
+it (367 cells away with the wound licensed against 418 with a point licence,
+against recorded figures of 840 and 649). **So §S is still open, at roughly a
+quarter of the available win.** Full account, and the reason the first
+measurement honestly read 1.6% and then stopped being true, in
+`Reports/structural-support-model.md` §6.4a and §6.5b.
+
 ##### What survives
 
 - **No local rule can see it.** Three fixes failed on that and the reason
@@ -6378,6 +6394,115 @@ cannot tell locally whether a neighbour's `u16::MAX` is an invalidation that
 will be undone or a genuine dead end. **The closed affected set and the
 ordered pass are necessary, not merely tidier.**
 
+
+#### Root cause found, and one sign corrected — 2026-08-26
+
+`Reports/structural-support-model.md` measures the replacement sketched above
+and corrects one reading of this entry. Four things it settles, none of which
+needs re-deriving here:
+
+- **The affected cells read too *low*, not too high.** This entry's `|delta|`
+  histogram is an absolute value; the oracle's own `rose` field gives the
+  sign, and every one of the 37,629 cells stores a value *below* the truth by
+  ~2,200. So the damaged region is a **load sink** — through
+  `load::dependants` (`n.aux() > own`) it inherits the subtree of the
+  correctly-valued rock above it — which is `structural::tick`'s own
+  "a sprinkle of sand under a beam holds the beam up" at scale, and explains
+  the 25,470-cell survival difference without the span comparison
+  `compute_world_distances`' doc still claims (`max_unsupported_span` is a
+  material constant fed to `load::capacity_within`; it is never compared
+  against `aux`).
+- **"The error is manufactured, not delivered" is right about *when* and
+  misleading about *what*.** The region's true distance is ~2,400 before the
+  charge and after it; its *stored* value is what collapses, to near zero,
+  from the false anchor below. Getting back is an **increase**, and
+  Bellman-Ford raises a distance one unit per relaxation round — ~2,400 rounds
+  at `STRUCTURAL_TICK_INTERVAL` is the eleven thousand frames this entry
+  measures. The climb *is* the correction, and suppressing it makes the field
+  worse (`STRUCT_NO_CLIMB=1`: 37,629 wrong cells become **80,441**, while
+  `produced` falls 7,491 → 2,568). **The range is the cost** — the recovery
+  from any false zero is one round per unit of the field's depth — which is a
+  stronger argument for the short-horizon half of the sketch than the one
+  made above.
+- **But the short-horizon half as sketched is dead**: clamping this field at
+  64 leaves **95.38%** of body cells with no strictly-lower neighbour, so
+  `support_count`, `dependants` and `support_parent` all come back empty for
+  them. `dead-ends.md`, structural. The coarse-layer half is confirmed within
+  1% (5,169 nodes for 5,120 chunks) and the hierarchical potential built on
+  it packs into the existing `u16`.
+- **Half the fix has shipped, half is blocked — 2026-08-27.**
+  `particle::landed_cell` is on by default; `rigid::settle` is not, because
+  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes red *and
+  inverts* with it (367 cells away with the wound licensed against 418 with a
+  point licence, where the recorded figures are 840 and 649). Either a real
+  regression or the fourth mode shift that count has caught. **§S is
+  therefore still open**, at roughly a quarter of the available win. The
+  measurement that would unblock it is in
+  `Reports/structural-support-model.md` §6.5b.
+- **And §S has a root cause — two of them, and both are needed.**
+  `particle.rs::landed_cell` and `rigid::settle` both land body material
+  through `Cell::new`, whose `aux` is **0**. Landing each at `u16::MAX`
+  recovers **23% and 1% alone and 99.5% together**: at the branch head,
+  36,348 wrong cells → **186**, with the climb bucket at **0**. Closing either
+  alone leaves the damaged region relaxing off the other. The paragraphs below
+  were written when only the first was known; the correction, and why an
+  ablation that honestly read 1.6% stopped being true an hour later, is
+  `Reports/structural-support-model.md` §6.4a. Ten frames after
+  the charge, `stone` cells at the crater store **0 and 1** where the truth is
+  2,398 or `u16::MAX`; the region then relaxes downhill off them, which is how
+  595 wrong cells become 37,629. A write-seam trap in `World::set`
+  (`AUX_TRAP=<frame>`, reporting any write that makes a cell body material
+  reading `aux <= 2` with no bedrock adjacent, with a backtrace) caught
+  **twelve consecutive false anchors on the two frames after the charge, all
+  twelve `ParticleSystem::step`**, every one `empty aux 0 -> stone aux 0`
+  beside `stone:2405`.
+
+  `landed_cell` carries a particle's `aux` only for materials flagged
+  `worth_in_aux` — the **food-value** flag — so every thrown rock lands
+  claiming `aux == 0`, *adjacent to bedrock*. Its doc enumerates the `Liquid`
+  fill and `Powder` moisture conventions and the organism packing, and is
+  right about all three; on an **inert `Solid`** there is a fourth, the anchor
+  distance, and there `Cell::new`'s 0 is not "no claim" but the strongest one
+  available.
+
+  **`PARTICLE_AUX_MAX=1` lands body material at `u16::MAX` instead** — the
+  honest value and the cheap one, since an improvement is a single relaxation
+  round whatever its size. Same scene, oracle at +1,300 frames: wrong cells
+  **37,629 -> 186** (and the climb bucket, `|delta|` 1k-60k, **37,593 -> 0**),
+  `produced` **7,491 -> 13**, `pending` **36,818 -> 5,957** against a ~5,400
+  idle, scheduler **14.68 -> 0.03 ms**, frames over budget **86.9% -> 72.8%**.
+  That is the state this entry's own `RECONVERGE_AT` oracle reached with a
+  whole-world converged pass, reached with none.
+
+  Controls, because this bug has faked a quiet queue before: the trap goes to
+  **0 reports** with *both* fixes in — with `PARTICLE_AUX_MAX` alone it fires
+  12/12 and names `rigid::step_chunk_bodies` on eleven of them, which is how
+  the misattribution was caught; `max aux` reads **2,422**, live and honest
+  rather than the withdrawn prototype's 142; **1,717 more** body cells stand
+  at the end, the same direction as the converged-pass control's +25,470; and
+  the residual 186 are *all* `>60k (detached)`, a different and much smaller
+  question.
+
+  Ruled out on the way, and both worth keeping: `rigid::settle`'s `Cell::new`
+  default (`SETTLE_AUX_MAX=1`, 37,629 -> 37,036, 1.6%) and `tick`'s
+  `grounded_root` (byte-identical, and a new `grounded` counter on the
+  `[struct]` census reads **0 every frame** -- vacuous, not negative).
+
+  **Two adjacent gaps this turned up, both since fixed.** `particle::land`
+  wrote through `World::set` and raised no `StructuralCheck`, so a landed body
+  cell was invisible to the structural scheduler until something else woke it
+  -- it now goes through `place_landed`, which schedules around the landing
+  for body material only. And `structural::tick`'s *neighbour* loop was the
+  one reader of `aux` that did not exclude organism-owned cells
+  (`compute_world_distances`, `support_parent`, `support_count` and
+  `dependants` all do), so an inert cell beside live tissue relaxed off a
+  cell-type tag in 0..15. Neither fired on this scene; both have guards
+  checked by putting the fault back -- and measured, **neither is a fix for
+  §S**: with both in and `landed_cell` untouched the oracle reads 36,348
+  against the baseline's 37,629 (3.4%), and `pending` at frame 3,000 goes
+  36,818 -> 38,322. Scheduling a landing cannot help while its `aux` is still
+  0, because the neighbours relax off that zero on the same frames the cell is
+  being corrected. The value is the fix; the schedule is not.
 
 ### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
 

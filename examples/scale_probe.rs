@@ -725,6 +725,77 @@ fn phase_probe(args: ProbeArgs) {
                     "  [oracle] |delta|: <=2 {} | 3-10 {} | 11-100 {} | 101-1k {} | 1k-60k {} | >60k (detached) {}",
                     buckets[0], buckets[1], buckets[2], buckets[3], buckets[4], buckets[5]
                 );
+                // **A column through the wrong region, materials and all.**
+                // Counts and bounding boxes say *how much* and *where*; they
+                // cannot say what the region is measuring itself *from*, and
+                // that is the open question in
+                // `Reports/structural-support-model.md` — every wrong cell
+                // stores a value far below the truth, so something nearby is
+                // offering a low number and a census over deltas cannot see
+                // what. `ORACLE_COLUMN=1` prints one column through the
+                // middle of the bbox: stored against true, with the material
+                // and the attached bit, for every body cell in it.
+                if std::env::var("ORACLE_COLUMN").is_ok() {
+                    let cx = (lo_x + hi_x) / 2;
+                    let column: std::collections::HashMap<i32, u16> =
+                        before_aux.iter().filter(|((x, _), _)| *x == cx).map(|((_, y), a)| (*y, *a)).collect();
+                    println!("  [oracle] column x={cx}  (y: material attached stored -> true)");
+                    let mut printed = 0;
+                    for y in lo_y.max(0)..=hi_y.min(h - 1) {
+                        let c = world.get(cx, y);
+                        if !structural::is_body_material(&world, c.material) || c.organism_id() != 0 {
+                            continue;
+                        }
+                        // `before_aux` is built y-major, so it is not
+                        // ordered by `(x, y)` and cannot be binary-searched
+                        // on one. The column is a few hundred entries; the
+                        // map is built once, outside the loop.
+                        let Some(&stored) = column.get(&y) else { continue };
+                        if printed < 40 {
+                            println!(
+                                "    y={y:>5} {:<10} {} {:>6} -> {:>6}",
+                                world.materials.get(c.material).name,
+                                if c.attached() { "bg" } else { "fg" },
+                                stored,
+                                c.aux()
+                            );
+                            printed += 1;
+                        }
+                    }
+                }
+                // **The lowest stored values in the wrong set, which is
+                // where the false field is anchored.** The column above
+                // shows a smooth ramp rising *away* from a minimum, so the
+                // question is what sits at the minimum and who wrote it.
+                // Printed with each cell's four neighbours, because a false
+                // anchor is only visible as a cell whose stored value no
+                // neighbour can account for.
+                if std::env::var("ORACLE_COLUMN").is_ok() {
+                    let mut lows = wrong.clone();
+                    lows.sort_by_key(|&(_, _, o, _)| o);
+                    println!("  [oracle] lowest stored in the wrong set:");
+                    for &(x, y, o, n) in lows.iter().take(10) {
+                        let c = world.get(x, y);
+                        let ns: Vec<String> = [(-1, 0), (1, 0), (0, -1), (0, 1)]
+                            .iter()
+                            .map(|&(dx, dy)| {
+                                let nc = world.get(x + dx, y + dy);
+                                format!(
+                                    "{}:{}{}",
+                                    world.materials.get(nc.material).name,
+                                    nc.aux(),
+                                    if structural::edge_is_cracked(&world, x, y, dx, dy) { "X" } else { "" }
+                                )
+                            })
+                            .collect();
+                        println!(
+                            "    ({x},{y}) {} {} stored {o} -> true {n} | nbrs(after pass) {}",
+                            world.materials.get(c.material).name,
+                            if c.attached() { "bg" } else { "fg" },
+                            ns.join("  ")
+                        );
+                    }
+                }
                 let step_n = (wrong.len() / 8).max(1);
                 let sample: Vec<String> = wrong
                     .iter()

@@ -2766,6 +2766,34 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // is a different colour, not the same grain -- the one case where
         // `BodyCell::shade`'s "never re-roll" rule does not apply, since
         // the material changed underneath it.
+        // **The other half of §S's fix, and the half that is NOT yet on.**
+        // `SETTLE_AUX_MAX=1`. Its sibling `particle::landed_cell` ships on by
+        // default as of 2026-08-27; this one does not, and the reason is a
+        // guard rather than a doubt about the diagnosis:
+        // `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes
+        // red with it on, and **inverts** -- 367 cells came away with the
+        // wound licensed against 418 with a point licence, where the
+        // recorded figures are 840 and 649. A wider disturbance licence
+        // bringing away *less* than a point licence is backwards from what
+        // the licence is for, and that is either a real regression or the
+        // fourth mode shift this particular count has caught (its own
+        // comment records three). Neither is a thing to merge past.
+        //
+        // **Both halves are needed for the full result** -- 23% and 1% alone
+        // against 99.5% together (`Reports/structural-support-model.md` §6.4)
+        // -- so this is unfinished business, not a rejected idea.
+        // `Cell::new` writes `aux 0`,
+        // which reads as *anchored*; this writes `u16::MAX`, which reads as
+        // "no known path", and lets `tick` relax the cell from its
+        // neighbours instead. The two errors are not symmetric and that is
+        // the thing being measured: a `u16::MAX` is corrected by one
+        // improvement wave, and a `0` inside a massif has to *climb* to the
+        // true distance at one unit per relaxation round.
+        let settle_aux_max = {
+            use std::sync::OnceLock;
+            static ON: OnceLock<bool> = OnceLock::new();
+            *ON.get_or_init(|| std::env::var("SETTLE_AUX_MAX").map(|v| v != "0").unwrap_or(false))
+        };
         let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
             Some(into) => {
                 let shades = world.materials.get(into).palette.len().max(1) as u32;
@@ -2785,6 +2813,7 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
             None => Cell::new(cell.material, cell.shade),
         };
+        let fresh = if settle_aux_max { fresh.with_aux(u16::MAX) } else { fresh };
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             world.set(x, y, fresh);
             landed.push((x, y));
@@ -4233,6 +4262,34 @@ mod tests {
         // their span. Writing that value back on landing would fail the very
         // next structural check and re-break on the spot, which reads as
         // debris that can never come to rest.
+        //
+        // **The `aux` half of this test was retired 2026-08-27, and the way
+        // it went is worth more than the assertion was.**
+        //
+        // It asserted a *proxy* -- `aux <= max_unsupported_span` on the
+        // landed cells -- and never ran a structural check, so it could not
+        // observe re-breaking at all, only guess at it from a stored number.
+        // When `settle` changed to write `u16::MAX` instead of `Cell::new`'s
+        // 0 (`Reports/structural-support-model.md` §6.4: a landed body
+        // claiming `aux 0` is one of the two false anchors that produce §S),
+        // the proxy went red while the behaviour it stands for was fine.
+        //
+        // The obvious repair was to assert the property instead -- settle,
+        // run the structural system, check the debris is still there. That
+        // was written, and it passes, **and it is blind**. Two faults were
+        // injected and it stayed green through both: `settle` writing
+        // `span + 1`, and `is_resting_on_ground` returning `false` outright.
+        // The reason is the scene: the slab lands on the bedrock floor, so
+        // `load::is_anchor` answers through `touches_bedrock` whatever the
+        // stored distance says, and debris on bedrock cannot fail. A guard
+        // that cannot go red is not weak, it is blind (`CLAUDE.md`), so it
+        // was not kept.
+        //
+        // What actually stands behind the landing value is whole-world and
+        // not a unit test: the `RECONVERGE_AT` oracle (36,348 wrong cells ->
+        // **186**, climb bucket 0) and `scripts/acceptance.sh` green on all
+        // 23 cases. `!attached()` below is kept because it *is* checkable
+        // here -- re-attaching is a property of the write, not of the scene.
         let mut w = test_world();
         for x in 0..64 {
             w.set(x, 63, Cell::new(material::BEDROCK, 0));
@@ -4243,15 +4300,18 @@ mod tests {
             step_chunk_bodies(&mut w);
         }
         assert!(w.chunk_bodies.is_empty(), "test setup: the body should have settled");
+        let landed = (0..64)
+            .flat_map(|x| (0..64).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).material == material::STONE)
+            .count();
+        assert!(landed > 0, "test setup: nothing landed as stone, so the assertions below are vacuous");
 
-        let span = w.materials.get(material::STONE).max_unsupported_span;
-        for x in 0..64 {
-            for y in 0..64 {
-                let c = w.get(x, y);
-                if c.material == material::STONE {
-                    assert!(c.aux() <= span, "a landed cell kept its pre-flight distance at ({x}, {y}), so it will re-break immediately");
-                    assert!(!c.attached(), "landed debris must not re-attach to the background, or a fallen chunk becomes immovable terrain");
-                }
+        for (x, y) in (0..64).flat_map(|x| (0..64).map(move |y| (x, y))) {
+            if w.get(x, y).material == material::STONE {
+                assert!(
+                    !w.get(x, y).attached(),
+                    "landed debris must not re-attach to the background, or a fallen chunk becomes immovable terrain"
+                );
             }
         }
     }

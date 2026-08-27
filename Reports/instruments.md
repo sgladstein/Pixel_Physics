@@ -65,6 +65,8 @@ studies:
 | `film_probe` | Standing census of one-cell water films | Standing count, not creation rate — the distinction that solved the whisker hunt |
 | `fire_probe` | The grassfire instrument | |
 | `anchor_probe` | **Does it matter which code path last wrote a field?** One geometry, its anchor distances written three ways, swept for the margin | Built for `open-bugs-handoff.md` §S2; the shape generalises — see below |
+| `arch_probe` | **Does the shape a player builds change what stands?** One opening, four roof forms, swept for the span each one drops at | Builds and runs scenes; changes no default. Refuses to print a margin it did not bracket — see below |
+| `support_census` | **What the support field is made of, and what a replacement would cost.** The distance histogram, the coarse chunk layer's true node and edge count, and a cell-by-cell comparison of a candidate field's *load DAG* against the exact field's | Read-only — builds candidate fields beside the real one and never writes. `control=1` runs both controls; see below |
 
 ## Creatures
 
@@ -124,6 +126,52 @@ indifferent to what the field is. Three properties worth reusing:
 Reach for its shape for any "does this code path's version of X differ from
 that one's" question — two writers of the same cached field, two builders of
 the same state, a fast path against its slow reference.
+
+**`arch_probe` is `anchor_probe`'s margin logic with the variable moved.**
+`anchor_probe` holds one geometry and varies the *rule*; this holds one rule
+and varies the *geometry*, and the transferable part is what sits between
+them: **a comparison of two ways of doing something can only show itself in
+where the margin is**, because on either side of it both arms agree. Three
+things worth copying:
+
+- **It refuses to report an unbracketed margin.** Its first sweep had every
+  arm at 100% and it printed *"the sweep never reached its margin"* rather
+  than a number. `anchor_probe`'s own first run produced exactly that null and
+  did not say so.
+- **It carries a control for each rival explanation, not just one.** The arch
+  uses more stone than the lintel, so there is a cell-count-matched arm; and
+  "it is really just depth" is a live alternative, so there is a
+  triple-thickness arm. The second one *worked* (the margin went 56 → 96),
+  which is what makes the arch's win over it meaningful.
+- **It measures the scene rather than assuming it.** The clear span is read
+  back off the built world as the widest empty run below the springing line,
+  so two arms cannot silently be roofing different holes.
+
+**`support_census` compares two fields by the *question their consumers ask*,
+not by their values**, and that is the transferable part. `load.rs` never
+reads a support distance as a magnitude — it reads four bits per cell, "which
+of my neighbours are below me" — so two fields with wildly different numbers
+can be identical to every rule downstream, and two fields with similar numbers
+need not be. The census computes those bits under each field and diffs them.
+Reach for the shape whenever a replacement is proposed for a cached quantity:
+**diff the predicate the consumers evaluate, not the cache**.
+
+Three things it does that are worth copying:
+
+- **Two controls, opposite in sign.** A flat-zero field must read ~97%
+  disagreement (the instrument can see a difference) and the exact field
+  against itself must read exactly 100% same (it does not manufacture one). A
+  set-comparison that is silently comparing a thing with itself reports
+  perfect agreement, which is the answer a proposal wants.
+- **It splits by whether anything ever looks.** At 8192x2560 only **10,344 of
+  19.4 M** body cells pass `load::is_structurally_interesting`, so a
+  whole-world agreement figure is 99.95% a statement about rock no rule
+  evaluates. The headline and the meaningful number differed by 2.3x
+  (50.49% against 21.82%).
+- **It reports a chunk-boundary breakdown as a rate per band, never a
+  count.** The interior band holds far more cells and wins on a count
+  whatever the truth is; `CLAUDE.md`'s chunk-decomposition warning needs the
+  rate to be checkable.
 
 **`ant_ablation` and `pass_ablation` are the same idea in two domains**: turn
 the mechanism off and see whether the outcome notices. Before concluding a
@@ -219,6 +267,30 @@ built for:
 
 It is a probe, not a proposal — the pass takes ~2,000 ms and walks all 21 M
 cells. Nothing would ship it per blast.
+
+**`AUX_TRAP` is a *write-seam trap*, and the shape is the reusable part.**
+It is not an example — it is an env-gated report inside `World::set` that
+fires on any write matching a predicate and prints a backtrace. Reach for it
+when you know *what* wrong state exists and not *who* wrote it, and when
+guessing writers by name has already failed twice: `Reports/structural-support-
+model.md` §6 ablated `rigid::settle` and `structural::tick`'s `grounded_root`
+before trapping the seam, and the answer was neither (`particle.rs::
+landed_cell`, twelve backtraces out of twelve). Three things that generalise:
+
+- **Trap the invariant, not the caller.** `World::set`'s own doc already
+  states the principle for a different problem — *"an enumeration that has to
+  stay complete is the failure mode this project keeps rediscovering"* — and
+  a predicate over (old cell, new cell, position) is complete by construction
+  where a list of suspects is not.
+- **State the predicate as the bug, not as the symptom.** Here: *this write
+  makes a cell body material reading `aux <= 2` with no bedrock adjacent, and
+  the cell it replaced was nowhere near an anchor.* That is "a false anchor is
+  being created" in one line, and it fired 12 times in two frames with no
+  false positives.
+- **Cap the reports and print the neighbourhood.** The cap keeps the first
+  report readable through a cascade; the neighbourhood is what showed the
+  error spreading — the first traps sit beside `stone:2405` and the last
+  beside `stone:0`.
 
 **`flora_census where=/at=` is the answer to "I don't see a difference".**
 Audit the rendered window before believing a card; a whole-world total in a

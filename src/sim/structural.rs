@@ -236,11 +236,22 @@ pub struct TickCensus {
     pub uninteresting: u32,
     /// Largest distance written this frame.
     pub max_aux: u16,
+    /// Took the last-resort ground root -- nothing relaxed to a path and the
+    /// cell is resting on loose material, so it wrote **0**.
+    ///
+    /// Counted because `Reports/structural-support-model.md` needed to know
+    /// whether the false zero a blast leaves behind comes from here, and a
+    /// census over *stored* values cannot see a root that has since climbed
+    /// away from 0. Pairs with `STRUCT_NO_GROUND_ROOT`: an ablation whose
+    /// mechanism never fired reads exactly like an ablation that changed
+    /// nothing.
+    pub grounded: u32,
 }
 
 thread_local! {
     static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
         worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
+        grounded: 0,
     }) };
 }
 
@@ -349,6 +360,34 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
             if !is_body_material(world, neighbour.material) {
                 continue;
             }
+            // **An organism-owned neighbour's `aux` is not a distance**, and
+            // this loop was the one reader of the field that did not say so.
+            //
+            // Once `organism_id != 0` the slot holds a cell-type tag
+            // (`organism::pack_cell_type`, a bare discriminant in 0..15 --
+            // `Reports/organism-substrate-design.md` §2), which is exactly
+            // the range that reads here as *at or beside an anchor*. So an
+            // inert cell next to live tissue relaxed to `tag + step` and
+            // became a false anchor for everything around it.
+            //
+            // Every other reader already excluded them and this one is now
+            // consistent with all four: `compute_world_distances`'
+            // `relaxable`, `load::support_parent`, `load::support_count` and
+            // `load::dependants`. The disagreement was not academic --
+            // `support_parent` refuses an owned cell as a parent, so a
+            // distance derived from one names a parent the load model
+            // cannot see.
+            //
+            // A plant holds *itself* up through `plant::anchor_support` on
+            // the organism sidecar, which is why dropping the edge here
+            // costs the tree nothing: `organism_structural_tick` is the
+            // branch that judges owned cells and it reads that field, not
+            // this one. Found in `Reports/structural-support-model.md` §6
+            // while trapping a different false anchor; it did not fire on
+            // that scene, and it is the same defect.
+            if neighbour.organism_id() != 0 {
+                continue;
+            }
             // Same conservative defer as the guard above: a burning
             // neighbour's `aux` is a valid distance now, not an aliased burn
             // timer, but the neighbour may still change material out from
@@ -390,7 +429,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // material that can flow away without scheduling anything. See
     // `GROUNDED_RECHECK_INTERVAL`, which is what the tail of this function
     // does about it.
-    let grounded_root = relaxed == u16::MAX && is_resting_on_ground(world, x, y);
+    let grounded_root = relaxed == u16::MAX && !no_ground_root() && is_resting_on_ground(world, x, y);
+    if grounded_root {
+        census(|c| c.grounded += 1);
+    }
     let new_distance: u16 = if grounded_root { 0 } else { relaxed };
 
     // Written *before* the failure test, not after, and the order is
@@ -441,6 +483,12 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
         }
         c.max_aux = c.max_aux.max(new_distance);
     });
+    // The `STRUCT_NO_CLIMB` probe -- see `no_climb`. A suppressed rise is
+    // treated as though the distance had not moved: judged (the rise is
+    // still the signal that support got worse), not written, and not fanned
+    // out. Everything below reads `moved` through this, so the cell takes
+    // exactly the unmoved path and stops rescheduling itself.
+    let moved = moved && !(worsened && no_climb());
     if moved {
         world.set(x, y, cell.with_aux(new_distance));
         propagate.push(reschedule(world, x, y));
@@ -3708,6 +3756,47 @@ fn reconverge_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("STRUCT_RECONVERGE").map(|v| v != "0").unwrap_or(false))
 }
 
+/// **A probe, not a mechanism.** `STRUCT_NO_CLIMB=1` takes away `tick`'s
+/// authority to *raise* a stored distance: a relaxation that comes back
+/// worse is judged, as it is today, but is neither written nor fanned out.
+///
+/// It exists to measure one claim in `Reports/structural-support-model.md`:
+/// that count-to-infinity is caused by *increases being handled locally*
+/// rather than by the field's range, so forbidding the local increase
+/// should stop the manufacturing that turns 369 genuinely-invalid cells
+/// into 67,100 wrong ones. On its own it is not a shipping shape — it
+/// leaves the field permanently stale-low wherever a rise is real, and only
+/// `reconverge_from_damage` (`STRUCT_RECONVERGE=1`) puts the rise back. The
+/// two are meant to be measured together, and separately, which is why they
+/// are two switches.
+fn no_climb() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("STRUCT_NO_CLIMB").map(|v| v != "0").unwrap_or(false))
+}
+
+/// **A probe, not a mechanism.** `STRUCT_NO_GROUND_ROOT=1` removes `tick`'s
+/// last-resort ground root, so a cell that relaxes to no path at all stays at
+/// `u16::MAX` instead of writing 0.
+///
+/// It is an *ablation*, in `ant_ablation`'s sense: turn the mechanism off and
+/// see whether the outcome notices. The outcome under test is the stale-low
+/// region a blast leaves behind
+/// (`Reports/structural-support-model.md`) -- every cell in it stores a value
+/// far *below* the truth, which means something wrote a false zero nearby and
+/// the region measured itself from that. `grounded_root` is the only writer
+/// of a 0 that is not adjacent to bedrock, and a crater full of settling
+/// rubble is exactly the state it fires in.
+///
+/// Not a proposal: its own doc records what removing it costs -- a lone stone
+/// left hanging in open water for the rest of a run, because a cell that
+/// stops asking is never re-asked.
+fn no_ground_root() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("STRUCT_NO_GROUND_ROOT").map(|v| v != "0").unwrap_or(false))
+}
+
 /// What one `reconverge_from_damage` call did, for `SCHED_PASS` to print.
 #[derive(Default, Clone, Copy)]
 pub struct ReconvergeStats {
@@ -4670,6 +4759,49 @@ mod tests {
     /// no longer produces.
     fn stone_debris(w: &World) -> MaterialId {
         w.materials.get(material::STONE).breaks_into.expect("stone must define a breaks_into")
+    }
+
+    /// **An organism-owned cell's `aux` is a cell-type tag, not a distance,
+    /// and `tick`'s neighbour loop was the one reader that did not know.**
+    ///
+    /// `organism::pack_cell_type` is a bare discriminant in 0..15 -- exactly
+    /// the range that reads here as *at or beside an anchor* -- so an inert
+    /// cell beside live tissue relaxed to `tag + step` and became a false
+    /// anchor for everything around it. `compute_world_distances`'
+    /// `relaxable`, `load::support_parent`, `load::support_count` and
+    /// `load::dependants` all excluded owned cells already.
+    /// `Reports/structural-support-model.md` §6.6.
+    ///
+    /// `load_budget = 0` so the tick writes its distance and defers before
+    /// judging: this is a test about the *field*, and letting the load model
+    /// run would break the subject and leave nothing to read.
+    #[test]
+    fn a_solid_does_not_take_its_distance_from_an_organism_cells_type_tag() {
+        let mut w = test_world();
+        let wood = w.materials.id_of("wood").expect("the registry must carry a Plant material");
+        // One inert stone cell in open air, whose only neighbour is live
+        // tissue. Nothing below it, so the ground root cannot fire either
+        // and `u16::MAX` is the honest answer.
+        w.set(30, 30, Cell::new(material::STONE, 0));
+        w.set(
+            29,
+            30,
+            Cell::new(wood, 0).with_organism_id(7).with_aux(organism::pack_cell_type(organism::CellType::GrowingTip)),
+        );
+        assert!(
+            is_body_material(&w, wood) && w.get(29, 30).aux() < 16,
+            "test setup: the neighbour must be body material carrying a small tag, or this asserts nothing"
+        );
+        w.load_budget = 0;
+
+        let _ = tick(&mut w, &ActiveSite { x: 30, y: 30, kind: ActiveKind::StructuralCheck, next_frame: 0 });
+
+        assert_eq!(
+            w.get(30, 30).aux(),
+            u16::MAX,
+            "a stone cell whose only neighbour is organism-owned took that cell's type tag as an \
+             anchor distance -- it has no path at all and must say so"
+        );
     }
 
     fn run(w: &mut World, frames: usize) {
