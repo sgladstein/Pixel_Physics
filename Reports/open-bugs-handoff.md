@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**39 open, 78 bugs** (plus 18 landing-note items,
+**38 open, 78 bugs** (plus 18 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -101,27 +101,27 @@ point.
 | R | **OPEN** | 5402 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6507 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6696 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6787 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6801 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6813 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6831 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6852 | A material-counting guard cannot see a species |
-| W1c | note | 6865 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 6999 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7077 | The structural opt-out did not hold against bearing |
-| T1d | note | 7088 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7122 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7176 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7230 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7259 | §1c's settle loss is now a counter |
-| -- | note | 7276 | What landed |
-| -- | note | 7299 | Do not re-derive these |
-| -- | note | 7327 | Measurements that contradict something written |
-| -- | note | 7347 | Open |
-| -- | note | 7382 | Unmerged at close, and one of it is a fix main needs anyway |
+| S | closed | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 6672 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6861 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6952 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6966 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6978 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6996 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7017 | A material-counting guard cannot see a species |
+| W1c | note | 7030 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7164 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7242 | The structural opt-out did not hold against bearing |
+| T1d | note | 7253 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7287 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7341 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7395 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7424 | §1c's settle loss is now a counter |
+| -- | note | 7441 | What landed |
+| -- | note | 7464 | Do not re-derive these |
+| -- | note | 7492 | Measurements that contradict something written |
+| -- | note | 7512 | Open |
+| -- | note | 7547 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -5672,7 +5672,7 @@ should do the two halves together: fixing only placement leaves an ant that
 wanders onto a pond still walking on it.
 
 
-### S. Every destructive verb but the brush leaves the structural scheduler pinned at its cap for ever — **OPEN, found 2026-08-25 by measurement; rescoped the same day from "one explosion" to the pick and the hammer too**
+### S. ~~Every destructive verb but the brush leaves the structural scheduler pinned at its cap for ever~~ — **FIXED AND GUARDED 2026-08-27. Three false anchors, all the same mistake: a writer making the strongest claim available when it meant a weaker one.**
 
 Found by the frame-cost audit (`Reports/frame-cost-audit-2026-08.md`) while
 answering the owner's question — *"saving a few ms in static play but then
@@ -6430,15 +6430,126 @@ needs re-deriving here:
   them. `dead-ends.md`, structural. The coarse-layer half is confirmed within
   1% (5,169 nodes for 5,120 chunks) and the hierarchical potential built on
   it packs into the existing `u16`.
-- **Half the fix has shipped, half is blocked — 2026-08-27.**
-  `particle::landed_cell` is on by default; `rigid::settle` is not, because
-  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` goes red *and
-  inverts* with it (367 cells away with the wound licensed against 418 with a
-  point licence, where the recorded figures are 840 and 649). Either a real
-  regression or the fourth mode shift that count has caught. **§S is
-  therefore still open**, at roughly a quarter of the available win. The
-  measurement that would unblock it is in
-  `Reports/structural-support-model.md` §6.5b.
+- **Two of the three verbs are now closed, and §S is down to the hammer —
+  2026-08-27.** This entry's headline is "every destructive verb but the
+  brush", so the landing fix was measured against each of them separately
+  rather than against the charge it was found on.
+  `scale_probe size=8192x2560 warm=1500 frames=1600`, oracle at frame 1,599,
+  before = both seams at `Cell::new`'s 0, after = both seeded:
+
+  | verb | cells it removed | wrong cells before → after | `pending` before → after |
+  |---|---|---|---|
+  | charge (`blast:200:1`) | — | 38,325 → **189** | 41,473 → **6,125** |
+  | pick (`mine:20:200`, 79 cuts) | 4,442 | 4,490 → **3** | 10,033 → **5,486** |
+  | hammer (`strike:20:200`, 79 swings) | 2,936 | 45,248 → 35,102 | 47,790 → 39,492 |
+
+  Idle `pending` on this world is ~5,400, so the charge and the pick both
+  land *at* idle and the hammer does not move off its cap at all.
+
+  **The fixes work at every size once the harness confound is out.** This
+  entry briefly carried a *third source* at 2048x1280 and it was retracted
+  the same day — the finding was the harness, not the model. `scale_probe`'s
+  pick cut a **fixed** 384-cell band whatever the world's width, which is
+  4.7% of an 8192-wide world and **19%** of a 2048-wide one, so the small arm
+  was in a saturation regime rather than showing a different bug. `band=N`
+  now holds the damage *fraction* constant. Same load, oracle at 1,599:
+
+  | world | band | all three bugs | shipped |
+  |---|---|---|---|
+  | 8192x2560 | 384 (4.7%) | 4,490 | **3** |
+  | 4096x1600 | 192 (4.7%) | 33,528 | **1,416** |
+  | 2048x1280 | 128 (6.2%) | 46,717 | **1,316** |
+  | 2048x1280 | 64 (3.1%) | 2,246 | **2** |
+
+  **And the `1k-60k` climb bucket — the count-to-infinity signature this
+  whole entry is about — is zero at every size.** The residual is entirely
+  deltas of 1 to 100 (4096: 359/510/505; 2048: 151/491/641) plus a few dozen
+  genuinely detached, which is a reactive relaxation a few rounds behind a
+  world still in flux. `pending` lands at 2,675 and 2,313 on worlds a quarter
+  and an eighth the area of the one that idles at ~5,400. **No false anchor
+  survives at any size.**
+
+  The lesson, since this entry named the confound and published against it
+  anyway: a confound named in prose is not a confound removed.
+
+  **And the hammer is now fixed too -- 2026-08-27, later the same day.**
+  `load::ground_footing_distance` roots a ground-supported cell at what the
+  pile is actually standing on (the rock under the scree, plus the scree
+  walked through) instead of a flat `0`. Hammer arm, `GROUND_ROOT=flat`
+  against the default: wrong cells **35,102 -> 1,337**, the `1k-60k` climb
+  bucket **34,009 -> 0**, `pending` **39,492 -> 6,184** against a ~5,400
+  idle, cells stored at 0 among the wrong **8 -> 2**, whole frame mean
+  **31.23 -> 24.52 ms**. That beats removing the root outright (1,542) while
+  **keeping** the rule, which the ablation could not. The charge and pick
+  arms are byte-identical between the two, because the rule does not fire
+  there. `Reports/structural-support-model.md` §6.5d.
+
+  **The diagnosis that led there: `tick`'s ground root writes a `0`.**
+  Measured 2026-08-27 with `STRUCT_NO_GROUND_ROOT=1` on the hammer arm,
+  everything else identical: wrong cells **35,102 -> 1,542**, the `1k-60k`
+  climb bucket **34,009 -> 0**, `pending` **39,492 -> 6,036** against a
+  ~5,400 idle. `score_cracks` was the first suspect and is ruled out by
+  reading -- it already schedules a check on every cell it scores.
+
+  The positive control is what makes that trustworthy, and it is the same
+  knob §6.5 correctly called vacuous: `STRUCT_NO_GROUND_ROOT` reads
+  byte-identical on the *blast* scene with `grounded` at 0 every frame, and
+  fires on the *hammer* scene. Same instrument, opposite standing, decided by
+  whether the mechanism runs.
+
+  **It is a value bug, not a rule bug.** The root is right about the physics
+  -- a chunk landed on a pile must read as supported and must not shatter --
+  but it says so by writing `aux = 0`, which in this field means
+  *bedrock-adjacent*, and everything around it inherits that stronger claim.
+  `load::is_anchor` is `touches_bedrock || rests_on_ground` and consults the
+  world directly, so the 0 is redundant to the consumer that needs it and
+  corrupting to every consumer that does not. Eight cells stored at 0 produce
+  34,009 wrong ones. **The ablation is a diagnosis, not a proposal**: it
+  turns `a_cell_left_standing_on_nothing_is_asked_again` and
+  `a_disturbance_extent_licenses_the_wound_but_not_the_chain` red.
+
+  **The behaviour gate now guards this entry directly, and the earlier claim
+  that it could not was wrong.** It was recorded here as "acceptance cannot
+  see this rule", inferred from `grounded` reading 0 through `rockdrop` and
+  `ligament` — which is exactly the weak-zero reading that counter's own
+  caveat warns against. Tested differentially instead (every case at the
+  shipped value against `GROUND_ROOT=flat`, diffed): **19 of 22 cases are
+  blind, three see it** (`rockdrop`, `lavadrop`, `strike`) and all three
+  passed anyway. `scene=strike` turns out to be §S in miniature — sites
+  pending at frames 2/62/122/182 read **958, 968, 824, 289** shipped against
+  **958, 2747, 5034, 7145** flat, one draining and one climbing
+  monotonically at 512x320 in 182 frames. `max_sites=1500` now gates it and
+  goes red for `GROUND_ROOT=flat` (7,145), `SETTLE_AUX=zero` (8,134) and all
+  three off (9,079). It does **not** cover the particle seam, which lands
+  three cells in a whole 8192x2560 run and none here.
+
+  **The control for "you censused it mid-damage" is in the table above.** Both tool arms damage on the identical cadence
+  (every 20 frames, last blow at ~1,580) and are censused at the identical
+  frame, so "the census is taken mid-damage" cannot explain a gap of four
+  orders of magnitude between them — the pick converges to **3** under
+  exactly the conditions that leave the hammer at **35,102**. And the hammer
+  removes *fewer* cells while leaking far more, which is this entry's own
+  unexplained hammer-vs-pick ordering, still unexplained and now the whole of
+  what is left. `of changed, was at 0 (tick ground-root)` reads **8**, so
+  whatever is writing them is not writing a stored zero: the residual has the
+  downhill-relaxation signature without the false anchor, which is a
+  different question from the one this fix answered.
+
+- **The whole fix now ships — 2026-08-27, later the same day.** Both seams
+  give a landed cell the distance the field would have computed for it
+  (`structural::seed_landing_aux`) rather than `Cell::new`'s 0. **The blocker
+  above was resolved, not merged past.** It was recorded as "either a real
+  regression or the fourth mode shift that count has caught"; the named
+  measurement was run and **both quantities inverted** — `promoted_cells`
+  367/418 *and* `stone destroyed` 608/638 — so it was real. What was wrong
+  with `u16::MAX` is its *timing*, not its value: for one
+  `STRUCTURAL_TICK_INTERVAL` a MAX cell satisfies `load::dependants`'
+  `n.aux() > own` against every neighbour, so freshly settled debris hangs its
+  whole weight on the rock beside it at exactly the moment the licence is
+  judging that rock. Seeding from `tick`'s own rule removes the window: same
+  **186** wrong cells against a 38,325 baseline, guard green, and the
+  scheduler phase 15.511 → **4.325 ms** mean. `Reports/structural-support-
+  model.md` §6.5c, with the five-arm table and the noise bar it hands you.
 - **And §S has a root cause — two of them, and both are needed.**
   `particle.rs::landed_cell` and `rigid::settle` both land body material
   through `Cell::new`, whose `aux` is **0**. Landing each at `u16::MAX`
@@ -6486,7 +6597,11 @@ needs re-deriving here:
   Ruled out on the way, and both worth keeping: `rigid::settle`'s `Cell::new`
   default (`SETTLE_AUX_MAX=1`, 37,629 -> 37,036, 1.6%) and `tick`'s
   `grounded_root` (byte-identical, and a new `grounded` counter on the
-  `[struct]` census reads **0 every frame** -- vacuous, not negative).
+  `[struct]` census reads **0 every frame** -- vacuous, not negative). **The
+  first of those was overturned**: the 1.6% was true of the code at that
+  moment and false an hour later, because `particle::land` raised no
+  structural check so nothing evaluated the cells around landed debris.
+  `settle` is half the fix, not a dead end -- see §6.4a.
 
   **Two adjacent gaps this turned up, both since fixed.** `particle::land`
   wrote through `World::set` and raised no `StructuralCheck`, so a landed body
@@ -6503,6 +6618,56 @@ needs re-deriving here:
   36,818 -> 38,322. Scheduling a landing cannot help while its `aux` is still
   0, because the neighbours relax off that zero on the same frames the cell is
   being corrected. The value is the fix; the schedule is not.
+
+#### Closed out — what the three fixes were, and what was left alone
+
+All three verbs land at the world's idle scheduler depth (~5,400 `pending`
+at 8192x2560), and the `1k-60k` climb bucket — the count-to-infinity
+signature this entry is about — is **zero at every world size tested**.
+
+| verb | before | after |
+|---|---|---|
+| charge (`blast:200:1`) | 38,325 wrong cells | **189** |
+| pick (`mine:20:200`) | 4,490 | **3** |
+| hammer (`strike:20:200`) | 45,248 | **1,337** |
+
+Scheduler phase mean **15.511 -> 4.325 ms**; whole frame **36.41 -> 24.74
+ms** on the blast scene.
+
+**Three writers, one mistake.** `particle::place_landed` and `rigid::settle`
+both wrote `Cell::new`'s `aux 0` into landed body material, and
+`structural::tick`'s ground root wrote `0` when it meant "held by a pile".
+On an inert `Solid` that slot is a distance to bedrock, so all three were
+claiming the world's floor was one step away. Each was replaced with the
+value the field would have computed anyway --
+`structural::seed_landing_aux` at the two landing seams,
+`load::ground_footing_distance` at the root.
+
+**Guarded, and watched going red.** `scripts/acceptance.sh`'s `strike` case
+now carries `max_sites=1500`, a counter on the *final* backlog, because the
+property is that it drains: 958 / 968 / 824 / **289** shipped against 958 /
+2747 / 5034 / **7145** reverted. It goes red for the settle seam and for the
+ground root; it does not cover the particle seam, which lands three body
+cells in a whole 8192x2560 run.
+
+**One case deliberately left, and it is not a punt.** A pile deeper than
+`GRAIN_FOOTING_PROBE` with nothing found under it still takes the flat `0`
+(`unwrap_or(0)` in `tick`). Measured harm, as an *upper* bound -- cells
+stored at 0 that a converged whole-world pass disagrees with -- is **0, 1
+and 2** across the three verbs at 8192x2560, 3 at 2048x1280 and 0 at
+4096x1600, with the climb bucket empty in every one. The obvious
+alternative, `unwrap_or(u16::MAX)`, is **worse and for a known reason**: a
+cell permanently at MAX satisfies `load::dependants`' `n.aux() > own`
+against every neighbour, so it hangs its whole weight on the rock beside it
+for ever. That is the exact mechanism that inverted
+`a_disturbance_extent_licenses_the_wound_but_not_the_chain` and got
+`u16::MAX` recorded as a dead end. Trading a three-cell false anchor for a
+permanent load spike is a bad trade; if this ever needs revisiting, the
+quantity to watch is the climb bucket, not the stored-zero count.
+
+**Retracted along the way**: a "third source" at 2048x1280, which was
+`scale_probe`'s fixed-width cut band (19% of that world against 4.7% of
+8192) and not the model. See `Reports/structural-support-model.md` §6.5d.
 
 ### S2. The brush's anchor rule destroys structures the other two rules leave standing — **OPEN, found 2026-08-25 by reading, MEASURED the same day, and the direction is the opposite of the prediction**
 
