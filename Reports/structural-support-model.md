@@ -1,6 +1,7 @@
 # Replacing the support field — what it is for, and what each replacement costs
 
-**Status: measured; the whole fix ships. 2026-08-27.** Both seams that write
+**Status: measured; the whole fix ships, and it closes two of §S's three
+verbs. 2026-08-27.** Both seams that write
 body material at rest — `particle::place_landed` and `rigid::settle` — now
 give a landed cell the anchor distance the field would have computed for it,
 `structural::seed_landing_aux`, instead of `Cell::new`'s `aux 0`. **The
@@ -876,6 +877,40 @@ its distance immediately.
 A false anchor is not expensive because there are many of them. It is
 expensive because one of them, at depth 2,406 inside a massif, drags the whole
 neighbourhood downhill and takes one relaxation round per unit to climb back.
+
+#### The other two verbs — the pick closes, the hammer does not
+
+§S's headline is "every destructive verb but the brush", so the fix was
+measured against each verb rather than against the charge it was found on.
+Same probe, same size, oracle at frame 1,599, before = both seams at
+`Cell::new`'s 0:
+
+| verb | cells removed | wrong cells before → after | `pending` before → after |
+|---|---|---|---|
+| charge (`blast:200:1`) | — | 38,325 → **189** | 41,473 → **6,125** |
+| pick (`mine:20:200`, 79 cuts) | 4,442 | 4,490 → **3** | 10,033 → **5,486** |
+| hammer (`strike:20:200`, 79 swings) | 2,936 | 45,248 → 35,102 | 47,790 → 39,492 |
+
+Idle `pending` is ~5,400, so the charge and the pick both land *at* idle.
+The hammer does not move off its cap.
+
+**The control against "you censused it mid-damage" is already in that
+table**, and it is why the two tool arms were run on identical settings
+rather than tuned separately. Both damage every 20 frames with the last blow
+at ~1,580, and both are read at 1,599 — so the pick converges to **3** under
+exactly the conditions that leave the hammer at **35,102**. Four orders of
+magnitude is not a scheduling artefact. And the hammer removes *fewer* cells
+than the pick while leaking far more, which is §S's own unexplained
+hammer-vs-pick ordering, unchanged.
+
+`of changed, was at 0 (tick ground-root)` reads **8** on the hammer arm, so
+whatever writes the residual is not writing a stored zero. It has the
+downhill-relaxation signature without the false anchor, which is a different
+defect from the one this section fixed and wants its own write-seam trap
+rather than more of this one. (Whole-frame timings for these four arms are
+not quoted: they were taken while this session was building and testing, and
+`CLAUDE.md` is right that a figure measured on a loud box is a figure about
+the box. The oracle counts are deterministic and unaffected.)
 
 #### Guards
 
