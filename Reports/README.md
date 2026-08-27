@@ -218,6 +218,39 @@ tried?"*.
 
 ## Plants and trees
 
+**Start here, not from the list below.** Plants are 42 of this directory's
+110 reports and about **269,000 tokens** — no session reads them, and the
+list is ordered by provenance (design / research / handoff), which is not
+the question you arrived with. This table is: *what am I about to do?*
+
+| If you are about to… | Read, in this order |
+|---|---|
+| **change how a plant grows** — candidate scoring, branching, tropism | `plant-substrate-v2-design.md` — the largest report here at ~29,800 tokens, so use its contents table: §7 (polarity) is 9,754 tokens on its own and §2 (growth mode) is 2,729 |
+| **change the economy** — income, maintenance, what kills a plant | `plant-economy-rederivation-2026-08-23.md`. §7 and §9 are its two *negative* results, and it records six mechanisms built, measured and withdrawn |
+| **make species look different from each other** | `plant-appearance-design.md` **first, before designing anything**. Three architectural levers were built, fired 46–2,750 times each, and moved nothing: a lever that relabels a cell cannot move a silhouette that texture and colour set |
+| **author or change a species** | `plant-species-authoring.md` → `plant-genome-design.md` for the slot map. Slots are **positional forever** |
+| **change roots** | `root-morphology-findings.md` (what the engine structurally cannot express, and that thickening is why) → `root-blob-and-uptake-surface-2026-08-23.md` (sizes the cost before building) |
+| **put plants into the generated world** | `world-flora-sowing-2026-08-23.md` (woody) → `grass-sowing-and-divergence-2026-08-23.md`, whose §11 is the postmortem of a review card that came back a null because the rendered window held 125 grass cells against 7,853 woody |
+| **fell, cut or break a plant** | README's `Felling status` → `physical-trees-design-2026-08-23.md` §8 (T1, built) and §11 (wind-throw, not) |
+| **work on evolution, selection or speciation** | `plant-evolution-design.md` → `genetic-variability-study.md` for how far one genome moves an individual |
+| **know what is open, or what to pick up** | `plant-project-review-2026-08-23.md` §4 (the queue) → `plant-implementation-split-2026-08-23.md` (the lanes) |
+| **measure anything** | `instruments.md` §Plants — seven harnesses already exist and their names do not say what they answer. `divergence` is axis-agnostic |
+
+**The seven longest plant reports carry a generated contents table** with a
+line number and a token count per section — `scripts/reporttoc.py`, gated by
+`docscheck` 8b. They are 43% of the plant corpus by tokens, and the token
+column is the point: it turns "read the report" into a priced decision.
+
+Three things that are not on this table and apply to all of it: grep
+[`dead-ends.md`](dead-ends.md) for the **mechanism** before proposing one;
+read [`../wiki/plants.md`](../wiki/plants.md) for the bar the change is
+judged against; and check this file's status line for any report before
+trusting it — `scripts/docscheck.sh` now gates a report's own header
+against this index (3b), against the branch it claims to live on (3c), and
+an example against the fields the engine still has (5b), but only the index
+carries *why* a report stands where it does.
+
+
 - [plant-simulation-research.md](plant-simulation-research.md) —
   **research.** Growth, evolution and biology directions past M16.
 - [organism-substrate-design.md](organism-substrate-design.md) — **design,

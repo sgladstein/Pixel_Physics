@@ -1,9 +1,29 @@
 # Branch angle, the straightness budget, and the width bound they exposed
 
-**Status: built, measured, working, and NOT merged.** It lives on branch
-`plant-branch-angle`. It makes `a_tree_eventually_stops_growing` fail, and
-the failure is a real gap in the model rather than a stale test bar — which
-is the whole reason this file exists instead of a commit on the main line.
+**Status: merged. Corrected 2026-08-27**, having stood four days after
+`plant-project-review-2026-08-23.md` §3 named it stale with the address
+attached. `branch_angle`, `straightness`, `internode` and `path_len` all
+stand in `src/sim/plant.rs` and `src/sim/organism.rs`; `branch_angle` and
+`internode` are authored in five species files; the branch is gone from the
+remote, which in this repo means merged (branch deletion returns HTTP 403,
+so nothing else prunes one). §4's width bound is closed in code too — the
+turgor gate reads `path_len`.
+
+**What this header said until then, kept because the way it failed is worth
+more than the correction:** *"built, measured, working, and NOT merged. It
+lives on branch `plant-branch-angle`. It makes `a_tree_eventually_stops_growing`
+fail, and the failure is a real gap in the model rather than a stale test
+bar — which is the whole reason this file exists instead of a commit on the
+main line."* Every clause expired. The work landed, the branch was pruned,
+and `a_tree_eventually_stops_growing` was **retired 2026-08-22 with no
+replacement** (`plant.rs:8285`) — because the failure was never this model's
+gap: a mature tree draws the soil below its own seedlings' germination
+threshold, so the test was measuring crowding and calling it economy. The
+file's stated reason to exist had been falsified five days before anyone
+read the header. **`docscheck` check 3c exists because of this report** —
+3b compares a header against its index entry and could never see this one,
+because the index said only "measured study" and so had nothing to
+contradict.
 
 Follows `plant-appearance-design.md` §2.3–2.4, which named branch angle and
 the missing internode as causes 3 and 4 of "three species look like one

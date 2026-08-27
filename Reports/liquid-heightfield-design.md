@@ -1,10 +1,15 @@
 # Liquid heightfield bodies: the ownership substrate, the promotion/demotion protocol, and the seam
 
 **Audience:** the coding agent implementing this.
-**Status:** design only, written just-in-time before implementation, per
-`design-philosophy.md` §3's standing instruction and the precedent
-`organism-substrate-design.md`, `tree-rewrite-design.md` and
-`plant-substrate-v2-design.md` all set. No code in this pass.
+**Status: step 1 implemented; promotion built and reverted.** The
+heightfield bodies in `liquid.rs` are test-only today — nothing in
+production promotes a body, so bugs there are latent rather than live, and
+go live the moment promotion lands. *Design only, written just-in-time
+before implementation, per `design-philosophy.md` §3's standing instruction
+and the precedent `organism-substrate-design.md`, `tree-rewrite-design.md`
+and `plant-substrate-v2-design.md` all set. No code in this pass* — true
+when written, quoted for the precedent. **Corrected 2026-08-27**, caught by
+`docscheck` 3b's widened vocabulary rather than by a reader.
 **Direct brief:** `Reports/liquid-simulation-research-r2.md` §5 and §5a
 (Report B). §5a names the two questions it could not answer from the
 literature — how a body is identified and tracked cheaply, and what the
