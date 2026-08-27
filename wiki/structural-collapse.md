@@ -2,8 +2,9 @@
 
 *Current as of: 2026-08-27. Changed on 2026-08-27: debris that comes to rest
 now inherits its surroundings' sense of what holds it up instead of assuming
-bedrock, so the ground around a crater settles and stops instead of crumbling
-on for minutes — see **What rubble does**. Changed on 2026-08-23: the
+bedrock — which stops ground near a fresh cut from crumbling on long after
+the digging, though only in a world deep enough for it to have mattered; see
+**What rubble does**. Changed on 2026-08-23: the
 brush and fire now
 license a collapse the way a blow does, so erasing a pillar or burning
 through a trunk brings down what it was holding — see **How far damage
@@ -229,11 +230,17 @@ blow — is noticed immediately.
 thrown rock, a fallen slab, the rubble of a collapse — takes on the same
 sense of what is holding it up that the rock around it already has, at the
 moment it lands. It used to arrive believing it was sitting on bedrock,
-whatever it had actually landed on, and that one mistaken belief spread: the
-stone around a fresh crater would gradually come to believe it was
-standing on something solid, and then gradually work out that it wasn't,
-and go on quietly crumbling for a long time after the explosion was over.
-A crater now settles and stops.
+whatever it had actually landed on, and that one mistaken belief spread
+outward: the stone around a fresh crater would come to believe it was
+standing on something solid, then slowly work out that it wasn't, and go on
+quietly crumbling long after the digging stopped.
+
+**How much of that you can see depends on how deep the world is**, and at
+the size the test world is now it is honestly nothing — the belief has to
+travel a long way down to bedrock and back before it costs anything, and in
+a shallow world it does not have far to go. In a world several thousand
+cells deep it is the difference between ground that settles and ground that
+keeps eating itself for minutes.
 
 ## What floats
 

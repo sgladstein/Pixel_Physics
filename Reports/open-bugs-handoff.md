@@ -102,26 +102,26 @@ point.
 | L | closed | 5481 | The colony has gone sessile: 98 round trips became 2 |
 | R2 | **OPEN** | 5613 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
 | S | **OPEN** | 5675 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6546 | The brush's anchor rule destroys structures the other two rules leave standing |
-| -- | closed | 6735 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 6826 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 6840 | Grow into soil destroys the soil's stored water |
-| 3 | note | 6852 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 6870 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 6891 | A material-counting guard cannot see a species |
-| W1c | note | 6904 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7038 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7116 | The structural opt-out did not hold against bearing |
-| T1d | note | 7127 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7161 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7215 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7269 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7298 | §1c's settle loss is now a counter |
-| -- | note | 7315 | What landed |
-| -- | note | 7338 | Do not re-derive these |
-| -- | note | 7366 | Measurements that contradict something written |
-| -- | note | 7386 | Open |
-| -- | note | 7421 | Unmerged at close, and one of it is a fix main needs anyway |
+| S2 | **OPEN** | 6556 | The brush's anchor rule destroys structures the other two rules leave standing |
+| -- | closed | 6745 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 6836 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 6850 | Grow into soil destroys the soil's stored water |
+| 3 | note | 6862 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 6880 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 6901 | A material-counting guard cannot see a species |
+| W1c | note | 6914 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7048 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7126 | The structural opt-out did not hold against bearing |
+| T1d | note | 7137 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7171 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7225 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7279 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7308 | §1c's settle loss is now a counter |
+| -- | note | 7325 | What landed |
+| -- | note | 7348 | Do not re-derive these |
+| -- | note | 7376 | Measurements that contradict something written |
+| -- | note | 7396 | Open |
+| -- | note | 7431 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -6445,6 +6445,16 @@ needs re-deriving here:
 
   Idle `pending` on this world is ~5,400, so the charge and the pick both
   land *at* idle and the hammer does not move off its cap at all.
+
+  **And it is a deep-world fix.** The same pick load across four sizes:
+  `512x320` byte-identical (no effect at all), `2048x1280` 51,499 → 48,342
+  (**6%**), `4096x1600` 26,624 → **225**, `8192x2560` 4,490 → **3**. A false
+  anchor costs one relaxation round per unit of the field's *depth*, so the
+  claim is cheap in a shallow world and ruinous in a deep one. The 2048 row
+  is a warning rather than noise: 48,342 cells are still wrong there
+  afterwards, and its *pre-fix* count is larger than 8192's, so the residual
+  does not scale with the world. Whatever dominates it is plausibly what
+  leaves the hammer at 35,102.
 
   **The hammer is therefore a different source, and the control for that is
   already in the table.** Both tool arms damage on the identical cadence
