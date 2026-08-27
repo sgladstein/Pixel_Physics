@@ -28,6 +28,7 @@ inventory this corrects in two places), and
 | 10 | Owner calls — three answered, one deferred with a trigger |
 | 11 | **Built**: §9 steps 3a and 4, and what 16 paired runs measured |
 | 12 | The owner's verdict, and the binding instrument it unblocked |
+| 13 | The re-derivation — and `seed_chance` is the real fence |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -916,3 +917,93 @@ binds, the change removed a throttle (donor drain) and did not replace it
 with an equivalent one. The old number is still not the target, per §11b —
 but the new one is not a considered value either, and now that is a
 measured claim rather than a suspicion.
+
+## 13. The re-derivation, and what it found: `seed_chance` is the real fence
+
+§11b owed a re-derivation and §9a made it a precondition for 3b. Done for the
+reproduction side, and it did not end where it was expected to.
+
+### 13a. Sweeping the allocation — the constant is not the problem
+
+`REPRODUCTIVE_ALLOCATION` at 0.01 / 0.15 (shipped) / 0.60, dense bed, 4 world
+seeds, rebuilt between arms (it is a Rust constant, so every arm is a lib
+rebuild).
+
+| allocation | seeds set | budget binds |
+|---|---|---|
+| **0.01** | 35, 36, 42, 43 | **68–73%** |
+| **0.15** (shipped) | 120, 134, 136, 154 | 0.0–0.8% |
+| **0.60** | 125, 129, 137, 175 | **0.0%** |
+
+**0.60 is the arm that settles it.** Quadrupling the allocation from the
+shipped value changes seed output by nothing (133 against 135 by median) and
+the budget binds *zero* percent of the time. So above roughly 0.15 the
+reproductive budget is not the constraint at all — and lowering it until it
+binds means going to ~0.01, which is **far below the 5–30% of NPP that real
+plants allocate to reproduction.** Tuning this constant into the binding
+range would mean choosing a biologically indefensible number to compensate
+for something else.
+
+**A trap avoided, and it is worth naming because the number is seductive.**
+At 0.01 the stand sets ~39 seeds, against ~42 before any of this work — so
+the old accidental donor-drain throttle was worth about **1% of NPP**.
+Picking 0.01 would reproduce the old behaviour exactly and would be
+calibrating the new mechanism against the broken one, which §11b warned
+against in advance. It is *evidence about the old throttle*, not a target.
+
+### 13b. What is actually limiting reproduction
+
+`seed_chance`, and it is a **rate fence** rather than a price — §6's category,
+found by measurement rather than by reading. `tree.ron` swept 4e-05 (authored)
+/ 2e-04 / 1e-03 at the shipped allocation:
+
+| `seed_chance` | seeds set | budget binds | germinations | cells | leaves |
+|---|---|---|---|---|---|
+| **4e-05** (authored) | 120–154 | 0–0.8% | 24–25 | ~2,670 | ~850 |
+| **2e-04** | 491–560 | 18–28% | 24–25 | ~2,730 | ~940 |
+| **1e-03** | 667–850 | **71–79%** | 25–29 | ~2,450 | ~840 |
+
+**Carbon takes over as the roll is relaxed, and output saturates** — the
+signature of a price replacing a fence. From 2e-04 to 1e-03 the roll rises
+5x and seed output only 1.45x, because the budget has become the ceiling.
+At 1e-03 reproduction is carbon-limited three quarters of the time and
+`REPRODUCTIVE_ALLOCATION = 0.15` is doing the job it was written for, at a
+value biology supports.
+
+**What it costs, measured rather than assumed:** organism slots go from a
+high-water 70 to 323 of 4,095 (1.7% → 7.9%) with **0 births refused**;
+active sites 593 → 932; the standing seed bank 52 → 225. Real, bounded, and
+nowhere near any ceiling.
+
+**And what it does not buy: recruitment.** Germinations move 24–25 → 25–29
+across a **six-fold** rise in seed supply. Third independent confirmation,
+now with the supply side driven hard on purpose, that **germination is the
+blocked stage and seed supply is very nearly irrelevant to it.**
+
+### 13c. What this changes, and the decision it needs
+
+The re-derivation's finding is not a new value for the constant it set out to
+derive. It is that **the constant was never the limiter**, and the thing that
+is — `seed_chance` — is a fence of exactly the kind §6 catalogues, sitting on
+top of a price that cannot reach past it.
+
+**Not landed, and this is a decision rather than a tuning step**, for two
+reasons that are about scope rather than about the evidence:
+
+1. **It is per-species data.** `seed_chance` is authored in every species
+   file, so making `tree` carbon-limited while `grass`, `shrub`, `conifer`
+   and `creeper` stay roll-limited would leave the economy inconsistent
+   across the flora. Doing it properly is five values, each needing its own
+   binding measurement.
+2. **There is a cleaner shape available and it should be considered before
+   the cheap one is taken.** Raising the roll until carbon binds makes
+   `seed_chance` vestigial for that species. The alternative is to stop
+   rolling at all — convert a share of the reproductive budget into seeds
+   directly, making `seed_chance` a *strategy trait* (how eagerly a species
+   converts surplus into seed) rather than a throttle. That is the honest
+   fence-to-price conversion; raising the fence until it stops binding is a
+   workaround wearing one.
+
+**Recommendation:** the second shape, applied per species, as its own change
+with its own before/after. The measurement above is what makes it arguable
+rather than speculative, and it is banked either way.
