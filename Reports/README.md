@@ -337,6 +337,16 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
+  — **handoff; read first when picking this line up.** Reading order for the
+  six documents, what is actually established, and **§3: an owner-caught
+  drift** — the session slid from *build the missing machinery* to
+  *characterise the machinery we have*, which are different projects. The
+  morphospace census answers the second and is **not on the critical path**
+  to the first; its honest value is hedging one reviewer's challenge and
+  building the descriptor set the machinery work will need anyway. Also: why
+  founder allele variance is not a prerequisite for a sampling harness, and
+  why a disturbance process must be a neutral hazard rather than an age cull.
 - [plant-recruitment-measurement-2026-08-27.md](plant-recruitment-measurement-2026-08-27.md)
   — **measurement, 16 paired runs.** Overturns the three-way review's
   unanimous "nothing can evolve yet": **grass reaches generation 2 in 7 of 8

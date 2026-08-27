@@ -218,6 +218,37 @@ grass carbon number in this report is used for anything. This is
 figure is arithmetically correct and answers a different question than the
 one asked.
 
+## 5c. A confound in this report's own headline: grass cannot starve
+
+**`plant.rs:4810` gates starvation death on `has_leaf_stage`:**
+
+```rust
+// ... until then a species with no `Leaf` stage cannot starve to death.
+if has_economy && has_leaf_stage {
+```
+
+`grass.ron` declares no `Leaf` cell type at all (its header says so
+explicitly, and the cell census confirms it: 410 `MatureBody`, 6 `Seed`).
+**So grass is exempt, by construction, from the starvation mortality that
+operates on trees.** Its measured `0 organisms senescent` is that exemption,
+not a finding about grass vigour.
+
+**What this qualifies:** the headline comparison in §1 has a
+species-asymmetric mortality rule inside it. "Grass sustains a generational
+loop and tree does not" is partly "grass is immune to the rule that kills
+tree seedlings." Any later use of these numbers must carry that.
+
+**What survives it intact:** the §5a germination diagnosis. The seed-bank-
+versus-decay arithmetic compares each species' standing bank against *its
+own* half-life, and starvation immunity does not enter it — a seed that never
+germinates was never subject to the starvation rule either way. Tree's bank
+matching pure decay, and grass's falling below it, is unaffected.
+
+**Also filed, not fixed** (`open-bugs-handoff.md` §V2): the same
+`has_leaf_stage` shape makes `OrganismState::income` structurally zero for
+leafless species, which gates `break_buds`' `supportable` — so grass can
+never flush a bud either. See §5b.
+
 ## 6. What this does not show
 
 - Nothing here says architecture *does* read to the owner. §4 says the
