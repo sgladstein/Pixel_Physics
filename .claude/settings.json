@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/scripts/readguard.py\"",
+            "timeout": 10
+          }
+        ]
+      }
     ]
   },
   "permissions": {
@@ -53,5 +65,6 @@
       "Bash(git rebase*)",
       "Bash(git commit --amend*)"
     ]
-  }
+  },
+  "subagentPromptCacheTtl": "1h"
 }

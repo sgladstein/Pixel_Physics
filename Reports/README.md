@@ -38,6 +38,16 @@ tried?"*.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **all
   thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
+- [agent-strategy.md](agent-strategy.md) — **measured and partly executed
+  2026-08-27.** Which to use — one session, parallel lanes, or a manager with
+  sub-agents — and what enforces it once they are running. The axis that
+  separates them is whether the agents' reading *overlaps*, not the topology:
+  reading is **74%** of a measured agent run against 26% for the auto-loaded
+  prefix. Carries the manager and worker brief templates, the session-lifetime
+  rule (`files > 300`, not a token ceiling), and the finding that sub-agents and
+  workflows default to a **5-minute** prompt cache while the main session gets
+  an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
+  why it did not do it.
   Only **rec 6** is provably unblocked: `load-share` is merged into `main`
   (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
   have no remote ref at all**, so recs 5, 7 and 12 are blocked on work that
