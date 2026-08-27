@@ -405,6 +405,22 @@ drift that two of these documents still reflect.**
   steer plants sideways until they never reach `seed_maturity`. The working
   patch, a committed 6-seed baseline sweep, and the re-derivation the fix
   needs are all banked for the next session.
+- [plant-equilibrium-costs-2026-08-27.md](plant-equilibrium-costs-2026-08-27.md)
+  — **investigation, with one measured correction to the survey's §4a.** Where
+  the plant engine's costs actually are: the carbon and water economies are
+  closed loops with real equilibria and no hole was found in either; what is
+  unpriced is the **morphology layer** on top of them, where the direction
+  score decides shape and nothing charges for it. Adds the third condition a
+  cost must meet — *the environment has to vary which arm wins* — which is why
+  equilibrium and diversity are **not** the same question, and why a costs
+  pass alone will not produce plants that look different. **The correction:**
+  `turgor_source` is not a free lever, it is an *unrewarded* one — height is
+  charged hard through the basipetal girth term, while its only benefit
+  (escaping a neighbour's shade) is switched off by the standard plant bed's
+  56-cell spacing, which no plant measurement in this line has ever varied.
+  Also: fences against prices as the distinction that says what to build, and
+  the `rate`/`transpiration` pair the genome couples and the species file does
+  not.
 - [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
   — **method, not results.** How to decide *which authored parameters should
   become heritable* by measurement rather than by a fifth design opinion:
