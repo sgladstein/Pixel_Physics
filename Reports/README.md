@@ -370,6 +370,16 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
+  — **method finding, from a live instance.** Why every change here seems to
+  demand a global retune: most large levers have **no counterweight**, so
+  every constant is calibrated against every other constant's current
+  behaviour and any change reallocates a fixed budget. Costs are not a feature
+  competing with features — they are what makes features composable. Also
+  names the bias that compounds it (judging a change before its retune
+  systematically rejects the changes worth making, ratcheting toward a local
+  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
+  rather than making one.
 - [plant-phototropism-lateral-2026-08-27.md](plant-phototropism-lateral-2026-08-27.md)
   — **finding; change built, proved, and NOT landed.** `phototropism_dir`'s
   codomain held no horizontal component, so `light_weight` was inert *by
