@@ -300,6 +300,17 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-evolvability-three-reviews-2026-08-27.md](plant-evolvability-three-reviews-2026-08-27.md)
+  — **review synthesis, disagreements preserved.** Three reviewers with
+  different mandates, two firewalled from the design note. Unanimous and from
+  two independent measurements: **generation depth is 1 and inherited-genome
+  establishment is 0**, so nothing can evolve yet and every genome question is
+  downstream of turnover. They split on architecture: A and B call it spent
+  (B proposes an organ-allocation budget instead), C shows the claim is
+  untested because `plant.rs:718-719` hardcodes four of six discrete loci
+  monomorphic in every founder, and the one architectural positive is buried
+  under a stale "NOT merged" header. Cheapest next measurement, ~20 min on an
+  existing binary: grass establishment, never measured.
 - [plant-evolvability-facts-2026-08-27.md](plant-evolvability-facts-2026-08-27.md)
   — **facts, not conclusions.** Verified `file:line` ground truth for the
   plant-evolvability question, written so reviewers spend budget on judgement
