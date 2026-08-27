@@ -231,6 +231,11 @@ def report(m):
         print(f"contextbudget: {CEILING_TOKENS - m['tokens']:,} tokens of headroom")
 
 
+def _comparable(b):
+    """The part of the record that staleness is about: everything but churn."""
+    return re.sub(r"Cache-prefix churn.*?(?=\n\n|$)", "", b, flags=re.S).strip()
+
+
 def read_block():
     if not RECORD.exists():
         return None
@@ -265,12 +270,21 @@ def main():
         # Staleness only. The ceiling is a separate question and a separate
         # exit: a repo can be honestly over budget and still have a current
         # record, and conflating the two makes the gate un-actionable.
+        #
+        # The churn line is excluded from the comparison, and that is not a
+        # loosening -- it is the fix for a check that fired when nothing was
+        # wrong. Churn is derived from git history, so it moves on every commit
+        # touching CLAUDE.md, including the commit that regenerates this record.
+        # Left in, the check demanded a second commit after every first one and
+        # reported "stale" about a budget figure that had not changed. What is
+        # gated is the budget; churn rides along as reporting and self-heals on
+        # the next --write.
         cur = read_block()
         if cur is None:
             print(f"contextbudget: no generated block in {RECORD.relative_to(ROOT)}"
                   " -- run scripts/contextbudget.py --write")
             return 1
-        if cur.strip() != block(m).strip():
+        if _comparable(cur) != _comparable(block(m)):
             print("contextbudget: the recorded budget is stale against CLAUDE.md"
                   " -- run scripts/contextbudget.py --write")
             return 1
