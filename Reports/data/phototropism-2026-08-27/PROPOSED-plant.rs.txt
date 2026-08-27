@@ -8090,19 +8090,59 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
         );
     }
 
+    /// **Asserts the property, and the sideways case is the point.**
+    ///
+    /// The old `phototropism_dir` compared light here against light 4 rows up
+    /// and returned `(0,-1)` or `(0,0)`, so its codomain contained no vector
+    /// with a horizontal component at all. `Reports/dead-ends.md` records the
+    /// consequence: `light_weight` measured **inert across 1,024 genomes**,
+    /// by construction rather than by tuning, because a slope, a clearing and
+    /// a neighbour's shadow are all horizontal gradients.
+    ///
+    /// So the third case below is the one that matters: **it cannot pass on
+    /// the old implementation at any threshold**, which is what makes this a
+    /// test of the repair rather than a restatement of the old behaviour.
+    /// The first two are kept because a gradient probe must still get the
+    /// easy cases right.
+    ///
+    /// Directions are asserted as *properties* (sign, and which component
+    /// dominates) rather than as exact tuples: the returned vector is now
+    /// normalised from two field reads, so pinning it to `(0.0, -1.0)` would
+    /// be fitting the test to one field layout -- `CLAUDE.md`, assert the
+    /// property.
     #[test]
-    fn phototropism_dir_leans_upward_only_when_lit_from_above() {
+    fn phototropism_dir_follows_the_light_gradient_including_sideways() {
         let unlit = test_world();
-        assert_eq!(organism::phototropism_dir(&unlit, 100.0, 150.0), (0.0, 0.0), "no light gradient should mean no lean");
+        assert_eq!(organism::phototropism_dir(&unlit, 100.0, 150.0), (0.0, 0.0), "a flat light field should mean no lean");
 
-        let mut lit = test_world();
-        // Both probes (`(x, y)` and `(x, y - 4)`) fall inside the same
-        // `FIELD_SCALE`-wide field block (144..=151 spans both 146 and
-        // 150), so a plain `field_at` would read them identically --
-        // exactly the degenerate case §6a's bilinear sampling fixes. A
-        // radius smaller than `FIELD_SCALE` paints exactly one field cell.
-        lit.add_light(100, 147, 1, 5.0);
-        assert_eq!(organism::phototropism_dir(&lit, 100.0, 150.0), (0.0, -1.0), "a real light gradient above should lean upward");
+        // Lit from above. `field_at_bilinear` interpolates within a block, so
+        // the light sits on the upper probe (150-4 = 146); the lower probe at
+        // 154 reads the unlit field, so the two differ. A radius under
+        // `FIELD_SCALE` paints exactly one field cell.
+
+        let mut above = test_world();
+        above.add_light(100, 146, 1, 5.0);
+        let (ax, ay) = organism::phototropism_dir(&above, 100.0, 150.0);
+        assert!(ay < 0.0, "light above should lean upward, got ({ax}, {ay})");
+        assert!(ay.abs() > ax.abs(), "the vertical component should dominate, got ({ax}, {ay})");
+
+        // **Lit from the side -- impossible to satisfy before this repair.**
+        let mut beside = test_world();
+        beside.add_light(104, 150, 1, 5.0);
+        let (sx, sy) = organism::phototropism_dir(&beside, 100.0, 150.0);
+        // **A real horizontal component is the whole claim.** The old
+        // codomain was `{(0,-1), (0,0)}`, so `sx` could not be anything but
+        // zero at any threshold, whatever the scene.
+        //
+        // Dominance is deliberately *not* asserted. The test world carries
+        // its own sky gradient, so a light placed to the right yields a
+        // diagonal (measured: `(0.5547, -0.8321)`) rather than a pure
+        // sideways vector -- which is the physically right answer, since a
+        // plant beside a gap is pulled both up and toward it. Asserting
+        // dominance here would be fitting the test to one field layout, and
+        // would fail for a correct implementation the moment the ambient
+        // gradient changed.
+        assert!(sx > 0.1, "light to the right should give a real rightward component, got ({sx}, {sy})");
     }
 
     #[test]
