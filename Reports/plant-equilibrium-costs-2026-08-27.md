@@ -24,7 +24,7 @@ inventory this corrects in two places), and
 | 7 | The second mechanism, which is not costs at all: denomination |
 | 8 | The instrumental half: what this does and does not buy for diversity |
 | 9 | What to do, in order |
-| 10 | Owner calls, surfaced not settled |
+| 10 | Owner calls — three answered, and what they change |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -379,16 +379,34 @@ Nothing here is proposed for landing in this session.
    `WOOD_DENSITY_ALLELES` couples strength and price. Smallest diff on the
    list, states a principle the engine already holds one layer up, and is a
    real counterweight rather than a tax.
-3. **Charge carbon for construction** — leaves first (`:2411` asks for
-   exactly this and defers it to *"the single pass that sets it"*), then
-   thickening. This is §4, and it is the item that actually addresses the
-   retune loop rather than any individual lever. Shared-budget: re-deriving
-   `INCOME_PER_NODE`, `MAINTENANCE_PER_NODE`, `Grow.cost` and `supportable`
-   is part of the work, gated on a seed sweep either side.
-4. **Convert two fences to prices** — `seed_maturity` and
-   `max_active_tips` — once (1) exists to measure them against. Both have a
-   price sitting next to them already, and `turgor_taper` is the in-repo
-   model for giving a stop a graded edge.
+3. **Charge carbon for construction** — settled by the owner as
+   *charge at the decision* (§10a), so this is now three ordered pieces
+   rather than one:
+   - **3a. Leaves.** `plant.rs:2411` asks for exactly this and defers it to
+     *"the single pass that sets it"*. Per-tissue coefficient, leaf dearest
+     (§10a.1). This is the piece that makes leaf payback time exist, and
+     with it, leaf *placement* a decision.
+   - **3b. Thickening.** `thicken()` spends nothing today. Same charge,
+     lower coefficient.
+   - **3c. Only then, stop billing interior wood.** Heartwood is dead
+     tissue and should not pay `MAINTENANCE_PER_CELL`. **Strictly after
+     3a/3b** — that constant exists to stop blob interiors standing for
+     ever, and removing it before construction is charged resurrects the
+     blob (§10a.3).
+
+   Shared-budget throughout: re-deriving `INCOME_PER_NODE`,
+   `MAINTENANCE_PER_NODE`, `Grow.cost` and `supportable` is part of the
+   work, gated on a seed sweep either side.
+
+4. **Route reproduction through the surplus pool** (§10b option C), which
+   is the same fix as 3a one account over: seeds should draw from
+   `(income − maintenance)` like growth, not from a mature cell's
+   effectively bottomless stock. Makes `seed_maturity` redundant rather
+   than requiring a decision about it, and does not depend on competition
+   being live. `max_active_tips` and `MAX_ROOT_FRACTION` can be revisited
+   as fences afterwards, with `turgor_taper` as the in-repo model for
+   giving a stop a graded edge.
+
 5. **Normalise the direction score** (§7) as a separate no-behaviour-change
    commit, *before* anyone touches `light_weight` again.
 6. **Only then** the heritability survey, ranked on §2's four verdicts
@@ -396,22 +414,126 @@ Nothing here is proposed for landing in this session.
    disqualified from heritability until step 3 or a bespoke counterweight
    reaches it, because a free lever made heritable produces uniformity.
 
-## 10. Owner calls, surfaced not settled
+## 10. Owner calls — three answered 2026-08-27, and what they change
 
-The handoff's §6 carries three. This audit adds three more, all of which
-change what gets built:
+### 10a. Construction charging: settled — charge at the decision
 
-1. **Is construction-charging the right shape, or should the pooled upkeep
-   just be made local?** §4's fix is one of two: charge at the decision, or
-   attribute the pooled bill back to the decision that caused it. The first
-   is much simpler and is what the in-code note asks for; the second
-   preserves today's numbers exactly. This is the one decision that
-   determines the size of step 3.
-2. **Should reproduction stay fenced?** Replacing `seed_maturity`'s
-   threshold with a price deliberately opens the ruderal strategy its own
-   comment calls *"a real evolutionary attractor and a boring one"*. With
-   disturbance in the world that is a legitimate strategy; without it, it
-   is just the boring optimum.
-3. **Does dense wood ever need to win?** §8's qualification. If yes,
-   something has to break branches in the ordinary run of play — a
-   structural-line question, not a plant-line one.
+**Owner's ruling: charge at the decision.** *"I don't care about keeping
+numbers the same now. I care about the long term architecture being
+correct."* The alternative — attributing the pooled bill back to the
+decision that caused it — is withdrawn.
+
+**The biology agrees, and says the engine is missing a standard term.**
+Plant physiology splits respiration two ways (the McCree–de Wit–Penning de
+Vries–Thornley paradigm, reviewed in Amthor, *Annals of Botany* 86:1–20,
+2000):
+
+```
+R = growth respiration      -- proportional to NEW tissue, paid at construction
+  + maintenance respiration -- proportional to EXISTING tissue, paid per tick
+```
+
+This engine has the second and not the first. Building a gram of tissue
+costs roughly 1.25–1.5 g of glucose; the surplus over what is incorporated
+*is* growth respiration and it is paid when the tissue is made, not
+amortised. So charge-at-the-decision is not merely the simpler option, it
+is the missing half of the textbook model.
+
+Three consequences beyond "charge for leaves", all of which change §9 step 3:
+
+1. **Construction cost is per tissue, and leaves are dearest.** Roughly
+   1.4–1.6 g glucose/g for leaf against 1.2–1.4 for stem and root (Penning
+   de Vries et al. 1974; Poorter 1994), because of protein and lipid
+   content. A per-tissue coefficient is the accurate model, not one flat
+   number.
+2. **What construction cost buys is payback time, and that is why it
+   matters here.** A leaf's payback time is construction cost over net
+   carbon gain, and a leaf must outlive it or it is a strict loss — the
+   spine of the leaf economics spectrum this engine already half-models
+   through `LEAF_RATE_ALLELES`/`LEAF_TRANSPIRATION_ALLELES`. **Payback time
+   is currently undefined here, because a leaf costs nothing to make**, so
+   nothing makes it a mistake to put a leaf in your own shade. Charging
+   construction is what turns leaf *placement* into a decision, and is the
+   route by which self-pruning could fall out instead of being a shed rule
+   bolted on.
+3. **Wood is inverted, and fixing it is a package with a strict order.** In
+   biology wood is expensive to build and nearly free to keep: heartwood is
+   dead and does not respire, and only sapwood's living parenchyma does,
+   scaling with the crown it supplies — Shinozaki's pipe model, which
+   `pipe_ratio` and `q_peak` already implement. This engine has it the
+   other way round: `thicken()` builds for free and every wood cell then
+   pays `MAINTENANCE_PER_CELL` for ever, so a large old tree is punished
+   for bulk that in reality costs it nothing.
+
+   **But the second half cannot be done first.** `MAINTENANCE_PER_CELL`
+   exists precisely so that *"abandoned wood and blob interiors — which
+   have `q_peak ≈ 0` — would be free to keep standing for ever, and the
+   die-back would have nothing to remove."* Making heartwood free today
+   resurrects the blob. Charge construction first — that stops the blob at
+   the front end — and only then is it safe to stop billing interior wood
+   rent it does not owe.
+
+**Deliberately not modelled:** real construction cost is frequently
+nitrogen-limited rather than carbon-limited, especially for leaves. A third
+currency is not worth it; carbon and water already give the Liebig minimum
+that makes the leaf-economy crossover work.
+
+### 10b. Reproduction: the options, and a finding that reframes them
+
+**Verified while writing this, and it changes the question: reproduction
+and growth do not compete at all today.** `Behavior::Reproduce`
+(`plant.rs:4975`) reads the carbon of the *cell it runs on* and debits
+`seed_cost` from that. Mature cells sit pinned at `RESOURCE_SCALE` — the
+engine's own diagnostic says so, *"the trunk pinned at the `RESOURCE_SCALE`
+cap. The plant was never out of carbon."* Meanwhile `allocate_to_frontier`
+distributes the surplus pool **only to frontier cells**. Two separate
+accounts: a mature plant reproduces out of a stock that is effectively
+bottomless, and `seed_cost: 0.3` is not a price in any meaningful sense.
+
+That is *why* the fence has to exist. The three options, with that in view:
+
+| | what it is | what it costs you |
+|---|---|---|
+| **A — keep the fence** (today) | `seed_maturity: 600` — zero seeds below 600 shoot cells, full rate above | every species sits at its authored integer, the integer is arbitrary, and "reproduce early and cheap" is not a strategy that exists in the game at all. There can be no weed |
+| **B — price it** | drop the threshold, make a seed expensive relative to a small plant's budget: the size-versus-fecundity trade, r/K, Grime's ruderal↔competitor axis | **only bites if being small is punished.** With no competition and no disturbance, reproducing at two cells is strictly better and everything becomes a weed — the same shape as turgor in §5, a price whose counterweight is switched off |
+| **C — route it through the surplus pool** | seeds draw from the same `(income − maintenance)` pool growth draws on, instead of from a mature cell's stock | nothing obvious. Reproducing *is* not growing, automatically |
+
+**C is the recommendation.** It is what biology does — reproduction is
+allocated from surplus after maintenance, and the cost of reproduction
+(reproducing trees measurably grow less that season) is among the
+better-documented allocation trade-offs. It makes `seed_maturity`
+*redundant* rather than requiring a decision about it: a two-cell plant has
+almost no surplus, so it can barely reproduce, with no rule saying it may
+not. Unlike B it does not depend on competition being live, because it is
+an internal allocation constraint rather than an external one. And it is
+the smallest diff of the three — **the same fix as the leaf: charge the
+decision against the account it should have been drawing on.**
+
+### 10c. Wood density: answered, and the real question restated
+
+**Owner's answer: yes in theory, not now.** Disturbance and branch-breaking
+are partly implemented and will be fleshed out later; that is a
+structural-line concern and not a blocker here. The "does dense wood ever
+need to win" framing is withdrawn.
+
+**The question he actually wants carried forward** is whether wood density
+survives a genome rebuilt from general behaviours rather than named levers
+— i.e. whether someone would be right to argue the lever is not worth its
+cost, or is too tree-specific.
+
+Recorded assessment: **density is not tree-specific and should not stay a
+named locus.** The strength-versus-cost trade applies to any structural
+tissue — a grass culm, a moss stem — and it already half-lives in the right
+place: `Material::density` and `Material::max_cantilever_reach` are on the
+material, and `WOOD_DENSITY_ALLELES` only scales them per individual. Under
+a behaviour-general genome that survives as *"this tissue is dense"* rather
+than *"this tree has dense wood"* — a relocation, not a cut. The one thing
+that would make it genuinely not worth its cost is if nothing ever loads
+structural tissue, which is the half the owner says is coming.
+
+### 10d. Still open
+
+From `plant-evolvability-handoff-2026-08-27.md` §6, unchanged by this
+audit: what replaces the withdrawn §6.2 (what *should* be heritable);
+which clades and in what order; and whether the niche table keeps naming
+species.

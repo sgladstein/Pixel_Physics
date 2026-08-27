@@ -426,7 +426,14 @@ drift that two of these documents still reflect.**
   fences against prices, with `turgor_taper` as the in-repo model for a
   graded stop; the unnormalised direction score as a second retune mechanism
   that is not costs at all; and why a costs pass buys equilibrium but not, on
-  its own, diversity.
+  its own, diversity. **§10 carries three owner decisions taken 2026-08-27**
+  — charge construction *at the decision* (and the biology behind it: the
+  engine is missing growth respiration entirely, and has wood inverted,
+  expensive to keep and free to build where biology is the reverse); the
+  three reproduction options, with the finding that seeds and growth draw
+  from **separate accounts** today so `seed_cost` is not a price at all; and
+  that wood density should relocate onto the material rather than stay a
+  named locus.
 - [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
   — **method, not results.** How to decide *which authored parameters should
   become heritable* by measurement rather than by a fifth design opinion:
