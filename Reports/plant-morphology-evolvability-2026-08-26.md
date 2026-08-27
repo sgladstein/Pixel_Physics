@@ -15,6 +15,13 @@ next, and then sharpened:
 > hoping it will turn into a cucumber. I'm worried it would just end up with
 > slight variations on tomatoes. is this possible or unrealistic."
 
+**TWICE CORRECTED — read §5a and §5b before §6.** The first draft
+recommended loci-on-one-ancestor; the owner's second question refuted it
+(§5a). The replacement, §6.2, named `ByOrder` as the rule table to make
+heritable; an independent review refuted *that* (§5b), and the refutation
+was verified in source. **§6.2 is withdrawn.** The diagnosis in §2 and the
+clade factoring in §6.1 survive both refutations.
+
 **§7 of the first draft of this note recommended loci-on-one-ancestor, and
 the owner's second question is the correct objection to it.** That
 recommendation is withdrawn and replaced in §6; §5a records why, because the
@@ -165,6 +172,77 @@ measures as progress.* More loci would have shown more variance on every
 instrument here while leaving the reachable set the same shape. Ask what the
 genome **holds**, not how many knobs it has.
 
+
+### 5b. Why §6.2's target was withdrawn too — independent review, 2026-08-26
+
+An independent adversarial review was commissioned on this note and its
+central objection was verified in source before being accepted.
+
+**`ByOrder` is not a production set.** It is
+`values: [T; BRANCH_ORDERS]` with `BRANCH_ORDERS = 4`
+(`organism.rs:2433`, `:2356`) — a fixed-arity array of four values, appearing
+as **nine** fields inside the single `Behavior::Grow` variant. It has no
+arity to mutate, no successors and no symbols. Making it heritable yields a
+longer vector of numbers scaling an authored program: **row 1 of this note's
+own §1 table.** The genuine structural level is
+`SpeciesDef::cell_types: Vec<(CellType, Vec<Behavior>)>` (`organism.rs:931`)
+— which §2b names correctly as unreachable, and which §6.2 then silently
+substituted `ByOrder` for.
+
+**So §5a's lesson applied to §5a's own replacement**, which is worth stating
+plainly: the withdrawal reasoning was correct and the successor still landed
+on a parametric target one level up. *Ask what the genome holds* is easy to
+assent to and hard to apply.
+
+**And the repo had already measured this target against the owner's eye.**
+`plant-evolution-design.md:467-515`, WP-C's three probes, two posted blind:
+`weeping` moved **only** `upward_weight` on orders ≥1 — a `ByOrder` field,
+and a *placement* lever rather than a labelling one — and came back *"same
+plant"*; `prostrate` moved order-0 `Plagiotropic` plus a tiny `internode`,
+both `ByOrder`, and came back *"Not that different"* at 2/5. Its summary:
+*"across three probes, every group change came from the size budget and none
+came from an architectural knob."*
+
+That is the specific evidence against this note's defence of §6.2 — that a
+rule-table mutation changes *how many* cells are placed rather than *which
+label* they carry. `upward_weight` is exactly such a lever and it did not
+read.
+
+**Four further corrections from the same review**, each checked:
+
+1. **"Nothing to port" was quoted against its source.**
+   `tree-procedural-prior-art.md` §3 is headed *"least transferable, because
+   the engine already is one"* — the claim is that L-system theory buys this
+   engine nothing, not that a mutable grammar exists. Its §4 is
+   counter-evidence this note walked past: *"every model surveyed starts from
+   an authored seedling"*, trunk/crown separation *"never emergent"*.
+2. **The D4 analysis fails on objection 1.** Creature reproduction is asexual
+   too (`brain.rs`, quoted at `creature-direction.md:663`) — the speciation
+   cost was about *forward* crossover compatibility, so "plants are asexual"
+   dissolves nothing.
+3. **The literature was oversold.** Bornhofen 2009/2011 are one group, two
+   papers, not two replications; "less physics" makes the problem *easier*,
+   not harder, so it is not a margin in our favour. And §7b was omitted
+   entirely — Niklas's canonical plant-evolution simulation ran on a
+   **six-variable parametric** morphospace, which weakens §1's table as
+   written.
+4. **§7b answers gate 3, which this note left blank.** *"Selecting on at
+   least three conflicting tasks is not a nice-to-have; it is the
+   mechanism."* With `plant-species-authoring.md` §3's measured *"a
+   light-optimal stand is a slab"*, that reframes the problem as primarily
+   one of **selection**, not encoding — the largest single update to this
+   note and the one it under-weighted.
+
+**Gates the review added** (see `plant-evolvability-facts-2026-08-27.md` for
+the verified numbers): the 4-bit `CellType` budget, per-organism genome
+memory, and determinism under a *variable-length* genome, where
+`SEQUENCED_TRAITS`' frozen-prefix trick does not generalise because the draw
+count itself becomes heritable.
+
+**What survived the review:** §2's diagnosis in full, §6.1's clade
+factoring, gate 4 (the position-keyed RNG confound, independently recorded as
+creature gotcha P-21), and the acceptance-artifact framing.
+
 ## 6. Recommendation, revised
 
 Three layers, and the owner's clade framing is layer one:
@@ -177,11 +255,14 @@ Three layers, and the owner's clade framing is layer one:
    distance, so small and damp — `moss.ron` substantially is this already.
    Angiosperm: flower and fruit organs exist at all. Each clade is a
    vocabulary plus a constraint set.
-2. **The rule table into the genome.** The `ByOrder` production set becomes
-   heritable and *structurally* mutable — the second genome level of §4.
-   Within a clade's vocabulary, the developmental program is free. This is
-   the actual answer to the owner's question and everything else is
-   scaffolding for it.
+2. **~~The `ByOrder` production set becomes heritable~~ — WITHDRAWN, see
+   §5b.** `ByOrder` is a fixed-arity array of four numbers, so making it
+   heritable is a parametric change, and its fields are the ones the WP-C
+   register already measured as not reading. The genuine structural level is
+   `cell_types: Vec<(CellType, Vec<Behavior>)>`. **What replaces this layer
+   is open** and is the subject of the three-way review commissioned
+   2026-08-27; §7b's "selection, not encoding" finding is the strongest
+   candidate to displace it.
 3. **Species as an outcome, not an input.** A "species" becomes a cluster in
    rule-table space that persists, which is the definition
    `organism.rs:1997` already argues for at the locus level.

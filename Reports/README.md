@@ -300,6 +300,14 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+- [plant-evolvability-facts-2026-08-27.md](plant-evolvability-facts-2026-08-27.md)
+  — **facts, not conclusions.** Verified `file:line` ground truth for the
+  plant-evolvability question, written so reviewers spend budget on judgement
+  rather than re-deriving engine facts, and so no reviewer takes another's
+  word for anything. Deliberately carries no recommendation. Corrects three
+  claims made in the 2026-08-26 note and its review (the `ByOrder` field
+  count, the "two dispatch sites" blast radius, and the identity guard's
+  supposed blindness).
 - [plant-morphology-evolvability-2026-08-26.md](plant-morphology-evolvability-2026-08-26.md)
   — **findings note, answering a direct owner question**; successor in role
   to the reach note above. Can those forms *evolve*, or must they be
