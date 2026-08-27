@@ -225,7 +225,7 @@ the question you arrived with. This table is: *what am I about to do?*
 
 | If you are about to… | Read, in this order |
 |---|---|
-| **change how a plant grows** — candidate scoring, branching, tropism | `plant-substrate-v2-design.md`, by section — it is 29k tokens and the largest report here |
+| **change how a plant grows** — candidate scoring, branching, tropism | `plant-substrate-v2-design.md` — the largest report here at ~29,800 tokens, so use its contents table: §7 (polarity) is 9,754 tokens on its own and §2 (growth mode) is 2,729 |
 | **change the economy** — income, maintenance, what kills a plant | `plant-economy-rederivation-2026-08-23.md`. §7 and §9 are its two *negative* results, and it records six mechanisms built, measured and withdrawn |
 | **make species look different from each other** | `plant-appearance-design.md` **first, before designing anything**. Three architectural levers were built, fired 46–2,750 times each, and moved nothing: a lever that relabels a cell cannot move a silhouette that texture and colour set |
 | **author or change a species** | `plant-species-authoring.md` → `plant-genome-design.md` for the slot map. Slots are **positional forever** |
@@ -235,6 +235,11 @@ the question you arrived with. This table is: *what am I about to do?*
 | **work on evolution, selection or speciation** | `plant-evolution-design.md` → `genetic-variability-study.md` for how far one genome moves an individual |
 | **know what is open, or what to pick up** | `plant-project-review-2026-08-23.md` §4 (the queue) → `plant-implementation-split-2026-08-23.md` (the lanes) |
 | **measure anything** | `instruments.md` §Plants — seven harnesses already exist and their names do not say what they answer. `divergence` is axis-agnostic |
+
+**The seven longest plant reports carry a generated contents table** with a
+line number and a token count per section — `scripts/reporttoc.py`, gated by
+`docscheck` 8b. They are 43% of the plant corpus by tokens, and the token
+column is the point: it turns "read the report" into a priced decision.
 
 Three things that are not on this table and apply to all of it: grep
 [`dead-ends.md`](dead-ends.md) for the **mechanism** before proposing one;

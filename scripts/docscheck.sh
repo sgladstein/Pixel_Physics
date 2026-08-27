@@ -38,6 +38,13 @@ if [ "${1:-}" = "--selftest" ]; then
   # id | file | exact text to break | what to break it to
   while IFS='|' read -r cid sf needle repl; do
     [ -z "$cid" ] && continue
+    # Rows are `|`-separated with no escaping, so a needle may not contain a
+    # pipe -- which rules out editing a generated table cell directly, and is
+    # why 8b's fault renames a HEADING instead (also the realistic failure:
+    # someone retitles a section and does not re-run the generator).
+    # `#` starts a comment; without this the comment lines below were read as
+    # faults, and each one reported ITSELF as a missing needle.
+    case "$cid" in \#*) continue ;; esac
     # Back up by copy, never by `orig=$(cat ...)`: command substitution strips
     # trailing newlines, so a restore through it silently rewrites the last
     # line of every file the selftest touches.
@@ -78,6 +85,7 @@ INNER
 plant-substrate-v2-design.md|Reports/plant-substrate-v2-design.md|**Status: implemented and merged.**|**Status:** design only. No code in this pass.
 branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|**Status: merged. Corrected 2026-08-27**, having stood four days after\n`plant-project-review-2026-08-23.md` §3 named it stale with the address\nattached. `branch_angle`, `straightness`, `internode` and `path_len` all\nstand in `src/sim/plant.rs` and `src/sim/organism.rs`; `branch_angle` and\n`internode` are authored in five species files; the branch is gone from the\nremote, which in this repo means merged (branch deletion returns HTTP 403,\nso nothing else prunes one). §4's width bound is closed in code too — the\nturgor gate reads `path_len`.|**Status: built, measured, working, and NOT merged.** It lives on branch\n`plant-branch-angle`.
 debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
+plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
 FAULTS
   [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
   exit "$st_ok"
@@ -463,6 +471,31 @@ if [ -f scripts/readmetoc.py ]; then
   done < <(python3 scripts/readmetoc.py --check 2>&1 | grep -v 'contents current')
 else
   note "scripts/readmetoc.py missing -- README's table of contents is unenforced"
+fi
+
+# --- 8b. The long reports' contents tables must be current ------------------
+# Same argument as check 8, one directory down. Measured 2026-08-27: plants are
+# 42 of Reports/'s 110 documents and ~269,000 tokens, and SEVEN reports carry
+# 115,000 of it -- 43% in seven files, none of which had a table of contents.
+# An agent wanting one fact from plant-substrate-v2-design.md (~29,800 tokens,
+# 28 source citations) could read it whole, grep it -- which false-negatives on
+# this hard-wrapped prose -- or skip it and re-derive.
+#
+# The tables carry a token count per section, which is the column that changes
+# behaviour: §7 of that report is 9,754 tokens and §2 is 2,729, so "read the
+# report" becomes a priced decision. Worth having only while true, hence a
+# check rather than a convention.
+#
+# `--candidates` lists unmanaged reports over the size bar; membership stays
+# editorial, because a size threshold would splice a table into another lane's
+# report mid-session.
+if [ -f scripts/reporttoc.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#reporttoc: }"
+  done < <(python3 scripts/reporttoc.py --check 2>&1 | grep -v 'tables current')
+else
+  note "scripts/reporttoc.py missing -- the long reports' contents tables are unenforced"
 fi
 
 # 9. Every cross-document address in `Reports/dead-ends.md` still resolves.
