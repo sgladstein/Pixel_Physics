@@ -27,6 +27,7 @@ inventory this corrects in two places), and
 | 9 | What to do, in order — and **9a**, what step 3 costs |
 | 10 | Owner calls — three answered, one deferred with a trigger |
 | 11 | **Built**: §9 steps 3a and 4, and what 16 paired runs measured |
+| 12 | The owner's verdict, and the binding instrument it unblocked |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -842,3 +843,76 @@ With both in place the guard fails against the old implementation with
 `got 2 against 2 when funded` — the old path setting the same number of
 seeds whether the budget is full or empty, which is the defect stated as a
 number.
+
+## 12. The owner's verdict on the card, and the instrument that followed
+
+### 12a. Verdict: it looks worse, and it stays
+
+Blind A/B card `20260827T182226058Z-6fcd85`, the 24-tree stand at frame
+28,800, leaves-free against leaf-construction-charged. The owner's answer,
+verbatim:
+
+> *"It is fine. I think B looks better, which I am guessing is the old due
+> to more foliage, but it is worth the cost. We can tweak later, we need
+> the correct architecture now."*
+
+**Read without the blind map, because it does not need one.** No response
+file ever reached the shared `review-queue` branch, so `blind_was` is not
+available — but the verdict identifies its choice by *content* rather than
+by pane, and "more foliage" is the leaves-free arm by construction. The
+substance is therefore unambiguous whichever way the panes were shuffled.
+
+**Recorded precisely, because the obvious summary is wrong.** This is not
+"the change looks fine". It is **the change makes the stand look worse and
+the owner took it anyway**, as a deliberate architecture-first trade with
+an explicit instruction to tune later. A future session reading "-30%
+foliage, owner approved" would draw the opposite conclusion from the one
+that was actually reached.
+
+**What it makes of `LEAF_CONSTRUCTION_MULTIPLE`:** a knob with a known
+direction. If the re-derivation can afford it, foliage should come back up;
+1.2 is not a target to defend.
+
+### 12b. The instrument: do the charges actually bind?
+
+§11b said a sweep over either constant is unreadable without a counter
+saying whether the price *binds* or the decision simply never fired, and
+that 3b must not start until it exists. Built:
+`World::leaf_cells_unaffordable` / `leaf_cells_built` and
+`seed_budget_blocked` / `seed_budget_available`, reported by `plant_probe`.
+
+**Pure observation, and this was verified rather than asserted.** The seed
+counter is incremented *before* the chance roll and is not gated on it, so
+it consumes no randomness; asking the narrower "did a seed fail" question
+would have required reordering the roll, which changes RNG consumption and
+therefore the stand — not a price an instrument may charge. Control: the
+same seed, same scene, run against the binary with the counters in, diffed
+against the banked pre-instrument log — **byte-identical**.
+
+The first reading, dense bed, seed 1, 28,800 frames:
+
+| charge | binds? |
+|---|---|
+| **leaf construction** | **43,877 of 65,671 wanted leaf cells refused for want of carbon — 66.8%** |
+| **reproductive budget** | 54,596 of 8,085,345 eligible cell-ticks had no budget — **0.7%** |
+
+**Leaf construction is a real ceiling.** Two thirds of the foliage a stand
+tries to build is refused because the carbon is not there. The price binds
+hard, which is what makes the −30% foliage a *consequence of the economy*
+rather than a tax applied on top of it.
+
+**The reproductive budget is not a price yet, and this confirms §11b's
+worry rather than resolving it.** At 0.7% the budget is essentially never
+the binding constraint — reproduction is limited by `seed_chance`'s roll
+99.3% of the time, exactly as it was before the change, only via a
+different route. The architecture is right (seeds now draw from the same
+surplus growth draws on, and the guard proves it) and
+**`REPRODUCTIVE_ALLOCATION = 0.15` is too loose to function as a price.**
+That is the measurement the re-derivation needs, and it says the direction:
+down, substantially — or `seed_cost` up.
+
+It also explains the 3.3x seed rise cleanly. If the budget almost never
+binds, the change removed a throttle (donor drain) and did not replace it
+with an equivalent one. The old number is still not the target, per §11b —
+but the new one is not a considered value either, and now that is a
+measured claim rather than a suspicion.

@@ -933,6 +933,24 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
         // answers it outright. `CLAUDE.md`: pair every "it fired" counter with
         // an effect counter from the far side of the call.
         println!("  germinations: {} -- read against `seeds set in total` above", w.germinations);
+        // **Do the construction charges actually bind?** The effect
+        // counters for `LEAF_CONSTRUCTION_MULTIPLE` and
+        // `REPRODUCTIVE_ALLOCATION`. A price that never binds is real
+        // arithmetic that changes nothing, and a sweep over it would
+        // report a converged-looking null -- so these are the numbers to
+        // read before trusting any tuning of either constant.
+        let leaf_want = w.leaf_cells_built + w.leaf_cells_unaffordable;
+        let leaf_pct = if leaf_want > 0 { 100.0 * w.leaf_cells_unaffordable as f64 / leaf_want as f64 } else { 0.0 };
+        println!(
+            "  leaf construction binds: {} of {} wanted leaf cells refused for want of carbon ({leaf_pct:.1}%)",
+            w.leaf_cells_unaffordable, leaf_want
+        );
+        let seed_ops = w.seed_budget_blocked + w.seed_budget_available;
+        let seed_pct = if seed_ops > 0 { 100.0 * w.seed_budget_blocked as f64 / seed_ops as f64 } else { 0.0 };
+        println!(
+            "  reproductive budget binds: {} of {} eligible cell-ticks had no budget for a seed ({seed_pct:.1}%)",
+            w.seed_budget_blocked, seed_ops
+        );
         println!(
             "  organism slots: high-water {high_water} of {ceiling} ({:.1}%), {refused} births refused at the ceiling",
             100.0 * high_water as f64 / ceiling as f64

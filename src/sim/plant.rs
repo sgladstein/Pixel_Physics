@@ -2463,6 +2463,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             leaf_cluster as usize
                         };
                         let budget = (leaf_cluster as usize).min(affordable);
+                        // The effect counter for the charge -- see
+                        // `World::leaf_cells_unaffordable`. Pure
+                        // observation: it reads the same two numbers the
+                        // line above already computed and touches no RNG.
+                        world.leaf_cells_unaffordable += (leaf_cluster as usize - budget) as u64;
                         let mut cluster: Vec<(i32, i32)> = Vec::new();
                         let mut frontier: Vec<(i32, i32)> = Vec::new();
                         if budget > 0 {
@@ -2525,6 +2530,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // charging the budget would bill for foliage that
                         // does not exist.
                         resource -= leaf_construction_cost * cluster.len() as f32;
+                        world.leaf_cells_built += cluster.len() as u64;
                         write_carbon(world, x, y, resource);
                         for &(cx, cy) in &cluster {
                             let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
@@ -5115,6 +5121,16 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                         // priced nothing. See
                         // `OrganismState::reproductive_budget`.
                         let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
+                        // Counted here, before the chance roll, so the
+                        // instrument consumes no randomness and cannot
+                        // move the stand -- see `World::seed_budget_blocked`
+                        // for why the narrower "did a seed fail" question
+                        // is the wrong one to ask.
+                        if budget >= seed_cost {
+                            world.seed_budget_available += 1;
+                        } else {
+                            world.seed_budget_blocked += 1;
+                        }
                         if budget >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
                             if let Some(state) = world.organism_mut(organism_id) {
                                 state.reproductive_budget -= seed_cost;
