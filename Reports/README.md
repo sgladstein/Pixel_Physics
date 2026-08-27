@@ -159,6 +159,43 @@ tried?"*.
   what actually changed rather than over a box, why both withdrawn attempts
   failed the same way, and why the delay timer is nearly free while the
   convergence is not. Read with §S and `dead-ends.md`'s scheduler section.
+- [arch-vs-lintel-measurement.md](arch-vs-lintel-measurement.md) —
+  **measured 2026-08-26.** An arch really does outspan a lintel in this
+  engine, with nothing added: **1.63x further at equal material**, and a flat
+  roof needs **3.1x the stone** to hold the arch's widest span. Carries the
+  two controls that make it trustworthy — a cell-count-matched lintel and a
+  triple-thickness lintel — and the caveat that the engine models no lateral
+  thrust, so the arch wins for a different reason than masonry does.
+  Instrument: `examples/arch_probe.rs`.
+- [design-load-telegraph.md](design-load-telegraph.md) — **design, nothing
+  built.** Dust, creak and hairline cracks driven by `torque / capacity`, a
+  continuous ratio the engine computes every frame and discards. The repo has
+  no structural overlay and no audio at all, so a ten-second warning
+  (`CHAIN_WINDOW_FRAMES`) is currently spent in silence.
+- [design-props-and-shoring.md](design-props-and-shoring.md) — **design,
+  nothing built.** The collapse delay exists so the player "can get supports
+  in first", and there is no support to get in. A one-cell prop that adds a
+  route to `support_count`, and why painting stone is not the same thing.
+- [design-sounding-and-pillars.md](design-sounding-and-pillars.md) —
+  **design, nothing built.** `Failure::at` already names the keystone and the
+  engine throws it away; a light hammer swing that reports load instead of
+  doing damage, plus ore placed in load-bearing rock. Also the note that
+  `Cell::attached` is never regained, so worked rock is permanently weaker —
+  an unused survival loop already in the data.
+- [design-roots-hold-slopes.md](design-roots-hold-slopes.md) — **design,
+  nothing built.** Corrects the obvious reading first: soil is a `Powder` and
+  the support field cannot hold it, so the mechanism is `friction_angle`, not
+  the support DAG. The feature is the *timing* — `rot_remains` means the bank
+  fails after the trees are gone, not with them.
+- [structural-support-model.md](structural-support-model.md) — **design and
+  measurement, nothing built.** Sizes §S's sketched replacement for the
+  support field. The coarse-layer half is confirmed within 1% (5,169 nodes,
+  and the potential packs into the existing `u16`); the saturating-gradient
+  half is falsified (a horizon of 64 strands 95.38% of body cells); and the
+  error's *sign* is the other way round from the reading in circulation — the
+  damaged region reads stale-**low**, not high, which makes it a load sink.
+  Carries the instrument (`examples/support_census.rs`) and the cheapest
+  falsifying experiment for what is left standing.
 
 ## Liquids and granular
 

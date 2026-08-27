@@ -67,6 +67,18 @@ tidier.**
 Read `open-bugs-handoff.md` §S for the bug and `dead-ends.md`'s scheduler
 section for what has already been rejected.
 
+**And read `structural-support-model.md` before building §1.** It measures
+why this pass does not hold, rather than inferring it: with
+`STRUCT_RECONVERGE=1` the `[reconv]` line reads `seeds 1 invalidated 0
+repathed 0` for hundreds of frames through a cascade. Phase A's
+`distance_is_achievable` asks *"does a neighbour offer exactly the value I
+store"*, which is the right question against a field that was correct before
+the damage and which a drifted region answers **yes** — so the pass is blind
+to an already-wrong field by construction. That report also corrects the sign
+of the error (the affected cells read too *low*), sizes the replacement §S
+sketches, and finds a false `aux 0` at the crater that is upstream of all of
+it.
+
 ## What §S is, in one paragraph
 
 Of the five production callers of `World::record_disturbance`, only

@@ -2879,8 +2879,86 @@ impl World {
         written
     }
 
+    /// One report per false anchor, with a backtrace, capped so a cascade
+    /// cannot bury the first one. See `AUX_TRAP` at the call site.
+    ///
+    /// **Two ways a null from this is vacuous, both paid for.**
+    /// `Reports/structural-support-model.md` §6.4 reported "the trap goes to
+    /// 0 reports with the fix in" and that control was weak twice over:
+    ///
+    /// - **The window has to outlast the thing being trapped.** That run went
+    ///   to 15 frames past the charge; rigid bodies have not settled by then,
+    ///   so it proved landing *particles* were fixed and nothing more. At 400
+    ///   frames the same arm fires 12/12 and names `rigid::step_chunk_bodies`
+    ///   on eleven of them — a second false-anchor source the null had hidden.
+    /// - **`SEEN` is process-global**, so once twelve reports fire from *any*
+    ///   path, every later path is silenced. It was not the cause above (the
+    ///   run was fresh, `SEEN` at 0) but it is a live way for a future null to
+    ///   mean nothing. If you are trapping a path that fires late, raise it or
+    ///   narrow the predicate rather than trusting the zero.
+    #[cold]
+    fn report_false_anchor(&self, x: i32, y: i32, old: Cell, cell: Cell) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static SEEN: AtomicUsize = AtomicUsize::new(0);
+        let body = |c: Cell| {
+            matches!(self.materials.kind(c.material), super::material::MaterialKind::Solid | super::material::MaterialKind::Plant)
+        };
+        if !body(cell) || cell.organism_id() != 0 || cell.aux() > 2 {
+            return;
+        }
+        // A cell genuinely beside bedrock is *supposed* to read 0.
+        if super::structural::NEIGHBOURS_4
+            .iter()
+            .any(|&(dx, dy)| self.get(x + dx, y + dy).material == super::material::BEDROCK)
+        {
+            return;
+        }
+        // And a cell that was already near an anchor has not been falsified
+        // by this write. Only a jump *down* from far away is the bug.
+        if body(old) && old.organism_id() == 0 && old.aux() <= 100 {
+            return;
+        }
+        if SEEN.fetch_add(1, Ordering::Relaxed) >= 12 {
+            return;
+        }
+        let nbrs: Vec<String> = super::structural::NEIGHBOURS_4
+            .iter()
+            .map(|&(dx, dy)| {
+                let n = self.get(x + dx, y + dy);
+                format!("{}:{}{}", self.materials.get(n.material).name, n.aux(), if n.organism_id() != 0 { "*owned" } else { "" })
+            })
+            .collect();
+        eprintln!(
+            "[auxtrap] frame {} ({x},{y}) {} aux {} -> {} aux {} | nbrs {}\n{}",
+            self.frame,
+            self.materials.get(old.material).name,
+            old.aux(),
+            self.materials.get(cell.material).name,
+            cell.aux(),
+            nbrs.join("  "),
+            std::backtrace::Backtrace::force_capture()
+        );
+    }
+
     pub fn set(&mut self, x: i32, y: i32, cell: Cell) {
         let old = self.write_cell(x, y, cell);
+        // **A probe, not a mechanism** -- `AUX_TRAP=<frame>`, for
+        // `Reports/structural-support-model.md` §6. From that frame on, trap
+        // any write that makes a cell body material reading `aux <= 2` --
+        // "at or beside an anchor" -- where nothing adjacent is bedrock and
+        // the cell it replaced was nowhere near an anchor. That is a **false
+        // anchor**, and §S's whole 37,629-cell error is the neighbourhood
+        // relaxing downhill off one.
+        //
+        // At the write seam rather than at a list of callers, for this
+        // function's own recorded reason: "an enumeration that has to stay
+        // complete is the failure mode this project keeps rediscovering."
+        // Two ablations have already ruled out the two obvious writers by
+        // name (`rigid::settle`, `tick`'s `grounded_root`), which is exactly
+        // the situation a seam trap is for.
+        if aux_trap_frame().is_some_and(|from| self.frame >= from) {
+            self.report_false_anchor(x, y, old, cell);
+        }
         // Disturbance detection at the one write seam every caller already
         // goes through (`Reports/liquid-heightfield-design.md` §5a): if the
         // cell just overwritten was `FLAG_MANAGED` — owned by a promoted
@@ -4033,6 +4111,14 @@ fn distance_sq_to_segment(px: i32, py: i32, a: (i32, i32), b: (i32, i32)) -> f32
     let dx = px as f32 - (ax + abx * t);
     let dy = py as f32 - (ay + aby * t);
     dx * dx + dy * dy
+}
+
+/// `AUX_TRAP=<frame>` -- see `World::report_false_anchor`. A probe; unset by
+/// default, and one relaxed atomic load per write when it is.
+fn aux_trap_frame() -> Option<u64> {
+    use std::sync::OnceLock;
+    static FROM: OnceLock<Option<u64>> = OnceLock::new();
+    *FROM.get_or_init(|| std::env::var("AUX_TRAP").ok().and_then(|v| v.parse().ok()))
 }
 
 #[cfg(test)]
