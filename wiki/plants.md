@@ -3,7 +3,8 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-24 (standing tissue costs something to keep, and a
+*Current as of: 2026-08-27 (a plant kept dry long enough now dies of it,
+and dies gradually; standing tissue costs something to keep, and a
 plant that cannot pay sheds it; grass is sown into generated worlds; a dry
 meadow carries fire, a wet one stops it, and a damp one burns in patches;
 and a felled crown comes apart into logs).
@@ -23,8 +24,16 @@ felled crown stopped turning into sawdust and started coming apart into
 logs, broken wood and leaf litter. Updated most recently
 when standing wood started costing carbon to keep, night started slowing
 growth, and a root buried inside its own root ball stopped counting for
-anything — see **What a plant pays for**, which is new. One plant-economy
-number is unsettled and its cause is still open — see
+anything — see **What a plant pays for**, which is new. Updated again
+2026-08-27, when a plant that cannot cover the bare cost of the tissue it
+already has stopped being able to stand there indefinitely and started
+dying of it — see **What a plant pays for** and the drought entry under
+**What trouble looks like**, both rewritten. That last change had landed
+three days before this page mentioned it, which is why the page now says
+what it does not cover as well as what it does: a plant with no foliage
+left is killed by its bill rather than by thirst, the two mechanisms are
+not the same one, and grass — having no separate leaves — is exempt from
+both. Those limits and one unsettled plant-economy number are open; see
 `Reports/open-bugs-handoff.md`.*
 
 ## What a plant is
@@ -118,10 +127,28 @@ The visible consequences:
 - **Growth is what is left over.** A plant grows on the difference between
   what it earns and what its standing tissue costs, so a big plant grows
   slowly and a stressed one not at all.
-- **A plant that cannot pay at all shrinks.** It sheds its way down toward a
-  size it can carry, and a plant in a genuinely poor spot — a thin pocket of
-  soil, deep shade — settles at a stunted size and stays there rather than
-  dying.
+- **A plant that cannot pay at all shrinks — and if it cannot pay even to
+  keep what it has left, it dies.** It sheds its way down toward a size it
+  can carry. There are then two different endings, and which one you get is
+  worth knowing apart:
+  - **Shaded out: it holds.** A plant in a genuinely poor spot — a thin
+    pocket of soil, deep shade under a neighbour — settles at a stunted size
+    and stays there. It is still earning something, just not enough to grow.
+    A suppressed plant waiting for a gap in the canopy is doing the right
+    thing, and it can wait a very long time.
+  - **Earning nothing at all: it dies.** A plant that cannot cover the bare
+    cost of keeping its existing tissue alive — a tree with its water cut
+    off, rather than one merely shaded — runs that way for a sustained
+    stretch and is then finished. It does not wink out: it stands dead and
+    is taken apart gradually, at a rate that depends on the species, so what
+    you see is a tree going grey and coming to pieces over a long time
+    rather than a plant disappearing between one frame and the next.
+
+  The difference is not how badly it is doing, it is whether it is earning
+  *anything*. A mature plant is nearly always spending more than it earns —
+  that is what stops it growing — and that alone never kills it. One bad
+  spell does not either; the plant has to fail continuously, and any single
+  day it manages to pay resets the clock.
 
 ## What a healthy stand looks like
 
@@ -137,7 +164,23 @@ can no longer cover another cell, not because it hit a size limit.
 ## What trouble looks like
 
 - **Drought.** Foliage thins from the inside out. The soil under the stand
-  visibly dries first in the rooting zone.
+  visibly dries first in the rooting zone. **A plant kept dry for long
+  enough now dies of it** rather than shrinking to a stump and standing
+  there for ever, which is what used to happen. Watch a stand through a long
+  dry spell and you should see individuals lost, and the survivors get
+  visibly *bigger* afterwards — the ones that come through inherit the light
+  and water the dead one was using.
+
+  One honest limit, because it changes what you are looking at: what kills a
+  parched plant is being unable to pay for the tissue it is standing up in,
+  not thirst as such. Drying out only acts on foliage, so a plant that has
+  already lost all its leaves is not being killed by the drought any more —
+  it is being killed by the bill. The two arrive at the same place here, but
+  they are not the same mechanism, and only one of them is finished.
+
+  **Grass does not do this at all.** Having no separate leaves is what
+  exempts it, so a meadow will not thin and die back through a drought the
+  way a stand of trees will. That is a gap rather than a decision.
 - **Shade.** A plant overtopped by a neighbour loses its lower and inner
   leaves and grows leggy reaching for light.
 - **Being cut.** Anything no longer connected to the ground through its own
