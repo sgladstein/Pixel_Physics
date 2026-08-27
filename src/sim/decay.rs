@@ -53,6 +53,26 @@ pub(crate) const DECAY_CHANCE_DRY: f32 = 0.002;
 /// stale the first time this is retuned, which is exactly the retune this
 /// constant is currently under review for.
 pub const DECAY_MOISTURE_THRESHOLD: f32 = 0.3;
+
+/// Global override for every material's `decay_yield`, for comparing the
+/// three settings without a rebuild.
+///
+/// **It exists because the knob it overrides is compiled in.** Materials are
+/// `include_str!`d, so editing `litter.ron` and re-running a prebuilt
+/// harness produces bit-identical "runs" -- `CLAUDE.md` names that gotcha and
+/// this repo has already lost a three-hour study to it. `DECAY_YIELD=0`
+/// turns solid production off entirely, `DECAY_YIELD=1` restores the 1:1
+/// behaviour that predates the field, and unset reads each material's own
+/// value.
+///
+/// **It is global, so it reaches ash too**, which is a debug knob's
+/// side effect rather than a model: at 0 a burnt patch weathers to bare
+/// rock instead of soil. Sweeping litter alone means editing `litter.ron`
+/// and rebuilding.
+fn decay_yield_override() -> Option<f32> {
+    static OVERRIDE: std::sync::OnceLock<Option<f32>> = std::sync::OnceLock::new();
+    *OVERRIDE.get_or_init(|| std::env::var("DECAY_YIELD").ok().and_then(|v| v.parse().ok()))
+}
 // The reseed chance moved onto the material (`ash.ron`'s `reseed_chance`,
 // which keeps this constant's old 0.15). It is checked once at the moment of
 // decay rather than scheduled to keep trying — succession happens, but not on
@@ -91,6 +111,10 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // what scheduled the site is what makes all of those a quiet no-op.
     let here = world.materials.get(world.get(x, y).material);
     let (rate_damp, rate_dry) = (here.decay_chance_damp, here.decay_chance_dry);
+    // Copied out with the rates, not read at the write site below: `here`
+    // borrows `world`, and the counters between here and there take it
+    // mutably.
+    let material_yield = here.decay_yield;
     let (Some(into), reseed_chance) = (here.decays_into, here.reseed_chance) else {
         return Vec::new();
     };
@@ -162,7 +186,39 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // fills over the following visits without inventing anything. The one
     // visible cost is that a seed reseeded onto brand-new soil may wait a
     // little before germinating, which is the model rather than a defect.
+    // **The yield roll: does this decay leave anything solid behind?**
+    //
+    // Rolled *after* the decay roll, not folded into it, and the two are
+    // different questions. `decay_chance_*` is how long the cell waits;
+    // this is how much survives when its turn comes. Folding them into one
+    // probability would make litter that fails the roll sit on the floor
+    // and try again, which is the accumulating forest floor rather than the
+    // fix for it -- the leaf has rotted either way, the only question is
+    // what it left.
+    //
+    // `Cell::EMPTY`, not `with_aux(0)`: on a `Powder` an `aux` of 0 reads as
+    // *dry soil*, so `with_aux(0)` here would leave a cell of material
+    // standing rather than removing one (`CLAUDE.md`'s two-conventions
+    // gotcha).
+    //
+    // **Short-circuited at 1.0 so a full-yield material draws no random
+    // number at all.** Not a micro-optimisation -- it is what makes the
+    // default genuinely inert. `world.rng` is one shared stream, so an
+    // unconditional `chance(1.0)` consumes a draw on every ash decay too and
+    // shifts everything downstream of it; that alone broke
+    // `a_reseeded_organism_keeps_growing_after_its_first_tick`, which is a
+    // test about ash and has nothing to do with this field. A field whose
+    // documented default is "changes nothing" must not perturb the stream.
+    let yield_fraction = decay_yield_override().unwrap_or(material_yield);
+    if yield_fraction < 1.0 && !world.rng.chance(yield_fraction) {
+        world.set(x, y, Cell::EMPTY);
+        world.rotted_to_nothing += 1;
+        // No reseed roll. The cell it would have seeded onto no longer
+        // exists, and a seed wants ground under it.
+        return Vec::new();
+    }
     world.set(x, y, Cell::new(into, shade));
+    world.rotted_to_solid += 1;
 
     // Reseed roll: only if there's actually room to grow into, and only ever
     // this one chance -- see `MaterialDef::reseed_chance`, which is now per
@@ -277,21 +333,63 @@ mod tests {
             "test setup: this test is about litter weathering to soil, and that is not what the data says"
         );
 
+        // **A population, not the one cell this used to sample.** The single
+        // cell was a valid guard while the channel was 1:1 and became a coin
+        // flip the moment `decay_yield` landed -- at litter's 0.05 a named
+        // cell almost never ends up soil, so the honest question is no longer
+        // "did *this* cell convert" but "what does the distribution look
+        // like". 180 cells puts P(no soil at all) near 1e-4 even before
+        // same-build determinism pins it.
+        //
         // Same walled trough the ash test uses, and for the same reason: an
         // open puddle drains away before the moisture field registers it.
-        for x in 10..20 {
+        // `run` steps the field and the scheduler but not the CA sweep, so
+        // nothing here moves.
+        const LEFT: i32 = 10;
+        const RIGHT: i32 = 190;
+        for x in LEFT..RIGHT {
             w.set(x, 100, Cell::new(litter, 0));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
         }
-        w.set(9, 99, Cell::new(material::STONE, 0));
-        w.set(20, 99, Cell::new(material::STONE, 0));
-        for x in 12..18 {
+        w.set(LEFT - 1, 99, Cell::new(material::STONE, 0));
+        w.set(RIGHT, 99, Cell::new(material::STONE, 0));
+        for x in (LEFT + 2)..(RIGHT - 2) {
             w.set(x, 99, Cell::new(material::WATER, 0));
         }
-        w.schedule_active_site(ActiveSite { x: 14, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+        let placed = (RIGHT - LEFT) as u32;
 
         run(&mut w, 20_000);
 
-        assert_eq!(w.get(14, 100).material, soil, "damp litter never weathered into soil, so the decay channel is still ash-only");
+        // **The channel fired at all.** Counted rather than inferred from
+        // the soil census: with a low yield, "no soil" reads identically
+        // whether the channel is dead or merely stingy, which is exactly the
+        // null `CLAUDE.md` warns hides from inattention.
+        let resolved = w.rotted_to_solid + w.rotted_to_nothing;
+        assert!(
+            resolved > placed / 2,
+            "the decay channel barely fired on litter: {resolved} of {placed} cells resolved, \
+             so this says nothing about what the yield does"
+        );
+
+        // **Fails if the channel is ash-only** (no soil at all) ...
+        let made_soil = count(&w, soil);
+        assert!(made_soil > 0, "damp litter never weathered into soil anywhere, so the decay channel is still ash-only");
+        // ... **and fails if the yield roll is skipped**, which is the
+        // replacement artifact this guard has to be able to catch. At a
+        // yield of 1.0 every one of the 180 would be soil; at litter's 0.05
+        // the expectation is ~9. Half is a wide margin that still cannot be
+        // reached by a 1:1 channel.
+        assert!(
+            made_soil < placed as usize / 2,
+            "{made_soil} of {placed} litter cells became soil -- that is a 1:1 channel, \
+             so `decay_yield` is not being read"
+        );
+        assert!(
+            w.rotted_to_nothing > w.rotted_to_solid,
+            "most rotting litter must leave nothing behind: {} to nothing against {} to solid",
+            w.rotted_to_nothing,
+            w.rotted_to_solid
+        );
     }
 
     /// **Litter must not reseed, and ash must still do so.**
@@ -552,7 +650,21 @@ mod tests {
         run_with_physics(&mut w, 40_000);
         let after = count(&w, litter);
         assert_eq!(after, 0, "litter never fully drained: {before} -> {mid} -> {after}");
-        assert!(count(&w, soil) > 0, "litter drained but produced no soil -- decays_into is not being read");
+        // **Drained *through the decay channel*, not out of the world.**
+        // This used to assert `soil > 0`, which stopped being the right claim
+        // when `decay_yield` landed: at litter's 0.05 these 17 cells are
+        // expected to produce well under one soil cell, so the old assertion
+        // was testing a coin flip. The claim it was really making -- "they
+        // left by rotting, not by falling out of the sampled region" -- is
+        // what the counters say directly. `litter_weathers_into_soil_on_the_
+        // same_channel_ash_uses` owns the "soil is still produced" half, on a
+        // population big enough to ask it.
+        let resolved = w.rotted_to_solid + w.rotted_to_nothing;
+        assert!(
+            resolved >= before as u32,
+            "litter left the trough without rotting: {before} cells placed, only {resolved} decays resolved"
+        );
+        let _ = soil;
     }
 
     /// **The sanity check: what does this metric say when nothing is
@@ -643,6 +755,24 @@ mod tests {
             n
         };
 
+        // **`run_with_physics`, not `run`, and this fixed a latent defect
+        // rather than accommodating a change.** The reseed picks moss or a
+        // tree on a coin flip, and this scene could only ever grow the moss
+        // half: the comment below is right that soil formed by decay is dry
+        // and a reseeded tree has to wait for capillary flow to wet it, but
+        // capillary flow lives in the CA sweep and `run` does not step it.
+        // So the tree branch was not slow here, it was impossible, and the
+        // test passed exactly when the flip went its way.
+        //
+        // It had already been re-tuned twice for unrelated RNG-stream
+        // shifts (see the window note further down) without anyone reading
+        // the bimodality as the cause. `decay_yield`'s arrival shifted the
+        // stream a third time, the flip came up tree, and the setup gate
+        // read 0 where it had read 43. Measured across that change: with
+        // `run`, 0 organisms at 20,000 frames and still only 2 at 200,000;
+        // with `run_with_physics`, 131 at 20,000 growing to 279 by 25,000,
+        // and green in both yield regimes.
+        //
         // **20,000, not 5,000, and the reason is the mechanic rather than
         // slack.** The setup needs a reseeded organism that has *grown*.
         // Decay is a 5% roll every 200 frames and the reseed a further 15%,
@@ -651,7 +781,7 @@ mod tests {
         // by decay is dry now, so a reseeded tree waits for capillary flow
         // to wet it from the damp ground below before it germinates at all.
         // That is two more waits in series on an already-narrow lottery.
-        run(&mut w, 20_000);
+        run_with_physics(&mut w, 20_000);
         let after_reseed = count_moss_and_wood(&w);
         assert!(after_reseed > 0, "test setup: nothing reseeded at all in five thousand frames");
 
@@ -684,7 +814,7 @@ mod tests {
         // unchanged and still fails outright if a reseeded organism never
         // advances past its first cell, which is the scheduler regression
         // (code-review item #2's bug #2) it was written to catch.
-        run(&mut w, 5_000);
+        run_with_physics(&mut w, 5_000);
         let after_more_growth = count_moss_and_wood(&w);
         assert!(
             after_more_growth > after_reseed,

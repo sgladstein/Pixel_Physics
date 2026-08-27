@@ -488,6 +488,40 @@ pub struct MaterialDef {
     pub decay_chance_damp: f32,
     #[serde(default = "default_decay_chance_dry")]
     pub decay_chance_dry: f32,
+    /// Fraction of this material's decays that leave a cell of
+    /// `decays_into` behind. The rest leave nothing.
+    ///
+    /// **This is respiration, and it is the difference between a cycle and
+    /// an accumulator.** Weathering and rotting are not the same process.
+    /// Ash is mineral: what is left when a fire has already taken the
+    /// carbon, so essentially all of it stays put and becomes soil -- 1.0,
+    /// the default, which is what every material here did before this field
+    /// existed. Leaf litter is not mineral. Decomposing it is microbial
+    /// respiration, and the great majority of the leaf's mass leaves as CO2
+    /// rather than becoming anything solid; published humification
+    /// efficiencies put the stabilised fraction somewhere in the low single
+    /// digits to ~10%. On top of that, the part that *does* persist collapses
+    /// in volume by roughly two orders of magnitude -- fresh litter runs
+    /// about 0.02-0.1 g/cm3 against mineral soil's 1.1-1.6.
+    ///
+    /// **There is no gaseous carbon in this engine, so the yield is where
+    /// that loss has to live.** A plant fixes an abstract carbon resource out
+    /// of light and builds a solid cell with it; every solid cell that then
+    /// rots 1:1 into soil is matter that entered the world from nothing and
+    /// can never leave. That is a monotonic source with no sink, and it is
+    /// what buried the owner's trees to their crowns. A yield below 1 does
+    /// not make it a cycle -- see `Reports/soil-accumulation-and-the-carbon-
+    /// cycle.md` for why nothing short of a real sink does -- it only sets
+    /// the slope.
+    ///
+    /// **A yield, deliberately, rather than a slower rot rate.** The two are
+    /// not interchangeable and the distinction cost a design discussion:
+    /// `decay_chance_*` sets how long a cell *waits*, so lowering it makes
+    /// litter pile up on the floor while producing the same soil in the end.
+    /// This sets how much *survives* the decay, which is the quantity the
+    /// real world reduces.
+    #[serde(default = "default_decay_yield")]
+    pub decay_yield: f32,
     /// Whether this material reinforces a `Powder` it is embedded in, so
     /// that grain no longer falls — the Wu-Waldron apparent-cohesion effect
     /// roots have on soil (`update.rs`'s `root_reinforced`).
@@ -1286,6 +1320,14 @@ fn default_decay_chance_dry() -> f32 {
     super::decay::DECAY_CHANCE_DRY
 }
 
+/// **1.0 -- everything a decay produces is kept, which is what this engine
+/// did before `decay_yield` existed.** The default belongs on the side that
+/// changes nothing, so adding the field could not silently retune ash, and
+/// so a new material has to opt *in* to losing mass rather than opt out.
+fn default_decay_yield() -> f32 {
+    1.0
+}
+
 fn default_never_u16() -> u16 {
     u16::MAX
 }
@@ -1472,6 +1514,9 @@ pub struct Material {
     /// `decay::tick` never needs a fallback branch.
     pub decay_chance_damp: f32,
     pub decay_chance_dry: f32,
+    /// See `MaterialDef::decay_yield`. 1.0 unless the `.ron` says otherwise,
+    /// so every material that predates the field is unchanged by it.
+    pub decay_yield: f32,
     pub reactions: Vec<Reaction>,
 }
 
@@ -1792,6 +1837,7 @@ impl From<MaterialDef> for Material {
             reseed_chance: def.reseed_chance,
             decay_chance_damp: def.decay_chance_damp,
             decay_chance_dry: def.decay_chance_dry,
+            decay_yield: def.decay_yield,
             reactions_raw: def.reactions,
             // Left unresolved until `resolve_references` runs.
             melts_into: None,
@@ -2029,6 +2075,8 @@ impl MaterialRegistry {
             // in this field.
             decay_chance_damp: default_decay_chance_damp(),
             decay_chance_dry: default_decay_chance_dry(),
+            // Never read -- `decays_into` is `None` here, which is the gate.
+            decay_yield: default_decay_yield(),
             reactions: Vec::new(),
             max_unsupported_span: u16::MAX,
             floats: false,
@@ -2098,6 +2146,8 @@ impl MaterialRegistry {
             // in this field.
             decay_chance_damp: default_decay_chance_damp(),
             decay_chance_dry: default_decay_chance_dry(),
+            // Never read -- `decays_into` is `None` here, which is the gate.
+            decay_yield: default_decay_yield(),
             reactions: Vec::new(),
             // Bedrock is the anchor itself — it must never be the thing
             // that breaks free, so this stays unset regardless of what any

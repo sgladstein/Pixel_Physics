@@ -1,10 +1,12 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-23. New since the last pass: how long a day lasts
-is a setting, and so are the paces of growth, weather, creatures and the
-gnome — five separate knobs, none of which changes how fast things fall;
-and daylight now reaches into what you dig, so an overhang no longer hangs
-a dark rectangle in the sky beneath it.*
+*Current as of: 2026-08-27. New since the last pass: rotting leaf litter
+mostly disappears now instead of all becoming soil, so a wood no longer
+buries itself; and how long a day lasts is a setting, as are the paces of
+growth, weather, creatures and the gnome — five separate knobs, none of
+which changes how fast things fall; and daylight now reaches into what you
+dig, so an overhang no longer hangs a dark rectangle in the sky beneath
+it.*
 
 ## How fast the world runs
 
@@ -168,10 +170,25 @@ different every hour would be impossible to reason about, and drying was
 picked to go first because following the sun is the whole of what it is
 supposed to do.
 
-Destruction isn't always permanent, either. Ash left behind by something
-that actually burned doesn't stay ash forever — over time it slowly
-weathers into soil, faster in damp conditions and much more slowly in dry
-ones. Ash that was placed directly rather than produced by a real fire
-doesn't weather this way; it stays ash. Freshly-formed soil occasionally
-gives new growth a chance to take root nearby, so a burned patch of ground
-doesn't necessarily stay bare forever.
+Destruction isn't always permanent, either. Ash left behind by a fire
+doesn't stay ash forever — over time it slowly weathers into soil, faster
+in damp conditions and much more slowly in dry ones, and it will do this
+whether the fire was real or you painted the ash there yourself.
+Freshly-formed soil occasionally gives new growth a chance to take root
+nearby, so a burned patch of ground doesn't necessarily stay bare forever.
+
+Fallen leaves rot on the same schedule, but they mostly rot away to
+**nothing**. Only about one cell of litter in twenty leaves any soil behind.
+That is deliberate and it is roughly what happens outdoors: rotting is
+mostly the leaf being breathed away by the things eating it, and what little
+survives is a fraction of the volume you started with. Before this, every
+shed leaf became a permanent cell of soil, and a mature wood would slowly
+bury itself — the floor climbing the trunks year after year until the trees
+stood waist-deep, then shoulder-deep, in their own leaf fall.
+
+**It is slower now rather than stopped.** A long-lived stand on old ground
+will still raise its floor eventually, because leaves keep arriving and soil
+has no way to weather back out of the world. Growing roots eat into it and
+soil at the world's edge can spill away, but neither is a match for a
+canopy. If you leave a forest running long enough, expect the ground under
+it to creep upward.
