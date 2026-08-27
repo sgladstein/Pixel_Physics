@@ -119,6 +119,33 @@ each plant, each interval, a fixed probability independent of age, size and
 genotype. Age-structured mortality is legitimate later, once the space is
 known to be rich.
 
+## 5a. The finding that most changes the machinery design (added after the reviews)
+
+A parameter inventory (`plant-heritability-survey-design-2026-08-27.md` §4a)
+traced all ~45 authored per-species parameters to their consumers. **Most of
+the biggest phenotype levers have no counterweight**: `turgor_source`,
+`turgor_yield`, `plastochron`, `heading_inertia`, the juvenile trio,
+`seed_maturity`, the `rate` scalar, both half-lives — and `crowding_weight`,
+whose counterweight was *deliberately removed* by the cliff fix.
+
+A heritable parameter with no counterweight has exactly one optimum, and
+selection pins every individual to it. So **making those genes produces
+uniformity — the precise failure this programme exists to avoid.**
+
+**The design consequence, and it is the most actionable thing this session
+produced: the machinery package must ship *costs* alongside the loci, not
+merely the loci.** Adding an organ or a locus without a bill attached does
+not add diversity; it adds one more thing every plant converges on.
+
+Also verified there, and worth a separate look: **`light_weight` is not
+"inert because the light field is flat"** — `organism::phototropism_dir`
+(`organism.rs:3422-3430`) returns only `(0,-1)` or `(0,0)` and has **no
+lateral term at all**, so no plant in this engine can steer sideways toward
+light. That is a plausible contributor to the original complaint (plants
+differing only in size and colour), it is small to fix, and it is needed
+under *every* design option — but it changes how every plant grows, so it
+needs a seed sweep before and after, per `CLAUDE.md`.
+
 ## 6. Open owner calls, carried forward
 
 1. What replaces the withdrawn §6.2 — i.e. what *should* be heritable?
