@@ -71,12 +71,30 @@ with the wrong label on it. Break-even confirms: 5m pays off at two requests,
 
 **Fixed:** the setting is reverted and §6 rewritten with the branches relabelled.
 
-**Still unmeasured, and neither could the PR:** `subagentPromptCacheTtl` is a
-Claude Code harness setting, not an API feature. Whether Claude Code's subagents
-share a cache namespace with the parent is not settled by anything read here. The
-PR is honest that it read the schema rather than measuring; that disclosure holds
-up. Reverting costs nothing, so the measurement can wait until someone wants the
-lever back.
+**Partly measured since, and the rest is free** (`scripts/cacheprobe.py`, added
+with this review). This review originally closed by calling the remaining
+question un-answerable without an instrumented fan-out costing ~100k tokens.
+That was wrong, and wrong in this repo's most characteristic way — *reaching for
+a new measurement before checking what already exists*. Claude Code writes every
+turn's `usage` to `~/.claude/projects/<cwd>/<session>.jsonl`, including
+`cache_read_input_tokens` and a `cache_creation` split **by TTL**, and it tags
+sub-agent turns `isSidechain: true`.
+
+Measured on this review's own session, 112 turns: the instrument is not blind
+(107 of 111 turns after the first show a cache read), and **every write in the
+main conversation is `ephemeral_1h` — 983,153 tokens against 0 at 5m.** §6 read
+the main session's 1-hour TTL off a schema; it is now measured, and it is right.
+
+What remains needs no extra spend: point `cacheprobe.py` at the transcript of any
+fan-out that was going to run anyway. It reports three questions apart, because
+conflating them is what broke §6 — **namespace** (do sub-agents share a prefix at
+all; needs a *sequential* launch), **race** (launched concurrently, how many
+miss), and **TTL**. Namespace alone can void the lever: if sub-agents do not
+share, `subagentPromptCacheTtl` cannot help a fan-out at any value.
+
+`subagentPromptCacheTtl` is a harness setting rather than an API feature, so the
+transcript is the only evidence available either way. The PR was honest that it
+read the schema rather than measuring; that disclosure holds up.
 
 ## 2. `readguard.py` denied a whole-file read of **every** `README.md` in the repo
 

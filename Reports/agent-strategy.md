@@ -288,14 +288,23 @@ pays off at two requests, **1h needs three**.
 **`subagentPromptCacheTtl` is therefore not set.** Reverting costs nothing and
 the default is the cheaper arm under the premise most likely to hold.
 
-**What is still unmeasured, and what would settle it.** This is a Claude Code
-harness setting, not an API feature; whether Claude Code's subagents share a
-cache namespace with their parent, and whether the harness's "automatic" TTL
-behaves as the API's explicit `ttl` does, is not established by anything read
-here. One instrumented `parallel()` run reading `cache_creation_input_tokens`
-and `cache_read_input_tokens` off the agents answers it. Worth the ~100k that
-costs *only* if someone wants the lever back — the revert is free and the
-default is defensible without it.
+**Half of it is now measured, and the rest is free.** `scripts/cacheprobe.py`
+reads what Claude Code already writes: every turn's `usage` lands in
+`~/.claude/projects/<cwd>/<session>.jsonl` with `cache_read_input_tokens` and a
+`cache_creation` split **by TTL**, and sub-agent turns are tagged
+`isSidechain`. No instrumented run is needed — the transcript is a byproduct of
+work already planned.
+
+Measured 2026-08-28 on the review session itself: **every write in the main
+conversation is `ephemeral_1h`, 983,153 tokens against 0 at 5m.** The 1-hour
+main-session TTL above was read off a schema; it is now measured and correct.
+
+The sub-agent half needs one fan-out and zero extra tokens. `cacheprobe` reports
+its three questions apart — **namespace**, **race**, **TTL** — because treating
+them as one is precisely what went wrong above. And **namespace alone can void
+the lever**: if sub-agents do not share a cached prefix with each other at all,
+`subagentPromptCacheTtl` cannot help a fan-out at any value, and the 12-agent
+arithmetic is void whatever the TTL. Run that row first.
 
 **The transferable lesson is not about caches.** Three of this report's numbers
 were arithmetically correct and answered a different question — this one, the
