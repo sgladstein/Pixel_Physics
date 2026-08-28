@@ -168,13 +168,20 @@ fn variant_ron(name: &str, t: &Table) -> String {
     out.replacen("name: \"tree\"", &quoted, 1)
 }
 
-/// Apply one point mutation: pick a rule, pick a field, point it somewhere else.
+/// Apply one point mutation: pick a rule, pick a field, point it somewhere
+/// **else** — never at the value it already holds.
+///
+/// The redraw is not fussiness. Drawing uniformly from the six plant types
+/// means one mutation in six lands on the current value and changes nothing,
+/// and a no-op counted as "viable" inflates the headline by exactly that
+/// fraction. Measured on the first run: 7 of 48. A rate whose denominator
+/// includes mutations that could not have done anything is not a tolerance,
+/// it is a dilution.
 fn mutate(t: &mut Table, rng: &mut rng::Rng) -> String {
     let ci = rng.below(t.len() as u32) as usize;
     let (ct, rules) = &mut t[ci];
     let ri = rng.below(rules.len() as u32) as usize;
     let rule = &mut rules[ri];
-    let to = PLANT_TYPES[rng.below(PLANT_TYPES.len() as u32) as usize];
     // Only fields that exist on this rule: `child`/`lateral` are `None` on
     // `Stale`/`Flush`, which create no cell, and inventing one there would be
     // mutating a field the engine never reads.
@@ -186,6 +193,16 @@ fn mutate(t: &mut Table, rng: &mut rng::Rng) -> String {
         slots.push(2);
     }
     let slot = slots[rng.below(slots.len() as u32) as usize];
+    let current = match slot {
+        0 => rule.becomes,
+        1 => rule.child.expect("slot 1 is only offered when child is Some"),
+        _ => rule.lateral.expect("slot 2 is only offered when lateral is Some"),
+    };
+    // Redraw until it actually moves -- see this function's doc.
+    let mut to = current;
+    while to == current {
+        to = PLANT_TYPES[rng.below(PLANT_TYPES.len() as u32) as usize];
+    }
     let what = match slot {
         0 => {
             rule.becomes = to;
@@ -263,8 +280,20 @@ fn main() {
     }
 
     // --- the mutants ---
+    //
+    // **Three outcomes, not two, and the third is the one a naive rate hides.**
+    // A mutation whose stand comes out *identical to the base* has not
+    // demonstrated that the substrate tolerates it; it has demonstrated that
+    // nothing read the field. Measured on the first run of this harness:
+    // `RootTip.Grew.lateral` pointed at four different cell types produced
+    // exactly the base's 80 seeds every time, because a root never takes the
+    // lateral path in this scene. Counting those as "viable" is the
+    // identical-output-across-settings tell that `CLAUDE.md` names for a knob
+    // that was never connected -- and it inflates the headline with cases that
+    // could not have failed.
     let mut viable = 0usize;
     let mut reproduced = 0usize;
+    let mut silent = 0usize;
     // **Printed as they land, not buffered to the end.** An earlier version
     // collected every line and printed at the finish, which meant a 25-minute
     // run produced no output at all -- indistinguishable, while you are
@@ -283,12 +312,22 @@ fn main() {
         if s > 0 {
             reproduced += 1;
         }
-        println!("  {:<44} established {e}/{founders}  seeds {s}", what);
+        let quiet = e == be && s == bs;
+        if quiet {
+            silent += 1;
+        }
+        println!("  {:<44} plants {e:>2}  seeds {s:>3}{}", what, if quiet { "   [silent: identical to base]" } else { "" });
     }
-    let pct = |n: usize| 100.0 * n as f32 / mutants as f32;
+    let pct = |n: usize, d: usize| if d == 0 { f32::NAN } else { 100.0 * n as f32 / d as f32 };
+    let effective = mutants - silent;
     println!("\n{mutants} point mutations of the production rule:");
-    println!("  established at all      {viable}/{mutants}  ({:.0}%)", pct(viable));
-    println!("  set at least one seed   {reproduced}/{mutants}  ({:.0}%)", pct(reproduced));
-    println!("\nRead against the controls above, never alone: base {be}/{founders} established");
-    println!("({bs} seeds), lethal {le}/{founders} ({ls} seeds).");
+    println!("  silent (output identical to base -- the field is never read here)");
+    println!("                          {silent}/{mutants}  ({:.0}%)", pct(silent, mutants));
+    println!("  EFFECTIVE mutations     {effective}");
+    println!("    established at all    {}/{effective}  ({:.0}%)", viable.saturating_sub(silent), pct(viable.saturating_sub(silent), effective));
+    println!("    set at least one seed {}/{effective}  ({:.0}%)", reproduced.saturating_sub(silent), pct(reproduced.saturating_sub(silent), effective));
+    println!("\n  (raw, including silent: established {viable}/{mutants}, reproduced {reproduced}/{mutants})");
+    println!("\nRead against the controls, never alone: base {be} plants / {bs} seeds,");
+    println!("lethal {le} plants / {ls} seeds. `plants` counts every established");
+    println!("organism including recruits, so it can exceed the {founders} founders.");
 }
