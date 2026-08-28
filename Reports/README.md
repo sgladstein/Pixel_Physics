@@ -48,6 +48,13 @@ tried?"*.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **all
   thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
+- [pr89-review.md](pr89-review.md) — **adversarial review of PR #89,
+  2026-08-28.** Twelve findings against `agent-strategy.md` and its machinery.
+  Three reverse a conclusion: §6's cache saving mixed premises across the two
+  arms and had the wrong sign; `readguard.py` denied every `README.md` in the
+  repo; the 28,000-token ceiling was enforced by nothing and its check went green
+  on a 58%-over file. Findings 1, 2, 3, 5 and the record corrections are fixed;
+  6-12 stand as recorded.
 - [agent-strategy.md](agent-strategy.md) — **measured and partly executed
   2026-08-27.** Which to use — one session, parallel lanes, or a manager with
   sub-agents — and what enforces it once they are running. The axis that
