@@ -330,12 +330,26 @@ the suite across jobs, or cutting the overlap between the release and
 debug runs — none of which has been measured and none of which should be
 attempted on this report's evidence.
 
+**A third independent confirmation, 2026-08-28:** a local
+`cargo test --lib` spent **161 s building and 412 s executing**. Same
+ratio, measured a different way.
+
+**Where a real reduction would have to come from, stated as a question
+because nothing here has measured it:** CI runs `cargo test` (debug, 18.2
+min) and `cargo test --release` (15.6 min) as separate jobs over
+substantially the same suite, and the debug job alone is the critical
+path. `ci.yml` says the debug run exists to compile the `debug_assert`
+guards, which is a real purpose. Whether it needs the *whole* suite to do
+that, or whether the two jobs' overlap can be cut, is the question that
+replaces this item. **Do not act on that paragraph** — it is a direction,
+not a finding.
+
 **Consequence, and it is the important one: nothing in this plan shrinks
 the race.** Item 2 removes the agent from it; item 7 would remove it
 outright. This item is withdrawn pending a measurement of where the 18.2
 minutes actually goes.
 
-### 4. Stop pouring green test output into context
+### 4. Stop pouring green test output into context — DONE 2026-08-28
 
 `~1 hour · risk low · CLAUDE.md, scripts/`
 
@@ -355,9 +369,19 @@ to the repo. It was the one mechanism in that review that measurement
 confirmed, and it is the one item here that was not found by looking at
 git history.
 
-**Open question:** is this worth a rule in `CLAUDE.md`, or a wrapper
-script that every gate invocation goes through? A rule is cheaper; a
-wrapper is the thing that actually happens.
+**Shipped as `scripts/gate.sh`** — the wrapper, not the rule, on the
+grounds `CLAUDE.md` itself gives (*make it a command rather than a
+discipline*). Green prints a digest, red prints everything.
+
+**And the claim is now measured rather than estimated, which was a fair
+hit in review.** This item originally chained "1,081 tests -> ~1,081 lines
+-> roughly 12k tokens" without anyone having run the suite and counted.
+Measured 2026-08-28: `cargo test --lib` emits **1,022 lines**; the digest
+keeps **3** — the `Finished` line, `Running unittests src/lib.rs`, and the
+`test result:` tally — for **99.7% suppressed**, with both questions that
+matter still answerable. The run also found a truncation bug that made the
+script report "100%", and a stale `943 passed` in `CLAUDE.md` that is now
+954. Neither was found by reading it.
 
 ### 5. Do not re-run the full matrix on a *clean* back-merge
 
@@ -474,11 +498,30 @@ same limit that makes branch deletion impossible (`CLAUDE.md` records 37
 attempted deletes, all 403). Item 2 is blocked until these are set, and no
 agent can unblock it.
 
-1. **Settings → General → Pull Requests → tick "Allow auto-merge."**
-   Reported `false` today; confirm before relying on it.
-2. **Tick "Automatically delete head branches"** while there. This quietly
-   solves the standing 19 merged-and-deletable branches that no session
-   can remove, and stops the count climbing.
+1. **Do NOT tick "Allow auto-merge" yet.** An earlier draft of this
+   report told the owner to tick it as a harmless preliminary. **That was
+   wrong, and the reason is the interlock.** Auto-merge requires at least
+   one blocking status check; with zero rulesets it cannot be armed at
+   all, so ticking it buys nothing today and leaves a latent state change
+   that becomes live the moment a ruleset is added for any unrelated
+   reason. Worse, this report *recommends* item 2 — so once it is on
+   `main`, an agent reading it could reasonably try to arm auto-merge.
+   Right now that attempt fails harmlessly, and that failure is doing
+   useful work. **Tick it only as part of doing item 2 in full** — the
+   setting, the ruleset, the sweeper and the `CLAUDE.md` edit as one
+   change, which is the ordering item 2's own open question says is the
+   only one that is never wrong.
+2. **Tick "Automatically delete head branches."** Worth doing on its own,
+   independent of everything else here, and it is the only owner action
+   this report still recommends unconditionally. **Corrected: it is
+   forward-only.** It deletes a head branch when a PR merges from that
+   point on; it does nothing retroactive, and several of the standing 19
+   may never have had a PR at all. So it stops the count climbing — it
+   does not clear it. **The existing 19 still need deleting by hand**
+   (sessions get 403). One edge case, and it is benign: a session
+   resuming to push a follow-up finds its branch gone, which is correct,
+   because a merged PR is finished and follow-up work starts a fresh
+   branch regardless.
 3. **Settings → Rules → Rulesets → new branch ruleset**, target `main`,
    Active, **Require status checks to pass**, with exactly these six:
    `branches`, `cargo test (release)`,
