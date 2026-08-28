@@ -403,6 +403,16 @@ field rework — see `open-bugs-handoff.md`.
 it carries the reading order, what is established, and an owner-caught
 drift that two of these documents still reflect.**
 
+- [plant-organs-handoff-2026-08-28.md](plant-organs-handoff-2026-08-28.md)
+  — **handoff; read first if you are building the organ package (Phase 4).**
+  What Phases 0–3 landed and what machinery they give you, the six owner
+  decisions not to re-litigate, and seven traps each already paid for. Its two
+  load-bearing findings: gate 1 says `becomes` and `lateral` — the fields a
+  determinate axis and a truss need — took 34 mutations without one failure,
+  while `child` killed 5 of 6; and **a label change has now failed to read five
+  times**, so the organ's *material* is the load-bearing half of the phase, not
+  a detail of it. Names the retune budget, including `shoot_cells`' two-sided
+  effect on the reproduction economy that no other report records.
 - [plant-fate-viability-2026-08-28.md](plant-fate-viability-2026-08-28.md)
   — **gate 1, measured, and it passes.** 92% of effective point mutations to a
   species' production rule still produce a plant that establishes and breeds,
