@@ -1,0 +1,46 @@
+{
+  "id": "20260828T131806922Z-cb5be9",
+  "created": "2026-08-28T13:18:06Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-morphology-evolution-d7i1od",
+    "commit": "d3b747b",
+    "agent": null,
+    "session_id": "e36b55b6-0a93-5c94-8b77-6f6800479a89",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Founder variance: does a stand read as a population?",
+  "question": "Which of these reads as a population of individuals, rather than one plant repeated eight times? And if the sparser one is the more varied, is that a fair price or has something been lost?",
+  "context_md": "scene=grove, 8 founders, frame 21600, same world both arms. The ONLY difference is FOUNDER_VARIANT_CHANCE (0.0 vs 0.25).\n\nWHY: four of the six discrete loci had no founder variance at all - branch angle and internode were pinned to the mid allele, sympody and tropism read straight off the species file. Measured across 16 live runs those positions never moved. They can only move by mutation at 0.03/birth, and measured generation depth is 1-2, so in practice they never did. A locus that cannot vary is a locus selection cannot sort.\n\nCOUNTS\n  loci with founder variance: 2 of 6 -> 6 of 6\n  stand cells:   frozen 24425 (44.2% leaf)  |  varied 21996 (45.9% leaf)\n  expected founders carrying at least one variant: ~68% (1 - 0.75^4)\n\nTHE REAL QUESTION IS THE RATE. 0.25 is a number I chose, not one I measured. If the varied stand reads as noise on a species rather than a mixed population, it comes down; if it still looks uniform, it goes up. The mechanism is what landed - the value is yours.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "frozen (current main)",
+      "files": [
+        "20260828T131806922Z-cb5be9/000-arm_frozen.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "founder variance 0.25",
+      "files": [
+        "20260828T131806922Z-cb5be9/001-arm_varied.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
