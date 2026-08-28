@@ -322,6 +322,64 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
         println!("  generations  [{}]", hist.join(", "));
 
+        // **Who won, not how much there was** -- the denominator this line
+        // of work kept lacking.
+        //
+        // A stand's totals are pinned by the resource: output is
+        // `share x total mature cells`, total mass is bounded by
+        // intercepted light, and that is fixed by the width of the world.
+        // So a lever that changes competitive *outcome* can move nothing in
+        // any total while completely reordering the stand -- and every
+        // costs measurement read on totals reports a null either way.
+        //
+        // Concentration is the quantity that does move. Two stands of equal
+        // mass, one an even thicket and one dominated by three winners, are
+        // different worlds and differ in these numbers alone.
+        //
+        // Gini over established plants, on mass and on realised
+        // reproduction: 0 is a perfectly even stand, 1 is one plant taking
+        // everything. Reported beside the top share because Gini alone
+        // cannot distinguish "one giant" from "one runt".
+        fn gini(mut v: Vec<f64>) -> f64 {
+            if v.len() < 2 {
+                return 0.0;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN in a census"));
+            let n = v.len() as f64;
+            let sum: f64 = v.iter().sum();
+            if sum <= 0.0 {
+                return 0.0;
+            }
+            let weighted: f64 = v.iter().enumerate().map(|(i, x)| (2.0 * (i as f64 + 1.0) - n - 1.0) * x).sum();
+            weighted / (n * sum)
+        }
+        let established: Vec<u16> = per_organism.iter().filter(|(_, v)| v.0 >= ESTABLISHED).map(|(id, _)| *id).collect();
+        if established.len() >= 2 {
+            let mass: Vec<f64> = established.iter().map(|id| per_organism[id].0 as f64).collect();
+            let seed: Vec<f64> =
+                established.iter().map(|id| w.organism_state(*id).map_or(0.0, |s| s.seeds_set as f64)).collect();
+            let mass_total: f64 = mass.iter().sum();
+            let seed_total: f64 = seed.iter().sum();
+            let top_mass = mass.iter().cloned().fold(0.0_f64, f64::max);
+            let top_seed = seed.iter().cloned().fold(0.0_f64, f64::max);
+            println!(
+                "  who won, over {} established plants (a stand total cannot show this):",
+                established.len()
+            );
+            println!(
+                "    mass          gini {:.3}   largest plant holds {:.1}% of stand mass",
+                gini(mass.clone()),
+                if mass_total > 0.0 { 100.0 * top_mass / mass_total } else { 0.0 }
+            );
+            println!(
+                "    reproduction  gini {:.3}   best plant set {:.1}% of all seeds ({} of {})",
+                gini(seed.clone()),
+                if seed_total > 0.0 { 100.0 * top_seed / seed_total } else { 0.0 },
+                top_seed as u64,
+                seed_total as u64
+            );
+        }
+
         // **Epiphytes: plants rooted above the ground.** A seed is a
         // `Powder`, so it falls -- but it comes to rest on the first thing
         // that stops it, and in a closed stand that is very often a branch.
