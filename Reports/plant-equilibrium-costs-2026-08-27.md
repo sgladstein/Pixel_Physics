@@ -31,6 +31,8 @@ inventory this corrects in two places), and
 | 13 | The re-derivation — and `seed_chance` is the real fence |
 | 14 | **Built**: the fence comes out — reproduction priced, not rolled |
 | 15 | **Built**: steps 2 and 3b — the last two free tissue levers get a price |
+| 16 | **Built**: step 5 — the direction score is denominated |
+| 17 | 3c deprioritised, and why it is missing state rather than sequencing |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -1183,3 +1185,64 @@ Still outstanding, and each is its own change: **3c** (stop billing interior
 wood — strictly after 3b, per §10a.3, and now unblocked); **step 5**
 (normalise the direction score); `seed_maturity`'s fence (§10b); and the
 denominator work in step 1.
+
+## 16. Built: step 5 — the direction score is denominated
+
+§7 named the second mechanism behind the retune loop, and it is not a missing
+cost: `Grow`'s four steering weights are **absolute in the source and relative
+in effect**, because the score is used for weighted sampling and only the
+ratios reach behaviour. Nothing in the file said so, which is what made the
+lateral-phototropism repair a five-species tuning pass rather than a bug fix.
+
+The score is now divided by the sum of the weights in play, so each weight
+means *this share of the tip's steering* rather than *0.3 in units of whatever
+the others happen to sum to*. Same medicine `INCOME_PER_NODE` already had —
+denominate in an invariant unit — applied to the score.
+
+**Behaviourally a no-op, and that is the whole claim.** Scaling every
+candidate's score by one constant cannot change a weighted sample, and both
+the `> 0.0` filter and the crowding divisor are scale-invariant. **Verified:
+the same seed, scene and frame count produced a byte-identical log against the
+pre-change binary.** That control is what separates this from a tuning change
+wearing a refactor's clothes.
+
+What it buys is the next change rather than this one: moving `light_weight`
+now moves one axis instead of silently reweighting three.
+
+## 17. 3c is deprioritised, and the reason is not sequencing
+
+**Owner's ruling, 2026-08-27: agreed to deprioritise.** Recorded with the
+finding, because "deferred" would misdescribe it.
+
+3c was *stop billing `MAINTENANCE_PER_CELL` on interior wood*, on the biology
+that heartwood is dead and does not respire. §10a.3 blocked it behind 3b. **3b
+has landed and 3c is still not doable, for a different reason: the engine
+cannot identify heartwood.**
+
+The only available proxy is `q_peak == 0`, and that set is wrong in two
+directions at once:
+
+- **It contains every root cell.** `accumulate_support` seeds the basipetal
+  walk at every cell below the collar, so a root accumulates only its own
+  leafless subtree and reads `q_peak ≈ 0` by construction. Exempting the set
+  makes roots free, contradicting the owner's 2026-08-24 directive that a root
+  cell out of contact *"cannot benefit the plant and has a cost"*.
+- **It contains blob interiors**, which is exactly what
+  `MAINTENANCE_PER_CELL` exists to stop standing free for ever.
+- **And it does *not* contain abandoned wood.** `q_peak` is a monotone
+  high-water mark, so a branch that loses its foliage keeps its peak and keeps
+  paying. The crown-recession ratchet was never at risk — which also means the
+  exemption would not have done the thing §10a.3 described it as doing.
+
+Doing it honestly needs **per-cell state the engine does not have**: a
+sapwood/heartwood distinction, which in a real tree is an age-and-position
+property. Either a geometric *fully enclosed by my own organism* test — a
+neighbourhood read per cell per tick, on the hot path — or a bit on
+`OrganismCell` set when thickening buries a cell.
+
+**And the value is small, which is what settles it.** The girth term already
+charges `∝ q_peak^1.5` per shoot cell, which *is* Shinozaki's pipe model:
+sapwood scaling with the crown it supplies. The conducting tissue is already
+priced correctly. The only real over-charge is the mass term on buried wood,
+`1.5e-4` per cell — the smallest miscount in this whole audit, and the one
+needing the most new machinery to fix.

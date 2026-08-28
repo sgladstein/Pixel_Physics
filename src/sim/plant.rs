@@ -1944,6 +1944,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // Costs no per-cell state: a lateral is rescheduled with
                     // `plastochron: 0`, so the lineage step the active site
                     // already carries *is* its age in cells.
+                    // **Normalised: the four weights are shares of one
+                    // steering budget, not four independent magnitudes.**
+                    //
+                    // They were always relative in *effect* — the score is
+                    // used for weighted sampling, so only the ratios reach
+                    // behaviour — and absolute in the *source*, where
+                    // nothing said so. That gap is the second mechanism
+                    // behind this engine's retune loop, and it is what made
+                    // the lateral-phototropism repair a five-species tuning
+                    // pass rather than a bug fix: giving `light_weight` a
+                    // real 2D direction silently reweighted the other three
+                    // because its own magnitude had been chosen against a
+                    // lever that could only say "up".
+                    //
+                    // Dividing by the sum makes each weight mean "this
+                    // fraction of the tip's steering", so one can be moved
+                    // without the others changing meaning. It is the same
+                    // medicine `INCOME_PER_NODE` already had — denominate
+                    // in an invariant unit — applied to the score.
+                    //
+                    // **Behaviourally a no-op at any weights, and that is
+                    // the point.** Scaling every candidate's score by the
+                    // same constant cannot change a weighted sample, and
+                    // the `> 0.0` filter and the crowding divisor are both
+                    // scale-invariant too. Verified byte-identical against
+                    // the pre-change binary on the standard bed.
+                    let weight_sum = if rigid_step {
+                        continuation_weight
+                    } else {
+                        continuation_weight + light_weight + wind_weight + upward_weight
+                    };
+                    // A species may legitimately author every weight to
+                    // zero; `1.0` leaves such a tip scoring flat rather
+                    // than dividing by zero, which is what it did before.
+                    let weight_sum = if weight_sum.abs() > f32::EPSILON { weight_sum } else { 1.0 };
                     let preference = if rigid_step {
                         dot(dir, heading) * continuation_weight
                     } else {
@@ -1951,7 +1986,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             + dot(dir, photo) * light_weight
                             + dot(dir, wind) * wind_weight
                             + dot(dir, gravity_or_water) * upward_weight
-                    };
+                    } / weight_sum;
                     let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
