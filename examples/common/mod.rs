@@ -243,6 +243,16 @@ pub struct PlantScene {
     /// historical bed and the default, so every existing harness run and
     /// every stored contact sheet is unaffected by this field existing.
     pub relief: Relief,
+    /// A species defined at runtime, registered **before** the bed plants
+    /// anything.
+    ///
+    /// The ordering is the whole reason this is a field rather than something
+    /// a caller does around `build`: `plant_tree_species` resolves the name at
+    /// planting time, so a variant registered after `build` is registered into
+    /// a world where nothing was ever planted — a silent empty stand that
+    /// reads exactly like "this mutation is nonviable". Caught by a positive
+    /// control reporting 0/3 for the *unmutated* table.
+    pub species_ron: Option<String>,
 }
 
 impl PlantScene {
@@ -281,6 +291,7 @@ impl Default for PlantScene {
             soil_moisture: material::SOIL_FIELD_CAPACITY,
             start_frame: 0,
             relief: Relief::Flat,
+            species_ron: None,
         }
     }
 }
@@ -309,6 +320,9 @@ impl PlantScene {
     pub fn build(&self) -> World {
         let mut w = World::new(Rect::new(0, 0, self.width - 1, self.height - 1));
         w.frame = self.start_frame;
+        if let Some(source) = &self.species_ron {
+            w.species.register_ron(source).expect("the runtime species parses");
+        }
         let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
         for x in 0..self.width {
             // **Two independent axes, on different periods.** Collinear axes

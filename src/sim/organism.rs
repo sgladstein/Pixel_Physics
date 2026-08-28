@@ -2381,6 +2381,33 @@ impl SpeciesRegistry {
         Ok(count)
     }
 
+    /// **Register a species defined at runtime**, from the same RON the
+    /// embedded set is written in. Returns its id.
+    ///
+    /// Until this existed nothing in `src/` or `examples/` could create a
+    /// species: the set was fixed at compile time by `include_str!` and the
+    /// only other way in was the F5 asset reload, which reads a directory.
+    /// That is fine for shipping a game and fatal for asking *what else could
+    /// this substrate grow* — a question that needs hundreds of variants, none
+    /// of which anyone wants on disk.
+    ///
+    /// Deliberately takes the source text rather than a built `SpeciesDef`, so
+    /// a variant goes through **exactly** the parse and validation path a
+    /// shipped species does. A constructor taking a struct would let a harness
+    /// build a species the `.ron` grammar could not express, and then measure
+    /// it — which is how an instrument ends up describing a system that does
+    /// not exist.
+    ///
+    /// An existing name is replaced, matching `reload`'s semantics.
+    pub fn register_ron(&mut self, source: &str) -> Result<SpeciesId, SpeciesError> {
+        let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+        let def = ron::from_str::<SpeciesDef>(source)
+            .map_err(|e| SpeciesError::Parse { file: "<runtime>".into(), error: e.to_string() })?;
+        let name = def.name.clone();
+        self.upsert(def);
+        Ok(self.id_of(&name).expect("upsert just inserted this name"))
+    }
+
     fn upsert(&mut self, def: SpeciesDef) {
         let species = Species::from(def);
         match self.by_name.get(&species.name) {
