@@ -1271,6 +1271,23 @@ fn build_scene(args: &Args) -> World {
         // Built from `common::PlantScene`, the same code `plant_probe`
         // uses -- see that module for why these two harnesses may not build
         // their own worlds any more.
+        // `grove`, on the heterogeneous bed -- the same scene with three
+        // conflicting tasks in it (moisture gradient, varying soil depth,
+        // clumped founders). A separate scene name rather than a knob on
+        // `grove`, so every stored `grove` sheet still means what it meant.
+        "gradient" => {
+            let base = common::PlantScene::varied();
+            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            return common::PlantScene {
+                species: args.species.clone(),
+                trees: plants,
+                soil_moisture: args.soil_moisture,
+                soil_depth: args.soil_depth,
+                start_frame: args.frame0,
+                ..base
+            }
+            .build();
+        }
         "grove" => {
             let base = common::PlantScene::default();
             let plants = if args.plants > 0 { args.plants } else { base.trees };

@@ -72,6 +72,17 @@ fn main() {
     let start_frame: u64 = std::env::args()
         .find_map(|a| a.strip_prefix("frame0=").map(|v| v.parse().expect("frame0")))
         .unwrap_or(0);
+    // **`relief=varied`** -- the bed with three conflicting tasks in it, and
+    // `hazard=P` the neutral disturbance that lets selection act. Both
+    // default off, so an unqualified run is the historical flat bed and every
+    // number ever quoted from this harness still means what it meant.
+    let relief = if std::env::args().any(|a| a == "relief=varied") { common::Relief::Varied } else { common::Relief::Flat };
+    let hazard = common::Hazard {
+        chance: std::env::args().find_map(|a| a.strip_prefix("hazard=").map(|v| v.parse().expect("hazard"))).unwrap_or(0.0),
+        interval: std::env::args()
+            .find_map(|a| a.strip_prefix("hazardevery=").map(|v| v.parse().expect("hazardevery")))
+            .unwrap_or(1800),
+    };
     let scene = common::PlantScene {
         ground_y: ground_y(),
         trees,
@@ -80,6 +91,7 @@ fn main() {
         soil_depth,
         soil_moisture,
         start_frame,
+        relief,
         ..Default::default()
     };
     let (width, height) = (scene.width, scene.height);
@@ -120,6 +132,10 @@ fn main() {
         scene.soil_depth,
         w.clock.growth_slowdown
     );
+    // Echo the two new knobs on their own line -- `CLAUDE.md`'s harness rule,
+    // after a 3.5-hour study turned out to be three populations wearing 24
+    // logs because a knob was not connected and nothing printed its value.
+    println!("plant_probe: relief={relief:?} hazard={} every={}", hazard.chance, hazard.interval);
 
     // **`census=N` -- the standing organism count every N frames.**
     //
@@ -138,10 +154,12 @@ fn main() {
     }
 
     let mut awake_frames = 0u64;
+    let mut hazard_killed = 0usize;
     for f in 0..frames {
         parallel::step(&mut w);
         w.step_active_sites();
         w.step_fields();
+        hazard_killed += common::apply_hazard(&mut w, hazard, 20);
         if w.active_chunk_count() > 0 {
             awake_frames += 1;
         }
@@ -171,6 +189,12 @@ fn main() {
         }
     }
 
+    // The discrete "this happened" count, printed beside the census it
+    // affects. A hazard that silently never fired is indistinguishable, in
+    // every other number here, from one that fired and changed nothing.
+    if hazard.chance > 0.0 {
+        println!("hazard: {hazard_killed} plants marked senescent over {frames} frames");
+    }
     println!("after {frames} frames: {} active sites, {} awake chunks", w.active_site_count(), w.active_chunk_count());
     // Soil water profile: what a growing stand actually does to the ground.
     {
@@ -1227,7 +1251,21 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
             let spread = stat(per_plant.values().map(|v| (v.3 - v.2 + 1) as i64).collect());
             let wide: usize = per_plant.values().map(|v| v.5).sum();
             let root_cells: usize = per_plant.values().map(|v| v.1).sum();
-            println!("\nroot system ({} established plants, soil is {} rows deep):", per_plant.len(), common::SOIL_DEPTH);
+            // On the varied bed there is no single soil depth -- it swings a
+            // full sine period across the world -- so quoting one would be a
+            // number that is simply not true of the run it labels, and the
+            // depth histogram below is normalised to it.
+            match relief {
+                common::Relief::Varied => println!(
+                    "\nroot system ({} established plants, soil depth VARIES {}-{} rows across the bed):",
+                    per_plant.len(),
+                    (soil_depth as f32 * 0.45).round() as i32,
+                    (soil_depth as f32 * 1.55).round() as i32
+                ),
+                common::Relief::Flat => {
+                    println!("\nroot system ({} established plants, soil is {} rows deep):", per_plant.len(), soil_depth)
+                }
+            }
             println!("  root cells        min {:>4}  median {:>4}  max {:>4}  mean {:>7.1}", roots.0, roots.1, roots.2, roots.3);
             println!("  root share of plant  min {:>3}%  median {:>3}%  max {:>3}%  mean {:>5.1}%", frac.0, frac.1, frac.2, frac.3);
             println!("  deepest row below surface  min {:>3}  median {:>3}  max {:>3}  mean {:>5.1}", depth.0, depth.1, depth.2, depth.3);

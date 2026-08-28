@@ -1687,7 +1687,12 @@ impl World {
     ///
     /// Collected rather than iterated in place because the caller needs
     /// `&mut World` to run each organism's pass.
-    pub(crate) fn live_organism_ids(&self) -> Vec<u16> {
+    ///
+    /// **Public for the experimental-disturbance seam** — see
+    /// `mark_organism_senescent`. A harness studying selection has to be able
+    /// to enumerate the population before it can disturb it, and every
+    /// in-crate caller wanted exactly this already.
+    pub fn live_organism_ids(&self) -> Vec<u16> {
         self.organisms
             .iter()
             .enumerate()
@@ -2122,6 +2127,36 @@ impl World {
     /// stale `organism_id` still held by some cell resolve to `None` rather
     /// than silently editing an unrelated organism that has since been
     /// allocated the same slot.
+    /// **Kill one organism the way the engine already kills organisms** —
+    /// the experimental-disturbance seam. Returns whether the id resolved.
+    ///
+    /// Sets `senescent`, which `plant::rot_remains` then carries out at the
+    /// species' own `remains_half_life`. That reuse is the whole point and it
+    /// is not incidental: a disturbance that deleted the cells outright would
+    /// be a disappearance, and this project's stated ethos is that **an
+    /// outcome is a distribution, not a binary** — the owner's own ruling on
+    /// this exact seam was that a plant which cannot pay its way is marked
+    /// senescent and thinned out over time, so the death is *graded*. A
+    /// harness that invented its own removal path would both duplicate that
+    /// machinery and look wrong on screen.
+    ///
+    /// **What this is for, and the trap it must not be used for.** Studying
+    /// whether selection can sort morphologies needs a *neutral* hazard —
+    /// fixed probability per plant, independent of age, size and genotype.
+    /// Culling by age is itself a selective force favouring fast reproducers,
+    /// so it would manufacture the ruderal-strategy result such an experiment
+    /// is hoping to observe (`Reports/plant-evolvability-handoff-2026-08-27.md`
+    /// §5). The caller owns that choice; this function only carries it out.
+    pub fn mark_organism_senescent(&mut self, organism_id: u16) -> bool {
+        match self.organism_mut(organism_id) {
+            Some(state) => {
+                state.senescent = true;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub(crate) fn organism_mut(&mut self, organism_id: u16) -> Option<&mut OrganismState> {
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
