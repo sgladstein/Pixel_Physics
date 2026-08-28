@@ -125,7 +125,7 @@ something that cost effort to find.
 
 ```
 bash scripts/gate.sh                        # the pre-push gates, green-digested: docscheck + clippy + cargo test --lib. `full` adds integration tests, ascii and acceptance
-cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
+cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured 2026-08-28: `cargo test --lib` with no flag gives 954 passed / 0 failed / 54 ignored (943 on 2026-08-26 -- the suite grows, so re-measure rather than quoting this)
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
 cargo run --release --example filmstrip -- scene=fall zoom=2 crop=0,140,256,110
@@ -1395,7 +1395,8 @@ consider it at all.
   (`Reports/open-bugs-handoff.md` §M). **The specific instance is closed and
   the general rule is not.** Bug A's test is now `#[ignore]`d, so it no longer
   runs and no longer blocks anything: measured 2026-08-26, `cargo test --lib`
-  with no flag gives **943 passed / 0 failed / 54 ignored**. The `--skip
+  with no flag gives **954 passed / 0 failed / 54 ignored** (measured
+  2026-08-28; it was 943 on 2026-08-26). The `--skip
   root_and_shoot_branching_read_different_slots` this bullet and the Commands
   section both insisted on is therefore vestigial, and CI still passes it
   harmlessly. What survives, and is the reason to keep this entry: **while any

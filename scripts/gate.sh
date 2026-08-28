@@ -105,8 +105,11 @@ echo
 if [ ${#FAILED[@]} -eq 0 ]; then
   printf '\033[32mgate: all %s gates green\033[0m — %s lines of output, %s shown' \
     "$MODE" "$TOTAL_RAW" "$TOTAL_SHOWN"
+  # One decimal, via awk: integer division reported 3 of 1,022 lines as
+  # "100% suppressed", and a tidy 100% that is not 100% is the shape of
+  # number CLAUDE.md says to distrust.
   [ "$TOTAL_RAW" -gt 0 ] && printf ' (%s%% suppressed)' \
-    "$(( 100 - (TOTAL_SHOWN * 100 / TOTAL_RAW) ))"
+    "$(awk -v s="$TOTAL_SHOWN" -v r="$TOTAL_RAW" 'BEGIN{printf "%.1f", 100-(s*100/r)}')"
   printf '\nfull logs: %s\n' "$LOGDIR"
   exit 0
 else
