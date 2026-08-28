@@ -33,6 +33,7 @@ inventory this corrects in two places), and
 | 15 | **Built**: steps 2 and 3b — the last two free tissue levers get a price |
 | 16 | **Built**: step 5 — the direction score is denominated |
 | 17 | 3c deprioritised, and why it is missing state rather than sequencing |
+| 18 | **Built**: step 1's denominator — who won, which a stand total cannot show |
 
 ## 1. The answer, and the mechanism in one sentence
 
@@ -1246,3 +1247,41 @@ sapwood scaling with the crown it supplies. The conducting tissue is already
 priced correctly. The only real over-charge is the mass term on buried wood,
 `1.5e-4` per cell — the smallest miscount in this whole audit, and the one
 needing the most new machinery to fix.
+
+## 18. Built: step 1's denominator — "who won", which a stand total cannot show
+
+The instrument this line kept lacking, and the reason §5b gave for needing it:
+**a stand's totals are pinned by the resource.** Output is `share x total
+mature cells`, total mass is bounded by intercepted light, and that is fixed
+by the width of the world. So a lever that changes competitive *outcome* can
+reorder a stand completely while moving nothing in any total — and every costs
+measurement read on totals reports a null either way.
+
+Per-individual attribution already existed (`OrganismState::seeds_set` is
+incremented against the parent in `set_seed`). What was missing was the
+**concentration**: two stands of equal mass, one an even thicket and one
+dominated by three winners, are different worlds and differ in these numbers
+alone.
+
+`plant_probe` now reports, over established plants only:
+
+```
+who won, over 14 established plants (a stand total cannot show this):
+  mass          gini 0.304   largest plant holds 12.2% of stand mass
+  reproduction  gini 0.385   best plant set 14.4% of all seeds (73 of 508)
+```
+
+Gini on mass and on *realised reproduction*, each printed beside the top
+share — because Gini alone cannot tell "one giant" from "one runt", and the
+pair can.
+
+**Readout only: it touches no simulation code at all**
+(`examples/plant_probe.rs` is the whole diff), so unlike the other instruments
+on this branch it needs no byte-identical control to prove it changed nothing.
+
+**What it unblocks.** Every remaining question in this programme is a
+who-wins question rather than a how-much question — does a priced lever
+produce a *spread* of strategies, does competition sort them, does a genotype
+with a different allocation out-reproduce its neighbours. None of those is
+readable from a stand total, and all of them are readable from these two
+lines.
