@@ -651,7 +651,86 @@ pub fn genotype(world: &World, organism_id: u16, slot: usize, variance: f32) -> 
 /// the species as written, with a visible minority carrying each variant.
 /// Same shape as `DISCRETE_MUTATION_CHANCE`, applied once at founding rather
 /// than once per birth.
+///
+/// **The value is a placeholder, and appearance cannot settle it — measured.**
+/// A blind A/B of a frozen stand against this one
+/// (`20260828T131806922Z-cb5be9`, 2026-08-28, `scene=grove`, 8 founders, same
+/// world, this constant the only difference) came back from the owner:
+/// *"These look almost identical. Cannot tell any significant difference"* —
+/// no choice, no rating.
+///
+/// **That is the expected answer, not a defect in the rate, and raising it
+/// would be the wrong lesson.** All four loci this governs are *placement*
+/// levers — branch angle, internode, sympody, tropism decide where a cell
+/// goes, never what it is. This engine has now measured five such levers
+/// firing, counted, and reading as nothing: `weeping` (`upward_weight`) came
+/// back *"same plant"*, `prostrate` *"Not that different"*, and sympody,
+/// tropism and acrotony all fired with counters printed and moved nothing
+/// anyone could see. The one lever that did read — grass, 4/5 — changed size
+/// **and material** and consequence. `CLAUDE.md`'s *"ask which pixels a lever
+/// moves"* is the rule, and these move none.
+///
+/// So this rate must be settled on **what it is for** — whether selection has
+/// standing variation to sort — and that is only readable once generations
+/// turn over (`genome_drift` warns below generation 2, and measured depth is
+/// 1-2). Until then 0.25 stands as a placeholder that is deliberately not
+/// tuned against a picture, because the picture cannot see it.
 const FOUNDER_VARIANT_CHANCE: f32 = 0.25;
+
+/// **The built-in production rule** — what a cell becomes when its species
+/// declares no fate table of its own.
+///
+/// This is the whole of the old behaviour, collected. Before the fate table
+/// it lived as four unrelated hardcoded writes: `self_type_after_grow`'s
+/// `if/else` inside `Grow` (twice, once per growth path), the staleness
+/// retirement in `organism_tick`, and `break_buds`' flush. Nothing named them
+/// as one thing, which is why no species could vary them and no genome could
+/// reach them.
+///
+/// **Keeping it as a function rather than deleting it is deliberate and is
+/// the control.** A species table is proved correct by agreeing with this for
+/// every cell type and every condition
+/// (`an_authored_fate_table_agrees_with_the_builtin_rule`), which is a
+/// stronger statement than a log diff: it is checked per rule rather than per
+/// run, so it cannot pass because some path went unexercised.
+fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organism::Fate> {
+    use organism::FateWhen;
+    let frontier = matches!(cell_type, CellType::GrowingTip | CellType::RootTip);
+    let rule = |becomes, child, lateral| Some(organism::Fate { when, becomes, child, lateral });
+    match when {
+        // The metamer boundary. The retiring parent becomes the axillary bud
+        // its leaf subtends; the leaf itself is placed beside the stem, not
+        // in it (see the `Grow` arm for why the stem is not built *through*
+        // its own foliage). Roots never reach this: `tree.ron` gives a
+        // `RootTip` a plastochron of 0, which disables nodes entirely.
+        FateWhen::Node if cell_type == CellType::GrowingTip => {
+            rule(CellType::DormantBud, Some(CellType::GrowingTip), Some(CellType::GrowingTip))
+        }
+        // A tip that grew retires immediately, in the same tick, so the
+        // frontier actually advances instead of radiating from static hubs.
+        // Its children carry the frontier forward as the same type it was --
+        // a tip's child is a tip, which is exactly the limit the `child`
+        // field exists to lift.
+        FateWhen::Grew | FateWhen::Node if frontier => rule(CellType::MatureBody, Some(cell_type), Some(cell_type)),
+        // A tip that aged out. Same destination as the successful path, and
+        // that agreement is the point rather than a coincidence: settled root
+        // and shoot tissue both thicken and anchor, which is the behaviour
+        // set `tree.ron` attaches to `MatureBody`.
+        FateWhen::Stale if frontier => rule(CellType::MatureBody, None, None),
+        // A dormant bud flushing into a tip -- the only mechanism in the
+        // engine that *creates* frontier.
+        FateWhen::Flush if cell_type == CellType::DormantBud => rule(CellType::GrowingTip, None, None),
+        // Any other cell type at any other moment keeps its label. Notably a
+        // `Divide` child (moss) is its parent's type, which this covers.
+        _ => None,
+    }
+}
+
+/// The production rule in force for this species, cell type and moment:
+/// whatever the species authored, else the built-in rule above.
+fn fate_for(world: &World, species_id: organism::SpeciesId, cell_type: CellType, when: organism::FateWhen) -> Option<organism::Fate> {
+    world.species.get(species_id).fate(cell_type, when).or_else(|| builtin_fate(cell_type, when))
+}
 
 /// Draw this individual's genotype, once, from **where it germinated**.
 ///
@@ -2190,13 +2269,24 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // `RootTip` a plastochron of 0, which disables nodes
                 // entirely, so a root system deposits no buds and cannot
                 // sprout shoots underground.
-                let self_type_after_grow = if cell_type == CellType::GrowingTip && leaf_due {
-                    CellType::DormantBud
-                } else if matches!(cell_type, CellType::GrowingTip | CellType::RootTip) {
-                    CellType::MatureBody
-                } else {
-                    cell_type
-                };
+                // **The production rule, read rather than hardcoded.** This
+                // was an `if/else` naming `DormantBud` and `MatureBody`
+                // directly; it is now a lookup, so a species can express a
+                // different developmental program and a genome can eventually
+                // reach one. `builtin_fate` holds the exact expression this
+                // replaced, and a guard proves any authored table agrees with
+                // it -- see `an_authored_fate_table_agrees_with_the_builtin_rule`.
+                let when = if leaf_due { organism::FateWhen::Node } else { organism::FateWhen::Grew };
+                let fate = fate_for(world, species_id, cell_type, when);
+                let self_type_after_grow = fate.map_or(cell_type, |f| f.becomes);
+                // What the continuation and the lateral are *created* as.
+                // Both are the growing cell's own type under the built-in
+                // rule -- a tip's child is a tip -- and that is precisely the
+                // ceiling this indirection exists to lift: nothing today can
+                // change what a cell is *created* as, so every species is a
+                // variation on one plant however its placement is tuned.
+                let child_type = fate.and_then(|f| f.child).unwrap_or(cell_type);
+                let lateral_type = fate.and_then(|f| f.lateral).unwrap_or(cell_type);
 
                 let total: f32 = candidates.iter().map(|&(_, _, s)| s).sum();
                 let mut pick = (rng.below(10_000) as f32 / 10_000.0) * total;
@@ -2220,7 +2310,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // per-tick re-deposit: it lets decay actually fade the
                 // signal over time instead of fighting a refill every
                 // single sweep visit.
-                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
+                let new_cell = Cell::new(cell.material, shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(child_type));
                 displace_soil_water(world, tx, ty);
                 world.set(tx, ty, new_cell);
                 // Straight continuation of this shoot, so the child keeps
@@ -2424,7 +2514,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         if growable(world, bx, by, penetration_force) && resource >= branch_step_cost {
                             let branch_shade = banded_shade(world, organism_id, cell.material, Band::Bark, &mut rng);
                             let branch_cell =
-                                Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(cell_type));
+                                Cell::new(cell.material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(lateral_type));
                             displace_soil_water(world, bx, by);
                             world.set(bx, by, branch_cell);
                             // **The only place order increases.** A lateral
@@ -2904,7 +2994,16 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
         // settled root tissue genuinely does thicken and anchor, and that
         // is the behaviour set `tree.ron` attaches to `MatureBody`. This
         // just makes the two paths agree.
-        world.set(x, y, cell.with_aux(organism::pack_cell_type(CellType::MatureBody)));
+        // Read from the production rule, not hardcoded -- and this is the
+        // site whose omission would be invisible. A determinate axis whose
+        // terminal tip ages out rather than growing arrives *here*, not at
+        // the `Grew`/`Node` path above, and that is the normal case for an
+        // axis out of room or carbon. A fate table wired only into `Grow`
+        // would silently produce no terminal organ, and the only symptom
+        // would be a counter reading low.
+        let stale_becomes =
+            fate_for(world, species_id, cell_type, organism::FateWhen::Stale).map_or(CellType::MatureBody, |f| f.becomes);
+        world.set(x, y, cell.with_aux(organism::pack_cell_type(stale_becomes)));
         write_carbon(world, x, y, resource);
         // `MatureBody` still needs its own periodic upkeep if the species
         // gave it any behavior (`SecondaryThicken`) -- one more check now,
@@ -4419,7 +4518,13 @@ fn break_buds(world: &mut World, organism_id: u16) {
     let (bx, by, _) = buds[0];
 
     let cell = world.get(bx, by);
-    world.set(bx, by, cell.with_aux(organism::pack_cell_type(CellType::GrowingTip)));
+    // The fourth and last fate site: a dormant bud flushing into frontier.
+    // Read from the production rule so the whole automaton lives in one
+    // table -- wiring only `Grow` would leave half of it hardcoded and make
+    // the heritable half arbitrary.
+    let flush_becomes = fate_for(world, species_id, CellType::DormantBud, organism::FateWhen::Flush)
+        .map_or(CellType::GrowingTip, |f| f.becomes);
+    world.set(bx, by, cell.with_aux(organism::pack_cell_type(flush_becomes)));
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
@@ -7988,6 +8093,80 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
 
         let other_world = draws_at_100(&[], 999);
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
+    }
+
+    /// **An authored fate table must reproduce the built-in rule exactly.**
+    ///
+    /// This is the byte-identity claim for the production-rule refactor,
+    /// asserted per rule rather than per run — which is the stronger form.
+    /// A log diff can only say "these two runs agreed"; it cannot say the
+    /// disagreeing case never came up. This enumerates every (species, cell
+    /// type, moment) triple and checks the answer the engine will actually
+    /// use against the expression the code had before the table existed.
+    ///
+    /// **The anti-vacuity half matters more than the assertion here.** With
+    /// no species declaring a table, `fate_for` falls through to
+    /// `builtin_fate` and this test compares a function against itself —
+    /// green, and testing nothing. So it requires that species actually
+    /// declare tables, and that the authored branch is the one answering.
+    #[test]
+    fn an_authored_fate_table_agrees_with_the_builtin_rule() {
+        use organism::FateWhen::{Flush, Grew, Node, Stale};
+        const WHENS: [organism::FateWhen; 4] = [Grew, Node, Stale, Flush];
+        const TYPES: [CellType; 6] = [
+            CellType::Seed,
+            CellType::GrowingTip,
+            CellType::MatureBody,
+            CellType::Leaf,
+            CellType::RootTip,
+            CellType::DormantBud,
+        ];
+
+        let w = test_world();
+        let mut authored_species = 0usize;
+        let mut authored_answers = 0usize;
+        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss"] {
+            let Some(id) = w.species.id_of(name) else { continue };
+            if w.species.get(id).has_fates() {
+                authored_species += 1;
+            }
+            for ct in TYPES {
+                for when in WHENS {
+                    let authored = w.species.get(id).fate(ct, when);
+                    if authored.is_some() {
+                        authored_answers += 1;
+                    }
+                    assert_eq!(
+                        fate_for(&w, id, ct, when).map(|f| f.becomes),
+                        builtin_fate(ct, when).map(|f| f.becomes),
+                        "{name}: the authored fate for {ct:?} at {when:?} disagrees with the \
+                         built-in rule. This refactor's whole claim is that moving the production \
+                         rule into data changed no behaviour -- see `builtin_fate`."
+                    );
+                    assert_eq!(
+                        fate_for(&w, id, ct, when).and_then(|f| f.child),
+                        builtin_fate(ct, when).and_then(|f| f.child),
+                        "{name}: authored child fate for {ct:?} at {when:?} disagrees"
+                    );
+                    assert_eq!(
+                        fate_for(&w, id, ct, when).and_then(|f| f.lateral),
+                        builtin_fate(ct, when).and_then(|f| f.lateral),
+                        "{name}: authored lateral fate for {ct:?} at {when:?} disagrees"
+                    );
+                }
+            }
+        }
+
+        assert!(
+            authored_species >= 5,
+            "only {authored_species} species declare a fate table -- with none declared this test \
+             compares `builtin_fate` against itself and proves nothing"
+        );
+        assert!(
+            authored_answers >= 20,
+            "the authored tables answered only {authored_answers} lookups -- the species branch of \
+             `fate_for` is not the one being exercised, so this test is blind"
+        );
     }
 
     /// **Every discrete locus varies between founders**, which four of the

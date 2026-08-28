@@ -846,6 +846,73 @@ pub struct PaletteBands {
     pub count: u8,
 }
 
+/// When a [`Fate`] applies — the *condition* half of the production rule.
+///
+/// These are the moments at which this engine decides what a cell is. There
+/// are exactly four, and before the fate table they were four unrelated
+/// hardcoded writes scattered across `plant.rs`; collecting them here is what
+/// makes the developmental program a single object rather than a habit.
+///
+/// **Ordering matters at lookup**: the first rule whose `when` matches wins,
+/// so a species lists `Node` before `Grew` if it wants nodes handled
+/// specially. `plant::species_fate` documents the search.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+pub enum FateWhen {
+    /// A tip that grew this tick and this step is **not** a node.
+    Grew,
+    /// A tip that grew this tick and the plastochron fell due — the metamer
+    /// boundary, where a leaf and its axillary bud are placed.
+    Node,
+    /// A tip that found nowhere to go for `ORGANISM_STALE_LIMIT` ticks and is
+    /// retiring rather than growing.
+    ///
+    /// **This one is easy to forget and expensive to miss.** A determinate
+    /// axis whose terminal tip ages out instead of growing takes this path,
+    /// which is the *normal* case for an axis that has run out of room or
+    /// carbon — so a fate table that covers only `Grew`/`Node` silently
+    /// produces no terminal organ, and the only symptom is a counter reading
+    /// lower than expected.
+    Stale,
+    /// A dormant bud being flushed into a tip by `Behavior::BudBreak`.
+    Flush,
+}
+
+/// One production rule: **what this cell becomes, and what it creates.**
+///
+/// The three outputs are separate because they are three different cells, and
+/// collapsing them is what limits a substrate to one axis of variation:
+///
+/// - `becomes` relabels the cell that just acted. On its own this can only
+///   express *"the axis ends in X after N steps"* — a terminal organ, and
+///   nothing else.
+/// - `child` labels the straight continuation. This is the term that carries
+///   novelty, because it decides what a shoot is *made of* rather than where
+///   it stops. Today every species sets it to the growing cell's own type
+///   (a tip's child is a tip), which is exactly why every species is a
+///   variation on one plant.
+/// - `lateral` labels a branch child, so a species can put something other
+///   than more shoot on its side axes — the tomato truss is a lateral whose
+///   label differs from its parent's.
+///
+/// `child` and `lateral` are `None` on `Stale` and `Flush`, which create no
+/// cell. That is an honest absence rather than a default: a value there would
+/// be a field with a writer and no reader, which this project has shipped
+/// three times and paid for each time.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+pub struct Fate {
+    pub when: FateWhen,
+    /// What the acting cell becomes.
+    pub becomes: CellType,
+    /// What a straight-continuation child is created as. `None` where the
+    /// rule creates no child.
+    #[serde(default)]
+    pub child: Option<CellType>,
+    /// What a lateral (branch) child is created as. `None` where the rule
+    /// creates no lateral.
+    #[serde(default)]
+    pub lateral: Option<CellType>,
+}
+
 #[derive(Deserialize)]
 pub struct SpeciesDef {
     pub name: String,
@@ -919,6 +986,21 @@ pub struct SpeciesDef {
     #[serde(default = "default_remains_half_life")]
     pub remains_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// **What a cell becomes** — the production rule, as data.
+    ///
+    /// `cell_types` says which behaviours run on a cell type; this says what
+    /// a cell type *turns into*, and the two are deliberately separate
+    /// tables. Until this landed the answer was a hardcoded `if/else` in
+    /// `plant.rs` (`self_type_after_grow`) plus two more hardcoded writes for
+    /// the staleness and bud-flush paths, so no species could express a
+    /// different developmental program and no genome could reach one.
+    ///
+    /// **Empty means "use the built-in rule"**, which is what every species
+    /// got before this field existed and what keeps an unauthored `.ron`
+    /// parsing and behaving unchanged. `plant::builtin_fate` is that rule,
+    /// and it is the single place the old hardcoded answers now live.
+    #[serde(default)]
+    pub fates: Vec<(CellType, Vec<Fate>)>,
     /// Everything only a *creature* species needs. `#[serde(default)]` so
     /// `moss.ron` and `tree.ron` keep parsing untouched — a plant is a
     /// species with an empty `Creature` block, not a species missing one.
@@ -1206,6 +1288,9 @@ pub struct Species {
     /// See `SpeciesDef::remains_half_life`.
     pub remains_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
+    /// See `SpeciesDef::fates`. Empty means the built-in rule
+    /// (`plant::builtin_fate`) applies, which is every species today.
+    fates: Vec<(CellType, Vec<Fate>)>,
     pub creature: Option<CreatureDef>,
     /// The authored genome, expanded once at load rather than per spawn.
     pub genome: Vec<f32>,
@@ -1221,6 +1306,32 @@ impl Species {
             .find(|(ct, _)| *ct == cell_type)
             .map(|(_, b)| b.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// The authored production rule for this cell type at this moment, or
+    /// `None` if the species declares none and the built-in rule applies.
+    ///
+    /// **First match wins**, so a species lists its more specific conditions
+    /// first. The search is linear over at most a handful of rules and runs
+    /// only at a fate decision — a tip retiring, a bud flushing — never per
+    /// cell per frame, so it costs the sweep nothing. Same shape and same
+    /// reasoning as `behaviors` above.
+    pub fn fate(&self, cell_type: CellType, when: FateWhen) -> Option<Fate> {
+        self.fates
+            .iter()
+            .find(|(ct, _)| *ct == cell_type)
+            .and_then(|(_, rules)| rules.iter().find(|f| f.when == when))
+            .copied()
+    }
+
+    /// Whether this species declares any production rule at all.
+    ///
+    /// Used by the guard that proves the authored tables reproduce the
+    /// built-in rule exactly: a species with no table cannot disagree with
+    /// it, so a suite where nothing declares one would pass while testing
+    /// nothing.
+    pub fn has_fates(&self) -> bool {
+        !self.fates.is_empty()
     }
 
     /// Whether this species grows a separate `Leaf` stage at all.
@@ -1310,6 +1421,7 @@ impl From<SpeciesDef> for Species {
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             cell_types: def.cell_types,
+            fates: def.fates,
             creature: def.creature,
             genome,
         }
