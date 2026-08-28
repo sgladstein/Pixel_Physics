@@ -54,6 +54,9 @@ case "$MODE" in
   *) echo "gate: unknown mode '$MODE' (expected: quick | full)" >&2; exit 2 ;;
 esac
 
+# Below this many lines, print the log whole rather than digesting it.
+SHORT_OUTPUT=30
+
 LOGDIR="${TMPDIR:-/tmp}/pixel-physics-gate.$$"
 mkdir -p "$LOGDIR"
 
@@ -77,8 +80,20 @@ run_gate() {
   raw=$(wc -l <"$log")
   TOTAL_RAW=$((TOTAL_RAW + raw))
   if [ "$rc" -eq 0 ]; then
-    digest "$log" | sed 's/^/  /'
-    shown=$(digest "$log" | wc -l)
+    # Short output is shown whole. The digest exists to tame ~1,000 lines of
+    # `... ok`; below SHORT_OUTPUT there is nothing worth saving, and
+    # filtering anyway is actively harmful -- measured 2026-08-28, the first
+    # real run reported `docscheck ok (6 lines of output, 0 shown)` and
+    # silently swallowed its live lanecheck warning, because that line reads
+    # `lanecheck: ...` rather than `warning: ...`. A gate that passes with an
+    # advisory is exactly the signal this script must not hide.
+    if [ "$raw" -le "$SHORT_OUTPUT" ]; then
+      sed 's/^/  /' "$log"
+      shown=$raw
+    else
+      digest "$log" | sed 's/^/  /'
+      shown=$(digest "$log" | wc -l)
+    fi
     TOTAL_SHOWN=$((TOTAL_SHOWN + shown))
     printf '  \033[32mok\033[0m  (%s lines of output, %s shown)\n' "$raw" "$shown"
   else
