@@ -190,6 +190,39 @@ solve first.
 
 ## 5. What it measures
 
+**Read this section first and the census below second.** The question is
+*how big is the pile around the trunk*, and `crown_census` answers it
+directly — soil standing above the ground line. Everything after it is a
+world-wide count that mixes in root uptake happening everywhere else, and
+it is kept only because it is a trap worth documenting, not because it
+answers the complaint.
+
+`crown_census frames=60000 trees=8`, one build, same world seed:
+
+| | soil above the ground line | band 0 (the 40 rows just above ground) | reaches |
+|---|---|---|---|
+| yield 1.0 | **15,039 cells** over 107 rows | soil 10,312, litter 99 | y 90 — 110 rows up |
+| yield 0.05 | **2,166 cells** over 89 rows | soil 1,798, litter 1,523 | y 99, thin above ~110 |
+| yield 0 | **0 cells** — the line does not print | soil 0, litter 1,375 | — |
+
+**The pile falls about 7x at 0.05, and to nothing at 0.** That is the whole
+result.
+
+**And the floor does not disappear, it changes material.** Band 0 goes from
+10,312 soil / 99 litter at 1.0 to 1,798 soil / 1,523 litter at 0.05. The
+forest floor stops being a dirt mound and becomes standing leaf litter, which
+is what it should have been — litter is no longer converted to permanent soil
+as fast as it lands, so it stands and rots instead.
+
+**0.05 and 0 give nearly the same *visible* floor** (1,523 against 1,375
+litter cells), because the floor you see is litter either way. What 0.05 buys
+over 0 is a trace of real soil accumulating — the mechanism kept alive at a
+believable rate — for almost no pile. That is the argument for 0.05 over
+simply switching it off, and it is a judgement about what the ground should
+mean rather than a measurement.
+
+## 5a. The world-wide census, and why it is the wrong instrument
+
 `scene=forest`, one build, same seed, `DECAY_YIELD` the only thing varied.
 The stand grows from 805 to ~13,300 cells of living tissue over the window.
 
@@ -271,6 +304,17 @@ a second and third cohort keep drawing the floor down is not measured, and
 it is the question this report would ask next.
 
 ## 6. Provenance and what is not measured here
+
+**A worked instance of this file's own trap, left in deliberately.** §5a was
+written first and treated as the result. It is arithmetically correct and
+answers a different question than the owner asked — the complaint is a mound
+at a trunk, and a world-wide soil count averages that against root uptake
+across the whole map, which is the larger term. It took the owner asking
+*"why do we even care about the floor? all we care about is the pile"* to
+put the right instrument (`crown_census`, which already existed) in front of
+the right question. Grepping `Reports/instruments.md` before building the
+measurement would have found it.
+
 
 Everything in §2 is background knowledge, not measurement from this engine —
 the figures are ranges from the soil-science literature as commonly cited,
