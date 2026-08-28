@@ -17,13 +17,28 @@ cp src/sim/plant.rs "$OUT/.plant.rs.orig"
 cp assets/species/tree.ron "$OUT/.tree.ron.orig"
 trap 'cp "$OUT/.plant.rs.orig" src/sim/plant.rs; cp "$OUT/.tree.ron.orig" assets/species/tree.ron' EXIT
 
+arm_done() {                      # $1 = arm label; complete iff 8 substantial logs
+  local arm="$1" n=0
+  for s in $SEEDS; do
+    [ -s "$OUT/${arm}_s${s}.log" ] && [ "$(stat -c%s "$OUT/${arm}_s${s}.log")" -gt 2000 ] && n=$((n+1))
+  done
+  [ "$n" -eq 8 ]
+}
+
 run_arm() {                       # $1 = arm label
   local arm="$1"
+  # **Resumable.** This sweep has already been killed once mid-arm by a
+  # container restart, losing ten hours. An arm with eight substantial logs
+  # is complete and is skipped, so re-running the script continues rather
+  # than starting over. Header-only logs (a probe that died at launch) are
+  # under the size floor and get redone.
+  if arm_done "$arm"; then echo "skip $arm (already complete)" >> "$OUT/PROGRESS"; return 0; fi
+  rm -f "$OUT/${arm}_s"*.log
   cargo build --release --example plant_probe > "$OUT/$arm.build" 2>&1
   if [ "${PIPESTATUS[0]}" -ne 0 ]; then echo "BUILD FAILED: $arm" >> "$OUT/PROGRESS"; return 1; fi
   for s in $SEEDS; do
     ./target/release/examples/plant_probe frames=$FRAMES $BED worldseed=$s > "$OUT/${arm}_s${s}.log" 2>&1 &
-    if [ $((s % 4)) -eq 0 ]; then wait; fi
+    if [ $((s % 2)) -eq 0 ]; then wait; fi
   done
   wait
   echo "done $arm  $(date -u +%H:%M)" >> "$OUT/PROGRESS"
