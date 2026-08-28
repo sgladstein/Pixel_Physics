@@ -1,0 +1,46 @@
+{
+  "id": "20260828T181052911Z-85e5e2",
+  "created": "2026-08-28T18:10:52Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-morphology-evolution-d7i1od",
+    "commit": "8814f78",
+    "agent": null,
+    "session_id": "e36b55b6-0a93-5c94-8b77-6f6800479a89",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The heterogeneous test bed, against the flat one",
+  "question": "This is an instrument, not gameplay - its job is to give selection something to sort, and the numbers say it does. The judge-by-eye question is the GROUND: does the varied bed read as a plausible piece of world, or as a synthetic ramp with a boulder in it? If this shape ever informs worldgen that matters, and if it looks wrong now is the cheap time to say so.",
+  "context_md": "24 founders, frame 21600, same world seed. scene=grove vs the new scene=gradient.\n\nWHY: the bed was flat, uniform and undisturbed, so it could not speak to selection at all. A cost only creates a trade-off when the environment varies which arm wins. The varied bed has three deliberately independent axes: a moisture gradient across x, soil depth on a different period (so depth is not collinear with moisture), and clumped rather than even founders (which buys the light axis out of the shading the engine already has).\n\nCOUNTS, same seed, 12000 frames\n  flat                  20 established, 290 seeds, mass gini 0.374\n  varied                16 established, 253 seeds, mass gini 0.283\n  varied + hazard 0.06   7 plants marked senescent, mass gini 0.482\n    ...and established plants carrying an INHERITED genome went 1 -> 3 of 16.\n    That last one is the point: disturbance opens gaps, gaps are where\n    recruits establish, and generation depth is what this line is blocked on.\n\nDENSITY, measured rather than guessed: at 10 founders the height spread NARROWS\n(89-133, gini 0.124) against 24 founders (13-149, gini 0.283). The spread comes\nfrom competition, not from the gradient alone - so the crowded bed is the better\ninstrument even though it renders as a wall of foliage. I had the opposite\ninstinct and the measurement overturned it.\n\nNOT ASKING about the plants here - they are the same species and I expect them\nto look alike. Only the ground.\n\nThe flat bed is untouched and stays the default: every stored sheet and every\nnumber ever quoted was taken on it.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "flat bed (unchanged, every past measurement)",
+      "files": [
+        "20260828T181052911Z-85e5e2/000-card_flat.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "varied bed (new arm)",
+      "files": [
+        "20260828T181052911Z-85e5e2/001-card_varied.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
