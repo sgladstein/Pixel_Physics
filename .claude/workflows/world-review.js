@@ -325,6 +325,23 @@ const lenses = await parallel([
     'section 5 (caves).',
     { label: 'underground+caves', phase: 'Lens review', schema: FINDING_SCHEMA }),
 
+  // This lens was pinned to `model: 'sonnet'` and is not any more, because the
+  // cheaper model was the more expensive one here. **Prompt caches are
+  // model-scoped**, so a lens on a different model shares no cached prefix with
+  // the other six -- and the prefix is the whole cost: ~24,295 tokens of
+  // auto-loaded CLAUDE.md plus ~2,485 of BRIEF, all of it byte-identical across
+  // the seven, all of it re-written from scratch for the odd one out.
+  //
+  // Estimated 2026-08-27 at Opus 5 $5/M vs Sonnet 5 $2/M input, cache read ~0.1x,
+  // write ~2x at the 1h TTL: ~$0.013 to read the warm prefix against ~$0.107 to
+  // write a cold one, so roughly 8x on input. A lens' own output is small beside
+  // a 27k prefix, so Sonnet's cheaper output does not recover it.
+  //
+  // The estimate assumes the shared prefix is actually WARM when this agent runs.
+  // It is an assumption, not a measurement: `parallel([...])` launches all seven
+  // at once, and if they start together they may all miss and all write. If that
+  // turns out to be so, the fix is to warm the prefix before fanning out -- and
+  // re-pinning this lens to a cheaper model would still not be the answer.
   () => agent(BRIEF + '\n\n=== YOUR ASSIGNMENT: THE PLAYER JOURNEY ===\n' +
     'Images only -- deliberately no code. You are the player\'s advocate.\n' +
     'Walk every strip left to right as a player who just spawned: the gnome walks, jumps, swims and\n' +
@@ -338,7 +355,7 @@ const lenses = await parallel([
     'In assigned_answers: (1) the three most memorable places across all strips (image + where),\n' +
     '(2) the three dullest stretches and what each is missing, (3) your ranked wish list as a\n' +
     'player, ignoring cost entirely -- the other lenses will price it.',
-    { label: 'player-journey', phase: 'Lens review', schema: FINDING_SCHEMA, model: 'sonnet' }),
+    { label: 'player-journey', phase: 'Lens review', schema: FINDING_SCHEMA }),
 ])
 
 const good = lenses.filter(Boolean)
