@@ -87,6 +87,7 @@ branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|
 debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
 plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
 contextbudget|.claude/README.md|Paid by **every session, agent and subagent**|Paid by **only the first session**
+lanecheck-cap|Reports/lanes/README.md|soft cap of **12,000 B**|soft cap of **9,000 B**
 FAULTS
   [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
   exit "$st_ok"
@@ -533,6 +534,26 @@ fi
 # and conflating the two makes neither actionable.
 if [ -f scripts/contextbudget.py ]; then
   cb=$(python3 scripts/contextbudget.py --check 2>&1) || note "$cb"
+fi
+
+# --- 10. Lane notes stay a message channel, not a work journal ---------------
+# Reports/lanes/<lane>.md is how two concurrent sessions correct each other.
+# lanes/README.md already rules that a note is "a *finding*, not a status
+# update"; measured 2026-08-27 that was followed 9% of the time -- docs-audit.md
+# had gone 18,011 -> 47,168 B in a day, 2 addressed sections against 14 of
+# unaddressed journal. Another convention with nothing checking it.
+#
+# TWO exits, and the split matters. The cap-drift finding (`lanecheck-cap:`)
+# FAILS: anyone can fix it. The oversized-note finding warns and does not fail,
+# because a lane writes only its own note -- no other session may trim one, and
+# a gate that fails on a condition the runner is forbidden to fix gets disabled.
+if [ -f scripts/lanecheck.py ]; then
+  lc=$(python3 scripts/lanecheck.py --check 2>&1); lc_rc=$?
+  if [ "$lc_rc" -ne 0 ]; then
+    note "$lc"
+  elif [ -n "$lc" ]; then
+    printf '%s\n' "$lc"
+  fi
 fi
 
 # --- result -----------------------------------------------------------------

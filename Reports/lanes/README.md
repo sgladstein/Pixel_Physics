@@ -23,6 +23,25 @@ Nothing here is a substitute for the real record. A finding that belongs in
 `CLAUDE.md`, a report, or `dead-ends.md` goes there; the lane note is how the
 other lane learns it happened.
 
+**That rule has a number now, because as prose it was followed 9% of the time.**
+Measured 2026-08-27: `docs-audit.md` had gone 18,011 → 47,168 B in one day, and
+splitting it by the `→ lane` convention above gave **2 addressed sections
+(~1,035 tokens) against 14 of unaddressed work journal (~10,717)**. The content
+was good; it had just become a report living in the channel's directory, and the
+cost lands on the next reader — ~11,792 tokens to reach ~1,035 tokens of message.
+
+A note carries a **soft cap of **12,000 B** (~3,000 tokens)**, checked by
+`python3 scripts/lanecheck.py --check` and reported by `docscheck`. Over it,
+promote the findings to a report or to `dead-ends.md`, leave a pointer, and keep
+here only what is addressed to another lane. The cap is set with headroom above
+`perf.md` (7,661 B), a note doing the job exactly as designed.
+
+**The size finding warns rather than fails, and that is deliberate**: a lane
+writes only its own note, so nobody else may trim an oversized one. It is for
+its owner. What *does* fail is this sentence's number drifting from the one
+`lanecheck.py` enforces — anyone can fix that, and it is what keeps the
+documented rule and the enforced rule the same rule.
+
 ## Reading
 
 `scripts/branchcheck.sh --brief` runs at session start (the `SessionStart`
