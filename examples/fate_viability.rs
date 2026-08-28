@@ -327,6 +327,17 @@ fn main() {
     println!("    established at all    {}/{effective}  ({:.0}%)", viable.saturating_sub(silent), pct(viable.saturating_sub(silent), effective));
     println!("    set at least one seed {}/{effective}  ({:.0}%)", reproduced.saturating_sub(silent), pct(reproduced.saturating_sub(silent), effective));
     println!("\n  (raw, including silent: established {viable}/{mutants}, reproduced {reproduced}/{mutants})");
+    // **One world seed, and that bounds what may be concluded.** A viability
+    // *rate* is legitimate here: the sample is the mutations, not the seeds,
+    // and a mutation that destroys the frontier destroys it at any seed. A
+    // *fitness comparison between arms* is not: twelve identical genomes span
+    // 31 to 153 cells in this engine, so an arm reading 109 seeds against the
+    // base's 80 is one sample from a wide distribution and is a hypothesis,
+    // not a result. Comparing arms needs an order statistic over seeds --
+    // which is gate 3's experiment, not this one's.
+    println!("\nONE world seed. The rate above is a rate over mutations and stands;");
+    println!("the per-arm seed counts are NOT comparable between arms -- within-genome");
+    println!("spread here runs 31-153 cells, so a higher count is a hypothesis.");
     println!("\nRead against the controls, never alone: base {be} plants / {bs} seeds,");
     println!("lethal {le} plants / {ls} seeds. `plants` counts every established");
     println!("organism including recruits, so it can exceed the {founders} founders.");

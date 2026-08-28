@@ -403,6 +403,17 @@ field rework — see `open-bugs-handoff.md`.
 it carries the reading order, what is established, and an owner-caught
 drift that two of these documents still reflect.**
 
+- [plant-fate-viability-2026-08-28.md](plant-fate-viability-2026-08-28.md)
+  — **gate 1, measured, and it passes.** 92% of effective point mutations to a
+  species' production rule still produce a plant that establishes and breeds,
+  against §7a's literature prediction that most structural mutations are
+  nonviable. **The shape matters more than the rate**: every failure was a
+  `child` mutation on a frontier type — the only way to kill the plant is to
+  destroy the frontier — while `becomes` and `lateral` took 34 mutations
+  without a single failure. Those two are exactly the fields a determinate
+  axis and a truss need, so the organ work is aimed at the tolerant half.
+  Records two instrument bugs caught by controls rather than by inspection,
+  one of which would have published a decisive, false 0%.
 - [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
   — **handoff; read first when picking this line up.** Reading order for the
   six documents, what is actually established, and **§3: an owner-caught
