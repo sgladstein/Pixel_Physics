@@ -124,6 +124,7 @@ something that cost effort to find.
 ## Commands
 
 ```
+bash scripts/gate.sh                        # the pre-push gates, green-digested: docscheck + clippy + cargo test --lib. `full` adds integration tests, ascii and acceptance
 cargo test                                       # unit + integration. The --skip this line carried until 2026-08-26 is vestigial: bug A's test is #[ignore]d, so it does not run. Measured: `cargo test --lib` with no flag gives 943 passed / 0 failed / 54 ignored
 cargo clippy --all-targets -- -D warnings        # CI gates this
 cargo run --release --example ascii              # headless behaviour + worst-frame timing; CI runs it
@@ -1445,6 +1446,15 @@ consider it at all.
   failure with the tell removed: there is no stale output to notice, because
   there is no binary at all. Use `set -o pipefail` and read
   `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
+  **`scripts/gate.sh` exists so you do not have to remember any of this**:
+  it redirects each gate to a file and reads `$?` directly, so there is no
+  pipeline whose status could be misread, and it prints a digest on green
+  and everything on red. That matters for context as well as correctness —
+  this repo has **1,081 test functions**, so a green `cargo test` is ~1,100
+  lines of `... ok` that an agent then carries on every subsequent turn. The
+  digest keeps every `Running <binary>` line and every `test result:` tally,
+  because the *absence* of `Running tests/worldgen.rs` is the tell named two
+  bullets above and a failures-only view would destroy it.
 
 - **A `cargo` flag can be a performance change, and the obvious half may be
   the worthless half.** There was no `[profile.release]` in `Cargo.toml` at

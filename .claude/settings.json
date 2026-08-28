@@ -36,6 +36,7 @@
       "Bash(cargo check *)",
       "Bash(cargo build *)",
       "Bash(cargo fmt --check*)",
+      "Bash(bash scripts/gate.sh*)",
       "Bash(bash scripts/docscheck.sh*)",
       "Bash(bash scripts/branchcheck.sh*)",
       "Bash(bash scripts/acceptance.sh*)",
