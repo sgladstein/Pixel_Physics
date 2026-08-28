@@ -1,0 +1,17 @@
+# Live output of scripts/rederivation-sweep.sh while it is running.
+#
+# Ignored deliberately and only until the sweep finishes: committing a
+# half-written arm would bank a truncated run as if it were data, and the
+# dot-files below are the pristine copies of plant.rs / tree.ron that the
+# script's EXIT trap restores from -- source backups have no business in
+# git history.
+#
+# When PROGRESS reads SWEEP COMPLETE, `git add -f` the *_s*.log files and
+# PROGRESS, and delete this file. The logs are the result and are meant to
+# be committed; nothing else here is.
+.plant.rs.orig
+.tree.ron.orig
+*.build
+nohup.log
+PROGRESS
+*_s*.log
