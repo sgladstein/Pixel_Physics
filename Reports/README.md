@@ -107,11 +107,15 @@ tried?"*.
   significant task" policy actually costs, measured from 690 commits: the
   cost is wall-clock, not tokens, and it lands on a tail of oversized
   branches rather than on the policy. CI runs 16-18 min against a 37-min
-  median landing cadence, so the race is arithmetic; but 30 of the last 48
-  landings never re-merged, and every branch that re-merged twice or more
-  was 7+ commits. Carries a branch-size ceiling that replays at 100%
-  sensitivity, the finding that 54% of conflicted files are documentation
-  rather than source, and seven ranked changes each with the open question
+  median landing cadence; 30 of the last 48 landings never re-merged, and
+  56% of conflicted files are documentation rather than source. **§0
+  records an independent review that overturned three of its items** —
+  read it first: the branch-size gate's headline sensitivity was partly
+  circular (100% -> 67% once back-merge commits are removed from their own
+  predictor), the build-cache item is withdrawn (CI's critical path is
+  18.2 min of *test execution*, not building, and there is no queueing),
+  and `branchcheck.sh` cannot detect a stranded PR because it makes no
+  GitHub API call. Seven ranked changes, each with the open question
   that would decide it. §3 is the short list of things **only the owner
   can do** (auto-merge and the six gateable checks; sessions get 403), and
   §4 says which items make which others moot. **Read before proposing any

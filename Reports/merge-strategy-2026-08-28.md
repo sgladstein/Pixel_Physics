@@ -17,6 +17,41 @@ between them; items 2 and 7 need the owner to change repository settings
 first (§3), because an agent gets HTTP 403 on those — the same
 credential-scope limit that makes branch deletion impossible for sessions.
 
+## 0. Revision note — an independent review overturned three items
+
+**Reviewed 2026-08-28, after first publication.** The raw measurements
+mostly reproduced exactly; the errors were concentrated where a number was
+turned into an argument. Corrected in place below, and recorded here
+because the failures are instructive:
+
+- **Item 1's flagship example was false.** PR #84 was never "11 behind"
+  (max 9, and 0 at landing), and its **BxF hit 756 / 1188 / 822 on three
+  of its six rounds** — far above the existing 300 threshold. The drift
+  metric was not blind; **it fired and nobody acted.** That is a different
+  problem with a different fix.
+- **The size gate's 100% sensitivity was partly circular.** Commits-ahead
+  *contains* the outcome: every back-merge is itself a commit on the
+  branch. Counting only non-merge commits, sensitivity falls **100% ->
+  67%**. It is also late: on the tail branches, a large share of the
+  re-merges have already happened by the time a 6-commit gate could fire.
+- **Item 3 (build cache) was invalidated.** Job timings show **zero
+  queueing** (all 8 jobs start within 2 s) and a critical path that is
+  *test execution*, not building: `cargo test --locked` runs 18.2 min of
+  an 18.4 min job, while `cargo clippy --all-targets --release` completes
+  in **40 s**. Cold build is ~1-2 min. A cache addresses **<=10%**, not
+  50%. **Nothing in this plan shrinks the race.**
+- **Item 2's detection claim was wrong.** `scripts/branchcheck.sh` makes
+  no GitHub API call; it lists branches ahead of `main` and cannot tell an
+  abandoned armed PR from a branch in active use.
+- Smaller: the `-c`/`--cc` framing was inverted (§1d), a mean was printed
+  in a column headed median, the docs/source split is 56/43 not 54/41, and
+  §1a's percentiles were pooled from two different windows.
+
+**What survived unchanged:** the back-merge distribution (30/11/7) and its
+commit counts, every conflict-file count, the p90/max conflict volumes,
+the 1,081 test functions, the 16-18 min CI figure, and every repo fact in
+§3 and §7.
+
 ## 1. The measurements
 
 All figures from the available history: a shallow clone at depth 690, so
@@ -31,13 +66,22 @@ seven data points.
 | | |
 |---|---|
 | CI to green | **16–18 min** (last 30 `ci.yml` runs; successful span 15.6–23.1) |
-| Next landing on `main` | p25 **13 min**, median **37**, p75 **126**, p90 **301** |
+| Next landing on `main` | p25 **15 min**, median **37**, p75 **85**, p90 **356** |
 
-A landing that falls inside your CI window forces a re-merge. At median
-cadence that is roughly a coin flip; at p25 it is certain. On 2026-08-23
-there were **39 landings in one day** and the window was never clear.
-**This is arithmetic, not indiscipline** — no amount of agent care closes
-a 17-minute window against a 13-minute p25.
+A landing that falls inside your CI window forces a re-merge. **Corrected
+after review:** an earlier draft called this "roughly a coin flip", which
+compared window length to median gap — not the same quantity. Measured
+properly against the landing rate (0.62/h over the active span), the
+probability that at least one landing falls inside a 17-minute window is
+**~14-16%**, rising to ~38% on the busiest day. The percentiles above are
+the `Merge pull request` series; pooling windows gave an earlier draft a
+p75 that no single series produces.
+
+So the race is real but roughly **one landing in six**, not one in two —
+and §1b's direct measurement of the same thing agrees: `main` moved during
+the push-to-land window on **32%** of landings, touching a file the branch
+also touched on **15%**. Do not quote "arithmetic, not indiscipline" as
+though the window were never clear; it usually is.
 
 ### 1b. But most landings never re-merge
 
@@ -82,8 +126,8 @@ all 70). Top 20 rows, covering 166 of the 175:
 | `src/sim/world.rs` | 17 | | `CLAUDE.md` | 5 |
 | `Reports/dead-ends.md` | 12 | | `PLAN-log.md` | 4 |
 
-**Documentation and registers are 54% of all conflicted files; source and
-harnesses 41%** — and the largest single source file here,
+**Documentation and registers are 56% of all conflicted files (98 of 175);
+source and harnesses 43% (76)** — and the largest single source file here,
 `examples/filmstrip.rs`, is a shared measurement harness rather than
 simulation. The subsystem ownership table in `CLAUDE.md` is doing its job:
 `src/sim/*` barely appears.
@@ -101,7 +145,7 @@ at a key that does something else.
 |---|---|---|---|
 | lines of combined diff to resolve | 400 | 1,958 | 5,135 |
 | files touched | 3.4 | — | 14 |
-| raw diff, in tokens | ~13k | — | — |
+| raw diff, in tokens | **~6.2k** | — | ~13k is the *mean* |
 | CI wall-clock spent re-verifying | 16–18 min | — | 23 min |
 
 Across the whole available history: **45,496 lines, 2.7M characters, about
@@ -129,19 +173,27 @@ that curve is **n=1**, one transcript, which is the same single-sample
 weakness this repo's method rules warn about. Widen it with
 `cacheprobe.py` across several transcripts before quoting a constant.
 
-**A correction, recorded because it is the kind that gets repeated.** The
-first pass at this number used `git show --cc`, which suppresses hunks it
-judges uninteresting, and reported **3,788 lines**. Measured with `-c`,
-which shows all of them, the true figure is **45,496** — twelve times
-larger. It did not change the recommendation, but a number that is
-arithmetically correct and answers a narrower question than the one asked
-looks exactly like a result. See `CLAUDE.md`, *ask what your number counts*.
+**Two numbers, and which is "true" depends on the question — an earlier
+draft got this backwards.** `git show --cc` reports **3,788 lines**;
+`git show -c` reports **45,496**, twelve times more. The first draft
+called `-c` "the true figure" and cited *ask what your number counts* to
+justify it. **That was the wrong way round.** `--cc` omits hunks where the
+result matches one parent — everything git merged automatically — so what
+survives is approximately *what a human had to reconcile*, which is the
+label this table gives it. `-c` includes cleanly auto-merged regions too.
+So **3,788 is the tighter answer to "lines to resolve" and 45,496 is the
+upper bound on "lines touched".** Both support the same conclusion, which
+is why the error survived a full draft: a number can be arithmetically
+correct, answer a different question, and still point the right way.
 
 ### 1e. The second-order risk, unmeasured but structural
 
-The top conflict sites are the largest files in the repository:
-`open-bugs-handoff.md` at 7,563 lines, `PLAN.md` at 3,707, `README.md` at
-2,856. `CLAUDE.md` already spends real space warning agents not to read any
+Several top conflict sites are among the largest files in the repository
+— `open-bugs-handoff.md` at 431 KB, `dead-ends.md` at 410 KB (only 1,288
+lines, but ~102k tokens). **Corrected after review:** the largest text
+file is actually `src/sim/plant.rs` at 648 KB, and `PLAN.md` is *not* a
+top conflict site (2 conflicts), so rank this by bytes rather than lines
+and do not claim the two sets coincide. `CLAUDE.md` already spends real space warning agents not to read any
 of them whole. An agent resolving a hunk in the middle of one, without
 enough context to know what it is looking at, is one bad decision away from
 reading 97k tokens to fix four lines. **That has not been observed
@@ -150,24 +202,48 @@ measured cost.
 
 ## 2. The plan
 
-### 1. Gate branch size going forward, not just drift
+### 1. Make the *existing* drift signal actionable — a forward gate is second
 
 `~1 hour · risk low · scripts/branchcheck.sh`
 
-`branchcheck.sh` already computes `BxF` — *behind* x *files* — which
-predicts whether a merge will be laborious. It computes nothing on the
-*ahead* side. PR #84 was only 11 behind and re-merged six times, because
-it was 39 commits and 137 files; the drift metric could not see it.
+**This item's original motivation was false and the review caught it.** It
+claimed PR #84 "was only 11 behind and re-merged six times... the drift
+metric could not see it." Reconstructed at each of its six back-merge
+points, #84 was never 11 behind (max 9, **0 at landing**), and its **BxF
+ran 4, 198, 124, 756, 1188, 822** — over the existing 300 threshold on
+three separate rounds. `BxF` saw it four times over. **Nobody acted.**
 
-Add a forward threshold at roughly **6 commits or 20 files ahead**,
-printed by the same `--brief` summary the `SessionStart` hook already
-runs. Replayed against the window it fires on all seven re-merging
-landings and two of thirty clean ones (§1b).
+That is CLAUDE.md's *"a change that moves nothing"*: adding a second gate
+where the first was not the binding constraint. So the primary
+recommendation is now **make the existing signal impossible to ignore** —
+`branchcheck --brief` already runs in the `SessionStart` hook, so surface
+a BxF over 300 as a required action line rather than a row in a list.
 
-**Open question:** advisory text in the hook, or a hard `--gate` that CI
-fails on? The advisory form is what the drift rule does today — and the
-drift rule is the one `CLAUDE.md` records agents ignoring until the hook
-started printing it unprompted.
+A forward ceiling (**6 commits or 20 files ahead**) is still worth adding
+as a second, earlier trigger, but with the honest numbers:
+
+| variant | sensitivity | false positive |
+|---|---|---|
+| all commits ahead (as first published) | 6/6 **100%** | 2/30 7% |
+| **non-merge commits only** | 4/6 **67%** | 1/30 3% |
+
+**The 100% was partly circular.** Commits-ahead mechanically *contains*
+the outcome — every back-merge is itself a commit on the branch, so a
+branch that re-merged six times is handed six commits for free. Strip
+them and two branches fall out, including one that back-merged four times
+on four commits of real work touching three files. **That branch was
+long-lived, not large, and no size gate can catch it.**
+
+It is also **late**. The replay scores the *final* branch; the gate must
+act on the *growing* one. Walking the tail branches in commit order, a
+large share of their re-merges had already happened by the time they
+reached six commits — on one, all of them had. Treat the reachable
+ceiling as well under the sensitivity figure.
+
+**Open question, now the real one:** if `BxF > 300` already fires and is
+ignored, why would a second threshold be obeyed? The answer probably is
+not another number — it is making one of them block something. Which
+leads straight into the collision in §4.
 
 ### 2. Arm auto-merge, then end the turn
 
@@ -199,10 +275,19 @@ mergeable and GitHub refuses to arm auto-merge at all. With zero rulesets
 today (§3) it cannot be armed, so the owner half is a prerequisite, not an
 optional extra.
 
-**Two known gaps, both real.** Nobody watches the PR, so failed checks
-leave it open indefinitely — `branchcheck.sh` already prints "THE PR LIST
-IS NOT THE WORK LIST" for exactly this, so detection exists, but a failed
-auto-merge is a new way to strand a branch. And auto-merge fires when
+**Two known gaps, and the first is worse than first written.** Nobody
+watches the PR, so failed checks leave it open indefinitely — and
+**`scripts/branchcheck.sh` cannot see this.** It makes no GitHub API call
+at all; it lists branches ahead of `main`, and its own message delegates
+the check to a human ("Check each of these has a PR or an owner"). It
+cannot distinguish *auto-merge armed, CI red, abandoned* from *in active
+use*. Under the current policy **the waiting agent is the detector**, and
+item 2 removes it without substituting anything. Compounding it, 55% of
+completed `ci.yml` runs finish under 10 minutes — cancelled by
+`cancel-in-progress` — and a cancelled required check is not a pass, with
+nothing left to re-trigger it. **Item 2 needs a sweeper before it is safe
+to land**: a scheduled job or `create_trigger` listing open PRs with
+failing or missing checks. That is part of the item, not a follow-up. And auto-merge fires when
 *checks* pass, not when the branch is *current*: it does not re-test the
 combination, which is the same hole item 5 discusses and which only a
 merge queue closes.
@@ -212,24 +297,43 @@ flips the settings? Before, and agents are told to arm a feature that is
 off. After, and the behaviour change waits on a manual step. Landing them
 together is the only ordering that is never wrong.
 
-### 3. Put a Rust build cache in CI
+### 3. CI is slow because the tests are slow — a build cache is not the lever
 
-`~1 hour · risk low · .github/workflows/ci.yml`
+`withdrawn as published · needs a different fix`
 
-There is none. Eight jobs, five of which build the project from scratch,
-on every push. `ci.yml`'s own header predicts ~9 minutes of wall-clock
-from local gate timings (292s release tests, 398s debug, 9s clippy, 135s
-`ascii`, 239s acceptance) and the measured runs are 16–18. The gap is cold
-builds plus queueing eight parallel jobs. That header already names the
-fix: *"if the compute ever matters, a Rust build cache is the lever."*
+**As first written this item was wrong, and the positive control that
+would have caught it was one API call away.** It claimed the 16-18 min
+CI was "cold builds plus queueing eight parallel jobs", and that halving
+it would halve the race. Job-level timings for run #874 (18.4 min):
 
-**This is the only item that shrinks the race itself** rather than
-managing its consequences — halving CI against a fixed 37-minute cadence
-roughly halves the probability that `main` moves inside the window.
+| job | step | duration |
+|---|---|---|
+| `cargo test (debug…)` | `cargo test --locked` | **18.2 min** ← critical path |
+| `cargo test (release)` | `cargo test --release --locked` | 15.6 min |
+| `structural acceptance cases` | build + `acceptance.sh` | 4.6 min |
+| `cargo run --example ascii` | build + run | 4.05 min |
+| `cargo clippy` | full `--all-targets --release` | **0.7 min** |
 
-**Open question:** cache keyed per-job or shared? Debug and release
-profiles do not share artifacts, so a shared cache may buy less than it
-looks. Measure before committing to a shape.
+All eight jobs started between 18:37:19 and 18:37:21Z — **two seconds of
+spread, so there is no queueing at all.** And `ascii` at 4.05 min against
+a known 135 s of run time puts the **cold release build at ~1-2 minutes**
+of an 18.4-minute run. A build cache addresses **<=10%**, and
+`actions/cache` over a multi-GB `target/` routinely costs minutes to
+restore and save, so the realistic outcome is neutral-to-negative. The
+"~1 hour · risk low" estimate was the wrong way round.
+
+What the numbers actually say: the runner executes the suite ~2.5-3x
+slower than the dev machine (18.2 min against a local 398 s), and the
+**debug test job alone is the whole critical path.** Any real reduction
+has to come from the test suite — running fewer debug tests, splitting
+the suite across jobs, or cutting the overlap between the release and
+debug runs — none of which has been measured and none of which should be
+attempted on this report's evidence.
+
+**Consequence, and it is the important one: nothing in this plan shrinks
+the race.** Item 2 removes the agent from it; item 7 would remove it
+outright. This item is withdrawn pending a measurement of where the 18.2
+minutes actually goes.
 
 ### 4. Stop pouring green test output into context
 
@@ -266,8 +370,17 @@ added generated-file gates while the branch edited their sources.
 
 So grade it rather than switch it off. After a clean back-merge run
 `docscheck.sh` — sub-second, and the only thing in the repo that catches
-exactly that failure — plus `cargo test --lib`. Reserve the full matrix
-for conflicted merges and the final pre-land push.
+exactly that failure — plus `cargo test --lib` **and `cargo clippy
+--all-targets --release`**. Clippy is **not optional here**, and an
+earlier draft dropped it: `cargo test --lib` does not build `examples/`,
+and clippy is the only gate that does. `examples/filmstrip.rs` is the
+third-most-conflicted file in the repo (19) and `examples/` accounts for
+23 of the 175 conflicted files, so without it a clean back-merge in which
+`main` renamed something `filmstrip.rs` calls passes this gate and is
+found only at the final push. Clippy costs **40 seconds** (§3's table) —
+dropping it saved nothing and cost exactly the case this item worries
+about. Reserve the rest of the matrix for conflicted merges and the final
+pre-land push.
 
 **Open question, and this is the item I am least sure of:** it trades a
 real safety margin for wall-clock, and the failure it exposes you to is
@@ -276,33 +389,43 @@ item 3 has halved it — or once item 2 means no agent is watching it at
 all? **This item probably disappears if either 2 or 3 lands**, and that is
 an argument for doing it last rather than for doing it.
 
-### 6. Split the append-only registers into one file per entry
+### 6. Split the append-only registers — bigger than advertised; rank last
 
-`half a day · risk medium · Reports/, scripts/bugindex.py`
+`several days, not half a day · risk high · Reports/, scripts/`
 
-`open-bugs-handoff.md` (20 conflicts, 7,563 lines) and `dead-ends.md` (12)
-become `Reports/bugs/<letter>.md` and `Reports/dead-ends/<slug>.md`, with
-a generated index. Two lanes appending then touch different files and
-cannot conflict at all. That removes 32 of the 175 conflicted files.
+The mechanism is still right: `open-bugs-handoff.md` (20 conflicts) and
+`dead-ends.md` (12) become one file per entry, two lanes appending touch
+different files, and 32 of the 175 conflicted files stop conflicting. It
+gets what a `union` driver would get without union's hazard, which
+`.gitattributes` already reasons through and correctly rejects for both.
 
-This gets what a `union` merge driver would get **without union's hazard**
-— and `.gitattributes` has already reasoned that through and correctly
-excluded both files, because their entries get *revised* in place, not
-only appended. Separate files are revisable and still collision-free.
-`scripts/bugindex.py` already generates the index and would need pointing
-at a directory.
+**But this item's own open question — "does a directory of small files
+break the grep workflow, or does `docgrep.py` handle it?" — has an answer,
+and it is: it breaks, today.** `scripts/docgrep.py:46` hardcodes the
+register paths in `DEFAULT`, and `main()` does `targets = args[1:] or
+DEFAULT`, then `open()`s each. After a split, **the no-argument
+invocation CLAUDE.md prescribes to every agent** prints
+`docgrep: no such file: Reports/dead-ends.md`, silently searches the rest,
+and **exits 1 on no match — which reads as "the content is gone".** That
+is precisely the false negative `docgrep.py` exists to prevent.
 
-The same move applies to the generated indices themselves: README's table
-of contents and the bug index conflict **by construction** when two
-branches both regenerate them. Regenerate on `main` after the merge rather
-than committing them from a branch.
+**And "point `bugindex.py` at a directory" was wrong.** `bugindex.py:98`
+derives an entry's status from its position under an H2 heading
+(`REGISTER_SECTIONS = {"Open", "Closed this session", "Awaiting a
+decision"}`). A per-file split destroys that state: status must be
+re-encoded in front-matter or a directory-per-status, and closing a bug
+becomes a file move plus a metadata edit. That is a rewrite. Scale,
+measured: **96 `###` entries** in the bug register and **603** in
+`dead-ends.md` — about **700 new files**, each needing a stable slug —
+against **568 `§<Letter>` cross-references repo-wide**, including inside
+`src/sim/plant.rs`, every one of which must still resolve.
 
-**Open question, and it is a real objection:** both registers are *read*
-by grepping one large file, and `CLAUDE.md`'s routing advice is built on
-that — "grep the mechanism, not your subsystem", with measured per-query
-token costs. Does a directory of small files break that workflow, or does
-`docgrep.py` handle it transparently? **Answer that before touching
-anything.**
+**Rank it last, or drop it.** §1d's own conclusion is that wall-clock is
+the cost that hurts and tokens are a low single-digit percentage. This
+item removes 18% of the *token* cost and **zero CI runs** — the
+back-merge still happens, still pushes, still triggers the full matrix.
+Several days and 700 files of churn buy nothing on the axis this report
+says matters.
 
 ### 7. A merge queue — the real fix, and not yet reachable
 
@@ -383,9 +506,14 @@ Not independent, and two of them partly dissolve others:
   on CI, CI duration stops being an agent cost (it remains a
   throughput cost), and there is no local matrix run to skip. Do item 2
   first and re-ask whether 3 and 5 are still worth their risk.
-- **Item 1 is independent of everything** and is the only one that
-  attacks branch size rather than merge cost. It stays worth doing
-  whatever else lands.
+- **Item 1 is NOT independent of §3, and this is a live deadlock.** §3.3
+  makes **`branches`** a required check — the job that runs
+  `branchcheck.sh --gate`. If item 1's forward threshold lands in
+  `--gate`, as its open question contemplates, **branch size becomes a
+  hard merge blocker on exactly the branches that most need to land**: a
+  branch at 7 commits cannot merge until it is smaller, which it cannot
+  become. Resolve item 1's open question as **advisory**, or take
+  `branches` off the required list. Pick one before either lands.
 - **Items 4 and 6 are independent** of the merge machinery entirely.
   Item 4 is the only measured pure-token saving in the plan.
 - **Item 7 subsumes item 2** and is blocked; item 2 is the reachable
@@ -397,7 +525,7 @@ Not independent, and two of them partly dissolve others:
   reasons this out and correctly excludes `open-bugs-handoff.md`,
   `dead-ends.md` and `wiki/plants.md`, because union silently preserves a
   superseded claim beside its replacement with no conflict marker to warn
-  anyone. Item 5 gets the same benefit without it.
+  anyone. Item 6 gets the same benefit without it.
 - **A file-overlap metric between the two sides of a merge.** `CLAUDE.md`
   records why it does not work: in both 2026-08-25 incidents the generators
   were main-side only, and the failure class is "main changed generator G,
@@ -409,8 +537,10 @@ Not independent, and two of them partly dissolve others:
   `Reports/why-changes-cost-so-much-2026-08-27.md` says what that refactor
   would actually cost: reallocating a shared budget means re-deriving every
   constant calibrated against current behaviour.
-- **Rebase-based automation of any kind.** `CLAUDE.md` forbids rebasing
-  someone else's branch; merge, never rebase. A *local* merge-queue script
+- **Rebase-based automation over branches you do not own.** `CLAUDE.md`
+  puts rebase on `ask` — forbidden on *someone else's* branch, fine on
+  your own — so the rule is "never rebase a branch you do not own", not
+  "never rebase". A server-side merge queue is unaffected by it. A *local* merge-queue script
   also has nothing to run on, since sessions are ephemeral cloud containers
   and the branches live on GitHub.
 - **Static single-writer locks on contested files.** Already tried here in
@@ -466,6 +596,7 @@ Measured 2026-08-28 against `origin/main` at `8faa61b`.
   `ci.yml`. Its repository-settings readings (`allow_auto_merge: false`,
   zero rulesets) are **reported, not re-verified**, and §3 says to confirm
   them before acting.
-- That review's independent cadence figure — "1 branch in 3 ever needs to
-  pull `main` in" — corroborates §1b from a different direction: 18 of the
-  last 48 landings carried at least one back-merge, **37.5%**.
+- That review's "1 branch in 3 ever needs to pull `main` in" was called
+  independent corroboration in an earlier draft. **It is not** — it is
+  §1b's own two right-hand rows re-added (11 + 7 of 48 = 37.5%). Same
+  measurement, not a second one.
