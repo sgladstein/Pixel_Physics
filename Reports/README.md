@@ -102,6 +102,23 @@ tried?"*.
   sessions or were spawned by one** — it applies to a minority of sessions
   and cost every one of them ~2,200 always-loaded tokens while it sat in
   `CLAUDE.md`.
+- [merge-strategy-2026-08-28.md](merge-strategy-2026-08-28.md) —
+  **proposal, nothing implemented.** Where the "merge after every
+  significant task" policy actually costs, measured from 690 commits: the
+  cost is wall-clock, not tokens, and it lands on a tail of oversized
+  branches rather than on the policy. CI runs 16-18 min against a 37-min
+  median landing cadence, so the race is arithmetic; but 30 of the last 48
+  landings never re-merged, and every branch that re-merged twice or more
+  was 7+ commits. Carries a branch-size ceiling that replays at 100%
+  sensitivity, the finding that 54% of conflicted files are documentation
+  rather than source, and seven ranked changes each with the open question
+  that would decide it. §3 is the short list of things **only the owner
+  can do** (auto-merge and the six gateable checks; sessions get 403), and
+  §4 says which items make which others moot. **Read before proposing any
+  change to how branches land** — §5 lists five approaches already
+  considered and rejected, with the evidence for each, and §7 records that
+  `ci.yml` has no `merge_group` trigger, so enabling a merge queue today
+  would run zero checks and merge green.
 - [measurement-under-contention.md](measurement-under-contention.md) —
   **evidence landed; the mechanism it designs was deliberately not.** Why two
   runs of a byte-identical binary disagreed 2.42x and reversed the
