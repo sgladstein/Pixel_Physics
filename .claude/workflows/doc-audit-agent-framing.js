@@ -84,11 +84,25 @@ const REFS_SCHEMA = {
   },
 }
 
-const censusPrompt = (files, extra) => `You are auditing documentation in the git repo at ${ROOT} (a Rust falling-sand physics engine developed entirely by Claude agents). The repo records hard-won "do not retry this" knowledge — approaches that were tried, measured, and reverted or rejected — scattered through source comments and design reports. A future index file will aggregate it so no session re-attempts a known dead end. Your job: extract every such entry from EXACTLY these files (and no others):
+// Everything above `=== YOUR FILES ===` is byte-identical across all ten census
+// agents, and it is first on purpose: a prompt cache is a prefix match, so any
+// per-agent text placed ahead of shared text makes that shared text uncacheable.
+// Measured 2026-08-27, before this was fixed: the file list sat at byte 469 with
+// **1,177 B of identical method text behind it**, so the shared prefix was ~117
+// tokens where it could have been ~411 -- about 2,940 tokens per full run, across
+// ten agents. Keep every variable interpolation below the marker; this is the same
+// shape `world-review.js` and `creature-evolution-review.js` already use
+// (`BRIEF + '=== YOUR ASSIGNMENT: ... ==='`).
+//
+// Worth keeping in proportion: the same 12-agent run pays 12 x ~24,295 tokens for
+// the auto-loaded CLAUDE.md, so this is ~1% of the fan-out's prefix bill. It is
+// free to keep right and not worth contorting the prompt for.
+const censusPrompt = (files, extra) => `You are auditing documentation in the git repo at ${ROOT} (a Rust falling-sand physics engine developed entirely by Claude agents). The repo records hard-won "do not retry this" knowledge — approaches that were tried, measured, and reverted or rejected — scattered through source comments and design reports. A future index file will aggregate it so no session re-attempts a known dead end. Your job: extract every such entry from EXACTLY the files named at the END of this brief (and no others).
 
-${files.map(f => '- ' + f).join('\n')}
+Method: Grep each file for marker language (reverted, tried, dead end, do not, must not, instead of, abandoned, withdrew, went stale, was wrong, found wrong, retuned, removed because, backwards, turned out, gave up, rejected, superseded), then Read the surrounding context (roughly 40 lines either side) to understand each hit. For large files never read the whole file — navigate by grep. Include ONLY genuine tried-and-rejected knowledge: a mechanism, fix, tuning, constant, or model that was actually attempted or seriously evaluated and rejected for a recorded reason. EXCLUDE ordinary design rationale where no alternative was tried, TODO/not-yet-built notes, and open bugs. When a passage records the condition under which the rejection held (a measurement, an interacting bug since fixed, a world size, a specific constant), capture it — the repo's own convention is that a dead end must be re-tested when its condition changes. One entry per distinct dead end, even when the passage is long or the same dead end is mentioned twice in one file. Cite by symbol or heading, not line number (line numbers rot).Do not edit or write any file.
 
-Method: Grep each file for marker language (reverted, tried, dead end, do not, must not, instead of, abandoned, withdrew, went stale, was wrong, found wrong, retuned, removed because, backwards, turned out, gave up, rejected, superseded), then Read the surrounding context (roughly 40 lines either side) to understand each hit. For large files never read the whole file — navigate by grep. Include ONLY genuine tried-and-rejected knowledge: a mechanism, fix, tuning, constant, or model that was actually attempted or seriously evaluated and rejected for a recorded reason. EXCLUDE ordinary design rationale where no alternative was tried, TODO/not-yet-built notes, and open bugs. When a passage records the condition under which the rejection held (a measurement, an interacting bug since fixed, a world size, a specific constant), capture it — the repo's own convention is that a dead end must be re-tested when its condition changes. One entry per distinct dead end, even when the passage is long or the same dead end is mentioned twice in one file. Cite by symbol or heading, not line number (line numbers rot).${extra ? '\n\n' + extra : ''} Do not edit or write any file.`
+=== YOUR FILES (and no others) ===
+${files.map(f => '- ' + f).join('\n')}${extra ? '\n\n' + extra : ''}`
 
 phase('Census')
 const groups = [

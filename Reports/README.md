@@ -54,6 +54,23 @@ tried?"*.
   cannot be tested for merge — absence is equally consistent with "merged
   and deleted" and with "unpushed on one machine". One owner question
   settles all three; see `agent-documentation-audit-2026-08-24.md` §5b/§5e.
+- [pr89-review.md](pr89-review.md) — **adversarial review of PR #89,
+  2026-08-28.** Twelve findings against `agent-strategy.md` and its machinery.
+  Three reverse a conclusion: §6's cache saving mixed premises across the two
+  arms and had the wrong sign; `readguard.py` denied every `README.md` in the
+  repo; the 28,000-token ceiling was enforced by nothing and its check went green
+  on a 58%-over file. Findings 1, 2, 3, 5 and the record corrections are fixed;
+  6-12 stand as recorded.
+- [agent-strategy.md](agent-strategy.md) — **measured and partly executed
+  2026-08-27.** Which to use — one session, parallel lanes, or a manager with
+  sub-agents — and what enforces it once they are running. The axis that
+  separates them is whether the agents' reading *overlaps*, not the topology:
+  reading is **74%** of a measured agent run against 26% for the auto-loaded
+  prefix. Carries the manager and worker brief templates, the session-lifetime
+  rule (`files > 300`, not a token ceiling), and the finding that sub-agents and
+  workflows default to a **5-minute** prompt cache while the main session gets
+  an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
+  why it did not do it.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
   call.** The companion to the three above, asking the other question: not *is
