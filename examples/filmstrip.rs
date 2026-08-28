@@ -5870,6 +5870,22 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             world.decayed_dry,
             world.decayed_damp + world.decayed_dry,
         );
+        // **How those events resolved, which since `Material::decay_yield`
+        // is no longer the same number as the event count.** Litter yields a
+        // solid 5% of the time and leaves nothing the rest, so the line above
+        // counts decays while this one counts what they produced. Printed
+        // next to each other deliberately: read alone, either is a number
+        // that looks like soil production and is not.
+        println!(
+            "    rot: {} left solid + {} left nothing ({:.0}% yield)",
+            world.rotted_to_solid,
+            world.rotted_to_nothing,
+            if world.rotted_to_solid + world.rotted_to_nothing > 0 {
+                100.0 * world.rotted_to_solid as f64 / (world.rotted_to_solid + world.rotted_to_nothing) as f64
+            } else {
+                0.0
+            },
+        );
         // The decay events above are downstream of leaf fall, and leaf fall
         // has three causes with separate knobs. The retune's lever question
         // -- "which pressure is filling the floor" -- needs the split.
@@ -5893,6 +5909,15 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             // separately. `world.decayed_damp + decayed_dry` on the line
             // above IS the gross inflow; read the two together and the
             // difference between them is whatever is consuming soil.
+            //
+            // **Corrected when `Material::decay_yield` landed: the gross
+            // inflow is `rotted_to_solid`, NOT the decay total.** Most litter
+            // decays now leave nothing behind, so the event count above
+            // overstates soil production by ~20x on any wooded scene. The
+            // sentence above was true when written and silently became a
+            // different claim -- which is the trap `CLAUDE.md` names, arriving
+            // here by the usual route of a number staying arithmetically
+            // correct while the thing it counts moves out from under it.
             println!(
                 "    floor: {soil_now} soil cells, {:+} net since the first sample",
                 soil_now as i64 - base as i64,

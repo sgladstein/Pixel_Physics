@@ -27,7 +27,8 @@ growth, and a root buried inside its own root ball stopped counting for
 anything — see **What a plant pays for**, which is new. Updated again
 2026-08-27, when a plant that cannot cover the bare cost of the tissue it
 already has stopped being able to stand there indefinitely and started
-dying of it — see **What a plant pays for** and the drought entry under
+dying of it, and when rotting leaf litter stopped mostly turning into soil
+— see **What a plant pays for** and the drought entry under
 **What trouble looks like**, both rewritten. That last change had landed
 three days before this page mentioned it, which is why the page now says
 what it does not cover as well as what it does: a plant with no foliage
@@ -313,14 +314,22 @@ holding rather more water after a storm than bare ground does, which is
 what mulch is for. It used to do the opposite and seal the ground it lay
 on, and the blanket is deepest exactly where the roots are.
 
-The *litter* does not pile up forever: it **rots back into soil**, faster
-where the ground is damp, so the visible drift under a standing wood stays
-roughly constant depth. The soil it rots into is a slower story — nothing
-carries soil away yet, so a very old stand does slowly raise the ground it
-lives on. A mature tree sheds sparingly (a leaf has to be deep in shade or
-drying out before it goes), which keeps that rise to a creep rather than
-the burial it once was; a wood should read as standing *on* its floor, not
-sinking into it.
+The *litter* does not pile up forever: it **rots away**, faster where the
+ground is damp, so the visible drift under a standing wood stays roughly
+constant depth. **Most of it rots to nothing** — only about one cell in
+twenty leaves any soil behind. That is close to what happens outdoors,
+where rotting is mostly the leaf being breathed away by whatever is eating
+it, and the little that survives is a fraction of the volume it started as.
+
+The soil that does form is a slower story, and it is still only a story
+about slowing down: nothing weathers soil back out of the world, so a very
+old stand does gradually raise the ground it lives on. Growing roots eat
+into soil and soil at the world's edge can spill away, but a canopy
+outruns both. A mature tree also sheds sparingly (a leaf has to be deep in
+shade or drying out before it goes), which together with the one-in-twenty
+yield keeps the rise to a slow creep rather than the burial it once was; a
+wood should read as standing *on* its floor, not sinking into it. Leave one
+running long enough and the ground will still climb.
 
 That is currently true of **the tree and not yet of its neighbours**. Worlds
 arrive with four woody species in them, and only the tree has had its leaf
@@ -364,8 +373,8 @@ the same shape a pile of sand makes. Now it comes apart the way a tree does:
 - **Broken wood.** Smaller breaks, and whatever a log gives way into later,
   become loose deadwood: that still piles like any other debris.
 - **Leaf litter.** Foliage does not come off as chunks. It scatters, and it
-  is the same litter that already carpets a forest floor — so it rots into
-  soil quickly, and the ants will carry it off.
+  is the same litter that already carpets a forest floor — so it rots away
+  quickly, and the ants will carry it off.
 
 Which of the three a given part of the tree becomes depends on how big the
 piece it belonged to was, not on a switch, so a heavy bole and a thin twig
