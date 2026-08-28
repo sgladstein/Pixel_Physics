@@ -322,6 +322,64 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         let hist: Vec<String> = gens.iter().map(|(g, n)| format!("gen {g}: {n}")).collect();
         println!("  generations  [{}]", hist.join(", "));
 
+        // **Who won, not how much there was** -- the denominator this line
+        // of work kept lacking.
+        //
+        // A stand's totals are pinned by the resource: output is
+        // `share x total mature cells`, total mass is bounded by
+        // intercepted light, and that is fixed by the width of the world.
+        // So a lever that changes competitive *outcome* can move nothing in
+        // any total while completely reordering the stand -- and every
+        // costs measurement read on totals reports a null either way.
+        //
+        // Concentration is the quantity that does move. Two stands of equal
+        // mass, one an even thicket and one dominated by three winners, are
+        // different worlds and differ in these numbers alone.
+        //
+        // Gini over established plants, on mass and on realised
+        // reproduction: 0 is a perfectly even stand, 1 is one plant taking
+        // everything. Reported beside the top share because Gini alone
+        // cannot distinguish "one giant" from "one runt".
+        fn gini(mut v: Vec<f64>) -> f64 {
+            if v.len() < 2 {
+                return 0.0;
+            }
+            v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN in a census"));
+            let n = v.len() as f64;
+            let sum: f64 = v.iter().sum();
+            if sum <= 0.0 {
+                return 0.0;
+            }
+            let weighted: f64 = v.iter().enumerate().map(|(i, x)| (2.0 * (i as f64 + 1.0) - n - 1.0) * x).sum();
+            weighted / (n * sum)
+        }
+        let established: Vec<u16> = per_organism.iter().filter(|(_, v)| v.0 >= ESTABLISHED).map(|(id, _)| *id).collect();
+        if established.len() >= 2 {
+            let mass: Vec<f64> = established.iter().map(|id| per_organism[id].0 as f64).collect();
+            let seed: Vec<f64> =
+                established.iter().map(|id| w.organism_state(*id).map_or(0.0, |s| s.seeds_set as f64)).collect();
+            let mass_total: f64 = mass.iter().sum();
+            let seed_total: f64 = seed.iter().sum();
+            let top_mass = mass.iter().cloned().fold(0.0_f64, f64::max);
+            let top_seed = seed.iter().cloned().fold(0.0_f64, f64::max);
+            println!(
+                "  who won, over {} established plants (a stand total cannot show this):",
+                established.len()
+            );
+            println!(
+                "    mass          gini {:.3}   largest plant holds {:.1}% of stand mass",
+                gini(mass.clone()),
+                if mass_total > 0.0 { 100.0 * top_mass / mass_total } else { 0.0 }
+            );
+            println!(
+                "    reproduction  gini {:.3}   best plant set {:.1}% of all seeds ({} of {})",
+                gini(seed.clone()),
+                if seed_total > 0.0 { 100.0 * top_seed / seed_total } else { 0.0 },
+                top_seed as u64,
+                seed_total as u64
+            );
+        }
+
         // **Epiphytes: plants rooted above the ground.** A seed is a
         // `Powder`, so it falls -- but it comes to rest on the first thing
         // that stops it, and in a closed stand that is very often a branch.
@@ -919,6 +977,39 @@ when he counted all four. §Z is cards-only. Reports/open-bugs-handoff.md §Z ha
         // the failure the counter exists to end.
         let (high_water, ceiling) = w.organism_slot_high_water();
         let refused = w.organisms_refused();
+        // **Germinations, against the "seeds set in total" printed above** --
+        // the pair that says which stage of the life cycle is failing, and the
+        // reason it has to be a pair.
+        //
+        // A seed count alone cannot separate a bank being drawn down by
+        // germination from one expiring on its half-life clock, and those two
+        // call for entirely different fixes. `Reports/plant-recruitment-
+        // measurement-2026-08-27.md` §5a had to reach that conclusion by
+        // comparing the standing bank against a pure-decay prediction (tree:
+        // 155 set, half-life 9,000, ~43 expected, 40 observed) -- sound, and
+        // an inference resting on an assumed uniform seed-set rate. This line
+        // answers it outright. `CLAUDE.md`: pair every "it fired" counter with
+        // an effect counter from the far side of the call.
+        println!("  germinations: {} -- read against `seeds set in total` above", w.germinations);
+        // **Do the construction charges actually bind?** The effect
+        // counters for `LEAF_CONSTRUCTION_MULTIPLE` and
+        // `REPRODUCTIVE_ALLOCATION`. A price that never binds is real
+        // arithmetic that changes nothing, and a sweep over it would
+        // report a converged-looking null -- so these are the numbers to
+        // read before trusting any tuning of either constant.
+        let leaf_want = w.leaf_cells_built + w.leaf_cells_unaffordable;
+        let leaf_pct = if leaf_want > 0 { 100.0 * w.leaf_cells_unaffordable as f64 / leaf_want as f64 } else { 0.0 };
+        println!(
+            "  leaf construction binds: {} of {} wanted leaf cells refused for want of carbon ({leaf_pct:.1}%)",
+            w.leaf_cells_unaffordable, leaf_want
+        );
+        println!("  wood cells laid (secondary thickening, now charged): {}", w.wood_cells_built);
+        let seed_ops = w.seed_budget_blocked + w.seed_budget_available;
+        let seed_pct = if seed_ops > 0 { 100.0 * w.seed_budget_blocked as f64 / seed_ops as f64 } else { 0.0 };
+        println!(
+            "  reproductive budget binds: {} of {} eligible cell-ticks had no budget for a seed ({seed_pct:.1}%)",
+            w.seed_budget_blocked, seed_ops
+        );
         println!(
             "  organism slots: high-water {high_water} of {ceiling} ({:.1}%), {refused} births refused at the ceiling",
             100.0 * high_water as f64 / ceiling as f64
@@ -1266,9 +1357,44 @@ water balance, per established plant:");
                 let (_, umed, umax, _) = q(&mut unpaid);
                 let (nmin, nmed, nmax, _) = q(&mut bases);
                 println!("\ncarbon book, per established plant (per organism tick):");
-                println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                // **`OrganismState::income` is derived from `CellType::Leaf`
+                // cells only, so it is structurally zero for a species whose
+                // photosynthetic surface is its shoot.** `allocate_to_frontier`
+                // accumulates `intercepted` in its `Some(CellType::Leaf)` arm
+                // (`plant.rs`), so a leafless species records 0 however much it
+                // actually earns -- and `grass.ron`'s own header says so at
+                // length: "Income is NOT zero ... What is zero is every
+                // quantity derived from `Leaf` cells".
+                //
+                // Printed as an explicit refusal rather than as `0.000` and a
+                // `bill / income` of `inf`, which is what this block used to
+                // emit. That pair reads as a measurement -- a plant earning
+                // nothing and infinitely in debt -- and it is not one: it is
+                // the readout not applying. `CLAUDE.md`, "ask what your number
+                // counts when nothing is wrong".
+                //
+                // **The zero is still behaviourally real**, which is why this
+                // says "not measurable here" rather than "ignore this": the
+                // same field gates `break_buds`' `supportable` and the die-back
+                // trigger, so a leafless species genuinely cannot flush a bud.
+                // Fixing *that* is an economy change filed as
+                // `open-bugs-handoff.md` §V2, deliberately not made from a
+                // harness.
+                let has_leaves = w.species.get(w.organism_state(*per_plant.keys().next().unwrap()).map(|s| s.species).unwrap()).has_leaf_stage();
+                if has_leaves {
+                    println!("  income         min {imin:>7.3} median {imed:>7.3} max {imax:>7.3} mean {imean:>7.3}   (over a whole day, not at this instant)");
+                } else {
+                    println!("  income         NOT MEASURABLE for a species with no `Leaf` stage -- `OrganismState::income`");
+                    println!("                 is summed over `CellType::Leaf` only, so it reads 0 however much this");
+                    println!("                 species earns (see grass.ron's header, open-bugs-handoff.md §V2).");
+                    println!("                 The 0 IS real for decisions: `break_buds` sees it, so no bud can flush.");
+                }
                 println!("  maintenance    min {bmin:>7.3} median {bmed:>7.3} max {bmax:>7.3} mean {bmean:>7.3}");
-                println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                if has_leaves {
+                    println!("  bill / income  median {rmed:>7.2} max {rmax:>7.2}   (>1 = running the stock down)");
+                } else {
+                    println!("  bill / income  n/a -- see the income line above");
+                }
                 println!("  unpaid         median {umed:>7.3} max {umax:>7.3}");
                 println!("  cells shed to starvation, cumulative: {starved}");
                 println!("  bill at unit price  min {nmin:>8.1} median {nmed:>8.1} max {nmax:>8.1}   (x MAINTENANCE_PER_NODE = the shoot bill)");

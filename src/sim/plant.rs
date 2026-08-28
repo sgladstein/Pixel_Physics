@@ -1547,6 +1547,13 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // tree.ron's tuning history says the margin lives: a
                 // fresh cell's first Grow check. Roots pay it too --
                 // rootwood is wood.
+                // **Kept before the density scaling, for foliage.** Wood
+                // density is a property of *wood*; a leaf is not wood, and
+                // charging a dense-wood individual more to build a leaf
+                // would be an arm of `WOOD_DENSITY_ALLELES` nobody
+                // designed. `leaf_construction_cost` below is the only
+                // reader.
+                let tissue_cost = cost;
                 let cost = cost * organism::wood_density(&alleles);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
@@ -1937,6 +1944,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     // Costs no per-cell state: a lateral is rescheduled with
                     // `plastochron: 0`, so the lineage step the active site
                     // already carries *is* its age in cells.
+                    // **Normalised: the four weights are shares of one
+                    // steering budget, not four independent magnitudes.**
+                    //
+                    // They were always relative in *effect* — the score is
+                    // used for weighted sampling, so only the ratios reach
+                    // behaviour — and absolute in the *source*, where
+                    // nothing said so. That gap is the second mechanism
+                    // behind this engine's retune loop, and it is what made
+                    // the lateral-phototropism repair a five-species tuning
+                    // pass rather than a bug fix: giving `light_weight` a
+                    // real 2D direction silently reweighted the other three
+                    // because its own magnitude had been chosen against a
+                    // lever that could only say "up".
+                    //
+                    // Dividing by the sum makes each weight mean "this
+                    // fraction of the tip's steering", so one can be moved
+                    // without the others changing meaning. It is the same
+                    // medicine `INCOME_PER_NODE` already had — denominate
+                    // in an invariant unit — applied to the score.
+                    //
+                    // **Behaviourally a no-op at any weights, and that is
+                    // the point.** Scaling every candidate's score by the
+                    // same constant cannot change a weighted sample, and
+                    // the `> 0.0` filter and the crowding divisor are both
+                    // scale-invariant too. Verified byte-identical against
+                    // the pre-change binary on the standard bed.
+                    let weight_sum = if rigid_step {
+                        continuation_weight
+                    } else {
+                        continuation_weight + light_weight + wind_weight + upward_weight
+                    };
+                    // A species may legitimately author every weight to
+                    // zero; `1.0` leaves such a tip scoring flat rather
+                    // than dividing by zero, which is what it did before.
+                    let weight_sum = if weight_sum.abs() > f32::EPSILON { weight_sum } else { 1.0 };
                     let preference = if rigid_step {
                         dot(dir, heading) * continuation_weight
                     } else {
@@ -1944,7 +1986,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             + dot(dir, photo) * light_weight
                             + dot(dir, wind) * wind_weight
                             + dot(dir, gravity_or_water) * upward_weight
-                    };
+                    } / weight_sum;
                     let score = preference / (1.0 + density * crowding_weight);
                     if score > 0.0 {
                         candidates.push((nx, ny, score));
@@ -2433,9 +2475,41 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // not off the node, so foliage forms a spray
                         // hanging away from the stem rather than a ring
                         // around it. See `Behavior::Grow::leaf_cluster`.
-                        let mut cluster: Vec<(i32, i32)> = vec![(lx, ly)];
-                        let mut frontier = vec![(lx, ly)];
-                        while cluster.len() < leaf_cluster as usize {
+                        // **What the node can actually pay for.** The
+                        // spray is built up to `leaf_cluster`, but every
+                        // cell of it is now charged
+                        // `LEAF_CONSTRUCTION_MULTIPLE * tissue_cost`, so
+                        // the authored value becomes a *maximum* and
+                        // carbon decides the rest.
+                        //
+                        // Truncating rather than refusing is the whole
+                        // shape of it, and it is `CLAUDE.md`'s first ethos
+                        // law -- an outcome is a distribution, not a
+                        // binary. A rich node in open sky builds its full
+                        // spray; a poor one in shade builds two cells; a
+                        // node that cannot afford one builds none and the
+                        // lineage carries on. An all-or-nothing gate here
+                        // would put a cliff exactly where the old
+                        // subtractive `crowding_weight` had one.
+                        let leaf_construction_cost = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE;
+                        let affordable = if leaf_construction_cost > 0.0 {
+                            (resource / leaf_construction_cost).floor().max(0.0) as usize
+                        } else {
+                            leaf_cluster as usize
+                        };
+                        let budget = (leaf_cluster as usize).min(affordable);
+                        // The effect counter for the charge -- see
+                        // `World::leaf_cells_unaffordable`. Pure
+                        // observation: it reads the same two numbers the
+                        // line above already computed and touches no RNG.
+                        world.leaf_cells_unaffordable += (leaf_cluster as usize - budget) as u64;
+                        let mut cluster: Vec<(i32, i32)> = Vec::new();
+                        let mut frontier: Vec<(i32, i32)> = Vec::new();
+                        if budget > 0 {
+                            cluster.push((lx, ly));
+                            frontier.push((lx, ly));
+                        }
+                        while !cluster.is_empty() && cluster.len() < budget {
                             let Some(&(fx, fy)) = frontier.first() else { break };
                             frontier.remove(0);
                             let mut open: Vec<(i32, i32)> = NEIGHBOURS_8
@@ -2485,6 +2559,14 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         // the old look rather than failing to grow.
                         let leaf_material =
                             world.materials.id_of(&world.species.get(species_id).leaf_material).unwrap_or(cell.material);
+                        // **Paid for what was placed, not for what was
+                        // wanted.** The cluster walk above can come up
+                        // short of `budget` when the node is boxed in, and
+                        // charging the budget would bill for foliage that
+                        // does not exist.
+                        resource -= leaf_construction_cost * cluster.len() as f32;
+                        world.leaf_cells_built += cluster.len() as u64;
+                        write_carbon(world, x, y, resource);
                         for &(cx, cy) in &cluster {
                             let shade = banded_shade(world, organism_id, leaf_material, Band::Foliage, &mut rng);
                             let leaf_cell =
@@ -2524,7 +2606,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // species: for anything with a `Leaf` stage it is false on a
             // `GrowingTip` by construction, so this arm is inert on `tree`,
             // `conifer`, `shrub` and `creeper` exactly as before.
-            Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
+            Behavior::Photosynthesize { rate, shade_death, drought_death } => {
                 let light = ambient_light_above(world, x, y);
                 if is_foliage(world, x, y, cell_type, species_id, has_leaf_stage) {
                     // Cubed, and checked before the credit, for the same two
@@ -2558,7 +2640,6 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // **Spend water, then earn carbon in proportion to what is
                 // left.** The order is the physical one: stomata open, water
                 // goes out, and carbon comes in only while they are open.
-                let _ = transpiration; // demand is charged once per organism, in `organism_upkeep`
                 // The leaf-economy allele scales every credit -- a live
                 // tip is foliage and runs the same strategy its leaves do.
                 // (Its demand side is scaled where demand is summed, in
@@ -3194,6 +3275,118 @@ const MAINTENANCE_PER_NODE: f32 = 2.0e-5;
 /// plant's bill-to-income ratio, so a tree that is shaded or droughted
 /// hard enough never gets back to where it was.
 const MAINTENANCE_EXPONENT: f32 = 1.5;
+
+/// **Water a leaf spends per unit of carbon it earns** — transpirational
+/// demand, derived from `Photosynthesize::rate` rather than authored beside
+/// it.
+///
+/// **This exists because the pairing the genome enforces was not enforced
+/// one layer down.** `LEAF_RATE_ALLELES` is paired with
+/// `LEAF_TRANSPIRATION_ALLELES` at every consumer, and its own doc says why:
+/// *"a free rate axis would be selection candy with no bill attached."* The
+/// species file had no such coupling — `rate` and `transpiration` were
+/// independent fields of the same struct, so an author could raise income
+/// without raising demand. Measured before this change: `transpiration` read
+/// **0.05 in all ten declarations across five species** while `rate` ranged
+/// 0.35-0.55. It was a constant standing next to a free lever.
+///
+/// So demand is now `rate * this`, one number instead of two, in the same
+/// spirit as `WOOD_DENSITY_ALLELES` scaling strength and price together
+/// *"so tuning cannot quietly turn the trade into a free lunch."*
+///
+/// 0.1 is the ratio the shipped files already carried (0.05 against a rate
+/// of 0.5), so a species at the old rate pays exactly the old demand. What
+/// changes is that a *faster* leaf now drinks proportionally more, which is
+/// the leaf economics spectrum's central trade and was previously available
+/// only through the genome.
+const TRANSPIRATION_PER_RATE: f32 = 0.1;
+
+/// **What one cell of secondary thickening costs to build**, as a multiple
+/// of the species' own shoot `Grow.cost`.
+///
+/// The second half of growth respiration, after
+/// `LEAF_CONSTRUCTION_MULTIPLE`. `thicken()` laid wood for **nothing** until
+/// now, and `WOOD_DENSITY_ALLELES`' own doc recorded the gap rather than
+/// hiding it: *"Secondary thickening pays no carbon today, so the price
+/// binds on extension only."* This is that price.
+///
+/// **Below 1.0, and the ordering is the biology.** Construction cost runs
+/// about 1.2-1.4 g glucose per g dry mass for stem tissue against 1.4-1.6
+/// for leaf, so wood is the *cheaper* tissue per unit — the opposite of the
+/// intuition that a trunk is expensive. A trunk is expensive because there
+/// is a great deal of it, not because each cell is dear, and that is exactly
+/// what a per-cell price expresses correctly.
+///
+/// **What this does not fix, and must not be confused with.** Biology says
+/// wood is cheap to *build* and nearly free to *keep* — heartwood is dead
+/// and does not respire. This engine still charges every wood cell
+/// `MAINTENANCE_PER_CELL` for ever, which is the inverted half. That is a
+/// separate change and it is strictly *after* this one: `MAINTENANCE_PER_CELL`
+/// is currently the only thing stopping abandoned wood and blob interiors
+/// standing free for ever, and removing it before construction was charged
+/// would bring the blob back. See the report's §10a.3.
+const WOOD_CONSTRUCTION_MULTIPLE: f32 = 0.8;
+
+/// Whether a plant has enough shoot to bear seed at all.
+///
+/// A fence, and `Reports/plant-equilibrium-costs-2026-08-27.md` §6 says so:
+/// it makes precocious reproduction unreachable rather than expensive. Kept
+/// for now because removing it is its own change with its own measurement —
+/// the §10b decision — and one mechanism per change is what makes either
+/// readable.
+fn seed_maturity_met(shoot_cells: u32, seed_maturity: u32) -> bool {
+    shoot_cells >= seed_maturity
+}
+
+/// **Most reproductive reserve a plant may bank**, in carbon.
+///
+/// Without a cap the budget is an integral over the plant's whole life, so
+/// an old plant that has been solvent for a long time could empty a
+/// season's worth of seeds in one tick. One cell's worth of reserve is
+/// enough to smooth `Reproduce`'s per-cell chance roll across a few ticks
+/// -- which is the whole reason the budget accrues rather than being
+/// spent-or-lost -- without letting it become a stock that grows with age.
+const REPRODUCTIVE_BUDGET_CAP: f32 = organism::RESOURCE_SCALE;
+
+/// **What one leaf cell costs to build**, as a multiple of the species'
+/// own `Grow.cost` for the shoot that bears it.
+///
+/// **This is growth respiration, and the engine did not have it.** Plant
+/// physiology splits respiration two ways -- growth respiration
+/// proportional to *new* tissue and paid at construction, plus maintenance
+/// proportional to *existing* tissue and paid per tick (the McCree--de
+/// Wit--Penning de Vries--Thornley paradigm; Amthor, *Annals of Botany*
+/// 86:1-20, 2000). `MAINTENANCE_PER_CELL` and `MAINTENANCE_PER_NODE` are
+/// the second term. Until now there was no first term for foliage at all:
+/// the placement site said so itself, *"Costs no resource, deliberately...
+/// A real leaf is built from carbon and should charge for it; adding that
+/// price now would change the economy this phase is explicitly not
+/// tuning."* This is that pass.
+///
+/// **Above 1.0 because leaves are the expensive tissue.** Construction
+/// cost runs about 1.4-1.6 g glucose per g dry mass for leaf against
+/// 1.2-1.4 for stem and root (Penning de Vries et al. 1974; Poorter,
+/// *Construction costs and payback time of biomass*, 1994) -- protein and
+/// lipid content, which stem tissue does not carry. The ratio is per
+/// *gram* and this engine charges per *cell*, so 1.2 is that ratio taken
+/// as an ordering rather than as a measurement; what it must not be is
+/// 1.0, which would say a leaf and a stem cell cost the same to build.
+///
+/// **What it buys is payback time**, which is the quantity that makes
+/// foliage placement a decision rather than a free action. A leaf must
+/// outlive `construction / net gain` or it is a strict loss -- the spine
+/// of the leaf economics spectrum this genome already half-models through
+/// `LEAF_RATE_ALLELES`/`LEAF_TRANSPIRATION_ALLELES`. With free leaves that
+/// quantity does not exist, so nothing made it a mistake to leaf into your
+/// own shade.
+///
+/// Charged against the bearing node's own carbon, which
+/// `allocate_to_frontier` has already funded out of `(income -
+/// maintenance)` -- so this is surplus-funded like every other growth
+/// cost, not a new account. A node that cannot afford a full spray builds
+/// a smaller one rather than none: see the truncation at the call site,
+/// which is what keeps this graded instead of a cliff.
+const LEAF_CONSTRUCTION_MULTIPLE: f32 = 1.2;
 
 /// **What any living cell costs to run, per organism tick** — the mass
 /// term of maintenance respiration, charged on root and shoot alike.
@@ -4215,6 +4408,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // The species' own node size, for the income currency — see
     // `INCOME_PER_NODE`. A species with no shoot `Grow` has no light
     // economy to allocate.
+    let species_of = state.species;
     let leaf_cluster = world
         .species
         .get(state.species)
@@ -4285,7 +4479,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if let Some(state) = world.organism_mut(organism_id) {
         state.income = income_noon;
     }
-    if frontier.is_empty() || donors.is_empty() {
+    if donors.is_empty() {
         return;
     }
 
@@ -4355,7 +4549,41 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // that moves with `q_peak`, which is monotone and slow; and reading it
     // fresh would mean running the whole upkeep walk twice.
     let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
-    let pool = (income - maintenance).max(0.0).min(stock);
+    let surplus = (income - maintenance).max(0.0).min(stock);
+    // **Reproduction is taken off the top, before the frontier is funded**
+    // -- that subtraction *is* the trade-off. See
+    // `OrganismState::reproductive_budget` for what it replaces and why
+    // seeds were not competing with growth at all before it.
+    //
+    // Accrued above the `frontier.is_empty()` return below, deliberately: a
+    // plant whose tips have all retired has no frontier to fund and is
+    // exactly the plant that should be spending on seed. Returning before
+    // this would have made a mature, finished plant sterile -- the same
+    // shape of bug as `break_buds`' known recovery defect, where the event
+    // that should drive a response instead removes the drive.
+    // **Per species, not a global constant** — see
+    // `Behavior::Reproduce::reproductive_allocation`. This is the strategy
+    // trait: a ruderal commits a large share of its surplus to seed and
+    // stays small, a competitor commits little and grows. Read the same way
+    // `leaf_cluster` is read above.
+    let reproductive_allocation = world
+        .species
+        .get(species_of)
+        .behaviors(CellType::MatureBody)
+        .iter()
+        .find_map(|b| match b {
+            Behavior::Reproduce { reproductive_allocation, .. } => Some(*reproductive_allocation),
+            _ => None,
+        })
+        .unwrap_or(0.0);
+    let reproductive_share = surplus * reproductive_allocation;
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.reproductive_budget = (state.reproductive_budget + reproductive_share).min(REPRODUCTIVE_BUDGET_CAP);
+    }
+    if frontier.is_empty() {
+        return;
+    }
+    let pool = surplus - reproductive_share;
     // **Functional balance: the plant invests in whatever is limiting it.**
     //
     // The pool used to be split evenly across every frontier cell, root tips
@@ -4576,7 +4804,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             // knife-edge margins and sums separate cleanly.
             if let Some(t) = ty {
                 let transpiration = world.species.get(species_id).behaviors(t).iter().find_map(|b| match b {
-                    Behavior::Photosynthesize { transpiration, .. } => Some(*transpiration),
+                    // **Derived from the rate, not authored beside it**
+                    // -- see `TRANSPIRATION_PER_RATE`.
+                    Behavior::Photosynthesize { rate, .. } => Some(*rate * TRANSPIRATION_PER_RATE),
                     _ => None,
                 });
                 if let Some(rate) = transpiration {
@@ -4878,7 +5108,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
         for behavior in behavior_buf.into_iter().take(behavior_count).flatten() {
             match behavior {
-                Behavior::Photosynthesize { rate, shade_death, transpiration, drought_death } => {
+                Behavior::Photosynthesize { rate, shade_death, drought_death } => {
                     let light = ambient_light_above(world, cx, cy);
                     // Abscission — **a graded pressure, not a threshold**,
                     // chosen on a fair paired measurement and not on the
@@ -4931,7 +5161,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                     // frontier arm for the ordering, and
                     // `Behavior::Photosynthesize::transpiration` for why
                     // this charge is what makes a root worth having.
-                    let _ = transpiration; // charged once per organism -- see `organism_upkeep`
+                    // Demand is charged once per organism in `organism_upkeep`, derived from `rate`.
                     let status = water_status(world, cx, cy);
                     // **Drought abscission, the exact counterpart of the
                     // shade rule above and cubed for the same reason.** A
@@ -4972,16 +5202,45 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 Behavior::Transpire { rate } => {
                     transpire(world, cx, cy, rate);
                 }
-                Behavior::Reproduce { seed_cost, seed_chance, seed_maturity } => {
-                    // Runs on every `MatureBody` cell, so the *organism's*
-                    // seed rate is this chance times its canopy size -- a
-                    // big tree out-breeds a small one with no rule saying
-                    // so, which is the coupling that makes selection on
-                    // size mean anything.
-                    if seed_chance > 0.0 && shoot_cells >= seed_maturity {
-                        let carbon = world.organism_cell(cx, cy).map_or(0.0, |c| c.carbon);
-                        if carbon >= seed_cost && rng.chance(seed_chance) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
-                            write_carbon(world, cx, cy, carbon - seed_cost);
+                Behavior::Reproduce { seed_cost, reproductive_allocation: _, seed_maturity } => {
+                    // **The number of seeds is carbon; only the placement
+                    // is a roll.** This used to be the other way round —
+                    // `seed_chance` decided the rate per mature cell and
+                    // the budget was consulted afterwards, which measured
+                    // as carbon binding **0.7% of the time**
+                    // (`Reports/plant-equilibrium-costs-2026-08-27.md` §13).
+                    // A price sitting behind a rate fence is not a price:
+                    // quadrupling the carbon allocation moved seed output
+                    // by nothing.
+                    //
+                    // So the organism's affordable seed count for this tick
+                    // is `budget / seed_cost`, and it is spread over the
+                    // mature cells as a probability. Every cell that draws
+                    // is charged, and the budget runs out when it runs out
+                    // — which is what makes reproduction compete with
+                    // growth rather than sit beside it.
+                    //
+                    // The roll stays because *where* a seed is borne should
+                    // not be the first cell in a sorted walk: that would
+                    // put every seed at one corner of the crown. It no
+                    // longer decides *how many*.
+                    if seed_maturity_met(shoot_cells, seed_maturity) {
+                        let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
+                        if budget >= seed_cost {
+                            world.seed_budget_available += 1;
+                        } else {
+                            world.seed_budget_blocked += 1;
+                        }
+                        // Affordable this tick, spread over the mature
+                        // tissue that could bear one. `shoot_cells` is the
+                        // census this same pass already computed.
+                        let affordable = if seed_cost > 0.0 { budget / seed_cost } else { 0.0 };
+                        let bearers = shoot_cells.max(1) as f32;
+                        let place_here = (affordable / bearers).clamp(0.0, 1.0);
+                        if budget >= seed_cost && rng.chance(place_here) && set_seed(world, cx, cy, organism_id, seed_cost, &mut rng) {
+                            if let Some(state) = world.organism_mut(organism_id) {
+                                state.reproductive_budget -= seed_cost;
+                            }
                         }
                     }
                 }
@@ -5673,6 +5932,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     if world.organism(organism_id).is_some_and(|st| st.deferred_germination) {
         world.seeds_germinated_after_waiting += 1;
     }
+    // **Every germination, not just the deferred ones** — see
+    // `World::germinations` for why the narrower counter above could not
+    // answer "did any seed germinate at all", and which published inference
+    // this exists to replace with a measurement.
+    world.germinations += 1;
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child
     // creation above. A freshly germinated seed is not yet connected to any
@@ -5869,6 +6133,27 @@ const MAX_STEM_RUN: i32 = 32;
 
 #[allow(clippy::too_many_arguments)]
 fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32, leaf_count: f32, bud_survival: f32, rng: &mut Rng) {
+    // The species' own shoot extension price, scaled to wood -- see
+    // `WOOD_CONSTRUCTION_MULTIPLE`. Read the same way `allocate_to_frontier`
+    // reads `leaf_cluster`; wood density deliberately does *not* scale it,
+    // for the reason `tissue_cost` carries at the leaf site.
+    let wood_cost = world
+        .organism(organism_id)
+        .map(|st| st.species)
+        .map(|sp| {
+            world
+                .species
+                .get(sp)
+                .behaviors(CellType::GrowingTip)
+                .iter()
+                .find_map(|b| match b {
+                    Behavior::Grow { cost, .. } => Some(*cost),
+                    _ => None,
+                })
+                .unwrap_or(0.0)
+        })
+        .unwrap_or(0.0)
+        * WOOD_CONSTRUCTION_MULTIPLE;
     let axis = cross_section_axis(world, x, y);
     // **Cheapest possible rejection first.** The flood fill below is
     // O(organism size), and it ran for *every* `MatureBody` cell every tick
@@ -5994,7 +6279,18 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
             let n = world.get(nx, ny);
             n.organism_id() == organism_id && organism::cell_type(n.aux()) == Some(CellType::Leaf)
         };
-        if world.is_empty(nx, ny) || own_leaf {
+        // **Wood is built from carbon now.** See
+        // `WOOD_CONSTRUCTION_MULTIPLE`. Charged against the cell doing the
+        // thickening, which `allocate_to_frontier` has funded out of
+        // `(income - maintenance)` like every other growth cost -- so a
+        // plant thickens as fast as it can pay for, and no faster.
+        //
+        // Refusing rather than truncating, because unlike a leaf spray
+        // there is nothing to truncate: this places one cell or none. The
+        // gradedness lives in *how often* a stem can afford one.
+        if (world.is_empty(nx, ny) || own_leaf) && world.carbon_at(x, y) >= wood_cost {
+            write_carbon(world, x, y, world.carbon_at(x, y) - wood_cost);
+            world.wood_cells_built += 1;
             let cell = world.get(x, y);
             // **Banded here too, and this is the site that matters most for
             // bark colour**: secondary thickening lays far more wood than
@@ -6649,7 +6945,25 @@ so nothing below this line would be about shade"
             // drizzle. Measured at that interval the droughted tree
             // *recovered* — 3,871 cells and `starving_ticks` back to 0 —
             // which reads exactly like the rule failing and was the scene.
-            for _ in 0..200 {
+            // **450 hundred-frame steps, raised from 200 when construction
+            // charging landed, and the property is unchanged.** Charging
+            // carbon to build leaves and wood makes a plant *smaller*, so
+            // its mass term (`MAINTENANCE_PER_CELL x cells`) is smaller, so
+            // the `income >= mass term` line this test's death rule keys on
+            // is easier to clear and a droughted tree accumulates its
+            // `STARVATION_DEATH_TICKS` more slowly. At the old budget it
+            // reached 133 consecutive starving ticks of the 200 needed and
+            // the assertion below fired.
+            //
+            // The window was widened, not the assertion weakened, and that
+            // it still dies was *measured* rather than assumed before the
+            // number was changed. `CLAUDE.md`: a termination claim wants a
+            // budget set from a measured curve. Re-deriving
+            // `STARVATION_DEATH_TICKS` against the new economy is the other
+            // option and is deliberately not taken here -- it is tuning,
+            // and it belongs with the rest of the re-derivation rather than
+            // inside a bug fix.
+            for _ in 0..450 {
                 if withhold {
                     // Re-applied every epoch because the plant's own root tissue
                     // keeps converting soil and the bed would otherwise
@@ -7946,6 +8260,104 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// *next* draw after `set_seed` returns. Confirmed able to fail by
     /// drawing the appended slots from `rng` instead of their substream,
     /// which is exactly the regression it guards.
+    /// **The account change, guarded — with its own positive control.**
+    /// `Reproduce` must draw from the organism's `reproductive_budget` and
+    /// not from the carbon of the cell it happens to run on.
+    ///
+    /// **The first version of this test was blind, and the control is why
+    /// it is written this way.** It placed a single full `MatureBody` cell
+    /// and asserted no seed was set — which passed against the *old*
+    /// implementation too, because one cell never clears `tree.ron`'s
+    /// `seed_maturity: 600` and the spend was never reached at all.
+    /// `CLAUDE.md`: before citing a guard's green, put the fault back and
+    /// watch it go red. It did not.
+    ///
+    /// So the funded arm below is a required positive control, not a
+    /// courtesy: it establishes that this scenario *does* reach the spend,
+    /// which is the only thing that makes the starved arm mean anything.
+    #[test]
+    fn reproduction_spends_the_budget_and_not_the_cell_it_runs_on() {
+        // Enough mature shoot to clear `seed_maturity`, every cell holding
+        // the cap exactly as `transport` leaves a donor -- which is why
+        // the old gate (`carbon >= seed_cost` on that same cell) passed
+        // essentially always.
+        fn stand(budget: f32) -> usize {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree species is compiled in");
+            let parent = w.push_organism(tree).expect("an organism slot is free");
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let mut placed = 0;
+            for y in 40..66 {
+                for x in 40..67 {
+                    place(&mut w, (x, y), wood, parent, CellType::MatureBody, (organism::RESOURCE_SCALE, 1.0));
+                    placed += 1;
+                }
+            }
+            assert!(placed > 600, "the stand must clear tree.ron's seed_maturity or this scenario never reaches the spend");
+            if let Some(st) = w.organism_mut(parent) {
+                st.reproductive_budget = budget;
+            }
+            let before = w.live_organism_count();
+            // **The frame has to move.** `Reproduce`'s roll comes off a
+            // stream keyed on `(organism, cell, frame)`, so calling
+            // `organism_upkeep` in a loop on a world whose clock is frozen
+            // draws the *same* value every pass -- 400 identical ticks, not
+            // 400 independent ones. The first version of this test did
+            // exactly that and its positive control read zero.
+            for _ in 0..400 {
+                w.frame += ORGANISM_TICK_INTERVAL;
+                organism_upkeep(&mut w, parent);
+            }
+            w.live_organism_count().saturating_sub(before)
+        }
+
+        // Positive control. Without this the starved arm is unfalsifiable.
+        let funded = stand(organism::RESOURCE_SCALE);
+        assert!(
+            funded > 0,
+            "the funded arm must actually set seeds, or the starved arm below proves nothing: got {funded}"
+        );
+
+        let starved = stand(0.0);
+        assert_eq!(
+            starved, 0,
+            "a plant with an empty reproductive budget must set no seed, however much carbon the cells it runs on are holding -- \
+             got {starved} against {funded} when funded"
+        );
+    }
+
+    /// **Leaf construction is charged, and the spray is truncated to what
+    /// the node can pay for rather than refused outright.**
+    ///
+    /// Asserts the arithmetic directly rather than through a grown stand:
+    /// the affordability expression is what decides cluster size, and a
+    /// stand-level assertion over it would be the "two instants fitted to
+    /// one trajectory" shape `CLAUDE.md` warns about.
+    #[test]
+    fn a_node_builds_the_spray_it_can_afford_and_no_more() {
+        // The call site's own expression. `tree.ron`'s shoot `Grow.cost`
+        // is the tissue price; a full spray is `leaf_cluster` cells.
+        let tissue_cost = 0.2_f32;
+        let per_leaf = tissue_cost * LEAF_CONSTRUCTION_MULTIPLE;
+        let afford = |resource: f32, cluster: usize| ((resource / per_leaf).floor().max(0.0) as usize).min(cluster);
+
+        // A `const` block: the claim is about the constant itself, so it
+        // belongs at compile time rather than in the run.
+        const {
+            assert!(
+                LEAF_CONSTRUCTION_MULTIPLE > 1.0,
+                "a leaf must not cost the same to build as a stem cell -- that is the whole ordering this constant carries"
+            )
+        };
+        assert_eq!(afford(organism::RESOURCE_SCALE, 10), 10, "a node at the carbon cap should build a full spray");
+        assert_eq!(afford(per_leaf * 2.5, 10), 2, "a node with two-and-a-half leaves' worth builds two, not zero and not ten");
+        assert_eq!(afford(0.0, 10), 0, "a node with nothing builds nothing");
+        assert!(
+            afford(per_leaf * 0.99, 10) == 0 && afford(per_leaf, 10) == 1,
+            "the truncation must be graded at the margin rather than jumping"
+        );
+    }
+
     #[test]
     fn set_seed_leaves_the_callers_rng_position_alone() {
         let mut w = test_world();

@@ -720,6 +720,64 @@ pub struct World {
     /// behaviour and is not evidence of anything.
     pub seeds_germinated_after_waiting: u32,
 
+    /// **Every germination, deferred or not** — the total count of `Seed`
+    /// cells that became a growing shoot.
+    ///
+    /// Distinct from `seeds_germinated_after_waiting` above, which counts
+    /// only the dormancy-deferred subset and therefore cannot answer "did
+    /// any seed germinate at all". That gap made a real conclusion rest on
+    /// arithmetic instead of a count: `Reports/plant-recruitment-measurement-
+    /// 2026-08-27.md` §5a inferred that tree seeds were expiring in the bank
+    /// rather than germinating, by comparing the standing bank against a
+    /// pure-decay prediction (155 set, half-life 9,000, ~43 expected, 40
+    /// observed). That inference is sound and it is still an inference — it
+    /// assumes a uniform seed-set rate, and the report says so. This counter
+    /// is what settles it directly.
+    ///
+    /// Incremented in `plant::germinate`, which every germination passes
+    /// through, so it cannot drift from the thing it counts.
+    pub germinations: u64,
+
+    /// **Leaf cells a node wanted and could not pay for** — the effect
+    /// counter for `plant::LEAF_CONSTRUCTION_MULTIPLE`.
+    ///
+    /// `CLAUDE.md` requires an "it fired" counter to be paired with an
+    /// effect counter from the far side of the call, and a construction
+    /// charge has a specific way of meaning nothing: if every node can
+    /// always afford a full spray, the price is real arithmetic that never
+    /// binds, and a sweep over the multiple would move nothing while
+    /// looking like a converged result. This is the quantity that says
+    /// whether the charge is a *ceiling* or a decoration.
+    ///
+    /// Counts cells, not events: a node that wanted ten and afforded two
+    /// contributes eight. Read against `leaf_cells_built` beside it — the
+    /// ratio is what binds, not either number alone.
+    pub leaf_cells_unaffordable: u64,
+
+    /// Leaf cells actually placed, the denominator for
+    /// `leaf_cells_unaffordable`.
+    pub leaf_cells_built: u64,
+
+    /// Cells of secondary thickening actually laid, once wood costs carbon
+    /// — the effect counter for `plant::WOOD_CONSTRUCTION_MULTIPLE`.
+    pub wood_cells_built: u64,
+
+    /// **Times `Reproduce` was eligible on a cell and the reproductive
+    /// budget could not cover a seed** — the same effect counter for
+    /// `plant::REPRODUCTIVE_ALLOCATION`.
+    ///
+    /// Counted *before* the chance roll and deliberately not gated on it,
+    /// so this consumes no randomness and cannot change behaviour: it asks
+    /// "was the price binding at this opportunity", not "did a seed fail".
+    /// Reordering the roll to ask the narrower question would change RNG
+    /// consumption and therefore the stand, which is not a price an
+    /// instrument may charge.
+    pub seed_budget_blocked: u64,
+
+    /// Opportunities where `Reproduce` was eligible and the budget *could*
+    /// cover a seed — the denominator for `seed_budget_blocked`.
+    pub seed_budget_available: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -1487,6 +1545,12 @@ impl World {
             organisms_refused: 0,
             organism_generation_wraps: 0,
             seeds_germinated_after_waiting: 0,
+            germinations: 0,
+            leaf_cells_unaffordable: 0,
+            leaf_cells_built: 0,
+            wood_cells_built: 0,
+            seed_budget_blocked: 0,
+            seed_budget_available: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             rotted_to_solid: 0,
@@ -1955,6 +2019,7 @@ impl World {
             anchor_status: 1.0,
             slenderness: 0.0,
             income: 0.0,
+            reproductive_budget: 0.0,
             maintenance_basis: 0.0,
             maintenance: 0.0,
             maintenance_unpaid: 0.0,

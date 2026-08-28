@@ -16,6 +16,16 @@ tried?"*.
 
 ## Method and architecture — read these first
 
+- [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
+  — **method finding, from a live instance.** Why every change here seems to
+  demand a global retune: most large levers have **no counterweight**, so
+  every constant is calibrated against every other constant's current
+  behaviour and any change reallocates a fixed budget. Costs are not a feature
+  competing with features — they are what makes features composable. Also
+  names the bias that compounds it (judging a change before its retune
+  systematically rejects the changes worth making, ratcheting toward a local
+  optimum the owner has already rejected), and proposes a `CLAUDE.md` rule
+  rather than making one.
 - [design-philosophy.md](design-philosophy.md) — **settled.** The short,
   opinionated statement the other reports imply: constants, hardcoding,
   scope boundaries, outcome-vs-mechanism. Read before arguing about any of
@@ -372,6 +382,109 @@ field rework — see `open-bugs-handoff.md`.
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
 
+**The plant-evolvability line (2026-08-26/27). Read the handoff first —
+it carries the reading order, what is established, and an owner-caught
+drift that two of these documents still reflect.**
+
+- [plant-evolvability-handoff-2026-08-27.md](plant-evolvability-handoff-2026-08-27.md)
+  — **handoff; read first when picking this line up.** Reading order for the
+  six documents, what is actually established, and **§3: an owner-caught
+  drift** — the session slid from *build the missing machinery* to
+  *characterise the machinery we have*, which are different projects. The
+  morphospace census answers the second and is **not on the critical path**
+  to the first; its honest value is hedging one reviewer's challenge and
+  building the descriptor set the machinery work will need anyway. Also: why
+  founder allele variance is not a prerequisite for a sampling harness, and
+  why a disturbance process must be a neutral hazard rather than an age cull.
+- [plant-phototropism-lateral-2026-08-27.md](plant-phototropism-lateral-2026-08-27.md)
+  — **finding; change built, proved, and NOT landed.** `phototropism_dir`'s
+  codomain held no horizontal component, so `light_weight` was inert *by
+  construction*. The repair `dead-ends.md` prescribes was built and its guard
+  proved non-blind — then withdrawn, because it takes tree reproduction to
+  **zero**: the authored `light_weight` values (up to 0.6) were calibrated
+  against a lever that could only say "up", and given a real 2D direction they
+  steer plants sideways until they never reach `seed_maturity`. The working
+  patch, a committed 6-seed baseline sweep, and the re-derivation the fix
+  needs are all banked for the next session.
+- [plant-equilibrium-costs-2026-08-27.md](plant-equilibrium-costs-2026-08-27.md)
+  — **audit: does every lever have a cost and a benefit?** Every `Behavior`
+  field and `SpeciesDef` scalar traced to its consumer and sorted into four
+  verdicts — *both* (self-limiting), *benefit with no cost* (runs away, held
+  by a hand-placed fence), *cost with no benefit* (a pure tax that detonates
+  the day its benefit is switched on), and *neither*. **The mechanism of the
+  global retune, in one sentence: the engine prices tissue upkeep and almost
+  never prices tissue construction**, so a morphology lever's cost is not
+  charged where the decision is made but deferred into one pooled maintenance
+  bill that every other constant is calibrated against. Leaves and secondary
+  thickening — the two largest tissue producers — are both free to build and
+  say so in their own comments. **Two corrections to the survey's §4a,
+  measured over four world seeds:** `turgor_source` is not free, it is
+  *unrewarded* — it costs 0.5 → 1.3 in bill-to-income and 200x in starvation
+  shedding while nothing reachable moves — and at crown-contact spacing
+  (`trees=24 width=512`, no build needed) the same two arms separate cleanly
+  on who survives at all, 17–23 established of 24 against 11–16. Also: why
+  stand seed totals can never have been the signal (pinned by world width);
+  fences against prices, with `turgor_taper` as the in-repo model for a
+  graded stop; the unnormalised direction score as a second retune mechanism
+  that is not costs at all; and why a costs pass buys equilibrium but not, on
+  its own, diversity. **§10 carries three owner decisions taken 2026-08-27**
+  — charge construction *at the decision* (and the biology behind it: the
+  engine is missing growth respiration entirely, and has wood inverted,
+  expensive to keep and free to build where biology is the reverse); the
+  three reproduction options, with the finding that seeds and growth draw
+  from **separate accounts** today so `seed_cost` is not a price at all; and
+  that wood density should relocate onto the material rather than stay a
+  named locus.
+- [plant-heritability-survey-design-2026-08-27.md](plant-heritability-survey-design-2026-08-27.md)
+  — **method, not results.** How to decide *which authored parameters should
+  become heritable* by measurement rather than by a fifth design opinion:
+  point `plant-species-authoring.md`'s existing lever-table method at the
+  ~25-30 authored constants that set phenotype and are not heritable today.
+  Carries the two criteria — it must move the phenotype **and** have a
+  counterweight, since a free lever made heritable produces uniformity — plus
+  both required controls and the traps.
+- [plant-recruitment-measurement-2026-08-27.md](plant-recruitment-measurement-2026-08-27.md)
+  — **measurement, 16 paired runs.** Overturns the three-way review's
+  unanimous "nothing can evolve yet": **grass reaches generation 2 in 7 of 8
+  seeds; tree reaches generation 1 in 8 of 8 and never more**, despite
+  setting 5-8x more seeds. Fecundity is not the bottleneck, establishment is.
+  Also: the 4,095-slot ceiling is at 0.7-0.9% with 0 refusals, and branch
+  angle and internode are `1` in every morph of all 16 runs — review C's
+  monomorphism finding confirmed on live data, and shown to survive a working
+  generational loop. Logs in `Reports/data/recruitment-2026-08-27-*`.
+- [plant-evolvability-three-reviews-2026-08-27.md](plant-evolvability-three-reviews-2026-08-27.md)
+  — **review synthesis, disagreements preserved.** Three reviewers with
+  different mandates, two firewalled from the design note. Unanimous and from
+  two independent measurements: **generation depth is 1 and inherited-genome
+  establishment is 0**, so nothing can evolve yet and every genome question is
+  downstream of turnover. They split on architecture: A and B call it spent
+  (B proposes an organ-allocation budget instead), C shows the claim is
+  untested because `plant.rs:718-719` hardcodes four of six discrete loci
+  monomorphic in every founder, and the one architectural positive is buried
+  under a stale "NOT merged" header. Cheapest next measurement, ~20 min on an
+  existing binary: grass establishment, never measured.
+- [plant-evolvability-facts-2026-08-27.md](plant-evolvability-facts-2026-08-27.md)
+  — **facts, not conclusions.** Verified `file:line` ground truth for the
+  plant-evolvability question, written so reviewers spend budget on judgement
+  rather than re-deriving engine facts, and so no reviewer takes another's
+  word for anything. Deliberately carries no recommendation. Corrects three
+  claims made in the 2026-08-26 note and its review (the `ByOrder` field
+  count, the "two dispatch sites" blast radius, and the identity guard's
+  supposed blindness).
+- [plant-morphology-evolvability-2026-08-26.md](plant-morphology-evolvability-2026-08-26.md)
+  — **findings note, answering a direct owner question**; successor in role
+  to the reach note above. Can those forms *evolve*, or must they be
+  authored? The deciding question is what the genome *holds*: a parametric
+  genome (today) buys a blob around whatever ancestor was authored however
+  many loci it gets, while a **developmental** genome — the `ByOrder`
+  production set made heritable and structurally mutable — is where novel
+  body plans come from. Records the three structural stops, why the engine
+  is already an L-system, the Bornhofen/Ochoa precedent from
+  `plant-simulation-research.md` §7, how far creature decision **D4**
+  transfers (one objection of three — plants are asexual, so no crossover to
+  protect), and the clade-as-inventory / program-as-genome split. §5a
+  withdraws its own first draft's loci recommendation and says why. Four
+  gates in §7, three open owner calls in §8.
 - [soil-accumulation-and-the-carbon-cycle.md](soil-accumulation-and-the-carbon-cycle.md)
   — **yield landed 2026-08-27; the sink is not built.** Why trees were being
   buried in their own leaf litter: a plant fixes carbon out of light into a

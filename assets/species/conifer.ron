@@ -120,7 +120,7 @@
                 // under plagiotropic everything-else.
                 tropism: [Orthotropic, Plagiotropic, Plagiotropic, Plagiotropic],
             ),
-            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, drought_death: 0.0),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
@@ -185,7 +185,7 @@
             // Rates are a first pass and explicitly untuned against an
             // outcome: they want a sweep once a population has run long
             // enough to measure generations per unit time.
-            Reproduce(seed_cost: 0.3, seed_chance: 4e-05, seed_maturity: 700),
+            Reproduce(seed_cost: 0.3, reproductive_allocation: 0.10, seed_maturity: 700),
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             // Same water economy as tree.ron -- see its own entries for
@@ -223,7 +223,7 @@
             // executing the answer he already gave, not a new call; if a
             // species should shed faster than the others that is a
             // separate, per-species decision and wants its own card.
-            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, drought_death: 0.00075),
         ]),
     ],
 )

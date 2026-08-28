@@ -705,31 +705,6 @@ pub enum Behavior {
         /// that foliage sits above it.
         #[serde(default)]
         shade_death: f32,
-        /// **Transpirational demand**: water this cell spends per organism
-        /// tick at full light, scaled by the light it actually reads.
-        /// `0.0` disables it, which is what every species that has not
-        /// opted in gets.
-        ///
-        /// This is the charge that makes roots matter. Before it, `Absorb`
-        /// credited the same pool `Photosynthesize` filled and nothing
-        /// consumed water at all, so a plant with no soil contact ran no
-        /// deficit and grew on light alone — which is why a canopy filled
-        /// with epiphytes and why a germination guard had to forbid what
-        /// the economy should have made fatal.
-        ///
-        /// **Driven by foliage, not by root count**, which is what
-        /// `plant::TRANSPIRATION_PER_ROOT_CELL`'s own doc says it should
-        /// have been all along: "real transpiration is driven by *leaf*
-        /// area and evaporative demand, not by root count — the canopy is
-        /// the pump… driving it from a real leaf count needs the
-        /// whole-organism totals Decision 2's sidecar introduces". The
-        /// sidecar is here now.
-        ///
-        /// Scaled by light because stomata open in light: a leaf at night
-        /// spends almost nothing, which keeps the day/night oscillator out
-        /// of the *decisions* while leaving it real in the flow.
-        #[serde(default)]
-        transpiration: f32,
         /// Shedding **pressure** under drought, the exact counterpart of
         /// `shade_death` and cubed for the same reason: the chance per tick
         /// that a leaf with no water is shed, falling away steeply as its
@@ -792,17 +767,32 @@ pub enum Behavior {
         /// afford to reproduce does not.
         #[serde(default)]
         seed_cost: f32,
-        /// Chance per organism tick that an eligible cell sets a seed.
+        /// **What fraction of its surplus this species commits to
+        /// reproduction** — the strategy trait that replaced a rate fence.
         ///
-        /// Small on purpose: this runs on every `MatureBody` cell of every
-        /// plant, so the *organism's* seed rate is this times its canopy
-        /// size — which is the coupling wanted. A big tree should out-breed
-        /// a small one without a rule saying so.
+        /// **This field was `seed_chance`, a per-cell dice roll, and the
+        /// swap is the point rather than a rename.** Measured
+        /// (`Reports/plant-equilibrium-costs-2026-08-27.md` §13): with a
+        /// roll in the way, carbon was the binding constraint on
+        /// reproduction **0.7% of the time** — the roll decided the rate
+        /// and the economy was decoration. Quadrupling the carbon
+        /// allocation changed seed output by nothing. A price behind a
+        /// fence is not a price.
         ///
-        /// `0.0` disables reproduction, which is the default and what moss
-        /// and any species predating this get.
+        /// Now the *number* of seeds a plant sets is `budget / seed_cost`,
+        /// which is carbon, and the only randomness left decides *which*
+        /// mature cell bears each one. So a big tree still out-breeds a
+        /// small one — through the surplus it earns rather than through a
+        /// count of cells to roll on — and raising this trades directly
+        /// against growth, because `allocate_to_frontier` takes it off the
+        /// top before funding the frontier.
+        ///
+        /// Real plants run roughly 5-30% of net primary production into
+        /// reproduction, and that is the range these values are authored
+        /// in. `0.0` disables reproduction, which is what moss and any
+        /// species predating this get.
         #[serde(default)]
-        seed_chance: f32,
+        reproductive_allocation: f32,
         /// Shoot cells a plant needs before it sets any seed at all.
         ///
         /// Without it a seedling reproduces on its first mature cell and
@@ -1619,6 +1609,34 @@ pub struct OrganismState {
     ///
     /// Night-scaled, like the pool it feeds: this is money, not policy.
     pub income: f32,
+    /// **Carbon set aside for reproduction, out of the same surplus growth
+    /// draws on** — `plant::allocate_to_frontier` accrues it,
+    /// `Behavior::Reproduce` spends it.
+    ///
+    /// **This exists because reproduction and growth were not competing
+    /// at all.** `Reproduce` runs on `MatureBody` cells and used to debit
+    /// `seed_cost` from *that cell's* carbon — and a mature cell sits
+    /// pinned at `RESOURCE_SCALE`, refilled by `transport` rather than out
+    /// of the growth pool (`plant.rs`'s own diagnostic: *"the trunk pinned
+    /// at the `RESOURCE_SCALE` cap. The plant was never out of carbon."*).
+    /// Meanwhile `allocate_to_frontier` distributes surplus **only to
+    /// frontier cells**. Two separate accounts, so `tree.ron`'s
+    /// `seed_cost: 0.3` was not a price in any meaningful sense, and the
+    /// `seed_maturity` fence had to exist to stop what the price could
+    /// not.
+    ///
+    /// Routing it here makes reproducing *not growing*, automatically,
+    /// which is the standard allocation hierarchy — reproduction comes out
+    /// of surplus after maintenance, and the cost of reproduction
+    /// (reproducing trees measurably grow less that season) is among the
+    /// better-documented plant allocation trade-offs.
+    ///
+    /// **Accrued and capped rather than spent-or-lost.** `Reproduce` fires
+    /// on a per-cell chance, so a tick's surplus has to still be there
+    /// when the roll lands; and provisioning seeds from stored reserve is
+    /// what real plants do. The cap is what stops a long-lived plant
+    /// banking an unbounded seed run — see `plant::REPRODUCTIVE_BUDGET_CAP`.
+    pub reproductive_budget: f32,
     /// **The bill at unit price** — `Σ (q_peak / L_node)^MAINTENANCE_EXPONENT`
     /// over shoot tissue, before `MAINTENANCE_PER_NODE` multiplies it.
     ///

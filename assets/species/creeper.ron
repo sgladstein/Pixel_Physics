@@ -110,7 +110,7 @@
                 sympodial: [false],
                 tropism: [Orthotropic],
             ),
-            Photosynthesize(rate: 0.5, shade_death: 0.0, transpiration: 0.05, drought_death: 0.0),
+            Photosynthesize(rate: 0.5, shade_death: 0.0, drought_death: 0.0),
         ]),
         (RootTip, [
             Absorb(rate: 1.5),
@@ -130,7 +130,7 @@
             ),
         ]),
         (MatureBody, [
-            Reproduce(seed_cost: 0.25, seed_chance: 6e-05, seed_maturity: 250),
+            Reproduce(seed_cost: 0.25, reproductive_allocation: 0.18, seed_maturity: 250),
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             Absorb(rate: 1.5),
@@ -161,7 +161,7 @@
             // executing the answer he already gave, not a new call; if a
             // species should shed faster than the others that is a
             // separate, per-species decision and wants its own card.
-            Photosynthesize(rate: 0.35, shade_death: 0.00075, transpiration: 0.05, drought_death: 0.00075),
+            Photosynthesize(rate: 0.35, shade_death: 0.00075, drought_death: 0.00075),
         ]),
     ],
 )
