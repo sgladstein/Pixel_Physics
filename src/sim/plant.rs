@@ -623,6 +623,36 @@ pub fn genotype(world: &World, organism_id: u16, slot: usize, variance: f32) -> 
     (1.0 + draw * variance).max(0.0)
 }
 
+/// Chance a founder carries something other than its species' authored
+/// allele, at each of the four discrete loci that otherwise had no founder
+/// variance at all.
+///
+/// **A rate, not a uniform redraw, and that is the whole design.**
+/// `LOCUS_WOOD_DENSITY` and `LOCUS_LEAF_ECONOMY` are founded from the
+/// positional draws in `seed_genotype`, so a first generation is already a
+/// mixed stand on both of those axes. The other four were not: branch angle
+/// and internode were pinned at the mid allele, and sympody and tropism took
+/// the species file's own value — so every founder of a species agreed on all
+/// four, and measured across 16 live runs those positions never moved while
+/// foliage and density did.
+///
+/// They *can* move — `DISCRETE_MUTATION_CHANCE` reaches every locus — but it
+/// is 0.03 per birth and measured generation depth is 1–2
+/// (`Reports/plant-recruitment-measurement-2026-08-27.md`), so most of a
+/// population never moves on any given locus. A locus that cannot vary is a
+/// locus selection cannot sort, and standing variation is the raw material
+/// this line needs.
+///
+/// **Why a rate rather than drawing uniformly over the alleles.** A uniform
+/// draw on a 2-allele boolean would make half of every planted stand
+/// sympodial, discarding the species identity `Behavior::Grow`'s own arm
+/// relies on (*"an unmutated stand behaves exactly as authored"*). At this
+/// rate the authored form stays the mode and the stand is **graded** — mostly
+/// the species as written, with a visible minority carrying each variant.
+/// Same shape as `DISCRETE_MUTATION_CHANCE`, applied once at founding rather
+/// than once per birth.
+const FOUNDER_VARIANT_CHANCE: f32 = 0.25;
+
 /// Draw this individual's genotype, once, from **where it germinated**.
 ///
 /// Keyed on the germination coordinate and the world seed rather than on
@@ -705,18 +735,44 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         rng.below(organism::LOCUS_ALLELES[organism::LOCUS_WOOD_DENSITY] as u32) as u8
     };
     let bark_band = organism::bark_band_for_density(bark, density_allele);
-    // **Discrete alleles start at what the species file declares**, so an
-    // authored species is the point a population diverges *from* rather
-    // than an identity it is stuck with. The scaled loci start mid-range
-    // (index 1 of three), so a freshly planted stand is exactly the species
-    // as written and every morph is one mutation away in either direction.
+    // **Discrete alleles are centred on what the species file declares**, so
+    // an authored species is the point a population diverges *from* rather
+    // than an identity it is stuck with. The scaled loci centre on mid-range
+    // (index 1 of three) and every morph is one mutation away in either
+    // direction.
+    //
+    // **They used to be pinned there, and that was the freeze.** This block
+    // read `= 1` outright, and the sympody/tropism pair below took the
+    // species value with no draw at all, so four of the six loci had zero
+    // founder variance and — measured across 16 live runs — never moved.
+    // `FOUNDER_VARIANT_CHANCE` now gives each of the four a minority variant
+    // at founding; see its doc for why a rate rather than a uniform redraw.
     let mut alleles = [0u8; organism::DISCRETE_LOCI];
-    // (Density and economy are *not* mid-range: both are founded from the
-    // positional draws above, which is what keeps a first generation a
+    // Picks among the *other* alleles when it fires, so the roll always
+    // moves. Rolling over all `n` instead would make the effective rate
+    // `chance * (n-1)/n` and differ per locus, i.e. one number meaning two
+    // things at the 2-allele loci and the 3-allele ones.
+    //
+    // Streams 66-69: genotype slots take 0..`GENOTYPE_TRAITS` and the two
+    // colour/strategy draws above take 64 and 65, so these collide with
+    // nothing within a run.
+    let vary = |locus: usize, base: u8, stream: u64| -> u8 {
+        let n = organism::LOCUS_ALLELES[locus].max(1);
+        if n <= 1 {
+            return base;
+        }
+        let mut rng = rng::stream(world_seed, x as u64, y as u64, stream);
+        if !rng.chance(FOUNDER_VARIANT_CHANCE) {
+            return base;
+        }
+        (base + 1 + rng.below(n as u32 - 1) as u8) % n
+    };
+    // (Density and economy are *not* varied here: both are founded from the
+    // positional draws above, which already keeps a first generation a
     // mixed stand on both strategy axes and both colour bands from frame
     // one -- `Reports/plant-genome-design.md` §5.)
-    alleles[organism::LOCUS_BRANCH_ANGLE] = 1;
-    alleles[organism::LOCUS_INTERNODE] = 1;
+    alleles[organism::LOCUS_BRANCH_ANGLE] = vary(organism::LOCUS_BRANCH_ANGLE, 1, 66);
+    alleles[organism::LOCUS_INTERNODE] = vary(organism::LOCUS_INTERNODE, 1, 67);
     alleles[organism::LOCUS_WOOD_DENSITY] = density_allele;
     if let Some(id) = species_id {
         let sp = world.species.get(id);
@@ -733,8 +789,13 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         if let Some(Behavior::Grow { sympodial, tropism, .. }) =
             sp.behaviors(CellType::GrowingTip).iter().find(|b| matches!(b, Behavior::Grow { .. }))
         {
-            alleles[organism::LOCUS_SYMPODIAL] = u8::from(sympodial.at(1));
-            alleles[organism::LOCUS_TROPISM] = u8::from(tropism.at(1) == organism::Tropism::Plagiotropic);
+            // The species value is the *centre* of the founding draw, not
+            // the whole of it -- see `FOUNDER_VARIANT_CHANCE`. At a 2-allele
+            // locus "vary" means the other boolean, so a monopodial species
+            // founds a sympodial minority and vice versa.
+            alleles[organism::LOCUS_SYMPODIAL] = vary(organism::LOCUS_SYMPODIAL, u8::from(sympodial.at(1)), 68);
+            alleles[organism::LOCUS_TROPISM] =
+                vary(organism::LOCUS_TROPISM, u8::from(tropism.at(1) == organism::Tropism::Plagiotropic), 69);
         }
     }
     if let Some(state) = world.organism_mut(organism_id) {
@@ -1514,8 +1575,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // **Read at planting, not here.** These two seed
                 // `LOCUS_SYMPODIAL` and `LOCUS_TROPISM` in `seed_genotype`,
                 // and growth then reads the *allele* -- so the species file
-                // sets where a population starts and mutation decides where
-                // it goes. An unmutated stand behaves exactly as authored.
+                // sets where a population is centred and mutation decides
+                // where it goes.
+                //
+                // This used to add "an unmutated stand behaves exactly as
+                // authored", which stopped being true when
+                // `FOUNDER_VARIANT_CHANCE` landed: the species value is now
+                // the *mode* of the founding draw rather than the whole of
+                // it, so a founding stand carries a minority on each of
+                // these two loci before any mutation has happened.
                 sympodial: _,
                 tropism: _,
                 branch_angle,
@@ -7920,6 +7988,58 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
 
         let other_world = draws_at_100(&[], 999);
         assert_ne!(alone, other_world, "a different world seed should grow a different individual at the same spot");
+    }
+
+    /// **Every discrete locus varies between founders**, which four of the
+    /// six did not until `FOUNDER_VARIANT_CHANCE` landed.
+    ///
+    /// This is the guard the freeze needed and did not have. Branch angle
+    /// and internode were pinned at the mid allele outright, and sympody
+    /// and tropism took the species file's own value with no draw, so every
+    /// founder of a species agreed on all four — measured across 16 live
+    /// runs, those positions never moved while foliage and density did, and
+    /// nothing in the suite said so. They *can* move by mutation, but at
+    /// `DISCRETE_MUTATION_CHANCE` 0.03 and a measured generation depth of
+    /// 1–2, most of a population never does.
+    ///
+    /// Asserted as a **property over founders** rather than a fingerprint:
+    /// it says each locus takes more than one value across a spread of
+    /// germination sites, which is what "selection has something to sort"
+    /// actually requires. It survives a retune of the rate and would fail
+    /// for a re-pinning of any locus, which is the regression it exists for.
+    ///
+    /// Deliberately *not* asserting a proportion. The rate is authored, the
+    /// sample is 240 sites, and a bar on the split would be a bar on a
+    /// binomial that reshuffles on any legitimate change.
+    #[test]
+    fn every_discrete_locus_varies_between_founders() {
+        let mut w = test_world();
+        w.seed = 4_242;
+        let tree = w.species.id_of("tree").expect("tree species is compiled in");
+
+        let mut seen = [[false; 8]; organism::DISCRETE_LOCI];
+        for i in 0..240i32 {
+            let (x, y) = (7 + (i % 24) * 3, 11 + (i / 24) * 3);
+            let Some(id) = w.push_organism(tree) else { continue };
+            seed_genotype(&mut w, id, x, y);
+            let alleles = w.organism(id).expect("live organism").alleles;
+            for (locus, allele) in alleles.iter().enumerate() {
+                seen[locus][(*allele as usize).min(7)] = true;
+            }
+            w.free_organism(id);
+        }
+
+        for (locus, values) in seen.iter().enumerate() {
+            let distinct = values.iter().filter(|v| **v).count();
+            assert!(
+                distinct > 1,
+                "locus {locus} took only {distinct} value across 240 founding sites -- it is \
+                 frozen, so selection has nothing to sort on it. Four loci were frozen exactly \
+                 this way (branch angle and internode pinned to the mid allele, sympody and \
+                 tropism read straight off the species file) and no test noticed. See \
+                 `FOUNDER_VARIANT_CHANCE`."
+            );
+        }
     }
 
     /// **The property, rather than two instants fitted to one trajectory**
