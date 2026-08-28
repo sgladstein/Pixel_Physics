@@ -122,28 +122,53 @@ def check():
 
 
 def selftest():
-    """Positive and negative control on the size rule, in milliseconds.
+    """Positive and negative controls on the size rule, in milliseconds.
 
-    The size finding is a warning, so it cannot be proven by `docscheck
-    --selftest` (which greps for a check that went red). It gets its control
-    here instead -- otherwise the rule this file is named for would be the one
-    thing never shown able to fire.
+    The size finding is a warning, so `docscheck --selftest` (which greps for a
+    check that went red) cannot cover it. It gets its control here.
+
+    **It must drive `oversized()`, not re-implement it.** The first version of
+    this function wrote two temp files and then asserted
+    `big.stat().st_size > CAP_BYTES` inline -- which proves Python's `>`
+    operator works and nothing else. Measured 2026-08-28: with `oversized()`
+    gutted to `return []`, that selftest still printed both controls passing and
+    exited 0. The rule this file is named for was the one thing never shown able
+    to fire, which is exactly what the docstring above claimed it prevented.
+
+    A control that does not call the code under test is not a weak control, it
+    is a blind one -- CLAUDE.md's standing rule, applied to the guard rather
+    than to the guarded.
     """
     import tempfile
     ok = 0
+    global LANES
+    real_lanes = LANES
     with tempfile.TemporaryDirectory() as d:
-        big = pathlib.Path(d) / "big.md"
-        big.write_bytes(b"x" * (CAP_BYTES + 1))
-        small = pathlib.Path(d) / "small.md"
-        small.write_bytes(b"x" * (CAP_BYTES - 1))
-        if big.stat().st_size > CAP_BYTES:
-            print("lanecheck: positive control -- a note one byte over the cap is flagged")
+        LANES = pathlib.Path(d)
+        # README.md must be ignored by notes(); a note one byte either side of
+        # the cap is the boundary the rule turns on.
+        (LANES / "README.md").write_bytes(b"x" * (CAP_BYTES + 1))
+        (LANES / "over.md").write_bytes(b"x" * (CAP_BYTES + 1))
+        (LANES / "under.md").write_bytes(b"x" * (CAP_BYTES - 1))
+        (LANES / "exact.md").write_bytes(b"x" * CAP_BYTES)
+
+        flagged = {p.name for p, _ in oversized()}
+        listed = {p.name for p in notes()}
+
+        if flagged == {"over.md"}:
+            print("lanecheck: positive control -- oversized() flags the note one byte over")
+            print("lanecheck: negative control -- and flags neither the one under nor the one at the cap")
         else:
-            print("lanecheck: POSITIVE CONTROL FAILED"); ok = 1
-        if not small.stat().st_size > CAP_BYTES:
-            print("lanecheck: negative control -- a note one byte under is not flagged")
-        else:
-            print("lanecheck: NEGATIVE CONTROL FAILED"); ok = 1
+            print(f"lanecheck: CONTROL FAILED -- oversized() returned {sorted(flagged)},"
+                  " expected exactly ['over.md']")
+            ok = 1
+        if "README.md" in listed:
+            print("lanecheck: FAILED -- notes() must not treat the protocol doc as a lane note")
+            ok = 1
+        elif listed == {"over.md", "under.md", "exact.md"}:
+            print("lanecheck: notes() lists the three notes and skips README.md")
+    LANES = real_lanes
+
     n = len(oversized())
     print(f"lanecheck: {n} live note(s) currently over the cap"
           f"{' -- the rule is firing on real data' if n else ''}")

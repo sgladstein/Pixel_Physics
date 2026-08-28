@@ -30,8 +30,32 @@ But it is the **minority term**. Decomposing a real measured agent run —
 Both numbers matter, and they matter in different places. The prefix is
 multiplied by **head count**, so it prices the *topology* decision. The reading
 is multiplied by **what each head opens**, so it prices the *brief*. A strategy
-choice that gets the topology right and the brief wrong has optimised a quarter
-of the bill.
+choice that gets the topology right and the brief wrong has optimised the
+smaller term.
+
+**Three corrections to that table, none of which reverses it** (`pr89-review.md`
+§6):
+
+* **The 74% is not all reading.** `agent_tokens` is everything the subagent
+  consumed — tool results *plus* the harness system prompt, the tool schemas, the
+  task prompt and the agent's own output. Those are multiplied by head count
+  exactly as `CLAUDE.md` is, so on a topology decision they sit on the *prefix*
+  side; counted there the split is nearer **41/59**. The original framing —
+  "the prefix is the minority term", "optimised a quarter of the bill" — was
+  overstated. The ordering was not.
+* **The numerator is estimated, the denominator measured.** ~24,295 is bytes/4.0
+  (see §8 on why that divisor is unvalidated); 95,518 is the harness's own
+  figure. The ratio moves across 23–29% on the divisor alone.
+* **There are two recorded arms, not one.** `docbench` also records 135,580
+  agent_tokens, giving 18% prefix / 82%. Both arms point the same way; the split
+  would have to fall past ~50/50 to change any conclusion here, and nothing
+  plausible gets it there.
+
+**And both arms are `docbench` agents** — documentation-question agents, the most
+read-heavy task class in the repo. A write-heavy lane making code changes with
+few large reads has a different split, and this number should not be quoted at
+one. The decision table below rests on the disjoint-partition argument, not on
+74%.
 
 `python3 scripts/contextbudget.py` prints the first; `--corpus` prints the
 second.
@@ -48,15 +72,24 @@ reading overlaps**.
   for the same pages N times, and a coordinator that read it once would have
   paid once.
 
-Measured, 2026-08-27, over the repo's own harnesses:
+Over the repo's own harnesses:
 
-| harness | agents | duplication factor |
+| harness | agents | reading |
 |---|---|---|
-| `doc-audit-agent-framing.js` | 10 census | **1.00x** — zero files shared |
+| `doc-audit-agent-framing.js` | 10 census (+2 review) | **disjoint by construction** — an explicit file list per agent, no file in two lists |
 | `world-review.js` | 7 lenses | overlapping by construction — one shared image set, overlapping source |
 
 `doc-audit` is the design to copy, and the reason it works is the explicit
 disjoint file list per agent, not the topology.
+
+**This table said "1.00x duplication, measured" and that was the wrong word**
+(`pr89-review.md` §8). The file lists are disjoint *because they were written as
+a partition*; reading them back and finding no overlap is a tautology, not a
+result. It is also not the whole run: the `parallel()` call launches **twelve**,
+and the two review agents are told to grep across `README.md`, `PLAN.md`,
+`Reports/*.md`, `wiki/*.md` and all of `src/` — files assigned to census groups.
+The quantity worth measuring is *files read*, which nothing measured. The design
+conclusion is unaffected; the evidence class was misstated.
 
 ### The decision table
 
@@ -174,44 +207,102 @@ Return: commit, push, report the head SHA.
 session to run `branchcheck.sh`, and ten branches still sat at *exactly* 160
 commits behind. **A check catches what a convention does not.**
 
-| Rule | Enforced by | Attacks |
+| Rule | Enforced by | Strength |
 |---|---|---|
-| No whole-file read of an indexed document | `scripts/readguard.py`, `PreToolUse` on `Read` | the 74% |
-| The always-loaded budget cannot grow unwatched | `scripts/contextbudget.py --gate`, `--check` via `docscheck` check 9 | the 26% |
-| Sub-agent and workflow prompt caches survive a phase boundary | `subagentPromptCacheTtl: "1h"` | §6 |
-| `git add -A` | `permissions.deny` | someone else's work |
-| Branch drift is known before acting | `SessionStart` hook | invalid measurements |
+| No whole-file read of an indexed document | `scripts/readguard.py`, `PreToolUse` on `Read` | **a nudge on one tool** — it cannot see `cat`, and in Bash-first working styles that is the common path. Its value is the pointer in the denial, not the denial |
+| The always-loaded budget stays under its ceiling | `contextbudget.py --gate` via `docscheck` **check 9b** | real, and red when breached — but `docscheck` is informational in CI, so it stops a merge only if someone runs it |
+| The recorded budget matches the file | `contextbudget.py --check` via `docscheck` check 9 | real |
+| A lane note stays a channel | `scripts/lanecheck.py` via `docscheck` check 10 | **the hard exit gates only that two numbers agree.** The size rule itself warns and does not fail, deliberately — a lane writes only its own note |
+| `git add -A` | `permissions.deny` | absolute — the only one here that cannot be walked past |
+| Branch drift is known before acting | `SessionStart` hook | real |
+
+**That column is new, and it is the honest version** (`pr89-review.md` §2, §3,
+§10). The table originally read as six equivalent gates. They are not
+equivalent, and three of them had to be corrected rather than reworded: the read
+guard denied every `README.md` in the repo including the four index documents
+`CLAUDE.md` routes agents to; the ceiling was wired to nothing, so `docscheck`
+returned clean against a `CLAUDE.md` 58% over it; and `lanecheck`'s own selftest
+re-implemented its predicate inline and passed with the check gutted. Each is
+fixed and each now carries a control that has been watched going red. **A row in
+this table is worth exactly what its selftest proves.**
 
 The read guard denies only the **whole-file** read; a sliced read passes, and
 the denial names the index to use instead. It **fails open** on any error: a
 guard over the *cost* of a correct action must never be able to block the action.
 
-## 6. Sub-agents and workflows default to a five-minute cache, separately from the main session
+## 6. Sub-agents and workflows default to a five-minute cache — and setting an hour was the wrong move
 
-**This corrects a claim made earlier in the same session that produced this
-report,** and it is the largest single settings-level lever found.
+**Corrected 2026-08-28** (`pr89-review.md` §1). The finding below is real; the
+arithmetic built on it priced the two arms under opposite premises, and the
+setting it justified has been **reverted**.
 
 `promptCacheTtl` (the main conversation) is automatic — **1 hour** on a
 subscription. `subagentPromptCacheTtl` covers *"subagents, workflows, background
-and helper requests"* and its automatic value is **5 minutes**. So the fan-out
-harnesses — literally workflows — were running on a five-minute TTL, and this
-repo's fan-outs are multi-phase: ten census agents read large corpora, then a
-prosecutor phase starts. That boundary is far more than five minutes, so later
-phases started cold.
+and helper requests"* and its automatic value is **5 minutes**. That much stands,
+and it is worth knowing: the fan-out harnesses are literally workflows.
 
-The arithmetic on a 12-agent census at ~24,295 tokens of shared prefix, writes
-1.25x at 5m and 2x at 1h, reads 0.1x:
+**What does not stand is the conclusion.** The original arithmetic, on a
+12-agent census at ~24,295 tokens of shared prefix:
 
-| | token-equivalents |
-|---|---|
-| 5m, every agent misses (the multi-phase case) | ~364,400 |
-| 1h, one write + eleven reads | ~75,300 |
-| **saving** | **~289,100** |
-| 1h penalty if all twelve *did* fit inside five minutes | ~18,200 |
+| | token-equivalents | premise |
+|---|---|---|
+| 5m, every agent misses | ~364,400 | agents **serialised**, each starting >5m after the last write |
+| 1h, one write + eleven reads | ~75,300 | agents **serialised**, each hitting the previous write |
 
-Upside ~289k against a downside ~18k — about 16:1 — so `subagentPromptCacheTtl`
-is set to `"1h"`. It is one reversible line; both numbers are here so the
-decision can be re-argued rather than re-derived.
+Those cannot both describe one run. The 5m arm was priced under all-miss and the
+1h arm under all-hit, and the ~289,100 "saving" is the gap between two different
+worlds. `CLAUDE.md`'s own rule, from the noise-bar section: *whichever bar you
+pick applies to both signs.* This report contained the contradicting premise
+itself, in `world-review.js`'s own comment — *"`parallel([...])` launches all
+seven at once, and if they start together they may all miss and all write"* —
+and did not notice.
+
+**The documented behaviour settles it.** Multipliers confirmed against
+Anthropic's prompt-caching documentation: reads ~0.1x, writes **1.25x at 5m and
+2x at 1h**. And:
+
+> A cache read **refreshes the entry's timer at no additional cost**, on either
+> TTL. […] Requests that share a prefix and start less than 5 minutes apart keep
+> the 5-minute cache warm **indefinitely** — the 1-hour TTL buys nothing there
+> except the doubled write price.
+
+A fan-out is continuous traffic by construction: ten census agents looping tool
+calls each issue requests sharing that prefix, and every read pushes the 5m timer
+forward. For the "later phases start cold" premise to hold, the run would need a
+>5-minute window in which *no* request sharing the prefix started. During an
+active census that window essentially cannot open.
+
+So the honest table, for the three premises that might actually describe a run:
+
+| what the run does | 5m | 1h | 1h is |
+|---|---|---|---|
+| continuous traffic, prefix stays warm (the documented default) | 2.35P | 3.1P | **~18,200 worse** |
+| concurrent launch, cache shared within a phase (10 census + 2 later) | 85,032 | 75,314 | ~9,700 better |
+| concurrent launch races, all in a phase write | 364,425 | 490,759 | **~126,300 worse** |
+
+The first row is the PR's own "penalty if all twelve *did* fit inside five
+minutes: ~18,200" — computed correctly, and filed as the unlikely branch when the
+documentation says it is the ordinary one. Break-even confirms the direction: 5m
+pays off at two requests, **1h needs three**.
+
+**`subagentPromptCacheTtl` is therefore not set.** Reverting costs nothing and
+the default is the cheaper arm under the premise most likely to hold.
+
+**What is still unmeasured, and what would settle it.** This is a Claude Code
+harness setting, not an API feature; whether Claude Code's subagents share a
+cache namespace with their parent, and whether the harness's "automatic" TTL
+behaves as the API's explicit `ttl` does, is not established by anything read
+here. One instrumented `parallel()` run reading `cache_creation_input_tokens`
+and `cache_read_input_tokens` off the agents answers it. Worth the ~100k that
+costs *only* if someone wants the lever back — the revert is free and the
+default is defensible without it.
+
+**The transferable lesson is not about caches.** Three of this report's numbers
+were arithmetically correct and answered a different question — this one, the
+`bytes/4.0` calibration, and the 1.00x duplication factor. None was catchable by
+re-checking the sum. All three fall to the control this repo already demands of
+instruments and had not been applying to its own figures: **ask what the number
+would read if nothing were wrong.**
 
 ## 7. The item this report recommends and does not do
 
@@ -245,3 +336,12 @@ report: a prompt-prefix repair worth ~2,940 tokens per run was surfaced as an
 actionable finding while a ~67,000-token repair sat unmeasured in the same tree,
 and the ~289,000-token one in §6 was actively argued against on a wrong premise.
 Ranking by size is not a refinement here; it is the whole method.
+
+**One interaction to know about** (`pr89-review.md` §11). The lane-note item in
+§5 is worth ~10,717 tokens — the only item within 8% of the floor — and the 91%
+figure behind it keys on whether a heading contains `→`, so it is an upper
+bound. If half those sections were addressed-without-marker the saving falls
+below the floor. The floor is defensible and predates the item; the two were
+simply never cross-checked. The cap still justifies itself on absolute size
+(47,168 B in a file read at every session start), which is the argument to lean
+on.

@@ -48,6 +48,12 @@ tried?"*.
 - [claude-md-recommendations.md](claude-md-recommendations.md) — **all
   thirteen landed.** The thirteen-recommendation review of `CLAUDE.md` as
   always-loaded infrastructure. 5, 6, 7 and 12 are approved and unexecuted.
+  Only **rec 6** is provably unblocked: `load-share` is merged into `main`
+  (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
+  have no remote ref at all**, so recs 5, 7 and 12 are blocked on work that
+  cannot be tested for merge — absence is equally consistent with "merged
+  and deleted" and with "unpushed on one machine". One owner question
+  settles all three; see `agent-documentation-audit-2026-08-24.md` §5b/§5e.
 - [pr89-review.md](pr89-review.md) — **adversarial review of PR #89,
   2026-08-28.** Twelve findings against `agent-strategy.md` and its machinery.
   Three reverse a conclusion: §6's cache saving mixed premises across the two
@@ -65,12 +71,6 @@ tried?"*.
   workflows default to a **5-minute** prompt cache while the main session gets
   an hour. Recommends the ~67,000-token `open-bugs-handoff.md` split and says
   why it did not do it.
-  Only **rec 6** is provably unblocked: `load-share` is merged into `main`
-  (and is now deletable clutter). **`plant-branch-angle` and `perf-lock`
-  have no remote ref at all**, so recs 5, 7 and 12 are blocked on work that
-  cannot be tested for merge — absence is equally consistent with "merged
-  and deleted" and with "unpushed on one machine". One owner question
-  settles all three; see `agent-documentation-audit-2026-08-24.md` §5b/§5e.
 - [agent-documentation-audit-2026-08-24.md](agent-documentation-audit-2026-08-24.md)
   — **findings; the mechanical half executed (`fbc10e6`), §5 awaiting an owner
   call.** The companion to the three above, asking the other question: not *is

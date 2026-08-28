@@ -28,10 +28,23 @@ Added 2026-08-27, after the always-loaded gate had already landed. Decomposing a
 against the floor this file gates:
 
     always-loaded prefix   ~24,295   26%
-    everything else        ~71,223   74%   <- reading
+    everything else        ~71,223   74%   <- reading, and more besides
 
-So three quarters of what an agent spends is **reading**, and the gate below
-covers the other quarter. That is worth stating plainly because this file was
+So the majority of what an agent spends is **reading**, and the gate below
+covers a minority of it. Two caveats on that split, both real:
+
+* The numerator is estimated (bytes/4.0) and the denominator is measured (the
+  harness's own figure), so the ratio moves across 23%-29% on the divisor alone.
+* **The 74% is not all reading.** `agent_tokens` is everything the subagent
+  consumed -- tool results plus the harness system prompt, the tool schemas, the
+  task prompt and the agent's own output. Those are multiplied by head count
+  exactly as CLAUDE.md is, so they belong on the prefix side of a topology
+  decision; counted there, the split is nearer 41/59. This file states below
+  that they exist and are not controlled here, and the split above quietly puts
+  them on the other side. Both numbers are honest about their own term; read
+  together they double-count.
+* Both recorded arms, not one: 95,518 and 135,580 agent_tokens, giving 25% and
+  18% prefix. The ordering holds across both. That is worth stating plainly because this file was
 built first and could otherwise be mistaken for the whole picture: shrinking the
 prefix is real and bounded, and it is not where the money is.
 
@@ -65,11 +78,26 @@ counts it.
 
 What the numbers are, and what they are not
 -------------------------------------------
-Tokens are **bytes / 4.0**, this repo's own published calibration -- the audit's
-65,182 B = 16,300 tokens is 3.999 B/token. It is an estimate and is labelled one
-everywhere it is printed. `messages.count_tokens` is the real instrument and
-needs an API key, which CI does not have; if one is ever available, re-derive
-the divisor here rather than trusting this line.
+Tokens are **bytes / 4.0, and that divisor is UNVALIDATED.** An earlier version
+of this file called it "this repo's own published calibration -- the audit's
+65,182 B = 16,300 tokens is 3.999 B/token". That is circular: every row of the
+audit table it cites is exactly bytes/4 (381,944/4 = 95,486; 343,196/4 = 85,799;
+235,872/4 = 58,968; 171,194/4 = 42,798; 65,182/4 = 16,295; 26,571/4 = 6,642).
+The 3.999 was the assumption round-tripped and presented as its validation --
+this repo's own most-recurring failure, a number arithmetically correct and
+answering a different question.
+
+No tokenizer measurement exists anywhere in the chain. `messages.count_tokens`
+is the real instrument and needs an API key, which CI does not have; when one is
+available, re-derive the divisor here rather than trusting any line above.
+
+**What this costs, and where.** The divisor cancels out of everything
+comparative -- `--corpus` is a sort, and any ratio carries it in both terms. It
+does NOT cancel out of the ceiling, which is the one place a wrong divisor
+changes a decision: at 3.5 B/token today's file is 27,766 tokens with 234 of
+headroom, not 24,295 with 3,705. That is why `CEILING_BYTES` below is the
+operand the gate actually applies -- a byte threshold is exact, whatever the
+divisor turns out to be, and the token figure beside it is the reading.
 
 The budget counts `CLAUDE.md` only. The SessionStart hook adds about 430 tokens
 (`.claude/README.md`), and the harness system prompt and tool schemas add more
@@ -106,6 +134,8 @@ RECORD = ROOT / ".claude" / "README.md"
 # The audit's own datum: 65,182 B measured as 16,300 tokens. Named, not guessed.
 BYTES_PER_TOKEN = 4.0
 CEILING_TOKENS = 28_000
+# What the gate actually compares. Exact under any divisor; see the docstring.
+CEILING_BYTES = int(CEILING_TOKENS * BYTES_PER_TOKEN)
 # What dropping the three lookup-consulted sections would leave. Recorded so the
 # gap stays visible; nothing enforces it.
 TARGET_TOKENS = 8_800
@@ -358,13 +388,18 @@ def main():
         return 0
 
     if mode == "--gate":
-        if m["tokens"] > CEILING_TOKENS:
-            print(f"contextbudget: {m['tokens']:,} tokens always-loaded, ceiling "
-                  f"{CEILING_TOKENS:,} -- over by "
-                  f"{m['tokens'] - CEILING_TOKENS:,}")
-            print("  -> every session, agent and subagent pays this. Cut before adding.")
+        # Compared in BYTES: exact under any divisor. See the docstring.
+        if m["bytes"] > CEILING_BYTES:
+            print(f"contextbudget-ceiling: CLAUDE.md is {m['bytes']:,} B "
+                  f"(~{m['tokens']:,} tokens), over the {CEILING_BYTES:,} B "
+                  f"(~{CEILING_TOKENS:,} token) ceiling by "
+                  f"{m['bytes'] - CEILING_BYTES:,} B")
+            print("  -> every session, agent and subagent pays this before it reads a")
+            print("     line of source. Cut something before adding. The ceiling is not")
+            print("     the target: `--corpus` shows the reachable figure and the gap.")
             return 1
-        print(f"contextbudget: {m['tokens']:,} tokens, under the {CEILING_TOKENS:,} ceiling")
+        print(f"contextbudget: {m['bytes']:,} B (~{m['tokens']:,} tokens), "
+              f"{CEILING_BYTES - m['bytes']:,} B under the ceiling")
         return 0
 
     report(m)

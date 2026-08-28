@@ -65,6 +65,5 @@
       "Bash(git rebase*)",
       "Bash(git commit --amend*)"
     ]
-  },
-  "subagentPromptCacheTtl": "1h"
+  }
 }

@@ -87,6 +87,7 @@ branch-angle-and-the-width-bound.md|Reports/branch-angle-and-the-width-bound.md|
 debug_tree_variants.rs|examples/debug_tree_variants.rs|soil_water_threshold: 0.0|moisture_threshold: 0.0
 plant-genome-design.md contents table is stale|Reports/plant-genome-design.md|## 2. The three tests, as applied|## 2. The three tests, as applied and renamed since
 contextbudget|.claude/README.md|Paid by **every session, agent and subagent**|Paid by **only the first session**
+contextbudget-ceiling|scripts/contextbudget.py|CEILING_TOKENS = 28_000|CEILING_TOKENS = 1_000
 lanecheck-cap|Reports/lanes/README.md|soft cap of **12,000 B**|soft cap of **9,000 B**
 FAULTS
   [ "$st_ok" -eq 0 ] && echo "docscheck: all faults detected -- every check with a row here can go red"
@@ -534,6 +535,27 @@ fi
 # and conflating the two makes neither actionable.
 if [ -f scripts/contextbudget.py ]; then
   cb=$(python3 scripts/contextbudget.py --check 2>&1) || note "$cb"
+fi
+
+# --- 9b. ...and it must not be over the ceiling ----------------------------
+# SEPARATE from 9 on purpose, and separate for the reason 9's comment gives: a
+# repo can be honestly over budget with a current record. What is NOT tenable is
+# what shipped -- the ceiling wired to nothing at all. Measured 2026-08-28:
+# CLAUDE.md padded to 44,295 tokens (58% over) left `--check` printing "record
+# current" and this script printing "clean", because the only red condition was
+# a STALE record and the remedy for that is to regenerate it -- which writes the
+# violation down verbatim ("Ceiling 28,000 (**+16,295 over**)") and goes green.
+#
+# That is CLAUDE.md's own rule inverted: "a size cap must bound work, never gate
+# whether something happens -- does exhausting the cap produce an ANSWER, or
+# merely less work? An answer is the bug." Exhausting this cap produced a
+# record. A record is an answer.
+#
+# docscheck is informational in CI, so this goes red here and in the
+# informational job without breaking a build -- the right blast radius for a
+# gate over a file every session edits.
+if [ -f scripts/contextbudget.py ]; then
+  cg=$(python3 scripts/contextbudget.py --gate 2>&1) || note "$cg"
 fi
 
 # --- 10. Lane notes stay a message channel, not a work journal ---------------
