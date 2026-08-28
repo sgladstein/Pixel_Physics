@@ -229,6 +229,7 @@ the question you arrived with. This table is: *what am I about to do?*
 | **change the economy** — income, maintenance, what kills a plant | `plant-economy-rederivation-2026-08-23.md`. §7 and §9 are its two *negative* results, and it records six mechanisms built, measured and withdrawn |
 | **make species look different from each other** | `plant-appearance-design.md` **first, before designing anything**. Three architectural levers were built, fired 46–2,750 times each, and moved nothing: a lever that relabels a cell cannot move a silhouette that texture and colour set |
 | **author or change a species** | `plant-species-authoring.md` → `plant-genome-design.md` for the slot map. Slots are **positional forever** |
+| **touch litter, the forest floor, or where a plant's mass goes when it dies** | `soil-accumulation-and-the-carbon-cycle.md` — it is a source with no sink, and the 5% yield only changes the slope |
 | **change roots** | `root-morphology-findings.md` (what the engine structurally cannot express, and that thickening is why) → `root-blob-and-uptake-surface-2026-08-23.md` (sizes the cost before building) |
 | **put plants into the generated world** | `world-flora-sowing-2026-08-23.md` (woody) → `grass-sowing-and-divergence-2026-08-23.md`, whose §11 is the postmortem of a review card that came back a null because the rendered window held 125 grass cells against 7,853 woody |
 | **fell, cut or break a plant** | README's `Felling status` → `physical-trees-design-2026-08-23.md` §8 (T1, built) and §11 (wind-throw, not) |
@@ -370,6 +371,21 @@ field rework — see `open-bugs-handoff.md`.
   variation mechanism, not the ceiling — the four missing primitives are
   organ cell types, determinate axes, rosettes/whorls, and a climbing
   tropism with attachment as data. Three open owner calls in §7.
+
+- [soil-accumulation-and-the-carbon-cycle.md](soil-accumulation-and-the-carbon-cycle.md)
+  — **yield landed 2026-08-27; the sink is not built.** Why trees were being
+  buried in their own leaf litter: a plant fixes carbon out of light into a
+  solid cell, litter rotted 1:1 into permanent soil, so the floor is a source
+  with no sink and has no equilibrium at any rate. Carries the real-world
+  account (most of a leaf's mass leaves as CO2 — 1–10% humification, plus ~2
+  orders of magnitude of volume collapse) and §4's ranked menu for an actual
+  fix, of which **bioturbation is the recommendation**. Read §4's dead-end
+  warning before building the obvious "litter enriches the soil" version,
+  and §5 before trusting any soil census: the global count has the *wrong
+  sign* for the first 60k frames because root growth eats soil, and over
+  212k frames the two yields bracket the defect rather than fixing it —
+  1.0 accumulates and buries, 0.05 depletes to half the world's soil and
+  stalls.
 
 ## Creatures and ecology
 

@@ -80,6 +80,66 @@
     // unchanged, and an ant is as impeded by a drift as it ever was.
     insubstantial: true,
     decays_into: "soil",
+    // **5% of rotting litter leaves a soil cell; the other 95% leaves
+    // nothing.** Owner's call, 2026-08-27, after the forest floor was
+    // observed building up around trunks toward the crowns.
+    //
+    // The 1:1 conversion this replaces was not a tuning error, it was a
+    // missing sink. A tree fixes carbon out of light and builds a solid cell
+    // with it -- matter into the world from nothing -- and 1:1 rot made
+    // every one of those cells permanent soil. Source, no sink, so the floor
+    // rose for as long as the stand lived. **A yield below 1 does not fix
+    // that**, and should not be read as having fixed it: 5% of an unbounded
+    // stream is still unbounded, and this only flattens the slope by 20x.
+    // `Reports/soil-accumulation-and-the-carbon-cycle.md` has the real-world
+    // account and what an actual sink would have to look like.
+    //
+    // **5% is close to the real number, which is the part worth keeping.**
+    // Rotting is microbial respiration: the great majority of a leaf's mass
+    // leaves as CO2, and published humification efficiencies put the
+    // fraction stabilised into soil organic matter in the low single digits
+    // to ~10%. The 95% that vanishes here is not a cheat covering for a
+    // simulation shortcut -- it is the gas this engine has no way to
+    // represent. On top of it, real litter loses ~2 orders of magnitude of
+    // *volume* on the way (0.02-0.1 g/cm3 against soil's 1.1-1.6), so a
+    // cell-for-cell yield of 0.05 is if anything generous.
+    //
+    // **Measured: the pile falls about 7x.** `crown_census frames=60000
+    // trees=8`, one build, one world seed, counting soil standing *above the
+    // ground line* -- which is the mound around the trunk, and is the thing
+    // actually complained about:
+    //
+    //     yield   soil above ground   band 0 just above ground
+    //     1.0     15,039 cells        soil 10,312, litter    99
+    //     0.05     2,166 cells        soil  1,798, litter 1,523
+    //     0            0 cells        soil      0, litter 1,375
+    //
+    // **0.05 and 0 give nearly the same visible floor** -- it is litter
+    // either way. What 0.05 buys is a trace of real soil at a believable
+    // rate for almost no pile, which is why this is 0.05 rather than 0.
+    //
+    // **The floor does not vanish, it changes material** -- from a dirt
+    // mound to standing leaf litter, which is what a forest floor should be.
+    // Litter is no longer converted to permanent soil as fast as it lands,
+    // so it stands and rots instead.
+    //
+    // **Do not size this from a world-wide soil count.** That census is
+    // dominated by roots overwriting soil cells to occupy them, everywhere
+    // on the map, which has nothing to do with the mound; it even runs
+    // *negative* while a stand is expanding. `Reports/soil-accumulation-and-
+    // the-carbon-cycle.md` §5a records that mistake in full rather than
+    // quietly dropping it.
+    //
+    // It is still only a slope change, not a cycle: 5% of an unbounded
+    // stream is unbounded, and soil has no weathering sink. §4 of that
+    // report ranks what an actual sink would be.
+    //
+    // `DECAY_YIELD=0` (env) turns solid production off entirely and
+    // `DECAY_YIELD=1` restores the old behaviour, for comparing the three
+    // without a rebuild -- see `decay::decay_yield_override`, which exists
+    // because this file is `include_str!`d and editing it is invisible to an
+    // already-built harness.
+    decay_yield: 0.05,
     // **No `reseed_chance`, so it defaults to 0.** Ash sets 0.15 -- ash cells
     // are rare, something has to burn first, so a roll there reads as
     // succession after a fire. Litter cells are produced by every shading leaf

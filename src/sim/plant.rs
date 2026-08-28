@@ -8273,12 +8273,48 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             bare_shed > 0,
             "the bare arm shed no soil at all, so the disturbance did nothing and the comparison is vacuous"
         );
-        // Measured +27% (185 -> 235); the bar sits at +10%, with headroom,
-        // rather than on the measured value or at a bare `>` that would
-        // flake on any run that landed slightly flat.
+        // **The mechanism claim now rides on `shed`, and `crest` has been
+        // demoted to a collapse floor. `Material::decay_yield` is why, and
+        // this is a correction rather than an accommodation.**
+        //
+        // `crest` counts occupancy, so it was already immune to roots
+        // converting soil into `grassroot` (the note above records that
+        // fix). What it was never immune to is *manufactured* material:
+        // grass sheds litter onto the bank, and litter used to rot 1:1 into
+        // permanent soil, so the sod arm's crest was partly matter the
+        // simulation had created from nothing. Cut litter's yield to 0.05
+        // and 33 of the sod arm's 211 crest cells go with it.
+        //
+        // Measured, one build, the two arms of this test:
+        //
+        //     yield   shed (bare/sod)   crest (bare/sod)   grassroot
+        //     1.0     327 / 333  (+2%)  185 / 211  (+14%)   44
+        //     0.05    327 / 306  (-6%)  185 / 178   (-4%)   61
+        //
+        // The bare arm is identical in both -- it has no plants, so nothing
+        // in the yield can reach it -- which is what makes this a clean
+        // paired read rather than drift.
+        //
+        // **The old +10% bar was therefore measuring the wrong thing, and it
+        // was hiding the right one.** At 1.0 the sod bank shed *more* soil
+        // than the bare bank (+2%): the title claim of this test was false
+        // on its own headline quantity, and it passed anyway on a crest
+        // surplus that was litter-derived fill. With the fill gone the
+        // reinforcement shows up where it should -- the rooted bank sheds
+        // 6% less -- so `shed` is asserted here and `crest` is kept only to
+        // catch an outright collapse of the bank surface.
+        //
+        // This is a real weakening of the crest assertion and is recorded as
+        // such rather than re-baselined quietly. `Reports/soil-accumulation-
+        // and-the-carbon-cycle.md` has the accounting.
         assert!(
-            sod_crest as f32 > bare_crest as f32 * 1.10,
-            "a rooted bank kept {sod_crest} crest cells against a bare bank's {bare_crest} --              reinforces_powder is buying nothing where roots actually reach"
+            (sod_shed as f32) < bare_shed as f32 * 0.97,
+            "a rooted bank shed {sod_shed} soil cells against a bare bank's {bare_shed} -- \
+             reinforces_powder is buying nothing where roots actually reach"
+        );
+        assert!(
+            sod_crest as f32 > bare_crest as f32 * 0.90,
+            "the rooted bank's surface collapsed: {sod_crest} crest cells against a bare bank's {bare_crest}"
         );
     }
 

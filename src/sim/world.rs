@@ -734,6 +734,25 @@ pub struct World {
     pub decayed_damp: u32,
     /// Counterpart to `decayed_damp`; see it for why these are separate.
     pub decayed_dry: u32,
+    /// How the decays above *resolved*: cells that left a solid behind, and
+    /// cells that rotted away to nothing (`Material::decay_yield`).
+    ///
+    /// **Split out because the totals above cannot answer the question the
+    /// yield was added for.** `decayed_damp + decayed_dry` counts decay
+    /// events, and after the yield roll an event is no longer the same thing
+    /// as a cell of soil -- the whole point is that most litter events now
+    /// produce none. Reading the decay total as soil production is exactly
+    /// `CLAUDE.md`'s "ask what your number counts": it stayed arithmetically
+    /// correct and started answering a different question the moment the
+    /// yield landed. These two sum to it.
+    ///
+    /// The pair is also its own positive control. A run with standing litter
+    /// and `rotted_to_solid + rotted_to_nothing == 0` means the decay channel
+    /// never fired at all, which reads identically to a working channel with
+    /// a low yield if you only census soil.
+    pub rotted_to_solid: u32,
+    /// Counterpart to `rotted_to_solid`; see it.
+    pub rotted_to_nothing: u32,
     /// Leaves shed by the graded shade pressure (`tree.ron`'s
     /// `shade_death`), the upstream half of §O's decay count. Split by
     /// *cause* for the same reason the decay counters are split by rate:
@@ -1470,6 +1489,8 @@ impl World {
             seeds_germinated_after_waiting: 0,
             decayed_damp: 0,
             decayed_dry: 0,
+            rotted_to_solid: 0,
+            rotted_to_nothing: 0,
             shed_shade: 0,
             shed_drought: 0,
             shed_stranded: 0,
