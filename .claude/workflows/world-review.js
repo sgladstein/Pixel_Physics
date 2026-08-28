@@ -325,6 +325,36 @@ const lenses = await parallel([
     'section 5 (caves).',
     { label: 'underground+caves', phase: 'Lens review', schema: FINDING_SCHEMA }),
 
+  // This lens was pinned to `model: 'sonnet'` and is not any more, because the
+  // cheaper model was the more expensive one here. **Prompt caches are
+  // model-scoped**, so a lens on a different model shares no cached prefix with
+  // the other six -- and the prefix is the whole cost: ~24,295 tokens of
+  // auto-loaded CLAUDE.md plus ~2,485 of BRIEF, all of it byte-identical across
+  // the seven, all of it re-written from scratch for the odd one out.
+  //
+  // Estimated 2026-08-27 at Opus 5 $5/M vs Sonnet 5 $2/M input, cache read ~0.1x,
+  // write ~2x at the 1h TTL: ~$0.013 to read the warm prefix against ~$0.107 to
+  // write a cold one, so roughly 8x on input. A lens' own output is small beside
+  // a 27k prefix, so Sonnet's cheaper output does not recover it.
+  //
+  // The estimate assumes the shared prefix is actually WARM when this agent runs.
+  // It is an assumption, not a measurement: `parallel([...])` launches all seven
+  // at once, and if they start together they may all miss and all write.
+  //
+  // Corrected 2026-08-28 (`Reports/pr89-review.md` §7): the last sentence here
+  // used to claim that re-pinning to a cheaper model "would still not be the
+  // answer" if the prefix were cold. That is false under this comment's own
+  // caveat, and the two figures above say so once you read which is which --
+  // $0.013 is an OPUS WARM READ and $0.107 a SONNET COLD WRITE, so the "8x"
+  // compares warm-Opus against cold-Sonnet. Cold on both sides it is Opus
+  // $0.268 against Sonnet $0.107, and Sonnet is 2.5x CHEAPER. The sign flips.
+  //
+  // So: warm prefix -> removing the pin is right on cost. Cold prefix -> the pin
+  // was saving money and removing it costs some, and the fix is to warm the
+  // prefix before fanning out rather than to argue about the model. The pin
+  // stays off because a lens on the same model as its six siblings is the
+  // simpler thing to reason about and Opus is the better reviewer -- a quality
+  // argument, which is the honest one, not the cost argument made above.
   () => agent(BRIEF + '\n\n=== YOUR ASSIGNMENT: THE PLAYER JOURNEY ===\n' +
     'Images only -- deliberately no code. You are the player\'s advocate.\n' +
     'Walk every strip left to right as a player who just spawned: the gnome walks, jumps, swims and\n' +
@@ -338,7 +368,7 @@ const lenses = await parallel([
     'In assigned_answers: (1) the three most memorable places across all strips (image + where),\n' +
     '(2) the three dullest stretches and what each is missing, (3) your ranked wish list as a\n' +
     'player, ignoring cost entirely -- the other lenses will price it.',
-    { label: 'player-journey', phase: 'Lens review', schema: FINDING_SCHEMA, model: 'sonnet' }),
+    { label: 'player-journey', phase: 'Lens review', schema: FINDING_SCHEMA }),
 ])
 
 const good = lenses.filter(Boolean)

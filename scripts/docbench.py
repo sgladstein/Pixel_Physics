@@ -42,6 +42,48 @@ as the shape of the whole benchmark: the audit did not change what is
 answerable, it changed what answering costs. Which is also why set A, a
 correctness instrument, could never have shown it.
 
+What a run costs, and the cheap half to do first
+------------------------------------------------
+**Every question set here spends a whole cold agent.** The two recorded arms
+came in at **95,518 and 135,580 agent_tokens** -- so one arm is roughly
+100-135k, and the obvious design is far worse than one arm. A paired A/B, both
+sets, with the repeats this repo's method rules demand of anything sampled from
+a distribution, is 2 arms x 2 sets x 3 repeats = **twelve cold agents, ~1.4M
+tokens**. That is a real bill and has to be argued for, not defaulted into.
+
+**Most of what a documentation change needs to prove does not need an agent at
+all.** A relocation or consolidation raises three questions, and only the third
+samples anything:
+
+1. *Does the always-loaded floor actually drop?* -- **arithmetic**, not a
+   sample. `scripts/contextbudget.py` answers it for free and exactly.
+2. *Is the moved content still reachable?* -- **static**, and the real risk of
+   relocating: an address that no longer resolves reads to the next agent as
+   "the content is gone". `scripts/addrcheck.py` verifies cross-document
+   addresses resolve, `scripts/docgrep.py` answers "can this phrase be found at
+   all", `docscheck.sh` gates links and generated-file staleness. All
+   sub-second, all zero agents.
+3. *Does an agent's total spend fall?* -- **this one needs agents**, because it
+   is the only half that can go the wrong way: content moved out of the prefix
+   can be bought back at a higher price if agents open more files to find it.
+   `agent_tokens` with `files_opened` is what says whether that happened.
+
+**So exhaust 1 and 2 before spending anything on 3, and run 3 as a confirmation
+rather than a sweep** -- one arm per side, once, after the free checks are
+green. Two things make that small sample defensible, and both must actually
+hold before you lean on them: the floor drop in (1) is deterministic, so only
+the behavioural half is being sampled; and **correctness is not what you are
+measuring** -- see the saturation finding above, which is why adding runs to
+chase a correctness delta buys nothing on this corpus.
+
+A single confirmation run coming back ambiguous is itself a result: it means
+the saving is inside the noise, which answers whether the relocation was worth
+doing.
+
+`selftest` is the free guard over this file's own checks -- six injections,
+~2 seconds, no agents. Run it before any paid run; it found two blind controls
+on its first outing.
+
 The old-tree answers as claimed when the questions were written, against what
 the run actually produced:
 

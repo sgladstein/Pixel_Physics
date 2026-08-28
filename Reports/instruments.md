@@ -25,6 +25,15 @@ studies:
   given. Make a harness echo its own parameters, and treat identical output
   across a change that must have moved something as a stale-binary tell.
 
+## Agents, context and cost
+
+Not an `examples/` binary — these read what an agent run already wrote down.
+
+| instrument | answers | notes |
+|---|---|---|
+| `scripts/cacheprobe.py` | What the prompt cache actually did in a session: reads, and writes split by **TTL**. Separates the main conversation from sub-agents (`isSidechain`). | Reads `~/.claude/projects/*/<session>.jsonl`, which Claude Code writes for free — **no agent spend**. Beyond the question it was built for it also answers "did this session cache at all", "which TTL is really in use" (measured 2026-08-28: main conversation is **100% `ephemeral_1h`**, 983,153 tokens against 0 at 5m), and "how much did re-reading cost me". Its three questions — namespace, race, TTL — are deliberately reported apart; conflating them is what broke `agent-strategy.md` §6. `--selftest` needs no transcript. Must run on the machine that ran the agents. |
+| `scripts/contextbudget.py` | What every session, agent and subagent pays before it starts; `--corpus` ranks the read side. | `--gate` is the ceiling (docscheck check 9b), `--check` the record's staleness (check 9). Token figures are bytes/4.0 and that divisor is **unvalidated** — the gate compares bytes for that reason. |
+
 ## Rendering and judging by eye
 
 | instrument | answers | notes |
