@@ -3305,3 +3305,59 @@ new `soil_id` parameter pushed `write_overlay` to 8 arguments and tripped
 a `View` now.
 
 Posted as a blind A/B in true colour, board `plants`.
+
+## 2026-08-29 — the gnome's belt, and a dig that cuts passages instead of holes
+
+**What changed on screen.** He carries three tools instead of one. The pick's
+default cut is now a *passage his own size* — point up, down, left or right,
+see the box it will open drawn before you commit to it, and hold the button
+to drive the working face through it. A hammer smashes rock and cracks a
+great deal more than it breaks. An axe chops living wood, and a bole cut
+through brings the crown down. A two-line HUD in the top-left names all
+three with the held one lit, under a bar that empties on a blow and fills as
+he winds up.
+
+**Where it sits.** M9's mining was one verb aimed with a free cursor, and it
+produced a wandering worm-hole whose clearance you discovered by getting
+stuck in it. This is the same milestone's *verbs* finished: one for getting
+through the world, one for breaking it, one for cutting what is alive.
+
+**Three things were built the obvious way first and were wrong**, all three
+found by a test rather than by argument:
+
+- the stroke anchored on the box's near edge, so the first press cleared it
+  and every later one cut air — a held button drove the passage exactly one
+  stroke;
+- the box anchored flush against his body, so a wall twelve cells away got
+  twelve cells of air cut at it. That is `Tool::Dig`'s own rule broken from
+  the inside;
+- and loose material sited the box. This is `face_toward`'s recorded
+  spoil-shielding failure in a second costume, and it is the one worth
+  reading: a cut leaves a tenth of itself as spoil, so the next stroke sites
+  on the muck a cell in front of the rock and **the bore grinds on its own
+  spoil for ever**. Caught by
+  `app::a_click_on_a_tree_shakes_it_rather_than_cutting_or_painting` on a
+  *single* shaken-loose grain of sand, which sited a whole passage five
+  cells short of the wall it was aimed at. Deep in a massif the same rule
+  measured **80 of a 144-cell box still standing after sixteen strokes**
+  that should have cleared it twice over.
+
+All four in `Reports/dead-ends.md`, each with the condition its rejection
+depends on.
+
+**The four new guards were watched going red**, per the standing check on
+citing a guard's green — the box-edge slice, the buried-gnome fallback, the
+shared recovery timer, and the loose-material siting each put back and
+confirmed failing for the fault it is named for.
+
+**Felling needed no new physics.** The cut goes through `shatter_to_rubble`,
+which unregisters each cell from its organism, and `plant::anchor_support`
+finds the crown unreached on its next tick. What was missing was a verb
+aimed at the trunk.
+
+**Counters, not pictures, for "did it fire".** `rigid::strike` returns the
+cells it acted on, so a swing at air, a swing at bedrock and a swing that
+calves a slab stop being the same picture; `filmstrip scene=smash` and
+`scene=chop` print that beside the tile and share their beds with
+`scene=tunnel` and `scene=shake`, so each pair is a controlled comparison
+with the belt as the only variable.

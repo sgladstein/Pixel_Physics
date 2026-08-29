@@ -697,6 +697,19 @@ impl Handler {
             KeyCode::Enter if self.app.show_tunables => self.app.pin_selected(),
             KeyCode::KeyQ => self.app.cycle_material(-1),
             KeyCode::KeyE => self.app.cycle_material(1),
+            // **`1`-`4` are shared with the gnome, not taken from the
+            // palette.** Under `Tool::Dig` the left button is his swing and
+            // the brush lays nothing down, so which material is selected
+            // cannot affect anything a click does there — the two readings
+            // are mutually exclusive by construction, the same argument
+            // `App::pan_camera` records for `WASD`. `Z` leaves the tool and
+            // the palette has its keys back. Each of these returns whether
+            // it was consumed, so with no gnome (or in any other tool) the
+            // number is a material as it always was.
+            KeyCode::Digit1 if self.app.select_gnome_tool(0) => {}
+            KeyCode::Digit2 if self.app.select_gnome_tool(1) => {}
+            KeyCode::Digit3 if self.app.select_gnome_tool(2) => {}
+            KeyCode::Digit4 if self.app.cycle_dig_style() => {}
             KeyCode::Digit1 => self.app.select_material(1),
             KeyCode::Digit2 => self.app.select_material(2),
             KeyCode::Digit3 => self.app.select_material(3),
@@ -811,6 +824,12 @@ impl ApplicationHandler for Handler {
                 match button {
                     MouseButton::Left => self.painting = pressed,
                     MouseButton::Right => self.erasing = pressed,
+                    // The belt, on the only button this sandbox had left
+                    // and the one already under the hand doing the aiming.
+                    // A no-op with nobody summoned.
+                    MouseButton::Middle if pressed => {
+                        self.app.cycle_gnome_tool();
+                    }
                     _ => {}
                 }
                 let erase = button == MouseButton::Right;

@@ -1504,6 +1504,45 @@ const GNOME_SWING: [[Option<[u8; 4]>; 7]; 14] = [
     [B, B, B, X, B, B, X],
 ];
 
+/// The implement in his hands, patched over the body tables above.
+///
+/// **An overlay rather than six whole tables**, and the reason is that the
+/// tables are meant to stay pictures you can read — three more copies of
+/// forty-two rows each, differing in two pixels, is a diff nobody can check
+/// by eye and a place for a typo to hide in a row nothing exercises.
+///
+/// **The colours are the belt's**, so what he is holding, what the cursor
+/// is wearing and which name is lit in the HUD are all the same colour.
+/// That is the whole trick that lets the belt be read from the middle of
+/// the screen, where the player is looking, rather than only from the
+/// corner where its name is printed.
+///
+/// Positions are in **sprite** space, drawn facing right, and go through
+/// the same column mirror the body does — so the tool stays in the leading
+/// hand whichever way he turns.
+const PICK_HEAD: [u8; 4] = [232, 226, 170, 255];
+const HAMMER_HEAD: [u8; 4] = [255, 150, 90, 255];
+const AXE_HEAD: [u8; 4] = [130, 240, 140, 255];
+
+/// `(row, column, colour)` triples patched into the body table.
+///
+/// Mid-swing the tool is at the top of the raised arm (rows 3-4, column
+/// 6); at rest it hangs from the hand (rows 10-11, column 6). Shape
+/// carries the difference as well as colour, because colour alone is one
+/// pixel at zoom 1: the pick is a point, the hammer a wide head, the axe a
+/// tall blade.
+fn tool_marks(tool: &super::sim::player::Tool, swinging: bool) -> &'static [(usize, usize, [u8; 4])] {
+    use super::sim::player::Tool;
+    match (tool, swinging) {
+        (Tool::Pick, true) => &[(4, 6, PICK_HEAD)],
+        (Tool::Pick, false) => &[(10, 6, PICK_HEAD)],
+        (Tool::Hammer, true) => &[(4, 5, HAMMER_HEAD), (4, 6, HAMMER_HEAD)],
+        (Tool::Hammer, false) => &[(10, 6, HAMMER_HEAD), (11, 6, HAMMER_HEAD)],
+        (Tool::Axe, true) => &[(3, 6, AXE_HEAD), (4, 6, AXE_HEAD)],
+        (Tool::Axe, false) => &[(10, 6, AXE_HEAD)],
+    }
+}
+
 /// Whether the gnome draws over a tree, behind it, or a mix — the owner's
 /// "sometimes walking in front of trees and sometimes behind".
 ///
@@ -3119,7 +3158,15 @@ impl Renderer {
         let Some(player) = &world.player else { return };
         let (ox, oy) = player.rect_origin();
         let block = self.zoom.max(1);
-        let table = if player.action > 0 { &GNOME_SWING } else { &GNOME_SPRITE };
+        let swinging = player.action > 0;
+        // Copied so the implement can be patched in; 98 `Option`s, once a
+        // frame, against a loop that already resolves a world coordinate
+        // per sprite pixel.
+        let mut table = if swinging { GNOME_SWING } else { GNOME_SPRITE };
+        for &(row, column, colour) in tool_marks(&player.tool, swinging) {
+            table[row][column] = Some(colour);
+        }
+        let table = &table;
         // **One side per formation, decided once, not one side per column.**
         //
         // The first version keyed the scenery branch below on `wx` -- the
@@ -4960,6 +5007,29 @@ impl Renderer {
     /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
     /// distinct from simply being off-screen, which callers already clip
     /// against separately via `put`'s own bounds check.
+    /// An inclusive world rectangle as the inclusive screen rectangle it
+    /// covers, plus the size of one world cell in pixels.
+    ///
+    /// **Never `None`, unlike `world_to_screen`**, and that is the whole
+    /// reason it exists rather than being two calls to it. A bore preview
+    /// is a box the gnome is standing next to, so it routinely has one
+    /// corner off the top or side of the view — and at `zoom_out_stride`
+    /// a corner that lands between sampled columns has no pixel at all.
+    /// Either would blank the outline exactly when the player most needs
+    /// it. Off-screen coordinates are returned as they fall and clipped by
+    /// `put`, which is what every other preview in `app.rs` already relies
+    /// on.
+    pub fn world_rect_to_screen(&self, x0: i32, y0: i32, x1: i32, y1: i32) -> (i32, i32, i32, i32, i32) {
+        if self.zoom > 1 {
+            let z = self.zoom;
+            let (sx, sy) = ((x0 - self.camera_x) * z, (y0 - self.camera_y) * z);
+            return (sx, sy, (x1 - self.camera_x) * z + z - 1, (y1 - self.camera_y) * z + z - 1, z);
+        }
+        let stride = self.zoom_out_stride.max(1);
+        let map = |v: i32, c: i32| (v - c).div_euclid(stride);
+        (map(x0, self.camera_x), map(y0, self.camera_y), map(x1, self.camera_x), map(y1, self.camera_y), 1)
+    }
+
     pub fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         if self.zoom > 1 {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
