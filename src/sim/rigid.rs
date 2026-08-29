@@ -2781,26 +2781,6 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
     world.set(x, y, placed);
 }
 
-/// Write a settled body's cells back into the grid as ordinary CA material.
-///
-/// Three things here are easy to leave out and each is a real bug:
-///
-/// - **`aux` is reset.** A body's cells were promoted *because* their stored
-///   distance exceeded their span. Writing that value back means the cell
-///   fails its very next structural check and re-breaks on the spot, which
-///   reads as debris that can never come to rest.
-/// - **Structural checks are scheduled around the landing.** Otherwise a
-///   landed chunk is invisible to the system that created it — it could not
-///   support anything, and nothing could be brought down by it. This is
-///   also the one re-check `load::powder_surcharge` relies on: a settled
-///   body is the bounded "something heavy just arrived on top of you"
-///   event, and the powder sweep itself schedules nothing. Every cell is
-///   scheduled, not just the footprint row, which is the superset the
-///   surcharge needs — do not narrow it to the bottom row as an
-///   optimisation without re-reading that function's re-check note.
-/// - **A cell with nowhere to go searches** rather than being dropped, so
-///   landing on uneven ground does not quietly delete the overlapping part
-///   of the body.
 /// Which palette entry a settled piece's cell takes.
 ///
 /// **A piece is bark on the outside and timber where it broke**, which is
@@ -2814,6 +2794,7 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
 ///   take the material's bark family (`base_shades` onward, if it has one),
 ///   carrying `grain` so the piece keeps the tonal variation it flew with
 ///   instead of flattening.
+///
 /// - **Interior** cells take the base family, ranked darker with `depth`,
 ///   because the inside of a broken trunk is not lit.
 ///
@@ -2852,6 +2833,26 @@ fn settled_shade(world: &World, material: MaterialId, depth: i32, surface: bool,
     ranked[step].1
 }
 
+/// Write a settled body's cells back into the grid as ordinary CA material.
+///
+/// Three things here are easy to leave out and each is a real bug:
+///
+/// - **`aux` is reset.** A body's cells were promoted *because* their stored
+///   distance exceeded their span. Writing that value back means the cell
+///   fails its very next structural check and re-breaks on the spot, which
+///   reads as debris that can never come to rest.
+/// - **Structural checks are scheduled around the landing.** Otherwise a
+///   landed chunk is invisible to the system that created it — it could not
+///   support anything, and nothing could be brought down by it. This is
+///   also the one re-check `load::powder_surcharge` relies on: a settled
+///   body is the bounded "something heavy just arrived on top of you"
+///   event, and the powder sweep itself schedules nothing. Every cell is
+///   scheduled, not just the footprint row, which is the superset the
+///   surcharge needs — do not narrow it to the bottom row as an
+///   optimisation without re-reading that function's re-check note.
+/// - **A cell with nowhere to go searches** rather than being dropped, so
+///   landing on uneven ground does not quietly delete the overlapping part
+///   of the body.
 fn settle(world: &mut World, body: &ChunkBody) {
     // **Where each cell actually landed, not where it was aimed.**
     // The checks below used to be scheduled around `cell_position`, which
