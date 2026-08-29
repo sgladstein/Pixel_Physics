@@ -91,7 +91,34 @@ mechanic and the one three previous models were overturned on.
 
 ## §7's five guards
 
-GUARDS_TABLE_PLACEHOLDER
+Every figure taken on this branch merged up to `main` at `3c464c2`, on a
+container shared with three other agents. Everything gated is a **counter**;
+the one wall-clock claim is quoted with its caveat. Full write-up in the
+report's new §7b.
+
+| | guard | reading |
+|---|---|---|
+| **1** | falls per move | `forage_probe seeds=12 frames=12000 spacing=4`: min **0.208** / median **0.225** / max **0.334** — lane C's pre-verb baseline to three decimals. Blocked per move likewise unchanged at 0.031 / 0.034 / 0.065 |
+| **2** | blocked moves | `creature_look mode=live count=40 frames=600`: `ant` **5%**, `ant_long` **4%**, `ant_wide` **41%**, `ant_block` **43%** — `creature-appearance-design.md` §5's table reproduced, rigid 8–10x the chains |
+| **3** | `ascii` counters | **1,109 counter lines byte-identical** against `origin/main`; the 146 that differ all carry a millisecond figure |
+| **4** | ablatable | `Impulse=lo` reproduces `authored` **to every printed digit**; `-Bias->Move` still reproduces `zero`; `Impulse=hi` moves every column — travelled 71.2 → **331.4**, coverage 1,267 → **3,989**, foraged 0.06 → **0.50**, first pickup 1,208 → **118**, pickups 2.7 → **29.3**, deliveries **0.0 → 8.3** |
+| **5** | frame cost | An airborne creature is **6x** its walking scheduler footprint and carries no `eval_brain`. Against `MAX_CREATURE_SITES_PER_FRAME` = **256**: 52 ants walking offer ~9 sites/frame, all-airborne 52. Binds at 256 concurrently airborne against ~1,536 walking — and #118's own comment records the budget bounds work rather than gating a tick, so exhaustion stretches an arc rather than dropping one |
+
+**The bar ships as something that fails.** `forage_probe gate=1` sets it at
+**0.40** — above the *worst* seed, not on the median, because which seed is
+worst reshuffles on any legitimate change — and it **refuses to run at any
+other frame budget**, since the statistic does not settle (0.239 / 0.225 /
+0.215 at 6k / 12k / 24k). Checked: at `seeds=2 frames=6000` it exits 2 and
+says why.
+
+**And guard 4's last row is a warning as much as a result.** On those columns
+hopping is *strictly better*, which §1 says makes every lineage converge on
+it. The cost is real — 4x `move_cost` per launch, and no acting while
+airborne — but **this scene cannot see it**: `start_energy` 900 at
+`idle_cost` 0.10 and `tick_interval` 6 is an idle life of ~54,000 frames
+against a 6,000-frame run. That is decision **E14**'s arithmetic. Until the
+horizon change lands, *"is the impulse priced correctly"* is not a question
+any instrument here can answer, and nothing in this branch claims it is.
 
 ## One asymmetry deliberately left standing
 
