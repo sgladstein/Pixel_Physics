@@ -79,8 +79,10 @@ unnamed, per §6 call 2.
 ## Judged by eye, because no test can answer this one
 
 Review card `20260829T154736312Z-2536dc` — a paired frame sequence of the two
-equal-mass bodies, verb off against verb on, with the launch counters in the
-card's `meta`. The owner's verdict:
+equal-mass bodies, verb off against verb on, with the launch counters in each
+item's `meta` (`items[].meta`, which is where the review skill's spec puts
+them; the card has no top-level `meta` and a reader looking there finds
+`null`). The owner's verdict:
 
 > *"With the new jump is great. I choose B"*
 
