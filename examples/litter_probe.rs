@@ -128,6 +128,36 @@ fn rest_of(world: &World, litter: pixel_physics::sim::material::MaterialId, x: i
     Rest::Terrain
 }
 
+/// **Is there air underneath this cell, anywhere between it and the ground?**
+///
+/// This is the question the other two columns cannot answer, and adding it is
+/// the correction to a card that went to the owner and came back *"still
+/// didn't look like the leaves were all on the floor"*.
+///
+/// Both existing measures conflate a leaf stuck up a tree with a leaf lying on
+/// the forest floor, by two different routes:
+///
+/// - `rest_of` reports `Plant` for a drift banked against a root collar, which
+///   is at floor level and is the design working;
+/// - the height bands measure against `terrain_top`, which **excludes litter
+///   on purpose**, so a leaf resting on top of a twenty-deep mat reads as
+///   "twenty rows above the ground" while being the top of the floor.
+///
+/// Neither is wrong; both are confounded, and a picture painted from either
+/// reads as "still stuck in the tree" whichever it is. Air underneath is not
+/// confounded: a leaf held up by a branch has a gap below it and a leaf on a
+/// pile does not, however deep the pile or whatever the pile rests on.
+///
+/// Returns the count of empty cells strictly between `(x, y)` and the terrain
+/// top, so the size of the gap is available as well as its existence -- a
+/// one-cell hole under a slumping drift and a forty-cell drop out of a crown
+/// are different claims.
+fn air_below(world: &World, x: i32, y: i32, terrain_y: i32) -> i32 {
+    ((y + 1)..=terrain_y)
+        .filter(|&yy| world.get(x, yy).material == material::EMPTY)
+        .count() as i32
+}
+
 /// Topmost terrain row in column `x` — soil or stone, never plant and never
 /// litter.
 ///
@@ -147,6 +177,7 @@ fn main() {
     let mut out: Option<String> = None;
     let mut crop: Option<(i32, i32, i32, i32)> = None;
     let mut zoom = 1i32;
+    let mut plain = false;
     let mut scene = common::PlantScene::default();
     // Echo every parameter below, so a log that does not name its settings
     // was written by a binary that never had them — the megastudy that
@@ -172,7 +203,8 @@ fn main() {
                 crop = Some((n[0], n[1], n[2], n[3]));
             }
             "zoom" => zoom = v.parse().expect("zoom=N"),
-            other => panic!("unknown arg {other:?}; known: frames, every, trees, species, ground, startframe, out, crop, zoom"),
+            "plain" => plain = v != "0",
+            other => panic!("unknown arg {other:?}; known: frames, every, trees, species, ground, startframe, out, crop, zoom, plain"),
         }
     }
     println!(
@@ -205,6 +237,10 @@ fn main() {
         let canopy = common::canopy_top(world).map(|y| y.to_string()).unwrap_or_else(|| "NONE".into());
         let (mut total, mut on_terrain, mut on_plant, mut airborne, mut near) = (0u32, 0u32, 0u32, 0u32, 0u32);
         let mut bands = [0u32; HEIGHT_BANDS.len()];
+        // The unconfounded pair: how many litter cells have air underneath
+        // them, and how far off the ground the worst one is. See `air_below`.
+        let (mut suspended, mut worst_gap, mut worst_height) = (0u32, 0i32, 0i32);
+        let (mut high, mut high_boxed_by_plant) = (0u32, 0u32);
         for x in 0..w {
             let top = terrain_top(world, soil, x, 0, h - 1);
             for y in 0..h {
@@ -220,6 +256,26 @@ fn main() {
                 if let Some(t) = top {
                     if (t - y) <= 3 && y < t {
                         near += 1;
+                    }
+                    // Diagnostic for the follow-up complaint: litter that is
+                    // grounded but *high* is a pile climbing off the floor,
+                    // and what stops a pile spreading is a neighbour it
+                    // cannot roll into. Counting how often that neighbour is
+                    // plant tissue says whether the climb is confinement by
+                    // the tree or ordinary repose.
+                    if (t - y) > 8 {
+                        high += 1;
+                        let l = world.get(x - 1, y);
+                        let r = world.get(x + 1, y);
+                        if l.organism_id() != 0 || r.organism_id() != 0 {
+                            high_boxed_by_plant += 1;
+                        }
+                    }
+                    let gap = air_below(world, x, y, t);
+                    if gap > 0 {
+                        suspended += 1;
+                        worst_gap = worst_gap.max(gap);
+                        worst_height = worst_height.max(t - y);
                     }
                     // Cumulative: band `i` counts litter within
                     // `HEIGHT_BANDS[i]` rows of the terrain top. Litter at or
@@ -237,6 +293,20 @@ fn main() {
             "  {:>6} | {:>6} | {:>7} | {:>10} {:>9} {:>9} | {:>8} | {} / {}",
             world.frame, canopy, total, on_terrain, on_plant, airborne, near, world.decayed_damp, world.decayed_dry
         );
+        // **Read this line, not the split above it.** It is the only one that
+        // answers "are the leaves on the floor" without conflating a drift
+        // against a trunk, or the top of a deep mat, with a leaf up a tree.
+        if total > 0 {
+            println!(
+                "         SUSPENDED (air underneath): {suspended} of {total} ({:.1}%), worst gap {worst_gap} cells, highest {worst_height} rows above terrain",
+                100.0 * suspended as f32 / total as f32
+            );
+            println!(
+                "         grounded but >8 rows up: {high} ({:.1}%), of which {high_boxed_by_plant} have plant tissue immediately left or right ({:.1}%)",
+                100.0 * high as f32 / total as f32,
+                if high > 0 { 100.0 * high_boxed_by_plant as f32 / high as f32 } else { 0.0 }
+            );
+        }
         if total > 0 {
             let pct: Vec<String> = HEIGHT_BANDS
                 .iter()
@@ -245,7 +315,7 @@ fn main() {
                 .collect();
             println!("         within N rows of terrain -- {}", pct.join("  "));
         }
-        (total, on_terrain, on_plant, near)
+        (total, on_terrain, on_plant, near, suspended)
     };
 
     let mut run = 0u64;
@@ -261,7 +331,7 @@ fn main() {
         sample(&world);
     }
 
-    let (total, on_terrain, on_plant, near) = sample(&world);
+    let (total, on_terrain, on_plant, near, suspended) = sample(&world);
     let rotted = world.decayed_damp + world.decayed_dry;
     println!();
     println!("  shed cells that ever existed (standing + rotted): {}", total + rotted);
@@ -272,32 +342,77 @@ fn main() {
             100.0 * on_plant as f32 / total as f32,
             100.0 * near as f32 / total as f32,
         );
+        println!(
+            "  SUSPENDED (air underneath, the unconfounded one): {:.1}% -- everything else is on the floor, whatever it is nominally resting on",
+            100.0 * suspended as f32 / total as f32
+        );
     }
     println!("  rotted: {} damp + {} dry = {}", world.decayed_damp, world.decayed_dry, rotted);
 
     if let Some(path) = out {
-        write_overlay(&world, litter, &path, w, h, crop, zoom);
-        println!("  overlay: {path} (magenta = resting on a branch, cyan = resting on the ground)");
+        write_overlay(&world, litter, soil, &path, &View { w, h, crop, zoom, plain });
+        println!("  overlay: {path} (magenta = HELD UP off the ground, cyan = on the forest floor)");
     }
 }
 
 /// Paint the same classification the census counts, so the picture and the
 /// number are the same quantity rather than two things that have to be
 /// argued into agreement.
-fn write_overlay(world: &World, litter: material::MaterialId, path: &str, w: i32, h: i32, crop: Option<(i32, i32, i32, i32)>, zoom: i32) {
-    let (cx, cy, cw, ch) = crop.unwrap_or((0, 0, w, h));
-    let zoom = zoom.max(1);
+/// Where to look and how big to draw it — grouped rather than passed as four
+/// more parameters, because `write_overlay` was one over clippy's
+/// `too_many_arguments` limit the moment the soil id joined it.
+struct View {
+    /// Full world size, and the default crop.
+    w: i32,
+    h: i32,
+    crop: Option<(i32, i32, i32, i32)>,
+    zoom: i32,
+    /// Draw the world in its own colours with no markers and no dimming —
+    /// *what the scene actually looks like*, rather than the classification.
+    ///
+    /// Both are needed and they answer different questions. The marked
+    /// overlay says which cells are held off the ground; this says whether a
+    /// person looking at the screen would call it a forest floor. The whole
+    /// reason this option exists is that a card carrying only the marked
+    /// version was read, reasonably, as showing litter still in the canopy.
+    ///
+    /// Material palettes at full brightness, deliberately not the game's own
+    /// lighting: this scene spends half its time at night, and a picture that
+    /// is mostly darkness answers nothing.
+    plain: bool,
+}
+
+fn write_overlay(world: &World, litter: material::MaterialId, soil_id: material::MaterialId, path: &str, view: &View) {
+    let (w, h) = (view.w, view.h);
+    let (cx, cy, cw, ch) = view.crop.unwrap_or((0, 0, w, h));
+    let zoom = view.zoom.max(1);
     let (ow, oh) = (cw * zoom, ch * zoom);
     let mut buf = vec![0u8; (ow * oh * 3) as usize];
     for px in 0..cw {
         for py in 0..ch {
             let (x, y) = (cx + px, cy + py);
             let c = world.get(x, y);
-            let rgb = if c.material == litter {
-                match rest_of(world, litter, x, y, h - 1) {
-                    Rest::Plant => [255u8, 0, 220],
-                    Rest::Terrain => [0, 230, 255],
-                    Rest::Airborne => [255, 255, 255],
+            let rgb = if view.plain {
+                let pal = &world.materials.get(c.material).palette;
+                if c.material == material::EMPTY {
+                    [10, 12, 20]
+                } else {
+                    let raw = pal[c.shade as usize % pal.len().max(1)];
+                    [raw[0], raw[1], raw[2]]
+                }
+            } else if c.material == litter {
+                // **Painted on `air_below`, not on `rest_of`.** The first
+                // version of this overlay coloured by what the cell was
+                // resting on, which put a floor-level drift banked against a
+                // trunk in the same magenta as a leaf stuck forty rows up a
+                // tree -- and the owner read the picture the way anyone
+                // would, as litter still in the canopy. The caption said
+                // otherwise and a caption does not beat a picture. Air
+                // underneath is the honest split: magenta is genuinely held
+                // up off the ground, cyan is the forest floor.
+                match terrain_top(world, soil_id, x, 0, h - 1) {
+                    Some(t) if air_below(world, x, y, t) > 0 => [255u8, 0, 220],
+                    _ => [0, 230, 255],
                 }
             } else if c.material == material::EMPTY {
                 [10, 12, 20]

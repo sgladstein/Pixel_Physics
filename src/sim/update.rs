@@ -550,6 +550,9 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     if roll_along_slope(surface, x, y, rightward) {
         return true;
     }
+    if slide_past_organism(surface, x, y, cell, rightward) {
+        return true;
+    }
 
     // Nothing moved this frame: the cell has settled. Clear `flowing` so the
     // *next* time it's asked to roll, it needs the steeper stability angle
@@ -707,6 +710,83 @@ fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: 
         }
         if here.organism_id() == 0 {
             return false;
+        }
+    }
+    false
+}
+
+/// How far a leaf will slip sideways past a trunk in one frame.
+///
+/// A trunk is a few cells across, so this only has to clear one. Bounded for
+/// the same reason `ORGANISM_TUNNEL_REACH` is, and by the same constant.
+const ORGANISM_SLIP_REACH: i32 = 8;
+const _: () = assert!(
+    ORGANISM_SLIP_REACH <= MAX_REACH,
+    "a per-frame move beyond MAX_REACH breaks parallel.rs's cross-chunk write-disjointness proof"
+);
+
+/// A drift of leaves spills *round* a trunk rather than climbing up it.
+///
+/// **The horizontal half of the 2D-slice rule, and it was the half still on
+/// screen.** `fall_through_organism` above stopped leaves resting on
+/// branches, and measured on the honest metric it worked -- 4 of 497 standing
+/// cells left with any air under them. The owner still reported *"it didn't
+/// look like the leaves were all on the floor"*, and he was right: what was
+/// left is a pile that **cannot spread sideways**. A litter cell rolls
+/// downhill only into open space, so a drift wedged between two trunks has
+/// nowhere to go but up, and it climbs out of the forest floor into the lower
+/// crown as a narrow column. It is grounded the whole way, so every measure
+/// that asks *what is under this cell* calls it floor -- and at play zoom it
+/// reads as exactly the thing that was supposed to be fixed. Measured on
+/// `litter_probe frames=12000 trees=8` before this landed: **24% of standing
+/// litter more than eight rows up, and 68% of that with plant tissue
+/// immediately to its left or right.**
+///
+/// In three dimensions a drift banks round a trunk instead of stacking on top
+/// of it, for the same reason a falling leaf passes a branch: the trunk does
+/// not occupy the whole depth of the slice.
+///
+/// **The destination must be somewhere it can actually fall from, and that is
+/// what makes this terminate.** Requiring only an empty cell on the far side
+/// would let a leaf shuffle left and right across a trunk for ever, which
+/// costs nothing in physics and keeps the chunk awake -- the frame-cost
+/// failure `CLAUDE.md` names. Requiring open air *beneath* the destination
+/// means every slip is immediately followed by a fall, so the cell's row
+/// strictly increases and it can never return to the row it left. It may
+/// zig-zag down past a trunk; it cannot oscillate on one.
+///
+/// Called only after the straight-down, both diagonals, the tunnel and
+/// `roll_along_slope` have all failed, so this runs on a cell that is
+/// genuinely walled in. The material test is first because, unlike the
+/// vertical case, neither neighbour is in the caller's hand -- so a pile of
+/// sand pays one `Vec` index and no cell fetches at all.
+fn slide_past_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
+    if !surface.materials().get(cell.material).falls_through_organisms {
+        return false;
+    }
+    // Sweep parity picks which side to try first, exactly as the diagonal
+    // fall and the roll do, so a symmetric pile does not develop a bias.
+    let (first, second) = if rightward { (1, -1) } else { (-1, 1) };
+    for dir in [first, second] {
+        // The neighbour must be living tissue: this is "go round the trunk",
+        // never a general licence to jump a gap.
+        if surface.get(x + dir, y).organism_id() == 0 {
+            continue;
+        }
+        for step in 1..=ORGANISM_SLIP_REACH {
+            let tx = x + dir * step;
+            let here = surface.get(tx, y);
+            if here.organism_id() != 0 {
+                continue;
+            }
+            // First cell past the trunk. It is only a destination if the leaf
+            // can fall from it; anything else and this direction is refused
+            // rather than searched further, since a second trunk beyond the
+            // first is not "round the trunk" any more.
+            if here.material == material::EMPTY && surface.get(tx, y + 1).material == material::EMPTY && try_move(surface, x, y, tx, y) {
+                return true;
+            }
+            break;
         }
     }
     false
@@ -2062,6 +2142,133 @@ mod tests {
             drift,
             (60, 56),
             "a drift resting on a trunk must not eat through the ground under it: the scan stops at the first cell that is not organism-owned"
+        );
+    }
+
+    /// **A drift of leaves spills round a trunk instead of climbing it.**
+    ///
+    /// The horizontal half of the same rule, and the half that was still on
+    /// screen after `fall_through_organism` landed. Leaves had stopped
+    /// resting on branches -- 4 of 497 standing cells with any air under them
+    /// -- and the owner still reported *"it didn't look like the leaves were
+    /// all on the floor"*, correctly: a pile wedged against a trunk cannot
+    /// roll sideways into wood, so it climbed out of the floor into the lower
+    /// crown as a narrow column. Grounded the whole way, so every measure
+    /// that asks *what is under this cell* called it floor. Measured on
+    /// `litter_probe frames=12000 trees=8`: **24% of standing litter more
+    /// than eight rows up with 68% of that boxed in by plant tissue, against
+    /// 4.9% and a highest cell of 10 rows after.**
+    ///
+    /// **The third arm is the one that matters and is the one that would go
+    /// blind.** Requiring only an empty cell on the far side of the trunk
+    /// passes the first two arms identically and lets a leaf shuffle left and
+    /// right across a trunk for ever, keeping its chunk awake -- physics that
+    /// costs nothing and frame time that costs everything. Requiring open air
+    /// *beneath* the destination is what makes each slip a descent. So arm 3
+    /// puts level ground on both sides and asserts nothing moves; it is red
+    /// for a version that drops that clause, and all three were confirmed red
+    /// for their own fault before this was committed.
+    ///
+    /// **What this guard does *not* cover, stated because a green run of it
+    /// will otherwise be read as covering everything.** Deleting the
+    /// "neighbour must be living tissue" clause leaves all three arms green,
+    /// because every arm here has a trunk in that position. That clause is
+    /// still load-bearing and is not decoration: without it the rule becomes
+    /// "a settled grain drops into any adjacent hole", which bypasses
+    /// `roll_along_slope`'s two-angle repose hysteresis whenever
+    /// `stability_reach_at` returns 0 -- the settled cell never gets asked to
+    /// roll, so this would answer in its place. A scene that discriminates it
+    /// needs a settled litter cell beside an open drop with no plant tissue
+    /// anywhere, and it is not built here.
+    #[test]
+    fn a_leaf_drift_slips_round_a_trunk_only_when_there_is_somewhere_lower_to_go() {
+        let mut w = world_with_floor();
+        let litter = w.materials.id_of("litter").expect("litter is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+
+        // A plateau with a trunk on its edge. The leaf sits on the plateau
+        // top, wedged against the trunk: it cannot fall (stone below), cannot
+        // go diagonally (stone one side, trunk the other), cannot tunnel (the
+        // cell below is not organism-owned) and cannot roll (the trunk blocks
+        // the only downhill path). Every earlier rule has already declined by
+        // the time this one is asked, which is the situation it exists for.
+        let plateau = |w: &mut World, x0: i32, x1: i32| {
+            for x in x0..=x1 {
+                for y in 120..=126 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+            }
+        };
+        let trunk = |w: &mut World, x: i32, y0: i32, id: u16| {
+            for y in y0..=126 {
+                w.set(x, y, Cell::new(wood, 0).with_organism_id(id));
+            }
+        };
+
+        // Arm 1: open ground beyond the trunk, seven rows lower. Must slip.
+        plateau(&mut w, 10, 19);
+        trunk(&mut w, 20, 114, 1);
+        w.set(19, 119, Cell::new(litter, 0));
+
+        // Arm 2: sand in the identical geometry -- the specificity control.
+        plateau(&mut w, 70, 79);
+        trunk(&mut w, 80, 114, 2);
+        w.set(79, 119, Cell::new(material::SAND, 0));
+
+        // Arm 3: the plateau continues past the trunk, so there is nothing
+        // lower on the far side. Must not move -- see the doc above.
+        plateau(&mut w, 40, 60);
+        trunk(&mut w, 50, 114, 3);
+        w.set(49, 119, Cell::new(litter, 0));
+
+        run(&mut w, 2000);
+
+        // **The world must have gone to sleep, and this is arm 3's real
+        // assertion.** Its position check alone is blind: dropping the
+        // "somewhere lower" clause makes the leaf shuffle across the trunk
+        // with period two, so after any even number of frames it is back on
+        // the square it started from and the coordinates match perfectly.
+        // Caught by putting that exact fault back and watching the test stay
+        // green -- which is why this line exists and why the budget above is
+        // generous rather than tight. An oscillating cell writes every frame,
+        // so its chunk can never settle, and that is the cost the clause is
+        // there to avoid rather than a physics detail.
+        assert_eq!(
+            w.active_chunk_count(),
+            0,
+            "the world never settled: something is still writing every frame, which is what a leaf shuffling back and \
+             forth across a trunk looks like"
+        );
+
+        let find = |w: &World, m: material::MaterialId, x0: i32, x1: i32| {
+            (0..128).flat_map(move |y| (x0..=x1).map(move |x| (x, y))).find(|&(x, y)| w.get(x, y).material == m)
+        };
+
+        let (slipped_x, slipped_y) = find(&w, litter, 0, 35).expect("the leaf vanished entirely");
+        assert!(
+            slipped_x > 20 && slipped_y >= 126,
+            "a leaf wedged against a trunk must spill round it to the lower ground: it is at ({slipped_x}, {slipped_y}), \
+             with the trunk at x=20 and the floor at row 126"
+        );
+        // The trunk is untouched: a slip only ever moves into empty space, so
+        // this can no more displace wood than the vertical tunnel can.
+        for y in 114..=126 {
+            assert_eq!(w.get(20, y).material, wood, "the trunk at row {y} was displaced by the leaf going round it");
+        }
+
+        let (sand_x, sand_y) = find(&w, material::SAND, 65, 95).expect("the sand vanished entirely");
+        assert_eq!(
+            (sand_x, sand_y),
+            (79, 119),
+            "sand must stay wedged against the trunk -- this rule is a material opt-in, not a change to how every powder piles"
+        );
+
+        let (level_x, level_y) = find(&w, litter, 36, 64).expect("the level-ground leaf vanished entirely");
+        assert_eq!(
+            (level_x, level_y),
+            (49, 119),
+            "with level ground on the far side there is nowhere lower to go, so the leaf must not slip: without that clause \
+             it shuffles across the trunk for ever and keeps the chunk awake"
         );
     }
 
