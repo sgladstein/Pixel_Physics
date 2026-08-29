@@ -256,12 +256,29 @@ pub struct TickCensus {
     /// tell a root that derived a real distance from one that wrote the old
     /// bedrock claim anyway, and those are the two halves §6.5d is about.
     pub grounded_flat: u32,
+    /// **The four ways a size cap can answer "supported" without having
+    /// looked** — §S5's instrument. Each is a place `CLAUDE.md`'s rule about
+    /// caps ("does exhausting the cap produce an *answer*, or merely *less
+    /// work*? An answer is the bug") applies, and none of them was counted,
+    /// so which one actually fires on a real blast was a guess between three
+    /// plausible candidates. Now it is a reading.
+    ///
+    /// `walk_capped` is `load::chain_reaches_anchor` running past
+    /// `MAX_SUPPORT_WALK` and calling it supported; `region_capped` and
+    /// `supported_budget0` are `load::is_supported`'s two arms; and
+    /// `rootward_capped` is `load::failing_along_support_chain` running out
+    /// of `ROOTWARD_CHECK_STEPS` and falling through to `Holds`.
+    pub walk_capped: u32,
+    pub region_capped: u32,
+    pub supported_budget0: u32,
+    pub rootward_capped: u32,
 }
 
 thread_local! {
     static CENSUS: std::cell::Cell<TickCensus> = const { std::cell::Cell::new(TickCensus {
         worsened: 0, improved: 0, unmoved: 0, budget0: 0, chain_deferred: 0, uninteresting: 0, max_aux: 0,
         grounded: 0, grounded_flat: 0,
+        walk_capped: 0, region_capped: 0, supported_budget0: 0, rootward_capped: 0,
     }) };
 }
 
@@ -271,7 +288,7 @@ fn census_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("SCHED_PASS").is_ok())
 }
 
-fn census(f: impl FnOnce(&mut TickCensus)) {
+pub(crate) fn census(f: impl FnOnce(&mut TickCensus)) {
     if !census_enabled() {
         return;
     }

@@ -6605,6 +6605,45 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         // free and standing there whether or not anything ever judged it.
         let (pieces, islands, island_cells, largest_piece) = severed_islands(&world);
         println!("    rock the fissures actually cut loose: {pieces} piece(s), largest {largest_piece} cells -- of those, wedged with no free face: {islands} ({island_cells} cells)");
+        // §S5: what the model says about that piece when it cannot starve.
+        let charge = fired.last().map(|c| (c.x, c.y, c.radius * 4));
+        let (n, failing, holds, deferred) = interrogate_largest_severed_piece(&world, charge);
+        if n > 0 {
+            println!("    that piece, re-asked with an unlimited budget: {n} cells -- {failing} failing, {holds} holds, {deferred} deferred");
+            // If it holds on a budget it cannot exhaust, something in it is an
+            // anchor. `load::is_anchor` is private, so this counts the three
+            // ways it can be true from outside, which is enough to say which
+            // one to go and read.
+            let piece = largest_severed_piece_near(&world, charge);
+            let (mut bedrock, mut on_powder, mut on_liquid) = (0, 0, 0);
+            for &(x, y) in &piece {
+                if [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                    .iter()
+                    .any(|&(dx, dy)| world.get(x + dx, y + dy).material == material::BEDROCK)
+                {
+                    bedrock += 1;
+                }
+                match world.materials.kind(world.get(x, y + 1).material) {
+                    MaterialKind::Powder => on_powder += 1,
+                    MaterialKind::Liquid => on_liquid += 1,
+                    _ => {}
+                }
+            }
+            println!("      of those cells: {bedrock} touch bedrock, {on_powder} sit on powder, {on_liquid} sit on liquid");
+            // **What is it, and where?** `severed_islands` counts any maximal
+            // solid component the cracks left unconnected -- which includes
+            // things no blast ever touched. Naming the material and the box
+            // is what stops "the largest severed piece" being read as "rock
+            // the blast cut loose" when it is neither.
+            let mut kinds: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+            for &(x, y) in &piece {
+                *kinds.entry(world.materials.get(world.get(x, y).material).name.clone()).or_default() += 1;
+            }
+            let (x0, x1) = (piece.iter().map(|c| c.0).min().unwrap_or(0), piece.iter().map(|c| c.0).max().unwrap_or(0));
+            let (y0, y1) = (piece.iter().map(|c| c.1).min().unwrap_or(0), piece.iter().map(|c| c.1).max().unwrap_or(0));
+            let listed: Vec<String> = kinds.iter().map(|(k, v)| format!("{k} {v}")).collect();
+            println!("      it is: {} -- x {x0}..{x1}, y {y0}..{y1}", listed.join(", "));
+        }
         // How much the world has actually *lost* since the cut was made,
         // which the failure counts above cannot say: a failed cell that
         // became rubble is still standing there. Printed per tile rather
@@ -7118,6 +7157,133 @@ fn damage_radius(world: &World, before: &[material::MaterialId], fired: &[FiredC
 /// the two consumers that decide whether this piece is held and how it comes
 /// apart. Asking in 8 would call a piece free that neither of them can
 /// actually separate.
+/// **§S5's decisive probe: ask the load model about the piece that is stuck,
+/// with a budget it cannot run out of.**
+///
+/// `severed_islands` says a piece is cut free and standing. That is a fact
+/// about the *world*, and it cannot say which of two very different things is
+/// wrong: the model believes the piece is held up, or the model never
+/// finished asking. Those call for opposite fixes and look identical on a
+/// contact sheet and in every counter the scheduler prints -- measured, the
+/// cap counters fire 477 times on an idle world with no blast in it at all,
+/// so "which cap fired" cannot separate them either.
+///
+/// So: take the largest severed piece, and put its own cells to
+/// `load::failing_along_support_chain` directly with a budget large enough
+/// that no cap can bind. Whatever comes back is the model's *considered*
+/// answer, with starvation removed as a variable.
+///
+/// - mostly `Failing` -> the model agrees the piece should come down, and
+///   the only reason it is standing is that the real run never got that far.
+/// - mostly `Holds` -> the model genuinely believes it is supported, the
+///   budget story is wrong, and the support rule is what needs work.
+///
+/// Returns `(cells in the piece, failing, holds, deferred)`.
+fn interrogate_largest_severed_piece(world: &World, near: Option<(i32, i32, i32)>) -> (usize, usize, usize, usize) {
+    let piece = largest_severed_piece_near(world, near);
+    let mut cache = pixel_physics::sim::load::Cache::default();
+    // Two orders of magnitude past `MAX_LOAD_CELLS_PER_FRAME`, so exhausting
+    // it would take a region far larger than `MAX_REGION_CELLS` admits.
+    let mut budget = 100_000_000u32;
+    let (mut failing, mut holds, mut deferred) = (0, 0, 0);
+    for &(x, y) in &piece {
+        match pixel_physics::sim::load::failing_along_support_chain(world, x, y, &mut cache, &mut budget) {
+            pixel_physics::sim::load::ChainVerdict::Failing(_) => failing += 1,
+            pixel_physics::sim::load::ChainVerdict::Holds => holds += 1,
+            pixel_physics::sim::load::ChainVerdict::Deferred => deferred += 1,
+        }
+    }
+    (piece.len(), failing, holds, deferred)
+}
+
+/// The cells of the largest piece the fissures have cut completely free --
+/// `severed_islands`' flood, kept whole instead of counted. Same 4-connected
+/// traversal and the same `edge_is_cracked` rule, for the reason that
+/// function gives: asking in 8 would call a piece free that neither
+/// `load::is_supported` nor `rigid::take_fragment` can actually separate.
+/// The same flood, restricted to **rock a charge could actually have cut** --
+/// and the reason this restriction has to exist is the whole of §S5's
+/// correction.
+///
+/// `severed_islands` counts every maximal solid component the cracks left
+/// unconnected. That set contains things no blast ever touched: on
+/// `preset=terraced seed=7` the largest such piece is a **390-cell floating
+/// ice sheet at x 23..108**, while the charge is at x=300 and the largest
+/// piece of *stone* anywhere near it is 8 cells. The ice holds because ice
+/// floats, which is right. Reported as "rock the fissures cut loose, largest
+/// 376 cells, still standing", it read as a spectacular bug and was not one.
+///
+/// So: `near` filters to a box around the charge, and any material that
+/// `floats` is excluded outright -- a floating sheet is supported by the
+/// water under it and is never the thing this question is about.
+fn largest_severed_piece_near(world: &World, near: Option<(i32, i32, i32)>) -> Vec<(i32, i32)> {
+    use std::collections::VecDeque;
+    let idx = |x: i32, y: i32| y as usize * WIDTH as usize + x as usize;
+    let mut seen = vec![false; (WIDTH * HEIGHT) as usize];
+    let solid = |x: i32, y: i32| {
+        world.in_bounds(x, y) && matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid)
+    };
+    const MAX_ISLAND: usize = 512;
+    let mut best: Vec<(i32, i32)> = Vec::new();
+    let admits = |piece: &[(i32, i32)]| -> bool {
+        if piece.iter().any(|&(x, y)| world.materials.get(world.get(x, y).material).floats) {
+            return false;
+        }
+        match near {
+            None => true,
+            Some((cx, cy, r)) => piece.iter().any(|&(x, y)| (x - cx).abs() <= r && (y - cy).abs() <= r),
+        }
+    };
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if seen[idx(x, y)] || !solid(x, y) {
+                continue;
+            }
+            let mut queue = VecDeque::from([(x, y)]);
+            seen[idx(x, y)] = true;
+            let mut member = Vec::new();
+            let mut overflowed = false;
+            while let Some((cx, cy)) = queue.pop_front() {
+                member.push((cx, cy));
+                if member.len() > MAX_ISLAND {
+                    overflowed = true;
+                    break;
+                }
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let (nx, ny) = (cx + dx, cy + dy);
+                    if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) {
+                        continue;
+                    }
+                    if !world.in_bounds(nx, ny) || !solid(nx, ny) {
+                        continue;
+                    }
+                    if !seen[idx(nx, ny)] {
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+            }
+            if overflowed {
+                while let Some((cx, cy)) = queue.pop_front() {
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let (nx, ny) = (cx + dx, cy + dy);
+                        if pixel_physics::sim::structural::edge_is_cracked(world, cx, cy, dx, dy) || !solid(nx, ny) || seen[idx(nx, ny)] {
+                            continue;
+                        }
+                        seen[idx(nx, ny)] = true;
+                        queue.push_back((nx, ny));
+                    }
+                }
+                continue;
+            }
+            if member.len() > best.len() && admits(&member) {
+                best = member;
+            }
+        }
+    }
+    best
+}
+
 fn severed_islands(world: &World) -> (usize, usize, usize, usize) {
     use std::collections::VecDeque;
     let idx = |x: i32, y: i32| y as usize * WIDTH as usize + x as usize;

@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**41 open, 85 bugs** (plus 19 landing-note items,
+**40 open, 85 bugs** (plus 19 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -107,29 +107,29 @@ point.
 | S | closed | 6063 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
 | S2 | **OPEN** | 7060 | The brush's anchor rule destroys structures the other two rules leave standing |
 | S4 | **OPEN** | 7248 | Rock still crushes itself on an idle world |
-| S5 | **OPEN** | 7320 | A fully-cracked chunk stays welded to the hillside because the load model never finishes ... |
-| T | **OPEN** | 7498 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7542 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7591 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7682 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7696 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7708 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7726 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7747 | A material-counting guard cannot see a species |
-| W1c | note | 7760 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7894 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7972 | The structural opt-out did not hold against bearing |
-| T1d | note | 7983 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8017 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8071 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8125 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8154 | §1c's settle loss is now a counter |
-| -- | note | 8171 | What landed |
-| -- | note | 8194 | Do not re-derive these |
-| -- | note | 8222 | Measurements that contradict something written |
-| -- | note | 8242 | Open |
-| -- | note | 8277 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8295 | grass sets zero seeds on main |
+| S5 | closed | 7320 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7441 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7485 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7534 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7625 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7639 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7651 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7669 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7690 | A material-counting guard cannot see a species |
+| W1c | note | 7703 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7837 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7915 | The structural opt-out did not hold against bearing |
+| T1d | note | 7926 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7960 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8014 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8068 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8097 | §1c's settle loss is now a counter |
+| -- | note | 8114 | What landed |
+| -- | note | 8137 | Do not re-derive these |
+| -- | note | 8165 | Measurements that contradict something written |
+| -- | note | 8185 | Open |
+| -- | note | 8220 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8238 | grass sets zero seeds on main |
 
 <!-- END GENERATED INDEX -->
 
@@ -7317,108 +7317,90 @@ which `edge_is_cracked` and `uncracked_faces` then read as weakened rock. The
 visible complaint and the material damage are two different quantities here,
 and conflating them is what makes the shipped arm look worse than it is.
 
-### S5. A fully-cracked chunk stays welded to the hillside because the load model never finishes asking — **OPEN, found 2026-08-29 from the owner's report**
+### S5. ~~A fully-cracked chunk stays welded because the load model never finishes asking~~ — **RETRACTED the same day, 2026-08-29. The instrument was measuring a floating ice sheet.** The live question is restated at the end, smaller and split in two.
 
-Reported from play: *"one of the intended features of the explosion \[is that]
-when the cracks have fully surrounded a chunk of rock it should detach from
-the background and fall. Every single rock. That doesn't happen
-consistently."*
+**What this section said this morning, and why it was wrong.**
 
-This is §17e's complaint again — `Reports/explosion-stone-review.md` traced it
-once already — but **that trace named the wrong gate**, and the control below
-says so.
+It reported that on `scene=worldcrack preset=terraced seed=7 blast=300,8,20,180,60` a **376-cell piece** was cut free on every side, not wedged, and still standing 840 frames after the bang — and concluded the gate was `MAX_LOAD_CELLS_PER_FRAME` starving the check queue.
 
-**The reproduction, and it is one command.**
+The piece is **ice**, at `x 23..108, y 261..267`. The charge is at **x=300**. It is a floating sheet on a frozen pond, two hundred cells from the blast, which the blast never touched, and it "holds" because ice floats (`MaterialDef::floats`, and `load::floats_on_liquid` is right to say so). Reported as *"rock the fissures cut loose, largest 376 cells, still standing"* it read as a spectacular bug and was not one at all.
 
-```
-filmstrip scene=worldcrack preset=terraced seed=7 strike=0 \
-          blast=300,8,20,180,60 start=900 every=1 count=1
-```
+`filmstrip::severed_islands` counts **every** maximal 4-connected solid component the cracks left unconnected. Nothing in that definition says *rock*, or *near the charge*, or *not already a separate object* — so on any world with a frozen pond the largest such component is the pond. This is `CLAUDE.md`'s most-repeated failure, the one it records six occurrences of: **ask what your number counts when nothing is wrong.** Run against a world with no blast in it at all, the same census reports the same ice sheet.
 
-```text
-  rock the fissures actually cut loose: 20 piece(s), largest 376 cells
-                    of those, wedged with no free face: 0 (0 cells)
-  of those, actually moved: 23 bodies (426 cells promoted)
-  hanging: 11 unattached solid cells the load model says reach no anchor
-  tile 0: frame 900, sites 2751
-```
+**The tell was in the original entry and was walked past.** It recorded that raising the budget 200x moved the largest stuck piece only **376 -> 365** while promoting 8.1x more rock elsewhere. A lever that moves everything except the thing it is supposed to explain is saying the thing is not in its scope, and that sentence was written down and not read.
 
-A **376-cell** piece is cut free on every side, has a free face, is well
-inside `rigid::MAX_BODY_CELLS` (400), and is still standing 840 frames after
-the bang. Meanwhile the load model reports **11** cells in the whole world
-reaching no anchor. It is not judging the piece unsupported and declining to
-move it; it is not judging it at all.
+**What the corrected instrument does.** `filmstrip::largest_severed_piece_near` excludes any material that `floats` and restricts to a box around a fired charge, and `interrogate_largest_severed_piece` then puts that piece's own cells to `load::failing_along_support_chain` with a budget of 100,000,000 — large enough that no cap can bind. That separates the two hypotheses which every previous instrument, including the scheduler's own counters, reported identically:
 
-**Ruled out by measurement: `rests_on_ground` / `grain_is_footing`.** §17e
-named `load::rests_on_ground` ("the cell below is a `Powder`" feeding
-`is_anchor`) and the recorded control was `depowder`, which is blunt — it
-takes the soil overburden as well, 7,290 cells here. The sharp control is
-`GRAIN_FOOTING_PROBE`, whose give-up branch resolves to *footing* and is the
-only part of that predicate deep scree can reach. Raising it **8 -> 512**,
-changing nothing else:
+- mostly `Failing` — the model agrees it should come down and only starvation kept it up;
+- mostly `Holds` — the model believes it is supported, and the support rule is the question.
 
-| | largest piece still cut loose and standing |
-|---|---|
-| probe 8 (shipped) | 376 |
-| probe 512 | **379** |
+**What is actually there, measured with it.** `blast=300,8,20,180,60`, at rest, frame 900:
 
-Nothing. Not a small improvement — the wrong direction by three cells. Do not
-spend another session on the footing predicate for *this* symptom. (§T1a's
-separate complaint about that function stands on its own evidence.)
+| preset / seed | largest non-floating severed piece near the charge | verdict at unlimited budget |
+|---|---|---|
+| terraced 1 | stone, **8** cells | 8 holds |
+| terraced 3 | *nothing* | — |
+| terraced 7 | stone, **15** cells | **15 failing** |
+| rolling 1 | log, 4 cells | 4 failing |
+| rolling 3 | *nothing* | — |
+| rolling 7 | stone, **108** cells at `x 301..315` | **104 holds**, 4 failing |
 
-**What it is: the per-frame load budget, and the check queue never drains.**
-`MAX_LOAD_CELLS_PER_FRAME` 20,000 -> 4,000,000, same seed, same frames,
-nothing else changed:
+So the real thing is **8 to 108 cells, not 376**, and it is **two different problems** that the old entry ran together:
 
-| | bodies promoted | worst frame | sites pending at 900 |
-|---|---|---|---|
-| budget 20,000 (shipped) | 23 / **426 cells** | **29.8, 28.3 ms** | 2,751 |
-| budget 4,000,000 | 71 / **3,456 cells** | **1,411, 1,344 ms** | 1,522 |
+**S5-a — judged supported while cut free (`rolling 7`).** 108 cells of stone at the charge, severed on every side, and at unlimited budget 104 of them hold. Its anchor census: **0 touch bedrock, 5 sit on powder, 0 on liquid.** The only route to `is_anchor` is those five cells, through `rests_on_ground` -> `grain_is_footing`. So the support rule *is* the gate here — **the opposite of what this section said**, and the reason the original "ruled out" was wrong is that its `GRAIN_FOOTING_PROBE` 8 -> 512 control was run against the ice sheet, which has no powder under it at all (0 on powder, 86 on liquid) and could not have responded to a grain probe whatever its setting.
 
-**8.1x the rock comes down.** That is the diagnosis and emphatically *not*
-the fix: 47x the worst frame, and `CLAUDE.md` makes frame cost a hard
-constraint. Note the last column — even at 200x the budget the queue still
-has 1,522 sites outstanding at frame 900. It never drains; a blast schedules
-more checking than the model can do, ever.
+Re-run against `rolling 7` the same control **does** move it — 4 failing -> 22 of 103 — and is still not the fix: the piece stays standing, and the run promotes **1,382 -> 477** cells overall, so it costs far more rock elsewhere than it frees here.
 
-**Why "not consistently" is exactly the right word for it.** Whether a given
-chunk falls depends on whether its site wins the budget lottery on the frame
-it comes up, which is why this reads as intermittent rather than as a rule.
+**S5-b — judged failing and standing anyway (`terraced 7`).** 15 cells, all fifteen reporting `Failing` at unlimited budget, still there at frame 900. This is the throughput half, and it is the one the budget measurement genuinely supports: `MAX_LOAD_CELLS_PER_FRAME` 20,000 -> 4,000,000 promotes **426 -> 3,456** cells across the run at **29.8 -> 1,411 ms** on the worst frame. That measurement stands; only its attribution to the 376-cell piece was wrong.
 
-**Half of this mechanism was already found and fixed, which is the warning.**
-`load::failing_along_support_chain` reports `ChainVerdict::Deferred` on budget
-exhaustion precisely because *"a half-finished walk that returns 'holds' is a
-dropped check, and the cell then stops rescheduling itself"* — with the same
-control (raising the budget to 2,000,000) and the same signature (497 hanging
-cells -> 164). So the deferral machinery exists and works; the remaining
-problem is **throughput**, not reporting.
+**The scheduler's cap counters cannot referee this, and that is measured too.** Four counters were added to `TickCensus` for it — `walk_capped`, `region_capped`, `supported_budget0`, `rootward_capped`. `MAX_SUPPORT_WALK` and `MAX_REGION_CELLS` fire **zero** times on this scene. The other two fire, and the idle-world control says most of it is background: with **no blast at all**, `rootward` 477 and `budget0` 116, against 879 and 397 with the charge. A number that is 55% of its own value on a world nobody touched cannot identify a blast's residue.
 
-**Where to look next, in the order that looks cheapest.**
+**The design question underneath S5-a, which is the owner's to answer.** A 108-cell slab resting on rubble at five of its cells is, physically, supported — a boulder on gravel does not fall. So `Holds` may be *correct*, and the complaint (*"it should detach from the background and fall. Every single rock"*) may not be about support at all: the piece is cut free and sitting exactly where it was, because its own rubble fills the space it would drop into. That is right by the physics and reads as nothing having happened, which is `CLAUDE.md`'s second law — the verb has to deliver something. If so the fix is not in the support model: it is that a fully-severed piece should **detach into a rigid body** on being severed, and be allowed to settle, rather than staying part of the static terrain until something judges it unsupported. That is a different change with a different risk profile and it has not been costed.
 
-1. `failing_along_support_chain` still resolves **`ROOTWARD_CHECK_STEPS`
-   exhaustion to `Holds`** — the third instance of the shape `CLAUDE.md` names
-   ("a size cap must bound work, never gate whether something happens"), in the
-   function that fixed the other two. Cheap to check, cheap to fix if it fires.
-2. `chain_reaches_anchor` breaks `true` over `MAX_SUPPORT_WALK` **and memoises
-   that answer for the whole path** — up to 512 cells poisoned "supported" per
-   over-cap walk. Check the memo's lifetime before trusting this one; if the
-   cache is per-frame it is bounded, and if it is not, it is not.
-3. The structural one: **ask the question once per severed region rather than
-   once per cell.** `JointSeams::wake` knows exactly which edges it opened, so
-   the blast could hand the load model the regions it just cut instead of
-   scheduling thousands of per-cell checks that rediscover the same topology
-   by flood. This is `CLAUDE.md`'s *"which object does this rule evaluate — a
-   cell, a section, or a whole piece?"* asked of the aftermath rather than of
-   the rule, and it is the only one of the three that changes the *amount* of
-   work rather than how it is spent.
+**What not to repeat.** Do not re-derive the ice finding, and do not trust any figure in this file's original S5 that is not repeated above. The instrument now lives in `examples/filmstrip.rs` and prints on every `worldcrack` run with a `blast=`, so the numbers are one command away rather than an argument.
 
-**What is not wrong, so nobody re-checks it:** the pieces are genuinely severed
-(`severed_islands` walks `edge_is_cracked`, the same predicate `load.rs` and
-`rigid::take_fragment` use), none are wedged, none exceed the body-size cap,
-and smoke is not holding them (§17e fixed that and it is not this).
+**From the gnome-mining lane, 2026-08-29 — the design question under S5-a
+is costed, and the answer exists: it is one call.** This section says of
+detach-on-sever that it *"is a different change with a different risk profile
+and it has not been costed"*. It has now, because the gnome line arrived at
+the same conclusion independently, from the other half of the same complaint
+— the blast's *"every single rock"* against the hammer's *"large pieces fall
+specifically from the existing crack line when they completely surround a
+chunk"* — and shipped it for the hammer before this retraction landed.
 
-**Update from the gnome-mining lane, 2026-08-29 — it is wired to the blast
-too, and here is the honest measurement, which is a partial fix.**
+`structural::free_blocks_around(world, at, reach)` returns every
+joint-bounded block within `reach` whose outline has parted **all the way
+round** — every face of every cell inside the block, across a severed edge, or
+not body material at all — largest first, flooded per domain and bounded by
+`MAX_BLOCK_CELLS`. `rigid::strike` promotes each one through `promote`
+directly, never `fracture_with_impulse`, because that ladder is joint-blind and
+is what was re-cutting a bounded block into fragments.
+
+Three things worth knowing before wiring it to the blast:
+
+- **It asks the question per *block*, which is the third option's whole
+  point** — no per-cell scheduling, no flood that rediscovers the topology.
+  Measured on `acceptance.sh`'s `strike` case (one radius-14 blow into a solid
+  massif): 18 bodies carrying 937 cells on the blow frame against 11 carrying
+  553, with the scheduler backlog unmoved at 1,163 pending sites against the
+  case's bar of 1,500.
+- **It does not consult the load model at all**, which is deliberate and is the
+  half that answers the retraction's design question. A 108-cell slab resting
+  on rubble at five cells genuinely *is* supported, so `Holds` is correct and
+  the complaint is not about support: the piece is cut free and sitting where
+  it was. Severance is the trigger here, not unsupportedness.
+- **The enclosure has to be reachable, and on the hammer path it was not until
+  `structural::JOINT_REPEAT_BONUS`.** `fracture_field::joint_draw` is a pure
+  function of the domain pair, so the boundaries one event declines are
+  declined identically for ever and a block missing one edge is enclosed never,
+  not eventually. The bonus raises the ramp where the rock was already damaged
+  when the event arrived (per *domain*, not per cell — the per-cell version is
+  vacuous and measured at 36 fresh edges -> 36). **It is a per-call argument and
+  `crush_in_place` passes 0.0**, because `Crush { fresh: 0 }` is the re-crush
+  treadmill guard; a blast wiring this up wants the bonus, and wants to check
+  what its own idempotence guard depends on first.
+**And it is wired to the blast too — here is the honest measurement, which
+is a partial fix.**
 
 `Blast::calve` now calls `rigid::calve_free_blocks` after its two collars.
 Paired against that call switched off, five presets x four seeds
@@ -7454,46 +7436,7 @@ holdout exists to keep from reading as a drawn tessellation. That is the
 explosion lane's file and its judgement; this lane has taken it as far as
 the release mechanism goes.
 
-**From the gnome-mining lane, 2026-08-29 — the third option above exists now,
-on the hammer path, and it is one call.** Written after that lane's own
-retraction landed the conclusion *"a fully-severed piece should detach into a
-rigid body on being severed and be allowed to settle, rather than waiting to be
-judged unsupported"*; the two lanes reached it independently from the two
-halves of one complaint (the blast's *"every single rock"* and the hammer's
-*"large pieces fall specifically from the existing crack line when they
-completely surround a chunk"*).
 
-`structural::free_blocks_around(world, at, reach)` returns every
-joint-bounded block within `reach` whose outline has parted **all the way
-round** — every face of every cell inside the block, across a severed edge, or
-not body material at all — largest first, flooded per domain and bounded by
-`MAX_BLOCK_CELLS`. `rigid::strike` promotes each one through `promote`
-directly, never `fracture_with_impulse`, because that ladder is joint-blind and
-is what was re-cutting a bounded block into fragments.
-
-Three things worth knowing before wiring it to the blast:
-
-- **It asks the question per *block*, which is the third option's whole
-  point** — no per-cell scheduling, no flood that rediscovers the topology.
-  Measured on `acceptance.sh`'s `strike` case (one radius-14 blow into a solid
-  massif): 18 bodies carrying 937 cells on the blow frame against 11 carrying
-  553, with the scheduler backlog unmoved at 1,163 pending sites against the
-  case's bar of 1,500.
-- **It does not consult the load model at all**, which is deliberate and is the
-  half that answers the retraction's design question. A 108-cell slab resting
-  on rubble at five cells genuinely *is* supported, so `Holds` is correct and
-  the complaint is not about support: the piece is cut free and sitting where
-  it was. Severance is the trigger here, not unsupportedness.
-- **The enclosure has to be reachable, and on the hammer path it was not until
-  `structural::JOINT_REPEAT_BONUS`.** `fracture_field::joint_draw` is a pure
-  function of the domain pair, so the boundaries one event declines are
-  declined identically for ever and a block missing one edge is enclosed never,
-  not eventually. The bonus raises the ramp where the rock was already damaged
-  when the event arrived (per *domain*, not per cell — the per-cell version is
-  vacuous and measured at 36 fresh edges -> 36). **It is a per-call argument and
-  `crush_in_place` passes 0.0**, because `Crush { fresh: 0 }` is the re-crush
-  treadmill guard; a blast wiring this up wants the bonus, and wants to check
-  what its own idempotence guard depends on first.
 
 ### T. A starving plant strands a cell: growth races dieback — **OPEN, found 2026-08-29 while merging the growth-walk change**
 

@@ -44,6 +44,7 @@
 mod common;
 
 use pixel_physics::sim::organism;
+use pixel_physics::sim::plant;
 use pixel_physics::sim::parallel;
 
 /// Short column labels, in `organism::GENOTYPE_TRAITS`' slot order.
@@ -138,6 +139,19 @@ fn main() {
         w.seed,
         scene.soil_depth,
         organism::GENOTYPE_TRAITS
+    );
+    // **The two knobs that are read from the environment, echoed for the
+    // same reason every other parameter above is.** These are worse than the
+    // argv ones, not better: an argv typo at least appears in the shell
+    // history, while `PIXEL_PHYSICS_FATE_LOOKUP=genom` (one letter short)
+    // silently runs the default and produces a log that is indistinguishable
+    // from a correct one. A log that does not name its mode was written by a
+    // binary that never had one.
+    println!(
+        "genome_drift: fate_lookup={:?} fate_mutation_chance={} (defaults: Full, {})",
+        plant::fate_lookup_mode(),
+        plant::fate_mutation_chance(),
+        plant::FATE_MUTATION_CHANCE
     );
 
     // **Which slots this species can actually express**, printed
@@ -393,6 +407,61 @@ fn main() {
     println!("  Equal rates are the null. A lower established rate is viability selection against");
     println!("  the drifted; a higher one would mean drift is reaching establishment preferentially,");
     println!("  which nothing in the model provides for and would point at this census instead.");
+
+    // **Where the drift went: the draw counted at its source.**
+    //
+    // `Reports/plant-rule-drift-observed-2026-08-29.md` §4 left a 2.6x gap
+    // between the drift a standing census sees and the drift a per-birth
+    // model predicts, and could not attribute it: a census reads genomes,
+    // never the draws that made them. These three counters come from
+    // `plant::bear_seed_at` itself, so the gap splits into segments that
+    // each fail differently.
+    //
+    // **Read the first row first.** The draw is *not* a per-birth roll: it
+    // comes from a substream keyed on `(world seed, landing cell, parent
+    // generation)`, so every seed landing on one cell from same-generation
+    // parents gets the same answer, and the realised rate over births is a
+    // ratio whose denominator is how births pile onto keys. It has far more
+    // spread than a binomial at the same n, and a single run sitting well
+    // off the nominal rate is the expected behaviour of that design rather
+    // than evidence of a bug.
+    let rolls = w.fate_mutation_rolls;
+    let fired = w.fate_mutations_fired;
+    let applied = w.fate_mutations_applied;
+    let pcu = |a: u64, b: u64| if b == 0 { f32::NAN } else { 100.0 * a as f32 / b as f32 };
+    println!("\nfate mutations, counted at the source (`plant::bear_seed_at`):");
+    println!("  births that reached the draw   {rolls}");
+    println!(
+        "  ...where the draw fired        {fired}  ({:.3}% of births, nominal {:.3}%)",
+        pcu(fired, rolls),
+        100.0 * plant::fate_mutation_chance()
+    );
+    println!(
+        "  ...that changed the genome     {applied}  ({:.1}% of draws applied, rest declined)",
+        pcu(applied, fired)
+    );
+    // The effect counter on the far side. `applied` is cumulative over the
+    // whole run and `fate_drifted` is a standing count at one instant, so
+    // these are not two measurements of one quantity -- the gap between
+    // them is everything that removes a mutated genome from the world
+    // (death, a seed that never establishes) plus everything that hides one
+    // (a later mutation landing back on the species value).
+    println!(
+        "  standing drifted genomes       {last_d}  ({:.1}% of the {applied} ever applied)",
+        pcu(last_d as u64, applied)
+    );
+    // The model the 2.6x was measured against, recomputed here from this
+    // run's own numbers so the two never drift apart in a report.
+    let predicted = 1.0 - (1.0 - plant::fate_mutation_chance()).powf(last.gen_mean);
+    println!(
+        "  per-birth model at mean generation {:.2}: {:.2}% of the population, against {:.2}% observed",
+        last.gen_mean,
+        100.0 * predicted,
+        pc(last_d, last_n)
+    );
+    println!("  (the model assumes one independent draw per birth in a lineage's ancestry, which");
+    println!("   the keyed substream above does not provide. Compare the FIRST row to the nominal");
+    println!("   rate before reading anything into the last one.)");
 
     let bad_control = samples.iter().any(|s| s.fate_gen0_drifted > 0);
     let ever_drifted = samples.iter().any(|s| s.fate_drifted > 0);
