@@ -1,0 +1,53 @@
+{
+  "id": "20260829T171528452Z-31aa76",
+  "created": "2026-08-29T17:15:28Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Lighting the rock, underground",
+  "question": "One of these has light on the stone — shaded undersides, lit tops, a dark line where rock meets air. Which one, and is it better or does it look wrongly 3D?",
+  "context_md": "Lane D, testing one claim: *adding real shading to terrain is the cheapest large gain available, and it is not a worldgen change*.\n\nBoth panes are the same world, same instant, same camera, same palette. The only difference is a light applied over the top — colours come from the shipped renderer, so neither pane can show a colour the engine would not have drawn.\n\n**Asking here rather than at the surface on purpose.** Light can only do something where rock meets air, and underground **22%** of the stone on screen is near an opening against **5%** at the surface — so this is the best case this idea will ever get. There is a companion card of the same knob at the surface.\n\nTwo earlier answers make me wary of it: the depth grade you played and rejected (*\"no question grade off is better\"*), and the plant shading you called *\"kinda 3d-ish\"*. If this reads the same way, say so and I will stop pushing it.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (flat)",
+      "files": [
+        "20260829T171528452Z-31aa76/000-card_cave_base.png"
+      ],
+      "caption": "the renderer as it ships",
+      "meta": {
+        "stone pixels the light changed": 0,
+        "stone near an opening": "22%"
+      },
+      "focus": null
+    },
+    {
+      "label": "lit",
+      "files": [
+        "20260829T171528452Z-31aa76/001-card_cave_lit.png"
+      ],
+      "caption": "sun from upper-left, crevice darkening, ink line at the rock/air edge",
+      "meta": {
+        "stone pixels the light changed": 436291,
+        "average change (of 255)": 18,
+        "stone near an opening": "22%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
