@@ -178,10 +178,40 @@
         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
         // which is the trade S5 exists to create.
         traits: (0.0,),
-        // Read by nothing until S6. Authored here so the width and the
-        // ancestral value it widens cannot drift apart in separate
-        // commits -- see `CreatureDef::trait_variance`.
+        // The width one birth may move the gut. Authored here so it and
+        // the ancestral value it widens cannot drift apart in separate
+        // commits -- see `CreatureDef::trait_variance`. Read by nothing
+        // until S6; read by `creature::try_bud` now that S6 is in.
         trait_variance: (0.15,),
+
+        // **Budding: the bank an ant must reach before it makes another
+        // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
+        // the line that switches evolution on -- every gene the last five
+        // stages built was inert until something inherited one.
+        //
+        // 2000 against a birth cost of 1860 (`start_energy` 900 plus
+        // `body_energy` 480 for each of two body cells). Two things about
+        // that number, and the second is the one to read:
+        //
+        // * It clears `start_energy` by more than a factor of two, which
+        //   is §2.6's rule and its whole point: reproduction is
+        //   unreachable without feeding, so doing nothing is not a slow
+        //   strategy, it is the end of a line.
+        // * **The stamp is the expensive half, and it does not move when
+        //   the grant does.** Whatever `start_energy` is set to, a birth
+        //   needs ~960 of *harvested* energy on top of a full bank --
+        //   about two corpse cells at `food_energy: 480`. That is what
+        //   makes this threshold a statement about foraging rather than
+        //   about the size of the grant, and it is why cutting the grant
+        //   to shorten the horizon does not also make breeding harder.
+        reproduce_threshold: 2000.0,
+        // Per live genome slot, per birth. 268 slots are live, so this is
+        // about 2.7 point mutations per child -- enough that a lineage
+        // drifts within a run, far short of the density explosion an
+        // unrated operator produces (see `brain::mutate`). Set to 0.0 for
+        // the clonal control, which is the null every lineage-share
+        // reading is measured against rather than an off switch.
+        mutation_rate: 0.01,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

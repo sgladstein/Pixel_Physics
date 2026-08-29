@@ -48,12 +48,12 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2811 |
 | [Weather status](#weather-status) | 2926 |
 | [The ant colony — status](#the-ant-colony--status) | 2943 |
-| [M19 status — started](#m19-status--started) | 2972 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3028 |
-| [Performance](#performance) | 3177 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3351 |
-| [Status](#status) | 3434 |
-| [License](#license) | 3545 |
+| [M19 status — started](#m19-status--started) | 3052 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3108 |
+| [Performance](#performance) | 3257 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3431 |
+| [Status](#status) | 3514 |
+| [License](#license) | 3625 |
 
 ### Milestones, in numeric order
 
@@ -74,7 +74,7 @@ order they were written.
 | 16 | [M16 status](#m16-status) | 1493 |
 | 17 | [M17 status](#m17-status) | 1679 |
 | 18 | [M18 status](#m18-status) | 1906 |
-| 19 | [M19 status — started](#m19-status--started) | 2972 |
+| 19 | [M19 status — started](#m19-status--started) | 3052 |
 
 ### By topic
 
@@ -87,14 +87,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3434 — the *last* section in the
+[Status](#status), line 3514 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3028 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3108 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2943 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3028, [M8 status](#m8-status--started-not-complete) 2373 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3108, [M8 status](#m8-status--started-not-complete) 2373 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2811, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2926, [M19 status](#m19-status--started) 2972, [World speed](#world-speed--five-independent-time-axes) 3351 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2926, [M19 status](#m19-status--started) 3052, [World speed](#world-speed--five-independent-time-axes) 3431 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 3177, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **performance and the parallel sweep** | [Performance](#performance) 3257, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -2968,6 +2968,86 @@ species file and the reasoning in its comments. Reachable from a shell as
 Nothing selects *which* individual to save, and nothing breeds yet (S6) —
 this is the exit, waiting for something to come through it.
 `Reports/creature-export-design.md`.
+
+### Motion is in the genome: one verb, and the body decides what it does (2026-08-29)
+
+**A creature can leave the ground**, and until this landed the engine refused
+to on purpose. `step_chain` declines any step with no footing — a rule
+arrived at after **two** attempts at airborne creatures that each put falls at
+**59–80% of all moves** (`Reports/creature-motion-design.md` §2d). Reversing
+that was the owner's call, decision **E11**; §6 call 4 of that report, which
+had stood open, records it.
+
+**The reversal is narrow by construction, and that is the safety argument.**
+Both earlier failures changed *candidate scoring*, so every ant became
+airborne whether it wanted to or not. This adds a separate opt-in path: the
+walk is untouched and still refuses open air, a creature is airborne only
+while `OrganismState::flight` is `Some`, and only `creature::launch` sets it.
+
+**There is no jump height anywhere.** `BrainOutput::Impulse` delivers a fixed
+amount of *work*, so launch speed is `sqrt(2W/m)` off the body's own summed
+cell density, and the descent is a drag law `sqrt(2 m g / (rho Cd A))` over
+its own bounding box — `A` the frontal width, `Cd` ramped from 0.5 blunt to
+2.0 plate on width-against-height, both ends taken from
+`rigid::SINK_DRAG_COEFFICIENT`'s recorded regime check. Read off the cells
+every flight frame rather than cached, so a chain has no fixed drag: six cells
+strung out flat glide and the same six coiled do not. `match species` appears
+nowhere in the path.
+
+| body | cells | launch speed | terminal speed |
+|---|---|---|---|
+| `ant` `Chain(2)` | 2 | 2.00 | 1.73 |
+| `ant_long` `Chain(6)` | 6 | 1.15 | 1.37 |
+| `ant_wide` 5x2 | 9 | 0.94 | 2.04 |
+| `ant_block` 3x3 | 9 | 0.94 | **4.74** |
+
+The last two are the design claim: **identical mass, identical launch, and
+2.3x apart on the way down.** Played through the integrator on one plinth over
+one drop, same seed and same organism id so both take identical draws, the
+slab stays up **113 frames** to the block's **69**.
+
+**Decision E9's float limit came free**, as §2c predicted:
+`creature::buoyant_share` *is* `rigid::drag_through_liquid`'s own `carried`,
+so there is one buoyancy model in the engine and a body no denser than what
+it is in has zero effective weight and hangs.
+
+**What it costs.** A flat four walking steps' worth of energy, and the
+creature's whole turn — airborne it does not think, eat, dig, steer or
+deposit, because `creature_tick` returns before `sense`. That also makes the
+extra frames cheap: there is no `eval_brain` on any of them. One flat price
+against a body-dependent benefit is what makes hopping a bargain at 2 cells
+and worse than walking at 9.
+
+**Nothing shipped hops.** `ant.ron` authors no weight into the new row, an
+unwired output reads exactly `squash(0.0) == 0.0`, and the gate
+short-circuits before the RNG — so the ant takes the same draws in the same
+order. Measured: `ascii`'s **1,109 counter lines are byte-identical** against
+`origin/main`, and `forage_probe seeds=12 frames=12000 spacing=4` reads falls
+per move min **0.208** / median **0.225** / max **0.334** and blocked per move
+median **0.034**, the same figures the pre-verb tree gives. That harness now
+carries the bar as `gate=1`, set at **0.40** — above the worst seed rather
+than on the median — and it *refuses to run* at any other frame budget,
+because the statistic does not settle (0.239 / 0.225 / 0.215 at 6k / 12k /
+24k).
+
+**One asymmetry left standing deliberately.** There are now two ways to be in
+the air and they disagree: a launched creature descends under the drag law at
+1.7–4.7 cells/frame, and one that *walks off a ledge* still falls through
+`step_chain`'s own branch at one cell per tick — 0.167 cells/frame at
+`tick_interval` 6. Unifying them means editing the walk, which is what got the
+two earlier attempts reverted.
+
+**Judged by eye, not only by counters** — which is the half of this that no
+test could answer. Review card `20260829T154736312Z-2536dc` put the two
+equal-mass bodies side by side with the verb off and on: *"With the new jump
+is great. I choose B."*
+
+Look at it with `filmstrip scene=hop`, which stands the four body plans on
+identical plinths over one drop, with `impulse=0` as its own control, `body=`
+to attribute a figure to one plan and `shelf=` to trade drop height for a
+legible zoom. Play-facing:
+[`wiki/ants.md`](wiki/ants.md). Design and guards:
+[`Reports/creature-motion-design.md`](Reports/creature-motion-design.md).
 
 ## M19 status — started
 

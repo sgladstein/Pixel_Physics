@@ -135,6 +135,27 @@ const REFERENCE_ROOM_SPAN: i32 = 200;
 /// about the world's own (now much taller) height.
 const REFERENCE_ROOM_HEIGHT: i32 = 160;
 
+/// One reading of the counters [`App::status`] reports rates from.
+///
+/// **Why this exists at all.** The owner reported creatures "moving slowly"
+/// for a while, it went away on its own, and **not one number was recorded
+/// while it was happening** -- so the report could not be told apart from a
+/// frame-rate dip, a stale clock knob, or a behaviour change without a day
+/// of offline measurement. Creature motion is quantised (`tick_interval` 6:
+/// nothing happens on five frames in six), which is exactly why a slowdown
+/// reads as creature stutter while sand and water still look smooth. The
+/// three numbers below are the ones that separate the candidates, and they
+/// are free: two `u64` reads and an `O(1)` heap length, once every 250 ms,
+/// on the window-title path rather than the render path -- so nothing here
+/// touches the dirty-rect skip that `CLAUDE.md` protects on a settled world.
+#[derive(Clone, Copy)]
+struct DiagSample {
+    at: std::time::Instant,
+    moves: u64,
+    ticks: u64,
+    lag_sum: u64,
+}
+
 pub struct App {
     pub world: World,
     pub particles: ParticleSystem,
@@ -179,6 +200,13 @@ pub struct App {
     /// that can change it (startup, a tunables save, a reload), never per
     /// frame.
     pub assets_dirty: Option<usize>,
+    /// Last sample [`App::status`] took, for the per-second rates it prints.
+    ///
+    /// A `Cell` so `status` can stay `&self`: it is called from the window
+    /// title update, and making it `&mut` would push a borrow through
+    /// `main.rs`'s frame loop for a readout. `Copy`, tiny, and touched once
+    /// every 250 ms.
+    diag: std::cell::Cell<Option<DiagSample>>,
     /// `I` — material/temperature/field readout for whatever's under the
     /// cursor. Off by default (§9 of `PLAN.md`'s UI-improvement pass).
     pub show_hover_inspector: bool,
@@ -507,6 +535,7 @@ impl App {
             step_once: false,
             message,
             assets_dirty: dirty_asset_count(),
+            diag: std::cell::Cell::new(None),
             show_hover_inspector: false,
             show_palette: false,
             show_help: false,
@@ -2914,8 +2943,65 @@ impl App {
         // compile with "argument never used" pointing at the last argument,
         // which is the one furthest from the cause. Landing the world clock
         // hit exactly this against `main`'s sky-light indicator.
+        // **The creature readout, and why it is on the title line.**
+        //
+        // The owner's 2026-08-29 report -- creatures "moving slowly", then
+        // normal again with nothing recorded in between -- is the case this
+        // exists for. `ants N/s` is the quantity the complaint is actually
+        // about (moves the player can see, per real second, not per frame);
+        // `late L` is the mean frames a creature tick ran past the frame it
+        // asked for, which is **zero** unless the shared active-site budget
+        // is oversubscribed; and `sched N` is the pending queue behind it.
+        // Together they separate the three candidates a bare "it looks slow"
+        // cannot: a frame-rate dip drops `ants/s` while `late` stays 0, a
+        // starved scheduler raises `late` and `sched` together, and a
+        // behaviour change moves `ants/s` with both of the others at rest.
+        //
+        // Silent when there are no creatures, per this line's own
+        // silent-at-the-default rule -- but **not** silent when the numbers
+        // are healthy, because the whole point is that the owner can read
+        // one off and quote it while something is happening.
+        let creature_note = {
+            let now = std::time::Instant::now();
+            let cs = self.world.creature_stats;
+            let prev = self.diag.get();
+            self.diag.set(Some(DiagSample { at: now, moves: cs.moves, ticks: cs.ticks, lag_sum: cs.tick_lag_sum }));
+            if cs.spawned == 0 {
+                String::new()
+            } else {
+                // **Windowed, not cumulative, and that is the whole value of
+                // keeping a previous sample at all.** A lifetime mean is
+                // diluted by however long the world ran healthy: the
+                // 6,000-frame reproduction that found this bug reported a
+                // lifetime `late mean 5.8` for a colony that was completely
+                // frozen over its second half, because every tick in the
+                // average came from the first. Over a 250 ms window the
+                // number says what is happening *now*, which is the only
+                // thing a player watching a stutter can usefully report.
+                //
+                // `saturating_sub` on every counter: `App::reset` builds a
+                // whole new `World`, so a sample taken before it is larger
+                // than the one after and the subtraction would wrap.
+                let win = prev.and_then(|p| {
+                    let dt = now.duration_since(p.at).as_secs_f32();
+                    (dt > 0.05).then(|| {
+                        let ticks = cs.ticks.saturating_sub(p.ticks);
+                        let lag = cs.tick_lag_sum.saturating_sub(p.lag_sum);
+                        (
+                            cs.moves.saturating_sub(p.moves) as f32 / dt,
+                            if ticks > 0 { lag as f64 / ticks as f64 } else { 0.0 },
+                        )
+                    })
+                });
+                let pending = self.world.active_site_count();
+                match win {
+                    Some((r, late)) => format!(" — ants {r:.1}/s late {late:.1} sched {pending}"),
+                    None => format!(" — ants — late — sched {pending}"),
+                }
+            }
+        };
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -3099,6 +3185,10 @@ impl App {
                 Some(m) => format!(" — {m}"),
                 None => String::new(),
             },
+            // Last, so the numbers a bug report needs sit at the end of the
+            // line where a truncated title still tends to show them, and so
+            // they are not separated from the fps they are read against.
+            creature_note,
         )
     }
 }
@@ -3641,6 +3731,46 @@ mod tests {
             (app.renderer.camera_x, app.renderer.camera_y), his,
             "with a gnome, a pan must not move the camera"
         );
+    }
+
+    /// **The status line carries the numbers a creature bug report needs.**
+    ///
+    /// The guard for the gap that made 2026-08-29's report expensive: the
+    /// owner saw creatures moving slowly, it resolved on its own, and not
+    /// one number was recorded while it was happening — so "slow" could not
+    /// be told apart from a frame-rate dip, a clock knob or a behaviour
+    /// change without a day of offline work.
+    ///
+    /// Asserts the pair, not just the presence: **silent with no creatures
+    /// in the world, and naming all three quantities once there are.** A
+    /// test that only checked the second half would pass against a readout
+    /// that is on permanently, which is the version this line's own
+    /// silent-at-the-default convention rejects.
+    #[test]
+    fn the_status_line_reports_creature_motion_once_there_are_creatures() {
+        let mut app = test_app();
+        assert!(
+            !app.status(60.0).contains("ants"),
+            "a world with no creatures in it must not carry a creature readout: {}",
+            app.status(60.0)
+        );
+
+        // Put a real ant in, through the same entry point the `Y` key uses,
+        // rather than poking `creature_stats` — a readout keyed on a counter
+        // nothing increments is exactly the dead-channel failure this is
+        // meant to prevent.
+        let bounds = app.world.bounds().expect("the test world has bounds");
+        let x = (bounds.min_x + bounds.max_x) / 2;
+        let sy = (bounds.min_y..=bounds.max_y)
+            .find(|&y| !app.world.is_empty(x, y))
+            .expect("the default terrain has ground under mid-width");
+        app.world.plant_ant(x, sy - 1);
+        assert_eq!(app.world.creature_stats.spawned, 1, "no ant was planted -- the scene does not contain the subject");
+
+        let line = app.status(60.0);
+        for token in ["ants", "late", "sched"] {
+            assert!(line.contains(token), "the status line must name {token:?} once a creature exists: {line}");
+        }
     }
 
     #[test]
