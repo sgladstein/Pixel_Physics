@@ -1,0 +1,50 @@
+{
+  "id": "20260829T071315391Z-04d716",
+  "created": "2026-08-29T07:13:15Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visuals-smoothing-vrlrmk",
+    "commit": "6de90e7",
+    "agent": null,
+    "session_id": "c27dad0b-e743-590f-a990-252a904eb452",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Tree limbs: lumpy or sweeping? (re-post, cropped so it can be seen)",
+  "question": "Which one's branches look like grown wood rather than a wobble?",
+  "context_md": "**Re-post of a card you couldn't judge.** Last time I showed you whole stands with each tree about a hundred pixels tall, and the thing in question is a one-cell difference — there was nothing to see. Same comparison, cropped to one tree.\n\n**The bigger picture:** a branch should look like it grew along a line. Today every branch drifts a cell left, a cell right, the whole way up, so limbs come out lumpy and knotted instead of sweeping. That is the single biggest reason plants read as scribbly.\n\nOne of these is today's plants. The other changes **only how a branch's direction gets turned into whole cells** — where the branch wants to go is untouched, so it still reaches for light, still bends around things, still branches at the same rate.\n\n**Two things to ignore:** they are different individuals (changing the path necessarily grows a different tree), and the roots. Judge the *character of the line* in the limbs, not the shape of the crown.\n\nIf neither is better, that is a real answer and I will drop this.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - today's plants",
+      "files": [
+        "20260829T071315391Z-04d716/000-trunk-off.png"
+      ],
+      "caption": "each step picked at random from the good directions",
+      "meta": {
+        "how far a branch strays from its own line (cells)": 0.88
+      },
+      "focus": null
+    },
+    {
+      "label": "B - drawn line",
+      "files": [
+        "20260829T071315391Z-04d716/001-trunk-on.png"
+      ],
+      "caption": "same choice of direction, spelled out in cells the way a line is drawn",
+      "meta": {
+        "how far a branch strays from its own line (cells)": 0.41
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
