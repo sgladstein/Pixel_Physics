@@ -88,7 +88,7 @@ decision on the card.
 
 ## Gates
 
-`cargo test --lib` (969 passed / 0 failed / 54 ignored), `cargo clippy
+`cargo test --lib` (986 passed / 0 failed / 54 ignored, post-merge), `cargo clippy
 --all-targets -- -D warnings` on both 1.94.1 and CI's 1.98.0,
 `bash scripts/docscheck.sh` clean. `main` merged in at `f96c08d`; the two
 `include_str!` conflicts resolved trunk-first, per the rule those two lists

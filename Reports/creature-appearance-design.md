@@ -29,11 +29,11 @@ in (§2 says how far they moved, which is not far).
   dark 2-cell ant does** — 249 against 282, at 4.5x the cells (§3).
 - **Shape at constant extent is a small effect and it is bought expensively.**
   Two 9-cell bodies, one a compact 3x3 block and one a waisted 5x2, score
-  within 0.1% of each other on every appearance number and differ by **13
+  within 0.2% of each other on every appearance number and differ by **19
   percentage points of blocked movement** (§4).
 - **Size moves everything.** Holding contrast fixed and moving only the body's
   size, the number of places in one frame that look as much like the animal as
-  the animal does falls **126 → 13 → 0** across 2, 9 and 16 cells (§2).
+  the animal does falls **127 → 15 → 0** across 2, 9 and 16 cells (§2).
 
 ## 2. The number that explains the picture: decoys
 
@@ -208,8 +208,7 @@ cells; it says an animal the player is supposed to see must be. A colony of
 nine-cell ants is a different economy, and §5's ledger note is where that
 starts.
 
-## 7. Composition is structurally unavailable to a creature, and that is the
-next thing worth building
+## 7. Composition is unavailable to a creature — and unlocking it is the next thing
 
 `plant-appearance-design.md`'s three silhouette-setters are extent,
 composition and palette. **Creatures have two of them.**

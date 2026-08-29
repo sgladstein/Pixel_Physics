@@ -4,9 +4,9 @@ Branch `claude/creature-appearance-lane-a`.
 
 ## 2026-08-29 — extent is the only lever; the palette is already right
 
-**Branch `claude/creature-appearance-lane-a`. Work commit `fb71294eb8a2`** — the
-commit adding this note sits directly on top of it, so `origin/claude/creature-appearance-lane-a`
-is the head to read.
+**Branch `claude/creature-appearance-lane-a`.** `main` is merged in at
+`f96c08d`; the PR body is `PR-BODY-lane-a-appearance.md` on the branch. The
+head SHA is at the bottom of this note.
 
 **The deliverable is review card `20260829T045336581Z-34c3d3`** (board
 `creatures`): five body plans, same world, same seed, same colony, 12-frame
@@ -89,5 +89,6 @@ Two traps, both hit here before the numbers were right:
   `assets/species/chitin_pale.ron` — candidates and probes. At most one should
   survive the owner's choice; **none of them should land as-is.**
 
-**Work commit: `fb71294eb8a2c5006a37aa007c6181a0fa4f7bfd`.** The head of the branch is the commit that added this
-note, one above it.
+**Head SHA: `487a9924f33e0ebd2d84f97618c4d043b321486b`.** Gates on it: `cargo test --lib` 986
+passed / 0 failed / 54 ignored, `clippy --all-targets -D warnings` green on
+1.94.1 and on CI's 1.98.0, `docscheck` clean.
