@@ -663,6 +663,17 @@ drift that two of these documents still reflect.**
   **review.** Why the caves do not look good, ahead of rounds 5 and 6.
 - [pass-interference-2026-08.md](pass-interference-2026-08.md) —
   **investigation.** Which worldgen passes overwrite each other.
+- [resolution-step-2026-08-29.md](resolution-step-2026-08-29.md) —
+  **handoff; start here for the resolution step**, which
+  `world-scale-handoff.md` names as "higher resolution later". The render
+  was three times the simulation and nobody was watching it, because
+  `scale_probe phases=1` times `App::update` and `Renderer::draw` is not in
+  it; it is now parallel and a **1024x640 redraw costs 18.6 ms against the
+  old 512x320's 21.2 ms**, so doubling the framebuffer is paid for. Carries
+  the owner's verdict on which of the two readings of "resolution" is meant
+  (the apparent scale must not change), the measured finding that **cutting
+  stone depth buys load time and memory but not frame rate**, and the 261
+  cell-valued sites across 29 files that the content half has to move.
 - [world-scale-handoff.md](world-scale-handoff.md) — **handoff; start
   here for the 4x world.** What round 7's performance work landed, the one
   target it missed and why, the question waiting on the owner, and Phases
