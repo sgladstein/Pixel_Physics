@@ -1,6 +1,7 @@
 # Motion is the empty axis: how many verbs a creature should get
 
-**Status: design, awaiting the owner's call on §6. Written 2026-08-29.**
+**Status: design; §6 answered by the owner 2026-08-29, call 4 still open.**
+**§4c reverses this report's own first recommendation — see there.**
 
 Written for the owner's question — *"I think motion could be a big
 differentiator. Can creatures hop, fly, only swim, different speeds,
@@ -151,10 +152,17 @@ sized every block from the reserve. The law now holds in all three directions
 
 Not zero, and three of these are easy to miss:
 
-1. **32 genome slots.** Each output lights up `INPUT_SLOTS` (24) + one row of
-   `HIDDEN_SLOTS` (8). Two verbs is 64 of 584 — an **11% larger search space**
-   for evolution to cross. For a dev tool whose value is throughput, that is a
-   real ongoing cost.
+1. **20 live genome slots — and price it in *live* slots, not reserved ones.**
+   An output lights up `BRAIN_INPUTS` (16) weights plus one row of
+   `BRAIN_HIDDEN` (4), so `live_slots()` goes **268 -> 288, +7.5% per verb**
+   (two would be +14.9%). *An earlier version of this line said "32 slots, 64
+   of 584, 11%" — that counted the **reserved** width, `INPUT_SLOTS` 24 +
+   `HIDDEN_SLOTS` 8, against `GENOME_LEN`. Both halves were the wrong
+   denominator: reserved slots are never drawn (§4c), so the search space is
+   `live_slots()` and always was.* The corrected figure is smaller but it is
+   the one that is real — unlike the reserve, **a live verb genuinely does
+   enlarge the space evolution must cross**, which is the whole asymmetry
+   between §4c (enlarge freely) and §4d (do not name freely).
 2. **Thinking.** `synapse_fraction` charges per *active* synapse per tick.
    More outputs means more reachable synapses, so a richer brain is dearer to
    run. This one is self-limiting by design and is a feature — but it is a
@@ -229,23 +237,85 @@ the register's re-test condition is *"predation cannot be a selective pressure
 until a predator can find prey."* A strike verb does not solve finding; it
 solves catching, which is not the blocker. **Premature.**
 
-### 4c. The case for expanding the reserve now (and why I argue against)
+### 4c. Expanding the reserve — this section argued the wrong way and is corrected
 
-There is a real argument that the migration is **cheapest today**: Lane B
-shipped the export this morning, so approximately zero genomes have been
-persisted. Every saved creature from here makes the migration dearer, and
-`genome_manifest` already makes it safe.
+**The first version of this section recommended against enlarging the reserve,
+on the grounds that "genome size is the search space evolution has to cross".
+That is false, and the code says so.**
 
-**I argue against it anyway**, on the owner's own test. Growing `OUTPUT_SLOTS`
-12 -> 16 takes `GENOME_LEN` from 584 to 768 — a **31% larger genome, for
-ever**, and genome size is the search space evolution has to cross. That is a
-permanent throughput cost paid now against a speculative benefit later. The
-principle cuts both ways: **reserving capacity is not free either.**
+`is_live_slot` gates on `BRAIN_OUTPUTS` / `BRAIN_INPUTS` / `BRAIN_HIDDEN` —
+the **live** counts — not on the `*_SLOTS` reserves. Everything that walks a
+genome walks `live_slots()`: `random_genome` draws only into live slots and
+`debug_assert!(reserve_is_zero(&g))` afterwards, and the doc on `live_slots`
+requires the mutation operator to do the same. So:
 
-If a third verb ever earns its place, pay the migration *then*, with evidence
-that it is needed, rather than now on a guess about what we will want.
+| | now | at `OUTPUT_SLOTS = 16` |
+|---|---|---|
+| `GENOME_LEN` (storage) | 584 | **712** |
+| **`live_slots()` — the actual search space** | **268** | **268, unchanged** |
 
-### 4d. Recommendation
+**The reserve is inert.** It is never drawn, never mutated, never read, and
+never evaluated — `eval_brain` loops the live counts. Enlarging it costs:
+
+- **+128 f32 per individual = 512 bytes.** At the 4095-organism ceiling that
+  is **2.1 MB, worst case.** Against a world that allocates ~84 MB for
+  pheromone planes alone.
+- **No runtime cost.** Growing `OUTPUT_SLOTS` adds rows at the end that
+  nothing visits; it does not change `INPUT_SLOTS`, which is the stride
+  inside a row and the only part `eval_brain`'s locality depends on.
+- **No growth in saved species files.** Lane B's export writes a sparse named
+  wiring list, not raw floats, so a file lists what is wired and nothing else.
+
+**So the timing argument, which was the weaker one, is now the only one — and
+it points the other way.** The migration renumbers every stored genome and
+invalidates every saved species. Today that set is approximately empty,
+because the export shipped hours ago. Every creature saved from here makes it
+dearer, and `genome_manifest` already turns a stale genome into a failing test
+rather than a silent misread.
+
+**Corrected recommendation: enlarge the reserve now.** It is close to free,
+it is cheapest at this exact moment, and the thing it was argued to cost does
+not exist.
+
+**The general rule this yields, which is the transferable part:** when asked
+whether to over-provision capacity, ask **does the unused capacity get walked,
+drawn, or computed?** If it does, it is a real ongoing cost and should be
+sized to need. If it is inert storage behind a liveness gate, over-provision —
+the only real price is the migration you pay by *not* doing it early.
+
+### 4d. Naming a reserved slot without implementing it — don't
+
+Asked directly by the owner: is there harm in naming the second verb now and
+changing it later, rather than leaving it empty?
+
+**Yes, and it is a specific failure this project has already hit three times.**
+Naming a slot is what makes it live. Add `Grip` to `BrainOutput` and
+`BRAIN_OUTPUTS` becomes 11, at which point `is_live_slot` returns true for its
+24 input weights and 8 hidden weights, and from that moment:
+
+- `random_genome` draws into them, so every random genome carries a Grip
+  wiring;
+- the mutation operator perturbs them, so evolution spends effort on them;
+- `synapse_fraction` charges for them as **active synapses**, so every
+  creature pays to think about a verb;
+- and `eval_brain` computes an output value that **nothing reads**.
+
+That is exactly `CLAUDE.md`'s standing check — *"a channel needs a writer and
+a reader, and the compiler checks neither… one that is read and never written
+is worse, because every consumer of it is dead code that looks alive"* — with
+the polarity reversed: written, costed, evolved against, and consumed by
+nothing.
+
+`live_slots`'s own doc states the sharper version of the same danger: *"a
+perturbed reserved slot is invisible for exactly as long as its slot is
+unnamed, and then springs to life as a connection nobody authored, in every
+individual descended from the one that was perturbed."*
+
+**The resolution is that a name costs nothing in a document and everything in
+the enum.** Write down what slot 12 is intended for — §4b does — and leave
+`BRAIN_OUTPUTS` at 11 until the day the verb has a reader.
+
+### 4e. Recommendation
 
 **One verb — `Impulse` — and hold the second slot deliberately.**
 
@@ -287,17 +357,25 @@ a longer one on screen.**
 
 ---
 
-## 6. The owner's call
+## 6. The owner's calls — answered 2026-08-29
 
-1. **One verb or two?** §4d recommends one, with a stated condition for the
-   second. The alternative is spending both now.
-2. **Expand the reserve while it is cheap?** §4c recommends no — a 31% bigger
-   genome for ever, against a speculative need. This is the call I am least
-   certain of, because the migration genuinely does get dearer every day.
-3. **Is "creatures can cross gaps" wanted at all?** §2d records that the
-   current refusal is deliberate and hard-won. An impulse verb reverses a
-   decision that cost two attempts, and it is worth being sure the fantasy is
-   wanted before re-opening it.
+1. **One verb or two? — ONE.** *"I agree with impulse now. I agree with
+   holding an extra slot for another movement."* Slot 12 stays reserved with
+   §4b's stated condition for spending it: the day something in the world
+   moves a creature against its will.
+2. **Name the held slot now? — NO**, per §4d. The owner asked whether naming
+   it and changing it later does harm; it does, and the harm is mechanical
+   rather than stylistic. The intent is written down in §4b instead.
+3. **Expand the reserve? — YES**, per the corrected §4c, and this reverses
+   what the first version of this report recommended. The owner's instinct
+   (*"even if we don't use it for this we will want it for something in the
+   near future"*) was right and the argument against it was wrong: the
+   reserve is inert, `live_slots()` stays at 268, and the cost is 2.1 MB at
+   the population ceiling.
+4. **Is "creatures can cross gaps" wanted at all?** §2d records that the
+   current refusal is deliberate and hard-won — an impulse verb reverses a
+   decision that cost two attempts. **Still open**, and the guards in §7 are
+   what make it answerable rather than an argument.
 
 ---
 

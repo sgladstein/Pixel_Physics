@@ -599,7 +599,12 @@ drift that two of these documents still reflect.**
   ballistic physics already exists in `rigid.rs` (terminal velocity from
   weight-minus-buoyancy against drag, which is also E9's float limit already
   implemented). Recommends **one verb, one slot held with a stated condition
-  for spending it**, and argues against enlarging the reserve. Carries the
+  for spending it**. **§4c reverses the report's own first recommendation**
+  and now says *enlarge* the reserve, on the finding that `is_live_slot`
+  gates on the live counts rather than the reserves, so the reserve is never
+  drawn, mutated or evaluated — `live_slots()` stays at 268 either way and
+  the whole cost is 2.1 MB at the population ceiling. §4d answers "can we
+  name the held slot now": no, naming is what makes a slot live. Carries the
   principal risk: `step_chain` refuses gaps deliberately, after two attempts
   that put falls at 59–80% of all moves.
 - [creature-appearance-design.md](creature-appearance-design.md) —
