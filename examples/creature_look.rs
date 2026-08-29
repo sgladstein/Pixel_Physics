@@ -205,16 +205,33 @@ fn decoys(frame: &[u8], w: i32, h: i32, threshold: f32) -> usize {
     hits
 }
 
-fn shapes() -> Vec<(&'static str, i32, i32, Vec<(i32, i32)>)> {
+/// One entry of the probe grid's size ladder. A struct rather than a tuple
+/// because `w`/`h` and the offset list have to stay in step -- `decoys`
+/// slides the *bounding box* while `measure` reads the *cells*, and a
+/// four-tuple made that pairing invisible at every call site.
+struct Shape {
+    name: &'static str,
+    w: i32,
+    h: i32,
+    offsets: Vec<(i32, i32)>,
+}
+
+fn shapes() -> Vec<Shape> {
     let block = |w: i32, h: i32| -> Vec<(i32, i32)> { (0..w).flat_map(move |dx| (0..h).map(move |dy| (-dx, -dy))).collect() };
-    vec![
-        ("1  (1x1)", 1, 1, block(1, 1)),
-        ("2  (2x1) = shipped ant", 2, 1, block(2, 1)),
-        ("4  (2x2) = shipped beetle", 2, 2, block(2, 2)),
-        ("6  (3x2)", 3, 2, block(3, 2)),
-        ("9  (3x3)", 3, 3, block(3, 3)),
-        ("16 (4x4)", 4, 4, block(4, 4)),
-    ]
+    [("1  (1x1)", 1, 1), ("2  (2x1) = shipped ant", 2, 1), ("4  (2x2) = shipped beetle", 2, 2), ("6  (3x2)", 3, 2), ("9  (3x3)", 3, 3), ("16 (4x4)", 4, 4)]
+        .into_iter()
+        .map(|(name, w, h)| Shape { name, w, h, offsets: block(w, h) })
+        .collect()
+}
+
+/// One placed probe, kept until both frames exist so the paint pass and the
+/// measure pass agree cell for cell.
+struct Row {
+    shape: &'static str,
+    material: String,
+    w: i32,
+    h: i32,
+    cells: Vec<(i32, i32)>,
 }
 
 fn main() {
@@ -334,7 +351,7 @@ fn probe(mut world: World, out: &str, crop: (i32, i32, i32, i32), zoom: i32) {
     // `SURROUND` ring corrupts the surround reading of a probe that looks
     // perfectly placed.
     let mut painted: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
-    let mut rows: Vec<(String, String, i32, i32, Vec<(i32, i32)>)> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     // **Lay the grid out over the dry ground the world actually has, not
     // over the x axis.** Spacing the probes evenly across 0..WIDTH put a
     // third of them over this seed's lake, where there is no footing at
@@ -346,7 +363,8 @@ fn probe(mut world: World, out: &str, crop: (i32, i32, i32, i32), zoom: i32) {
     let nv = values.len();
     let slots = shapes().len() * nv;
     assert!(dry.len() >= slots * 4, "only {} dry columns -- not enough ground to lay {slots} probes on", dry.len());
-    for (si, (sname, sw, sh, offs)) in shapes().into_iter().enumerate() {
+    for (si, shape) in shapes().into_iter().enumerate() {
+        let (sname, sw, sh, offs) = (shape.name, shape.w, shape.h, shape.offsets);
         for (vi, (vname, vid)) in values.iter().enumerate() {
             // Shape-major, values adjacent: the comparison this grid exists
             // for is *between values at one shape*, and that is only clean
@@ -374,16 +392,16 @@ fn probe(mut world: World, out: &str, crop: (i32, i32, i32, i32), zoom: i32) {
             painted.extend(cells.iter().copied());
             placed += 1;
             println!("  placed {sname:<24} {vname:<12} at ({x},{base_y})");
-            rows.push((sname.to_string(), vname.to_string(), sw, sh, cells));
+            rows.push(Row { shape: sname, material: vname.to_string(), w: sw, h: sh, cells });
         }
     }
     let mut with = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
     render(&world, &mut with);
 
-    for (sname, vname, sw, sh, cells) in &rows {
-        let m = measure(&with, &base, cells);
-        let n = cells.len();
-        let d = decoys(&base, *sw, *sh, (m.body_luma - m.surround_luma).abs());
+    for r in &rows {
+        let m = measure(&with, &base, &r.cells);
+        let (sname, vname, n) = (r.shape, &r.material, r.cells.len());
+        let d = decoys(&base, r.w, r.h, (m.body_luma - m.surround_luma).abs());
         println!(
             "{sname:<26} {vname:>12} {n:>6} {:>8.1} {:>8.1} {:>10.1} {:>8.1} {:>8.0} {:>8}",
             m.body_luma,
@@ -414,10 +432,10 @@ fn probe(mut world: World, out: &str, crop: (i32, i32, i32, i32), zoom: i32) {
         print!("{:>12}", format!("|contr|>={t:.0}"));
     }
     println!();
-    for (sname, sw, sh, _) in shapes().into_iter().map(|(n, w, h, o)| (n, w, h, o)) {
-        print!("{sname:<26}");
+    for shape in shapes() {
+        print!("{:<26}", shape.name);
         for t in [0.0f32, 40.0, 60.0, 80.0, 100.0] {
-            print!("{:>12}", decoys(&base, sw, sh, t));
+            print!("{:>12}", decoys(&base, shape.w, shape.h, t));
         }
         println!();
     }
@@ -469,7 +487,7 @@ fn live(mut world: World, species: &str, count: i32, frames: u32, out: &str, cro
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
-        if shots > 1 && f + 1 >= first_shot && (f + 1 - first_shot) % every == 0 && shot < shots && !out.is_empty() {
+        if shots > 1 && f + 1 >= first_shot && (f + 1 - first_shot).is_multiple_of(every) && shot < shots && !out.is_empty() {
             render(&world, &mut frame);
             let path = match out.rfind('.') {
                 Some(i) => format!("{}-{shot:02}{}", &out[..i], &out[i..]),
