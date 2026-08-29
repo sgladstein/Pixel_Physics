@@ -49,11 +49,11 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Weather status](#weather-status) | 2812 |
 | [The ant colony — status](#the-ant-colony--status) | 2829 |
 | [M19 status — started](#m19-status--started) | 2938 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2994 |
-| [Performance](#performance) | 3143 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3317 |
-| [Status](#status) | 3400 |
-| [License](#license) | 3511 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3015 |
+| [Performance](#performance) | 3164 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3338 |
+| [Status](#status) | 3421 |
+| [License](#license) | 3532 |
 
 ### Milestones, in numeric order
 
@@ -87,14 +87,14 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3400 — the *last* section in the
+[Status](#status), line 3421 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1552, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1180, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1302, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1484, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1250, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1402, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2994 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1552, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1180, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1302, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1484, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1250, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1402, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3015 |
 | **creatures — worms and the ant colony** | [M18 status](#m18-status) 1965, [The ant colony](#the-ant-colony--status) 2829 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1738, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2994, [M8 status](#m8-status--started-not-complete) 2432 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1738, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3015, [M8 status](#m8-status--started-not-complete) 2432 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
@@ -102,9 +102,9 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2697, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2545, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2812, [M19 status](#m19-status--started) 2938, [World speed](#world-speed--five-independent-time-axes) 3317 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2812, [M19 status](#m19-status--started) 2938, [World speed](#world-speed--five-independent-time-axes) 3338 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2299, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2344, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412, [M6 deferral](#m6-deferral) 1075 |
-| **performance and the parallel sweep** | [Performance](#performance) 3143, [M5 status](#m5-status) 1085, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412 |
+| **performance and the parallel sweep** | [Performance](#performance) 3164, [M5 status](#m5-status) 1085, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2412 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -2990,6 +2990,27 @@ running the shallow rays on the transpose rather than striding the grid
 (2.2–3.4 ms before that). Guarded by
 `a_dug_shaft_goes_dark_while_a_wide_pit_keeps_its_rim_lit`, which now asserts
 both halves of the pair from one run.
+
+**A full redraw costs 2.5 ms on the shipped world, and until 2026-08-29 it
+cost 39.6 ms.** 94% of it was `rebuild_near_glow`, the crystal-glow splat,
+running on essentially every frame of play: its rebuild trigger read
+`force_full`, which means *"an overlay is on screen with no tracked
+footprint"* and is true whenever the cursor is over the window. The splat
+depends on cells, not on the screen, and the trigger's other two terms
+already ask that. Byte-identical output, verified against a scene aimed at a
+glowing vault. The rebuild itself is 7x cheaper too (37.2 → 5.4 ms): the
+falloff is a table rather than two million `sqrt`s, and a radius-14 disc is
+walked per destination chunk instead of taking two hash probes per written
+pixel. `Renderer::forget_world`, called from `App::reset`, now does the one
+thing `force_full` was covering by accident.
+
+**`PIXEL_PHYSICS_DRAW_TIMING=1` splits `Renderer::draw` by phase**, which
+nothing here could do — every frame-cost instrument times `App::update`, so
+the largest single cost in the frame had no owner and every whole-frame
+figure on record was half a number. The pixel loop everyone reasoned about
+is 1.9 ms of it. Full account, including why the perf lane's attribution of
+the same cost to a taller sky was a correlate rather than the cause, in
+[`Reports/renderer-frame-cost-2026-08-29.md`](Reports/renderer-frame-cost-2026-08-29.md).
 
 ## Felling status — the verb works, and what it produces is pieces
 

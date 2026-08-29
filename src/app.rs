@@ -2891,6 +2891,10 @@ impl App {
         std::mem::swap(&mut world.materials, &mut self.world.materials);
         build_world_with(&mut world, &self.worldgen, &self.worldgen_preset, self.worldgen_seed);
         self.world = world;
+        // A different world, and the `Renderer` is the same one. Anything it
+        // caches about which world this is has to go -- see
+        // `Renderer::forget_world`.
+        self.renderer.forget_world();
         // A rebuilt world is a fresh `World`, and `World::new` starts at
         // `i32::MAX` (SPREAD). The chain mode is a *player setting*, not a
         // property of the terrain, so it has to be re-applied here or every

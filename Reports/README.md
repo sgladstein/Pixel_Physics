@@ -818,6 +818,18 @@ drift that two of these documents still reflect.**
   `plant::step_organisms` up (a quarter of it, and in no plan). Read it
   before quoting any per-phase cost; `field-settling-2026-08.md` remains the
   record for the field's *internal* split and is not contradicted here.
+  **Half a number, and it says so itself**: it times `App::update`, and the
+  renderer is not in it — see `renderer-frame-cost-2026-08-29.md`, which owns
+  the other half.
+- [renderer-frame-cost-2026-08-29.md](renderer-frame-cost-2026-08-29.md) —
+  **measurement of record for `Renderer::draw`, and a fix.** A full redraw on
+  the shipped world went **39.6 ms to 2.5 ms**, byte-identical: 94% of it was
+  the crystal-glow splat, rebuilt on essentially every frame because its
+  trigger read `force_full` — which is true whenever the cursor is over the
+  window. Carries the phase split (`PIXEL_PHYSICS_DRAW_TIMING`) that no
+  instrument here had, and **corrects the perf lane's attribution of the same
+  cost to `sky_rows`**: the step it found is the glowing-cell count crossing
+  a geode, not the sky.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —

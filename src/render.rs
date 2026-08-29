@@ -2101,6 +2101,20 @@ impl Renderer {
         self.terrain_light = self.terrain_light.next();
     }
 
+    /// Drop everything cached about *which world this is*, for a caller that
+    /// is about to hand over a different one.
+    ///
+    /// `App::reset` builds a new `World` and keeps the `Renderer`, so any
+    /// cache keyed on something the two worlds can share holds the previous
+    /// terrain's answer over fresh ground. `rebuild_horizon` avoids it by
+    /// copying every frame and paying for it; the glow splat cannot, because
+    /// its rebuild is the most expensive thing in the frame. So the reset
+    /// says so instead.
+    pub fn forget_world(&mut self) {
+        self.near_glow.clear();
+        self.near_glow_key = None;
+    }
+
     /// `F12` — cycle where the dark behind a void comes from. Same
     /// convention as `cycle_grain` and `cycle_terrain_light`: the mode is
     /// named on screen while it is not the default, so a screenshot can say
@@ -2421,6 +2435,22 @@ impl Renderer {
     /// per `App::draw`, which `main.rs`'s own catch-up loop does whenever a
     /// frame runs behind).
     pub fn draw(&mut self, world: &World, particles: &ParticleSystem, touched: &HashSet<ChunkCoord>, frame: &mut [u8], (width, height): (u32, u32), force_full: bool) -> usize {
+        // `PIXEL_PHYSICS_DRAW_TIMING=1` splits this function by phase.
+        //
+        // **Built because nothing in the repo could answer where a redraw's
+        // time goes.** Every frame-cost instrument here times `App::update`;
+        // the renderer is not in any of them, so every whole-frame figure on
+        // record is half a number. `render_cost` says what a redraw *costs*
+        // and `frame_profile` says which simulation phase a frame went to,
+        // and between them the largest single cost in the frame had no owner.
+        let timing = std::env::var_os("PIXEL_PHYSICS_DRAW_TIMING").is_some();
+        let mut mark = std::time::Instant::now();
+        let mut split = |name: &str| {
+            if timing {
+                eprintln!("  draw {name}: {:.2} ms", mark.elapsed().as_secs_f64() * 1000.0);
+                mark = std::time::Instant::now();
+            }
+        };
         let zoom_state = (self.zoom, self.zoom_out_stride);
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
@@ -2523,7 +2553,9 @@ impl Renderer {
         self.sky = Sky::at(lit_at, vx0, vx1.max(vx0 + 1), vy0, vy1.max(vy0 + 1))
             .muted(sky::overcast(weather.intensity));
         self.daylight = sky::daylight_level(lit_at);
+        split("preamble");
         self.rebuild_horizon(world);
+        split("rebuild_horizon");
         let sky_key = self.sky.key();
         let sky_changed = self.last_sky_key != Some(sky_key);
         self.last_sky_key = Some(sky_key);
@@ -2582,6 +2614,7 @@ impl Renderer {
         // glow source, the halo brightens cells in chunks the CA never
         // touched, so no dirty rect will ever repaint them. Once the tile
         // settles the halo is static and the skip gets its work back.
+        split("sky_light");
         self.glow_tiles.clear();
         let mut glow_unsettled = false;
         let mut emitter_tiles: Vec<ChunkCoord> = Vec::new();
@@ -2602,6 +2635,7 @@ impl Renderer {
         // order-independent, so this is belt and braces -- but the next
         // person to reach for a sum there gets determinism for free instead
         // of a bug that only shows up as a one-bit pixel difference.
+        split("  ...of which the field-tile scan");
         emitter_tiles.sort_unstable_by_key(|c| (c.x, c.y));
         // **Rebuilt only when it can have changed**, which matters more than
         // it looks: a settled world with a geode in it is precisely the state
@@ -2619,10 +2653,27 @@ impl Renderer {
         // invalidate it is a cell changing -- a crystal mined out, a new one
         // exposed -- which is exactly what `touched` reports.
         let emitters_touched = emitter_tiles.iter().any(|c| touched.contains(c));
-        if emitters_touched || force_full || self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
+        // **`force_full` used to be in this condition, and it was the single
+        // largest cost in the frame.** It means *"an overlay is on screen
+        // with no tracked footprint, so repaint every pixel"* -- and in the
+        // app it is true whenever the cursor is over the window, because the
+        // brush outline follows it (`App::draw`). The splat has nothing to do
+        // with what is on screen: it reads `Material::glow` off cells, so
+        // what invalidates it is a *cell* changing, which is exactly what the
+        // two remaining terms ask. Measured on the shipped 8192x2560 world, a
+        // full redraw was **39.6 ms and 37.2 ms of it was this rebuild**,
+        // against 1.8 ms for the pixel loop everyone assumed was the cost.
+        //
+        // It was never the reset guard either, which is the one thing it
+        // might have been doing by accident: `App::reset` keeps the
+        // `Renderer`, and a new world with the same emitter tile coordinates
+        // would have kept the old splat whenever the cursor happened to be
+        // off the window. `forget_world` now says that plainly.
+        if emitters_touched || self.near_glow_key.as_deref() != Some(&emitter_tiles[..]) {
             self.rebuild_near_glow(world, &emitter_tiles);
             self.near_glow_key = Some(emitter_tiles);
         }
+        split("glow scan + near_glow");
 
         let full = force_full
             || look_changed
@@ -2843,6 +2894,7 @@ impl Renderer {
         // Over the world, not just over sky cells: rain falls in *front* of
         // the rock as well as against the sky. Drawn after the cells and
         // before the gnome, so he is in the weather rather than behind it.
+        split("pixels");
         self.draw_precipitation(weather, storm_supply, world.frame, (vx0, vy0), (vx1, vy1), frame, width, height);
         if let Some(s) = world.lightning_at(world.frame) {
             self.draw_lightning(s, (vx0, vy0), (vx1, vy1), frame, width, height);
@@ -2854,6 +2906,7 @@ impl Renderer {
         if self.show_chunk_overlay {
             self.draw_chunk_overlay(world, frame, width, height);
         }
+        split("overlays + particles");
 
         recomputed
     }
@@ -4022,42 +4075,97 @@ impl Renderer {
         }
         self.near_glow_rebuilds += 1;
         let area = (CHUNK_SIZE * CHUNK_SIZE) as usize;
+        let r = NEAR_GLOW_RADIUS;
+        let span = (2 * r + 1) as usize;
+        // **The falloff is a function of the offset alone, so it is a table,
+        // not a calculation.** Squared linear: full at the emitter, zero at
+        // the radius, with the knee near the source where the eye reads a
+        // light's shape. Written per splat cell it was a `sqrt` two million
+        // times a rebuild; here it is 841 entries once.
+        let kernel: Vec<f32> = (-r..=r)
+            .flat_map(|dy| {
+                (-r..=r).map(move |dx| {
+                    let d2 = (dx * dx + dy * dy) as f32;
+                    let rr = r as f32;
+                    if d2 > rr * rr {
+                        return 0.0;
+                    }
+                    let t = 1.0 - d2.sqrt() / rr;
+                    t * t
+                })
+            })
+            .collect();
+        let (mut glowing, mut splat) = (0u64, 0u64);
         for &tile in emitter_tiles {
+            // One chunk lookup per emitter tile, not one per cell. `World::
+            // get` is a `HashMap` fetch, so reading 4,096 cells through it is
+            // 4,096 SipHashes for a coordinate that never leaves the chunk --
+            // the same lesson `rebuild_sky_light`'s block scan already
+            // records, arriving here by the same route. A tile with no
+            // resident chunk reads as empty, which is what `World::get`
+            // answers there too, so it splats nothing either way.
+            let Some(chunk) = world.chunk(tile) else { continue };
             for ly in 0..CHUNK_SIZE {
                 for lx in 0..CHUNK_SIZE {
                     let (wx, wy) = (tile.x * CHUNK_SIZE + lx, tile.y * CHUNK_SIZE + ly);
                     if !world.in_bounds(wx, wy) {
                         continue;
                     }
-                    let glow = world.materials.get(world.get(wx, wy).material).glow;
+                    let glow = world.materials.get(chunk.get_world(wx, wy).material).glow;
                     if glow <= 0.0 {
                         continue;
                     }
-                    for dy in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
-                        for dx in -NEAR_GLOW_RADIUS..=NEAR_GLOW_RADIUS {
-                            let d2 = (dx * dx + dy * dy) as f32;
-                            let r = NEAR_GLOW_RADIUS as f32;
-                            if d2 > r * r {
-                                continue;
-                            }
-                            // Squared linear falloff: full at the emitter,
-                            // zero at the radius, with the knee near the
-                            // source where the eye reads a light's shape.
-                            let t = 1.0 - d2.sqrt() / r;
-                            let v = t * t;
-                            let (nx, ny) = (wx + dx, wy + dy);
-                            let coord = ChunkCoord::containing(nx, ny);
+                    glowing += 1;
+                    // **The disc is walked per destination chunk, and that is
+                    // the whole cost of this function.** Written per cell it
+                    // resolved a `ChunkCoord`, probed `glow_tiles` and took a
+                    // `HashMap::entry` for *every pixel of every disc* --
+                    // two SipHashes each, two million times. A radius-14 disc
+                    // spans at most a 2x2 block of 64-cell chunks, so
+                    // resolving those up front turns four million hash probes
+                    // into eight per glowing cell and leaves plain array
+                    // writes inside.
+                    let lo = ChunkCoord::containing(wx - r, wy - r);
+                    let hi = ChunkCoord::containing(wx + r, wy + r);
+                    for cy in lo.y..=hi.y {
+                        for cx in lo.x..=hi.x {
+                            let coord = ChunkCoord::new(cx, cy);
                             if !self.glow_tiles.contains(&coord) {
                                 continue;
                             }
+                            let (ox, oy) = (cx * CHUNK_SIZE, cy * CHUNK_SIZE);
+                            let x0 = (wx - r).max(ox);
+                            let x1 = (wx + r).min(ox + CHUNK_SIZE - 1);
+                            let y0 = (wy - r).max(oy);
+                            let y1 = (wy + r).min(oy + CHUNK_SIZE - 1);
+                            if x0 > x1 || y0 > y1 {
+                                continue;
+                            }
                             let buf = self.near_glow.entry(coord).or_insert_with(|| vec![0.0; area]);
-                            let (bx, by) = (nx - coord.x * CHUNK_SIZE, ny - coord.y * CHUNK_SIZE);
-                            let slot = &mut buf[(by * CHUNK_SIZE + bx) as usize];
-                            *slot = slot.max(v);
+                            for ny in y0..=y1 {
+                                let krow = (ny - wy + r) as usize * span;
+                                let brow = (ny - oy) * CHUNK_SIZE;
+                                for nx in x0..=x1 {
+                                    let v = kernel[krow + (nx - wx + r) as usize];
+                                    if v <= 0.0 {
+                                        continue;
+                                    }
+                                    let slot = &mut buf[(brow + nx - ox) as usize];
+                                    *slot = slot.max(v);
+                                    splat += 1;
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+        if std::env::var_os("PIXEL_PHYSICS_DRAW_TIMING").is_some() {
+            eprintln!(
+                "  near_glow rebuild #{}: {} emitter tiles, {glowing} glowing cells, {splat} splat writes",
+                self.near_glow_rebuilds,
+                emitter_tiles.len()
+            );
         }
     }
 
@@ -7579,6 +7687,33 @@ mod tests {
         assert_eq!(
             r.near_glow_rebuilds, first,
             "the halo was rebuilt on a settled world with nothing changed"
+        );
+
+        // **And the same with `force_full`, which is the half this guard was
+        // missing and the half the app actually runs.** `force_full` is true
+        // whenever the cursor is over the window, so the loop above -- eight
+        // draws at `false` -- described a state the game is almost never in.
+        // Measured on the shipped 8192x2560 world before this was fixed: a
+        // full redraw cost **39.6 ms, of which 37.2 ms was this rebuild**,
+        // paid on essentially every frame of play. Repainting every pixel is
+        // not a reason to recompute what the pixels are lit *by*.
+        for _ in 0..8 {
+            r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        }
+        assert_eq!(
+            r.near_glow_rebuilds, first,
+            "a forced full repaint rebuilt the halo -- it is a screen-level flag, not a cell change"
+        );
+
+        // The one thing `force_full` was covering by accident: `App::reset`
+        // keeps the `Renderer`, so a new world with the same emitter tile
+        // coordinates would keep the old splat. That is `forget_world`'s job
+        // now, and it has to actually do it.
+        r.forget_world();
+        r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), false);
+        assert!(
+            r.near_glow_rebuilds > first,
+            "forget_world left the previous world's halo in place"
         );
     }
 
