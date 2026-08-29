@@ -826,7 +826,8 @@ drift that two of these documents still reflect.**
   of owner review including two framing failures of the session's own.
 
 - [plant-mechanics-handoff-2026-08-29.md](plant-mechanics-handoff-2026-08-29.md)
-  — **handoff, written to be picked up cold; read it with the plan below.**
+  — **handoff; its §5.1 is built** (`tree-fall-2026-08-29.md`), the rest
+  stands. **Read it with the plan below.**
   What happened *after* the plan: PR #102 landed (the plan, the debris tiers,
   colour preservation), and six findings that change what to build next. The
   one to carry: **what has always looked like a crown collapsing was leaf
@@ -840,6 +841,26 @@ drift that two of these documents still reflect.**
   of 7,171; and rotation seeds from angular acceleration, not torque. §4 is a
   code map of the promotion path with the constants and commands, §5 the
   staged work, §6 the traps, §7 the standing owner rulings verbatim.
+
+- [tree-fall-2026-08-29.md](tree-fall-2026-08-29.md) — **shipped, and one of
+  its two claims is not established.** The fall: a severed piece now turns as
+  it comes down, at a rate read off its own mass about the joint that gave
+  way (`alpha = g*sum(m*d)/sum(m*r^2)`, reducing to `3g/(2L+1)` for a limb
+  breaking at one end, with nothing tuned), and a piece that lands
+  overhanging its footing goes over instead of standing there. Opens with the
+  counter that reframes it: `scene=fell` asked for **0 quarter turns** over a
+  whole felled tree, so the rotation mechanism had never once fired on a
+  falling tree. Closes the felled-tree half of `open-bugs-handoff.md` §Q by
+  supplying the *outcome* §Q found missing — the tipping test was never the
+  gap — and the numbers agree, 109 topples against 21 in-flight turns over
+  twelve scenes. **Read §4 before quoting §3**: pooled over ten paired scenes
+  the per-piece lying share moves **28% → 36%** and pieces left standing on
+  end **364 → 287**, up in 8 of 10 and flat in 2, while the *cluster* census
+  the repo already had does not move at all because it folds touching logs
+  into one blob. Also carries a raft regression the suite caught, why
+  `FALL=off` had to exist for the control to be real, the re-promotion loop
+  (§Z3) the negative control turned up in *both* arms, and §4c's measured
+  price of extending any of it to rock.
 
 - [tree-mechanics-plan-2026-08-29.md](tree-mechanics-plan-2026-08-29.md) —
   **plan; one change landed** (`3bdf674`). Structure and physics for *all*

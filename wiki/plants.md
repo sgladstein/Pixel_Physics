@@ -3,7 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-29 (stems draw a line instead of wandering into one --
+*Current as of: 2026-08-29 (what breaks off a plant now turns as it falls and
+goes over where it lands, instead of dropping in the pose it grew in -- see
+**Cutting a plant down**; stems draw a line instead of wandering into one --
 see **How a stem is shaped**; plants flower and fruit: two new kinds of plant
 stop growing on purpose and put an organ where the shoot tip used to be, the
 ripe fruit falls carrying the seed inside it, and building either costs the
@@ -515,10 +517,25 @@ piece it belonged to was, not on a switch, so a heavy bole and a thin twig
 genuinely come apart differently. Expect a few big pieces, a good deal of
 loose wood, and a lot of leaf litter over the top of both.
 
-**What it does not do yet is topple.** The tree lets go and comes straight
-down rather than leaning over and falling across the ground, so what you are
-left with is a heap with logs in it rather than a trunk lying full length.
-That is the next piece of work and it is the honest half of this section.
+**New on 2026-08-29: what comes down now turns on the way, and goes over
+where it lands.** Before this, nothing that broke off a tree ever rotated —
+not once, on any fall — so the pieces dropped in whatever pose they had been
+growing in and a good half of them ended up standing on end in the heap. Now
+a piece turns as it falls, at a rate set by where its weight sits relative to
+the point it broke from: a twig tumbles several times on the way down, a bole
+comes over about once, and a limb hanging out to one side goes over that way
+rather than the other. And a piece that comes to rest with its weight
+overhanging its footing tips instead of standing there, until it is seated or
+until there is no room to turn into.
+
+**What it still does not do is hinge on its stump.** A real tree pivots on
+the cut and sweeps across the ground; here the crown lets go as separate
+pieces and each of those falls and turns on its own. So expect limbs lying
+across each other rather than a trunk lying full length in one line, and
+expect a crowded pile to hold on to more of its awkward poses than an open
+floor does — a piece with nothing to turn into stays as it is, which is a
+real outcome and not a failure. Whether the settled pile now reads as a
+felled tree is the open question on this section.
 
 **Burning a trunk out from under a crown** now brings the crown down too,
 which it did not before at the tighter `F9` settings — the fire licenses

@@ -5420,6 +5420,28 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             f.rotations_refused,
             (f.rotations_refused * 100).checked_div(f.rotations_asked).unwrap_or(0)
         );
+        // The tipping test, on its own line for the reason
+        // `FailureCounts::topples_asked` gives: it fires on the floor and
+        // the line above fires in the air, and a reader who sees one number
+        // move cannot tell which mechanism moved it. Read beside the
+        // lying/upright split below -- a settled pile that is still standing
+        // on end with `asked` at zero is a wiring question, and one with
+        // `refused` high is a pile with no room in it.
+        println!(
+            "    of which landed out of balance and went over: {} asked, {} refused ({}%)",
+            f.topples_asked,
+            f.topples_refused,
+            (f.topples_refused * 100).checked_div(f.topples_asked).unwrap_or(0)
+        );
+        // And how the pieces themselves came down, which is **not** the same
+        // question as the `settled log pieces` line further down: that one
+        // folds touching logs into one cluster and reports the *pile's*
+        // shape. Asked of each body as it lands, so two logs that come to
+        // rest against each other are still two readings.
+        println!(
+            "    how pieces came to rest: {} lying, {} upright, {} square (each body's own box, at the frame it landed)",
+            f.settled_lying, f.settled_upright, f.settled_square
+        );
         // The phase-change "did it fire at all" counters, cumulative --
         // same reasoning as the failure counts above: whether the plume on
         // screen is boiled steam or painted smoke is a question the image

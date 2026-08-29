@@ -1390,6 +1390,43 @@ pub struct FailureCounts {
     /// question, but a zero is a wiring one.
     pub rotations_asked: u32,
     pub rotations_refused: u32,
+    /// Quarter turns a body asked for because it had come to rest **out of
+    /// balance**, and how many the fit probe refused. See `rigid::topple`.
+    ///
+    /// Counted apart from `rotations_asked` rather than folded into it, and
+    /// the reason is the one `rotations_asked`'s own doc gives: a counter is
+    /// worth exactly as much as the claim that what it counts is what you
+    /// care about. These two fire for different reasons at different moments
+    /// — one in the air, from the break; one on the floor, from the footing
+    /// — and a single number that moved could not say which mechanism did
+    /// it. `asked` at zero over a scene that felled a tree means the tipping
+    /// test never ran; `refused` high means pieces are trying to go over
+    /// inside a pile with no room for them, which is a different problem
+    /// with a different fix.
+    pub topples_asked: u32,
+    pub topples_refused: u32,
+    /// How the pieces came to rest: bodies of `MIN_BODY_CELLS` or more,
+    /// counted at the moment they re-enter the grid, by whether their own
+    /// bounding box is wider than tall, taller than wide, or square.
+    ///
+    /// **A body census, and it exists because the census that already
+    /// answered this question cannot.** `filmstrip`'s `log_pieces` folds
+    /// settled `log` into 8-connected clusters, so two logs that land
+    /// touching are one "piece" whose orientation is the *pile's*, not
+    /// either log's — its own doc says so, and records the largest "piece"
+    /// moving from 49x48 to 99x71 purely because the pile packed tighter.
+    /// Measured across nine paired scenes, that reading moved 31/38/8 to
+    /// 27/40/7 while every run's rotation counters went from silent to
+    /// dozens of turns: a statistic over three-to-ten merged blobs cannot
+    /// resolve what happened to thirty pieces.
+    ///
+    /// This one is asked of the piece itself, once, at the only moment its
+    /// extent is unambiguous. It says nothing about how the pile *reads* —
+    /// that is the owner's to judge — but it can say whether the pieces are
+    /// lying down.
+    pub settled_lying: u32,
+    pub settled_upright: u32,
+    pub settled_square: u32,
     /// Organism cells the plant-support check broke free — a limb that lost
     /// its anchor becoming deadwood.
     ///
@@ -1523,6 +1560,25 @@ impl FailureCounts {
         if !fits {
             self.rotations_refused = self.rotations_refused.saturating_add(1);
         }
+    }
+
+    /// One quarter turn offered by a body that landed out of balance, and
+    /// whether it fitted. See `topples_asked`.
+    pub fn record_topple(&mut self, fits: bool) {
+        self.topples_asked = self.topples_asked.saturating_add(1);
+        if !fits {
+            self.topples_refused = self.topples_refused.saturating_add(1);
+        }
+    }
+
+    /// One piece coming to rest, `width` by `height`. See `settled_lying`.
+    pub fn record_settled_pose(&mut self, width: i32, height: i32) {
+        let counter = match width.cmp(&height) {
+            std::cmp::Ordering::Greater => &mut self.settled_lying,
+            std::cmp::Ordering::Less => &mut self.settled_upright,
+            std::cmp::Ordering::Equal => &mut self.settled_square,
+        };
+        *counter = counter.saturating_add(1);
     }
 
     /// One body, `cells` cells, actually lifted off the grid. See

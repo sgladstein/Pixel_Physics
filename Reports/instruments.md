@@ -316,6 +316,25 @@ where §S's false anchors come from and a log that does not name them cannot be
 told from one written before they existed. Each takes `zero|max|seed`. A run
 whose header lacks that line came out of an older binary.
 
+**`FALL=off` reverts the 2026-08-29 fall — the rate seeded from the break,
+the tipping test on landing, and the centroid pivot — leaving everything else
+alone**, so a paired run can hold the semantics fixed instead of comparing
+two *binaries*. That distinction is what the switch exists for: every
+instrument added alongside a mechanism is missing from the arm it is being
+measured against, and the first reading of this change fell back on a
+cluster-level statistic for exactly that reason. Verified against the
+pre-change binary on `scene=fell`: every physics line identical.
+
+**Two orientation censuses on `scene=fell`, and they answer different
+questions.** `settled log pieces` folds settled `log` into 8-connected
+clusters, so two logs that land touching are one "piece" whose orientation is
+the *pile's*; its own doc records the largest "piece" going from 49x48 to
+99x71 purely because the pile packed tighter. `how pieces came to rest`
+(2026-08-29) is asked of each body as it lands, once, at the only moment its
+extent is unambiguous. Reach for the second whenever the question is about
+the pieces and the first when it is about the pile — and note that a change
+which packs the pile tighter moves the first one *against* itself.
+
 **The `[struct]` census is a *per-frame sample*, not a total, and that makes
 `grounded` a one-way instrument.** `scheduler::step` drains
 `structural::take_tick_census()` every frame and prints only on reporting

@@ -291,6 +291,31 @@ newer mtime than the source. Materials are `include_str!`d, so editing a
 
 ### 5.1 The fall — rotation and the tipping test, as one change
 
+**BUILT, 2026-08-29 — `Reports/tree-fall-2026-08-29.md`.** Everything below
+this paragraph is the brief it was built from, kept because its reasoning is
+what the build followed, not because anything here is still to do. Three
+corrections it earned, for anyone reading the brief rather than the report:
+
+- **The reverse quarter turn is one turn, not three.** §3.5 costed it at
+  "three forward turns and a fit probe on each intermediate pose";
+  `Turn::Ccw` is the exact inverse permutation, equally exact on a grid.
+- **The pivot must be *stored*, not re-derived.** Turning about the centroid
+  is right and re-computing it each turn is not: the floored mean moves, the
+  next turn pivots about the new place, and the piece walks a cell at a time.
+- **The topple does nearly all the work and the seeded rate does little** —
+  109 topples against 21 in-flight turns over twelve scenes. §3.2 is right
+  that the two are one change; what it could not know is the split. A severed
+  crown's pieces mostly sit *over* the cut, so `alpha` is small and they come
+  down straight; what lays them over is the tipping test on landing.
+
+Two things the build found that change what the next stage should expect:
+`open-bugs-handoff.md` **§Z3**, a settled piece re-promoted about every five
+frames for ever, present in the unchanged engine and corrupting any
+cumulative per-event census on `scene=fell`; and the fact that
+`filmstrip`'s `settled log pieces` — the census §5.1's own bars are phrased
+in — **folds touching logs into one cluster and reports the pile's
+orientation, not the pieces'**. Use `how pieces came to rest` instead.
+
 **The critical path** (§3.1), and the thing that makes every other stage
 judgeable, because until a piece travels the settled pile is a heap whatever
 else is true.
