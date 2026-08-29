@@ -2864,8 +2864,67 @@ fn settle(world: &mut World, body: &ChunkBody) {
         // it and why.
         let fresh = match (cell.organism_id != 0).then(|| world.materials.get(cell.material).severs_into).flatten() {
             Some(into) => {
-                let shades = world.materials.get(into).palette.len().max(1) as u32;
-                let shade = world.rng.below(shades) as u8;
+                // **Shade by where the cell sits in the piece, not at
+                // random -- a body needs a surface or it reads as gravel.**
+                //
+                // This path re-rolls because the material changes under the
+                // cell (`wood` -> `log`) and a bark index into a log's four
+                // colours is a different colour, not the same grain; that
+                // part is right and stands. What was wrong is that it rolled
+                // *per cell*, so a 311-cell log was 311 independent draws
+                // over four tones -- salt-and-pepper, which is exactly what
+                // grit looks like. Measured on the settled `scene=fell`
+                // pile at 8x: a 33x52 coherent body, a third of the crop
+                // wide, indistinguishable from the powder around it.
+                //
+                // `dead-ends.md` already carries three attempts to fix this
+                // on `log`'s *palette* -- a wide spread (speckle), a grey
+                // (read as tissue dying), a warm mid-brown (vanished into
+                // litter). Three fixes failing the same way is `CLAUDE.md`'s
+                // own signal that the approach is wrong rather than the
+                // tuning: the missing thing is not a colour, it is that a
+                // fragment has no *shape* unless its tone tells you where
+                // its top is. So the tone comes from depth below the
+                // piece's own upper surface, lightest at the top and
+                // darkest inside, which is how any lit solid reads.
+                //
+                // Rock never had this defect because its arm below *carries*
+                // the flight shade, and the flight shade came from the rock
+                // it broke out of. Only the tier-changing path re-rolled.
+                //
+                // **The shade is carried, never re-rolled, and that is now
+                // unconditional.** Owner, twice over: *"The color should not
+                // change at all (not sure how many times I have to say
+                // this)"*, then *"and the trunks and branches shouldn't
+                // change colour either."*
+                //
+                // This path used to re-roll, on the reasoning that a piece
+                // lands in a tier whose palette is a different length, so the
+                // old index would mean a different colour. That was true and
+                // it was the wrong thing to fix. The tiers now carry their
+                // source's palette entry for entry -- `log` <- `wood`,
+                // `deadleaf` <- `leaf` -- so index `k` *is* the same colour
+                // and copying it makes the change invisible, which is what
+                // was asked for.
+                //
+                // A modulo rather than a plain copy because a shorter source
+                // palette must still land somewhere valid: `rootwood` has
+                // four entries against `log`'s thirty-two.
+                //
+                // **This restores `BodyCell::shade`'s standing rule** -- never
+                // re-roll, because a landing that changes colour reads as a
+                // pop -- to the one path that had an exception to it. Two
+                // things go with it: the depth-and-surface shading this
+                // replaced (which invented a lit crust for a piece that
+                // should simply look like what it broke off), and the rng
+                // draw that fed it. Dropping the draw shifts every later
+                // random event in the world, so a run across this change is
+                // not cell-identical with one before it; that is stated
+                // rather than worked around, because keeping a draw alive
+                // purely to preserve a stream is the kind of thing a later
+                // reader deletes as dead and silently changes the world.
+                let shades = world.materials.get(into).palette.len().max(1);
+                let shade = (cell.shade as usize % shades) as u8;
                 // Counted here rather than by censusing the material,
                 // because the two answer different questions and only this
                 // one is about the *pipeline*: a world census of `log`

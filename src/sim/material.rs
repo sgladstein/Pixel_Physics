@@ -2093,6 +2093,11 @@ const EMBEDDED: &[&str] = &[
     include_str!("../../assets/materials/ant_long.ron"),
     include_str!("../../assets/materials/ant_block.ron"),
     include_str!("../../assets/materials/ant_wide.ron"),
+    // The same tier for foliage that `log` is for wood -- `leaf.ron`'s
+    // `severs_into`, as against `litter`'s. Owner ruling: "The leaves
+    // shouldn't turn to powder ever." Addressed by name and through the
+    // resolved `Material::severs_into`, never by number.
+    include_str!("../../assets/materials/deadleaf.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
