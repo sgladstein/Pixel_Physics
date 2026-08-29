@@ -1,0 +1,54 @@
+{
+  "id": "20260829T163300560Z-203248",
+  "created": "2026-08-29T16:33:00Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "d6fde7a",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crack weight: one hairline everywhere, or a thick-to-thin taper",
+  "question": "Which one has cracks that start thick at the crater, thin as they run, and give out at different distances?",
+  "context_md": "Same charge, same seed, same rock -- only the rule that decides how wide a joint opens has changed.\n\nOne of these opens every joint exactly one cell wide and stops opening them at a fixed radius. The other reads each crack's width off how far that crack is going to run, so a crack that starts bold also reaches furthest, and every crack narrows to a hairline and then to nothing at its own distance.\n\nSame number of joints woke in both (785). What differs is their weight and where they stop.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- uniform hairline",
+      "files": [
+        "20260829T163300560Z-203248/000-base.png"
+      ],
+      "caption": "every seam one cell, opened zone ends on a circle",
+      "meta": {
+        "joints activated": 785,
+        "joints opened": 480,
+        "seam width": "1 everywhere"
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- tapered aperture",
+      "files": [
+        "20260829T163300560Z-203248/001-after.png"
+      ],
+      "caption": "width read off each crack's own reach",
+      "meta": {
+        "joints activated": 785,
+        "joints opened": 413,
+        "seam width": "1-2, tapering"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
