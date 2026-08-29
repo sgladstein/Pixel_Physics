@@ -113,6 +113,17 @@ struct Args {
     /// once and cost a whole review round.
     gutter: Option<usize>,
     out: String,
+    /// `view=WxH` -- **the viewport to render through**, in cells, default
+    /// `app::WIDTH`x`app::HEIGHT`.
+    ///
+    /// The resolution question needs one world drawn at two viewport sizes
+    /// with the same content in it, and `WIDTH`/`HEIGHT` are compile-time
+    /// constants, so without this the comparison is two builds and cannot be
+    /// a paired one. `gnome=1` is what makes the pair readable: he is 7x14
+    /// cells whichever viewport draws him, so he is the ruler that says
+    /// whether a bigger viewport is showing more world or the same world
+    /// larger.
+    view: (u32, u32),
 }
 
 fn main() {
@@ -149,6 +160,7 @@ fn main() {
         gnome: false,
         gutter: None,
         out: "target/filmstrips/viewshot.png".to_string(),
+        view: (WIDTH, HEIGHT),
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -186,6 +198,10 @@ fn main() {
             // (`Reports/underground-definition.md`), so no width threshold
             // can be mistaken for the cause.
             "quarry" => a.quarry = v.parse().expect("quarry=WIDTH"),
+            "view" => {
+                let (w, h) = v.split_once('x').expect("view=WxH");
+                a.view = (w.parse().expect("view=WxH"), h.parse().expect("view=WxH"));
+            }
             // `vault=1` aims the camera at a sealed chamber and sinks a shaft
             // into it, which is the only way to photograph the round-2 vault
             // pass at all: a vault sits 200+ rows below the surface, so every
@@ -331,6 +347,14 @@ fn main() {
             _ => panic!("unknown argument {arg:?}"),
         }
     }
+
+    // **Echoed, per `CLAUDE.md`'s rule that a harness must name its own
+    // parameters**: a sheet that does not say which viewport drew it is
+    // indistinguishable from one drawn by a binary built before `view=`
+    // existed, which is exactly how a 3.5-hour study once turned out to be
+    // three populations wearing 24 logs.
+    let (view_w, view_h) = a.view;
+    println!("viewport {view_w}x{view_h} cells (default {WIDTH}x{HEIGHT})");
 
     let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
     let mut world = World::new(bounds);
@@ -490,7 +514,7 @@ fn main() {
     renderer.zoom = a.scale;
     renderer.zoom_out_stride = a.stride;
     let particles = ParticleSystem::new();
-    let (vw, vh) = (WIDTH as usize, HEIGHT as usize);
+    let (vw, vh) = (view_w as usize, view_h as usize);
     // The tile written into the sheet: the crop window magnified, or the
     // whole viewport at 1x when neither was asked for.
     let (cx0, cy0, cw, ch) = a.crop.unwrap_or((0, 0, vw, vh));
@@ -741,7 +765,7 @@ fn main() {
         let ground = (0..WORLD_HEIGHT as i32)
             .find(|&y| world.get(0, y).material != material::EMPTY)
             .unwrap_or(WORLD_HEIGHT as i32 / 2);
-        renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
+        renderer.set_camera(0, ground - view_h as i32 / 2, (view_w, view_h), world.bounds());
         let total = a.shots * 60;
         let mut frames = Vec::with_capacity(total);
         // Split by whether the camera moved this frame, because that split is
@@ -762,7 +786,7 @@ fn main() {
         let mut moving_frames = 0usize;
         for i in 0..total {
             let was = renderer.camera_x;
-            renderer.pan((1, 0), 1.0 / 60.0, (WIDTH, HEIGHT), world.bounds());
+            renderer.pan((1, 0), 1.0 / 60.0, (view_w, view_h), world.bounds());
             let moved = renderer.camera_x != was;
             if moved {
                 moving_frames += 1;
@@ -770,7 +794,7 @@ fn main() {
             pixel_physics::sim::parallel::step(&mut world);
             let touched = world.take_touched_chunks();
             let started = std::time::Instant::now();
-            let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), i == 0);
+            let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (view_w, view_h), i == 0);
             let ms = started.elapsed().as_secs_f64() * 1000.0;
             if moved {
                 worst_moving = worst_moving.max(ms);
@@ -791,7 +815,7 @@ fn main() {
              = {:.0} cells/s, {:.2} screens/s averaged across the ramp; {} s of key held in total)",
             renderer.camera_x,
             travelled as f32 / moving_secs,
-            // Divided by the **visible span**, not by `WIDTH`. A screenful is
+            // Divided by the **visible span**, not by `view_w`. A screenful is
             // 128 cells at zoom 4 and 1024 at stride 2, so dividing by the
             // framebuffer width reported a scroll running at one rate as three
             // different ones -- wrong at every scale but 1:1, which is
@@ -802,7 +826,7 @@ fn main() {
             // run reads below `PAN_SCREENS_PER_SECOND` and a long one
             // approaches it. Comparing this against the constant is only
             // meaningful once the run is much longer than `PAN_RAMP_SECONDS`.
-            travelled as f32 / moving_secs / renderer.visible_span((WIDTH, HEIGHT)).0 as f32,
+            travelled as f32 / moving_secs / renderer.visible_span((view_w, view_h)).0 as f32,
             a.shots
         );
         // A frame that recomputed less than the whole buffer is one the camera
@@ -820,13 +844,13 @@ fn main() {
         let mut encoder = image::codecs::gif::GifEncoder::new(file);
         encoder.set_repeat(image::codecs::gif::Repeat::Infinite).expect("gif repeat");
         for f in frames {
-            let buf = image::RgbaImage::from_raw(WIDTH, HEIGHT, f).expect("gif frame");
+            let buf = image::RgbaImage::from_raw(view_w, view_h, f).expect("gif frame");
             encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)).expect("gif frame");
         }
         drop(encoder);
         println!(
             "animated gif ({}x{}, {encoded} of {total} frames at {delay_ms} ms): {}",
-            WIDTH, HEIGHT, a.out
+            view_w, view_h, a.out
         );
         return;
     }
@@ -883,21 +907,21 @@ fn main() {
             // strip whose camera_y tracked each tile's own ground would step
             // vertically at every join and reintroduce the artifact in the
             // other axis.
-            let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+            let span = renderer.visible_span((view_w, view_h)).0;
             let start = a.at.unwrap_or_else(|| (WORLD_WIDTH as f32 / (2.0 * a.shots as f32)) as i32 - span / 2);
             if shot == 0 {
-                strip_y = ground - HEIGHT as i32 / 2;
+                strip_y = ground - view_h as i32 / 2;
             }
-            renderer.set_camera(start + shot as i32 * span, strip_y, (WIDTH, HEIGHT), world.bounds());
+            renderer.set_camera(start + shot as i32 * span, strip_y, (view_w, view_h), world.bounds());
         } else if a.pan > 0.0 {
             if shot == 0 {
-                renderer.set_camera(0, ground - HEIGHT as i32 / 2, (WIDTH, HEIGHT), world.bounds());
+                renderer.set_camera(0, ground - view_h as i32 / 2, (view_w, view_h), world.bounds());
             }
             for _ in 0..(a.pan * 60.0) as u32 {
-                renderer.pan((1, 0), 1.0 / 60.0, (WIDTH, HEIGHT), world.bounds());
+                renderer.pan((1, 0), 1.0 / 60.0, (view_w, view_h), world.bounds());
             }
         } else {
-            renderer.follow((x, ground), (WIDTH, HEIGHT), world.bounds());
+            renderer.follow((x, ground), (view_w, view_h), world.bounds());
         }
         let (cam_x, cam_y) = (renderer.camera_x, renderer.camera_y);
         shot_cameras.push(cam_x);
@@ -912,7 +936,7 @@ fn main() {
         // either reads as a rendering bug rather than as a ruler -- so it is
         // asserted below rather than eyeballed.
         if a.gnome {
-            let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+            let span = renderer.visible_span((view_w, view_h)).0;
             let gx = (cam_x + span / 2).clamp(0, WORLD_WIDTH as i32 - 1);
             // **The highest ground under any column he occupies, not the
             // ground under his middle.** He is 7 cells wide and the ground is
@@ -949,7 +973,7 @@ fn main() {
         println!(
             "  shot {shot}: target ({x}, {ground}) -> camera ({cam_x}, {cam_y}), \
              showing world x {cam_x}..{}",
-            cam_x + WIDTH as i32
+            cam_x + view_w as i32
         );
 
         // The frame buffer persists across shots and only the *first* draw
@@ -962,9 +986,9 @@ fn main() {
         // wrong when a viewport starts moving.
         let touched = world.take_touched_chunks();
         let started = std::time::Instant::now();
-        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), shot == 0);
+        let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (view_w, view_h), shot == 0);
         // The discrete "did it fire" number, printed next to the picture
-        // because the picture cannot show it. `WIDTH * HEIGHT` means the
+        // because the picture cannot show it. `view_w * view_h` means the
         // camera move forced the full redraw; anything less means the
         // dirty-rect skip kept the previous shot's pixels and the sheet is
         // several copies of one view wearing different captions. Also the
@@ -1028,7 +1052,7 @@ fn main() {
             // inspection, which is what makes it the clean reading of the
             // dark-band report -- a narrow shaft can be argued to be a
             // tunnel and this cannot.
-            let cx = cam_x + WIDTH as i32 / 2;
+            let cx = cam_x + view_w as i32 / 2;
             let top = (0..WORLD_HEIGHT as i32)
                 .find(|&y| world.get(cx, y).material != material::EMPTY)
                 .unwrap_or(0);
@@ -1062,7 +1086,7 @@ fn main() {
         //
         // The redraw check survives without it: `recomputed` is printed per
         // shot and the camera moves a full viewport between tiles, so a
-        // frozen buffer still shows up as a count below `WIDTH * HEIGHT`.
+        // frozen buffer still shows up as a count below `view_w * view_h`.
         if !a.strip {
             for _ in 0..(a.frame / a.shots.max(1)) {
                 pixel_physics::sim::parallel::step(&mut world);
@@ -1082,7 +1106,7 @@ fn main() {
     // happened. So: name the kind, and for a sheet, name the columns that
     // are *not* shown between the tiles.
     if a.strip {
-        let span = renderer.visible_span((WIDTH, HEIGHT)).0;
+        let span = renderer.visible_span((view_w, view_h)).0;
         println!(
             "contiguous strip ({sw}x{sh}, {} viewport widths = world x {}..{}, unbroken): {}",
             a.shots,
@@ -1093,7 +1117,7 @@ fn main() {
     } else {
         let gaps: Vec<String> = shot_cameras
             .windows(2)
-            .map(|w| (w[1] - w[0] - renderer.visible_span((WIDTH, HEIGHT)).0).to_string())
+            .map(|w| (w[1] - w[0] - renderer.visible_span((view_w, view_h)).0).to_string())
             .collect();
         println!(
             "contact sheet ({sw}x{sh}, {} viewport shots, {gutter}px gutter): {}",

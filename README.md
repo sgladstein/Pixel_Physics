@@ -49,9 +49,9 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [M19 status — started](#m19-status--started) | 2533 |
 | [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2569 |
 | [Performance](#performance) | 2650 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2799 |
-| [Status](#status) | 2882 |
-| [License](#license) | 2993 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 2824 |
+| [Status](#status) | 2907 |
+| [License](#license) | 3018 |
 
 ### Milestones, in numeric order
 
@@ -85,7 +85,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 2882 — the *last* section in the
+[Status](#status), line 2907 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
@@ -100,7 +100,7 @@ file, not the first. Read it before concluding something is broken.
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 442, [M12/M13 status](#m12m13-status) 704 |
 | **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2387, [Architecture](#architecture) 291 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2326, [Controls](#controls) 154 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2502, [M19 status](#m19-status--started) 2533, [World speed](#world-speed--five-independent-time-axes) 2799 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2502, [M19 status](#m19-status--started) 2533, [World speed](#world-speed--five-independent-time-axes) 2824 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2080, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2125, [Rendering performance](#rendering-performance--overnight-run-section-11) 2193, [M6 deferral](#m6-deferral) 1006 |
 | **performance and the parallel sweep** | [Performance](#performance) 2650, [M5 status](#m5-status) 1016, [Architecture](#architecture) 291, [Rendering performance](#rendering-performance--overnight-run-section-11) 2193 |
 | **materials and the data schema** | [Materials](#materials) 217, [M12/M13 status](#m12m13-status) 704 |
@@ -2670,6 +2670,31 @@ instrument):
 number to quote. The field is ~58% of it, `plant::step_organisms` ~28% (and
 it scales with plant biomass, so it grows as a forest matures), the CA sweep
 ~10%, and the other seven phases together under 0.1%.
+
+**And that figure is `App::update` only — the render is not in it.**
+`scale_probe phases=1` times the phase list `App::update` runs, and
+`Renderer::draw` is called from `main.rs`, so the largest single cost in the
+frame sat outside the number everyone was quoting. Measured 2026-08-29 on a
+4-core box at 8192x2560: `App::update` 6.28 ms mean against **21.2 ms for
+one forced full redraw** at 512x320. Not a worst case either — a camera move
+invalidates every pixel, so a full redraw runs on ~100% of frames while the
+gnome is walking.
+
+The draw is now parallel over scanlines, holds the chunk a run of pixels
+shares, and fetches each cell's `Material` once instead of six times. Paired
+and alternating, two fixed binaries in one session:
+
+| forced full redraw | before | after |
+|---|---|---|
+| 512x320 | 21.2 ms | **12.1 ms** |
+| 1024x640 | 52.8 ms | **18.6 ms** |
+
+The second row is the one that matters for what comes next: a **doubled**
+viewport now costs less than the single one did, which is what makes the
+resolution step affordable at all. `Reports/resolution-step-2026-08-29.md`
+has the ledger, the owner's verdict on what "double the resolution" means,
+and the measured finding that cutting stone depth buys load time and memory
+but **not** frame rate.
 
 Measured by `cargo run --release --example ascii`, which reports the worst
 single frame of each scenario — now run through both drivers back to back
