@@ -1,0 +1,46 @@
+{
+  "id": "20260829T003459380Z-1c9bdc",
+  "created": "2026-08-29T00:34:59Z",
+  "board": "ui",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/options-menu-day-night-weather-g9i4i8",
+    "commit": "f3818d7",
+    "agent": null,
+    "session_id": "75c10d57-1b57-5531-9e51-f46222d0e80b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Nine weather patterns you can start and stop",
+  "question": "Is nine the right set, and is the gap between each and the next one big enough to be worth a separate entry? Which would you cut, and what is missing?",
+  "context_md": "Every tile is the same world at the same seed, **pinned to noon** so the day/night cycle is divided out -- an earlier version left the clock running and the sun ran +0.98 on the first tile to +0.30 on the last, so BLIZZARD was dimmer than CLEAR for reasons nothing to do with weather.\n\n600 frames per tile. The counters matter more than usual here, because **several of these are the same picture and different worlds**:\n\n| | gusts | force | froze | bolts | ice in view | water |\n|---|---|---|---|---|---|---|\n| CLEAR | 0 | 0 | 0 | 0 | 0 | -451 |\n| BREEZE | 23 | 230 | 0 | 0 | 0 | -451 |\n| GALE | 23 | **486** | 0 | 0 | 0 | -451 |\n| FROST | 0 | 0 | **3844** | 0 | 20 | -1242 |\n| RAIN | 0 | 0 | 0 | 0 | 0 | **-354** |\n| STORM | 23 | 410 | 0 | **1** | 0 | **-159** |\n| SNOW | 0 | 0 | 15024 | 0 | 919 | -1657 |\n| BLIZZARD | 23 | 463 | **29248** | 0 | **2085** | -2216 |\n\nThree things those numbers say that the picture cannot:\n\n- **BREEZE and GALE are identical stills** and differ 2.1x in delivered gust force. Wind is judged in motion; I can post a GIF if you want to see it.\n- **FROST works and looks like it does not.** 3,844 freeze events, but the world is 8192x2560 and the frame shows 512x320 of it, so only **20** ice cells land in view. The waterline is pixel-identical to CLEAR's. That is the freeze being deliberately slow (an order of magnitude slower, at your own request) rather than broken.\n- **RAIN has no lightning and STORM does**, which is the whole difference between them. `weather::strike` used to re-derive the sky from the seed and ignore a pin entirely, so a pinned storm flashed only when the seed happened to agree -- fixed here.\n\nCLEAR is the deliberate control: it is the one entry that should move nothing.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "nine pinned skies",
+      "files": [
+        "20260829T003459380Z-1c9bdc/000-weather.png"
+      ],
+      "caption": "LIVE / CLEAR / BREEZE / GALE / FROST / RAIN / STORM / SNOW / BLIZZARD, all at noon",
+      "meta": {
+        "gust force BREEZE": 230,
+        "gust force GALE": 486,
+        "freezes FROST": 3844,
+        "freezes BLIZZARD": 29248,
+        "bolts STORM": 1,
+        "bolts RAIN": 0,
+        "ice in view FROST": 20,
+        "ice in view BLIZZARD": 2085
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
