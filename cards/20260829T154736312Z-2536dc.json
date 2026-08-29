@@ -1,0 +1,100 @@
+{
+  "id": "20260829T154736312Z-2536dc",
+  "created": "2026-08-29T15:47:36Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a0b78503fff58ce7b",
+    "branch": "claude/creature-impulse-verb",
+    "commit": "6ca093d",
+    "agent": null,
+    "session_id": "8decc404-1166-54ad-9ca6-a460991ec93f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a0b78503fff58ce7b"
+  },
+  "title": "Creatures can jump — and the body decides what a jump does",
+  "question": "Does the hop read as a hop? And does the flat one read as gliding down while the square one drops?",
+  "context_md": "Two creatures, side by side, given the **same push**.\n\n- **left** — five cells wide, two tall\n- **right** — three by three\n\nThey are made of the same stuff and they are **exactly the same weight — nine cells each** — so they leave the ledge at the same speed. Everything that happens after that is the shape catching the air, and nothing in the game knows which creature is which: it measures how wide each one is against how tall.\n\n**A** is the game as it was this morning: they walk off the ledge and sink.\n**B** is with the new jump.\n\nMeasured on a taller ledge than this one (the picture is cropped in so you can see them at all): the flat one stays up **113 frames** to the square one's **69** — same weight, same push, and it comes down at less than half the speed.\n\nWhat I am unsure about is the **feel**: whether the arc reads as a hop rather than as something being flung, and whether the slow one reads as gliding or as floating.\n\nThe ants that come with the game do **not** jump and are untouched by this — falls per move on the foraging scene is unchanged to three decimals.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — as it was (no jump)",
+      "files": [
+        "20260829T154736312Z-2536dc/000-off_00.png",
+        "20260829T154736312Z-2536dc/001-off_01.png",
+        "20260829T154736312Z-2536dc/002-off_02.png",
+        "20260829T154736312Z-2536dc/003-off_03.png",
+        "20260829T154736312Z-2536dc/004-off_04.png",
+        "20260829T154736312Z-2536dc/005-off_05.png",
+        "20260829T154736312Z-2536dc/006-off_06.png",
+        "20260829T154736312Z-2536dc/007-off_07.png",
+        "20260829T154736312Z-2536dc/008-off_08.png",
+        "20260829T154736312Z-2536dc/009-off_09.png",
+        "20260829T154736312Z-2536dc/010-off_10.png",
+        "20260829T154736312Z-2536dc/011-off_11.png",
+        "20260829T154736312Z-2536dc/012-off_12.png",
+        "20260829T154736312Z-2536dc/013-off_13.png",
+        "20260829T154736312Z-2536dc/014-off_14.png",
+        "20260829T154736312Z-2536dc/015-off_15.png",
+        "20260829T154736312Z-2536dc/016-off_16.png",
+        "20260829T154736312Z-2536dc/017-off_17.png",
+        "20260829T154736312Z-2536dc/018-off_18.png",
+        "20260829T154736312Z-2536dc/019-off_19.png",
+        "20260829T154736312Z-2536dc/020-off_20.png",
+        "20260829T154736312Z-2536dc/021-off_21.png",
+        "20260829T154736312Z-2536dc/022-off_22.png"
+      ],
+      "caption": "they walk off the ledge and sink at one speed, whatever they are made of",
+      "meta": {
+        "jumps": 0,
+        "frames spent in the air": 0,
+        "walking steps": 26,
+        "times they dropped off an edge": 9
+      },
+      "focus": null
+    },
+    {
+      "label": "B — with the jump",
+      "files": [
+        "20260829T154736312Z-2536dc/023-on_00.png",
+        "20260829T154736312Z-2536dc/024-on_01.png",
+        "20260829T154736312Z-2536dc/025-on_02.png",
+        "20260829T154736312Z-2536dc/026-on_03.png",
+        "20260829T154736312Z-2536dc/027-on_04.png",
+        "20260829T154736312Z-2536dc/028-on_05.png",
+        "20260829T154736312Z-2536dc/029-on_06.png",
+        "20260829T154736312Z-2536dc/030-on_07.png",
+        "20260829T154736312Z-2536dc/031-on_08.png",
+        "20260829T154736312Z-2536dc/032-on_09.png",
+        "20260829T154736312Z-2536dc/033-on_10.png",
+        "20260829T154736312Z-2536dc/034-on_11.png",
+        "20260829T154736312Z-2536dc/035-on_12.png",
+        "20260829T154736312Z-2536dc/036-on_13.png",
+        "20260829T154736312Z-2536dc/037-on_14.png",
+        "20260829T154736312Z-2536dc/038-on_15.png",
+        "20260829T154736312Z-2536dc/039-on_16.png",
+        "20260829T154736312Z-2536dc/040-on_17.png",
+        "20260829T154736312Z-2536dc/041-on_18.png",
+        "20260829T154736312Z-2536dc/042-on_19.png",
+        "20260829T154736312Z-2536dc/043-on_20.png",
+        "20260829T154736312Z-2536dc/044-on_21.png",
+        "20260829T154736312Z-2536dc/045-on_22.png"
+      ],
+      "caption": "same push each; the flat one glides out and the square one drops",
+      "meta": {
+        "jumps": 5,
+        "frames spent in the air": 200,
+        "cells travelled while airborne": 327,
+        "times they dropped off an edge": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
