@@ -606,6 +606,22 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology
 
+- [creature-motion-design.md](creature-motion-design.md) — **design,
+  awaiting the owner's call on §6.** Motion is the axis nobody has measured:
+  there is no jump, fly, swim or hop anywhere in the engine. Answers the
+  owner's "how many impulse verbs" debate by asking of each candidate
+  *decision or property?* — **five of nine need no verb at all**, because the
+  ballistic physics already exists in `rigid.rs` (terminal velocity from
+  weight-minus-buoyancy against drag, which is also E9's float limit already
+  implemented). Recommends **one verb, one slot held with a stated condition
+  for spending it**. **§4c reverses the report's own first recommendation**
+  and now says *enlarge* the reserve, on the finding that `is_live_slot`
+  gates on the live counts rather than the reserves, so the reserve is never
+  drawn, mutated or evaluated — `live_slots()` stays at 268 either way and
+  the whole cost is 2.1 MB at the population ceiling. §4d answers "can we
+  name the held slot now": no, naming is what makes a slot live. Carries the
+  principal risk: `step_chain` refuses gaps deliberately, after two attempts
+  that put falls at 59–80% of all moves.
 - [creature-appearance-design.md](creature-appearance-design.md) —
   **design + measured study.** Why a two-cell ant cannot be found in a
   picture, and what does: extent is the only lever, the dark palette is

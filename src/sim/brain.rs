@@ -41,7 +41,7 @@ pub const BRAIN_OUTPUTS: usize = 10;
 /// grow into. Both are needed, and conflating them is exactly what made the
 /// 6 -> 9 output growth unlawful — see `GENOME_LEN`.
 ///
-/// Sized to absorb three appends on each axis before a migration, at 584
+/// Sized to absorb any plausible growth on each axis before a migration, at 12,352
 /// floats against the **268** a tight layout uses at today's live counts
 /// (16x10 + 4x16 + 4 + 10x4): 2.3 KB per creature, ~9.6 MB at the
 /// 4095-organism ceiling. Reserving more (16 outputs, 712 floats) buys no
@@ -51,20 +51,20 @@ pub const BRAIN_OUTPUTS: usize = 10;
 /// for `BRAIN_OUTPUTS = 9` — correct before the `Feed` verb was appended
 /// and stale the moment it was. It is a derived quantity written by hand,
 /// so it goes stale on exactly the appends this reservation exists to
-/// make cheap; the reserved 584 is the number that does not move, and is
+/// make cheap; the reserved 12,352 is the number that does not move, and is
 /// the one to reason with.)
-pub const INPUT_SLOTS: usize = 24;
-pub const HIDDEN_SLOTS: usize = 8;
-pub const OUTPUT_SLOTS: usize = 12;
+pub const INPUT_SLOTS: usize = 64;
+pub const HIDDEN_SLOTS: usize = 64;
+pub const OUTPUT_SLOTS: usize = 64;
 
 /// The genome: one flat `Vec<f32>` in four contiguous positional blocks,
 /// **sized from the reserved dimensions rather than from the live counts**.
 ///
 /// ```text
-/// [0..288)    input -> output   (12 x 24)  -- the authored "taxis gains"
-/// [288..480)  input -> hidden   ( 8 x 24)
-/// [480..488)  hidden self-recurrence       (8)
-/// [488..584)  hidden -> output  (12 x  8)
+/// [0..4096)       input -> output   (64 x 64)  -- the authored "taxis gains"
+/// [4096..8192)    input -> hidden   (64 x 64)
+/// [8192..8256)    hidden self-recurrence     (64)
+/// [8256..12352)   hidden -> output  (64 x 64)
 /// ```
 ///
 /// **Grown twice before this layout, and only the first growth was
@@ -109,11 +109,11 @@ pub const OUTPUT_SLOTS: usize = 12;
 /// A stored genome is a list of numbers with no labels, so moving a slot
 /// silently reinterprets every individual that already exists as a
 /// different animal.
-pub const GENOME_LEN: usize = HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS; // 584
+pub const GENOME_LEN: usize = HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS; // 12,352
 
-const IO_END: usize = OUTPUT_SLOTS * INPUT_SLOTS; // 288
-const IH_END: usize = IO_END + HIDDEN_SLOTS * INPUT_SLOTS; // 480
-const HH_END: usize = IH_END + HIDDEN_SLOTS; // 488
+const IO_END: usize = OUTPUT_SLOTS * INPUT_SLOTS; // 4096
+const IH_END: usize = IO_END + HIDDEN_SLOTS * INPUT_SLOTS; // 8192
+const HH_END: usize = IH_END + HIDDEN_SLOTS; // 8256
 
 /// Where a connection lives, by name rather than by arithmetic. Every
 /// caller outside `eval_brain`'s inner loops goes through these, so a
@@ -510,7 +510,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
 ///
 /// **This is the dev-tool exit** (`Reports/creature-evolution-plan.md`
 /// decision E8: *"we can use it to create new creatures that get saved and
-/// added to the game"*). An evolved individual is 584 floats; the loader
+/// added to the game"*). An evolved individual is 12,352 floats; the loader
 /// only ever reads sparse wiring lists, so the way to write an individual
 /// into `assets/species/` is to invert the expansion rather than to invent
 /// a second genome format the loader would then have to learn.
@@ -698,11 +698,11 @@ mod tests {
         // The slot-layout law made mechanical: if someone changes a size
         // const without re-deriving the blocks, the genome silently gains
         // or loses a tail and every stored individual is reinterpreted.
-        assert_eq!(IO_END, 288);
-        assert_eq!(IH_END, 480);
-        assert_eq!(HH_END, 488);
+        assert_eq!(IO_END, 4096);
+        assert_eq!(IH_END, 8192);
+        assert_eq!(HH_END, 8256);
         assert_eq!(GENOME_LEN, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
-        assert_eq!(GENOME_LEN, 584);
+        assert_eq!(GENOME_LEN, 12352);
         // Every block sized from the *reserve*, never from a live count --
         // this is the assertion that fails if someone "tidies" a stride
         // back to BRAIN_INPUTS/BRAIN_OUTPUTS, which is what made the
@@ -842,7 +842,7 @@ mod tests {
         // reinterpretation of every stored individual. If this assertion
         // fires, either put the slot back or accept that every genome in
         // flight now means something else -- and say which in the commit.
-        assert_eq!(genome_manifest(), 2_369_832_241);
+        assert_eq!(genome_manifest(), 1_235_247_055);
     }
 
     #[test]
@@ -935,9 +935,18 @@ mod tests {
             Instinct(BrainInput::FoodAdjacent, BrainOutput::Move, -0.8),
             Instinct(BrainInput::Carrying, BrainOutput::EmitB, 0.9),
         ]);
-        g[IO_END + BrainInput::Crowding as usize * BRAIN_HIDDEN + 1] = 0.5;
-        g[IH_END + 1] = -0.4;
-        g[HH_END + BRAIN_OUTPUTS + BrainOutput::Turn as usize] = 0.6;
+        // **Through the named accessors, not hand arithmetic.** These three
+        // lines were `IO_END + input * BRAIN_HIDDEN + 1`, `IH_END + 1` and
+        // `HH_END + BRAIN_OUTPUTS + output` — stride expressions that did not
+        // match `eval_brain`'s indexing and survived only because the old
+        // constants made them land somewhere live by coincidence. The
+        // 64/64/64 re-lay broke them, which is precisely what `io_slot` and
+        // friends exist to prevent: *"every caller outside `eval_brain`'s
+        // inner loops goes through these, so a future re-lay is one edit
+        // rather than a hunt through hand-written index expressions."*
+        g[ih_slot(BrainInput::Crowding, 1)] = 0.5;
+        g[hh_slot(1)] = -0.4;
+        g[ho_slot(1, BrainOutput::Turn)] = 0.6;
 
         let (_, active) = eval_brain(&g, &[1.0; BRAIN_INPUTS], &mut zero_state());
         assert_eq!(active, 6);
