@@ -7,7 +7,8 @@ file names — see `Reports/` for why any of it is built the way it is.*
 stop growing on purpose and put an organ where the shoot tip used to be, the
 ripe fruit falls carrying the seed inside it, and building either costs the
 plant carbon it might not have; and a shed leaf no longer lodges in the
-branches on its way down -- see **The forest floor**).
+branches on its way down, nor does a drift of them climb a trunk -- see
+**The forest floor**).
 2026-08-27 (a plant kept dry long enough now dies of it,
 and dies gradually; standing tissue costs something to keep, and a
 plant that cannot pay sheds it; grass is sown into generated worlds; a dry
@@ -372,6 +373,18 @@ that never came down; now the only litter you see off the ground is a drift
 banked up against a trunk, which is a pile resting on the floor and reads
 as one. A snapped *branch* is a different matter — that is a solid thing,
 and it can still come to rest across the limbs below it.
+
+**And the pile spreads round a trunk rather than up it.** This is the same
+argument again, pointed sideways, and it is the half that was harder to see.
+Leaves that have landed still have to go somewhere as more arrive; a drift
+wedged between two trunks has nowhere to spread, so it used to grow *upward*,
+climbing out of the forest floor into the low branches as a narrow column.
+Every way of asking "is this on the ground" said yes — it was touching the
+ground the whole way up — and it still looked exactly like leaves collecting
+in the tree, because that is what it was. Now a drift banks round the trunk
+instead, so the floor stays a floor and only thickens. It spills only where
+there is somewhere lower to spill to, so a drift still piles against a trunk
+rather than running out into a flat sheet.
 
 Rain goes **through** it. A litter blanket is loose stuff lying on the
 ground, not a roof, so the soil beneath a deep forest floor still takes the

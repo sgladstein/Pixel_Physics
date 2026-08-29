@@ -1,8 +1,8 @@
 # The World
 
-*Current as of: 2026-08-23. Updated when worldgen started sowing four
-woody species instead of one, and again when grass joined them as a ground
-layer.*
+*Current as of: 2026-08-29. Updated when worldgen started sowing four
+woody species instead of one, again when grass joined them as a ground
+layer, and again when the sky was doubled and the soil blanket deepened.*
 
 Every world is generated. There is no single fixed map: the world you get is
 built from a **seed** — a number — and a **preset**, which is a named style of
@@ -112,9 +112,11 @@ country, the taller the tallest thing in it. What you will not find is a
 world with a spire every few screens everywhere: that reads as scenery
 rather than as a landmark, and a landmark is what these are for.
 
-**Soil** lies over the rock wherever the ground is gentle enough to hold it,
-thinning as the ground steepens and giving out entirely on steep faces, which
-is why cliffs read as bare rock. It also thins near a drop, so the lip of a
+**Soil** lies over the rock in a **deep blanket** wherever the ground is
+gentle enough to hold it — on quiet ground it is a substantial layer to dig
+through rather than a skin, and you reach rock well below where you would
+expect to. It thins as the ground steepens and gives out entirely on steep
+faces, which is why cliffs read as bare rock. It also thins near a drop, so the lip of a
 bench is barer than its middle, and where the cover has worn to almost
 nothing the rock breaks through it altogether in patches. Where a valley floor
 is flat, the top of the soil turns to sand, as washed sediment would collect
@@ -324,3 +326,11 @@ escarpment — so walking is rewarded at about the rate you can walk.
 Depth is mostly rock for now. It is there so that caves and mining have
 somewhere to be, and until those land, the lower half of a world is a
 quarry rather than a destination.
+
+**There is a lot of air above the ground**, and it is paid for out of that
+depth rather than by making the world taller — the world is the same size it
+always was, with the surface sitting lower in it. What that buys is headroom:
+the highest ridge no longer runs along the top of the frame, so hills read as
+hills against open sky instead of as a ceiling, and there is somewhere for
+weather to happen. Standing on the ground you see roughly half sky, where you
+used to see about a third.

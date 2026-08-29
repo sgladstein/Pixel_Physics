@@ -3204,3 +3204,104 @@ was committed, per the standing rule; arm 3 was **blind** on its first passing
 version and is the reason that rule exists.
 
 Posted to the review queue as a blind A/B, card `20260829T005421244Z-e1d946`.
+
+## 2026-08-29 — the leaves were on the floor and it still looked wrong: a drift that climbed the trunk
+
+Owner's verdict on the previous card: *"looks better, but still didn't look
+like the leaves were all on the floor."* He was right twice, and the two
+things were different.
+
+**The picture was misleading, and that is the first finding.**
+`litter_probe`'s overlay coloured litter by `rest_of` — what the cell is
+standing on — so a leaf stuck forty rows up a tree and a drift lying on the
+floor banked against a trunk were **the same magenta**. The harness's own
+module doc has warned since it was written that this column scores two
+opposite verdicts identically and must never be read alone; the card carried
+that warning as prose beside the image, and prose does not beat a picture.
+Repainted on **air underneath** (`air_below`), which is the one
+classification that is not confounded: a leaf held up by a branch has a gap
+below it, a leaf on a pile does not, whatever the pile rests on and however
+deep it is. On that measure the vertical rule had already worked — **4 of 497
+standing cells held off the ground, worst gap one cell.**
+
+**Both existing measures were confounded, by two different routes**, which is
+why nothing in the repo could see the real defect:
+
+- `against-plant` counts the drift-against-a-trunk case with the
+  stuck-up-a-tree case;
+- the height bands measure against `terrain_top`, which **excludes litter on
+  purpose**, so a leaf on top of a twenty-deep mat reads as twenty rows up
+  while being the top of the floor.
+
+Neither is wrong. Both make a pile that climbs indistinguishable from a leaf
+that never fell.
+
+**The real defect: a drift with nowhere to spread goes up.** A litter cell
+rolls downhill only into open space, so a pile wedged between two trunks
+cannot widen and grows vertically instead, climbing out of the forest floor
+into the lower crown as a narrow column — **grounded the whole way**. Asked
+properly for the first time: **24% of standing litter more than eight rows
+up, 68% of that with plant tissue immediately left or right, tallest column 28
+rows.** At play zoom that is a mass of leaves in the branches, which is
+exactly the complaint, and it was invisible to every number then in the repo.
+
+**`slide_past_organism` is the mirror of the fall rule**, on the same material
+flag, because it is the same claim about the material pointed sideways: a
+litter cell walled in steps past a run of organism cells to the first open
+cell beyond. In three dimensions a drift banks round a trunk for the same
+reason a falling leaf passes a branch.
+
+**The termination clause is the whole design.** The destination must be a cell
+it can *fall* from. Requiring merely an empty cell on the far side lets a leaf
+shuffle left and right across a trunk for ever: no physics changes and the
+chunk never sleeps, which is the frame-cost failure this file already names.
+Requiring open air beneath means every slip is immediately followed by a
+descent, so the row strictly increases and the cell can never return to the
+row it left. It may zig-zag down past a trunk; it cannot oscillate on one.
+
+Measured with **one binary and one environment variable**, so the arms differ
+by exactly this rule:
+
+| | slip off | slip on |
+|---|---|---|
+| grounded but >8 rows up | 119 (23.9%) | **10 (4.9%)** |
+| tallest litter column above terrain | 28 rows | **10 rows** |
+| within 3 rows of the terrain | 43.1% | **73.4%** |
+| held off the ground | 0.8% | 0.5% |
+
+Every counter in `examples/ascii` is unchanged except the ant-colony scene's,
+which moves because litter is ant food and it genuinely relocated (forage
+trips 68 -> 67 against a bar of 8, deliveries 806 -> 711, nest-visits
+1842 -> 2184).
+
+**The guard test's third arm was blind on its first passing version, and this
+is the second time in two days.** Arm 3 puts level ground on both sides of the
+trunk and asserts the leaf does not move — the control for the termination
+clause. Deleting that clause left it **green**, because the oscillation has
+period two and the run length was even, so the leaf was back on its starting
+square when the assertion looked. The arm now also asserts
+`active_chunk_count() == 0`: an oscillating cell writes every frame and its
+chunk can never settle, which is the cost the clause exists to avoid and is
+not a coordinate that can happen to match. Red for the fault, confirmed.
+
+**Recorded because a green run of that guard will otherwise be over-read**:
+deleting the "neighbour must be living tissue" clause leaves all three arms
+green, since every arm has a trunk in that position. The clause is still
+load-bearing — without it the rule becomes "a settled grain drops into any
+adjacent hole", bypassing `roll_along_slope`'s two-angle repose hysteresis
+whenever `stability_reach_at` returns 0. A scene that discriminates it is not
+built.
+
+**`litter_probe` gained `plain=1`** — the scene in its own colours, no markers,
+no dimming. The marked overlay says which cells are held off the ground; this
+says whether a person would call it a forest floor, and the two are different
+questions. A card carrying only the first was read, reasonably, as showing
+litter still in the canopy.
+
+**The clippy-version gotcha added yesterday paid for itself immediately**: the
+new `soil_id` parameter pushed `write_overlay` to 8 arguments and tripped
+`too_many_arguments` on 1.98.0 while 1.94.1 was silent. Caught locally with
+`cargo +1.98.0 clippy` instead of by a red PR; the arguments are grouped into
+a `View` now.
+
+Posted as a blind A/B in true colour, board `plants`.
