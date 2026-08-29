@@ -140,11 +140,37 @@ over a 6,000-frame run" (`plant.rs:1342-1349`).
   width changes shift every later draw. `SEQUENCED_TRAITS` (`plant.rs:816`)
   freezes the measured prefix; an appended slot draws after the loci, and
   `APPENDED_JITTER_SALT` (`plant.rs:826`) gives it its own substream.
-- `Chunk::rng` is seeded from chunk coordinates, so **the same genome planted
-  in two places draws a different sequence** — position is a hidden inherited
-  variable (`plant-simulation-research.md` §7d; independently recorded as
-  creature gotcha **P-21**: "a fitness-relevant RNG keyed on position makes
-  location heritable and manufactures fake selection results").
+- > **CORRECTED 2026-08-28. This bullet named the wrong mechanism, and the
+  > fix it implies already shipped.** It read: *"`Chunk::rng` is seeded from
+  > chunk coordinates, so the same genome planted in two places draws a
+  > different sequence — position is a hidden inherited variable."*
+  >
+  > **Plants never touch `Chunk::rng`.** It is reached only by the CA sweep,
+  > through `CellSurface::rng()`; the whole of `plant.rs` uses stateless
+  > positional hashes (`rng::stream`), and its single `world.rng` use is one
+  > litter shade at `plant.rs:5775`. `src/sim/rng.rs:105-117` records this in
+  > source and names `plant-simulation-research.md` §7d and
+  > `population-dynamics-research.md` §7d as naming the wrong culprit — the
+  > real one was *order coupling*, and the per-organism stream that fixes it
+  > **is already live**: `rng::stream(organism_id, x, y, frame)`
+  > (`plant.rs:1388`). `dead-ends.md:702` and `:796` record its landing.
+  >
+  > **What survives is narrower**, and `plant-evolution-design.md` §1c already
+  > states it correctly: inherited genomes short-circuit the positional draw
+  > entirely (`seed_genotype` returns early on `inherited`), so a lineage's
+  > genetics flow parent to child and position never re-enters. The confound
+  > **binds founders only** — a favourable cell re-sown repeatedly draws the
+  > same founding genotype every time, which can read as *"this allele wins
+  > here"* when the truth is *"this coordinate always draws this allele."*
+  > Whether that contaminates a given experiment depends on the
+  > founder-versus-descendant fraction, which §1c makes the gate rather than
+  > re-keying on principle.
+  >
+  > Position keying is otherwise **deliberate** (`plant.rs`'s `seed_genotype`
+  > doc): it survives planting order, worldgen edits, slot reuse and
+  > save/load, none of which an id-keyed draw does.
+  >
+  > P-21 as a *law* is unaffected — only its attribution here was wrong.
 - **An unstable sort's tie order depends on the element type**, and
   `plant.rs`'s `allocate_to_frontier` is subject to it — caching a sort key
   changed tree heights 101→103 and root depth histograms (CLAUDE.md gotcha).

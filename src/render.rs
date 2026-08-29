@@ -1009,6 +1009,12 @@ const CELL_TYPE_DORMANT_BUD: [f32; 3] = [80.0, 255.0, 255.0];
 /// available that is also unlike every plant colour above.
 const CELL_TYPE_HEAD: [f32; 3] = [255.0, 255.0, 255.0];
 const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
+/// The two organ types, on the `CellType` debug overlay. Far apart from each
+/// other and from every colour above, because the question this overlay is
+/// asked about organs is *did the axis terminate where I think it did* --
+/// which is a matter of telling a flower from the bud beside it at a glance.
+const CELL_TYPE_FLOWER: [f32; 3] = [255.0, 240.0, 60.0];
+const CELL_TYPE_FRUIT: [f32; 3] = [255.0, 60.0, 90.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -4353,6 +4359,8 @@ impl Renderer {
                     Some(organism::CellType::DormantBud) => CELL_TYPE_DORMANT_BUD,
                     Some(organism::CellType::Head) => CELL_TYPE_HEAD,
                     Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
+                    Some(organism::CellType::Flower) => CELL_TYPE_FLOWER,
+                    Some(organism::CellType::Fruit) => CELL_TYPE_FRUIT,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)

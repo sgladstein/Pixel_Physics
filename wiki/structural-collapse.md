@@ -1,6 +1,9 @@
 # Structural Collapse
 
-*Current as of: 2026-08-27. Changed on 2026-08-27: debris that comes to
+*Current as of: 2026-08-29. Changed on 2026-08-28: ground that is standing
+on scree is held by the scree, and no longer also leans on the rock beside
+it — which is what stopped hillsides taking themselves apart while nobody
+was playing; see **What rubble does**. Changed on 2026-08-27: debris that comes to
 rest, and anything held up by a pile, now take their sense of what holds
 them up from what is actually underneath instead of assuming bedrock — which
 stops ground near a fresh cut or a hammered cliff from crumbling on long
@@ -243,6 +246,24 @@ whatever the loose stuff is sitting on. It used to be recorded as though the
 pile were bedrock itself, which is the same mistaken belief in a second
 place, and it is why hammering a cliff face left the ground around it
 working away at itself long after the blows stopped.
+
+**And a thing standing on a pile leans on the pile, not on its neighbours.**
+That sounds too obvious to say, and for a while the game had it wrong in a
+way that only showed up when nobody was doing anything. Two boulders sitting
+on the same scree slope, each perfectly well held by the ground under it,
+were being treated as though the lower one were carrying the upper — and then
+the one below that carrying both, all the way down the hill, until the rock
+at the foot of the slope was reckoned to be holding up the entire hillside
+and gave way under a weight it was never actually carrying. What you saw was
+a world tearing its own ground apart minutes after it loaded, with no
+digging, no blast and nobody near it. Ground that is held by what it stands
+on now says so, and stops there.
+
+The flip side is worth knowing because you can use it: **fill really does
+shore things up**. Pile loose material under an overhanging ledge until the
+pile reaches the ground, and the ledge is genuinely relieved — the rock
+behind it stops carrying the part that is now standing on your pile. That is
+the same rule read forwards.
 
 **How much of any of that you can see depends on how deep the world is**,
 and at the size the test world is now it is honestly nothing — the belief has to

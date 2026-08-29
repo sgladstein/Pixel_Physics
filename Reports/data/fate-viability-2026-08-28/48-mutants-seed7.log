@@ -1,0 +1,67 @@
+fate_viability: mutants=48 frames=12000 founders=3 worldseed=7
+
+positive control (unmutated table): 3/3 established, 80 seeds set
+negative control (shoot child -> Seed):  0/3 established, 0 seeds set
+
+per mutation (established of 3 founders, and seeds set):
+  GrowingTip.Grew.becomes -> Seed              plants  2  seeds 107
+  GrowingTip.Stale.becomes -> DormantBud       plants  3  seeds  77
+  GrowingTip.Grew.lateral -> Seed              plants  2  seeds  61
+  GrowingTip.Stale.becomes -> Seed             plants  3  seeds  80   [silent: identical to base]
+  RootTip.Grew.child -> MatureBody             plants  0  seeds   0
+  DormantBud.Flush.becomes -> Seed             plants  3  seeds  81
+  DormantBud.Flush.becomes -> DormantBud       plants  3  seeds  81
+  RootTip.Grew.lateral -> MatureBody           plants  3  seeds  80   [silent: identical to base]
+  DormantBud.Flush.becomes -> RootTip          plants  3  seeds  75
+  RootTip.Grew.lateral -> MatureBody           plants  3  seeds  80   [silent: identical to base]
+  GrowingTip.Grew.lateral -> RootTip           plants  2  seeds  57
+  GrowingTip.Stale.becomes -> DormantBud       plants  3  seeds  77
+  DormantBud.Flush.becomes -> Seed             plants  3  seeds  81
+  RootTip.Grew.becomes -> Seed                 plants  6  seeds 109
+  RootTip.Grew.lateral -> DormantBud           plants  3  seeds  80   [silent: identical to base]
+  DormantBud.Flush.becomes -> Leaf             plants  3  seeds  90
+  RootTip.Stale.becomes -> DormantBud          plants  3  seeds  78
+  RootTip.Grew.lateral -> DormantBud           plants  3  seeds  80   [silent: identical to base]
+  DormantBud.Flush.becomes -> MatureBody       plants  3  seeds  82
+  GrowingTip.Node.lateral -> DormantBud        plants  3  seeds  62
+  RootTip.Stale.becomes -> RootTip             plants  4  seeds  49
+  GrowingTip.Grew.lateral -> Leaf              plants  2  seeds  57
+  DormantBud.Flush.becomes -> MatureBody       plants  3  seeds  82
+  RootTip.Grew.becomes -> DormantBud           plants  3  seeds  72
+  GrowingTip.Node.becomes -> Leaf              plants  3  seeds  91
+  RootTip.Grew.becomes -> Leaf                 plants  2  seeds  74
+  RootTip.Grew.child -> Seed                   plants  3  seeds  64
+  DormantBud.Flush.becomes -> Seed             plants  3  seeds  81
+  DormantBud.Flush.becomes -> MatureBody       plants  3  seeds  82
+  RootTip.Grew.becomes -> DormantBud           plants  3  seeds  72
+  DormantBud.Flush.becomes -> RootTip          plants  3  seeds  75
+  RootTip.Grew.lateral -> MatureBody           plants  3  seeds  80   [silent: identical to base]
+  RootTip.Grew.lateral -> MatureBody           plants  3  seeds  80   [silent: identical to base]
+  GrowingTip.Stale.becomes -> RootTip          plants  3  seeds  67
+  RootTip.Grew.lateral -> Leaf                 plants  3  seeds  80   [silent: identical to base]
+  GrowingTip.Grew.child -> DormantBud          plants  0  seeds   0
+  RootTip.Stale.becomes -> Leaf                plants  3  seeds  68
+  GrowingTip.Stale.becomes -> DormantBud       plants  3  seeds  77
+  GrowingTip.Grew.lateral -> DormantBud        plants  2  seeds  63
+  DormantBud.Flush.becomes -> MatureBody       plants  3  seeds  82
+  DormantBud.Flush.becomes -> DormantBud       plants  3  seeds  81
+  GrowingTip.Node.child -> MatureBody          plants  1  seeds   0
+  GrowingTip.Node.child -> DormantBud          plants  1  seeds   0
+  RootTip.Stale.becomes -> RootTip             plants  4  seeds  49
+  RootTip.Grew.becomes -> Leaf                 plants  2  seeds  74
+  RootTip.Stale.becomes -> Seed                plants  6  seeds  74
+  RootTip.Stale.becomes -> Leaf                plants  3  seeds  68
+  GrowingTip.Grew.child -> Seed                plants  0  seeds   0
+
+48 point mutations of the production rule:
+  silent (output identical to base -- the field is never read here)
+                          8/48  (17%)
+  EFFECTIVE mutations     40
+    established at all    37/40  (92%)
+    set at least one seed 35/40  (88%)
+
+  (raw, including silent: established 45/48, reproduced 43/48)
+
+Read against the controls, never alone: base 3 plants / 80 seeds,
+lethal 0 plants / 0 seeds. `plants` counts every established
+organism including recruits, so it can exceed the 3 founders.
