@@ -62,6 +62,25 @@ struct Sample {
     gen_max: u16,
     mean: [f32; organism::GENOTYPE_TRAITS],
     sd: [f32; organism::GENOTYPE_TRAITS],
+    /// **The production rule's own drift** — see the `fates` table this
+    /// prints. Counted against the species' founding genome rather than
+    /// against the previous sample, because the question is *how far has this
+    /// population moved from the plant it was founded as*, and a sample-to-
+    /// sample delta answers a different one.
+    fate_drifted: usize,
+    fate_longer: usize,
+    fate_shorter: usize,
+    fate_changed: usize,
+    fate_distinct: usize,
+    /// The control. Founders are founded from the species table with **no
+    /// variance** (`FateGenome`'s doc: "Deliberately no founder variance"), so
+    /// a generation-0 organism whose table differs means the census is reading
+    /// the wrong thing, not that the lineage drifted.
+    fate_gen0_drifted: usize,
+    /// An empty genome falls back to the species table, so a population of
+    /// them would read as *no drift* while meaning *no genomes*. Distinct
+    /// state, distinct column.
+    fate_empty: usize,
 }
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T>
@@ -157,6 +176,24 @@ fn main() {
     }
     println!();
 
+    // The table every founder of this species starts from. Drift is measured
+    // against this, so it is read once from the registry rather than from any
+    // individual -- an individual's own table is the thing under test.
+    let base_fates = organism::FateGenome::from_table(w.species.get(table_species).fate_table());
+    println!("founding production rule: {} rules", base_fates.len());
+
+    // **Distinct individuals, not organism-samples.** The first version of
+    // this pooled `fate_established` across samples and divided -- which
+    // counts the same plant once per sample it survived, so a single drifted
+    // plant that persists reads as nine, and a run where none established
+    // reads as a rate over ~1,000 trials rather than as "none, ever". Two
+    // seeds came back at *exactly* 0.00% and that tidiness was the tell: at a
+    // 1% rate, P(0 of 989) is about 4e-5. `CLAUDE.md`'s "ask what your number
+    // counts" -- the percentage was right and the denominator was a different
+    // quantity from the one the question needs.
+    let mut ever_established: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    let mut ever_established_drifted: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+
     let mut samples: Vec<Sample> = Vec::new();
     println!("\npopulation mean of each slot's unit draw (-1..=1), one row per sample:");
     print!("  {:>8} {:>5} {:>5} {:>9}  ", "frame", "n", "seeds", "gen m/max");
@@ -194,6 +231,8 @@ fn main() {
         }
 
         let mut n = 0.0f32;
+        let (mut fd, mut fl, mut fs, mut fc, mut f0, mut fe) = (0usize, 0usize, 0usize, 0usize, 0usize, 0usize);
+        let mut fate_keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let mut sum = [0.0f64; organism::GENOTYPE_TRAITS];
         let mut sumsq = [0.0f64; organism::GENOTYPE_TRAITS];
         let (mut gen_sum, mut gen_max) = (0u64, 0u16);
@@ -205,6 +244,37 @@ fn main() {
             for (slot, d) in s.genotype_draws.iter().enumerate() {
                 sum[slot] += *d as f64;
                 sumsq[slot] += (*d as f64) * (*d as f64);
+            }
+            // **The production rule.** Compared to the founding genome by
+            // value; `FateGenome` is `PartialEq`, and the comparison is over
+            // the packed rules, so it catches a retarget that changes one
+            // cell-type field as readily as an insert that changes the length.
+            // `>= 20 cells` is `plant_probe`'s and `fate_viability`'s
+            // establishment bar, reused deliberately so the three instruments
+            // are answering about the same object.
+            let established = s.cells.len() >= 20;
+            if established {
+                ever_established.insert(*id);
+            }
+            let g = s.fates;
+            if g.is_empty() {
+                fe += 1;
+            } else {
+                fate_keys.insert(g.rules().map(|(o, r)| format!("{o:?}/{r:?};")).collect::<String>());
+                if g != base_fates {
+                    fd += 1;
+                    if s.generation == 0 {
+                        f0 += 1;
+                    }
+                    if established {
+                        ever_established_drifted.insert(*id);
+                    }
+                    match g.len().cmp(&base_fates.len()) {
+                        std::cmp::Ordering::Greater => fl += 1,
+                        std::cmp::Ordering::Less => fs += 1,
+                        std::cmp::Ordering::Equal => fc += 1,
+                    }
+                }
             }
         }
         let mut mean = [0.0f32; organism::GENOTYPE_TRAITS];
@@ -229,6 +299,13 @@ fn main() {
             gen_max,
             mean,
             sd,
+            fate_drifted: fd,
+            fate_longer: fl,
+            fate_shorter: fs,
+            fate_changed: fc,
+            fate_distinct: fate_keys.len(),
+            fate_gen0_drifted: f0,
+            fate_empty: fe,
         };
         print!(
             "  {:>8} {:>5} {:>5} {:>4.1}/{:<4}  ",
@@ -259,6 +336,76 @@ fn main() {
             print!("{v:>7.3}");
         }
         println!();
+    }
+
+    // **The production rule's drift, which the per-slot table above cannot
+    // show.** The slots are continuous draws; the fate table is a *program*,
+    // so "population mean" is meaningless for it and the question is instead
+    // how many individuals carry a table that is no longer their species'.
+    //
+    // **Read the `gen0` column first.** Founders are founded from the species
+    // table with no variance, so any nonzero entry there means this census is
+    // reading something other than what it claims and every other column is
+    // void. It is the same role slot 9 plays for the table above: a control
+    // that is free because the mechanism guarantees the answer.
+    //
+    // **`empty` is the second control.** An empty genome falls back to the
+    // species table (`plant::fate_for`), so a population of them would report
+    // zero drift while meaning zero genomes -- indistinguishable from a
+    // lineage that simply never mutated, which is the failure this project has
+    // shipped three times as "a channel with no writer".
+    println!("\nproduction-rule drift, against the founding table of {} rules:", base_fates.len());
+    println!(
+        "  {:>8} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>6} {:>6}",
+        "frame", "n", "DRIFTED", "longer", "shorter", "changed", "distinct", "gen0", "empty"
+    );
+    for s in &samples {
+        println!(
+            "  {:>8} {:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>6} {:>6}",
+            s.frame,
+            s.live,
+            s.fate_drifted,
+            s.fate_longer,
+            s.fate_shorter,
+            s.fate_changed,
+            s.fate_distinct,
+            s.fate_gen0_drifted,
+            s.fate_empty
+        );
+    }
+    // **Does a drifted rule table cost a plant its establishment?** The
+    // harness gate (`fate_viability`) asks this of one mutation at a time in a
+    // constructed stand; this asks it of a living population, which is a
+    // different and weaker question -- it cannot separate "the mutation is bad"
+    // from "this individual was unlucky" -- but it is the only in-vivo form
+    // available, and the two rates being equal is a real null.
+    let last_d = last.fate_drifted;
+    let last_n = last.live;
+    let e = ever_established.len();
+    let ed = ever_established_drifted.len();
+    println!("\ndoes a drifted table cost establishment?");
+    let pc = |a: usize, b: usize| if b == 0 { f32::NAN } else { 100.0 * a as f32 / b as f32 };
+    println!("  drifted among all organisms, final sample   {last_d} of {last_n}  ({:.2}%)", pc(last_d, last_n));
+    println!("  DISTINCT plants that ever established       {e}");
+    println!("  ...of which ever carried a drifted table    {ed}  ({:.2}%)", pc(ed, e));
+    println!("  (distinct individuals, counted once each -- a plant that persists across samples");
+    println!("   is one plant. The per-sample columns above are snapshots and do repeat it.)");
+    println!("  Equal rates are the null. A lower established rate is viability selection against");
+    println!("  the drifted; a higher one would mean drift is reaching establishment preferentially,");
+    println!("  which nothing in the model provides for and would point at this census instead.");
+
+    let bad_control = samples.iter().any(|s| s.fate_gen0_drifted > 0);
+    let ever_drifted = samples.iter().any(|s| s.fate_drifted > 0);
+    if bad_control {
+        println!(
+            "\n  CONTROL FAILED: a generation-0 organism carries a table that is not its species'."
+        );
+        println!("  Founders take the species table verbatim, so this census is reading the wrong");
+        println!("  thing and every column above is void. Fix that before reading any of it.");
+    } else if !ever_drifted {
+        println!("\n  No individual ever left the founding table. At FATE_MUTATION_CHANCE that is");
+        println!("  a statement about the *rate* and the generation depth reached, not about");
+        println!("  whether the mechanism works -- read `gen m/max` above before concluding.");
     }
 
     // **The summary is the part that answers the question**, and it is
