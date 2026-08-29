@@ -104,6 +104,27 @@ const NEIGHBOURS_8: [(i32, i32); 8] = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 
 const RNG_SLOT_SHADE: u64 = 0;
 const RNG_SLOT_MOVE: u64 = 1;
 const RNG_SLOT_DEATH: u64 = 2;
+/// The birth stream: mutation of the child's genome and of its traits.
+///
+/// **Keyed on the child's handle *and* the frame**, which is what keeps it
+/// clear of dead end 670. A handle is a slot index plus a 4-bit
+/// generation, so `push_organism` hands the same encoded id back after
+/// sixteen reuses of one slot — and those repeats cluster spatially,
+/// because slots come off a free list a colony fills in place. Keying a
+/// genome on the handle alone would therefore hand two cousins born in the
+/// same corner of the world byte-identical mutations. The frame breaks it
+/// by construction: a handle can only recur after the organism holding it
+/// has died, which cannot happen on the frame it was issued.
+///
+/// It is also a **separate stream from `RNG_SLOT_MOVE`** rather than a
+/// continuation of the tick's own generator, and that is the
+/// shared-`Rng` gotcha rather than tidiness: `brain::mutate` takes a
+/// variable number of draws, so drawing them from the tick's generator
+/// would shift every later draw *for that animal* by an amount depending
+/// on how many slots happened to mutate — a determinism change that
+/// spreads through the whole colony and that both of the guards over the
+/// last instance of it stayed green through.
+const RNG_SLOT_BIRTH: u64 = 3;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -563,6 +584,32 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
         return false;
     }
     if surviving.len() != chain.len() {
+        // **The living-flesh stamp seam, closing here** (`Reports/
+        // creature-evolution-plan.md` §2.3, "One seam left open";
+        // `EnergyLedger::meat_lost`'s doc points at it from the other
+        // end). A body cell was stamped with `body_energy` of meat at the
+        // moment the animal was built, and that stamp only ever became
+        // standing food by way of a corpse. A cell bitten, burned or
+        // blasted off a *living* animal never reaches `creature_dies`, so
+        // its stamp stayed in the meat accounts against nothing at all —
+        // which is what made `max_standing_meat` an upper bound rather
+        // than a bound. It is a sink, exactly like a corpse cell the
+        // brush erases; the difference was never the accounting, it was
+        // that there was nothing paying stamps *in* until a parent
+        // started paying for its children.
+        //
+        // Booked here rather than at each destruction site because a live
+        // creature's material is not `worth_in_aux`, so
+        // `EnergyLedger::meat_worth_of` returns `None` for it and none of
+        // those sites can see the loss. This is the one place that knows
+        // a body cell went missing while its owner lived, and it already
+        // holds both counts for its own reasons.
+        let lost = (chain.len() - surviving.len()) as f64;
+        let body_energy = world
+            .organism(organism)
+            .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
+            .unwrap_or(0.0) as f64;
+        world.energy_ledger.meat_lost += body_energy * lost;
         if let Some(state) = world.organism_mut(organism) {
             state.chain = surviving;
         }
@@ -717,11 +764,45 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    let genome = world.species.get(species_id).genome.clone();
+    place_creature(world, x, y, species_id, material_id, &def, Origin::Founder)
+}
 
-    // Every cell of the chain has to be available *before* anything is
-    // allocated or written, or a half-placed body leaks a slot and leaves
-    // orphan cells (the same reason `plant_worm_seed` checks first).
+/// Where the individual `place_creature` is about to build came from.
+///
+/// **One placement path for founders and for children, deliberately.**
+/// The seam does eight things — check the cells, take a slot, draw shades,
+/// write the body, seed the state, count the spawn and book two ledger
+/// accounts — and a second copy of it for births is a second copy that can
+/// drift. Every difference between a founder and a bud is in this enum and
+/// in the three `match`es that read it.
+enum Origin {
+    /// A creature out of nothing: a scene, the `Y` key, a harness.
+    Founder,
+    /// A child budded from a live parent, which pays for it.
+    Bud {
+        parent: u16,
+        genome: Vec<f32>,
+        traits: [f32; super::organism::CREATURE_TRAITS],
+        generation: u16,
+        lineage: u32,
+    },
+}
+
+/// Build one creature at `(x, y)` and return the site to schedule it at.
+///
+/// The head goes at `(x, y)` and the rest of the chain lays out to its
+/// left, exactly as it always has; every cell must be free before anything
+/// is allocated or written, or a half-placed body leaks a slot and leaves
+/// orphan cells (the reason `plant_worm_seed` checks first too).
+fn place_creature(
+    world: &mut World,
+    x: i32,
+    y: i32,
+    species_id: SpeciesId,
+    material_id: material::MaterialId,
+    def: &CreatureDef,
+    origin: Origin,
+) -> Option<ActiveSite> {
     let positions: Vec<(i32, i32)> = def.body.offsets(false).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
     if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
         return None;
@@ -739,18 +820,51 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
         world.set(px, py, Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
     }
+    // Claimed before the state is borrowed, because `claim_lineage` takes
+    // `&mut World` and a founder needs the number inside the block below.
+    let founder_lineage = match origin {
+        Origin::Founder => world.claim_lineage(),
+        Origin::Bud { lineage, .. } => lineage,
+    };
+    // Read before the state is borrowed mutably: `self.species` and
+    // `self.organisms` cannot both be borrowed, the same reason
+    // `push_organism` reads the fate table up front.
+    let founder_genome = matches!(origin, Origin::Founder).then(|| world.species.get(species_id).genome.clone());
     if let Some(state) = world.organism_mut(organism) {
         state.energy = def.start_energy;
         state.chain = positions;
         state.heading = 0; // east
-        state.genome = genome;
-        // The ancestral body traits, byte-copied. **The one seam that puts
-        // a creature in the world, so the one place a trait can be seeded**
-        // -- `push_organism` leaves the neutral vector because it does not
-        // know whether it is allocating a plant. When S6 lands, the child's
-        // vector is the *parent's* jittered by `trait_variance`, and this
-        // line is what it replaces.
-        state.traits = def.traits;
+        state.lineage = founder_lineage;
+        match &origin {
+            Origin::Founder => {
+                state.genome = founder_genome.unwrap_or_default();
+                // The ancestral body traits, byte-copied. **The one seam
+                // that puts a creature in the world out of nothing, so the
+                // one place an ancestral trait can be seeded** --
+                // `push_organism` leaves the neutral vector because it does
+                // not know whether it is allocating a plant.
+                state.traits = def.traits;
+                state.inherited = false;
+                state.generation = 0;
+            }
+            Origin::Bud { genome, traits, generation, .. } => {
+                // **The child's genome came from its parent**, already
+                // mutated by the caller. This is the whole of heredity: one
+                // assignment, and the reason S1-S5 were all inert until now.
+                state.genome = genome.clone();
+                state.traits = *traits;
+                state.inherited = true;
+                // **Read off the parent by the caller and passed in whole.**
+                // The failure this shape exists to avoid is a
+                // `let generation = state.generation;` written *inside* a
+                // block that has already rebound `state` to the child --
+                // every bred child then pins at generation 1 for ever and
+                // lineage depth silently flattens, which is a real incident
+                // in this repo's history and was caught only because one
+                // guard hashed enough state to notice.
+                state.generation = *generation;
+            }
+        }
         // Starts *at* the nest as far as scent goes: an ant that has just
         // hatched has, by construction, just been at home.
         state.since_nest = 0;
@@ -759,15 +873,161 @@ pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str
         state.forage_anchor = (x, y);
         state.forage_max = 0;
     }
-    world.creature_stats.spawned += 1;
-    // Metabolic budget plus the meat the body is made of. Both are grants
-    // *here*, at the one seam where a creature appears out of nothing, so
-    // the structural half is accounted rather than conjured at the far end
-    // when the animal dies. When reproduction lands (S6) the parent pays
-    // both, and this line is what it has to charge against.
-    world.energy_ledger.granted += def.start_energy as f64;
-    world.energy_ledger.stamped += (def.body_energy * body_cells as f32) as f64;
+    let stamp = (def.body_energy * body_cells as f32) as f64;
+    match origin {
+        Origin::Founder => {
+            world.creature_stats.spawned += 1;
+            // Metabolic budget plus the meat the body is made of. Both are
+            // grants *here*, at the one seam where a creature appears out
+            // of nothing, so the structural half is accounted rather than
+            // conjured at the far end when the animal dies.
+            world.energy_ledger.granted += def.start_energy as f64;
+            world.energy_ledger.stamped += stamp;
+        }
+        Origin::Bud { parent, .. } => {
+            world.creature_stats.births += 1;
+            // **A birth creates no energy, and this is the S3b stamp seam
+            // closing** (`Reports/creature-evolution-plan.md` §2.3, "One
+            // seam left open"; `EnergyLedger::meat_lost`'s own doc points
+            // here). Both halves come out of the parent's bank:
+            //
+            // * the child's `start_energy` is live-to-live, so it books to
+            //   nothing at all — `granted` would be a source, and nothing
+            //   was sourced;
+            // * the child's stamp is live-to-**meat**, which is exactly
+            //   what `stored_in_meat` is for. Booking it to `stamped`
+            //   instead would put the meat in the world twice, because
+            //   `max_standing_meat` counts both terms and only
+            //   `stored_in_meat` is subtracted from the live side.
+            //
+            // The parent is charged the whole of it one line down, so the
+            // live identity closes by construction rather than by luck.
+            world.energy_ledger.stored_in_meat += stamp;
+            let cost = birth_cost(def);
+            if let Some(state) = world.organism_mut(parent) {
+                state.energy -= cost;
+                state.seeds_set = state.seeds_set.saturating_add(1);
+            }
+        }
+    }
     Some(ActiveSite { x, y, kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(def.tick_interval) })
+}
+
+/// **What one birth costs the parent**: the child's metabolic grant plus
+/// the structural stamp of every cell of its body.
+///
+/// Both halves are real. The grant is the pool the child spends; the stamp
+/// is the meat its body is made of, which nothing can spend and which
+/// becomes food the day it dies. Charging only the grant would let a
+/// lineage manufacture matter — a parent at 1,000 energy could turn itself
+/// into an unbounded pile of corpses — and *"evolution is a fuzzer for
+/// your conservation laws"* (`creature-direction.md` §8) is not a figure
+/// of speech: an unpriced birth is the largest free term any of these
+/// animals could reach.
+pub fn birth_cost(def: &CreatureDef) -> f32 {
+    def.start_energy + def.body_energy * def.body.len() as f32
+}
+
+/// **The bank an individual actually has to reach to bud**, or `None` if
+/// this species does not reproduce.
+///
+/// `reproduce_threshold` as authored, floored at just above
+/// `birth_cost` — see that field's own doc. The floor is not a tuning
+/// decision, it is what makes the mechanism total: a threshold under the
+/// cost is a species whose every birth kills the parent, which reads in
+/// every counter as reproduction working.
+pub fn reproduce_at(def: &CreatureDef) -> Option<f32> {
+    (def.reproduce_threshold > 0.0).then(|| def.reproduce_threshold.max(birth_cost(def) + 1.0))
+}
+
+/// Bud a child off `organism` if it can afford one and there is room.
+///
+/// Returns the child's site, to be handed back to the scheduler by the
+/// tick that called this. **It must not be scheduled directly from here**,
+/// and the reason is dead end 1094 rather than style: a dispatch loop that
+/// takes the whole heap out and writes it back discards anything scheduled
+/// from inside a dispatched tick, and a decay-reseeded seed once got
+/// planted and never grew a single cell, for ever. `World::
+/// pop_due_active_site` was rebuilt to keep the live heap writable, so
+/// scheduling from here would in fact work today — returning the site
+/// keeps the birth path independent of that, and is the same shape
+/// `apply_creature_energy` already uses for the parent's own next tick.
+fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<ActiveSite> {
+    let threshold = reproduce_at(def)?;
+    let state = world.organism(organism)?;
+    if state.energy < threshold {
+        return None;
+    }
+    let (hx, hy) = *state.chain.first()?;
+    let species_id = state.species;
+    let parent_genome = state.genome.clone();
+    let parent_traits = state.traits;
+    // **Read off the parent here, while `state` is still the parent.** See
+    // the `Origin::Bud` arm in `place_creature` for the incident this
+    // naming exists to prevent.
+    let parent_generation = state.generation;
+    let parent_lineage = state.lineage;
+    let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
+
+    // Where the child goes: the first of the eight neighbours of the
+    // parent's head at which the whole body fits. `DIRS` order, which is
+    // the engine's canonical one — no sort, so no unstable-tie-order
+    // question arises, and two identical worlds place identical children.
+    //
+    // **This is a gate on whether something happens, and it is counted for
+    // exactly that reason.** With one authored body plan it is a property
+    // of the terrain; the day body size is heritable it becomes a silent
+    // selection pressure for smallness (§2.8's second pre-check), and
+    // `births_denied_no_space` is what will say how hard it was biting
+    // when that decision has to be made.
+    let mut site = None;
+    for (dx, dy) in DIRS {
+        // The child's own genome and traits are drawn *once*, outside this
+        // loop's effect: nothing here consumes from any stream, so which
+        // neighbour succeeds cannot change what the child inherits.
+        if let Some(s) = place_creature(
+            world,
+            hx + dx,
+            hy + dy,
+            species_id,
+            material_id,
+            def,
+            Origin::Bud {
+                parent: organism,
+                genome: parent_genome.clone(),
+                traits: parent_traits,
+                generation: parent_generation.saturating_add(1),
+                lineage: parent_lineage,
+            },
+        ) {
+            site = Some(s);
+            break;
+        }
+    }
+    let Some(site) = site else {
+        world.creature_stats.births_denied_no_space += 1;
+        return None;
+    };
+    // **Mutate after placement, on the child's own handle.** The stream is
+    // keyed on the handle the allocator just issued plus the frame, so it
+    // cannot be predicted from the parent and cannot repeat when a slot is
+    // reused — see `RNG_SLOT_BIRTH`.
+    let ActiveKind::Creature { organism: child } = site.kind else { return Some(site) };
+    let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
+    if let Some(state) = world.organism_mut(child) {
+        let mut genome = std::mem::take(&mut state.genome);
+        brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        state.genome = genome;
+        for (t, &width) in state.traits.iter_mut().zip(def.trait_variance.iter()) {
+            if width > 0.0 {
+                // `gut_bias` is a position on a `-1..=1` axis and every
+                // other slot in `CREATURE_TRAITS` is defined the same way,
+                // so the clamp is the axis rather than a tuning choice.
+                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-1.0, 1.0);
+            }
+        }
+    }
+    Some(site)
 }
 
 /// How wide a founded colony's nest patch is, in cells, and how far apart
@@ -1046,7 +1306,21 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let (hx, hy) = world.organism(organism).and_then(|s| s.chain.first().copied()).unwrap_or((x, y));
-    apply_creature_energy(world, hx, hy, organism, -spent, def)
+    let mut sites = apply_creature_energy(world, hx, hy, organism, -spent, def);
+
+    // --- bud, last, and only if the tick was survived -------------------
+    // **After the charge, not before.** An animal that spent its way to
+    // zero this tick is dead, and `apply_creature_energy` says so by
+    // returning no site at all; budding ahead of the charge would let a
+    // starving parent pay a birth cost it did not have and then die,
+    // which turns the whole mechanism into a way of converting a doomed
+    // animal into a fresh one for free.
+    if !sites.is_empty() {
+        if let Some(child) = try_bud(world, organism, def) {
+            sites.push(child);
+        }
+    }
+    sites
 }
 
 /// Read a creature's sensory inputs and its brain's response **without
@@ -2139,6 +2413,7 @@ fn creature_dies(world: &mut World, organism: u16) {
     // explosion, the brush) goes through the `World::set` seam and shows up
     // here, and none of those should leave meat behind either.
     let owned = world.organism(organism).map(|s| s.cells.clone()).unwrap_or_default();
+    let chain_before = world.organism(organism).map_or(0, |s| s.chain.len());
     let chain: Vec<(i32, i32)> = world
         .organism(organism)
         .map(|s| s.chain.iter().copied().filter(|p| owned.contains_key(p)).collect())
@@ -2164,6 +2439,15 @@ fn creature_dies(world: &mut World, organism: u16) {
         .organism(organism)
         .and_then(|s| world.species.get(s.species).creature.as_ref().map(|d| d.body_energy))
         .unwrap_or(0.0);
+    // **The other half of the living-flesh seam** — see `reconcile_chain`.
+    // A creature can arrive here holding a chain longer than the cells it
+    // still owns: the predation path empties the bitten cell and calls
+    // `reconcile_chain`, which routes a *lost head* straight to this
+    // function without going through its own shortening branch. Those
+    // cells' stamps never become corpse either, and they are booked in
+    // exactly the same account. Reads 0 for a starved animal, which is
+    // every death in a colony scene with nothing biting anything.
+    world.energy_ledger.meat_lost += body_energy as f64 * (chain_before - chain.len()) as f64;
     if let Some(corpse_id) = world.materials.id_of("corpse") {
         let cells = chain.len().max(1) as f32;
         let worth = (body_energy * cells + leftover) / cells;
@@ -4711,5 +4995,281 @@ mod tests {
                 assert!(choose_weighted(&scores, CHOICE_EXPLORATION_K, draw) < n, "n={n} draw={draw}");
             }
         }
+    }
+
+    // --- S6: reproduction, inheritance, mutation ------------------------
+    //
+    // **Populations and paired comparisons, never a single individual.**
+    // Dead end 552: every single-individual assert on this line broke the
+    // day genotypes started varying, and creature outcomes already spread
+    // 0.103-0.541 across random genomes. The tests below that do look at
+    // one animal look at a *deterministic function of it* -- the birth
+    // cost it was charged, the generation it was handed -- which is a
+    // different claim from "this individual did well".
+
+    /// A colony of `n` ants on a stone floor, each rich enough to bud, with
+    /// a `reproduce_threshold` low enough that the first tick pays for it.
+    ///
+    /// Returns the world and the founders' handles. Ants are spaced four
+    /// apart, the `COLONY_ANT_SPACING` a founded colony uses, because
+    /// shoulder-to-shoulder ants gridlock and a birth needs a free cell.
+    fn breeding_colony(n: i32, threshold: f32, mutation_rate: f32) -> (World, Vec<u16>) {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let ant = w.species.id_of("ant").expect("ant species");
+        // Through `set_creature`, the same seam `creature_space` overrides
+        // the budget with -- an in-process override rather than an edited
+        // `.ron`, because assets are `include_str!`ed and a test that
+        // edited one would be varying a knob connected to nothing.
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        def.reproduce_threshold = threshold;
+        def.mutation_rate = mutation_rate;
+        w.species.set_creature(ant, def);
+        let mut founders = Vec::new();
+        for i in 0..n {
+            w.plant_ant(10 + i * 4, 100);
+            let id = w.get(10 + i * 4, 100).organism_id();
+            if id != 0 {
+                founders.push(id);
+            }
+        }
+        // Fund every founder past the threshold. Done by hand rather than
+        // by feeding them, because what these tests are about is the birth
+        // path and a scene that has to be foraged first would make every
+        // one of them a test of the economy instead.
+        for id in founders.clone() {
+            fund(&mut w, id, threshold + 10.0);
+        }
+        (w, founders)
+    }
+
+    /// Set one creature's bank to `to`, **and book the difference**.
+    ///
+    /// The booking is not bookkeeping pedantry, it is what keeps the
+    /// ledger test above honest: hand-written energy is energy created out
+    /// of nothing, which is exactly what `EnergyLedger::granted` means. The
+    /// first version of this helper wrote the field directly and the
+    /// identity opened by 13,320 joules — a scene that contradicts the code
+    /// looking precisely like a bug in the code.
+    fn fund(w: &mut World, id: u16, to: f32) {
+        let Some(state) = w.organism_mut(id) else { return };
+        let delta = to - state.energy;
+        state.energy = to;
+        w.energy_ledger.granted += delta as f64;
+    }
+
+    /// **The verb fires, and it produces an animal.**
+    ///
+    /// The negative control is the same colony with `reproduce_threshold`
+    /// at 0, which is how the species files ship: a counter that only ever
+    /// reads non-zero cannot say whether the mechanism ran or whether
+    /// something else made ants.
+    #[test]
+    fn a_funded_colony_buds_and_an_unfunded_one_does_not() {
+        let (mut fed, founders) = breeding_colony(12, 2000.0, 0.0);
+        run(&mut fed, 60);
+        let births = fed.creature_stats.births;
+        assert!(births > 0, "{} funded ants over 60 frames produced no births at all", founders.len());
+        assert_eq!(fed.creature_stats.births_denied_no_space, 0, "an ant with four cells of clear floor either side had nowhere to put a child");
+
+        // Same scene, reproduction not authored. `plant_ant` still spawns,
+        // so `spawned` moves and `births` must not.
+        let (mut off, _) = breeding_colony(12, 0.0, 0.0);
+        run(&mut off, 60);
+        assert_eq!(off.creature_stats.births, 0, "a species with reproduce_threshold 0 bred anyway");
+        assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
+    }
+
+    /// **Heredity: the child's genome is the parent's, not the species'.**
+    ///
+    /// Put the fault back by pointing `Origin::Bud` at
+    /// `world.species.get(species_id).genome` — the line the founder arm
+    /// uses — and this goes red on the first assert, because the marker
+    /// below is in no species file.
+    #[test]
+    fn a_child_carries_its_parents_genome_not_the_species_one() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        // A marker no authored genome carries, written into a live slot so
+        // it survives `wiring_from_genome`'s reserved-slot assertion.
+        let slot = brain::live_slots().next().expect("a genome has live slots");
+        for &id in &founders {
+            if let Some(state) = w.organism_mut(id) {
+                state.genome[slot] = -7.5;
+            }
+        }
+        run(&mut w, 60);
+        assert!(w.creature_stats.births > 0, "nothing was born, so nothing was inherited and this test proves nothing");
+        let children: Vec<u16> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
+        assert!(!children.is_empty(), "births fired but no child is live");
+        for id in children {
+            let state = w.organism(id).expect("a live child");
+            assert_eq!(state.genome[slot], -7.5, "child {id} carries the species genome, not its parent's");
+            assert!(state.inherited, "child {id} is not flagged inherited");
+        }
+    }
+
+    /// **Lineage depth increases every generation** — the shadowing guard.
+    ///
+    /// `CLAUDE.md` records the exact fault: a `let generation =
+    /// state.generation;` written after `state` has been rebound to the
+    /// *child* pins every bred individual at generation 1 for ever, and
+    /// lineage depth silently flattens while every other counter looks
+    /// healthy. Two successive births are the minimum that can see it —
+    /// one birth reads 1 whether the code is right or wrong.
+    #[test]
+    fn generation_depth_keeps_climbing_across_successive_births() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        let mut deepest = 0u16;
+        // Re-fund everyone alive every 60 frames, so the colony keeps
+        // breeding rather than settling after one round. Funding the whole
+        // population rather than the founders is what lets *children*
+        // breed, which is the generation this test is really about.
+        for _ in 0..6 {
+            for id in live_creature_ids(&w) {
+                fund(&mut w, id, 2010.0);
+            }
+            run(&mut w, 60);
+            deepest = deepest.max(live_creature_ids(&w).iter().filter_map(|&id| w.organism(id)).map(|s| s.generation).max().unwrap_or(0));
+        }
+        assert!(w.creature_stats.births > 0, "nothing bred");
+        assert!(
+            deepest >= 2,
+            "deepest lineage reached generation {deepest} over {} births from {} founders -- a depth that stops at 1 is the shadowed-parent bug",
+            w.creature_stats.births,
+            founders.len()
+        );
+    }
+
+    /// **A clonal line is one lineage label, and two founders are two.**
+    ///
+    /// The label is what lineage share is computed over, so a bug that
+    /// re-labelled children would make every drift measurement read as
+    /// perfect diversity — the tidy answer, which is the tell.
+    #[test]
+    fn a_lineage_label_is_inherited_whole_and_founders_never_share_one() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        let founder_labels: Vec<u32> = founders.iter().filter_map(|&id| w.organism(id)).map(|s| s.lineage).collect();
+        let mut unique = founder_labels.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), founder_labels.len(), "two founders were handed the same lineage label");
+        assert!(!unique.contains(&0), "a founder was left at lineage 0, which means 'no lineage'");
+
+        run(&mut w, 60);
+        assert!(w.creature_stats.births > 0, "nothing bred");
+        for id in live_creature_ids(&w) {
+            let label = w.organism(id).expect("live").lineage;
+            assert!(founder_labels.contains(&label), "organism {id} carries lineage {label}, which no founder started");
+        }
+    }
+
+    /// **A birth creates no energy** — the S3b stamp seam, asserted as the
+    /// ledger identity rather than as a story about it.
+    ///
+    /// Put the fault back by booking a bud's grant to `granted` (a source)
+    /// the way the founder arm does, and the live identity opens by
+    /// `start_energy` per birth.
+    #[test]
+    fn the_energy_ledger_still_closes_when_a_colony_breeds() {
+        let (mut w, _) = breeding_colony(12, 2000.0, 0.01);
+        run(&mut w, 400);
+        assert!(w.creature_stats.births > 0, "nothing bred, so the birth path was never exercised");
+        let live = w.live_creature_energy();
+        let expected = w.energy_ledger.expected_live_total();
+        assert!(
+            (live - expected).abs() < 1.0,
+            "live energy {live:.3} against ledger {expected:.3} after {} births -- a birth has created or destroyed energy",
+            w.creature_stats.births
+        );
+        let standing = standing_meat(&w, Rect::new(0, 0, 199, 199)) + carried_meat(&w);
+        let bound = w.energy_ledger.max_standing_meat();
+        assert!(standing <= bound + 1.0, "standing meat {standing:.3} exceeds the bound {bound:.3}");
+    }
+
+    /// **The parent pays, and it pays exactly the birth cost.**
+    #[test]
+    fn a_parent_is_poorer_by_the_whole_birth_cost() {
+        let (mut w, founders) = breeding_colony(1, 2000.0, 0.0);
+        let parent = founders[0];
+        let def = w.species.get(w.organism(parent).expect("live").species).creature.clone().expect("ant is a creature");
+        let before = w.organism(parent).expect("live").energy;
+        run(&mut w, 60);
+        assert_eq!(w.creature_stats.births, 1, "expected exactly one birth from one funded ant in 60 frames");
+        let after = w.organism(parent).expect("the parent survived").energy;
+        let paid = before - after;
+        let cost = birth_cost(&def);
+        // The parent also pays its own metabolism over those frames, so
+        // this is a lower bound on what it spent and an assertion that the
+        // birth cost is *in* it.
+        assert!(paid >= cost, "parent paid {paid:.2} for a birth costing {cost:.2}");
+        assert!(paid < cost + def.start_energy, "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism");
+    }
+
+    /// **The threshold can never sit below the cost.**
+    ///
+    /// A species authored under its own birth cost would kill a parent
+    /// every time it bred, and every counter would read as reproduction
+    /// working perfectly.
+    #[test]
+    fn a_mis_authored_threshold_is_floored_above_the_birth_cost() {
+        let w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant).creature.clone().expect("ant is a creature");
+        assert_eq!(reproduce_at(&def).is_none(), def.reproduce_threshold <= 0.0);
+        def.reproduce_threshold = 1.0;
+        let at = reproduce_at(&def).expect("a species with a positive threshold reproduces");
+        assert!(at > birth_cost(&def), "threshold {at} sits at or under the birth cost {}", birth_cost(&def));
+        def.reproduce_threshold = 0.0;
+        assert!(reproduce_at(&def).is_none(), "a zero threshold must mean 'does not reproduce'");
+    }
+
+    /// **Who gets born is decided by energy, and nothing else.**
+    ///
+    /// The birth decision takes no random draw at all — a bank against a
+    /// threshold, then `DIRS` order for placement — so the *count* of
+    /// births and of denials must be bit-identical however hard the
+    /// genomes are being mutated. If someone later rolls for whether to
+    /// bud, or draws the placement, this is what says the population's
+    /// demography stopped being a function of its economy.
+    ///
+    /// **What this test deliberately does *not* assert, and why**, because
+    /// the obvious stronger version was written first and is unsound:
+    /// *"changing only the mutation rate must not move a single movement
+    /// decision"*. It fails, and it fails correctly — a mutated child
+    /// walks differently from a clonal one, which is the entire mechanism
+    /// working. The two effects cannot be separated in a population run:
+    /// by the time a shared-`Rng` perturbation of the parent would show,
+    /// the children have been moving for several ticks and are blocking
+    /// it. The shared-stream invariant is guarded one level down instead,
+    /// by `brain::tests::the_mutation_rate_changes_how_many_draws_it_takes`
+    /// plus the dedicated `RNG_SLOT_BIRTH` stream at the call site.
+    #[test]
+    fn the_mutation_rate_does_not_change_who_gets_born() {
+        let census = |rate: f32| {
+            let (mut w, _) = breeding_colony(12, 2000.0, rate);
+            run(&mut w, 400);
+            (w.creature_stats.births, w.creature_stats.births_denied_no_space)
+        };
+        let quiet = census(0.0);
+        let busy = census(0.5);
+        assert!(quiet.0 > 0, "no births in either arm, so the mutation path never ran");
+        assert_eq!(quiet, busy, "changing only the mutation rate moved the demography: {quiet:?} against {busy:?}");
+    }
+
+    /// Every live creature's handle, in slot order.
+    fn live_creature_ids(w: &World) -> Vec<u16> {
+        let mut out = Vec::new();
+        for x in 0..200 {
+            for y in 0..200 {
+                let cell = w.get(x, y);
+                let id = cell.organism_id();
+                if id != 0 && w.organism(id).is_some_and(|s| w.species.get(s.species).creature.is_some()) && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+        }
+        out
     }
 }

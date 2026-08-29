@@ -1681,8 +1681,9 @@ fn forage_loop_scene() {
     let print_state = |world: &World, label: &str| {
         let st = world.creature_stats;
         println!(
-            "{label}: {} live organisms | moves {} blocked {} falls {} | eats {} pickups {} digs {} drops {} deliveries {} nest-visits {} deaths {}",
+            "{label}: {} live organisms ({} creatures) | moves {} blocked {} falls {} | eats {} pickups {} digs {} drops {} deliveries {} nest-visits {} deaths {}",
             world.live_organism_count(),
+            world.live_creature_count(),
             st.moves,
             st.moves_blocked,
             st.falls,
@@ -1693,6 +1694,21 @@ fn forage_loop_scene() {
             st.deliveries,
             st.nest_visits,
             st.deaths
+        );
+        // **The reproduction counters, printed even while they are zero.**
+        // That is the point of shipping them ahead of the mechanism
+        // (`Reports/creature-review-2026-08.md` §T4): a colony that is not
+        // breeding and a colony whose birth path never executes look
+        // identical in every other counter on this line, and a zero here
+        // is the negative control the first non-zero reading is read
+        // against. `spawned` sits beside them because `births` is only
+        // meaningful against the founders it is *not* counting.
+        println!(
+            "  population: spawned {} births {} births-denied-no-space {} refused-no-slot {}",
+            st.spawned,
+            st.births,
+            st.births_denied_no_space,
+            world.organisms_refused()
         );
         // **Range, printed next to the verb counters, because none of them
         // can say it.** `nest-visits` above counts loitering, not trips --

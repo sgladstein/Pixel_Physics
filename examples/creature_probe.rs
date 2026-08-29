@@ -34,44 +34,101 @@ fn main() {
     let mut frames = 6000usize;
     let mut every = 1000usize;
     let mut ants = 6usize;
+    // **The hand-built floor is a stone slab with no water anywhere in it**,
+    // so every field channel reads exactly 0 for every ant in it — which is
+    // a statement about this scene and not about the game. `terrain=world`
+    // generates the shipped world instead, the same seam
+    // `ant_ablation` uses and for the same stated reason: a result that
+    // only holds on the hand-built profile is a result about the profile.
+    // It matters here specifically because the moisture pre-flight's whole
+    // question is what a sensor reads with air on one side and *ground* on
+    // the other, and the slab has no wet ground to be one side of.
+    let mut world_terrain = false;
+    let mut seed = 0xA17u64;
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
             "frames" => frames = v.parse().expect("frames"),
             "every" => every = v.parse().expect("every"),
             "ants" => ants = v.parse().expect("ants"),
-            other => panic!("unknown arg {other:?}; known: frames, every, ants"),
+            "terrain" => world_terrain = v == "world",
+            "seed" => seed = v.parse().expect("seed"),
+            other => panic!("unknown arg {other:?}; known: frames, every, ants, terrain, seed"),
         }
     }
 
-    let (w, h) = (320i32, 120i32);
+    let (w, h) = if world_terrain { (512i32, 320i32) } else { (320i32, 120i32) };
     let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    world.seed = seed;
     let floor = h - 8;
     let nest = world.materials.id_of("nest").expect("nest is compiled in");
     let corpse = world.materials.id_of("corpse").expect("corpse is compiled in");
     let ant = world.materials.id_of("ant").expect("ant is compiled in");
 
-    for x in 0..w {
-        for y in floor..h {
-            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+    // Echo the parameters, so a log that does not name its terrain was
+    // written by a binary that never had the knob (`CLAUDE.md`: a knob
+    // nobody can see the value of is a knob nobody can tell is
+    // disconnected).
+    println!(
+        "creature probe: {frames} frames, reporting {ants} ants every {every} | terrain={} seed={seed:#x}",
+        if world_terrain { "world" } else { "slab" }
+    );
+
+    if world_terrain {
+        let (presets, _) = pixel_physics::worldgen::WorldgenPresets::load();
+        let name = presets.default_name();
+        let params = presets.get(&name).expect("the default preset exists");
+        pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params, seed });
+        // Let the field settle before anything is sensed: a world read on
+        // frame 0 is a world whose moisture has never been stepped, which
+        // would answer the pre-flight's question about the initial
+        // condition rather than about the world an ant lives in.
+        for _ in 0..600 {
+            parallel::step(&mut world);
+            world.step_active_sites();
+            world.step_fields();
         }
-    }
-    for x in 16..48 {
-        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
-    }
-    for x in 16..120 {
-        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
-    }
-    for x in 135..170 {
-        for y in (floor - 5)..floor {
-            world.set(x, y, Cell::new(corpse, 0));
+        // Ground, not "anything solid": a seed is a `Powder` and a blade a
+        // `Solid`, so a naive scan puts ants into the vegetation.
+        let surface_of = |world: &World, x: i32| -> i32 {
+            (0..h)
+                .find(|&y| {
+                    world.get(x, y).organism_id() == 0
+                        && matches!(world.materials.kind(world.get(x, y).material), material::MaterialKind::Solid | material::MaterialKind::Powder)
+                })
+                .unwrap_or(h - 1)
+        };
+        for x in 96..160 {
+            let sy = surface_of(&world, x);
+            world.set(x, sy, Cell::new(nest, 0).with_attached(true));
         }
-    }
-    for i in 0..55 {
-        world.plant_ant(20 + i * 2, floor - 1);
+        for i in 0..55 {
+            let ax = 100 + i * 2;
+            let sy = surface_of(&world, ax);
+            world.plant_ant(ax, sy - 1);
+        }
+    } else {
+        for x in 0..w {
+            for y in floor..h {
+                world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 16..48 {
+            world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+        }
+        for x in 16..120 {
+            world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+        }
+        for x in 135..170 {
+            for y in (floor - 5)..floor {
+                world.set(x, y, Cell::new(corpse, 0));
+            }
+        }
+        for i in 0..55 {
+            world.plant_ant(20 + i * 2, floor - 1);
+        }
     }
 
-    println!("creature probe: {frames} frames, reporting {ants} ants every {every}");
     for frame in 0..frames {
         parallel::step(&mut world);
         world.step_active_sites();
@@ -79,9 +136,11 @@ fn main() {
         world.step_pheromones();
         if frame % every == 0 {
             report(&world, frame, ants, ant, w, h);
+            sensor_census(&world, frame, ant, w, h);
         }
     }
     report(&world, frames, ants, ant, w, h);
+    sensor_census(&world, frames, ant, w, h);
 
     let st = world.creature_stats;
     println!(
@@ -155,5 +214,76 @@ fn report(world: &World, frame: usize, ants: usize, ant_material: material::Mate
             .map(|(name, v)| format!("{name} {v:.0}"))
             .collect();
         println!("    food in reach: {}", if food.is_empty() { "none".to_string() } else { food.join("  ") });
+    }
+}
+
+/// **The population's standing sensor distribution, one row per input.**
+///
+/// The per-ant dump above answers *what is this animal sensing right now*;
+/// it cannot answer *does this channel carry a systematic constant across
+/// the whole colony*, which is the question S6's first pre-flight asks
+/// (`Reports/creature-evolution-plan.md` §2.6: on a surface the lateral
+/// moisture pair samples one point in air and one in ground, so it likely
+/// reads a large fixed offset — and **evolution finds and exploits any
+/// constant**, so a genome wiring it to `Turn` gets a persistent turn bias
+/// that looks like a strategy and is an instrument artifact).
+///
+/// A mean alone cannot tell a constant from a symmetric signal, so the sd
+/// and the range print beside it: a spurious constant is `|mean|` large
+/// with `sd` near zero, a live signal has `sd` comparable to `|mean|`, and
+/// a dead channel is both at zero. `|mean|/sd` is printed as `bias` for
+/// exactly that comparison, because reading it off two columns by eye is
+/// how the canopy-density sheet got misread.
+///
+/// **Both controls ship in the same table, which is why every row prints
+/// rather than the one under suspicion** (`CLAUDE.md`: ask what a number
+/// says when nothing is wrong, *and* check that it can move). `Bias` is
+/// wired to exactly 1.0 in `creature::sense`, so it must read
+/// `mean +1.0000 sd 0.0000` — if it does not, the aggregation is wrong and
+/// no other row means anything. The pheromone channels are the positive
+/// control from the other side: a foraging colony demonstrably moves them,
+/// so an sd of 0 there would say the sampler never caught a live ant
+/// rather than that the channel is flat.
+fn sensor_census(world: &World, frame: usize, ant_material: material::MaterialId, w: i32, h: i32) {
+    let mut n = 0u64;
+    let mut sum = [0.0f64; INPUT_NAMES.len()];
+    let mut sq = [0.0f64; INPUT_NAMES.len()];
+    let mut lo = [f32::INFINITY; INPUT_NAMES.len()];
+    let mut hi = [f32::NEG_INFINITY; INPUT_NAMES.len()];
+    for x in 0..w {
+        for y in 0..h {
+            let c = world.get(x, y);
+            if c.material != ant_material
+                || pixel_physics::sim::organism::cell_type(c.aux()) != Some(pixel_physics::sim::organism::CellType::Head)
+            {
+                continue;
+            }
+            let organism = c.organism_id();
+            let Some(state) = world.organism(organism) else { continue };
+            let Some(def) = world.species.get(state.species).creature.as_ref() else { continue };
+            let (inputs, _, _) = pixel_physics::sim::creature::probe(world, x, y, organism, def);
+            n += 1;
+            for (i, &v) in inputs.iter().enumerate() {
+                sum[i] += v as f64;
+                sq[i] += (v as f64) * (v as f64);
+                lo[i] = lo[i].min(v);
+                hi[i] = hi[i].max(v);
+            }
+        }
+    }
+    println!("\n--- sensor census, frame {frame}: {n} heads ---");
+    if n == 0 {
+        println!("  (no live heads; nothing to census)");
+        return;
+    }
+    for (i, name) in INPUT_NAMES.iter().enumerate() {
+        let mean = sum[i] / n as f64;
+        let sd = (sq[i] / n as f64 - mean * mean).max(0.0).sqrt();
+        // `bias` is |mean|/sd -- large means the channel is mostly a
+        // constant offset, which is the quantity the pre-flight is after.
+        // Infinite is the honest answer for a channel with no spread at
+        // all (Bias itself), so it is printed rather than clamped away.
+        let ratio = if sd > 0.0 { format!("{:>7.2}", mean.abs() / sd) } else { "    inf".to_string() };
+        println!("  {name:<14} mean {mean:+.4}  sd {sd:.4}  bias {ratio}  min {:+.3}  max {:+.3}", lo[i], hi[i]);
     }
 }
