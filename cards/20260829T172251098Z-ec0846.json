@@ -1,0 +1,79 @@
+{
+  "id": "20260829T172251098Z-ec0846",
+  "created": "2026-08-29T17:22:51Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/explosion-effects-menu-isljo5",
+    "commit": "d6fde7a",
+    "agent": null,
+    "session_id": "59c041f8-0d1c-593e-b4e4-5d71a4ffff4c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Crack weight, turned up -- how bold do you want it?",
+  "question": "You said the taper was better but too subtle and both effects needed to be much stronger. Which of these four is the right weight?",
+  "context_md": "Same charge, same seed, same rock. **The first is what you saw before** (every seam one cell, and the bold part ending on a circle).\n\nRaising the cap alone did almost nothing -- at a cap of 4 the widest rung only ever fired at a *point* on a crack. The fix was the ladder's shape: a bold crack now **holds** its width for about half its own run before stepping down, so the taper is something you can follow rather than something a counter can find. The last three are that, at three settings of one knob (`joint_seam_width`, in the menu under `cracks`).\n\nSame 785 joints woke in all four -- the pattern is identical, only its weight differs.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before -- uniform hairline",
+      "files": [
+        "20260829T172251098Z-ec0846/000-base.png"
+      ],
+      "caption": "what you judged: one cell everywhere, bold zone ends on a circle",
+      "meta": {
+        "joints woken": 785,
+        "seam width": "1 flat"
+      },
+      "focus": null
+    },
+    {
+      "label": "cap 2",
+      "files": [
+        "20260829T172251098Z-ec0846/001-c_w2.png"
+      ],
+      "caption": "concave ladder, cap 2",
+      "meta": {
+        "joints woken": 785,
+        "seams opened": 417,
+        "seam width": "1-2"
+      },
+      "focus": null
+    },
+    {
+      "label": "cap 3 -- proposed default",
+      "files": [
+        "20260829T172251098Z-ec0846/002-c_w3.png"
+      ],
+      "caption": "concave ladder, cap 3",
+      "meta": {
+        "joints woken": 785,
+        "seams opened": 425,
+        "seam width": "1-3"
+      },
+      "focus": null
+    },
+    {
+      "label": "cap 5",
+      "files": [
+        "20260829T172251098Z-ec0846/003-c_w5.png"
+      ],
+      "caption": "concave ladder, cap 5 -- near the top of the range",
+      "meta": {
+        "joints woken": 785,
+        "seams opened": 443,
+        "seam width": "1-5"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
