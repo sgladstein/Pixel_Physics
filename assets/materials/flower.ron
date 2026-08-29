@@ -1,0 +1,115 @@
+// Petals. A real material, and this file is the load-bearing half of the
+// organ package rather than a decoration on it.
+//
+// **Why a material and not a shade of `leaf`.** This engine's own test is
+// that a material is warranted when its *physics* genuinely differ on
+// numbers that already exist (`leaf.ron`'s own note), and a petal differs
+// from a leaf on four of them: it holds up nothing at all, it catches
+// nobody (a flower is not a canopy to fall into), it is the richest food a
+// plant offers a walking animal, and it is drier and lighter than foliage.
+//
+// **And the harder half, which is measured rather than argued.** A label
+// change has failed to read on this project five times -- `weeping` ("same
+// plant"), `prostrate` ("Not that different"), sympody, tropism, acrotony,
+// and founder variance ("These look almost identical"), every one of them
+// with counters printed proving the mechanism fired. The single lever that
+// ever read was grass, at 4/5, and grass changed **material**. So a
+// `Flower` cell drawn out of `leaf`'s four-green foliage palette would read
+// as a leaf, the counters would say it fired, and the card would come back
+// "no difference" for the sixth time. `Reports/plant-organs-handoff-2026-08-
+// 28.md` §4b states this as the finding that should shape the whole phase.
+(
+    name: "flower",
+    display: "Flower",
+    kind: Plant,
+    // Climbable like the twig it sits on -- a one-cell exception in the
+    // middle of a climbable crown would be a hole the gnome falls through.
+    climbable: true,
+    // **No `fall_drag`, unlike `leaf`.** A crown catches a fall because it
+    // is a deep mass of foliage; a flower is a handful of cells at the end
+    // of an axis and arrests nothing. Deliberately absent rather than small.
+    // Lighter than foliage (0.25). Petals are mostly air.
+    density: 0.15,
+    // **Eight hue bands of four tonal steps**, exactly `leaf.ron`'s scheme
+    // and for the same reason -- a species declares which bands it draws
+    // from (`flower_bands`) and an individual draws one band inside that
+    // range at germination, so a meadow is a spread of related colours
+    // rather than sixteen draws of one.
+    //
+    // The order runs warm to cool: yellow -> orange -> red -> pink ->
+    // magenta -> violet -> blue -> white, so a species' range is a
+    // contiguous slice of one axis and widening a range never jumps a hue.
+    //
+    // **Every band is far off the green axis, and that is the point.** The
+    // nearest thing to foliage here is band 0's deep yellow, and it sits at
+    // (196, 176, 52) against `leaf`'s brightest green (118, 158, 66) -- a
+    // different hue, and 40 points brighter. Nothing in this palette can be
+    // mistaken for a leaf at play zoom, which is the whole requirement.
+    colors: [
+        // 0: yellow -- sunflower, rape, buttercup
+        (232, 208, 74),
+        (248, 228, 110),
+        (196, 176, 52),
+        (255, 244, 158),
+        // 1: orange -- marigold, nasturtium
+        (232, 152, 52),
+        (248, 176, 82),
+        (198, 122, 36),
+        (255, 202, 124),
+        // 2: red -- poppy, geranium
+        (204, 58, 48),
+        (226, 84, 70),
+        (168, 40, 34),
+        (240, 118, 104),
+        // 3: pink -- apple, dog rose
+        (232, 146, 168),
+        (246, 176, 194),
+        (204, 116, 140),
+        (255, 206, 218),
+        // 4: magenta -- foxglove, campion
+        (186, 66, 138),
+        (208, 92, 162),
+        (156, 46, 112),
+        (226, 126, 186),
+        // 5: violet -- vetch, clover, thistle
+        (140, 92, 186),
+        (164, 118, 206),
+        (114, 70, 158),
+        (188, 148, 222),
+    // 6: blue -- flax, borage, cornflower
+        (76, 106, 196),
+        (104, 134, 218),
+        (56, 84, 168),
+        (136, 166, 236),
+        // 7: white -- elder, hawthorn, chamomile
+        (238, 236, 226),
+        (252, 250, 244),
+        (214, 210, 198),
+        (255, 255, 252),
+    ],
+    // Drier than foliage and it burns out faster still -- a petal is thin
+    // and there is very little of it.
+    flammability: 0.8,
+    burn_temperature: 540.0,
+    burn_duration: 24,
+    burns_into: "ash",
+    heat_conductivity: 0.2,
+    // **One, like `leaf`.** A flower holds up nothing but itself. And no
+    // `max_cantilever_reach`, so it is opted out of the organism cantilever
+    // rule entirely -- for the reason `leaf.ron` records at length: the
+    // number is now reach along the load path from the anchors, which for
+    // anything up an axis is tens of cells, and a small value there
+    // amputates rather than restrains. Attachment is still tested
+    // separately, so cutting the stem a flower sits on still brings it down.
+    max_unsupported_span: 1,
+    // Petals fall. Same floor as everything else a plant sheds.
+    breaks_into: "litter",
+    severs_into: "litter",
+    // **Nectar: the richest thing a plant offers a walking animal.** 3x a
+    // leaf, which is the whole reason a real animal crosses a meadow rather
+    // than eating the nearest hedge. `ant.ron`'s `food:` list is the other
+    // half of this and without it the value is inert -- the same trap
+    // `litter.ron` records having shipped once already.
+    food_energy: 1440.0,
+    food_class: -1.0,
+)

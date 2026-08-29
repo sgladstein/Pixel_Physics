@@ -340,11 +340,18 @@ free-list that `free_organism` needs. Do them together.
 
 ### 7d. Per-chunk RNG is a confound here too
 
-`Chunk::rng` is seeded from chunk coordinates, so identical creatures in
-different places draw different sequences. For population statistics that is
+~~`Chunk::rng` is seeded from chunk coordinates, so identical creatures in
+different places draw different sequences.~~ For population statistics that is
 noise correlated with position, which is the kind of thing that manufactures a
 spurious spatial pattern. Same recommendation as the plant work: a per-creature
 RNG stream seeded from the creature id.
+
+> **CORRECTED 2026-08-28**, on the same finding as
+> `plant-simulation-research.md` §7d, and `src/sim/rng.rs:105-117` names this
+> file explicitly. **Creatures never touch `Chunk::rng`** — it is reached only
+> by the CA sweep via `CellSurface::rng()`. The mechanism was order coupling,
+> not position, and the per-organism stream recommended here has shipped as
+> `rng::stream`.
 
 ---
 
