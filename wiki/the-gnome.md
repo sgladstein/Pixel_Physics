@@ -320,8 +320,10 @@ cells, dense where the blow landed and thinning out with distance, and a
 cell whose whole outline has parted falls out of the face as a piece. Work
 one spot and the joints deepen rather than new ones appearing beside them,
 because how a given rock splits at a given point is a property of the
-rock. Hit the rock twice in the same place and you get the same fissures,
-further open.
+rock. **One blow usually leaves an edge or two shut, and a block held by
+one edge stays put** — hit it again and the outline closes all the way
+round and the whole block comes away. That is what makes working a face
+progress rather than repeat.
 
 Most of what comes off a blow is *pieces* rather than grit — a few blocks,
 more cobbles, and grit besides. **And a piece is still something you can

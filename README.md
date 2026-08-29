@@ -45,15 +45,15 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2353 |
 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2782 |
-| [Weather status](#weather-status) | 2897 |
-| [The ant colony — status](#the-ant-colony--status) | 2914 |
-| [M19 status — started](#m19-status--started) | 2943 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 2999 |
-| [Performance](#performance) | 3148 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3322 |
-| [Status](#status) | 3405 |
-| [License](#license) | 3516 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2811 |
+| [Weather status](#weather-status) | 2926 |
+| [The ant colony — status](#the-ant-colony--status) | 2943 |
+| [M19 status — started](#m19-status--started) | 2972 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 3028 |
+| [Performance](#performance) | 3177 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 3351 |
+| [Status](#status) | 3434 |
+| [License](#license) | 3545 |
 
 ### Milestones, in numeric order
 
@@ -67,14 +67,14 @@ order they were written.
 | 7 | [M7 status](#m7-status) | 915 |
 | 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2373 |
 | 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2486 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2782 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 2811 |
 | 12 | [M12/M13 status](#m12m13-status) | 714 |
 | 14 | [M14 status](#m14-status) | 767 |
 | 15 | [M15 status](#m15-status) | 944 |
 | 16 | [M16 status](#m16-status) | 1493 |
 | 17 | [M17 status](#m17-status) | 1679 |
 | 18 | [M18 status](#m18-status) | 1906 |
-| 19 | [M19 status — started](#m19-status--started) | 2943 |
+| 19 | [M19 status — started](#m19-status--started) | 2972 |
 
 ### By topic
 
@@ -87,24 +87,24 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 3405 — the *last* section in the
+[Status](#status), line 3434 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 | Topic | Sections, primary first |
 |---|---|
-| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2999 |
-| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2914 |
-| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 2999, [M8 status](#m8-status--started-not-complete) 2373 |
+| **plants, trees and moss** | [M16 status](#m16-status) 1493, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1121, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1243, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1425, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1191, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1343, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3028 |
+| **creatures — worms and the ant colony** | [M18 status](#m18-status) 1906, [The ant colony](#the-ant-colony--status) 2943 |
+| **structural collapse, felling and rigid bodies** | [M17 status](#m17-status) 1679, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 3028, [M8 status](#m8-status--started-not-complete) 2373 |
 | **fire, heat and phase change** | [M14 status](#m14-status) 767, [Materials](#materials) 221 |
 | **explosions, particles and debris** | [M15 status](#m15-status) 944, [M7 status](#m7-status) 915 |
 | **liquids and gases** | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 741, [The coarse field grid](#the-coarse-field-grid) 452 |
 | **powders and granular flow** | [Materials](#materials) 221, [Architecture](#architecture) 295 |
 | **the coarse field grid — pressure, heat, light** | [The coarse field grid](#the-coarse-field-grid) 452, [M12/M13 status](#m12m13-status) 714 |
-| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2782, [Architecture](#architecture) 295 |
+| **worldgen and world structure** | [M10 status](#m10-status--the-worldgen-half) 2811, [Architecture](#architecture) 295 |
 | **the gnome (player character)** | [M9 status](#m9-status--the-gnome) 2486, [Controls](#controls) 156 |
-| **weather, sky and the clock** | [Weather status](#weather-status) 2897, [M19 status](#m19-status--started) 2943, [World speed](#world-speed--five-independent-time-axes) 3322 |
+| **weather, sky and the clock** | [Weather status](#weather-status) 2926, [M19 status](#m19-status--started) 2972, [World speed](#world-speed--five-independent-time-axes) 3351 |
 | **rendering, UI and tunables** | [UI improvements](#ui-improvements--overnight-run-section-9) 2240, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2285, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353, [M6 deferral](#m6-deferral) 1016 |
-| **performance and the parallel sweep** | [Performance](#performance) 3148, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
+| **performance and the parallel sweep** | [Performance](#performance) 3177, [M5 status](#m5-status) 1026, [Architecture](#architecture) 295, [Rendering performance](#rendering-performance--overnight-run-section-11) 2353 |
 | **materials and the data schema** | [Materials](#materials) 221, [M12/M13 status](#m12m13-status) 714 |
 
 <!-- END GENERATED TOC -->
@@ -2640,6 +2640,35 @@ cells out left the wound at **0.6 cells a frame** — slower than it then
 fell. The pieces were coming off and going nowhere. At 12.0 the fastest
 piece on `scene=smash` goes 1.07 -> **4.02 cells/frame**. `hammer_recoil`
 is its own number, so this does not change how far the swing shoves him.
+
+**And a fifth, from the reply to *that* sheet:** *"none of the cracks
+fully complete to break a chunk off... multiple hammer hits should result
+in those cracks completely surrounding the chunk and then the whole chunk
+falls out as one piece."* True, and structural rather than tuned:
+`joint_draw` is a pure function of the domain pair, so the boundaries a
+first blow declines are declined **identically for ever**, and a domain
+missing one edge of its outline is never enclosed and never comes away.
+`CRUSH_JOINT_DENSITY` deliberately leaves one boundary in ten shut so the
+near field does not read as a drawn tessellation — which is right for one
+blow and wrong for a second.
+
+`structural::JOINT_REPEAT_BONUS` (0.15) raises the activation ramp where
+the rock either side of a boundary is **already damaged**, taking the flat
+zone past 1.0 — so a second blow closes every outline the first left open,
+and further out it merely deepens. Keyed on damage that was there *before*
+the call, per `score_cracks`' recorded trap of counting its own writes.
+
+**Per *domain*, and the per-cell version was written first and is
+vacuous** — a domain with five of six boundaries open has cracked cells
+along those five and none in the middle of the sixth, which is exactly the
+edge that has to be persuaded. Caught by
+`a_second_blow_completes_what_the_first_one_left_open`, which read **36
+fresh edges -> 36** on a second blow at the same spot: the tell for a
+mechanism that never ran, and the reason this is asserted as a count
+rather than judged by eye. `scene=worked`'s overload failures went 6 ->
+**14** on the fix, and `scene=smash`'s pieces grew from a largest failing
+region of 8 cells to a distribution carrying eight regions in the 8-15
+band.
 
 Measured on `filmstrip scene=smash`, same seed, same script:
 

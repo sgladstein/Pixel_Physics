@@ -3990,6 +3990,54 @@ mod tests {
     }
 
     #[test]
+    fn a_second_blow_completes_what_the_first_one_left_open() {
+        // **The owner's ask after the joint fabric landed**, 2026-08-29:
+        // *"none of the cracks fully complete to break a chunk off...
+        // multiple hammer hits should result in those cracks completely
+        // surrounding the chunk and then the whole chunk falls out as one
+        // piece."*
+        //
+        // `fracture_field::joint_draw` is a pure function of the domain
+        // pair, so without `structural::JOINT_REPEAT_BONUS` the boundaries
+        // a first blow declines are declined identically for ever: hitting
+        // the same rock again writes **nothing**, and a domain missing one
+        // edge of its outline is never enclosed and never comes away. That
+        // is the mechanism this asserts, and it is asserted as a *count of
+        // fresh edges* rather than by eye, because a picture cannot show
+        // that a boundary is complete.
+        //
+        // Set `JOINT_REPEAT_BONUS` to 0.0 and this goes red.
+        let slab = |w: &mut World| {
+            for y in 4..124 {
+                for x in 4..124 {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+        };
+        let cracked_edges = |w: &World| -> usize {
+            (4..124)
+                .flat_map(|y| (4..124).map(move |x| (x, y)))
+                .map(|(x, y)| usize::from(w.get(x, y).crack_right()) + usize::from(w.get(x, y).crack_down()))
+                .sum()
+        };
+        let mut w = World::new(Rect::new(0, 0, 127, 127)).without_chain_limit();
+        slab(&mut w);
+        // Away from the rock the first blow removes, so the count is about
+        // joints opening and not about cells disappearing.
+        strike(&mut w, 64, 64, 7, 3.0);
+        let after_one = cracked_edges(&w);
+        strike(&mut w, 64, 64, 7, 3.0);
+        let after_two = cracked_edges(&w);
+
+        assert!(after_one > 20, "the first blow opened almost nothing: {after_one} edges");
+        assert!(
+            after_two > after_one,
+            "a second blow on rock the first one cracked must open the boundaries it declined ({after_one} -> {after_two}); \
+             without that a domain missing one edge is never enclosed and no chunk ever comes away"
+        );
+    }
+
+    #[test]
     fn a_blow_that_misses_a_chunk_leaves_it_flying() {
         // The other half, and the reason the one above is not enough: a
         // rule that bursts every body in the world would pass it. The

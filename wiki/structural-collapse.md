@@ -107,6 +107,12 @@ almost completely where the hammer landed and thin out to nothing further
 off, so the damaged patch is dense at the middle, ragged at its edge, and
 sheds pieces from the near ring.
 
+**Rock that has been hit already parts more readily**, and that is what
+makes working a spot get you somewhere. A single blow leaves the odd joint
+shut — a block with all but one of its edges open is still held, and stays
+where it is. Hit it again and the ones it left shut give, the outline
+closes all the way round, and the whole block comes out as one piece.
+
 ## What a collapse looks like
 
 When something does give way, a whole section breaks free at once rather

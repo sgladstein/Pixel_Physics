@@ -2000,7 +2000,17 @@ fn reveal_joints(world: &mut World, region: &[(i32, i32)], at: (i32, i32), objec
                 }
                 reach = reach.min(headroom as f32);
             }
-            Crush { fresh: reveal_in_disc(world, at, reach, 0.0, None), leashed }
+            // **No repeat bonus for a crush, and that is load-bearing.**
+            // `Crush { fresh: 0 }` is the treadmill guard -- a crush over
+            // rock it has already cracked must write nothing, or `tick`
+            // re-queues it for ever (measured once at 1,120 confined
+            // failures per 400 frames on dead-still material). A blow
+            // wants the opposite: `JOINT_REPEAT_BONUS` exists so hitting a
+            // spot twice closes the outline the first hit left open.
+            // Caught by `crushing_the_same_rock_twice_writes_nothing_the_
+            // second_time`, which went red at 2 fresh edges when the bonus
+            // was unconditional.
+            Crush { fresh: reveal_in_disc(world, at, reach, 0.0, 0.0, None), leashed }
         }
         // A **severed piece** has no claim on the rock outside it. Its
         // damage has to scale from zero, and with a fabric it does so
@@ -2102,7 +2112,7 @@ fn sever_joint(world: &mut World, x: i32, y: i32, down: bool) -> bool {
 /// boundary means a joint is either a full straight segment or absent,
 /// where a per-edge draw activates them in a dashed scatter -- which is the
 /// scribble complaint wearing a different hat.
-fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, mut fresh_cells: Option<&mut Vec<(i32, i32)>>) -> u32 {
+fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, repeat_bonus: f32, mut fresh_cells: Option<&mut Vec<(i32, i32)>>) -> u32 {
     if reach < 1.0 || flat_to >= reach {
         return 0;
     }
@@ -2117,6 +2127,19 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, m
     // work outright -- and this runs on a structural failure, tens to
     // hundreds of times in a run, never per cell per frame.
     let mut map: Vec<Option<((i32, i32), f32)>> = vec![None; w * h];
+    // **Which domains were already damaged when the blow arrived** —
+    // snapshotted in the first pass, because the edge loop below writes
+    // crack bits as it goes and would otherwise read its own. See
+    // `JOINT_REPEAT_BONUS`.
+    //
+    // Per *domain*, and the per-*cell* version was written first and does
+    // not work: a domain with five of its six boundaries open has cracked
+    // cells along those five, and none at all in the middle of the sixth,
+    // which is precisely the edge that has to be persuaded. Measured by
+    // `a_second_blow_completes_what_the_first_one_left_open`, which read
+    // **36 fresh edges -> 36** on a second blow at the same spot. The unit
+    // that has "been hit before" is the block of rock, not the pixel.
+    let mut damaged: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
     for y in y0..(y0 + h as i32) {
         for x in x0..(x0 + w as i32) {
             let (dx, dy) = (x - at.0, y - at.1);
@@ -2126,7 +2149,13 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, m
             if ((dx * dx + dy * dy) as f32) > (reach + 1.0) * (reach + 1.0) {
                 continue;
             }
-            map[idx(x, y)] = joint_domain(world, x, y);
+            let found = joint_domain(world, x, y);
+            if let Some((d, _)) = found {
+                if world.get(x, y).cracked() {
+                    damaged.insert(d);
+                }
+            }
+            map[idx(x, y)] = found;
         }
     }
     let mut fresh = 0;
@@ -2165,6 +2194,26 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, m
                 if other_pitch != pitch || other == home {
                     continue;
                 }
+                // **A boundary beside damage the last blow left parts
+                // more readily**, which is the whole of "work a spot and
+                // the crack goes all the way round". Without it a repeat
+                // blow is a no-op on the same rock: `joint_draw` is a pure
+                // function of the domain pair, so the boundaries a first
+                // blow declined are declined identically for ever, and a
+                // domain missing one edge of its outline is never
+                // enclosed and never falls out. Reported after the joint
+                // fabric landed: *"none of the cracks fully complete to
+                // break a chunk off... multiple hammer hits should result
+                // in those cracks completely surrounding the chunk and
+                // then the whole chunk falls out as one piece."*
+                //
+                // Keyed on damage that was there *before* this call
+                // (snapshotted in `map`), for the reason `score_cracks`'
+                // crack-tip bonus records having got wrong first: strokes
+                // from one event cross each other, so counting this
+                // event's own writes has every blow max out its own bonus
+                // immediately and leaves nothing for the next to build on.
+                let ramp = ramp + if damaged.contains(&home) || damaged.contains(&other) { repeat_bonus } else { 0.0 };
                 if super::fracture_field::joint_draw(world.seed, home, other) >= ramp {
                     continue;
                 }
@@ -2223,7 +2272,7 @@ fn reveal_in_disc(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32, m
 /// than re-cracking it.
 pub(crate) fn shatter_joints_around(world: &mut World, at: (i32, i32), reach: f32, flat_to: f32) -> u32 {
     let mut opened = Vec::new();
-    let fresh = reveal_in_disc(world, at, reach, flat_to, Some(&mut opened));
+    let fresh = reveal_in_disc(world, at, reach, flat_to, JOINT_REPEAT_BONUS, Some(&mut opened));
     // **Unbraced and checked only in the flat zone**, not across the whole
     // disc, and this is a measured bound rather than a tidy-up.
     //
@@ -2339,6 +2388,26 @@ fn reveal_inside_region(world: &mut World, region: &[(i32, i32)]) -> u32 {
 /// reported the noise. Not `1.0` for the reason that knob is not either --
 /// a handful of missing edges is what stops the near field reading as a
 /// drawn tessellation.
+/// How much readier a joint is to part when the rock either side of it is
+/// **already damaged**.
+///
+/// Sized to take the flat zone over the line rather than nudge it:
+/// `CRUSH_JOINT_DENSITY` is 0.9 and `joint_draw` is uniform on [0, 1), so
+/// at full density one boundary in ten holds — and a domain has six or so
+/// neighbours, so barely half of them are ever enclosed by a single blow.
+/// 0.15 puts the flat zone past 1.0, which means **a second blow on rock
+/// the first one cracked completes every outline it reaches**, and the
+/// piece comes away whole. Further out the ramp is lower, so the bonus
+/// merely deepens rather than completing — which is the graded version of
+/// the same promise and what makes working a spot progress.
+///
+/// Not a tunable, for `BORE_MARGIN`'s reason: it is not a feel knob but
+/// the difference between a mechanic that accumulates and one that
+/// repeats. `CRUSH_JOINT_DENSITY` deliberately leaves holes so the near
+/// field does not read as a drawn tessellation; this says that a *second*
+/// hit closes them.
+const JOINT_REPEAT_BONUS: f32 = 0.15;
+
 const CRUSH_JOINT_DENSITY: f32 = 0.9;
 
 /// Walk one star of wandering, forking fissures out of `start`, and return

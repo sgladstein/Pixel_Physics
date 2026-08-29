@@ -3441,9 +3441,23 @@ than it then fell. The pieces were coming off and going nowhere. At 12.0
 the fastest piece goes 1.07 -> 4.02 cells/frame; `hammer_recoil` is a
 separate number so the swing shoves him no harder.
 
-Measured on `scene=smash`: cells broken 98 -> 376, cells off as chunks
-44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, worst frame
-13.47 -> 14.44 ms. Blows that landed went 3 -> 5 for a reason
+**And a fifth, from the reply to that:** *"none of the cracks fully
+complete to break a chunk off... multiple hammer hits should result in
+those cracks completely surrounding the chunk and then the whole chunk
+falls out as one piece."* Structural, not tuned: `joint_draw` is a pure
+function of the domain pair, so the boundaries a first blow declines are
+declined identically for ever, and a domain missing one edge of its
+outline is never enclosed. `JOINT_REPEAT_BONUS` raises the activation ramp
+where the rock is already damaged, past 1.0 in the flat zone, so a second
+blow closes what the first left open. Keyed per **domain**: the per-cell
+version was written first and is vacuous, because a domain with five of
+six boundaries open has no cracked cell in the middle of the sixth --
+caught by a positive control reading 36 fresh edges -> 36, which is the
+tell for a mechanism that never ran. `scene=worked` overloads 6 -> 14.
+
+Measured on `scene=smash`: cells broken 98 -> 406, cells off as chunks
+44 -> 313, fastest piece 1.07 -> 4.12 cells/frame, pieces in flight at
+once 2 -> 4, worst frame 13.47 -> 14.27 ms. Blows that landed went 3 -> 5 for a reason
 worth keeping: a blow that throws its pieces clear keeps the face inside
 `hammer_reach`, where one that leaves rubble in place walls him off —
 `scene=smash`'s own recorded stall, and it turns out to have been a
