@@ -134,6 +134,28 @@ book to the same ledger term the live identity closes on (delta 1.08 on
 13,648). This is not a broken counter — it is a correct counter being asked
 a question its scene cannot answer.
 
+### The colony-scene fix, and why it changes nothing here
+
+The colony-scene repair landed as `d007c156` after the above was measured.
+It moves `found_colony`'s placement rule and deletes `filmstrip`'s duplicate
+of it, and colony sizes move on every seed as a result.
+
+**Nothing in this document was taken from `scene=colony`**, so nothing here
+needs re-taking on that account. But `main` also carried **247 new lines of
+`src/sim/creature.rs`** into the same merge, which is the ant code itself, so
+the `ascii` figures were re-measured rather than assumed safe.
+
+**Every counter came back byte-identical** — `eats 3`, `deaths 0`, `moves
+8812`, `pickups 3157`, `deliveries 1047`, `forage trips 23`, `deepest 28`,
+food stock 3,685,920, and the whole energy census.
+
+Identical output across a change that touched the file under test is
+`CLAUDE.md`'s stale-binary tell, so it was checked rather than believed:
+`filmstrip scene=colony` at **its own default seed** — the invocation that
+panicked before `d007c156` — runs to completion on the same binary. The
+build took, and the null is real. `ascii` builds its own colony and never
+calls `found_colony`.
+
 ---
 
 ## 2. The standing guards, re-baselined
@@ -278,7 +300,7 @@ from zero. There are 20 arms (control, authored, 6 locomotion sign-sweeps,
 
 | invocation | cost |
 |---|---|
-| **defaults** (`seeds=5 frames=6000`) | **~890 s, just under 15 minutes** |
+| **defaults** (`seeds=5 frames=6000`) | **868 s and 860 s, just under 15 minutes** |
 | `seeds=1 frames=6000` | ~165 s |
 | `seeds=6 frames=8000` (its own doc line) | ~22 min |
 
@@ -292,7 +314,11 @@ everybody reaches for first.
 
 It now prints its expected cost up front and streams per-arm and per-seed
 progress to **stderr**, leaving the stdout table byte-clean for diffing.
-Predicted 890 s from the two-point fit, **measured 868 s** — 2.5% out.
+Predicted 890 s from the two-point fit, **measured 868 s** — 2.5% out. Run
+again after the colony-fix merge, which added a `recurrence` term to
+`genome_from_wiring` and could have changed every arm: **860 s, and the whole
+20-arm table byte-identical**. Two independent timings 0.9% apart, and a
+genome change that provably did not reach the authored ant.
 
 ### The answer, at the defaults, on today's `main`
 
@@ -312,9 +338,16 @@ Predicted 890 s from the two-point fit, **measured 868 s** — 2.5% out.
 **The brain is doing something, and one connection of twelve is doing
 almost all of it.** Ablating `Bias->Move` reproduces the zero control *to
 every printed digit* — travelled 0.0, coverage 46, `first-pickup` never.
-That is also the positive control this table needs: the metrics can reach
-the floor, so the identical rows elsewhere are real nulls and not a dead
-instrument.
+
+**This row is the positive control the table has always needed, and it was
+sitting there unnamed.** `CLAUDE.md` asks for the case whose answer you
+*know* is non-zero, to prove the instrument responds — and the `zero` arm is
+the wrong half of that, since it only shows the metrics can be *low*. This
+arm shows a *single instinct* driving them from `authored`'s values to the
+floor, which is what makes the six unchanged rows readable as **real nulls
+rather than a dead instrument**. It is now named as such in the harness's own
+doc comment, with the instruction to read it first: if it ever stops matching
+`zero`, nothing below it means anything.
 
 **Six of the twelve ablations are invisible.** `-TempAboveAmb->Turn`,
 `-Bias->Dig`, `-FoodAdjacent->Dig`, `-AtNest->Drop` and both `Feed` arms

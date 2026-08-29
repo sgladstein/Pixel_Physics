@@ -120,12 +120,36 @@ echo cannot catch on its own. Both arms now panic; line one names the
 parameters. Found only by auditing all five harnesses rather than the three
 named.
 
+## Re-verified after the colony-scene fix (`d007c156`)
+
+**No figure here came from `scene=colony`**, so nothing needed re-taking on
+that account. But the same merge carried **247 new lines of
+`src/sim/creature.rs`** and a `recurrence` term added to
+`genome_from_wiring`, so everything was re-measured rather than assumed safe.
+
+Every `ascii` counter came back **byte-identical** (eats 3, deaths 0, moves
+8812, pickups 3157, deliveries 1047, trips 23, deepest 28, the whole energy
+census), and so did `ant_ablation`'s entire 20-arm table — at **860 s against
+the earlier 868 s**, two independent timings 0.9% apart.
+
+**The null was checked, not believed.** Identical output across a change that
+touched the file under test is the stale-binary tell, so: `filmstrip
+scene=colony` at **its own default seed** — the invocation that panicked
+before `d007c156` — runs to completion on the same binary. The build took;
+the null is real.
+
+`-Bias->Move` is now named in `ant_ablation`'s doc comment as **the table's
+positive control**, with the instruction to read it first. The `zero` arm
+only shows the metrics can be low; this arm shows a single instinct driving
+them from `authored`'s values to the floor, which is what makes the six
+unchanged rows readable as real nulls rather than a dead instrument.
+
 ## Gates
 
 `cargo clippy --all-targets -- -D warnings` clean on 1.94.1 **and on CI's
-1.98.0**; `cargo test --lib` 986 passed / 0 failed / 54 ignored;
-`bash scripts/docscheck.sh` clean; `examples/ascii` exits 0 on both trees
-with the new bars in place.
+1.98.0**; `cargo test --lib` 1005 passed / 0 failed / 54 ignored;
+`bash scripts/docscheck.sh` clean; `examples/ascii` exits 0 on all three
+trees with the new bars in place.
 
 ## Known gap, left visible
 

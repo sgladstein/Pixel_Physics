@@ -7,6 +7,20 @@
 //!   without it there is no way to say whether any number here is good.
 //!   Every metric below is sanity-checked against it before any ablation is
 //!   trusted (`CLAUDE.md`: ask what a metric counts when nothing is wrong).
+//!
+//!   **`-Bias->Move` is this table's positive control, and it was sitting
+//!   here unnamed.** `CLAUDE.md` asks for the case whose answer you *know*
+//!   is non-zero, to prove the instrument can move — and the `zero` arm is
+//!   the wrong half of that: it proves the metrics can be *low*, not that
+//!   they respond. Measured 2026-08-29, ablating `Bias->Move` alone
+//!   reproduces the `zero` control **to every printed digit** — travelled
+//!   0.0, commute 0.000, coverage 46, roamed 0.00, `first-pickup` never. One
+//!   connection of twelve carries the entire separation from a brain with no
+//!   connections at all. That is what makes the *other* rows readable: six
+//!   ablations return `authored`'s row unchanged, and because this arm shows
+//!   the columns can be driven to the floor by a single instinct, those six
+//!   are **real nulls rather than a dead instrument**. Read this row first;
+//!   if it ever stops matching `zero`, nothing below it means anything.
 //! * `authored` — the shipped `ant.ron` genome.
 //! * `-<Input>→<Output>` — authored with exactly one instinct zeroed.
 //!

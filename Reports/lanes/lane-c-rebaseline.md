@@ -10,33 +10,24 @@ first (`cargo build --release --examples`, exit 0 read through
 
 ### 1. The parameter-echo assignment was already done, six days ago
 
-All three named defects are **fixed on today's `main`** and were fixed by
-`b6d25c4` (2026-08-23, *"The harnesses name their own parameters, and
-forage_probe sweeps seeds"*) — the same commit whose message quotes the
-`"4 beetles" against BEETLES = 9` line as the thing it was fixing.
+**All three named defects are fixed on `main`**, by `b6d25c4` (2026-08-23,
+*"The harnesses name their own parameters"*) — the same commit whose message
+quotes the `"4 beetles" against BEETLES = 9` line as the thing it fixed. All
+three already `panic!` on an unknown argument too, so *"make an unrecognised
+argument an error"* is also done. Details in the report.
 
-| named defect | state on `main` today |
-|---|---|
-| `creature_space` prints "4 beetles", echoes no preset/`START_ENERGY`/`move_cost`/seed | fixed — line 162 echoes preset, ants, beetles, trees, moss, `start_energy`, `move_cost`, `food_energy`, `base_seed` |
-| `ant_ablation` does not echo `terrain=`/`food=` | fixed — line 155 echoes `terrain=`, `food=`, `seeds=`, `frames=` |
-| `forage_probe` does not echo its seed | fixed — line 270 echoes `frames`, `seeds`, `base_seed`, `FORAGE_TRIP_MIN`, `climbs_over_kin`, `ant_spacing` |
+**The one still broken was not on the list: `gnome_depth`.** It echoed
+neither `zoom=` nor `depth=`, and only *warned* on an unknown key. Sharper —
+its `depth=` arm fell through to `TreeDepth::Weave` for any unrecognised
+**value**, so `depth=fron` rendered a `Weave` sheet indistinguishable from
+the `front` one asked for. That is the megastudy failure with the typo moved
+from the key to the value, **and it is the one form an echo cannot catch on
+its own**: the echo would have said `depth=Weave`, truthfully, to someone who
+typed `front`. Both arms now panic; line one names the parameters.
 
-All three also already `panic!` on an unknown argument, so *"consider making
-an unrecognised argument an error rather than silence"* is done too.
-
-**The one that is actually still broken is `gnome_depth`, which the list did
-not name.** It takes `zoom=` and `depth=` and echoes neither — its first
-output line is about formation widths — and its unknown-arg arm was
-`eprintln!("ignoring unknown argument")`, a warning a redirect loses. Worse,
-its `depth=` arm fell through to `TreeDepth::Weave` for *any* unrecognised
-value, so `depth=fron` silently rendered a `Weave` sheet that looks exactly
-like the `front` one nobody asked for — the megastudy failure with the typo
-moved from the key to the value. Both fixed on this branch.
-
-**Carry the method point, not the three rows:** the defect list was a claim
-about the past, and checking it cost one grep per harness. I audited all
-five harnesses in `instruments.md` §Creatures rather than the three named,
-which is the only reason `gnome_depth` was found.
+**The method point, not the three rows:** the defect list was a claim about
+the past. I audited all five harnesses in `instruments.md` §Creatures rather
+than the three named, which is the only reason `gnome_depth` was found.
 
 ### 2. §5 — the `eats 6 / deaths 0` reading is **overturned**
 
@@ -163,9 +154,38 @@ both `Drop` ablations are **vacuous by construction** on the invocation
 everybody reaches for first. `terrain=world food=trees` is the configuration
 the 28.8-deliveries figure comes from.
 
-Also recorded, not acted on: three of the six locomotion sign-sweeps beat the
+Recorded, not acted on: three of the six locomotion sign-sweeps beat the
 authored genome on participation, `Caution=hi` by **10x on pickups** (40.8
 against 4.0).
+
+### 5b. After your colony fix landed (`d007c156`)
+
+Merged it. **I took no `scene=colony` measurement at all**, per your original
+instruction, so nothing here needed re-taking on that account — but the same
+merge carried **247 new lines of `src/sim/creature.rs`**, so I re-measured
+rather than accepting "ascii is unaffected" on trust.
+
+**Confirmed: every `ascii` counter byte-identical** — eats 3, deaths 0, moves
+8812, pickups 3157, deliveries 1047, trips 23, deepest 28, food stock
+3,685,920, whole energy census. And the **ablation's full 20-arm table is
+byte-identical too**, at 860 s against the earlier 868 s — even though the
+merge added a `recurrence` term to `genome_from_wiring` that could have
+changed every arm. It does not reach the authored ant.
+
+**I checked the null rather than believing it.** Identical output across a
+change that touched the file under test is `CLAUDE.md`'s stale-binary tell,
+so: `filmstrip scene=colony` at **its own default seed** — the invocation
+that panicked before your fix — runs to completion on the same binary. Your
+fix is in it; the build took; the null is real. Your reading was right, and
+now it is measured.
+
+**Both of your asks are landed.** The bars are re-set from today's
+measurement (trips 23, bar 14 → **6** = 23/4.1 where 4.1x is the largest
+legitimate drift on record), the stale 98/18 comment is replaced with what
+the numbers were, when, and which merge moved them, and the trade is stated
+in the code: a genuine 2x foraging regression would now pass. `-Bias->Move`
+is named as the table's positive control in `ant_ablation`'s doc comment,
+with the instruction to read it first.
 
 ### 6. What I did not do
 
@@ -182,9 +202,9 @@ against 4.0).
 
 ### How to find this work
 
-**Branch: `claude/creature-rebaseline-lane-c`.** PR body is on the branch at
-`PR-BODY-lane-c.md`; the report is `Reports/creature-rebaseline-2026-08-29.md`
-with its line in `Reports/README.md`.
+**Branch: `claude/creature-rebaseline-lane-c`.** PR body at
+`PR-BODY-lane-c.md`; report at `Reports/creature-rebaseline-2026-08-29.md`,
+indexed in `Reports/README.md`.
 
 **Head SHA: `979c3e84bda4bbc08c50a5b46584889d1366ed31`** — the work commit.
 The branch tip is one commit later (this note recording the SHA; a note
@@ -195,9 +215,8 @@ Merged `origin/main` at `f96c08d` in. Gates on that tree: clippy clean on
 1.94.1 **and on CI's 1.98.0**, `cargo test --lib` 986 passed / 0 failed / 54
 ignored, `docscheck` clean, `examples/ascii` exit 0 with the new bars.
 
-Files touched, and none of them a shared append-only record: `examples/ascii.rs`,
-`examples/ant_ablation.rs`, `examples/gnome_depth.rs`,
-`Reports/creature-rebaseline-2026-08-29.md` (new), `Reports/README.md`,
-`Reports/creature-evolution-plan.md` §4, `Reports/instruments.md`, this note.
-**I did not touch `Reports/open-bugs-handoff.md` or `Reports/dead-ends.md`** —
-nothing here is a new bug or a tried-and-rejected mechanism, and §R is yours.
+Files touched, none of them a shared append-only record: `examples/ascii.rs`,
+`ant_ablation.rs`, `gnome_depth.rs`, the new report, `Reports/README.md`,
+`creature-evolution-plan.md` §4, `instruments.md`, this note. **I did not
+touch `open-bugs-handoff.md` or `dead-ends.md`** — nothing here is a new bug
+or a rejected mechanism, and §R is yours.
