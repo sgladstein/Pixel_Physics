@@ -172,9 +172,18 @@ It is also what makes local extinction real and therefore recolonization meaning
 **Determinism holds.** Catch-up stays a pure function of (state at unload, elapsed
 time, seed), which `PLAN.md` requires. Freezing is trivially pure; the coarse
 advance must draw from a stream seeded from `(seed, coord, unload_frame)` rather
-than the per-chunk RNG, for the reason §7d gives — `Chunk::rng` seeded from chunk
-coordinates makes position-correlated noise, which manufactures spurious spatial
-pattern in exactly the statistic §9d is meant to read.
+than the per-chunk RNG — `Chunk::rng` is *stateful and shared with the CA sweep*,
+so a catch-up draw taken from it depends on how much sweeping happened first,
+which is not a pure function of the three inputs above.
+
+> **CORRECTED 2026-08-28.** This sentence used to justify itself "for the reason
+> §7d gives — `Chunk::rng` seeded from chunk coordinates makes
+> position-correlated noise". That reason is wrong (see
+> `population-dynamics-research.md` §7d's own correction and
+> `src/sim/rng.rs:105-117`): the defect is **order coupling**, not position.
+> The recommendation here is unaffected — a `(seed, coord, unload_frame)`
+> stream is still the right call, and `rng::stream` is the mechanism for it —
+> but it holds for purity, not for spatial correlation.
 
 **What this deliberately gives up:** an unloaded chunk's predator does not starve.
 A chunk holding a doomed population preserves it. Both are wrong as ecology and
