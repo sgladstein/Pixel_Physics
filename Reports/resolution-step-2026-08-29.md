@@ -138,11 +138,17 @@ picture says so plainly:
 cargo run --release --example viewshot -- shots=1 aim=4096 view=256x640 stride=4 zoom=2
 ```
 
-Below the top ~5% the world is the same banded stone with scattered ore for
-2,400 rows. `sky_rows` is 80-110 across the presets and `relief_amplitude`
-24-70, so the surface sits around row 95-180 out of 2560: **93% of the
-world's height is underground, and its character does not change with
-depth.**
+The world is the same banded stone with scattered ore for over two thousand
+rows straight down. `sky_rows` is **160-220** across the presets and
+`relief_amplitude` 18-70, so the surface sits around row 160-290 of 2560,
+with 48-135 rows of soil under it: **at least 83% of the world's height is
+stone, and its character does not change with depth.**
+
+*(Those figures are post-#94, which roughly doubled the sky and deepened the
+soil blanket ~4x while this branch was in flight. The rendered strip above
+was made before it landed, so it shows the thinner sky and soil of that
+morning; the thing it is evidence for -- that the deep rock is uniform --
+is unaffected, and #94 only moved the boundary further down.)*
 
 ## What is left, and in what order
 
@@ -182,10 +188,14 @@ Suggested order, and the reason for it:
    window stays the size it is. **Last, not first**: on its own this
    produces the right-hand pane the owner rejected.
 
-**Do not start at (1) without re-listing the branches.** As of 2026-08-29
-`claude/worldgen-sky-soil-mw9jhb` is live in exactly those files and had
-cards answered that night — the owner told it to *"increase the soil another
-2-3x"*. `CLAUDE.md`'s file-ownership rule applies with its full force here.
+**Re-list the branches before starting at (1).** The lane that held those
+files while this branch was in flight — `claude/worldgen-sky-soil-mw9jhb` —
+**landed as #94** on 2026-08-29, doubling `sky_rows` and deepening
+`soil_depth` ~4x on the owner's review verdict. So the file is free as of
+that merge, and its numbers are *newly tuned by eye*: a 2x rescale on top of
+them has to be judged against what the owner just approved, not against what
+this report first measured. `CLAUDE.md`'s file-ownership rule still applies
+— that lane's landing is exactly why it does.
 
 ## Instruments
 
