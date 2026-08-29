@@ -334,6 +334,35 @@ hottest cell is at a trunk's base or out on a twig is the entire claim of the
 model. **Not `channel=stress`**, which is `load::evaluate`'s rock stress and
 a different quantity.
 
+**The bend census is four lines and none of them substitutes for another.**
+`cells leaning this tick` counts what *wants* to move (`|deflection| >= 1`);
+`cells moved / refused` counts what did; `cross-sections blocked` and `would
+have torn` split the refusals by *reason*, and that split is the one that can
+be acted on. A grass stand once read **0 moved against 302 refused** — a
+mechanism inert in a real world with every guard over it green — and the two
+causes want opposite fixes. Blocked is a crowded stand doing its job; torn is
+the one-piece rule turning a swing down because no cross-section could move
+without stranding a cell. **Read them against `wind on that tissue`**, which
+names the gust and the exposure range the moments were measured under: half
+the moment now comes from the weather, so a lean count with no wind figure
+beside it is that frame's phase plus the mechanism, inseparable.
+
+**And the moment line is split per material**, because `stiffness` is a
+per-material constant and one pooled distribution cannot fit two of them.
+Trunks dominate a stand's pooled quantiles and foliage sits two orders of
+magnitude below — leaf p90 260-348 under a stand p90 of 455-636 — so a
+stiffness read off the pooled line is fitted to the wrong tissue. Each row
+prints its own material's stiffness and how many of its cells want to lean,
+which is the "did this constant connect to anything" reading.
+
+**`BEND=off` holds every plant rigid** and is the control for all of the
+above. It exists because both errors in this mechanism were found by holding
+the semantics fixed and changing nothing else. Comparing two *binaries*
+cannot do it: the counters that catch the error are added alongside the
+mechanism, so the arm being measured against does not have them. Note the two
+arms diverge — the sim differs — so a difference read thousands of frames
+apart is two different worlds, not a measurement of the mechanism.
+
 **`HINGE_PROBE=1` prints the felling hinge's own arithmetic** — the region's
 size and mass, the stump it pivots about, `broke_at` beside it, the centre of
 mass **as a vector from the pivot**, the second moment and `alpha`. Read the

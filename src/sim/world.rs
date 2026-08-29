@@ -1588,6 +1588,28 @@ pub struct FailureCounts {
     /// extent is unambiguous. It says nothing about how the pile *reads* —
     /// that is the owner's to judge — but it can say whether the pieces are
     /// lying down.
+    /// Plant cells that **actually moved** because they were bending, and
+    /// the cells that wanted to and could not.
+    ///
+    /// Two counters and not one, because `CLAUDE.md`'s recurring trap is
+    /// exactly this shape: a counter of cells whose deflection reached a
+    /// whole cell counts *intent*, and a blade that wants to lean but is
+    /// blocked at every cell looks identical to one that is leaning. The
+    /// mover reports what it did; `refused` is the far side of the same
+    /// call. See `plant::bend_under_load`.
+    pub bends_applied: u32,
+    pub bends_refused: u32,
+    /// **Why a lean was refused, because "refused" alone cannot be acted on.**
+    ///
+    /// A grass stand once reported 0 leans against 302 refusals -- the
+    /// mechanism inert in a real world while every guard over it was green --
+    /// and the two causes want opposite fixes. `bends_blocked` is a limb with
+    /// something in the way, which is a crowded stand doing its job.
+    /// `bends_would_tear` is the one-piece rule turning a swing down because
+    /// no cross-section of the limb could move without stranding a cell,
+    /// which is the mechanism refusing itself.
+    pub bends_blocked: u32,
+    pub bends_would_tear: u32,
     pub settled_lying: u32,
     pub settled_upright: u32,
     pub settled_square: u32,
@@ -1733,6 +1755,21 @@ impl FailureCounts {
         if !fits {
             self.topples_refused = self.topples_refused.saturating_add(1);
         }
+    }
+
+    /// One cell offered a lean, and whether it took it. See `bends_applied`.
+    pub fn record_bend(&mut self, moved: bool) {
+        if moved {
+            self.bends_applied = self.bends_applied.saturating_add(1);
+        } else {
+            self.bends_refused = self.bends_refused.saturating_add(1);
+        }
+    }
+
+    /// Why the last hinge could not swing. See `bends_blocked`.
+    pub fn record_bend_refusal(&mut self, blocked: u32, would_tear: u32) {
+        self.bends_blocked = self.bends_blocked.saturating_add(blocked);
+        self.bends_would_tear = self.bends_would_tear.saturating_add(would_tear);
     }
 
     /// One piece coming to rest, `width` by `height`. See `settled_lying`.

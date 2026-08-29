@@ -4382,6 +4382,87 @@ fn bend_census(world: &World) {
         return;
     }
     all.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // The moment distribution beside the stress, because the stiffness
+    // constant is set against *moments* -- a cell leans when `|moment|`
+    // reaches its stiffness -- and a stress quantile cannot be read for it.
+    let mut moments: Vec<f32> = Vec::new();
+    let mut want_to_lean = 0usize;
+    for id in world.live_organism_ids() {
+        for s in pixel_physics::sim::plant::stress_field(world, id).values() {
+            moments.push(s.moment.abs());
+            if s.deflection.abs() >= 1.0 {
+                want_to_lean += 1;
+            }
+        }
+    }
+    // **Split by material, because `stiffness` is a per-material constant and
+    // one pooled distribution cannot fit two of them.** A stand's moments are
+    // dominated by its trunks; foliage sits at the far end of every lever and
+    // carries almost nothing, so its own numbers are two orders of magnitude
+    // down and invisible in the pooled quantiles that a stiffness was being
+    // read off.
+    let mut by_material: std::collections::BTreeMap<String, Vec<f32>> = Default::default();
+    for id in world.live_organism_ids() {
+        for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
+            let name = world.materials.get(world.get(at.0, at.1).material).name.clone();
+            by_material.entry(name).or_default().push(s.moment.abs());
+        }
+    }
+    for (name, mut v) in by_material {
+        v.sort_by(f32::total_cmp);
+        let q = |f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+        let stiffness = world.materials.id_of(&name).map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
+        let want = v.iter().filter(|&&m| m >= stiffness).count();
+        println!(
+            "        {name:<12} {:5} cells: p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
+            v.len(),
+            q(0.50),
+            q(0.90),
+            q(0.99),
+            q(1.0)
+        );
+    }
+    moments.sort_by(f32::total_cmp);
+    let q = |f: f32| moments.get(((moments.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+    println!(
+        "      bending moment: p50 {:.1}, p75 {:.1}, p90 {:.1}, p99 {:.1}, max {:.1}; cells leaning this tick {want_to_lean}",
+        q(0.50),
+        q(0.75),
+        q(0.90),
+        q(0.99),
+        q(1.0),
+    );
+    // **What it wanted against what it did**, which is the pair rather than
+    // the number: a blade blocked at every cell wants to lean exactly as hard
+    // as one that is leaning, and only the far side of the call tells them
+    // apart.
+    let f = world.structural_failures;
+    println!(
+        "      ...of which actually leaned: {} cells moved, {} refused (cumulative; {} cross-sections blocked, {} would have torn)",
+        f.bends_applied, f.bends_refused, f.bends_blocked, f.bends_would_tear
+    );
+    // **What wind was blowing while that was measured**, because half the
+    // moment now comes from it and a bend sheet read in a calm hour is a
+    // different experiment from one read in a gale. This is the
+    // divide-the-oscillator-out rule applied to the instrument: weather is a
+    // designed cycle, so a lean count with no wind figure beside it is that
+    // frame's phase plus the mechanism, and the two are not separable.
+    let gust = pixel_physics::sim::weather::at(world.seed, world.frame).wind;
+    let mut exposures: Vec<f32> = Vec::new();
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        let Some(&(x, y)) = state.cells.keys().max_by_key(|&&(x, y)| (y, x)) else { continue };
+        exposures.push(pixel_physics::sim::weather::exposure(world, x, y, gust));
+    }
+    exposures.sort_by(f32::total_cmp);
+    match (exposures.first(), exposures.last()) {
+        (Some(&lo), Some(&hi)) => println!(
+            "      wind on that tissue: gust {gust:+.3} (stirs above {:.3}), exposure {lo:.3}..{hi:.3} over {} plants",
+            0.225,
+            exposures.len()
+        ),
+        _ => println!("      wind on that tissue: gust {gust:+.3}, no plants to blow on"),
+    }
     let median = all[all.len() / 2].0;
     let (peak, where_peak) = all[all.len() - 1];
     let zero = all.iter().filter(|(v, _)| *v == 0.0).count();

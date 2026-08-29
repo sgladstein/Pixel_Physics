@@ -564,6 +564,42 @@ of trunk are still anchored, so they are still the plant. What they do not
 yet do is regrow — a topped tree sits there indefinitely rather than
 resprouting, which is a separate piece of work.
 
+## Bending in the wind
+
+**New on 2026-08-29.** Wind pushes on a plant, and the parts of a plant that
+are too weak to hold what is hanging on them give way and swing over.
+
+The wind is not the same everywhere. A plant on an open ridge catches the
+whole of it; one tucked behind a rise barely feels it, and one growing in the
+middle of a wood is sheltered by the wood. It also does not blow underground —
+roots take nothing.
+
+**What gives way is the soft stuff.** Wood does not bend. Grass and foliage
+do, and they bend where the load actually is: a leafy cluster hanging off the
+far end of a long branch swings, while the quiet middle of a canopy sits
+still. What swings is a whole section of the limb at once, and it swings
+about the point that is holding it, so the far end of it moves most and the
+part nearest the branch barely moves — the limb curls rather than sliding
+sideways. Keep watching and the curl travels back along the limb as the tip
+runs out of room to move into.
+
+**It stops.** A limb that has leaned over is no longer reaching out as far,
+so there is less of it hanging out in the wind, so it stops leaning. A plant
+does not creep across the world in a gale.
+
+**It also never comes apart.** Whatever swings stays joined to the plant. A
+leaf that leans is a leaf still on its branch — and in a wind, a plant that
+can lean loses *fewer* leaves than one that cannot, because leaning is how it
+takes the load off.
+
+**What you will not see yet.** A tree does not sway. Trunks and branches are
+rigid, and the reason is that a leaning trunk has no way to relieve what the
+wind is doing to it — what stops a real tree in a gale is that it breaks, and
+breaking is not built yet. Meanwhile the wind is already pushing on the trunk
+and the number is already being kept; nothing is reading it. Foliage in a
+thick canopy is also packed too tightly to move much: there is simply nowhere
+for it to go.
+
 ## Fire and death
 
 Wood burns, and a burnt plant becomes ash. Ash decays into soil if it is damp,

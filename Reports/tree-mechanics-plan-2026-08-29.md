@@ -420,12 +420,60 @@ Three corrections the build forced, all worth carrying:
   `carried` over distance-zero cells counts a trunk once per storey, measured
   134.5 against a true 22.5.
 
-**Stage 2 — bend.** Stiffness per material; deflection from stress at
-organism cadence and at a gust. Grass first, because it is the cheapest,
-the most visible, and the owner's named case.
-*Bar:* a GIF of a stand in a pinned gust. *Cost bar:* whole-frame worst and
-mean from `ascii`'s forage scene, re-measured in the same session, against
-the +8.0 ms/frame sway figure this must not approach.
+**Stage 2 — bend.** **LANDED 2026-08-29.** `MaterialDef::stiffness`,
+`plant::bend_under_load`, the wind's own term in `stress_field`, and
+`BEND=off` as the control. Two materials opt in: `grassblade` at 2.0 and
+`leaf` at 1000, each fitted from *its own* measured moment distribution.
+*Cost bar, met:* `ascii scene=foraging`, three alternating pairs of one
+binary — mean **3.27–3.41 ms off against 3.72–3.98 ms on, +0.46 ms/frame**,
+against the +8.0 ms/frame sway figure. The worst frame is not separable from
+noise and is not quoted: `mean × frames` is 48,000 ms against a ~40 ms worst,
+so nothing pins it.
+
+*Bar, not met, and the reason is the finding:* the GIF of a stand in a
+pinned gust does not exist, because **the mechanism is clearance-bound
+rather than force-bound and this world has nothing blade-shaped in it.**
+Three measurements, each of which changes what stage 3 should aim at:
+
+- **Grass here is not blades.** The whole `scene=grove species=grass` stand
+  is eight tufts of about twenty cells, five rows tall. §3's argument —
+  "laying a blade over moves its tip two or three cells, not subtle" — is
+  sound and has nothing to act on. Measured: 3 successful bends across the
+  entire stand.
+- **More force buys refusals, not movement.** Tripling `WIND_DRAG` took
+  cells wanting to lean from 8 to 13 and refusals from 318 to **651**, while
+  successes went 3 → 4. The constant is fitted at 1.0 on that evidence, and
+  raising it is not the lever.
+- **A dense crown cannot bend at one-cell granularity.** Foliage swings
+  as a whole cross-section into empty space, and inside a crown there is
+  none: 16,673 cross-sections blocked against 28 successes on
+  `scene=fell`. What a real crown does instead is move *together*, which is
+  the trunk bending — and the trunk is exactly what cannot bend until
+  something stops it (below).
+
+**Wood is deliberately still rigid, and this is not caution.** A bend
+relieves its moment by shortening a **horizontal** lever; a trunk's wind
+moment is a **vertical** one that a one-cell lean does not shorten. So a
+trunk given a stiffness leans again every tick for as long as the wind
+blows, with nothing in the model to stop it. What stops a real trunk is that
+it breaks. **The wind load itself is already on wood** — `stress_field` puts
+the gust's torque into every cell — so stage 3 reads a moment that has wind
+in it and needs no further wind work to fell a tree.
+
+Two corrections the build forced:
+
+- **The local air velocity is not the wind.** The obvious read is
+  `field_at_bilinear`'s `vx`, which is what `wind_lean_dir` uses for growth.
+  Over every cell of living tissue in a grass stand it measures **`vx` from
+  -0.040 to +0.077, median 0.000** — the momentum solve holds
+  no-penetration at the ground and plants grow at the ground. A term built
+  on it is a reader with no writer. What the rest of the engine means by
+  surface wind is `weather::at().wind` times the column's `exposure`, and
+  that is what this reads.
+- **A stiffness must be fitted against its own material's moments, not the
+  stand's.** Trunks dominate a pooled distribution and foliage sits two
+  orders of magnitude below it; `filmstrip`'s moment line is now split per
+  material for exactly this reason.
 
 **Stage 3 — break.** Bending and buckling, constants from a seed sweep with
 headroom. `powder_surcharge` replaces `supported_load`. Foliage's opt-out
