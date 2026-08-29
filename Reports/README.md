@@ -734,7 +734,7 @@ drift that two of these documents still reflect.**
 
 ## Worldgen and world
 
-**The 2026-08-29 revamp program** — five audits and a plan, written the day
+**The 2026-08-29 revamp program** — six audits and a plan, written the day
 the owner said six rounds had not made the world interesting and asked for a
 revamp rather than another round:
 
@@ -776,6 +776,16 @@ revamp rather than another round:
   so every cave verdict on record was given on a place the player cannot
   reach. Also repairs two instruments that could not see a cave at the
   shipped world size.
+- [rock-vocabulary-design-2026-08-29.md](rock-vocabulary-design-2026-08-29.md)
+  — **design; prototyped and measured.** The ground made of six rocks instead
+  of one rock with tints painted on it. Six rocks move **24.89%** of the
+  player's view — more than `soil_blanket`, and ~40x the whole landform
+  programme of six rounds — while running **2.2x faster**, because the old
+  region tint sampled two 2-D fBm fields per cell over 18.7M cells. Finds that
+  tint as a blob *cutting across the bedding* (why the underground reads as
+  camouflage), and that `pockets` and `boulders` both tested for grey stone by
+  identity and so silently did nothing. Overturns the revamp plan's own
+  demotion of rock: the case is strength, not colour.
 
 - [worldgen-design.md](worldgen-design.md) — **direction agreed,
   implemented** (`src/worldgen/`). The M10 redesign: 2D play through 3D

@@ -1,7 +1,7 @@
 # Worldgen: the revamp
 
 2026-08-29. Written by the coordinating session of a six-lane worldgen
-program, from five audits landed the same day. **Start here; the audits are
+program, from six audits landed the same day. **Start here; the audits are
 this document's evidence.**
 
 | lane | report | what it establishes |
@@ -11,7 +11,7 @@ this document's evidence.**
 | C | `worldgen-prior-art-and-dead-ends-2026-08-29.md` | what was already tried, and the outside prior art |
 | D | `worldgen-visual-interest-2026-08-29.md` | how our world differs from beautiful landscape |
 | E | `cave-redesign-2026-08-29.md` | what replaces the cave generator |
-| F | `rock-vocabulary-design-2026-08-29.md` *(in flight)* | the rock the world is made of |
+| F | `rock-vocabulary-design-2026-08-29.md` | the rock the world is made of — built, measured, and it overturns this plan's own ordering |
 
 ---
 
@@ -187,6 +187,47 @@ Change the thing the passes work on.
 
 ### The workstreams, in the owner's priority order
 
+One correction is carried openly below: the rock item was demoted on first
+writing and the measurement overturned it.
+
+**W0 — Rock that differs. Demoted on first writing, and that was wrong.**
+
+This was written up as a palette item and ranked last, because the owner has
+twice said colour is not the issue. Lane F built it anyway and the demotion
+does not survive its measurement — **not on colour, on strength.**
+
+*"Large rock formation"* is differential erosion, and differential erosion
+needs beds that differ in what they resist. Today `Character::resistance`
+multiplies terracing while **every cell in the massif is exactly as strong as
+every other**. So W1 has nothing to erode differentially, and W2's profiles
+have nothing to be a profile *of*. **This is the substrate the shape work
+stands on**, and it has to land with W1 rather than after it.
+
+The measured case, six presets x 3 seeds x 16 viewports at the shipped size:
+six rocks move **24.89% of the player's view** — more than `soil_blanket`
+(19.02%), and roughly **40x the entire landform programme of six rounds**.
+Colours covering half the ground go from 4–8 to 5–14 with speckle unchanged,
+so it is palette rather than added grain. And it is **2.2x faster**:
+`stone_massif` 2,109 → 979 ms, because the region tint was sampling two 2-D
+fBm fields — five noise evaluations per cell over 18.7 million cells — and a
+per-bed material deletes them.
+
+It also explains something four lanes could not. The old region tint is a
+**2-D blob that cuts across the bedding**, which is why the underground reads
+as camouflage blotches rather than as layers. Keying rock on `(bed, column)`
+and never on `y` is the whole correction.
+
+And it found the answer to *"why does `boulders` seat nothing"*, which Lane A
+listed as undiagnosed: `pockets` and `boulders` both tested for grey stone by
+identity, so **both silently did nothing** — a second cause on top of the
+pass-order defect. A material *flag* replaces six such tests.
+
+**One piece of it is not ready.** The damp-rock family is the biggest single
+item by pixels and *reduces* the colour spread on three of five presets; it is
+posted for review and should not ship unreviewed. The prototype also currently
+**defaults on** — one environment variable restores the shipped world exactly,
+and that arm is the control every number above rests on.
+
 **W1 — Give the ground a surface: mountains, and relief with a cause. THE
 revamp.** Couple bed hardness to how far a bed stands proud, so a resistant
 band *outcrops* and a soft one cuts back. This is the direct answer to *"it is
@@ -267,13 +308,6 @@ something that already looks wrong.
 `brows`→`boulders` pass-order defect, and the three other live eaters. Cheap,
 and it makes an entire wiki-documented feature exist for the first time.
 
-**W6 — Rock you can tell apart. Demoted, deliberately.** One material is the
-entire geology: within any region **all rock is four colours**, and 4–9 colours
-cover half of everything the player sees. On isolated ratio this is the best
-item on the list — and the owner has now said twice that colour is not the
-issue, so it does **not** lead. It is worth doing for a reason his own framing
-supplies rather than palette: see the cutaway note below.
-
 **W7 — Provinces of a kind, not a gain.** `region.rs`'s `Character` is six
 continuous multipliers; five are amplitude knobs and none touches a wavelength
 or which passes run. Every wavelength varies at most **1.70x** across all five
@@ -294,7 +328,7 @@ landscape at all — it is a **cross-section through rock**. Landscape
 photography is the wrong referent for four fifths of the picture. The right
 one is a **quarry face, a road cut, a canyon wall**, and the gap to that is
 relief and *staining* — seeps, oxidation, wet rock, dust on ledges — rather
-than a wider palette. That is the case for W6, and it is a better case than
+than a wider palette. That is the second case for W0, and it is a better case than
 "more colours".
 
 ### The loop that let six rounds fail
@@ -352,11 +386,12 @@ being thrown away.
 
 | lane | work | files |
 |---|---|---|
-| 1 | **W1 relief with a cause — mountains** | `column.rs`, `erosion.rs` |
+| 1 | **W0 rock that differs + W1 relief with a cause — mountains** | `column.rs`, `erosion.rs`, `assets/materials/*` |
 | 2 | **W2 formations with a profile — not just tall pillars** | `residual.rs`, new feature module |
 | 3 | **W3 caves as rooms and passages, with openings** | `vaults`, new cave module |
 
-Those three are, one for one, the owner's own list: *"Shape, large rock
+W0 rides with W1 because relief with a cause needs rock that differs in
+strength; the rest are, one for one, the owner's own list: *"Shape, large rock
 formation (not just tall pillars), cave openings, mountains."*
 
 **GATE — show him. If this is not visibly a different world, stop and
@@ -365,8 +400,8 @@ much time on this, and six rounds have each ended by asking for one more. The
 gate is what keeps that honest — and Lane A's distance matrix now gives it a
 number as well as a picture.
 
-**Phase 2 —** W6 rock and staining on the cutaway face; W7 provinces of a
-kind. The 3D coarse map only if W1 proved insufficient.
+**Phase 2 —** W7 provinces of a kind; the staining half of W0 (seeps,
+oxidation, wet rock) once the damp family has been judged. The 3D coarse map only if W1 proved insufficient.
 
 Every phase ships with a **seed sweep read at an order statistic**, not a
 single seed, and an owner card **before** it is called done.
