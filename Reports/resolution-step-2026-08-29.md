@@ -109,6 +109,33 @@ from **more cells per feature**. That is the reading that deserves the name,
 and it is the expensive one — not in frame time, which is now paid for, but
 in content.
 
+## The owner's second verdict: the rescale is the right direction
+
+Card `20260829T080824307Z-6f335b`, board `world-scale`, answered 2026-08-29.
+The same coastline at both cell sizes, gnome in each for scale. The verdict
+was **"Four times the cells"**, with two things named:
+
+> *"4x looks better, but our gnome shouldn't have shrunk. Also, are all my
+> plants going to be 1/4 the size (or grow 1/4 the speed visually)."*
+
+Both are the same defect as the tor slabs and both are correct. **The card's
+own `meta` claimed the gnome drew at 28 window pixels in both panes and it
+did not** — `player.rs`'s `PLAYER_WIDTH`/`PLAYER_HEIGHT` are a hardcoded 7x14
+cells, so at half the cell size he came out 7x14 window pixels against 14x28.
+He halved. The number on the card was wrong and the owner caught it by eye,
+which is the argument for posting pictures rather than tables.
+
+The plants answer is *both* of the guesses at once, and worse than either: a
+tree's height is set in cells, so at half the cell size it grows to half the
+physical height **and** climbs the screen at half the speed, finishing at a
+quarter of the on-screen area.
+
+**The gnome has two separable fixes** and they should not be confused. His
+size is a bug: nearest-neighbour doubling `GNOME_SPRITE` and `GNOME_SWING` to
+14x28 makes him the right size with no art and no judgement call. A *real*
+14x28 sprite — four times the pixels, so a face and hands become possible —
+is an opportunity, is judge-by-eye, and is a separate card.
+
 ## What that costs, and why the frame budget is not the problem
 
 To hold the same physical world at twice the cell density is four times the
@@ -186,12 +213,23 @@ Suggested order, and the reason for it:
    missed. Do not do this without the content scaling: at unchanged content
    it coarsens the shade.
 3. **The gnome**, because he is the ruler everything else is judged against.
-4. **Plants and creatures.** *This one is not a rescale.*
-   `Reports/why-changes-cost-so-much-2026-08-27.md` is about exactly this
-   failure: doubling internode lengths changes what the growth economy's
-   constants mean, and the economy was calibrated against the current cell
-   counts. Budget re-deriving them as part of the work, or the change is not
-   scoped, only started.
+4. **Plants and creatures.** **The owner has settled the hard half of this:
+   *"growth rate can be slower that is fine"* (2026-08-29).** That is a real
+   simplification — a tree twice as tall in cells, built at the same cells
+   per tick, takes twice as long to get there, and rate parity was the part
+   that would have forced the growth economy to be re-derived
+   (`Reports/why-changes-cost-so-much-2026-08-27.md`). It is not needed.
+
+   **What that ruling does *not* cover, and what still has to be checked:**
+   slower is not the same as never. The economy is a budget, and a plant
+   that cannot pay for twice the tissue does not grow slowly — it dies before
+   seeding. This exact failure is already on the record: reshaping
+   `phototropism_dir` gave trees a direction they had never had, they spread
+   instead of climbing, never reached `seed_maturity`, and **reproduction
+   went to zero** with every gate green but one. So the acceptance criterion
+   here is not a growth rate, it is *does a stand still reach maturity and
+   still reproduce* — which `examples/plant_probe.rs` reports directly, and
+   which is a bounded measurement rather than an open re-derivation.
 5. **`app.rs`'s `WIDTH`/`HEIGHT` to 1024x640**, and `main.rs`'s
    `with_inner_size(WIDTH * 2, HEIGHT * 2)` to `(WIDTH, HEIGHT)` so the
    window stays the size it is. **Last, not first**: on its own this
