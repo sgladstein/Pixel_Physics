@@ -2224,9 +2224,30 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     world.creature_stats.flight_moves += moves;
 
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
+    // **`since_nest` counts ticks, and a flight frame is not a tick.**
+    // Advancing it once per airborne frame would age a hopping creature's
+    // nest memory six times faster than a walking one's, purely because the
+    // scheduler visits it more often -- and `since_nest` scales the
+    // channel-A deposit, so a hop would quietly cost trail strength that
+    // nothing in the design asks it to cost. One increment per
+    // `tick_interval` frames keeps the *rate* identical, the same
+    // pro-rating the idle cost below uses and for the same reason.
+    let frame = world.frame;
+    let interval = def.tick_interval.max(1);
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
-        state.since_nest = state.since_nest.saturating_add(1);
+        if frame % interval == 0 {
+            state.since_nest = state.since_nest.saturating_add(1);
+        }
+        // **The excursion depth has to see a hop, or the foraging-range
+        // instrument understates exactly the creature it was built to
+        // measure.** `forage_max` is measurement-only (see its own doc), and
+        // a counter that cannot move for the mechanism under test is the
+        // failure `CLAUDE.md` names -- a hopper crossing 160 cells would
+        // have registered a range of zero.
+        let (ax, ay) = state.forage_anchor;
+        let depth = (hx - ax).abs().max((hy - ay).abs());
+        state.forage_max = state.forage_max.max(depth.clamp(0, u16::MAX as i32) as u16);
     }
 
     // **Metabolism per unit *time*, not per tick.** An airborne creature is

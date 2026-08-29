@@ -1599,8 +1599,25 @@ fn build_scene(args: &Args) -> World {
         // one's authored wiring at build time, the same trick
         // `scene=colony genome=` uses. Nothing shipped hops by default.
         //
-        //   cargo run --release --example filmstrip -- scene=hop gif=1 out=hop.gif \
-        //     start=0 every=6 count=40 zoom=2 crop=0,180,512,140
+        // **Three knobs, and each exists because a measurement needed it.**
+        //
+        //   impulse=0   its own control: `ant.ron`'s wiring exactly, so the
+        //               arm is the pre-verb engine and not a stand-in for it
+        //   body=NAME   one lane only -- `report_colony`'s blocked fraction
+        //               is world-summed, so a scene holding one chain and
+        //               three rigid bodies reports a figure belonging to
+        //               none of them
+        //   shelf=ROW   trade drop height for zoom. The drag law separates
+        //               two equal-mass bodies over a *long* drop, and a long
+        //               drop is what forces the zoom down until a 9-cell
+        //               creature is a smudge
+        //
+        // The whole thing, and the pair at a legible size:
+        //
+        //   cargo run --release --example filmstrip -- scene=hop \
+        //     start=0 every=8 count=12 cols=4 zoom=2 crop=0,100,512,216
+        //   cargo run --release --example filmstrip -- scene=hop shelf=232 \
+        //     start=30 every=8 count=6 cols=3 zoom=6 crop=306,228,160,88
         "hop" => {
             use pixel_physics::sim::brain::{BrainInput, BrainOutput, Instinct};
             stone_floor(&mut w);

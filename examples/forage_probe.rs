@@ -119,6 +119,32 @@ fn row(world: &World) -> Row {
     }
 }
 
+/// **The falls-per-move bar, and the frame budget it is only true at.**
+///
+/// `Reports/creature-motion-design.md` §7 names falls per move as the first
+/// guard the impulse verb ships with, because it is the failure mode of both
+/// earlier attempts at airborne creatures — 59-80% of all moves, twice, and
+/// reverted twice. This is the bar, and two things about it are load-bearing:
+///
+/// **It sits above the measured maximum, not on the median.** Twelve seeds on
+/// `main` at 2026-08-29 read min 0.208, median 0.225, **max 0.334**. A bar at
+/// the median gets rubber-stamped the moment which seed is worst reshuffles,
+/// which `CLAUDE.md` records happening to a six-seed anchor census that read
+/// 1.64x and then 1.08x over the next twelve. 0.40 is ~20% clear of the worst
+/// seed and less than half the 0.59 floor of the failure it is named for.
+///
+/// **It is only meaningful at one frame budget.** The statistic does not
+/// settle: lane C measured 0.239 / 0.225 / 0.215 at 6,000 / 12,000 / 24,000
+/// frames on the same scene. A bar quoted without its budget is therefore not
+/// reproducible, so `gate=1` **refuses to run** at any other budget rather
+/// than comparing against a number that does not apply — the same reason a
+/// noise bar does not transfer between jobs.
+const FALLS_PER_MOVE_BAR: f64 = 0.40;
+/// The pinned operand [`FALLS_PER_MOVE_BAR`] was measured at.
+const GATE_FRAMES: usize = 12_000;
+/// And the smallest sweep it may be read over. Six seeds is not a sweep.
+const GATE_MIN_SEEDS: u64 = 12;
+
 /// min / median / max of one column, printed rather than a mean.
 ///
 /// A mean hides which end moved; the spread is the whole reason this sweeps
@@ -310,6 +336,10 @@ fn main() {
     // 2 = the historical value (shoulder to shoulder). 4 = COLONY_ANT_SPACING,
     // what a real colony is founded at.
     let mut spacing = 2i32;
+    // See `FALLS_PER_MOVE_BAR`. Off by default: this is a measurement
+    // harness first, and a bar that fires on every exploratory run gets
+    // ignored rather than read.
+    let mut gate = false;
     for arg in std::env::args().skip(1) {
         // **A bare argument is an error, not a shrug.** This loop used to
         // `continue` past anything without an `=`, so `forage_probe 8` ran
@@ -328,6 +358,7 @@ fn main() {
                 })
             }
             "spacing" => spacing = v.parse().expect("spacing"),
+            "gate" => gate = v != "0" && v != "false",
             other => panic!("unknown arg {other:?}; known: frames, seeds, climb, spacing"),
         }
     }
@@ -432,6 +463,31 @@ fn main() {
     let tumbles: Vec<f64> = forage_rows.iter().map(|r| if r.moves > 0 { r.tumbles as f64 / r.moves as f64 } else { 0.0 }).collect();
     let (lo, med, hi) = order_stats(tumbles);
     println!("{:>10}  {lo:>8.3} {med:>8.3} {hi:>8.3}", "tumbles/mv");
+
+    // **The gate, when asked for.** Off by default because this harness is a
+    // measurement first; `gate=1` turns the order statistic above into a
+    // pass/fail with a non-zero exit, so it can be put in front of any change
+    // to how a creature moves.
+    if gate {
+        let falls_max = order_stats(forage_rows.iter().map(|r| if r.moves > 0 { r.falls as f64 / r.moves as f64 } else { 0.0 }).collect()).2;
+        if frames != GATE_FRAMES || seeds < GATE_MIN_SEEDS {
+            eprintln!(
+                "gate=1 refused: the bar is {FALLS_PER_MOVE_BAR:.2} measured at frames={GATE_FRAMES} over >={GATE_MIN_SEEDS} seeds, \
+                 and this run is frames={frames} seeds={seeds}. The statistic does not settle -- 0.239/0.225/0.215 at \
+                 6k/12k/24k on this scene -- so comparing across budgets compares nothing."
+            );
+            std::process::exit(2);
+        }
+        if falls_max > FALLS_PER_MOVE_BAR {
+            eprintln!(
+                "GATE FAIL: worst seed falls/move {falls_max:.3} is over the {FALLS_PER_MOVE_BAR:.2} bar. \
+                 This is the failure two reverted attempts at airborne creatures had (59-80%); \
+                 it is the mechanism, not the tuning. Reports/creature-motion-design.md §2d, §7."
+            );
+            std::process::exit(1);
+        }
+        println!("\nGATE PASS: worst seed falls/move {falls_max:.3} <= {FALLS_PER_MOVE_BAR:.2} over {seeds} seeds at {frames} frames");
+    }
 
     // **The shape, pooled over every seed.** An order statistic per bucket
     // answers "is it reliable"; the pooled curve answers "what does the
