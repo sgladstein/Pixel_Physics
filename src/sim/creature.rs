@@ -3169,6 +3169,7 @@ mod tests {
                 ],
                 &def.hidden_wiring,
                 &def.hidden_outputs,
+                &def.recurrence,
             ),
         );
 
@@ -3621,7 +3622,7 @@ mod tests {
             // re-orientation drive, not about removing that one.
             let mut instincts = def.instincts.clone();
             instincts.push(brain::Instinct(brain::BrainInput::Crowding, brain::BrainOutput::Tumble, w_gain));
-            w.species.set_genome(species, brain::genome_from_wiring(&instincts, &def.hidden_wiring, &def.hidden_outputs));
+            w.species.set_genome(species, brain::genome_from_wiring(&instincts, &def.hidden_wiring, &def.hidden_outputs, &def.recurrence));
 
             // Shoulder to shoulder on purpose: the crowd is the input.
             for x in (70..150).step_by(2) {

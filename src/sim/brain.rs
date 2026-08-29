@@ -30,7 +30,7 @@
 //! required (`PLAN.md`), so they stay out of anything a decision reads
 //! (P-19).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 pub const BRAIN_INPUTS: usize = 16;
 pub const BRAIN_HIDDEN: usize = 4;
@@ -252,7 +252,7 @@ pub fn squash(x: f32) -> f32 {
 /// Which input slot a wiring entry refers to. **Positional and
 /// append-only** — see `GENOME_LEN`. The names exist so a species file can
 /// be read by a human; the numbers are the contract.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum BrainInput {
     /// Always 1.0 — the constant term every gain is offset against.
     Bias = 0,
@@ -316,7 +316,7 @@ pub enum BrainInput {
 }
 
 /// Which output slot. Positional and append-only, as above.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
 pub enum BrainOutput {
     /// Added to the ahead-left and ahead-right candidate scores with
     /// opposite signs.
@@ -383,16 +383,35 @@ pub enum BrainOutput {
 /// not something anyone can review, and the whole value of authored
 /// instincts is that a human can see what the animal starts out believing.
 /// Anything not listed is 0.0, which under `W_EPS` means "no connection".
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct Instinct(pub BrainInput, pub BrainOutput, pub f32);
 
 /// One authored connection into a hidden unit: `(Carrying, 0, 5.0)`.
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct HiddenWire(pub BrainInput, pub u8, pub f32);
 
 /// One authored connection out of a hidden unit: `(0, Turn, 1.0)`.
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Deserialize, Serialize)]
 pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
+
+/// One hidden unit's **self-recurrence** weight: `(0, 0.8)` — how much of
+/// unit 0's own previous activation it reads back this tick.
+///
+/// **This is the block the three lists above could not reach, and it went
+/// unnoticed because nothing ever wrote a genome out.** `eval_brain` reads
+/// `hh[h]`, `is_live_slot` counts all four of those slots as live, and
+/// `random_genome` fills them — so a sampled brain, or from S6 a mutated
+/// one, can carry recurrence, and until this existed there was no authored
+/// form that could express it. A species file could therefore describe
+/// every evolved individual except one whose *memory* had evolved, and the
+/// loss would have been silent: the reloaded animal would simply have no
+/// memory, which looks like a slightly different animal rather than like a
+/// bug.
+///
+/// Authored by **index**, not by name, because a hidden unit has no name —
+/// see `SpeciesDef::genome_manifest` for what guards that.
+#[derive(Clone, Copy, Deserialize, Serialize)]
+pub struct Recurrence(pub u8, pub f32);
 
 /// Expand sparse wiring lists into the dense genome.
 ///
@@ -420,7 +439,7 @@ pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
 /// polarity, wired to the output with opposite signs. Ungated, both
 /// saturate to the same value and their contributions cancel exactly;
 /// gated, they reinforce. Four hidden units, two channels, no code.
-pub fn genome_from_wiring(instincts: &[Instinct], hidden: &[HiddenWire], outputs: &[OutputWire]) -> Vec<f32> {
+pub fn genome_from_wiring(instincts: &[Instinct], hidden: &[HiddenWire], outputs: &[OutputWire], recurrence: &[Recurrence]) -> Vec<f32> {
     let mut g = vec![0.0; GENOME_LEN];
     for &Instinct(input, output, weight) in instincts {
         g[io_slot(input, output)] = weight;
@@ -433,13 +452,141 @@ pub fn genome_from_wiring(instincts: &[Instinct], hidden: &[HiddenWire], outputs
         assert!((h as usize) < BRAIN_HIDDEN, "hidden unit {h} does not exist; there are {BRAIN_HIDDEN}");
         g[ho_slot(h as usize, output)] = weight;
     }
+    for &Recurrence(h, weight) in recurrence {
+        assert!((h as usize) < BRAIN_HIDDEN, "hidden unit {h} does not exist; there are {BRAIN_HIDDEN}");
+        g[hh_slot(h as usize)] = weight;
+    }
     debug_assert!(reserve_is_zero(&g), "authored wiring wrote into a reserved slot");
     g
 }
 
 /// The input→output-only form, for callers with nothing in the hidden layer.
 pub fn genome_from_instincts(instincts: &[Instinct]) -> Vec<f32> {
-    genome_from_wiring(instincts, &[], &[])
+    genome_from_wiring(instincts, &[], &[], &[])
+}
+
+/// Slot enums in slot order, so a genome index can be turned back into the
+/// name a species file writes.
+///
+/// **Positional, exactly as `INPUT_NAMES` is**, and the pair is checked
+/// against the discriminants by `the_slot_tables_agree_with_the_names` — a
+/// table that drifted from the enum would relabel every exported weight,
+/// which is the one failure an export can have that still produces a file
+/// the loader accepts.
+pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
+    BrainInput::Bias,
+    BrainInput::PheroAFront,
+    BrainInput::PheroALateral,
+    BrainInput::PheroBFront,
+    BrainInput::PheroBLateral,
+    BrainInput::MoistureFront,
+    BrainInput::MoistureLateral,
+    BrainInput::LightHere,
+    BrainInput::TempAboveAmb,
+    BrainInput::FoodAdjacent,
+    BrainInput::AtNest,
+    BrainInput::Energy,
+    BrainInput::Carrying,
+    BrainInput::Crowding,
+    BrainInput::PheroAAlong,
+    BrainInput::PheroBAlong,
+];
+/// See [`INPUTS`].
+pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
+    BrainOutput::Turn,
+    BrainOutput::Move,
+    BrainOutput::EmitA,
+    BrainOutput::EmitB,
+    BrainOutput::Dig,
+    BrainOutput::Drop,
+    BrainOutput::Persist,
+    BrainOutput::Tumble,
+    BrainOutput::Caution,
+    BrainOutput::Feed,
+];
+
+/// A genome written back out as the four sparse lists a species file
+/// authors — the exact inverse of [`genome_from_wiring`].
+///
+/// **This is the dev-tool exit** (`Reports/creature-evolution-plan.md`
+/// decision E8: *"we can use it to create new creatures that get saved and
+/// added to the game"*). An evolved individual is 584 floats; the loader
+/// only ever reads sparse wiring lists, so the way to write an individual
+/// into `assets/species/` is to invert the expansion rather than to invent
+/// a second genome format the loader would then have to learn.
+///
+/// It is also why the export stays **reviewable**: this module's own
+/// argument for the sparse form is that "168 raw floats is not something
+/// anyone can review", and that argument does not stop applying because a
+/// machine wrote the numbers.
+#[derive(Clone, Default)]
+pub struct Wiring {
+    pub instincts: Vec<Instinct>,
+    pub hidden: Vec<HiddenWire>,
+    pub outputs: Vec<OutputWire>,
+    pub recurrence: Vec<Recurrence>,
+}
+
+/// Decompose a dense genome into the sparse lists that reproduce it.
+///
+/// **Every nonzero live slot is emitted, including weights below
+/// [`W_EPS`].** A sub-`W_EPS` weight is "no connection" to `eval_brain`,
+/// so dropping it would look free — and it is not, for the one reason that
+/// matters to a dev tool: mutation is relative as well as absolute
+/// (`creature-evolution-plan.md` §2.6, `width = MUT_ABS_FLOOR + MUT_REL *
+/// |w|`), so a 0.004 weight is a connection one birth away from existing
+/// and its sign is inherited. Rounding it out on the way through would be
+/// a silent edit to the animal's *descendants* rather than to the animal,
+/// which is precisely the kind of loss a round-trip test written against
+/// behaviour would not catch.
+///
+/// **Reserved slots are never emitted, and cannot be**: they have no name
+/// to emit them under. `reserve_is_zero` is asserted on the way in, so a
+/// genome that has somehow perturbed its reserve fails loudly here rather
+/// than losing that perturbation quietly — which is what `live_slots`' own
+/// doc asks for.
+pub fn wiring_from_genome(g: &[f32]) -> Wiring {
+    assert_eq!(g.len(), GENOME_LEN, "a genome is always exactly GENOME_LEN; a short one means a slot layout changed");
+    assert!(reserve_is_zero(g), "genome carries a weight in a reserved slot; there is no authored form for it");
+    let mut w = Wiring::default();
+    for (o, &output) in OUTPUTS.iter().enumerate() {
+        for (i, &input) in INPUTS.iter().enumerate() {
+            let weight = g[o * INPUT_SLOTS + i];
+            if weight != 0.0 {
+                w.instincts.push(Instinct(input, output, weight));
+            }
+        }
+    }
+    for h in 0..BRAIN_HIDDEN {
+        for (i, &input) in INPUTS.iter().enumerate() {
+            let weight = g[IO_END + h * INPUT_SLOTS + i];
+            if weight != 0.0 {
+                w.hidden.push(HiddenWire(input, h as u8, weight));
+            }
+        }
+    }
+    for h in 0..BRAIN_HIDDEN {
+        let weight = g[hh_slot(h)];
+        if weight != 0.0 {
+            w.recurrence.push(Recurrence(h as u8, weight));
+        }
+    }
+    for (o, &output) in OUTPUTS.iter().enumerate() {
+        for h in 0..BRAIN_HIDDEN {
+            let weight = g[HH_END + o * HIDDEN_SLOTS + h];
+            if weight != 0.0 {
+                w.outputs.push(OutputWire(h as u8, output, weight));
+            }
+        }
+    }
+    w
+}
+
+/// [`Wiring`] expanded back to a dense genome — `genome_from_wiring` with
+/// the four lists already grouped, so the round trip can be asserted
+/// without reaching through the RON layer.
+pub fn genome_from_wiring_struct(w: &Wiring) -> Vec<f32> {
+    genome_from_wiring(&w.instincts, &w.hidden, &w.outputs, &w.recurrence)
 }
 
 /// A random genome, sparse the way an authored one is.
@@ -600,6 +747,7 @@ mod tests {
             &[Instinct(BrainInput::Crowding, BrainOutput::Caution, 1.0)],
             &[HiddenWire(BrainInput::Carrying, 3, 30.0)],
             &[OutputWire(3, BrainOutput::Caution, -2.5)],
+            &[Recurrence(3, 0.5)],
         );
         assert!(reserve_is_zero(&g));
         assert!(is_live_slot(BrainOutput::Caution as usize * INPUT_SLOTS + BrainInput::Crowding as usize));
@@ -609,6 +757,82 @@ mod tests {
         assert!(!is_live_slot(BRAIN_INPUTS));
         assert!(!is_live_slot(BRAIN_OUTPUTS * INPUT_SLOTS));
         assert_eq!(live_slots().count(), BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN);
+    }
+
+    #[test]
+    fn the_slot_tables_agree_with_the_discriminants() {
+        // `INPUTS`/`OUTPUTS` are what turns a genome index back into the
+        // name a species file writes. If either drifted from the enum,
+        // every exported weight would be relabelled -- and the file would
+        // still parse, still load, and describe a different animal. That
+        // is the one export failure with no other tell, so it gets a test
+        // rather than a comment.
+        for (i, &input) in INPUTS.iter().enumerate() {
+            assert_eq!(input as usize, i, "INPUTS[{i}] is not slot {i}");
+            assert_eq!(io_slot(input, BrainOutput::Turn), i, "INPUTS[{i}] does not index slot {i}");
+        }
+        for (o, &output) in OUTPUTS.iter().enumerate() {
+            assert_eq!(output as usize, o, "OUTPUTS[{o}] is not slot {o}");
+        }
+        assert_eq!(INPUTS.len(), INPUT_NAMES.len());
+        assert_eq!(OUTPUTS.len(), OUTPUT_NAMES.len());
+    }
+
+    #[test]
+    fn a_genome_survives_being_written_out_as_wiring_and_read_back() {
+        // The property the whole dev-tool exit rests on: `wiring_from_
+        // genome` is the exact inverse of `genome_from_wiring` over every
+        // live slot. Run over random genomes rather than the authored ant,
+        // because an authored genome is sparse in a *particular* way --
+        // nothing in the hidden self-recurrence block, no negative weights
+        // in some blocks -- and the export has to survive whatever
+        // evolution produces, not what a human wrote.
+        for seed in 0..64u64 {
+            let g = random_genome(seed);
+            let back = genome_from_wiring_struct(&wiring_from_genome(&g));
+            assert_eq!(g, back, "seed {seed} did not survive the round trip");
+        }
+    }
+
+    #[test]
+    fn the_recurrence_block_is_reachable_only_through_the_fourth_list() {
+        // The gap this found, made mechanical. `eval_brain` reads `hh[h]`
+        // and `is_live_slot` calls those four slots live, so a sampled or
+        // mutated brain can carry memory -- and the three original wiring
+        // lists have no way to say so. Without `Recurrence`, exporting such
+        // an animal loses its memory silently: the file loads, the animal
+        // spawns, and it is simply a different creature.
+        let mut g = vec![0.0f32; GENOME_LEN];
+        g[hh_slot(1)] = 0.75;
+        g[io_slot(BrainInput::Bias, BrainOutput::Move)] = 2.0;
+
+        let w = wiring_from_genome(&g);
+        assert_eq!(w.recurrence.len(), 1, "the recurrence weight was not emitted");
+        assert_eq!(genome_from_wiring_struct(&w), g);
+
+        // The sensitivity control -- drop the new list and watch the round
+        // trip go red, so this test is evidence about the mechanism rather
+        // than about itself.
+        let without = genome_from_wiring(&w.instincts, &w.hidden, &w.outputs, &[]);
+        assert_ne!(without, g, "dropping the recurrence list changed nothing; this guard cannot fail");
+        assert_eq!(without[hh_slot(1)], 0.0);
+    }
+
+    #[test]
+    fn a_weight_too_small_to_be_a_connection_is_still_written_out() {
+        // Sub-`W_EPS` weights are "no connection" to `eval_brain`, so
+        // dropping them on export looks free. It is not: mutation is
+        // partly proportional, so a 0.004 weight is one birth away from
+        // being a connection and its sign is inherited. Rounding it out
+        // would edit the animal's descendants rather than the animal --
+        // invisible to any test written against this generation's
+        // behaviour, which is exactly why it is asserted on the bytes.
+        let mut g = vec![0.0f32; GENOME_LEN];
+        let tiny = W_EPS * 0.4;
+        g[io_slot(BrainInput::Crowding, BrainOutput::Tumble)] = -tiny;
+        let w = wiring_from_genome(&g);
+        assert_eq!(w.instincts.len(), 1, "a sub-W_EPS weight was dropped on the way out");
+        assert_eq!(genome_from_wiring_struct(&w), g);
     }
 
     #[test]
