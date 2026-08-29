@@ -1,0 +1,14 @@
+{
+  "card_id": "20260829T153254150Z-fc5748",
+  "answered_at": "2026-08-29T15:40:41Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "I still think you are trying to force a full motion and break up. If the gnome hits one branch only that should fall off. if the cut severs nothing then nothing happens. if the whole trunk breaks, it just detaches from the ground. If it is tall and skinny and detaches from the ground it should and if that created enough stress/force then branches break. It seems like you are trying to create an animation and not a physics system that results in realistic damage. Do deep exploration.",
+  "annotations": [],
+  "archived": false,
+  "blind_was": [
+    1,
+    0
+  ]
+}
