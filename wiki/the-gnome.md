@@ -1,6 +1,16 @@
 # The Gnome
 
-*Current as of: 2026-08-26. New since the last pass: loose grains at
+*Current as of: 2026-08-29. New since the last pass: **he carries three
+tools** — a pick, a hammer and an axe — swapped with `1`/`2`/`3` or the
+middle mouse button, named in a small HUD in the top-left corner while he
+exists, and visible in his hand on the sprite. **The pick's default dig is
+no longer free-hand**: it cuts a passage his own size, up, down, left or
+right, and the box it will open is drawn before you commit to it; the old
+round bite is still there on `4`. The hammer smashes and cracks rock it
+does not break, and shoves him back when it lands. The axe chops living
+wood, and cutting a bole through fells the tree.*
+
+*Before that — 2026-08-26: loose grains at
 chest height no longer wall him, living plants are
 walk-through and climbable (hold `Shift` to take hold — climbing has its
 own key now), living creatures aren't walls either, he weaves in front of
@@ -188,24 +198,62 @@ he goes down with it, riding the slab rather than being left hanging in
 the air above it — right up until it tips, which slabs do, at which point
 he comes off it like anything else would.
 
+## What he carries
+
+He has three things on his belt, and the left button swings whichever one
+is in his hand. `1`, `2` and `3` pick between them, the middle mouse button
+steps along, and a small readout in the top-left corner names all three
+with the held one lit — so what a click is about to do is never something
+you have to remember. He carries it in his hand on screen too, in the same
+colour the cursor is wearing.
+
+| | what it's for |
+|---|---|
+| **Pick** | getting through the world — passages, shafts, tunnels |
+| **Hammer** | breaking the world — and cracking a great deal more than it breaks |
+| **Axe** | cutting what's alive — chop a bole through and the tree comes down |
+
+Under the readout is a short bar that empties when he strikes and fills as
+he winds up again. Holding the button is a series of blows at the tool's
+own rate rather than a beam, and the bar is what makes that rate visible —
+without it, a click during the recovery reads as the tool ignoring you.
+He faces the way you send him and leans into every swing, so a blow reads
+as a blow rather than as something the cursor did.
+
 ## Digging
 
-Summoning him puts you in his dig tool, and a yellow ring shows exactly
-where the next bite will land and how big it will be. Left-click to cut.
-(Point at a living plant instead and there's no ring at all — that is
-the shake, described above, on the same button, and the absence is the
-tell: no ring means no bite is coming.) He faces the way you send
-him, and leans into a swing when he cuts, so a blow reads as a blow rather
-than as something the cursor did.
-He works the **first rock face along the line you point at** — not the
-spot under the cursor — so pointing deep into a hillside cuts the near
-wall of it, the way swinging a pick would, and pointing past what his
-arms reach cuts at arm's length in that direction. A tree standing in the
-way is not a rock face: his aim goes straight through living wood to the
-stone behind, so you can dig in a wood, and dig while standing inside a
-trunk. Loose material doesn't
-stop the aim: he'll reach over a heap of his own spoil to the stone
-behind it rather than chewing the muck again.
+**The pick's default cut is a passage his own size.** Point roughly up,
+down, left or right and a box is drawn where it would go — a cell of
+clearance all round him, with its floor running out of the ground he's
+standing on — and the near edge of that box is shaded to show what this
+one click takes. Left-click and he cuts that slice; hold the button and
+the working face walks forward through the box. When the box is clear,
+walk in and the next one is drawn ahead of you.
+
+You point at a *direction*, not at a spot, and that's the whole difference
+from what it used to do. A corridor comes out straight and walkable
+because it was cut to the shape of the thing that has to walk down it —
+before this, digging left a wandering bore of round bites whose clearance
+you found out about by getting stuck in it.
+
+The box sites itself against **the first rock in reach** in that
+direction, not against his boots, so a wall a dozen cells off is cut
+rather than the air in front of it. Loose material doesn't site it: he
+reaches over a heap of his own spoil to the stone behind rather than
+chewing the muck again. Nor does a tree — his aim goes through living wood
+to the stone behind, so you can dig in a wood, and dig while standing
+inside a trunk. Anything standing inside the box is still cut, tree
+included.
+
+Digging **down** sinks a shaft and drops him into it. Digging **up** puts
+the passage over his hat and the spoil on his head.
+
+**`4` swaps to the old free-hand bite**, a round cut wherever you point,
+on the first rock face along that line — the right tool for hollowing a
+chamber, undercutting a slab or reaching a seam too narrow for a passage.
+Point at a living plant with the pick and there's no marker at all: that
+is the shake, described above, on the same button, and the absence is the
+tell — no marker means no cut is coming.
 
 A bite doesn't erase rock, it breaks it: the stone cracks, comes apart,
 throws an impulse, and leaves rubble. But breaking alone can never open a
@@ -245,6 +293,45 @@ into.
 Tunnelling has consequences. Rock that was holding up an overhang stops
 holding it up, and enough of it will bring the roof down — undermine a
 cliff for long enough and it will come apart above and behind you.
+
+## The hammer
+
+The pick *removes* rock. The hammer **damages** it, and that is a
+different thing to have. A blow pulverises a small core, chips a shell off
+around it, and scores cracks reaching a long way past both — damage that
+shows, accumulates, and makes the rock around it far readier to give way.
+So the hammer is the tool for bringing a ceiling down, calving a slab off
+a face or starting a collapse, and a poor way to dig a hole.
+
+The cursor draws that difference: a bright ring for what the blow takes
+and a second, dimmer one for how far the cracks reach. The gap between the
+two is the reason to pick the hammer up.
+
+It swings slower than the pick — three times slower — and it shoves him
+back a little when it lands, which it does not do when it hits nothing.
+He's swinging something heavy, and a blow that moves the world and not the
+arm swinging it reads as a cursor effect.
+
+## The axe
+
+Living wood is the one thing the other two are bad at. The axe chops it:
+point at a trunk, or a branch, or a shrub, and each stroke takes a notch
+out of it. Chop a bole all the way through and the crown loses what was
+holding it and comes down as pieces — logs where the mass was heavy
+enough, grit where it wasn't, and litter out of the foliage.
+
+Most of what an axe cuts stays as timber where it fell rather than going
+as dust. That's the opposite of the pick's balance and for the opposite
+reason: mining has to *remove* volume or a bore cannot open at all, while
+chopping is meant to leave you the wood. Some still goes, or the notch
+fills with its own chips and the axe stops reaching timber.
+
+It cuts animals too. A stroke that lands on one kills it outright and
+leaves a body, which is meat like any other.
+
+Swung at rock, an axe still chips it — badly, at a third of the pick's
+bite and keeping half of what it breaks. That's the right answer for
+using the wrong tool, and much better than nothing happening.
 
 ## Being buried
 

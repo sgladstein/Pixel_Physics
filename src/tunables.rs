@@ -480,6 +480,22 @@ pub fn from_player(t: &Player) -> Vec<Tunable> {
         Tunable::float(g, c, "climb_speed", t.climb_speed, 0.2, 2.0, 0.05),
         Tunable::float(g, c, "surface_hop", t.surface_hop, 0.0, 1.5, 0.05),
         Tunable::float(g, c, "dig_yield", t.dig_yield, 0.0, 1.0, 0.05),
+        // Capped at the bore box's own short side (`PLAYER_WIDTH + 2` = 9):
+        // past that a stroke is the whole box, which `bore_slice` clamps to
+        // anyway, so a wider range would be knob travel that does nothing.
+        Tunable::integer(g, c, "bore_bite", t.bore_bite as f32, 1.0, 9.0, 1.0),
+        Tunable::integer(g, c, "hammer_reach", t.hammer_reach as f32, 2.0, 40.0, 1.0),
+        // `rigid::MIN_STRIKE_RADIUS` is 6, so anything under it is the same
+        // blow -- the low end is reachable on purpose, to make that floor
+        // visible in the hand rather than only in a comment.
+        Tunable::integer(g, c, "hammer_radius", t.hammer_radius as f32, 1.0, 16.0, 1.0),
+        Tunable::float(g, c, "hammer_force", t.hammer_force, 0.0, 12.0, 0.25),
+        Tunable::integer(g, c, "hammer_cooldown", t.hammer_cooldown as f32, 1.0, 60.0, 1.0),
+        Tunable::float(g, c, "hammer_recoil", t.hammer_recoil, 0.0, 2.0, 0.05),
+        Tunable::integer(g, c, "chop_reach", t.chop_reach as f32, 2.0, 40.0, 1.0),
+        Tunable::integer(g, c, "chop_radius", t.chop_radius as f32, 1.0, 12.0, 1.0),
+        Tunable::integer(g, c, "chop_cooldown", t.chop_cooldown as f32, 1.0, 40.0, 1.0),
+        Tunable::float(g, c, "chop_yield", t.chop_yield, 0.0, 1.0, 0.05),
     ]
 }
 
@@ -512,6 +528,16 @@ pub fn apply_player(t: &mut Player, name: &str, value: f32) {
         "stroke_cooldown" => t.stroke_cooldown = value.max(1.0).round() as u8,
         "mantle_reach" => t.mantle_reach = value.max(0.0).round() as u8,
         "shake_reach" => t.shake_reach = value.max(1.0).round() as u8,
+        "bore_bite" => t.bore_bite = value.max(1.0).round() as u8,
+        "hammer_reach" => t.hammer_reach = value.max(1.0).round() as u8,
+        "hammer_radius" => t.hammer_radius = value.max(1.0).round() as u8,
+        "hammer_force" => t.hammer_force = value.max(0.0),
+        "hammer_cooldown" => t.hammer_cooldown = value.max(1.0).round() as u8,
+        "hammer_recoil" => t.hammer_recoil = value.max(0.0),
+        "chop_reach" => t.chop_reach = value.max(1.0).round() as u8,
+        "chop_radius" => t.chop_radius = value.max(1.0).round() as u8,
+        "chop_cooldown" => t.chop_cooldown = value.max(1.0).round() as u8,
+        "chop_yield" => t.chop_yield = value.clamp(0.0, 1.0),
         "shake_shed" => t.shake_shed = value,
         "shake_seed" => t.shake_seed = value,
         "climb_speed" => t.climb_speed = value,

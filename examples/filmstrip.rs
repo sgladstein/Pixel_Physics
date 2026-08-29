@@ -1342,7 +1342,11 @@ fn build_scene(args: &Args) -> World {
         // nothing and a shake that never fired are the same picture, and
         // `shake_shed` is graded by shade, so a healthy stand is *supposed*
         // to drop very little.
-        "shake" => {
+        // One walk, one stand of trees, two verbs. `scene=chop` shares the
+        // bed with `scene=shake` deliberately: the belt is the only
+        // difference between the two runs, so a pair of sheets says exactly
+        // what choosing the axe buys and costs.
+        "shake" | "chop" => {
             let mut world = gnome_stand(args);
             world.player = Some(pixel_physics::sim::player::Player::at(12, 190));
             return world;
@@ -1589,7 +1593,12 @@ fn build_scene(args: &Args) -> World {
         // over what he has thrown behind him. The massif is deep enough
         // that the tunnel never breaks through, so the whole run is the
         // confined case rather than the easy one.
-        "tunnel" => {
+        // `scene=smash` shares the bed for the same reason `chop` shares
+        // `shake`'s: the tool is the only variable, so the two sheets are
+        // a controlled pair. What differs is what the sheet is read for --
+        // the tunnel asks whether a bore opens, this asks whether the face
+        // *fails*, which is a thing the pick cannot cause at all.
+        "tunnel" | "smash" => {
             stone_floor(&mut w);
             for x in 180..WIDTH {
                 for y in (floor_y - 90)..floor_y {
@@ -2138,7 +2147,7 @@ fn build_scene(args: &Args) -> World {
             return w;
         }
         other => panic!(
-            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, bury, swim, ride, cavern, wood, climb, shake, fell"
+            "unknown scene {other:?}; known: pour, fall, shelf, blob, sand, boom, boom_stone, sandbed, waterbed, tree, forest, grove, terrain, worldgen, mine, snap, undercut, strike, worked, capped, ligament, built, room, refroom, worldcrack, gnome, tunnel, smash, bury, swim, ride, cavern, wood, climb, shake, chop, fell"
         ),
     }
     w
@@ -3604,6 +3613,18 @@ struct Gnome {
     /// again after that — the two numbers `scene=bury` exists to produce.
     went_under: Option<usize>,
     came_back: Option<usize>,
+    /// Hammer blows that broke something, and how many cells they acted
+    /// on. Counted separately from the swings that landed on air, which is
+    /// the distinction `Smash::broken` exists to make: a blow at a face and
+    /// a blow at nothing are the same picture.
+    blows: usize,
+    broken: usize,
+    /// Axe strokes, the cells they chipped out of the world, and how many
+    /// of them landed on something *living* — the last is what separates a
+    /// tree being felled from an axe hitting the rock behind it.
+    strokes: usize,
+    chips: usize,
+    living_strokes: usize,
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -3627,6 +3648,16 @@ enum Script {
     Climb,
     /// `scene=shake`: walk until a tree is in reach, then keep shaking it.
     Shake,
+    /// `scene=smash`: stand at a cliff face and hammer it. The scene the
+    /// pick cannot answer — what a blow *damages* reaches well past what
+    /// it removes, so what this is read for is whether the face fails
+    /// rather than whether a hole appears.
+    Smash,
+    /// `scene=chop`: walk until a tree is in reach, then take the axe to
+    /// it. Paired with `scene=shake` on purpose: same walk, same tree,
+    /// same button, and the belt is the whole difference between a shower
+    /// of leaves and a felled trunk.
+    Chop,
 }
 
 /// How long `Script::Wood` waits before setting off.
@@ -3651,6 +3682,8 @@ impl Gnome {
             "wood" => Script::Wood,
             "climb" => Script::Climb,
             "shake" => Script::Shake,
+            "smash" => Script::Smash,
+            "chop" => Script::Chop,
             _ => Script::Course,
         };
         Self {
@@ -3671,6 +3704,11 @@ impl Gnome {
             dusted: 0,
             went_under: None,
             came_back: None,
+            blows: 0,
+            broken: 0,
+            strokes: 0,
+            chips: 0,
+            living_strokes: 0,
         }
     }
 
@@ -3732,6 +3770,16 @@ impl Gnome {
                 right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
                 ..Default::default()
             },
+            // Walk into the face, then stand still and swing. Same shape
+            // as `Tunnel`'s alternation and for a different reason: a
+            // hammer has recoil, so holding `right` would walk him back
+            // into every blow and hide the one piece of feedback the tool
+            // has that the pick does not.
+            Script::Smash => PlayerInput { right: step_no < 120, ..Default::default() },
+            Script::Chop => PlayerInput {
+                right: step_no >= WOOD_WALK_FROM && (step_no < WOOD_WALK_FROM + CLIMB_WALK_TICKS || !self.grabbed),
+                ..Default::default()
+            },
             Script::Climb => PlayerInput {
                 right: step_no >= WOOD_WALK_FROM,
                 // Reaching only starts once he is clear of the twig — walk
@@ -3772,6 +3820,44 @@ impl Gnome {
                 }
             }
         }
+        // The hammer, once he has walked up to the face. Aimed straight
+        // ahead at his own height, which `hammer_point` then clamps onto
+        // the near face — the same shape `Script::Tunnel` uses for the
+        // pick, and for the same reason its own comment gives.
+        if self.script == Script::Smash && step_no >= 120 {
+            if let Some(p) = world.player.as_mut() {
+                p.tool = player::Tool::Hammer;
+            }
+            let (cx, cy) = world.player.as_ref().expect("scene summoned one").center();
+            if let Some(hit) = player::smash(world, (cx + 60, cy), &tuning) {
+                if hit.broken > 0 {
+                    self.blows += 1;
+                    self.broken += hit.broken;
+                }
+            }
+        }
+        // The axe, on `scene=shake`'s walk. `chop_point` snaps to the
+        // tissue under the cursor, so aiming at his own centre is aiming at
+        // whatever he is standing in — exactly the argument the shake makes
+        // for the same aim.
+        if self.script == Script::Chop && step_no >= WOOD_WALK_FROM + CLIMB_WALK_TICKS {
+            if let Some(p) = world.player.as_mut() {
+                p.tool = player::Tool::Axe;
+            }
+            let standing_in = world
+                .player
+                .as_ref()
+                .and_then(|p| player::shake_target(world, p, p.center(), &tuning));
+            if standing_in.is_some() {
+                self.grabbed = true;
+                let (cx, cy) = world.player.as_ref().expect("summoned").center();
+                if let Some(cut) = player::chop(world, (cx, cy), &tuning) {
+                    self.strokes += 1;
+                    self.chips += cut.chips;
+                    self.living_strokes += usize::from(cut.living);
+                }
+            }
+        }
         if self.script == Script::Climb {
             if let Some(p) = world.player.as_ref() {
                 if p.climbing && !self.grabbed {
@@ -3788,7 +3874,7 @@ impl Gnome {
             Script::Course | Script::Swim | Script::Ride | Script::Wood | Script::Climb => false,
             // Handled below rather than through the dig path: the same
             // left button, a different verb.
-            Script::Shake => false,
+            Script::Shake | Script::Smash | Script::Chop => false,
             Script::Tunnel => true,
             Script::Bury => step_no > 90,
         };
@@ -3849,6 +3935,20 @@ impl Gnome {
             self.displaced
         );
         s.push_str(&format!(", {} dusted", self.dusted));
+        // **Only when the tool that produces them is in his hands.** A row
+        // of zeroes on every gnome sheet is a row nobody reads, and these
+        // are exactly the "did it fire at all" counters the picture cannot
+        // supply — a hammered cliff face and an untouched one differ by a
+        // shade of grey, and an axe notch is three pixels.
+        if self.script == Script::Smash {
+            s.push_str(&format!(", {} blows landed ({} cells broken)", self.blows, self.broken));
+        }
+        if self.script == Script::Chop {
+            s.push_str(&format!(
+                ", {} strokes ({} on living tissue, {} cells chipped)",
+                self.strokes, self.living_strokes, self.chips
+            ));
+        }
         // How much material is left in the world at all. The one number
         // that says whether a bore can exist: `mine` conserves cells, so
         // without thinning this never moves and no cave is possible
