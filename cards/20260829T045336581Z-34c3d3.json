@@ -1,0 +1,158 @@
+{
+  "id": "20260829T045336581Z-34c3d3",
+  "created": "2026-08-29T04:53:36Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/pixel_physics",
+    "branch": "claude/creature-appearance-lane-a",
+    "commit": "ba6fc98",
+    "agent": null,
+    "session_id": "231a86ae-4d71-5c02-9344-cb334f168db7",
+    "user": null,
+    "cwd": "/home/user/pixel_physics"
+  },
+  "title": "What should a creature look like: five body plans, same colony",
+  "question": "Which of these reads as an animal you can find and follow? A is what ships today — can you find one?",
+  "context_md": "**The question: what should a creature look like?** Five body plans, same\nworld, same seed, same colony, same 600 frames, same crop. Walking, so use the\nscrubber — one of the four creature cards in this queue's history came back\n\"need an animation to tell\".\n\n**A is what ships today.** Everything here is authored data — `body:` in a\nspecies file and a palette in a material file. No engine code changed.\n\nThe scene is deliberately the *easiest* picture a small dark body will ever be\nin: bare grey rock against a lit sky. The colony picture that started this was a\nvegetated wetland, which is harder.\n\n**What the numbers under each pane mean.** `ink` is how much luminance the\nbodies put on screen that the ground would not have put there anyway — measured\nby rendering the same world twice, with the animals and without. `decoys` is the\none that explains the picture: how many *other* places in this frame are at\nleast as different from their surroundings as the animal is. A pixel-art world's\ntexture is 1–2 cell luminance noise, so a 2-cell animal is competing with every\nrock edge and every leaf.\n\nAt the contrast a dark body actually achieves here, holding the threshold fixed\nand moving only the body's size:\n\n| body size | decoys in one frame |\n|---|---|\n| 1 cell | 337 |\n| **2 cells (ships today)** | **126** |\n| 4 cells | 57 |\n| 9 cells | 13 |\n| 16 cells | 0 |\n\n**E is the palette arm and it is the same body as C**, bit-identical run, only\nthe colours differ — so the pair prices hue/value on its own. It costs 9 cells\nand puts *less* on screen than the 2-cell ant does.\n",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — shipped ant (Chain 2)",
+      "files": [
+        "20260829T045336581Z-34c3d3/000-card-ant-00.png",
+        "20260829T045336581Z-34c3d3/001-card-ant-01.png",
+        "20260829T045336581Z-34c3d3/002-card-ant-02.png",
+        "20260829T045336581Z-34c3d3/003-card-ant-03.png",
+        "20260829T045336581Z-34c3d3/004-card-ant-04.png",
+        "20260829T045336581Z-34c3d3/005-card-ant-05.png",
+        "20260829T045336581Z-34c3d3/006-card-ant-06.png",
+        "20260829T045336581Z-34c3d3/007-card-ant-07.png",
+        "20260829T045336581Z-34c3d3/008-card-ant-08.png",
+        "20260829T045336581Z-34c3d3/009-card-ant-09.png",
+        "20260829T045336581Z-34c3d3/010-card-ant-10.png",
+        "20260829T045336581Z-34c3d3/011-card-ant-11.png"
+      ],
+      "caption": "2 cells. What ships today.",
+      "meta": {
+        "creatures in frame": 23,
+        "cells per creature": 2.0,
+        "ink per creature": 285,
+        "moves blocked": "6%",
+        "placed": "23 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "B — long chain (Chain 6)",
+      "files": [
+        "20260829T045336581Z-34c3d3/012-card-ant_long-00.png",
+        "20260829T045336581Z-34c3d3/013-card-ant_long-01.png",
+        "20260829T045336581Z-34c3d3/014-card-ant_long-02.png",
+        "20260829T045336581Z-34c3d3/015-card-ant_long-03.png",
+        "20260829T045336581Z-34c3d3/016-card-ant_long-04.png",
+        "20260829T045336581Z-34c3d3/017-card-ant_long-05.png",
+        "20260829T045336581Z-34c3d3/018-card-ant_long-06.png",
+        "20260829T045336581Z-34c3d3/019-card-ant_long-07.png",
+        "20260829T045336581Z-34c3d3/020-card-ant_long-08.png",
+        "20260829T045336581Z-34c3d3/021-card-ant_long-09.png",
+        "20260829T045336581Z-34c3d3/022-card-ant_long-10.png",
+        "20260829T045336581Z-34c3d3/023-card-ant_long-11.png"
+      ],
+      "caption": "6 cells in a following chain. Flows over rough ground exactly as the 2-cell ant does.",
+      "meta": {
+        "creatures in frame": 18,
+        "cells per creature": 5.7,
+        "ink per creature": 828,
+        "moves blocked": "3%",
+        "placed": "18 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "C — compact block (Rigid 3x3)",
+      "files": [
+        "20260829T045336581Z-34c3d3/024-card-ant_block-00.png",
+        "20260829T045336581Z-34c3d3/025-card-ant_block-01.png",
+        "20260829T045336581Z-34c3d3/026-card-ant_block-02.png",
+        "20260829T045336581Z-34c3d3/027-card-ant_block-03.png",
+        "20260829T045336581Z-34c3d3/028-card-ant_block-04.png",
+        "20260829T045336581Z-34c3d3/029-card-ant_block-05.png",
+        "20260829T045336581Z-34c3d3/030-card-ant_block-06.png",
+        "20260829T045336581Z-34c3d3/031-card-ant_block-07.png",
+        "20260829T045336581Z-34c3d3/032-card-ant_block-08.png",
+        "20260829T045336581Z-34c3d3/033-card-ant_block-09.png",
+        "20260829T045336581Z-34c3d3/034-card-ant_block-10.png",
+        "20260829T045336581Z-34c3d3/035-card-ant_block-11.png"
+      ],
+      "caption": "9 cells, the most compact arrangement 9 cells have.",
+      "meta": {
+        "creatures in frame": 20,
+        "cells per creature": 9.0,
+        "ink per creature": 1285,
+        "moves blocked": "26%",
+        "placed": "20 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "D — wide body (Rigid 5x2, waisted)",
+      "files": [
+        "20260829T045336581Z-34c3d3/036-card-ant_wide-00.png",
+        "20260829T045336581Z-34c3d3/037-card-ant_wide-01.png",
+        "20260829T045336581Z-34c3d3/038-card-ant_wide-02.png",
+        "20260829T045336581Z-34c3d3/039-card-ant_wide-03.png",
+        "20260829T045336581Z-34c3d3/040-card-ant_wide-04.png",
+        "20260829T045336581Z-34c3d3/041-card-ant_wide-05.png",
+        "20260829T045336581Z-34c3d3/042-card-ant_wide-06.png",
+        "20260829T045336581Z-34c3d3/043-card-ant_wide-07.png",
+        "20260829T045336581Z-34c3d3/044-card-ant_wide-08.png",
+        "20260829T045336581Z-34c3d3/045-card-ant_wide-09.png",
+        "20260829T045336581Z-34c3d3/046-card-ant_wide-10.png",
+        "20260829T045336581Z-34c3d3/047-card-ant_wide-11.png"
+      ],
+      "caption": "9 cells again — the same extent as C, laid out long and low with a one-cell waist. The arm that asks whether shape at constant size moves anything.",
+      "meta": {
+        "creatures in frame": 18,
+        "cells per creature": 9.0,
+        "ink per creature": 1285,
+        "moves blocked": "39%",
+        "placed": "18 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "E — C's body, pale palette",
+      "files": [
+        "20260829T045336581Z-34c3d3/048-card-chitin_pale-00.png",
+        "20260829T045336581Z-34c3d3/049-card-chitin_pale-01.png",
+        "20260829T045336581Z-34c3d3/050-card-chitin_pale-02.png",
+        "20260829T045336581Z-34c3d3/051-card-chitin_pale-03.png",
+        "20260829T045336581Z-34c3d3/052-card-chitin_pale-04.png",
+        "20260829T045336581Z-34c3d3/053-card-chitin_pale-05.png",
+        "20260829T045336581Z-34c3d3/054-card-chitin_pale-06.png",
+        "20260829T045336581Z-34c3d3/055-card-chitin_pale-07.png",
+        "20260829T045336581Z-34c3d3/056-card-chitin_pale-08.png",
+        "20260829T045336581Z-34c3d3/057-card-chitin_pale-09.png",
+        "20260829T045336581Z-34c3d3/058-card-chitin_pale-10.png",
+        "20260829T045336581Z-34c3d3/059-card-chitin_pale-11.png"
+      ],
+      "caption": "C exactly, repainted. Same seed, same body, bit-identical run — only the colours differ.",
+      "meta": {
+        "creatures in frame": 20,
+        "cells per creature": 9.0,
+        "ink per creature": 245,
+        "moves blocked": "26%",
+        "placed": "20 of 40"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
