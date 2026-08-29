@@ -439,3 +439,63 @@ The architectural finding in §2 and §3 survives either verdict, because it is
 not about plants: the pixels are already on the screen and cost 13% more to
 spend. What would fall is only the claim that spending them on *this* fixes
 the plants.
+
+
+## 13. Stop tuning: three approaches that differ in *what* they change
+
+The control of §12a came back **"I need to see a timelapse of it growing"** —
+a redirect rather than a verdict, and a fair one: a still cannot answer whether
+a stand looks right, and the review skill says the same in its own words. Asked
+at the same time for three approaches to compare.
+
+`examples/plantlook.rs` is that. It is deliberately **not three tunings** of
+the reconstruction — §12 established that trend is flat — so the three differ
+in what they change, and each is a distinct, falsifiable bet about why plants
+look wrong:
+
+| arm | shape primitive | the bet |
+|---|---|---|
+| `shipped` | one cell, one square | the control |
+| `masses` | **a whole crown region** | the primitive is too *small*: a tree's silhouette is a few overlapping foliage masses, and drawing hundreds of little ones is why it reads as speckle |
+| `stamps` | **an authored leaf clump** | the simulation should say *where* foliage is and **art** should say what it looks like — which is how 2D games actually draw trees |
+| `tone` | **unchanged** | it is not shape at all: wood and leaf sit at the same value, every tree is lit identically, and a stand has no depth |
+
+**`tone` is the one to read carefully.** It changes no pixel's shape — every
+cell is still exactly its own square, drawn at 1:1 and magnified like the
+control — so if the stand reads better under it, four rounds of silhouette work
+were aimed at the wrong quantity, and the cheapest arm is the answer. That is a
+result worth having either way, which is why it is in the set.
+
+All four share one simulation per capture, so at any scrubber position the
+panes are the same stand at the same instant. Growth runs 155 plant cells to
+14,857 across eight frames.
+
+### 13a. Two arms were wrong on the first render, and looking is what caught it
+
+Neither would have been caught by a counter: both *fired*, on every cell they
+were supposed to, and produced a plausible picture.
+
+- **`masses` fused the entire stand into one green hedge with no tree in it.**
+  The radius was `1.5 * sqrt(n)` — set by eye, and 4.4x too wide at a full
+  bucket. The fix is not taste but arithmetic: a blob standing in for `n` cells
+  should *cover* about `n` cells, so `r = sqrt(n/pi)`. Area is what a count
+  buys, and writing the radius as a free constant hid that.
+- **`tone` striped trees mid-canopy** instead of layering the stand. Its
+  near/far bit was derived by walking left along connected cells to find a
+  "trunk column" — which only follows a horizontal *run*, a few cells wide
+  inside a crown, so the bit flipped several times within one tree. The engine
+  already knows which plant a cell belongs to (`Cell::organism_id`); the
+  doc comment justifying the walk had talked itself out of using it.
+
+Both are the same mistake in different costumes: **a quantity was derived from
+local geometry when the engine already held the real answer.** That is the
+sibling of §5d's pair, one level up — there the lattice was read where it had
+nothing to say, here the geometry was.
+
+### 13b. The refactor was proved, not assumed
+
+Clippy found four real problems after the frames were rendered (a five-element
+tuple return, two eight-argument functions, a range loop), and fixing them
+touched every drawing path. A behaviour-preserving refactor that silently is
+not one would have invalidated the posted card. Re-rendered and compared: **all
+four arms byte-identical to the frames the owner is looking at.**
