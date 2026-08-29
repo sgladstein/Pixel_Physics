@@ -391,3 +391,51 @@ times the cost of drawing the pixel it decorates. That is the number the
 remaining work has to move, and **it is a reason to get the verdict on the
 look first** — optimising a picture nobody has approved is the mistake
 `CLAUDE.md` calls "check that a planned step can demonstrate itself".
+
+
+## 12. Third round: not clearly better, and what that costs the approach
+
+Card `20260829T090050407Z-b3bfd3` — the flat, rough-edged, exact-palette
+reconstruction against the shipped 1:1 render, which is the comparison §10's
+verdict asked for. Answered with no pane selected:
+
+> *"It is different but not clearly better"*
+
+**That is the bar not cleared.** Three rounds now read, in order: rejected as
+3-D-ish; better than the rejected one but *"not saying it is better than the
+current implementation"*; and different but not clearly better. The trend is
+flat, and `CLAUDE.md` is explicit about what a trend like that means —
+*"two fixes failing the same way means the approach is wrong, not the
+tuning."* A fourth tuning pass is not the move.
+
+### 12a. But one rider was constant across all three, and that is the other rule
+
+Its sibling: *"when every setting of a sweep fails the same way, suspect the
+sweep"* — before condemning an approach, run the control that isolates it.
+
+Every arm put in front of the owner held `leaf_r` at 1.3, so **foliage painted
+roughly its own cell area in all three**. Every image was therefore the same
+brown-twig-dominated tree with differently-drawn twigs: rounded twigs, flat
+twigs, ragged flat twigs. The composition — a stand that is ~90% wood by cell
+count and reads as brown wire with green speckle — never varied, and it is
+precisely what `plant-appearance-design.md` §1 identifies as the thing that
+sets the silhouette.
+
+That is the rider, and §5e already showed the lever that moves it. Combining
+them was never put in front of anyone. Posted as the isolating control, with
+the question framed so that a fourth *no* is still information: **is it the
+drawing, or is it the tree?**
+
+### 12b. What a second "no" would establish
+
+Worth writing down before the answer arrives, so it is not reasoned backwards
+from afterwards. If a foliage-dominant crown also reads as not clearly better,
+then the honest conclusion is that **rendering is not what is wrong with the
+plants** — the sub-cell reconstruction is a real capability that does not
+address this complaint, and the work to do is on what the growth model
+produces rather than on how it is drawn.
+
+The architectural finding in §2 and §3 survives either verdict, because it is
+not about plants: the pixels are already on the screen and cost 13% more to
+spend. What would fall is only the claim that spending them on *this* fixes
+the plants.
