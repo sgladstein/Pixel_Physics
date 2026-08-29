@@ -37,9 +37,43 @@
 //! * **first-pickup** — frames to the first one. A rate question, not a
 //!   total.
 //!
+//! # What it costs, and which question the defaults can answer
+//!
+//! **Measured 2026-08-29 on a 4-core cloud container**, release build, box
+//! otherwise idle. Runtime is linear in `arms x seeds x frames` at
+//! **~1.39 ms per arm-run-frame** (two points: `seeds=1 frames=600` in 14 s,
+//! `seeds=1 frames=6000` in 164 s, fixed setup cost indistinguishable from
+//! zero). There are **20 arms** — control, authored, 6 locomotion
+//! sign-sweeps and 12 single-instinct ablations — so:
+//!
+//! | invocation | cost |
+//! |---|---|
+//! | **defaults** (`seeds=5 frames=6000`) | **~890 s, just under 15 minutes** |
+//! | `seeds=1 frames=6000` | ~165 s |
+//! | `seeds=6 frames=8000` (the line below) | ~22 min |
+//!
+//! **It does not buffer.** A session killed it at 600 s and read the silence
+//! as everything being held to the end; Rust's stdout is a `LineWriter`, the
+//! header lands at 0 s and the first arm row at 33 s. What actually happened
+//! is that the defaults need ~890 s and the kill landed two thirds of the
+//! way through. The per-arm and per-seed progress lines now go to **stderr**
+//! so the meter is visible without disturbing the stdout table, which stays
+//! byte-clean for diffing.
+//!
+//! **The defaults answer the locomotion question and cannot answer the
+//! feeding one.** At `terrain=rough food=corpse pile` every arm reports
+//! `deliv 0.0` and `eats 0.0` — a finite corpse pile is the food source
+//! `ascii.rs` records as producing "2.5 pickups and *zero* deliveries per
+//! run". The separation on locomotion is emphatic (authored minus control:
+//! travelled 73.6, coverage 1273, roamed 0.99), so *"is the brain doing
+//! anything"* is answered yes on movement. For anything about carrying food
+//! home, run `terrain=world food=trees`, which is the configuration
+//! `ascii.rs`'s own comment quotes its 28.8 deliveries from.
+//!
 //! ```text
 //! cargo run --release --example ant_ablation
 //! cargo run --release --example ant_ablation -- seeds=6 frames=8000
+//! cargo run --release --example ant_ablation -- terrain=world food=trees
 //! ```
 
 use std::collections::HashSet;
@@ -193,9 +227,30 @@ fn main() {
         "arm", "travelled", "commute", "coverage", "roamed", "foraged", "first-pickup", "pickups", "deliv", "eats", "digs"
     );
 
+    // **What this costs, said before it is spent, and progress while it is.**
+    // The harness was killed at 600 s by a session that read the silence as
+    // "it buffers everything to the end". It does not -- Rust's stdout is a
+    // `LineWriter`, and the header lands at 0 s -- but a 20-arm run at the
+    // defaults takes ~14 minutes on a 4-core container and the gaps between
+    // arm rows are up to 90 s, which is long enough to look hung. A control
+    // nobody can afford to run is not a control, so it says up front what it
+    // is about to cost and then shows the meter moving.
+    //
+    // On **stderr** deliberately: the arm table on stdout stays byte-clean,
+    // so `> log` still diffs against a previous run.
+    let started = std::time::Instant::now();
+    eprintln!("[ant_ablation] {} arms x {seeds} seeds x {frames} frames; expect roughly {:.0} min on 4 cores", arms.len(), (arms.len() * seeds as usize * frames) as f64 * 1.39e-3 / 60.0);
+
     let mut control = Metrics::default();
     for (n, (label, instincts)) in arms.iter().enumerate() {
-        let runs: Vec<Metrics> = (0..seeds).map(|s| run_one(instincts, frames, 0xA17 + s, rough, world_terrain, trees)).collect();
+        eprintln!("[ant_ablation] arm {}/{} {label:?} starting at {:.0} s", n + 1, arms.len(), started.elapsed().as_secs_f64());
+        let runs: Vec<Metrics> = (0..seeds)
+            .map(|s| {
+                let m = run_one(instincts, frames, 0xA17 + s, rough, world_terrain, trees);
+                eprintln!("[ant_ablation]   arm {}/{} seed {}/{seeds} done at {:.0} s", n + 1, arms.len(), s + 1, started.elapsed().as_secs_f64());
+                m
+            })
+            .collect();
         let m = mean(&runs);
         if n == 0 {
             control = m;
@@ -230,6 +285,7 @@ fn main() {
             println!();
         }
     }
+    eprintln!("[ant_ablation] all {} arms done in {:.0} s", arms.len(), started.elapsed().as_secs_f64());
 }
 
 fn mean(runs: &[Metrics]) -> Metrics {

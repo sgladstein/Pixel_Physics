@@ -84,7 +84,7 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 |---|---|---|
 | `creature_probe` | What a creature is sensing and deciding, per tick | |
 | `creature_space` | **How many distinguishable ways of being an ant does this system admit?** | |
-| `ant_ablation` | Is the authored brain doing anything, or is it the substrate? | The control that separates a mechanism from its scaffolding |
+| `ant_ablation` | Is the authored brain doing anything, or is it the substrate? | The control that separates a mechanism from its scaffolding. **~15 min at its defaults** (20 arms x 5 seeds x 6,000 frames, ~1.39 ms per arm-run-frame, measured 2026-08-29 on 4 cores); progress goes to stderr. Its defaults answer the *locomotion* question only — `deliv` and `eats` are 0.0 in every arm on a corpse pile. Use `terrain=world food=trees` for anything about foraging |
 | `forage_probe` | Does the colony actually range, and how far? | |
 | `gnome_depth` | Does the gnome weave *through* a formation, or get sliced *by* it? | |
 

@@ -1893,23 +1893,43 @@ fn forage_loop_scene() {
     // never left the nest mouth passes it trivially**.
     assert!(st.nest_visits > 0, "no ant was ever next to the nest at all");
     // The real one. **Bars set from measurement on this tree, with
-    // headroom** -- not from an aspiration, and not inherited: this scene
-    // measures **98 trips, deepest 18, mean depth 10.3** over 12,000 frames
-    // after the litter merge. A branch that predates the merge measured 143
-    // and 19 on the same scene, so a bar carried over from it would have sat
-    // above what the code now does. That gap is the litter effect, not a
-    // regression -- see the README's S1-S4 limitations.
+    // headroom** -- not from an aspiration, and not inherited.
     //
-    // A seventh of the trip count and under half the depth, because outcome
-    // spread here is large and a bar near the measurement flakes.
+    // **Re-baselined 2026-08-29 on `main` at `ba6fc98`, and the old figures
+    // are kept beside the new ones because the gap is the finding.** This
+    // scene measured **98 trips, deepest 18, mean depth 10.3** after the
+    // litter merge (2026-08-23), and the bar below was set at a seventh of
+    // that. It now measures **24 trips, deepest 37, mean depth 17.4** --
+    // four times fewer excursions, each twice as deep. Neither number was
+    // touched by creature code: the sky/soil worldgen work (`39e6f36`,
+    // 2026-08-29) reshaped the terrain the colony forages over.
+    //
+    // **The bar had therefore gone fragile without anyone editing it.** At
+    // `>= 14` against a measurement of 24 it sat at 58% of the value, which
+    // is the "bar near the measurement flakes" case this comment warns
+    // about, while still telling the reader the measurement was 98. It is
+    // now **6**: the largest legitimate drift on record is the 4.1x this
+    // paragraph documents, and 24/4.1 is 5.8, so another drift as big as the
+    // one that just happened still passes while the failure the guard is
+    // named for -- a sessile colony, which scores exactly 0 -- still fails.
+    // Lowering a bar weakens it, and that trade is stated rather than
+    // hidden: a genuine 2x foraging regression would now pass here.
+    //
+    // **What this bar cannot do, recorded rather than fixed.** The scene
+    // generates terrain at a hardcoded `seed: 1`, so this is a single-seed
+    // bar over procedural content -- `CLAUDE.md`'s "a guard over a
+    // procedural system has to sweep the procedure, and it should gate an
+    // order statistic". Run-to-run it is exact (two full `ascii` runs are
+    // bit-identical), so the spread it is blind to is seed spread, not
+    // noise. `forage_probe seeds=N` is the instrument that has that axis.
     //
     // What this catches that nothing else did: the colony going sessile.
     // Every counter above stays healthy for a colony milling around the
     // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
     // and this is the only one that goes to zero.
     assert!(
-        st.forage_trips >= 14,
-        "the colony has gone sessile: {} round trips of {}+ cells (measured 98 here), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips >= 6,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 24 here on 2026-08-29; was 98 on 2026-08-23), deepest excursion {} cells, reach profile {:?}",
         st.forage_trips,
         pixel_physics::sim::creature::FORAGE_TRIP_MIN,
         st.forage_depth_max,
@@ -1917,7 +1937,7 @@ fn forage_loop_scene() {
     );
     assert!(
         st.forage_depth_max >= 8,
-        "no ant got further than {} cells from home (measured 18 here)",
+        "no ant got further than {} cells from home (measured 37 here on 2026-08-29; was 18 on 2026-08-23 -- the bar stays at 8, which is now 4.6x headroom)",
         st.forage_depth_max
     );
     let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
