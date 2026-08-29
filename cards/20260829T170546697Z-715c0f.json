@@ -1,0 +1,42 @@
+{
+  "id": "20260829T170546697Z-715c0f",
+  "created": "2026-08-29T17:05:46Z",
+  "board": "caves",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The stalactites are still hairlines",
+  "question": "For the tall ones: should a floor-to-ceiling column be about as thick as the gnome is wide, or thicker than that?",
+  "context_md": "Third time you have said these are one pixel thick, so this time here is the measurement beside the picture.\n\nThe two vertical lines to the right of the gnome are single cells wide for their whole length, top to bottom. The small white cluster at the bottom right is what a formation is supposed to look like — that one worked. Across a full-size world a quarter of every formation comes out as a hairline, and it is the **tall** ones that do: the short ones get their taper and the long ones do not.\n\nThe generator has been reporting these as 22 cells wide, because it was measuring the width it meant to draw rather than the width that reached the rock. That is fixed and the honest number is on the card.\n\nAlso worth your eye: the gravel ledge he is standing on is a dead-straight ruled line, and the crystal bottom-left reads as a white smear rather than as a crystal.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "inside the biggest room, terraced seed 1",
+      "files": [
+        "20260829T170546697Z-715c0f/000-terraced_forms.png"
+      ],
+      "caption": "",
+      "meta": {
+        "formations that are one cell wide": "25% of all of them",
+        "typical width over a formation's whole length": "6.5 cells",
+        "width the generator claimed it drew": "22 cells",
+        "gnome is": "7 wide, 14 tall"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
