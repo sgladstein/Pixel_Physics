@@ -135,9 +135,9 @@ Two traps, both hit here before the numbers were right:
   `assets/species/chitin_pale.ron` — candidates and probes. At most one should
   survive the owner's choice; **none of them should land as-is.**
 
-**Head SHA: `77b43a1aa2063bb9b3323405b67dbf6e7958b82e`, plus exactly one commit
-on top of it** — the one that stamped this line, which a note can never name
-without changing it. `git log -1 origin/claude/creature-appearance-lane-a` is
-the head; everything below it is the work. Gates on `77b43a1`: `cargo test --lib` 1,005
-passed / 0 failed / 54 ignored, `clippy --all-targets -D warnings` green on
-1.94.1 and on CI's 1.98.0, `docscheck` clean.
+**Head SHA: `d7f7d2373620ca7ef66df1ecf0f97fadb15e7823` plus exactly one commit on top of it** — the one
+that stamped this line, which a note can never name without changing it.
+`git log -1 origin/claude/creature-appearance-lane-a` is the head; everything
+below it is the work. `main` is merged in at `a7b2dd9`. Gates: `cargo test
+--lib` 1,005 passed / 0 failed / 54 ignored, `clippy --all-targets -D
+warnings` green on 1.94.1 and on CI's 1.98.0, `docscheck` clean.
