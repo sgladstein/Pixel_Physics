@@ -1,0 +1,110 @@
+{
+  "id": "20260829T150002405Z-82ae3b",
+  "created": "2026-08-29T15:00:02Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "492428d",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Felling, second attempt — the crown now swings on the stump",
+  "question": "Does either one read as a tree hinging at the trunk and going over, rather than coming apart and dropping? And is the extra breakage on impact right, or too much?",
+  "context_md": "**This is your last verdict acted on.** You said: *\"because the whole thing just comes apart and falls directly downward, it looks unrealistic ... it should hinge at the trunk, hit the ground, and the bottom branches break off from the impact ... not just unzip and fall to the ground.\"*\n\nYou were describing the code exactly. The crown was being cut into **56 separate pieces at the instant of the cut**, before a single cell had moved — so there was never a tree to hinge, just fifty-six independent drops. It still comes apart into pieces (that is what stopped it reading as sawdust), but every piece now shares one hinge on the stump: a piece high up travels several times faster than one near the base, so the whole thing sweeps over as one, the base arrives first, and the hinge lets go on impact.\n\n**The trade, which is the second half of the question.** Swinging means it hits harder, and more wood breaks on landing: the pieces left as solid log drop from 732 cells to 587, with the difference going to loose broken wood. Some of that is what you asked for — branches breaking off from the impact — and some of it may be too much. The counters under each pane say which is which.\n\n**Still not fixed and not what this asks:** the leaves. You are right that too many come off the branch; that is next and it is a separate mechanism.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260829T150002405Z-82ae3b/000-ctl_00.png",
+        "20260829T150002405Z-82ae3b/001-ctl_01.png",
+        "20260829T150002405Z-82ae3b/002-ctl_02.png",
+        "20260829T150002405Z-82ae3b/003-ctl_03.png",
+        "20260829T150002405Z-82ae3b/004-ctl_04.png",
+        "20260829T150002405Z-82ae3b/005-ctl_05.png",
+        "20260829T150002405Z-82ae3b/006-ctl_06.png",
+        "20260829T150002405Z-82ae3b/007-ctl_07.png",
+        "20260829T150002405Z-82ae3b/008-ctl_08.png",
+        "20260829T150002405Z-82ae3b/009-ctl_09.png",
+        "20260829T150002405Z-82ae3b/010-ctl_10.png",
+        "20260829T150002405Z-82ae3b/011-ctl_11.png",
+        "20260829T150002405Z-82ae3b/012-ctl_12.png",
+        "20260829T150002405Z-82ae3b/013-ctl_13.png",
+        "20260829T150002405Z-82ae3b/014-ctl_14.png",
+        "20260829T150002405Z-82ae3b/015-ctl_15.png",
+        "20260829T150002405Z-82ae3b/016-ctl_16.png",
+        "20260829T150002405Z-82ae3b/017-ctl_17.png",
+        "20260829T150002405Z-82ae3b/018-ctl_18.png",
+        "20260829T150002405Z-82ae3b/019-ctl_19.png",
+        "20260829T150002405Z-82ae3b/020-ctl_20.png",
+        "20260829T150002405Z-82ae3b/021-ctl_21.png",
+        "20260829T150002405Z-82ae3b/022-ctl_22.png",
+        "20260829T150002405Z-82ae3b/023-ctl_23.png",
+        "20260829T150002405Z-82ae3b/024-ctl_24.png",
+        "20260829T150002405Z-82ae3b/025-ctl_25.png",
+        "20260829T150002405Z-82ae3b/026-ctl_26.png",
+        "20260829T150002405Z-82ae3b/027-ctl_27.png"
+      ],
+      "caption": "as it landed this morning — pieces fall independently",
+      "meta": {
+        "wood left as solid log, in cells": 732,
+        "wood left as loose broken pieces": 589,
+        "pieces that came to rest lying down": 26,
+        "pieces left standing on end": 32
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260829T150002405Z-82ae3b/028-hinge_00.png",
+        "20260829T150002405Z-82ae3b/029-hinge_01.png",
+        "20260829T150002405Z-82ae3b/030-hinge_02.png",
+        "20260829T150002405Z-82ae3b/031-hinge_03.png",
+        "20260829T150002405Z-82ae3b/032-hinge_04.png",
+        "20260829T150002405Z-82ae3b/033-hinge_05.png",
+        "20260829T150002405Z-82ae3b/034-hinge_06.png",
+        "20260829T150002405Z-82ae3b/035-hinge_07.png",
+        "20260829T150002405Z-82ae3b/036-hinge_08.png",
+        "20260829T150002405Z-82ae3b/037-hinge_09.png",
+        "20260829T150002405Z-82ae3b/038-hinge_10.png",
+        "20260829T150002405Z-82ae3b/039-hinge_11.png",
+        "20260829T150002405Z-82ae3b/040-hinge_12.png",
+        "20260829T150002405Z-82ae3b/041-hinge_13.png",
+        "20260829T150002405Z-82ae3b/042-hinge_14.png",
+        "20260829T150002405Z-82ae3b/043-hinge_15.png",
+        "20260829T150002405Z-82ae3b/044-hinge_16.png",
+        "20260829T150002405Z-82ae3b/045-hinge_17.png",
+        "20260829T150002405Z-82ae3b/046-hinge_18.png",
+        "20260829T150002405Z-82ae3b/047-hinge_19.png",
+        "20260829T150002405Z-82ae3b/048-hinge_20.png",
+        "20260829T150002405Z-82ae3b/049-hinge_21.png",
+        "20260829T150002405Z-82ae3b/050-hinge_22.png",
+        "20260829T150002405Z-82ae3b/051-hinge_23.png",
+        "20260829T150002405Z-82ae3b/052-hinge_24.png",
+        "20260829T150002405Z-82ae3b/053-hinge_25.png",
+        "20260829T150002405Z-82ae3b/054-hinge_26.png",
+        "20260829T150002405Z-82ae3b/055-hinge_27.png"
+      ],
+      "caption": "one hinge on the stump; it lets go on impact",
+      "meta": {
+        "wood left as solid log, in cells": 587,
+        "wood left as loose broken pieces": 636,
+        "pieces that came to rest lying down": 29,
+        "pieces left standing on end": 37
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
