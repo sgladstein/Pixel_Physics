@@ -37,13 +37,22 @@ founder genome, so there is one operator rather than two. The confound is
 **counted** rather than designed out: mutants reaching an organ on a base that
 cannot ripen one get their own column.
 
-**What it cost, on the woody base:**
+**What it cost, on the woody base.** Two runs; the 120-mutant one is the
+measurement and the 40-mutant one is reported beside it because it is the
+`tree retarget` cell of §2's table, and it reads seven points low.
 
-| `base=tree op=retarget`, n=38 effective | established |
-|---|---|
-| all effective | **74%** (on record, via the lookalike: 92%) |
-| reaches `Flower`/`Fruit` (n=9) | 44% |
-| stays inside the old six types (n=29) | 83% |
+| `base=tree op=retarget` | n=38 | **n=112** | 1 SE |
+|---|---|---|---|
+| all effective | 74% | **85%** | ±3 |
+| reaches `Flower`/`Fruit` | 44% (n=9) | **56%** (n=25) | ±10 |
+| stays inside the old six types | 83% (n=29) | **93%** (n=87) | ±3 |
+
+**The non-organ subset reproduces the recorded 92% to 0.4 SE.** That is the
+strongest control this measurement has: the round trip through `to_table` and
+RON is faithful, the sampling-scheme change is worth nothing detectable, and
+**the two organ types are the entire effect** — 37 points between the two
+subsets, 3.6 SE. The headline moves from 92% to 85% because 22% of retargets
+now reach an organ the woody base cannot ripen.
 
 `base=herb` reproduces its recorded **97%** exactly, which is the control: herb's
 draw set was already 8 types and herb can actually ripen an organ, so nothing
@@ -79,6 +88,10 @@ control back as a result.
 | `herb` | recondition | 40 | 3 | 23 | 17 | **42%** | 17/17 |
 | `herb` | insert | 40 | 0 | 33 | 7 | **18%** | 7/7 |
 | `herb` | delete | 40 | 0 | 21 | 19 | **48%** | 19/19 |
+
+The one cell in this table with a tightened value is `tree retarget`: at n=112
+it reads **85%**, not 74% (§1). It is left at n=40 here so the table is one
+experiment at one N.
 
 Of 46 effective mutations across the three unmeasured operators, **46 lived.**
 The unmeasured operators are not a hazard; they are close to a no-op.
@@ -164,9 +177,13 @@ plant that cannot grow; that is an owner call, and it now has numbers under it.
 - **One world seed** (7). Legitimate for a rate over *mutations* — a mutation
   that destroys the frontier destroys it at any seed — and not for comparing
   arms. Per-arm seed counts in the logs are not comparable to each other.
-- **n = 40 per cell.** The `tree` retarget headline (74% against a recorded
-  92%) is about two standard errors at n=38, and the organ split rests on n=9.
-  See the addendum for the tightened run.
+- **n = 40 per cell**, everywhere except `tree retarget`, which was re-run at
+  120 for the reason §1 gives — at n=38 the organ split rested on n=9 and did
+  not separate. It does at n=112 (3.6 SE). **The other seven cells are still
+  n=40** and carry the matching uncertainty; none of them is load-bearing in
+  the same way, because the claim they support is *"this operator hardly ever
+  does anything"* and the counts there are 0, 1, 3, 7, 17 and 19 — the
+  question is not where a rate sits inside a few points.
 - **Viability is not fitness.** "17/17 lived" says the substrate tolerates the
   change, not that the change is any good. Within-genome spread here runs
   31–153 cells, so the seed counts are hypotheses.
