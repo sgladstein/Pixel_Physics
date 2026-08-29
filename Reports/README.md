@@ -811,25 +811,38 @@ drift that two of these documents still reflect.**
   section before quoting any field timing; both earlier versions of this
   file were wrong because they did not.
 - [frame-cost-audit-2026-08.md](frame-cost-audit-2026-08.md) —
-  **measurement of record for whole-frame cost.** The first attribution of
-  `App::update` as a whole, at the shipped 8192x2560 size: 30.1 ms amortised
-  with nobody playing, 79% of frames over the 16.6 ms budget. Reranked the
-  performance backlog — issue #2 down (the sweep is a tenth of the frame),
-  `plant::step_organisms` up (a quarter of it, and in no plan). Read it
-  before quoting any per-phase cost; `field-settling-2026-08.md` remains the
-  record for the field's *internal* split and is not contradicted here.
-  **Half a number, and it says so itself**: it times `App::update`, and the
-  renderer is not in it — see `renderer-frame-cost-2026-08-29.md`, which owns
-  the other half.
-- [renderer-frame-cost-2026-08-29.md](renderer-frame-cost-2026-08-29.md) —
-  **measurement of record for `Renderer::draw`, and a fix.** A full redraw on
-  the shipped world went **39.6 ms to 2.5 ms**, byte-identical: 94% of it was
-  the crystal-glow splat, rebuilt on essentially every frame because its
-  trigger read `force_full` — which is true whenever the cursor is over the
-  window. Carries the phase split (`PIXEL_PHYSICS_DRAW_TIMING`) that no
-  instrument here had, and **corrects the perf lane's attribution of the same
-  cost to `sky_rows`**: the step it found is the glowing-cell count crossing
-  a geode, not the sky.
+  **measurement of record for how `App::update` divides.** The first
+  attribution of `App::update` as a whole, at the shipped 8192x2560 size:
+  30.1 ms amortised with nobody playing, 79% of frames over the 16.6 ms
+  budget. Reranked the performance backlog — issue #2 down (the sweep is a
+  tenth of the frame), `plant::step_organisms` up (a quarter of it, and in no
+  plan). Read it before quoting any per-phase cost; `field-settling-2026-08.md`
+  remains the record for the field's *internal* split and is not contradicted
+  here. **Its headline is no longer the frame** — see the next entry, which
+  extends rather than supersedes it.
+- [frame-cost-the-render-half-2026-08-29.md](frame-cost-the-render-half-2026-08-29.md)
+  — **measurement of record for the whole frame, simulation *and* render.**
+  `App::update` has fallen to 18.9 ms (±1%, measured on this job), so the
+  simulation did not regress — but `Renderer::draw` is not in `App::update`
+  and nothing had ever counted it: it is **~40 ms**, the larger half of the
+  frame by 2:1. Bisects the owner's "the game feels slow" to `39e6f36`
+  (PR #94) and to the **sky** half of it, worth ~29 ms a redraw and ~2 ms of
+  simulation, with the soil half worth nothing. The cost was a *cliff* rather
+  than a price per sky pixel, which is what said it was a defect — and it
+  was: `rebuild_near_glow` hashed a `ChunkCoord` twice for each of ~615 disc
+  cells of each of ~6,900 glowing cells, on every forced full redraw. Fixed
+  here, **~42 ms -> ~7.5 ms**, and PR #94 stays. **Then the "on every forced
+  full redraw" half went too**: that trigger read `force_full`, which is true
+  whenever the cursor is over the window, so the rebuild happened on ~100% of
+  frames for a reason that has nothing to do with cells. Removing it takes the
+  redraw to **2.4 ms** and the rebuild to a frame where a crystal actually
+  changed — §7, with `Renderer::forget_world` for the one thing `force_full`
+  was covering by accident, and the phase split
+  (`PIXEL_PHYSICS_DRAW_TIMING`) that no instrument here had. **Read its "every
+  image-level check of this is blind" section before verifying any change to
+  the glow splat by rendering** — a deliberate off-by-one left two renders
+  byte-identical and four existing guards green. Carries a separate ~8 ms
+  finding for rain.
 - [world-review-2026-08.md](world-review-2026-08.md) — **review.** A
   multi-lens pass over the generated world.
 - [cave-beauty-review-2026-08.md](cave-beauty-review-2026-08.md) —
