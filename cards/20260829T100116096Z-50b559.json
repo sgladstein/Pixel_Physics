@@ -1,0 +1,48 @@
+{
+  "id": "20260829T100116096Z-50b559",
+  "created": "2026-08-29T10:01:16Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ab9f41e7948a10fc2",
+    "branch": "worktree-agent-ab9f41e7948a10fc2",
+    "commit": "d7bebfb",
+    "agent": null,
+    "session_id": "8decc404-1166-54ad-9ca6-a460991ec93f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ab9f41e7948a10fc2"
+  },
+  "title": "Ants on a backlogged scheduler, with and without the fix",
+  "question": "Which of these looks like a colony behaving normally?",
+  "context_md": "**This corrects the framing of my earlier card** (\"An ant's intended walking pace\"). That one said the creature code was doing everything on time -- true for an undisturbed world, and I had not yet measured a dug-out one.\n\nMeasured on the world the game actually ships (8192x2560), with the pick swung at play rate -- 299 cuts over the run, about two minutes of digging:\n\n| frame | sites the scheduler served | of which structural | **of which creature** | still pending |\n|---|---|---|---|---|\n| 2,400 | 41 | 7 | **27** | 5,029 |\n| 3,600 | **2,000 -- the cap** | 1,974 | **11** | 20,467 |\n| 4,800 | **2,000 -- the cap** | 1,964 | **0** | 43,321 |\n| 6,000 | **2,000 -- the cap** | 1,926 | **0** | 62,658 |\n\nCreature ticks share one per-frame budget with structural checks. A structural check is scheduled *due now*, so a backlogged one is stuck in the past; an ant reschedules itself into the future; the queue is sorted by due-time. So once the backlog is deeper than the budget the ant is not merely behind in the queue -- it cannot be reached at all.\n\nOnly the creatures show it because sand, water and fire never go through this queue.\n\nLeft: the colony with that backlog in front of it. Right: the same world, same frames, with creature ticks given their own reserved budget.\n",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "pooled queue (today's main)",
+      "files": [
+        "20260829T100116096Z-50b559/000-ants-starved2.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 40
+    },
+    {
+      "label": "reserved creature budget (the fix)",
+      "files": [
+        "20260829T100116096Z-50b559/001-ants-reserved2.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 40
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
