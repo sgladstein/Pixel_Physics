@@ -101,10 +101,23 @@ one more argument than slots. A clean text merge is not a working tree.
   against 2,000 drained, pending through 62,658. #118 insulates creatures from
   it and deliberately does not touch the cause.
 - **Every frame figure this repo has ever quoted excludes `Renderer::draw`.**
-  Simulation 18.9 ms against a 39.7 ms redraw — the honest frame is ~59 ms
-  (~17 fps) and the render is the larger part 2:1. It is the sky from PR #94,
-  and it is a **cliff between `sky_rows` 115 and 120**, not a ramp. Handed to
-  the rendering session; see `claude/frame-cost-bisect`.
+  That is the standing finding: every instrument times `App::update`, and the
+  renderer is not in it. Simulation measured 18.9 ms against a **39.7 ms**
+  redraw — an honest frame of ~59 ms, ~17 fps.
+- **The sky was NOT the cost, and I said it was — twice, including to the
+  rendering session.** The bisect found PR #94's taller sky worth ~29 ms of
+  every redraw, which was true and not causal. `rebuild_near_glow` splats a
+  radius-14 disc from every glowing cell and hashed a `ChunkCoord` **twice per
+  disc cell** (~615 cells x ~6,900 discs, every full redraw). The control that
+  named it: with vaults off, both worlds cost **5.2 ms** and place the same
+  number of glowing cells — so it was never "more crystals", it was how many
+  chunks a fixed pile got spread across, which moving terrain 95 rows down
+  changes. Callgrind: `sip.rs` 145.0M instructions against 32.3M, every other
+  symbol identical. **Fixed** by walking the disc chunk-major — four lookups
+  per glowing cell rather than 1,230. **~42 ms -> ~7.5 ms, and PR #94 stays.**
+  See `Reports/frame-cost-the-render-half-2026-08-29.md` on
+  `claude/frame-cost-bisect`. The lesson is the one this file keeps repeating:
+  a cliff correlated with a knob is not the knob.
 
 ## 6. Where the work goes next
 
