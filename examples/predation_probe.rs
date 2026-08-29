@@ -454,8 +454,8 @@ fn run(seed: u64, frames: usize, every: usize, beetles: usize, paint: Paint) -> 
                     }
                 }
                 acc.nearest += sum / n;
-                for i in 0..REACH_EDGES.len() {
-                    acc.reach[i] += buckets[i] / n;
+                for (slot, hit) in acc.reach.iter_mut().zip(buckets) {
+                    *slot += hit / n;
                 }
             }
 
