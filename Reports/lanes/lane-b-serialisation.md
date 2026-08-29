@@ -145,4 +145,8 @@ argument — it is the 39-landing hotspot and I stayed out of it.
 
 ---
 
-**Head SHA:** _pending — set in the final commit on this branch._
+**Head SHA:** `69af111` (`Merge main into the genome-serialisation lane`), with
+the work in its parent `71714a8`. Branch
+`claude/creature-genome-serialisation-lane-b`, based on `main` at `f96c08d`.
+If a later commit lands here, this line is the one to re-read — it is set in
+the last commit of the branch.
