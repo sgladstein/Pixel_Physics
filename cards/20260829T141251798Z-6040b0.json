@@ -1,0 +1,110 @@
+{
+  "id": "20260829T141251798Z-6040b0",
+  "created": "2026-08-29T14:12:51Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-mechanics-handoff-d4zo44",
+    "commit": "5eb90e9",
+    "agent": null,
+    "session_id": "0b681d5e-ee2b-50cf-b73a-d5a1dfcfbc79",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The felled tree in motion — the animation you asked for, twice",
+  "question": "Watch the crown come down. Does either one read as a tree falling over — pieces turning and going over as they land — rather than the whole thing slumping straight down?",
+  "context_md": "**You asked for this twice and you were right to.** Both static cards on this board came back *\"I would need to see it in motion\"*, and they split: on one pair you picked the changed arm, on the other you picked the unchanged one. So the stills genuinely cannot answer it.\n\nSame cut, same tree, same instant, noon pinned. 28 frames, every 4th frame from just before the axe lands through to the pile at rest — both sides step together, so you can park on the frame where they diverge. One arm has the change in it, the other is the engine as it stands.\n\n**What is actually different, so you know what to look for.** Before this, nothing that broke off a tree ever rotated — not once, on any fall — so every piece landed in the pose it grew in. Now a piece turns as it falls, and one that lands overhanging its own footing tips over instead of standing there.\n\n**Please ignore** the colour and the amount of green (both unchanged, deliberately), and the fact that the trunk does not hinge on its stump and sweep across the ground — the crown still lets go as separate pieces, that is real, it is the next thing, and it is not what this asks.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A",
+      "files": [
+        "20260829T141251798Z-6040b0/000-off_00.png",
+        "20260829T141251798Z-6040b0/001-off_01.png",
+        "20260829T141251798Z-6040b0/002-off_02.png",
+        "20260829T141251798Z-6040b0/003-off_03.png",
+        "20260829T141251798Z-6040b0/004-off_04.png",
+        "20260829T141251798Z-6040b0/005-off_05.png",
+        "20260829T141251798Z-6040b0/006-off_06.png",
+        "20260829T141251798Z-6040b0/007-off_07.png",
+        "20260829T141251798Z-6040b0/008-off_08.png",
+        "20260829T141251798Z-6040b0/009-off_09.png",
+        "20260829T141251798Z-6040b0/010-off_10.png",
+        "20260829T141251798Z-6040b0/011-off_11.png",
+        "20260829T141251798Z-6040b0/012-off_12.png",
+        "20260829T141251798Z-6040b0/013-off_13.png",
+        "20260829T141251798Z-6040b0/014-off_14.png",
+        "20260829T141251798Z-6040b0/015-off_15.png",
+        "20260829T141251798Z-6040b0/016-off_16.png",
+        "20260829T141251798Z-6040b0/017-off_17.png",
+        "20260829T141251798Z-6040b0/018-off_18.png",
+        "20260829T141251798Z-6040b0/019-off_19.png",
+        "20260829T141251798Z-6040b0/020-off_20.png",
+        "20260829T141251798Z-6040b0/021-off_21.png",
+        "20260829T141251798Z-6040b0/022-off_22.png",
+        "20260829T141251798Z-6040b0/023-off_23.png",
+        "20260829T141251798Z-6040b0/024-off_24.png",
+        "20260829T141251798Z-6040b0/025-off_25.png",
+        "20260829T141251798Z-6040b0/026-off_26.png",
+        "20260829T141251798Z-6040b0/027-off_27.png"
+      ],
+      "caption": "the engine as it stands",
+      "meta": {
+        "pieces that came to rest lying down": 26,
+        "pieces left standing on end": 32,
+        "times a piece turned as it fell": 0,
+        "times a piece went over where it landed": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B",
+      "files": [
+        "20260829T141251798Z-6040b0/028-on_00.png",
+        "20260829T141251798Z-6040b0/029-on_01.png",
+        "20260829T141251798Z-6040b0/030-on_02.png",
+        "20260829T141251798Z-6040b0/031-on_03.png",
+        "20260829T141251798Z-6040b0/032-on_04.png",
+        "20260829T141251798Z-6040b0/033-on_05.png",
+        "20260829T141251798Z-6040b0/034-on_06.png",
+        "20260829T141251798Z-6040b0/035-on_07.png",
+        "20260829T141251798Z-6040b0/036-on_08.png",
+        "20260829T141251798Z-6040b0/037-on_09.png",
+        "20260829T141251798Z-6040b0/038-on_10.png",
+        "20260829T141251798Z-6040b0/039-on_11.png",
+        "20260829T141251798Z-6040b0/040-on_12.png",
+        "20260829T141251798Z-6040b0/041-on_13.png",
+        "20260829T141251798Z-6040b0/042-on_14.png",
+        "20260829T141251798Z-6040b0/043-on_15.png",
+        "20260829T141251798Z-6040b0/044-on_16.png",
+        "20260829T141251798Z-6040b0/045-on_17.png",
+        "20260829T141251798Z-6040b0/046-on_18.png",
+        "20260829T141251798Z-6040b0/047-on_19.png",
+        "20260829T141251798Z-6040b0/048-on_20.png",
+        "20260829T141251798Z-6040b0/049-on_21.png",
+        "20260829T141251798Z-6040b0/050-on_22.png",
+        "20260829T141251798Z-6040b0/051-on_23.png",
+        "20260829T141251798Z-6040b0/052-on_24.png",
+        "20260829T141251798Z-6040b0/053-on_25.png",
+        "20260829T141251798Z-6040b0/054-on_26.png",
+        "20260829T141251798Z-6040b0/055-on_27.png"
+      ],
+      "caption": "pieces turn as they fall, and go over where they land",
+      "meta": {
+        "pieces that came to rest lying down": 33,
+        "pieces left standing on end": 20,
+        "times a piece turned as it fell": 3,
+        "times a piece went over where it landed": 11
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
