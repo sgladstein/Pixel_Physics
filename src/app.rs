@@ -718,7 +718,7 @@ impl App {
             Tool::Rect => "TOOL: RECTANGLE - DRAG OUT A SOLID BLOCK",
             Tool::Room => "TOOL: ROOM - HOLLOW, BRUSH SETS WALL THICKNESS",
             Tool::Line => "TOOL: LINE - DRAG OUT A BEAM",
-            Tool::Dig => "TOOL: DIG - LMB CUTS AT THE GNOME'S ARM'S LENGTH",
+            Tool::Dig => "TOOL: GNOME - LMB SWINGS WHAT HE IS HOLDING (1/2/3)",
         });
     }
 
@@ -1376,6 +1376,273 @@ impl App {
         self.shake_flash.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(at, _)| *at)
     }
 
+}
+
+/// What the cursor draws while the gnome tool is up.
+///
+/// Three cases and not an `Option`, because "the gnome owns this cursor"
+/// and "the gnome owns this cursor and it is not a ring" are genuinely
+/// different answers, and collapsing them once put a white brush ring in
+/// the middle of the bore box.
+enum SwingMark {
+    /// The bore: a box, drawn by `draw_bore_preview`, with no ring beside
+    /// it.
+    Bore(player::Dir, (i32, i32, i32, i32)),
+    /// A ring the blow owns: where it lands, its world radius, its colour.
+    Ring((i32, i32), i32, [u8; 4]),
+    /// Nothing of his applies — the plain brush ring under the cursor.
+    Brush,
+}
+
+impl App {
+    /// What the cursor should draw for the blow this click would land.
+    ///
+    /// **Every arm reads the same function the blow itself aims with.**
+    /// That is the rule `player::bite_point`'s own doc records and the
+    /// reason it is public: two copies of the aiming arithmetic means the
+    /// marker and the cut can disagree, which is worse than no marker at
+    /// all. `bore_rect` and `snap_to`-backed `shake_target` are here for
+    /// the same reason.
+    fn swing_mark(&self, p: &player::Player, aim: (i32, i32)) -> SwingMark {
+        let t = &self.player_tuning;
+        match p.tool {
+            player::Tool::Hammer => {
+                let at = player::hammer_point(&self.world, p, aim, t);
+                SwingMark::Ring(at, t.hammer_radius as i32, HAMMER_MARK)
+            }
+            player::Tool::Axe => {
+                let at = player::chop_point(&self.world, p, aim, t);
+                SwingMark::Ring(at, t.chop_radius as i32, AXE_MARK)
+            }
+            // The pick keeps the rule its own doc states: pointing at a
+            // plant is a shake, and a shake draws **no** marker. A green
+            // ring was tried here and reported as "a green square when near
+            // trees" — it was on almost permanently and its position was a
+            // half-truth anyway, since a shake moves the whole plant. No
+            // ring means no cut is coming, which is a true thing to say.
+            player::Tool::Pick => match player::shake_target(&self.world, p, aim, t) {
+                Some(_) => SwingMark::Brush,
+                None if p.dig_style == player::DigStyle::Bore && !p.buried => {
+                    let (dir, rect) = player::bore_rect(&self.world, p, aim, t);
+                    SwingMark::Bore(dir, rect)
+                }
+                None => SwingMark::Ring(player::bite_point(&self.world, p, aim, t), t.dig_radius as i32, PICK_MARK),
+            },
+        }
+    }
+
+    /// How far past a ring of `radius` the blow's cracks reach, or `None`
+    /// for a tool that does not crack past what it removes.
+    fn gnome_crack_reach(&self, radius: i32) -> Option<i32> {
+        match self.gnome_tool()? {
+            player::Tool::Hammer => Some(radius * crate::sim::rigid::CRACK_REACH),
+            _ => None,
+        }
+    }
+
+    /// What he is holding, or `None` with nobody summoned.
+    fn gnome_tool(&self) -> Option<player::Tool> {
+        self.world.player.as_ref().map(|p| p.tool)
+    }
+
+    /// The bore preview: the box the passage will open, with the slice this
+    /// click takes out of it drawn solid.
+    ///
+    /// **Two shapes because the click answers two questions.** The outline
+    /// is *where this passage is going* — a corridor his own size, and you
+    /// can see before committing whether it clears the ledge or runs into
+    /// the pool. The solid near edge is *what this one press does*, which
+    /// is a `bore_bite` slice off the working face; without it the box
+    /// reads as a promise to remove all of it at once, and the first click
+    /// then looks like a failure.
+    fn draw_bore_preview(&self, frame: &mut [u8], dir: player::Dir, rect: (i32, i32, i32, i32)) {
+        // The pick's own colour for both, so the box is legible as *this
+        // tool's* preview and not as a generic selection rectangle.
+        const BOX_EDGE: [u8; 4] = PICK_MARK;
+        const SLICE: [u8; 4] = PICK_MARK;
+        let (x0, y0, x1, y1) = rect;
+        let (sx0, sy0, sx1, sy1, _) = self.renderer.world_rect_to_screen(x0, y0, x1, y1);
+        for x in sx0..=sx1 {
+            render::put(frame, WIDTH, HEIGHT, x, sy0, BOX_EDGE);
+            render::put(frame, WIDTH, HEIGHT, x, sy1, BOX_EDGE);
+        }
+        for y in sy0..=sy1 {
+            render::put(frame, WIDTH, HEIGHT, sx0, y, BOX_EDGE);
+            render::put(frame, WIDTH, HEIGHT, sx1, y, BOX_EDGE);
+        }
+        // The stroke. Blended rather than filled: a solid block would hide
+        // the rock it is about to cut, and what the player is judging is
+        // exactly what is under it.
+        let slice = player::bore_slice(&self.world, dir, rect, self.player_tuning.bore_bite as i32);
+        let (bx0, by0, bx1, by1, _) = self.renderer.world_rect_to_screen(slice.0, slice.1, slice.2, slice.3);
+        for y in by0..=by1 {
+            for x in bx0..=bx1 {
+                render::blend(frame, WIDTH, HEIGHT, x, y, SLICE, 0.28);
+            }
+        }
+    }
+
+    /// **The gnome HUD** — top-left, two lines, only while he exists.
+    ///
+    /// Minimalist by instruction and by argument. The sandbox already has a
+    /// dense readout at every other corner; what a player *in* the world
+    /// needs is the two things that change what a click does — what is in
+    /// his hands, and what shape it cuts — plus the one thing that explains
+    /// a click doing nothing, which is the recovery from the last blow.
+    /// Everything else stays in the panel.
+    ///
+    /// The belt is drawn as all three names with the held one lit, rather
+    /// than as the held one alone. That costs two short words and answers
+    /// "what else is there" without a menu — the same reason the tunables
+    /// panel draws a tab strip instead of cycling silently.
+    fn draw_gnome_hud(&self, frame: &mut [u8], aim: Option<(i32, i32)>) {
+        const BG: [u8; 4] = [10, 10, 16, 255];
+        const DIM: [u8; 4] = [120, 128, 145, 255];
+        const BODY: [u8; 4] = [225, 228, 235, 255];
+        const ALERT: [u8; 4] = [255, 150, 90, 255];
+        let Some(p) = &self.world.player else { return };
+
+        let second = self.gnome_hud_second_line(p, aim);
+        let belt_w: i32 = player::Tool::ALL.iter().map(|t| hud::text_width(t.label()) + 6).sum();
+        let plate_w = belt_w.max(hud::text_width(&second) + SWING_BAR_W + 8).max(60) + 8;
+        for y in 1..GNOME_HUD_HEIGHT {
+            for x in 1..plate_w {
+                render::blend(frame, WIDTH, HEIGHT, x, y, BG, 0.72);
+            }
+        }
+
+        let mut x = 5;
+        for tool in player::Tool::ALL {
+            // Lit in the tool's *own* colour rather than in one highlight
+            // colour, so the HUD row and the cursor agree without the
+            // player having to learn a mapping.
+            let colour = if tool == p.tool { belt_colour(tool) } else { DIM };
+            hud::draw_text(frame, WIDTH, HEIGHT, x, 4, tool.label(), colour);
+            x += hud::text_width(tool.label()) + 6;
+        }
+        hud::draw_text(frame, WIDTH, HEIGHT, 5, 14, &second, if p.buried { ALERT } else { BODY });
+        let lit = belt_colour(p.tool);
+
+        // The swing bar, right of the second line. Empty the instant a blow
+        // lands and full when the next one may go — so held digging reads
+        // as a rhythm rather than as the tool ignoring half the clicks.
+        let bar_x = plate_w - SWING_BAR_W - 4;
+        let filled = (SWING_BAR_W as f32 * p.swing_progress().clamp(0.0, 1.0)).round() as i32;
+        for i in 0..SWING_BAR_W {
+            let colour = if i < filled { lit } else { DIM };
+            for dy in 0..3 {
+                render::put(frame, WIDTH, HEIGHT, bar_x + i, 15 + dy, colour);
+            }
+        }
+    }
+
+    /// The gnome HUD's second line: what the held tool will do, and the
+    /// state that overrides it.
+    ///
+    /// State first when there is one, because a buried gnome pressing the
+    /// button gets an outcome the belt does not explain — the bore is
+    /// disabled under a pile (`player::dig`) and every tool digs him
+    /// upward instead.
+    fn gnome_hud_second_line(&self, p: &player::Player, aim: Option<(i32, i32)>) -> String {
+        if p.buried {
+            return "BURIED - DIG OUT".to_string();
+        }
+        match p.tool {
+            // Named only while the cursor is in the window: with the
+            // mouse outside it there is no direction, and printing the last
+            // one would be a readout that stops tracking without saying so.
+            player::Tool::Pick if p.dig_style == player::DigStyle::Bore => match aim {
+                Some(aim) => format!("BORE {}", player::Dir::toward(p.center(), aim).label()),
+                None => "BORE".to_string(),
+            },
+            player::Tool::Pick => format!("FREE R{}", self.player_tuning.dig_radius),
+            player::Tool::Hammer => format!("SMASH R{}", self.player_tuning.hammer_radius),
+            player::Tool::Axe => format!("CHOP R{}", self.player_tuning.chop_radius),
+        }
+    }
+
+    /// `1`/`2`/`3` while the gnome tool is up: put a tool in his hands.
+    /// Returns whether it was consumed, so the caller can fall through to
+    /// the material palette when it was not.
+    ///
+    /// **The digits are shared rather than stolen**, and the two readings
+    /// are mutually exclusive by construction, which is the same argument
+    /// `pan_camera` records for `WASD`: under `Tool::Dig` the left button
+    /// is the gnome's swing and the brush lays nothing down, so the
+    /// selected *material* cannot affect anything a click does. `Z` leaves
+    /// the tool and gives the palette its keys back.
+    pub fn select_gnome_tool(&mut self, index: usize) -> bool {
+        if self.tool != Tool::Dig {
+            return false;
+        }
+        let Some(&tool) = player::Tool::ALL.get(index) else {
+            return false;
+        };
+        let Some(p) = self.world.player.as_mut() else {
+            return false;
+        };
+        p.tool = tool;
+        self.show_toast(format!("{} - {}", tool.label(), tool.note().to_uppercase()));
+        true
+    }
+
+    /// Step the belt on — the middle mouse button, which is the only mouse
+    /// button this sandbox had left and the one nearest the hand already
+    /// doing the aiming.
+    pub fn cycle_gnome_tool(&mut self) -> bool {
+        let Some(p) = self.world.player.as_mut() else {
+            return false;
+        };
+        let tool = p.tool.next();
+        p.tool = tool;
+        self.show_toast(format!("{} - {}", tool.label(), tool.note().to_uppercase()));
+        true
+    }
+
+    /// `4` while the gnome tool is up: swap the pick between a passage and
+    /// a free-hand bite.
+    pub fn cycle_dig_style(&mut self) -> bool {
+        if self.tool != Tool::Dig {
+            return false;
+        }
+        let Some(p) = self.world.player.as_mut() else {
+            return false;
+        };
+        let style = p.dig_style.next();
+        p.dig_style = style;
+        self.show_toast(format!("DIG: {} - {}", style.label(), style.note().to_uppercase()));
+        true
+    }
+}
+
+/// The belt's colours, defined once and read by both the cursor marker and
+/// the HUD.
+///
+/// **Hot for the hammer, green for the axe, and the pick keeps the yellow
+/// it has always had.** The belt is a thing that has to be readable from
+/// the middle of the screen, where the player is actually looking, and not
+/// only from the corner where its name is printed — so what the cursor is
+/// wearing has to say which tool this is on its own. Green is shared with
+/// the shake mark on purpose: both are blows aimed at something alive.
+const PICK_MARK: [u8; 4] = [255, 240, 120, 255];
+const HAMMER_MARK: [u8; 4] = [255, 150, 90, 255];
+const AXE_MARK: [u8; 4] = [130, 240, 140, 255];
+
+/// Height of the gnome HUD plate in pixels, and the width of its swing
+/// bar. The hover inspector starts below the plate while a gnome exists,
+/// so the two never overlap.
+const GNOME_HUD_HEIGHT: i32 = 24;
+const SWING_BAR_W: i32 = 28;
+
+fn belt_colour(tool: player::Tool) -> [u8; 4] {
+    match tool {
+        player::Tool::Pick => PICK_MARK,
+        player::Tool::Hammer => HAMMER_MARK,
+        player::Tool::Axe => AXE_MARK,
+    }
+}
+
+impl App {
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
@@ -1386,6 +1653,9 @@ impl App {
         /// The shake mark. Green rather than a second yellow, so a blow on
         /// a plant is distinguishable from a bite out of rock.
         const GREEN: [u8; 4] = [130, 240, 140, 255];
+        /// The reach of the cracks a hammer blow leaves behind, drawn as
+        /// a second, dimmer ring outside what it removes.
+        const CRACK_MARK: [u8; 4] = [190, 100, 70, 255];
 
         // The shake mark, drawn independently of the cursor: it records an
         // event, not a hover, so it stays put for its few frames whether or
@@ -1417,7 +1687,10 @@ impl App {
             Tool::Rect => format!("{} R{} - RECT", self.selected_name(), self.brush_radius),
             Tool::Room => format!("{} R{} - ROOM", self.selected_name(), self.brush_radius),
             Tool::Line => format!("{} R{} - LINE", self.selected_name(), self.brush_radius),
-            Tool::Dig => "GNOME DIG - LMB CUT, RMB ERASE, Z FOR THE BRUSH".to_string(),
+            // The belt, the cut shape and the state all live in the gnome
+            // HUD now (`draw_gnome_hud`), so this line stays the *keys* —
+            // the one thing the HUD cannot say without becoming a manual.
+            Tool::Dig => "GNOME - LMB SWING, RMB ERASE, 1/2/3 BELT, 4 CUT, Z BRUSH".to_string(),
         };
         // With no gnome, `WASD` scrolls (`pan_camera`) and the view is a
         // thing you move — so say where it is. Two jobs in one readout:
@@ -1518,37 +1791,64 @@ impl App {
             // under the cursor. **No ring now means no bite is coming**,
             // which is a true thing to say, and the blow marks itself after
             // the fact (`shake_flash`).
-            let dig_marker = match (self.tool, &self.world.player) {
+            //
+            // **Three tools, three previews**, and the bore's is a box
+            // rather than a ring — see `draw_bore_preview`. The rule they
+            // all keep is the one this comment block was written for: what
+            // is drawn comes out of the same function the blow aims with,
+            // so the marker cannot drift from the cut.
+            let mark = match (self.tool, &self.world.player) {
                 (Tool::Dig, Some(p)) => {
                     let aim = self.renderer.screen_to_world(sx, sy);
-                    match player::shake_target(&self.world, p, aim, &self.player_tuning) {
-                        Some(_) => None,
-                        None => {
-                            let at = player::bite_point(&self.world, p, aim, &self.player_tuning);
-                            self.renderer
-                                .world_to_screen(at.0, at.1)
-                                .map(|s| (s, self.player_tuning.dig_radius as i32))
-                        }
-                    }
+                    self.swing_mark(p, aim)
                 }
-                _ => None,
+                _ => SwingMark::Brush,
             };
-            let ((cx, cy), radius) = dig_marker.unwrap_or(((sx, sy), self.brush_radius));
             // Brush outline preview -- always on while the cursor is in the
             // window, scaled to match whatever `render.rs`'s own zoom is
             // doing so the ring actually matches the area a click would
             // paint, not the unscaled brush_radius regardless of zoom.
-            let screen_radius = if self.renderer.zoom > 1 {
-                radius * self.renderer.zoom
-            } else {
-                (radius / self.renderer.zoom_out_stride.max(1)).max(1)
+            let to_screen = |radius: i32| {
+                if self.renderer.zoom > 1 {
+                    radius * self.renderer.zoom
+                } else {
+                    (radius / self.renderer.zoom_out_stride.max(1)).max(1)
+                }
             };
-            let ring = if dig_marker.is_some() { YELLOW } else { WHITE };
-            render::draw_circle_outline(frame, WIDTH, HEIGHT, cx, cy, screen_radius, ring);
+            match mark {
+                // The bore draws a box, not a ring, and draws no ring at
+                // all beside it: two markers for one click is how a preview
+                // stops being read.
+                SwingMark::Bore(dir, rect) => self.draw_bore_preview(frame, dir, rect),
+                SwingMark::Ring(at, radius, colour) => {
+                    if let Some((mx, my)) = self.renderer.world_to_screen(at.0, at.1) {
+                        render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, to_screen(radius), colour);
+                        // The hammer's outer ring is what it *damages*,
+                        // against the inner ring's what it removes. Drawn
+                        // because the gap between the two is the whole
+                        // reason to pick the hammer up, and it is invisible
+                        // in the moment: the cracks show as darkening, not
+                        // as a hole. See `rigid::strike`.
+                        if let Some(outer) = self.gnome_crack_reach(radius) {
+                            render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, to_screen(outer), CRACK_MARK);
+                        }
+                    }
+                }
+                SwingMark::Brush => {
+                    render::draw_circle_outline(frame, WIDTH, HEIGHT, sx, sy, to_screen(self.brush_radius), WHITE);
+                }
+            }
 
             if self.show_hover_inspector {
                 self.draw_hover_inspector(frame, sx, sy, YELLOW);
             }
+        }
+
+        // Only while somebody is in there to have a belt. With no gnome the
+        // top-left corner is the hover inspector's, exactly as before.
+        if self.world.player.is_some() {
+            let aim = cursor.map(|(x, y)| self.renderer.screen_to_world(x, y));
+            self.draw_gnome_hud(frame, aim);
         }
 
         if self.show_palette {
@@ -2068,8 +2368,11 @@ impl App {
             format!("P{:.1} T{:.0} L{:.1} M{:.1}", field.pressure, field.temperature, field.light, field.moisture),
             self.structural_line(wx, wy),
         ];
+        // Below the gnome HUD when there is one: both live top-left, and
+        // the inspector is the one that can move.
+        let top = if self.world.player.is_some() { GNOME_HUD_HEIGHT + 4 } else { 4 };
         for (i, line) in lines.iter().enumerate() {
-            hud::draw_text(frame, WIDTH, HEIGHT, 4, 4 + i as i32 * 9, line, colour);
+            hud::draw_text(frame, WIDTH, HEIGHT, 4, top + i as i32 * 9, line, colour);
         }
     }
 
@@ -2134,7 +2437,7 @@ impl App {
     /// thing it drew off-screen was the line telling you which key closes
     /// it. `the_help_page_fits_inside_its_own_panel` now fails if that
     /// recurs.
-    fn help_columns() -> ([HelpRow; 30], [HelpRow; 27]) {
+    fn help_columns() -> ([HelpRow; 30], [HelpRow; 30]) {
         use HelpRow::{Blank, Head, Key, Note};
         (
             [
@@ -2178,8 +2481,11 @@ impl App {
                 Key("A D W", "RUN / JUMP"),
                 Key("SHIFT", "HOLD ON IN A TREE"),
                 Key("W S", "SWIM UP / DOWN"),
-                Key("LMB", "GNOME DIG AT YELLOW RING"),
-                Key("LMB", "SHAKE THE PLANT YOU POINT AT"),
+                Key("LMB", "SWING WHAT HE IS HOLDING"),
+                Key("1 2 3", "PICK / HAMMER / AXE"),
+                Key("MMB", "STEP THE BELT ON"),
+                Key("4", "CUT SHAPE: BORE OR FREE"),
+                Key("LMB", "PICK: SHAKE A PLANT"),
                 Key("F3", "JUMP FEEL"),
                 Key("F4", "WATER FEEL"),
                 Key("F2", "SPOIL MODE"),
@@ -2339,23 +2645,34 @@ impl App {
             // would make the verb invisible in exactly the way proximity
             // gating did. The ring says which one you will get before you
             // click.
-            let shake_at = self
-                .world
-                .player
-                .as_ref()
-                .and_then(|p| player::shake_target(&self.world, p, to, &self.player_tuning));
-            match shake_at {
-                Some(at) => {
-                    // Only on a shake that actually landed: the cooldown
-                    // returns `None` between blows, and marking those would
-                    // put the flash back to being permanent.
-                    if let Some(shake) = player::shake(&mut self.world, at, &self.player_tuning) {
-                        self.shake_flash = Some((shake.at, self.world.frame + SHAKE_FLASH_FRAMES));
-                    }
+            //
+            // **And which verb that is now also depends on the belt.**
+            // `player::swing` is the single gate: pick, hammer or axe, and
+            // within the pick, cut or shake. Reaching past it to `dig` or
+            // `shake` from here would be the "one gate on the operation,
+            // three call sites" mistake this function's own comment records
+            // one paragraph up, with a fourth call site added later that
+            // silently ignores whatever is in his hands.
+            match player::swing(&mut self.world, to, &self.player_tuning) {
+                // Only on a blow that actually landed: the cooldown returns
+                // `None` between blows, and marking those would put the
+                // flash back to being permanent.
+                Some(player::Blow::Shake(shake)) => {
+                    self.shake_flash = Some((shake.at, self.world.frame + SHAKE_FLASH_FRAMES));
                 }
-                None => {
-                    player::dig(&mut self.world, to, &self.player_tuning);
+                // A chop and a blow both mark where they landed, for the
+                // same reason the shake does: an axe stroke into a trunk
+                // removes a notch three cells across, which at zoom 1 is
+                // three pixels of a colour close to the wood it came out
+                // of. Without a mark the swing pose is the only evidence
+                // the click did anything.
+                Some(player::Blow::Chop(chop)) => {
+                    self.shake_flash = Some((chop.at, self.world.frame + SHAKE_FLASH_FRAMES));
                 }
+                Some(player::Blow::Smash(smash)) if smash.broken > 0 => {
+                    self.shake_flash = Some((smash.at, self.world.frame + SHAKE_FLASH_FRAMES));
+                }
+                _ => {}
             }
             return;
         }
@@ -2462,7 +2779,9 @@ impl App {
     pub fn strike(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         let force = self.brush_radius as f32 * STRIKE_FORCE_PER_RADIUS;
-        crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
+        // Count ignored: the sandbox key has no readout to put it in.
+        let _ = crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
+        // Count ignored here: the sandbox key has no readout to put it in.
     }
 
     /// Cut rock away precisely under the cursor — the *mining* verb, as
@@ -3198,6 +3517,17 @@ mod tests {
         let count_stone = |app: &App| {
             (40..70).map(|y| (0..120).filter(|&x| app.world.get(x, y).material == stone).count()).sum::<usize>()
         };
+        // **Settled before the click, which he was not.** `summon_player`
+        // centres his rectangle on the cursor, so hand-placed at the
+        // surface his feet row sits *inside* the floor — and the bore box
+        // is sized off that rectangle, so a gnome whose feet are buried
+        // bores into the ground under him rather than forward into the
+        // wall. That is the right answer for feet in the ground and the
+        // wrong scene for this test, which is about a click reaching past
+        // his arms. A few ticks stand him on the floor, where a player is.
+        for _ in 0..8 {
+            app.update();
+        }
         let before = count_stone(&app);
         // Well past `dig_reach` and past the wall's near face: the case
         // the shipped version silently painted on. The bite is clamped
@@ -3330,7 +3660,21 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        for key in ["U SUMMON", "F3 JUMP FEEL", "F4 WATER FEEL", "F2 SPOIL", "GNOME DIG", "SCROLL THE MAP"] {
+        // The belt replaced "GNOME DIG" here, and the three rows that
+        // describe it are the ones a player cannot discover any other way:
+        // every letter on the keyboard was already bound when it landed, so
+        // the belt rides shared keys and the help page is where that is
+        // stated.
+        for key in [
+            "U SUMMON",
+            "F3 JUMP FEEL",
+            "F4 WATER FEEL",
+            "F2 SPOIL",
+            "SWING WHAT HE IS HOLDING",
+            "1 2 3 PICK / HAMMER / AXE",
+            "CUT SHAPE",
+            "SCROLL THE MAP",
+        ] {
             assert!(help.contains(key), "help panel no longer mentions {key:?}");
         }
         assert!(

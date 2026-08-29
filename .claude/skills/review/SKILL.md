@@ -317,27 +317,35 @@ first, so it survives and goes out on the next sync.
 
 ## Being told when the verdict lands
 
-Posting is fire-and-forget, but you do not have to keep checking. Add `--notify`
-and you will be pinged when the owner releases your verdicts:
+Posting is fire-and-forget, and you do not have to keep checking: **you will be
+pinged when the owner releases your verdicts, without asking for it.** Ordinary
+`post` and `ab` are enough.
 
 ```
-python3 scripts/review.py post --notify …
+python3 scripts/review.py post …            # pinged
+python3 scripts/review.py post --no-notify … # not pinged; read `inbox` yourself
 ```
 
-That starts **one** background watcher per session — not one per card — which
+This was opt-in first and that failed exactly as opt-in does — it depended on
+every agent remembering `--notify`, none did, and the owner pressed a button
+that woke nobody. So the default is on wherever it can work, meaning inside a
+Claude Code session, where there is an inbox socket to write to and a session id
+to address. Outside one, nothing is started and nothing is claimed.
+
+It starts **one** background watcher per session — not one per card — which
 delivers into this session and exits when none of your cards are open. The owner
 presses a single button in the page to release everything they have answered, so
 several verdicts for you arrive as **one** message, costing one wake-up turn
-rather than one per card.
+rather than one per card. Measured: three cards posted with no flags, released
+together, delivered as a single frame naming all three.
 
 The ping is a digest: card title, choice, rating, first line of the comment.
 `review.py inbox` remains the source of truth for the full comment and the pin
 locations — read it when the ping arrives.
 
 If nothing is watching, nothing is lost: the verdict sits in the queue and
-`inbox` finds it exactly as it always did. `--notify` is an accelerator, never
-the only path. It needs a Claude Code session (it writes to that session's own
-inbox socket), and says so on stderr if there is none.
+`inbox` finds it exactly as it always did. The ping is an accelerator, never the
+only path — `--no-notify` costs you the wake-up and nothing else.
 
 ## Getting the verdict back
 

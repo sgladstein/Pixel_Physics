@@ -2126,6 +2126,37 @@ fn def_start_energy(world: &World, organism: u16) -> f32 {
         .unwrap_or(0.0)
 }
 
+/// Kill whatever creature owns the cell at `(x, y)`, if any. Returns
+/// whether anything died.
+///
+/// **The gnome's axe, on the engine's own death path rather than beside
+/// it.** An erase would have been two lines and wrong in three ways that
+/// `creature_dies` already gets right: the animal leaves meat that a
+/// scavenger can find, the energy it was holding is booked as stored
+/// rather than vanishing out of `energy_ledger`, and the organism slot is
+/// freed so the roster does not leak. A creature-specific "killed by a
+/// player" path would have had to reproduce all three and would drift.
+///
+/// Multi-cell animals die whole: one blow anywhere on an ant kills the
+/// ant, not the segment. That is the same rule predation already uses and
+/// it is the only one that makes sense for a blade — there is no partial
+/// creature in this engine to leave behind.
+pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
+    if !world.in_bounds(x, y) {
+        return false;
+    }
+    let cell = world.get(x, y);
+    if !matches!(world.materials.kind(cell.material), MaterialKind::Creature) {
+        return false;
+    }
+    let organism = cell.organism_id();
+    if organism == 0 || world.organism(organism).is_none() {
+        return false;
+    }
+    creature_dies(world, organism);
+    true
+}
+
 fn creature_dies(world: &mut World, organism: u16) {
     let held = world.organism(organism).and_then(|s| s.carrying);
     // **The bank, and what of it was actually there.** These differ: a

@@ -73,6 +73,19 @@ struct Row {
     deepest: u64,
     moves: u64,
     blocked: u64,
+    /// **`falls` is the guard `creature-motion-design.md` §7 names first**,
+    /// and until 2026-08-29 it could only be read off `ascii`'s foraging
+    /// scene -- one seed, one frame budget, no order statistic. That made
+    /// the only number gating the impulse verb a single sample from a
+    /// distribution this repo knows is wide. Carried per seed here so the
+    /// ratio can be quoted the way every other bar in this file is.
+    falls: u64,
+    /// The pair `falls` needs to be read against, for the same reason
+    /// `blocked` is printed beside `moves`: an ant that does not move has
+    /// either been stopped (`blocked`), decided against it (`tumbles`) or
+    /// left the ground (`falls`), and a rise in one is only interpretable
+    /// beside the other two.
+    tumbles: u64,
     /// **The instrument, carried per seed.** `seeds=N` used to report
     /// `deepest` and nothing else about the shape, and WP-9's decision rule
     /// is written on the `>=32`/`>=64` buckets -- so the multi-seed mode
@@ -94,7 +107,16 @@ fn run(world: &mut World, frames: usize) {
 
 fn row(world: &World) -> Row {
     let st = world.creature_stats;
-    Row { deliveries: st.deliveries, trips: st.forage_trips, deepest: st.forage_depth_max, moves: st.moves, blocked: st.moves_blocked, reach: st.forage_reach }
+    Row {
+        deliveries: st.deliveries,
+        trips: st.forage_trips,
+        deepest: st.forage_depth_max,
+        moves: st.moves,
+        blocked: st.moves_blocked,
+        falls: st.falls,
+        tumbles: st.tumbles,
+        reach: st.forage_reach,
+    }
 }
 
 /// min / median / max of one column, printed rather than a mean.
@@ -121,6 +143,13 @@ fn report(label: &str, world: &World, ants: usize) {
         "  moves {} | blocked {} | pickups {} | drops {} | deliveries {} | deaths {}",
         st.moves, st.moves_blocked, st.pickups, st.drops, st.deliveries, st.deaths
     );
+    // **`falls` beside `moves`, because §7's guard is the ratio of the two.**
+    // `tumbles` beside them because a tick that produced no move either was
+    // stopped, was declined, or ended in the air, and only all three
+    // together say which.
+    let fpm = if st.moves > 0 { st.falls as f64 / st.moves as f64 } else { 0.0 };
+    let tpm = if st.moves > 0 { st.tumbles as f64 / st.moves as f64 } else { 0.0 };
+    println!("  falls {} ({fpm:.3} of moves) | tumbles {} ({tpm:.3} of moves)", st.falls, st.tumbles);
     // **The scheduling cadence, and this scene is its positive control.**
     // Nothing else is on the active-site queue here -- a hand-built floor,
     // no worldgen, no forest, no destruction -- so `late mean` must read
@@ -366,6 +395,21 @@ fn main() {
     let blocked: Vec<f64> = forage_rows.iter().map(|r| if r.moves > 0 { r.blocked as f64 / r.moves as f64 } else { 0.0 }).collect();
     let (lo, med, hi) = order_stats(blocked);
     println!("{:>10}  {lo:>8.3} {med:>8.3} {hi:>8.3}", "blocked/mv");
+    // **The §7 guard, as an order statistic rather than one seed.** Printed
+    // as a ratio and not a count because that is how the bar is written
+    // ("falls at 59-80% of all moves" is the failure it exists to catch),
+    // and a raw fall count rises with any change that simply makes ants
+    // move more.
+    let falls: Vec<f64> = forage_rows.iter().map(|r| if r.moves > 0 { r.falls as f64 / r.moves as f64 } else { 0.0 }).collect();
+    let (lo, med, hi) = order_stats(falls);
+    println!("{:>10}  {lo:>8.3} {med:>8.3} {hi:>8.3}", "falls/mv");
+    // Tumbles per *tick* would be the cleaner denominator, but the tick
+    // count is not on `CreatureStats`; against moves it still separates
+    // "stopped" from "chose not to", which is the fork a slowdown report
+    // has to answer.
+    let tumbles: Vec<f64> = forage_rows.iter().map(|r| if r.moves > 0 { r.tumbles as f64 / r.moves as f64 } else { 0.0 }).collect();
+    let (lo, med, hi) = order_stats(tumbles);
+    println!("{:>10}  {lo:>8.3} {med:>8.3} {hi:>8.3}", "tumbles/mv");
 
     // **The shape, pooled over every seed.** An order statistic per bucket
     // answers "is it reliable"; the pooled curve answers "what does the
