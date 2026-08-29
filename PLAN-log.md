@@ -3046,3 +3046,85 @@ Corrected in the same change: `PLAN.md` and the report both said "nothing else
 in the repo notices — `docscheck.sh` does not know about it and CI does not run
 it", and `licensecheck.sh`'s header said it was deliberately not wired into CI.
 All three were true when written and false the moment the workflow landed.
+
+## 2026-08-29 — a shed leaf keeps falling: litter passes through living tissue
+
+Owner report: *"when leaves fall off trees they often get stuck and built up in
+the tree branches. They should just fall through to the ground. Our game is a
+2D slice of a 3D world so we don't want to be stuck by the limitations of 2D
+physics."*
+
+**The reading of the slice was already in the engine and was applied in one
+place only.** `plant::shed_to_litter` walks a shed leaf down through its own
+crown at the moment of abscission, on exactly that argument — a branch drawn
+one cell wide is not a shelf across the whole depth of the tree. Nothing kept
+the leaf falling afterwards, so litter that reached mid-canopy by any other
+route came to rest on the first branch under it permanently; and because that
+walk stops at the first cell which is *not* organism-owned, every subsequent
+leaf shed in the column stacked on top of it. One stuck cell seeds a column
+that then grows up through the crown, which is what the owner was looking at.
+
+**Reproduced before anything was built**, per method, and the picture is the
+whole diagnosis: `litter_probe frames=12000 trees=8 out=…` renders magenta
+streaks running from the ground to the canopy top of the middle tree. The
+harness's own module doc, written against an earlier measurement, claimed 39.3%
+against plant with *none* more than 32 rows up; measured now it is 57.6% and
+23%. The doc was not wrong when written — it has drifted, which is the
+`CLAUDE.md` case for re-measuring rather than trusting a recorded number.
+
+**The fix is in the CA sweep, not in `shed_to_litter`.** `Material::
+falls_through_organisms` is a `.ron` opt-in that `litter` alone takes;
+`update::update_powder` reads it only after the ordinary straight-down and both
+diagonal moves have already failed, and only when the cell below is
+organism-owned — a flag read on a `Cell` the caller already holds, so a pile of
+sand answers in one branch. The cell is then carried to the first air below,
+bounded at 16 rows a frame (`ORGANISM_TUNNEL_REACH`, with a `const` assertion
+that it stays inside `MAX_REACH`, which is what `parallel.rs`'s cross-chunk
+write-disjointness proof is keyed on).
+
+Three things that placement buys over editing `shed_to_litter`, which is what
+`open-bugs-handoff.md` §V3 ranked first:
+
+- It catches litter that reached the canopy by **any** route, not only by being
+  shed there — which is the actual failure, since the shed path already walked
+  down.
+- It does not touch the shared early-return that stops a leaf low over the
+  ground being deleted; §V3 explicitly flagged that as the care the edit needed.
+- Stopping at the first cell that is neither air nor organism-owned preserves
+  the drift banked against a root collar, which `litter.ron`'s 42-degree
+  friction angle exists to build and which `litter_probe`'s `against-plant`
+  column scores identically to the bug.
+
+**Measured paired, one build each, same seeds.** `litter_probe frames=12000
+trees=8`: standing litter more than 32 rows above the ground **23% → 0%**, more
+than 16 rows 31% → 8%, resting on plant tissue 57.6% → 44.1%, four cells still
+airborne at frame 12,000 → none. `crown_census frames=28800 trees=8` — §V3's
+own instrument for the owner's earlier *"the soil build-up in between the
+branches is horrible"*: mid-canopy (y 120–160) litter **283 → 25**, soil
+**84 → 6**; y 80–120 cleared outright; the highest row holding any soil y 115 →
+y 145. **Total soil above the ground line 508 → 498, unchanged** — the material
+did not vanish, it reached the floor (band 0 litter 661 → 1009).
+
+Cost: every counter in `examples/ascii` is byte-identical across the two
+builds; only the timings differ, and they differ in both directions, which is
+the machine. Acceptance green, `cargo test` green on all four binaries
+(955 + 9 + 2 + 44), clippy green.
+
+**§V3 stays OPEN for its other half.** The canopy pile is gone; candidate 2 —
+cap the standing column above the original ground line — is untouched, and the
+floor now receives what the crown was holding. And this was measured on `main`;
+P2's die-back was not re-measured, so whether its extra 6,595–6,886 shed cells
+per stand still build a pile is unknown.
+
+**Two things the guard test cost, both recorded in its own comment because
+neither is guessable.** A one-cell-wide branch makes every arm pass whatever
+the rule does — both diagonals are clear air, so any powder slides off in a
+frame — so the scene did not contain the situation it claimed to measure. And
+arm 3's "packed ground" was first written as a 67-row soil column, which is a
+*powder*: it slumps to its own repose angle within a few hundred frames,
+leaving air under the collar and quietly turning that arm into a second copy of
+arm 1. All three arms were then confirmed red for their own fault before this
+was committed, per the standing rule; arm 3 was **blind** on its first passing
+version and is the reason that rule exists.
+
+Posted to the review queue as a blind A/B, card `20260829T005421244Z-e1d946`.

@@ -62,6 +62,7 @@
 //! cargo run --release --example litter_probe
 //! cargo run --release --example litter_probe -- frames=12000 every=2000 trees=8
 //! cargo run --release --example litter_probe -- frames=12000 out=/tmp/litter.png
+//! cargo run --release --example litter_probe -- out=/tmp/l.png crop=140,80,200,140 zoom=4
 //! ```
 
 mod common;
@@ -144,6 +145,8 @@ fn main() {
     let mut frames = 6000u64;
     let mut every = 1000u64;
     let mut out: Option<String> = None;
+    let mut crop: Option<(i32, i32, i32, i32)> = None;
+    let mut zoom = 1i32;
     let mut scene = common::PlantScene::default();
     // Echo every parameter below, so a log that does not name its settings
     // was written by a binary that never had them — the megastudy that
@@ -158,7 +161,18 @@ fn main() {
             "ground" => scene.ground_y = v.parse().expect("ground"),
             "startframe" => scene.start_frame = v.parse().expect("startframe"),
             "out" => out = Some(v.to_string()),
-            other => panic!("unknown arg {other:?}; known: frames, every, trees, species, ground, startframe, out"),
+            // `crop=x,y,w,h` and `zoom=N` on the overlay, because the answer
+            // this harness produces is judged by eye and a 512x320 sheet with
+            // the interesting part 180 px wide is not judgeable. The review
+            // protocol (`.claude/skills/review/SKILL.md`) records a card the
+            // owner could see nothing in for exactly this reason.
+            "crop" => {
+                let n: Vec<i32> = v.split(',').map(|t| t.parse().expect("crop=x,y,w,h")).collect();
+                assert_eq!(n.len(), 4, "crop=x,y,w,h");
+                crop = Some((n[0], n[1], n[2], n[3]));
+            }
+            "zoom" => zoom = v.parse().expect("zoom=N"),
+            other => panic!("unknown arg {other:?}; known: frames, every, trees, species, ground, startframe, out, crop, zoom"),
         }
     }
     println!(
@@ -262,7 +276,7 @@ fn main() {
     println!("  rotted: {} damp + {} dry = {}", world.decayed_damp, world.decayed_dry, rotted);
 
     if let Some(path) = out {
-        write_overlay(&world, litter, &path, w, h);
+        write_overlay(&world, litter, &path, w, h, crop, zoom);
         println!("  overlay: {path} (magenta = resting on a branch, cyan = resting on the ground)");
     }
 }
@@ -270,12 +284,15 @@ fn main() {
 /// Paint the same classification the census counts, so the picture and the
 /// number are the same quantity rather than two things that have to be
 /// argued into agreement.
-fn write_overlay(world: &World, litter: material::MaterialId, path: &str, w: i32, h: i32) {
-    let mut buf = vec![0u8; (w * h * 3) as usize];
-    for x in 0..w {
-        for y in 0..h {
+fn write_overlay(world: &World, litter: material::MaterialId, path: &str, w: i32, h: i32, crop: Option<(i32, i32, i32, i32)>, zoom: i32) {
+    let (cx, cy, cw, ch) = crop.unwrap_or((0, 0, w, h));
+    let zoom = zoom.max(1);
+    let (ow, oh) = (cw * zoom, ch * zoom);
+    let mut buf = vec![0u8; (ow * oh * 3) as usize];
+    for px in 0..cw {
+        for py in 0..ch {
+            let (x, y) = (cx + px, cy + py);
             let c = world.get(x, y);
-            let i = ((y * w + x) * 3) as usize;
             let rgb = if c.material == litter {
                 match rest_of(world, litter, x, y, h - 1) {
                     Rest::Plant => [255u8, 0, 220],
@@ -292,11 +309,20 @@ fn write_overlay(world: &World, litter: material::MaterialId, path: &str, w: i32
                 let raw = pal[c.shade as usize % pal.len().max(1)];
                 [raw[0] / 4, raw[1] / 4, raw[2] / 4]
             };
-            buf[i..i + 3].copy_from_slice(&rgb);
+            // Nearest-neighbour, deliberately: a litter cell is one pixel
+            // and the whole question is where it is, so any smoothing
+            // filter would blend the two markers into the dim world behind
+            // them and invent colours that mean nothing.
+            for dy in 0..zoom {
+                for dx in 0..zoom {
+                    let i = (((py * zoom + dy) * ow + px * zoom + dx) * 3) as usize;
+                    buf[i..i + 3].copy_from_slice(&rgb);
+                }
+            }
         }
     }
-    image::RgbImage::from_raw(w as u32, h as u32, buf)
-        .expect("buffer is w*h*3")
+    image::RgbImage::from_raw(ow as u32, oh as u32, buf)
+        .expect("buffer is ow*oh*3")
         .save(path)
         .expect("write overlay png");
 }
