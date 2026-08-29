@@ -1,0 +1,46 @@
+{
+  "id": "20260829T151933884Z-bfaf22",
+  "created": "2026-08-29T15:19:33Z",
+  "board": "fracture",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-playtest-fixes",
+    "commit": "dad59c5",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Hammer: what one blow leaves behind",
+  "question": "You said the hammer 'mostly makes big strike lines instead of breaking rock into pieces'. Same scene, same swings at the same cliff, one setting changed: how far out from the impact the rock is loosened into pieces (the crack rays are untouched). Which one reads as rock coming apart?",
+  "context_md": "Counts, since the sheet cannot show them. LEFT-STORED: 3 blows landed, 98 cells broken, 122 cells CRACKED, 44 came off as chunks vs 59 as dust (42% chunk), peak 2 pieces in flight. RIGHT-STORED: 5 blows landed, 321 cells broken, 101 cells CRACKED, 251 as chunks vs 74 as dust (77% chunk), peak 3 pieces in flight. Read the cracked-vs-broken ratio: 1.24 lines per broken cell against 0.31.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "chip zone = 2/3 radius (current)",
+      "files": [
+        "20260829T151933884Z-bfaf22/000-smash_A.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "chip zone = full radius",
+      "files": [
+        "20260829T151933884Z-bfaf22/001-smash_B.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
