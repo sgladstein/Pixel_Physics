@@ -2055,6 +2055,20 @@ const EMBEDDED: &[&str] = &[
     // `id_of("log")` and by the resolved `Material::severs_into`, never by
     // number.
     include_str!("../../assets/materials/log.ron"),
+    // Appended, per the rule stated five times above. The organ package's
+    // three: petals, the ripening fruit they set, and the fallen fruit that
+    // carries a genome to the ground. All three are addressed by name
+    // through the species file's `flower_material`/`fruit_material`/
+    // `windfall_material`, never by number.
+    //
+    // **In this list rather than only on disk, and that is load-bearing.**
+    // Only the app's F5 reload reads `assets/materials`; every headless
+    // harness gets exactly what `include_str!` compiled in. A material left
+    // out here exists in the editor and not in any measurement -- the P-7
+    // lesson `litter.ron`'s entry above records.
+    include_str!("../../assets/materials/flower.ron"),
+    include_str!("../../assets/materials/fruit.ron"),
+    include_str!("../../assets/materials/windfall.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

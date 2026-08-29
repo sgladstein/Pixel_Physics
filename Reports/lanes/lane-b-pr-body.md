@@ -123,7 +123,7 @@ is exactly what a generated one would be.
 
 ## Gates
 
-- `cargo test --lib` — **984 passed, 0 failed, 54 ignored**, including 15 new
+- `cargo test --lib` — **1,001 passed, 0 failed, 54 ignored**, including 15 new
 - `cargo clippy --all-targets -- -D warnings` — clean on the container's
   1.94.1 **and** on CI's 1.98.0 (`CLAUDE.md`'s toolchain-drift gotcha)
 - `bash scripts/docscheck.sh` — clean; `scripts/bugindex.py --check` clean
@@ -132,6 +132,10 @@ is exactly what a generated one would be.
 
 `src/sim/species_export.rs` and `examples/species_export.rs` are new.
 `brain.rs`, `organism.rs`, `mod.rs`, `ant_ablation.rs` and docs are edited.
+`main` is merged in as of `f96c08d` (31 commits, the plant organs/fates work),
+which brought six new `SpeciesDef` fields — carried through, with a guard that
+sweeps every `.ron` in `assets/species/` so the next six cannot be dropped
+quietly.
 **`src/sim/creature.rs` — the 39-landing hotspot — is touched on two lines
 only**, both inside `#[cfg(test)]`, both the mechanical fourth argument to
 `genome_from_wiring`.

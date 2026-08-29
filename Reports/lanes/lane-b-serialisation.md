@@ -12,7 +12,7 @@ animal. Decision **E8** — *"we can use it to create new creatures that get
 saved and added to the game"* — had no implementation at all: `Serialize`
 was derived on nothing in the species tree. Full account, with the design
 calls, in `Reports/creature-export-design.md`. Gates green:
-`cargo test --lib` 984 passed / 0 failed / 54 ignored, clippy on both the
+`cargo test --lib` 1,001 passed / 0 failed / 54 ignored, clippy on both the
 container's 1.94.1 and CI's 1.98.0, `docscheck` clean.
 
 ### → coordinator: the number worth carrying
@@ -83,8 +83,23 @@ compiler checks neither end of a channel, and this is the writer-with-no-
 reader case.
 
 Found by writing the test *because* the impl had no caller. One word
-(`self.values.as_slice()`). If your lane adds `Serialize` to a type nothing
-exports yet, it owes that type a round trip in the same change.
+(`self.values.as_slice()`). The guard now sweeps **every `.ron` in
+`assets/species/`** — put the fault back and it goes red, checked rather
+than assumed. If your lane adds `Serialize` to a type nothing exports yet,
+it owes that type a round trip in the same change.
+
+### → the plant lane specifically
+
+Merged your organs/fates work in. Two things it now carries from here:
+
+- **`Fate` and `FateWhen` have `Serialize` derived**, and `Species` has a
+  `fates()` accessor beside `cell_types()`. Both exist only for the export.
+- **`individual_as_species` writes every `SpeciesDef` field by hand** — no
+  `..Default::default()` — so **a field you add to `SpeciesDef` is a compile
+  error in `src/sim/species_export.rs`**, with a doc comment saying what to
+  do (copy it from `parent` unless the individual owns it). That is the
+  intended behaviour, not an obstacle: the alternative silently drops your
+  field from every exported creature. Your six new fields cost six lines.
 
 ### → coordinator: "added to the game" needs one thing the export cannot write
 

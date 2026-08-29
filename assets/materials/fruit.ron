@@ -1,0 +1,96 @@
+// Fruit, still on the plant. The ripening organ a flower sets, before it
+// lets go and falls (`windfall.ron` is what it becomes on the way down).
+//
+// **Its physics differ from both of its neighbours on numbers that already
+// exist**, which is this engine's test for a material rather than a shade.
+// Against `leaf`: four to five times the density (a fruit is water and
+// sugar, foliage is a membrane), barely flammable where a leaf is the thing
+// that carries a canopy fire, and worth twice as much to eat. Against
+// `flower`: heavier again, wetter, and it is the cell that carries a genome
+// rather than the one that advertises.
+//
+// **Two materials for one organ, and the reason is mechanical rather than
+// cosmetic.** An attached fruit must hang, so it has to be `Plant` kind --
+// a `Powder` cell owned by an organism falls the tick it is created, which
+// is exactly what a seed does and exactly what a fruit must not do until it
+// is ripe. So the hanging fruit is this, and the dropped fruit is
+// `windfall`, and the transition is `plant.rs`'s `Behavior::Ripen`.
+(
+    name: "fruit",
+    display: "Fruit",
+    kind: Plant,
+    climbable: true,
+    // A fruit is heavy for plant tissue -- above `leaf` (0.25) and `flower`
+    // (0.15), just under `wood` (0.9). It is mostly water.
+    density: 0.7,
+    // **Six bands of four**, the same `PALETTE_BAND` scheme as `leaf` and
+    // `flower`, declared per species as `fruit_bands`.
+    //
+    // Ripe colours only. An unripe fruit is not a separate palette here: it
+    // is a separate *stage*, and the stage lives in the `OrganismCell`
+    // sidecar (`ripeness`) rather than in `aux`, which is already spent on
+    // band identity plus grain. `Reports/plant-organs-handoff-2026-08-28.md`
+    // §5.3 records that `Reports/plant-morphology-reach-2026-08-23.md` §2a
+    // is wrong about `aux` being a free colour readout.
+    //
+    // Warm and dark-saturated, running red -> deep red -> purple -> blue-
+    // black -> orange -> gold. Deliberately *darker* than `flower`: a
+    // flower is an advertisement and a fruit is a weight, and the contrast
+    // between the two on one plant is half of what makes an organ read.
+    colors: [
+        // 0: red -- tomato, rowan, holly
+        (188, 44, 38),
+        (212, 66, 56),
+        (152, 28, 24),
+        (232, 96, 84),
+        // 1: deep crimson -- cherry, haw
+        (140, 30, 42),
+        (166, 46, 58),
+        (110, 20, 32),
+        (190, 70, 84),
+        // 2: purple -- damson, sloe
+        (96, 48, 108),
+        (120, 66, 132),
+        (74, 34, 84),
+        (146, 92, 158),
+        // 3: blue-black -- elder, bilberry
+        (46, 44, 74),
+        (64, 62, 96),
+        (32, 30, 56),
+        (86, 84, 122),
+        // 4: orange -- rosehip, sea buckthorn
+        (214, 108, 34),
+        (236, 134, 56),
+        (182, 84, 22),
+        (250, 164, 92),
+        // 5: gold -- apple, quince, greengage
+        (206, 172, 56),
+        (228, 196, 84),
+        (176, 144, 38),
+        (244, 216, 122),
+    ],
+    // **Wet, so it barely burns**, unlike every other tissue a plant makes.
+    // A fruiting crown is the one part of a canopy that does not carry a
+    // fire, and this is what expresses that.
+    flammability: 0.15,
+    burn_temperature: 480.0,
+    burn_duration: 50,
+    burns_into: "ash",
+    heat_conductivity: 0.25,
+    // Holds up itself and nothing else, and opted out of the cantilever
+    // rule -- see `flower.ron` and `leaf.ron` for why a small number there
+    // amputates instead of restraining.
+    max_unsupported_span: 1,
+    // **A fruit knocked off the plant is a windfall**, which is exactly what
+    // it becomes when it ripens off it too. Same destination by both routes,
+    // deliberately: where a fruit ends up is the ground either way, and the
+    // whole difference the ripening path buys is that a ripe one carries a
+    // live genome down with it and a knocked-off one does not.
+    breaks_into: "windfall",
+    severs_into: "windfall",
+    // **Twice a leaf, and this is the plant-to-creature coupling the ecology
+    // design keeps asking for** -- fruit is food worth walking to, which is
+    // what makes an animal a disperser rather than a grazer.
+    food_energy: 960.0,
+    food_class: -1.0,
+)

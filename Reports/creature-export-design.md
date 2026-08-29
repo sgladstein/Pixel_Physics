@@ -142,14 +142,19 @@ list. So the whole *plant* half of the export produced files that would not
 parse (`SpannedError { code: ExpectedArray }`), and nothing noticed.
 
 **Why nothing noticed is the part worth keeping.** `individual_as_species`
-refuses a plant, so `Behavior` and `ByOrder` had `Serialize` derived and no
-caller — `CLAUDE.md`'s "a channel needs a writer and a reader, and the
+refuses a plant, so `Behavior`, `Fate` and `ByOrder` had `Serialize` derived
+and no caller — `CLAUDE.md`'s "a channel needs a writer and a reader, and the
 compiler checks neither", in its worse direction. Every gate was green:
 `cargo test --lib`, both clippy toolchains, `docscheck`. The bug was found by
 writing the test *because* the impl had no caller, not by anything failing;
-the test (`a_plant_species_survives_the_serializer_it_never_asked_for`) is a
-text fixed point plus a per-tier comparison of the tree's short-form root
-list, and it is what stops the plant half rotting again. **The same shape is
+the test (`every_species_file_survives_the_serializer_most_of_them_never_asked_for`)
+sweeps **every `.ron` in `assets/species/` — 11 of them** with a text fixed
+point and a fate-table comparison, plus a per-tier read of the tree's
+short-form root list, and it is what stops the plant half rotting again. The
+sweep is over the directory rather than one file on purpose: the drift this
+really guards is a lane adding a field or a type that only one species uses,
+and `assets/species/` is where that arrives. Put the fault back and it goes
+red — checked, not assumed. **The same shape is
 one derive away in this module at any time: if a lane adds `Serialize` to a
 type nothing exports, it owes it a round trip.**
 
@@ -164,9 +169,9 @@ would silently gain a tier.
 
 | | |
 |---|---|
-| `src/sim/species_export.rs` | new — `individual_as_species`, `organism_as_species`, `to_ron`, `save_to`/`save`, and 10 tests |
+| `src/sim/species_export.rs` | new — `individual_as_species`, `organism_as_species`, `to_ron`, `save_to`/`save`, and 11 tests |
 | `src/sim/brain.rs` | `Wiring`, `wiring_from_genome` (the inverse), `Recurrence`, `INPUTS`/`OUTPUTS` slot tables, `Serialize` on the wiring types, 4 tests |
-| `src/sim/organism.rs` | `Serialize` across the species tree incl. a custom `ByOrder` impl; `CreatureDef::recurrence`; `SpeciesDef::genome_manifest` + `check_genome_manifest` at both load sites; `Species::cell_types()` |
+| `src/sim/organism.rs` | `Serialize` across the species tree (`SpeciesDef`, `CreatureDef`, `BodyPlan`, `CellType`, `Behavior`, `Tropism`, `PaletteBands`, `FateWhen`, `Fate`) incl. a custom `ByOrder` impl; `CreatureDef::recurrence`; `SpeciesDef::genome_manifest` + `check_genome_manifest` at both load sites; `Species::cell_types()`/`fates()` |
 | `examples/species_export.rs` | new — the shell-reachable exit, `from=`/`name=`/`genome=`/`gut=`/`dir=`/`verify=` |
 
 Tests, all in-tree and green: the round trip through `Species::from`; the
@@ -196,6 +201,20 @@ The other pairing is embedding: the app's F5 reload reads
 `assets/species/`, but a headless harness reads only `organism.rs`'s
 `EMBEDDED` list (P-7), so a creature that is to be measured needs one
 `include_str!` line.
+
+## 5c. The one place drift will bite, and where it announces itself
+
+`individual_as_species` writes **every `SpeciesDef` field by hand**. No
+`..Default::default()`, no struct update. That is deliberate: either would
+let a field added to `SpeciesDef` be silently dropped from every exported
+creature — the enumeration-that-must-stay-complete failure `World::set`'s own
+comment says this project keeps rediscovering. Listing them makes a new field
+a **compile error in one function** with a doc comment saying what to do.
+
+It fired within the hour: merging `main` brought six new `SpeciesDef` fields
+(`flower_material`, `fruit_material`, `windfall_material`, `flower_bands`,
+`fruit_bands`, `fates`) and a new type needing `Serialize`. The error named
+the function, the fix was six lines, and nothing was lost.
 
 ## 6. What this deliberately does not do
 

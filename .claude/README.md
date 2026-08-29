@@ -69,12 +69,12 @@ list is short enough to read.
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~25,270 tokens** — `CLAUDE.md` at 101,078 B / 1,580 lines, bytes/4.0. Ceiling 28,000 (2,730 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~25,318 tokens** — `CLAUDE.md` at 101,272 B / 1,580 lines, bytes/4.0. Ceiling 28,000 (2,682 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~252,700 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~253,180 tokens before any of them reads source.
 
 Consulted by lookup, paid unconditionally: 63% (~15,986 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-08-29 x2, 2026-08-28 x1, 2026-08-27 x2, 2026-08-26 x12, 2026-08-25 x21. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-08-29 x5, 2026-08-28 x1, 2026-08-27 x2, 2026-08-26 x12, 2026-08-25 x21. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->

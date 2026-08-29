@@ -126,6 +126,15 @@ pub fn is_usable_name(name: &str) -> bool {
 /// **The genome round-trips through `brain::wiring_from_genome`, not
 /// through a new format.** That is the whole design: the file this
 /// produces is read by the deserialiser that was already there.
+///
+/// **Every field is written out by hand, and that is deliberate.** A
+/// `..Default::default()` or a struct update here would let a field added
+/// to `SpeciesDef` be silently dropped from every exported creature — the
+/// enumeration-that-must-stay-complete failure `World::set`'s own comment
+/// says this project keeps rediscovering. Listing them means a new field
+/// is a **compile error in this function**, which is the cheapest possible
+/// reminder. If you are here because of that error: copy the field from
+/// `parent` unless it is something the *individual* owns.
 pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; super::organism::CREATURE_TRAITS], name: &str) -> Result<SpeciesDef, SaveError> {
     if !is_usable_name(name) {
         return Err(SaveError::BadName(name.to_string()));
@@ -155,9 +164,15 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         shoot_material: parent.shoot_material.clone(),
         root_material: parent.root_material.clone(),
         leaf_material: parent.leaf_material.clone(),
+        flower_material: parent.flower_material.clone(),
+        fruit_material: parent.fruit_material.clone(),
+        windfall_material: parent.windfall_material.clone(),
+        flower_bands: parent.flower_bands,
+        fruit_bands: parent.fruit_bands,
         seed_half_life: parent.seed_half_life,
         remains_half_life: parent.remains_half_life,
         cell_types: parent.cell_types().to_vec(),
+        fates: parent.fates().to_vec(),
         creature: Some(creature),
     })
 }
@@ -498,35 +513,66 @@ mod tests {
         ));
     }
 
-    /// The plant half of the species tree, which nothing else here
-    /// exercises.
+    /// **Every species file in the tree, round-tripped.** The plant half,
+    /// which nothing else here exercises, and the drift guard.
     ///
-    /// **`individual_as_species` refuses a plant**, so `Behavior` and
+    /// `individual_as_species` refuses a plant, so `Behavior`, `Fate` and
     /// `ByOrder<T>` have `Serialize` derived and no caller — a channel with
     /// a writer and no reader, which `CLAUDE.md` names as the failure this
-    /// project has hit three times. Two lanes could then land a change that
-    /// breaks the plant half of the export and nothing would go red until
-    /// somebody tried to write a plant out.
+    /// project has hit three times. It is not hypothetical here: `ByOrder`
+    /// shipped writing a *tuple* where its own `Deserialize` reads a
+    /// **list**, so every plant produced a file that would not parse, with
+    /// `cargo test --lib`, both clippy toolchains and `docscheck` green.
     ///
-    /// `tree.ron` is the hardest case in the directory and the round trip
-    /// is checked on the two things that could plausibly go wrong: text
-    /// fixed point (nothing is lost or added on a second pass), and the
-    /// **short-form** `ByOrder` list — the root arm authors
-    /// `branch_chance: [0.0]`, one value standing for four, and an export
-    /// writes all four back. Those must load to the same tiers.
+    /// **Over the directory rather than one file**, because the failure this
+    /// is really guarding is a lane adding a field or a type to `SpeciesDef`
+    /// that only one species uses. `assets/species/` is where such a thing
+    /// arrives, so that is what gets swept.
+    ///
+    /// Two checks per file: a text **fixed point** (a second pass adds and
+    /// loses nothing), and the **short-form `ByOrder`** read at every tier —
+    /// `tree.ron`'s root arm authors `branch_chance: [0.0]`, one value
+    /// standing for four, and an export writes all four back.
     #[test]
-    fn a_plant_species_survives_the_serializer_it_never_asked_for() {
-        let def: SpeciesDef = ron::from_str(include_str!("../../assets/species/tree.ron")).expect("tree.ron parses");
-        let first = to_ron(&def).expect("a tree serializes");
-        let again: SpeciesDef = ron::from_str(&first).expect("the serialized tree parses back");
-        let second = to_ron(&again).expect("and serializes again");
-        assert_eq!(first, second, "a tree is not a fixed point of the serializer");
+    fn every_species_file_survives_the_serializer_most_of_them_never_asked_for() {
+        let dir = std::path::Path::new(crate::sim::organism::ASSET_DIR);
+        let mut paths: Vec<_> = std::fs::read_dir(dir)
+            .expect("the species asset directory")
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "ron"))
+            .collect();
+        paths.sort();
+        assert!(paths.len() >= 8, "only {} species files found; the sweep is reading the wrong directory", paths.len());
 
-        // The short-form list, checked at every tier rather than at the one
-        // the file wrote: `[0.0]` means "and so on", and an export that
-        // wrote the short form back would pass a text comparison and
-        // silently gain a tier the day BRANCH_ORDERS grows.
-        let (before, after) = (Species::from(def), Species::from(again));
+        for path in &paths {
+            let text = std::fs::read_to_string(path).expect("readable");
+            let text = text.strip_prefix('\u{feff}').unwrap_or(&text).to_string();
+            let name = path.display();
+            let def: SpeciesDef = ron::from_str(&text).unwrap_or_else(|e| panic!("{name} does not parse: {e}"));
+            let first = to_ron(&def).unwrap_or_else(|e| panic!("{name} does not serialize: {e}"));
+            let again: SpeciesDef = ron::from_str(&first).unwrap_or_else(|e| panic!("{name} does not parse back after export: {e}"));
+            let second = to_ron(&again).unwrap_or_else(|e| panic!("{name} does not re-serialize: {e}"));
+            assert_eq!(first, second, "{name} is not a fixed point of the serializer");
+
+            let (before, after) = (Species::from(def), Species::from(again));
+            assert_eq!(before.genome, after.genome, "{name}: the genome moved");
+            assert_eq!(before.leaf_material, after.leaf_material, "{name}");
+            assert_eq!(before.seed_half_life, after.seed_half_life, "{name}");
+            assert_eq!(before.cell_types().len(), after.cell_types().len(), "{name}");
+            assert_eq!(before.fates().len(), after.fates().len(), "{name}: the fate table lost a cell type");
+            for ((ct, a), (ct2, b)) in before.fates().iter().zip(after.fates()) {
+                assert_eq!(ct, ct2, "{name}: the fate table reordered");
+                assert_eq!(a, b, "{name}: a fate rule did not survive the round trip");
+            }
+        }
+
+        // The short-form `ByOrder` list, at every tier rather than at the one
+        // the file wrote: `[0.0]` means "and so on", and an export that wrote
+        // the short form back would pass the fixed point above and silently
+        // gain a tier the day BRANCH_ORDERS grows.
+        let def: SpeciesDef = ron::from_str(include_str!("../../assets/species/tree.ron")).expect("tree.ron parses");
+        let again: SpeciesDef = ron::from_str(&to_ron(&def).expect("serializes")).expect("parses back");
         let chance = |sp: &Species| -> Vec<f32> {
             let b = sp
                 .behaviors(crate::sim::organism::CellType::RootTip)
@@ -538,10 +584,7 @@ mod tests {
                 .expect("the tree's root arm grows");
             (0..8).map(|order| b.at(order)).collect()
         };
-        assert_eq!(chance(&before), chance(&after), "a per-branch-order list did not survive the round trip");
-        assert_eq!(before.seed_half_life, after.seed_half_life);
-        assert_eq!(before.leaf_material, after.leaf_material);
-        assert!(before.genome.is_empty(), "a plant has no brain genome; if it does, this module owes it an export");
+        assert_eq!(chance(&Species::from(def)), chance(&Species::from(again)), "a per-branch-order list did not survive the round trip");
     }
 
     /// A per-test scratch directory. The test binary runs many threads at
