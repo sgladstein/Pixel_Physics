@@ -78,11 +78,28 @@ use pixel_physics::sim::world::World;
 /// `.ron`.
 const TREE_RON: &str = include_str!("../assets/species/tree.ron");
 const HERB_RON: &str = include_str!("../assets/species/herb.ron");
+/// **The species evolution experiments are supposed to run on**, and the one
+/// whose result is a prediction rather than an exploration.
+///
+/// `grass` is the only shipped species measured to clear the generational
+/// barrier — generation 2 in 7 of 8 seeds against `tree`'s 1 in 8 of 8
+/// (`plant-recruitment-measurement-2026-08-27.md`) — so it is where a lineage
+/// census can be run at all. And its production rule is **byte-identical to
+/// `tree`'s**: the same six rules over the same six `(owner, when)` slots,
+/// every one of them a slot `builtin_fate` answers. The whole difference
+/// between a tree and a grass in this engine is economy, materials and
+/// behaviours, not the developmental program.
+///
+/// So the mechanism in `plant-fate-operator-gate-2026-08-29.md` §3 predicts
+/// grass reads like tree and not like herb -- `delete` at zero. Running it is
+/// the falsifiable form of that claim.
+const GRASS_RON: &str = include_str!("../assets/species/grass.ron");
 
 /// Which base this run mutates, from `base=tree|herb`.
 #[derive(Clone, Copy, PartialEq)]
 enum Base {
     Tree,
+    Grass,
     Herb,
 }
 
@@ -90,12 +107,14 @@ impl Base {
     fn source(self) -> &'static str {
         match self {
             Base::Tree => TREE_RON,
+            Base::Grass => GRASS_RON,
             Base::Herb => HERB_RON,
         }
     }
     fn name(self) -> &'static str {
         match self {
             Base::Tree => "tree",
+            Base::Grass => "grass",
             Base::Herb => "herb",
         }
     }
@@ -117,7 +136,7 @@ impl Base {
     /// the confound is named rather than designed out.
     fn can_express_organs(self) -> bool {
         match self {
-            Base::Tree => false,
+            Base::Tree | Base::Grass => false,
             Base::Herb => true,
         }
     }
@@ -173,6 +192,12 @@ fn base_table(base: Base) -> Table {
     // the control has to reproduce the shipped plant.
     let f = |when, becomes, child, lateral| Fate { when, becomes, child, lateral, after_metamers: None };
     let at = |when, becomes, n| Fate { when, becomes, child: None, lateral: None, after_metamers: Some(n) };
+    // **`grass` falls through to the `tree` arm below, and that is a measured
+    // claim rather than laziness**: the two species' `fates:` blocks are
+    // identical rule for rule -- six rules over the same six `(owner, when)`
+    // slots. If grass.ron ever diverges, this stops reproducing the shipped
+    // plant and the positive control says so by failing, which is exactly the
+    // guard this function's doc describes.
     if base == Base::Herb {
         // Must agree with `herb.ron` rule for rule, for the reason this
         // function's doc gives: the positive control is grown from *this*
@@ -434,8 +459,9 @@ fn main() {
     // a mutation may reach, and that is invisible in every other line.
     let base = match std::env::args().find_map(|a| a.strip_prefix("base=").map(str::to_string)).as_deref() {
         None | Some("tree") => Base::Tree,
+        Some("grass") => Base::Grass,
         Some("herb") => Base::Herb,
-        Some(other) => panic!("unknown base {other:?} (tree|herb)"),
+        Some(other) => panic!("unknown base {other:?} (tree|grass|herb)"),
     };
     // **`op=` forces one operator, and the gate needs it.** `mutate` picks
     // 60/15/15/10, so 40 mutants spend about four draws on `delete` -- too few
