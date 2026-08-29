@@ -93,40 +93,40 @@ point.
 | I | closed | 4754 | The disturbance-extent guard inverts once rubble stops anchoring |
 | J | **OPEN** | 4819 | A blocked substep still vents the smoke it was only *probing* |
 | Q | **OPEN** | 4849 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 4904 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 5051 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 5133 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 5201 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 5258 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | closed | 5468 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| -- | historic | 5528 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
-| L | closed | 5607 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 5739 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 5772 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 5834 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 6831 | The brush's anchor rule destroys structures the other two rules leave standing |
-| S4 | **OPEN** | 7019 | Rock still crushes itself on an idle world |
-| T | **OPEN** | 7091 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7135 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7184 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7275 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 7289 | Grow into soil destroys the soil's stored water |
-| 3 | note | 7301 | Capillary exchange can push a neighbour above its own capacity |
-| W1a | note | 7319 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 7340 | A material-counting guard cannot see a species |
-| W1c | note | 7353 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 7487 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 7565 | The structural opt-out did not hold against bearing |
-| T1d | note | 7576 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 7610 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 7664 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 7718 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 7747 | §1c's settle loss is now a counter |
-| -- | note | 7764 | What landed |
-| -- | note | 7787 | Do not re-derive these |
-| -- | note | 7815 | Measurements that contradict something written |
-| -- | note | 7835 | Open |
-| -- | note | 7870 | Unmerged at close, and one of it is a fix main needs anyway |
+| P | **OPEN** | 4994 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 5141 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 5223 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 5291 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 5348 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | closed | 5558 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| -- | historic | 5618 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
+| L | closed | 5697 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 5829 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | historic | 5885 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 5947 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 6944 | The brush's anchor rule destroys structures the other two rules leave standing |
+| S4 | **OPEN** | 7132 | Rock still crushes itself on an idle world |
+| T | **OPEN** | 7204 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7248 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7297 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7388 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 7402 | Grow into soil destroys the soil's stored water |
+| 3 | note | 7414 | Capillary exchange can push a neighbour above its own capacity |
+| W1a | note | 7432 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 7453 | A material-counting guard cannot see a species |
+| W1c | note | 7466 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 7600 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 7678 | The structural opt-out did not hold against bearing |
+| T1d | note | 7689 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 7723 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 7777 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 7831 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 7860 | §1c's settle loss is now a counter |
+| -- | note | 7877 | What landed |
+| -- | note | 7900 | Do not re-derive these |
+| -- | note | 7928 | Measurements that contradict something written |
+| -- | note | 7948 | Open |
+| -- | note | 7983 | Unmerged at close, and one of it is a fix main needs anyway |
 
 <!-- END GENERATED INDEX -->
 
@@ -4901,6 +4901,96 @@ recorded there as "a slab lying on its own rubble was judged as many
 separate knife-edge footings", pointing the other way: here the knife edge
 is what stands.
 
+**Answered for the *felled tree* case, 2026-08-29, and not for `scene=worked`
+— the distinction matters and is kept.** §Q asks for one measurement first:
+*what material is a standing needle made of?* On `scene=fell fell=7150` it is
+`log`, and the harness already reports it — `filmstrip`'s `log_pieces` census
+reads **13-15 settled pieces of 8+ cells, 8 to 10 of them upright**, run after
+run, holding that pose for hundreds of frames. So for this scene it is
+candidate **(1), settled rigid bodies**, and candidate (2) is not in play.
+
+**And the cause is exact.** §Q says *"there is no slenderness ratio, no
+tipping moment and no bearing width anywhere in the load model"*. That
+sentence was true when it was written and is now **stale**: `load::
+bearing_moment` is precisely a tipping test — a no-tension Winkler bed
+reducing to *"is the centre of mass within a sixth of the contact width"*,
+which is mass-independent and would topple a knife edge at any weight.
+
+It does not run on a log, and the line that stops it is
+`load.rs`'s
+
+```rust
+if capacity != i64::MAX && parent.is_none() && rests_on_ground(..) && !floats_on_liquid(..) {
+    capacity = capacity.min(bearing_moment(world, x, y, mass));
+}
+```
+
+`capacity_within` returns `i64::MAX` for `max_unsupported_span == u16::MAX`,
+which is `log`'s opt-out, so the `capacity != i64::MAX` guard skips the
+bearing clamp for exactly the material this bug is about.
+
+**That guard was added deliberately and for a good reason, which is what
+makes this worth writing down rather than just fixing.** It is T1b's fix:
+without it, `i64::MAX.min(bearing_moment(..))` is `bearing_moment`, so the
+opt-out held against bending and silently did not hold against bearing —
+and half of every felled tree's landed pieces were crushed back into
+`deadwood` (1,191 cells of log delivered, **431 standing** at frame 8,750).
+So the fix that closed one dust route removed the only mechanism that would
+have made the pieces lie down. Both behaviours came from one number.
+
+**The shape of the repair is the question `CLAUDE.md` already names**, and it
+is *not* "reinstate the clamp": `capacity` is being asked to answer two
+different questions with one value. *Can this piece carry a bending load?* —
+no, it is debris, and that is what the opt-out correctly says. *Is this piece
+standing on a footing too narrow to hold it upright?* — a separate question,
+with a separate answer, and one the opt-out was never meant to cover. Stating
+them as two quantities is the "when a rule must tell apart two things that can
+look identical, state the difference as data" rule; conflating them is what
+produced a material that is either crushed or unfallable and nothing between.
+
+**CORRECTION, same day, from the control — and the corrected finding is the
+useful one.** Everything above is a source reading, so it was put under the
+positive control `CLAUDE.md` demands: the opt-out guard was removed so the
+bearing clamp *does* reach `log`, and the identical cut re-run.
+
+| `scene=fell fell=7150`, settled | baseline | clamp reaching `log` |
+|---|---|---|
+| pieces >= 8 cells | 13 | 13 |
+| **lying / upright / square** | **3 / 8 / 2** | **1 / 11 / 1** |
+| `log` cells | 833 | 716 |
+| `deadwood` cells | 553 | 645 |
+
+**Giving logs the tipping test does not make them lie down. It crushes
+them**, and leaves *more* of the rest standing than before. The prediction
+above — that the guard is what stops a knife-edge log toppling — is wrong,
+and the reason it is wrong is the thing worth keeping:
+
+**The load model has no `topple` outcome.** Its two verdicts are *holds* and
+*fails*, and failing means `breaks_into` — convert where you stand. So a
+bearing test that correctly identifies an over-eccentric piece can only
+express that finding by turning it into grit. That is the T1b regression
+arriving by the front door (`log` 833 -> 716, `deadwood` 553 -> 645 is
+exactly the crushing T1b's guard was added to stop), and it is *also* why
+the upright count went the wrong way: the pieces the clamp condemned were
+the ones with a footing, and what survived were the needles.
+
+**So the missing mechanism is not a test, it is an outcome.** A piece that
+is out of balance has to be **re-promoted as a body and allowed to rotate**,
+not converted. Which means the repair is not in `capacity` at all, and the
+"state the two questions as two quantities" proposal above, while still true
+about the conflation, would not have fixed anything on its own: splitting
+the number gives the second question an answer that the system has no way to
+act on.
+
+It also settles a scheduling question for `Reports/tree-mechanics-plan-
+2026-08-29.md` §7 stage 4: **rotation and the tipping test are one change,
+not two, and the tipping test is worthless before the rotation exists.**
+
+**Still open for `scene=worked`.** Its needles are in rock and rubble, not
+`log`, so nothing above transfers — `rubble` is a `Powder` and takes no part
+in `structural.rs` at all, which is §Q's candidate (2) and is untouched by
+this. The decisive census §Q asks for still has to be run on that scene.
+
 ### P. `scene=worldcrack` is not deterministic, so `seedsweep.sh` cannot compare two models on a chaotic seed
 
 *(Re-lettered from L at the 2026-08-23 lane landing: three unrelated bugs
@@ -5758,14 +5848,37 @@ ground** — rather than "no creature cell is ever over water", which fails for 
 correct two-cell ant whose head is on the bank and whose tail overhangs the
 shore by one cell. Verified red with the `Liquid` refusal removed.
 
-**Locomotion: still open, and it is the owner's call, not a bug fix.** An ant
-that walks onto a pond under its own power still stands on it: `step_chain`
-judges it unsupported correctly, but the fall it attempts needs every cell to
-land somewhere `World::is_empty` calls free, and water is not free, so the fall
-is refused. Does an ant **drown, float, or swim**? Drowning is the cheapest and
-has a side effect worth noticing — it is the only mechanism currently proposed
-anywhere that would put **carrion** in the world, which is what the diet gene
-(S5) measured as missing.
+**Locomotion: ANSWERED 2026-08-29, and the answer is not one of the three.**
+An ant that walks onto a pond under its own power still stands on it:
+`step_chain` judges it unsupported correctly, but the fall it attempts needs
+every cell to land somewhere `World::is_empty` calls free, and water is not
+free, so the fall is refused. The card asked **drown, float, or swim**; the
+owner's verdict is **all three, as a heritable trait**, with one constraint
+added that the card did not offer:
+
+> *"I like the idea of all those being possible for creatures and could we
+> integrate that into the genetics as traits that could evolve. Although there
+> should be a mechanical limit to floating as we wouldn't want really large
+> creatures (if we could even get there with our engine) floating."*
+
+Recorded as **E9** in `creature-evolution-plan.md`. Three things follow, and
+the third is the one a implementer will get wrong:
+
+1. Water response joins `gut_bias` in `OrganismState::traits` — the same
+   shape, one scalar, drown at one end and swim at the other.
+2. **The float limit is physical, not genetic.** Buoyancy bounded by body mass
+   against displacement, so no genome can evolve a large creature onto the
+   surface. Stating it as a world rule rather than a gene is what stops it
+   becoming a number somebody has to keep re-tuning against every new body
+   size — `CLAUDE.md`'s *"when a rule must tell apart two things that can look
+   identical, state the difference as data"*, applied before the fact for
+   once.
+3. **Nothing evolves yet, and the entry should not imply otherwise.** There is
+   no reproduction and no mutation operator, so this ships as a per-species
+   knob that *becomes* evolvable the day S6 lands. It is still worth building
+   first: drowning is the only mechanism yet proposed that puts **carrion** in
+   the world, which `creature-evolution-plan.md` §2.5 measured as the reason
+   the survival-versus-`gut_bias` curve has one hump instead of two.
 
 **Original entry follows.**
 
