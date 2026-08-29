@@ -179,3 +179,25 @@ against 4.0).
   mid-session (plant organs, `f96c08d`) and I re-ran `ascii` on the merged
   tree but not the 37-minute economy sweep. It is the one number here I would
   spend another 37 minutes on next.
+
+### How to find this work
+
+**Branch: `claude/creature-rebaseline-lane-c`.** PR body is on the branch at
+`PR-BODY-lane-c.md`; the report is `Reports/creature-rebaseline-2026-08-29.md`
+with its line in `Reports/README.md`.
+
+**Head SHA: `979c3e84bda4bbc08c50a5b46584889d1366ed31`** — the work commit.
+The branch tip is one commit later (this note recording the SHA; a note
+cannot contain its own hash). `git log --oneline origin/claude/creature-rebaseline-lane-c`
+shows both.
+
+Merged `origin/main` at `f96c08d` in. Gates on that tree: clippy clean on
+1.94.1 **and on CI's 1.98.0**, `cargo test --lib` 986 passed / 0 failed / 54
+ignored, `docscheck` clean, `examples/ascii` exit 0 with the new bars.
+
+Files touched, and none of them a shared append-only record: `examples/ascii.rs`,
+`examples/ant_ablation.rs`, `examples/gnome_depth.rs`,
+`Reports/creature-rebaseline-2026-08-29.md` (new), `Reports/README.md`,
+`Reports/creature-evolution-plan.md` §4, `Reports/instruments.md`, this note.
+**I did not touch `Reports/open-bugs-handoff.md` or `Reports/dead-ends.md`** —
+nothing here is a new bug or a tried-and-rejected mechanism, and §R is yours.
