@@ -826,7 +826,8 @@ drift that two of these documents still reflect.**
   of owner review including two framing failures of the session's own.
 
 - [plant-mechanics-handoff-2026-08-29.md](plant-mechanics-handoff-2026-08-29.md)
-  — **handoff, written to be picked up cold; read it with the plan below.**
+  — **handoff; its §5.1 is built** (`tree-fall-2026-08-29.md`), the rest
+  stands. **Read it with the plan below.**
   What happened *after* the plan: PR #102 landed (the plan, the debris tiers,
   colour preservation), and six findings that change what to build next. The
   one to carry: **what has always looked like a crown collapsing was leaf
