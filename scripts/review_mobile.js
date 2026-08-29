@@ -262,10 +262,15 @@ async function drag(cdp, x, y, dx, dy, steps = 10) {
           `scrolls=${r.listScrolls} lastReachable=${r.lastRowReachable}`);
   }
 
-  const baseline = await railProbe(railOld, 1440, 760);
-  check(!baseline.notify,
-        "the guard fails against the page before the fix (it can actually fail)",
-        baseline.notify ? "baseline passed too -- this check proves nothing" : "");
+  // Mutation test, not a comparison against git HEAD: once the fix lands, HEAD
+  // *is* the fix and a baseline compare passes for the wrong reason. This page
+  // is the current one with the rail CSS deliberately reverted, so the question
+  // "could this check ever fail?" stays answerable after the fix is history.
+  const broken = await railProbe(railOld, 1440, 760);
+  check(!broken.notify,
+        "the check fails when the rail fix is disabled (it can actually fail)",
+        broken.notify ? "the sabotaged page passed too -- this check proves nothing"
+                      : `sabotaged: button bottom ${broken.notifyBottom}px vs rail bottom ${broken.railBottom}px`);
 
   // ---------------------------------------------------- desktop is unchanged
   console.log("\ndesktop regression");

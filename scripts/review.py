@@ -348,10 +348,10 @@ def cmd_post(args) -> int:
 
     card = build_card(root, spec)
     rl.save_card(root, card)
-    if getattr(args, "notify", False):
+    if should_notify(args):
         note = ensure_watcher(root)
         if note:
-            print("review: --notify: %s" % note, file=sys.stderr)
+            print("review: notify: %s" % note, file=sys.stderr)
     # The card is on disk before sync runs, so a transport failure costs
     # delivery time and never the question itself.
     emit(card, root, args.port, maybe_sync(args))
@@ -386,10 +386,10 @@ def cmd_ab(args) -> int:
         spec["kind"] = "frames"
     card = build_card(root, spec)
     rl.save_card(root, card)
-    if getattr(args, "notify", False):
+    if should_notify(args):
         note = ensure_watcher(root)
         if note:
-            print("review: --notify: %s" % note, file=sys.stderr)
+            print("review: notify: %s" % note, file=sys.stderr)
     emit(card, root, args.port, maybe_sync(args))
     if args.wait:
         return do_wait(root, card["id"], args.timeout)
@@ -409,6 +409,20 @@ def maybe_sync(args, root: Path = None) -> dict:
 
 def watcher_lock(root: Path) -> Path:
     return root / ("watch-%s.pid" % (rl.session_id() or "unknown"))
+
+
+def should_notify(args) -> bool:
+    """Explicit flag if given, otherwise on wherever it can actually work.
+
+    Both variables are required to deliver -- the socket is where the ping is
+    written, the session id is which outbox to read -- so keying the default on
+    them means the automatic case never spawns a watcher that would only be
+    able to report that it cannot work.
+    """
+    want = getattr(args, "notify", None)
+    if want is not None:
+        return want
+    return bool(os.environ.get(rl.SOCKET_ENV) and rl.session_id())
 
 
 def ensure_watcher(root: Path) -> str:
@@ -684,9 +698,20 @@ def main(argv=None) -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_notify(sp):
-        sp.add_argument("--notify", action="store_true",
-                        help="be pinged when the owner releases the verdict "
-                             "(starts one background watcher per session)")
+        # Tri-state: None means "decide from the environment". Opt-in was the
+        # original design and it failed in the obvious way -- it depended on
+        # every agent remembering a flag, and none did, so the owner pressed a
+        # button that woke nobody. The watcher is one process per session that
+        # exits when none of your cards are open; that is cheaper than the
+        # feature not happening.
+        g = sp.add_mutually_exclusive_group()
+        g.add_argument("--notify", dest="notify", action="store_true", default=None,
+                       help="be pinged when the owner releases the verdict; on by "
+                            "default inside a Claude Code session (one background "
+                            "watcher per session, not per card)")
+        g.add_argument("--no-notify", dest="notify", action="store_false",
+                       help="post without starting a watcher; the verdict still "
+                            "arrives, you just have to read it with `inbox`")
 
     def add_no_sync(sp):
         sp.add_argument("--no-sync", action="store_true",
