@@ -79,6 +79,40 @@
     // in the CA sweep reads it, so litter still falls, piles and rots
     // unchanged, and an ant is as impeded by a drift as it ever was.
     insubstantial: true,
+    // **A shed leaf falls past a branch instead of resting on it.** The world
+    // is one vertical slice of a 3D wood, so a branch one cell wide is not a
+    // shelf across the whole depth of the tree; this is the same reading of
+    // the slice that `plant::shed_to_litter` has always applied at the moment
+    // of abscission, now applied wherever a litter cell comes to rest.
+    //
+    // Without it, litter that reached mid-canopy by any route other than
+    // being shed there stopped on the first branch for ever, and every leaf
+    // shed in that column stacked on top of it -- `shed_to_litter`'s own
+    // walk halts at the first cell that is *not* organism-owned, so the
+    // first stuck cell seeds a column that then grows up through the crown.
+    //
+    // Measured paired on `litter_probe frames=12000 trees=8`, one build
+    // each, same scene:
+    //
+    //     standing litter more than 32 rows above the ground   23% -> 0%
+    //     ...more than 16 rows                                 31% -> 8%
+    //     ...more than  8 rows                                 41% -> 24%
+    //     resting on plant tissue                            57.6% -> 44.1%
+    //     still airborne at frame 12,000                          4 -> 0
+    //
+    // The 44% that still rests on plant tissue is the drift banked against a
+    // trunk that `friction_angle: 42.0` above exists to build, and it is now
+    // all of it at floor level -- `litter_probe`'s module doc is explicit
+    // that its `against-plant` column scores that case and the stuck-up-a-
+    // tree case identically, and must be read with the height bands. The
+    // overlay is the clearer read: magenta streaks running up the middle of
+    // a crown before, magenta only at the trunk bases after.
+    //
+    // Deliberately not given to `deadwood`: a snapped branch is chunky enough
+    // to hang up in a crown, and should. See
+    // `MaterialDef::falls_through_organisms` for why this is a flag rather
+    // than a rule read off `density`.
+    falls_through_organisms: true,
     decays_into: "soil",
     // **5% of rotting litter leaves a soil cell; the other 95% leaves
     // nothing.** Owner's call, 2026-08-27, after the forest floor was

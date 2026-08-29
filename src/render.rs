@@ -14,6 +14,7 @@ use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
 use crate::sky::{self, Sky};
 use crate::sim::rng;
+use crate::sim::weather::Weather;
 use crate::sim::world::World;
 
 /// Colour shown for positions outside the world.
@@ -1494,6 +1495,23 @@ const NEAR_GLOW_RADIUS: i32 = 14;
 /// How far a background tree is dimmed under `TreeDepth::Haze`.
 const HAZE_DIM: u16 = 168;
 
+/// Everything that recolours cells already painted and settled, so a change
+/// to any of it forces one full redraw.
+///
+/// A named type because it is six things and clippy is right that the tuple
+/// had stopped being readable — but the shape is the point: it is compared
+/// as a whole, once, against the previous frame's, and adding a member is
+/// how a new whole-look toggle opts in.
+///
+/// The last two are the *world's* rather than the renderer's. A pinned sky
+/// or a pinned weather recolours settled cells exactly the way
+/// `terrain_light` does, and nothing else would repaint them: pinning does
+/// not move the camera, and on a settled world it does not wake a chunk
+/// either, so the screen would keep midnight's rock under a noon sky until
+/// something else happened. It also erases the on-screen pin badge on the
+/// frame the pin is released, which has no tracked footprint of its own.
+type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>);
+
 pub struct Renderer {
     /// Which `GrainMode` a `Liquid` cell's brightness grain comes from.
     /// Prototype switch — see the enum's own doc.
@@ -1627,7 +1645,9 @@ pub struct Renderer {
     last_zoom_state: Option<(i32, i32)>,
     /// The look toggles as of the last draw — forces one full repaint when
     /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
-    last_look: Option<(TerrainLight, bool, GrainMode, GlowShape)>,
+    /// The whole-look state the last frame was drawn under — see
+    /// [`LookKey`].
+    last_look: Option<LookKey>,
     /// Field tiles with any glowing material in them **plus their eight
     /// neighbours** (the diffused halo crosses tile seams; gating on the
     /// glow tile alone clipped it square at every chunk boundary), rebuilt
@@ -2327,7 +2347,8 @@ impl Renderer {
         // repaint, so `G` over a still pond looked like a dead key — the
         // owner reported exactly that. (The animated modes force full
         // frames on their own; the static-to-static switches were the gap.)
-        let look = (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape);
+        let look =
+            (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape, world.clock.sky_hold, world.weather_override);
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 

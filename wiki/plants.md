@@ -3,7 +3,9 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-08-27 (a plant kept dry long enough now dies of it,
+*Current as of: 2026-08-29 (a shed leaf no longer lodges in the branches on
+its way down -- see **The forest floor**).
+2026-08-27 (a plant kept dry long enough now dies of it,
 and dies gradually; standing tissue costs something to keep, and a
 plant that cannot pay sheds it; grass is sown into generated worlds; a dry
 meadow carries fire, a wet one stops it, and a damp one burns in patches;
@@ -306,6 +308,18 @@ branches — and lands as **leaf litter** on the ground below, where it drifts
 against trunks and piles into hollows. Litter is lighter than water, so it
 rafts on a pond rather than sinking, and it mats rather than slumping flat:
 a drift under a tree reads as a drift, not as a brown line across the world.
+
+**Nothing catches it on the way down.** A branch here is drawn one cell
+wide, but the world is one vertical slice of a wood that has depth, so a
+branch is not a shelf spanning the whole thickness of the tree — a falling
+leaf goes past it, the way it would outdoors. That holds however the leaf
+came to be in the air: shed from the twig above, knocked loose, or already
+lying somewhere in the crown. Leaves used to hang up on the first branch
+under them and then collect, so a tree slowly filled with brown speckle
+that never came down; now the only litter you see off the ground is a drift
+banked up against a trunk, which is a pile resting on the floor and reads
+as one. A snapped *branch* is a different matter — that is a solid thing,
+and it can still come to rest across the limbs below it.
 
 Rain goes **through** it. A litter blanket is loose stuff lying on the
 ground, not a roof, so the soil beneath a deep forest floor still takes the
