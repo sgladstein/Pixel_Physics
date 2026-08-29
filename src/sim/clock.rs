@@ -91,6 +91,7 @@
 //! is physics. It is stated here rather than papered over: all of it is
 //! invisible at the default and would otherwise read as "the model broke".
 
+use super::field::DAY_NIGHT_PERIOD_FRAMES;
 use serde::{Deserialize, Serialize};
 
 /// How much slower than baseline each knob may be run.
@@ -218,6 +219,28 @@ pub struct Clock {
     /// (`Tuning::dilated`) rather than as an interval or a phase.
     pub gnome_slowdown: u32,
 
+    /// **When set, the sky stands still at this sky frame** — "make it noon
+    /// and leave it there", the owner's ask, and the one thing a *rate* knob
+    /// structurally cannot do. `day_minutes` at [`MAX_SLOWDOWN`] is a
+    /// half-hour day, not a stopped one, and no finite slowdown ever holds a
+    /// particular hour.
+    ///
+    /// A sky *frame*, not a phase fraction, because that is the unit every
+    /// reader already takes ([`Clock::sky_frame`] is what `field::
+    /// sun_elevation` and `sky.rs` are fed) — so holding is exactly "return
+    /// this instead", with no second mapping to keep honest. The four cardinal
+    /// values are [`SkyPin`]'s, derived from `DAY_NIGHT_PERIOD_FRAMES` rather
+    /// than written out, so a change to the period moves them with it.
+    ///
+    /// **Held is not paused.** The physics, the weather, growth and creatures
+    /// all keep running; only the sun stops. That is the split this whole
+    /// module is about, one step further — `day_minutes` slows the sun,
+    /// this stops it, and neither touches the sweep.
+    ///
+    /// Serialized, so a held sky survives a save through the panel: it is a
+    /// setting someone chose, not running state like the anchors below.
+    pub sky_hold: Option<u64>,
+
     /// The real frame at which the current rates took effect, and the sky and
     /// weather frames as of that moment. See [`Clock::sky_frame`] for what
     /// they are for.
@@ -241,6 +264,7 @@ impl Default for Clock {
             growth_slowdown: 1,
             creature_slowdown: 1,
             gnome_slowdown: 1,
+            sky_hold: None,
             anchor_frame: 0,
             anchor_sky: 0,
             anchor_weather: 0,
@@ -306,6 +330,14 @@ impl Clock {
             growth_slowdown: self.growth_slowdown.clamp(1, MAX_SLOWDOWN),
             creature_slowdown: self.creature_slowdown.clamp(1, MAX_SLOWDOWN),
             gnome_slowdown: self.gnome_slowdown.clamp(1, MAX_SLOWDOWN),
+            // Normalised into a single period rather than range-checked. The
+            // sky is a phase, so 5,400 and 1,800 are the same midnight and
+            // neither is out of range -- but only one of them is recognised
+            // by `SkyPin::of`, and a panel that reads its own held sky back
+            // as "HELD" rather than as "MIDNIGHT" is the kind of readout
+            // `CLAUDE.md` warns about. Applied on every write (`set_rates`),
+            // so a hand-edited `assets/clock.ron` is normalised on load too.
+            sky_hold: self.sky_hold.map(|f| f % DAY_NIGHT_PERIOD_FRAMES),
             ..self
         }
     }
@@ -364,6 +396,14 @@ impl Clock {
     /// `begin_step` deliberately: `begin_step` is exactly the function the
     /// affected worlds never call.
     pub fn sky_frame(&self, frame: u64) -> u64 {
+        // **The hold short-circuits the whole derivation**, rates and anchors
+        // alike, which is what makes "stop the sun" a different thing from
+        // "slow it a lot": no finite `day_minutes` ever returns a constant.
+        // Checked first so the assert below is not asked a question about a
+        // clock that is deliberately not advancing.
+        if let Some(held) = self.sky_hold {
+            return held;
+        }
         let out = self.anchor_sky + frame.saturating_sub(self.anchor_frame) / self.day_minutes.max(1) as u64;
         debug_assert!(
             self.day_minutes != 1 || self.anchor_frame != 0 || out == frame,
@@ -416,11 +456,95 @@ impl Clock {
     /// Whether every knob is at baseline — the status line's test for whether
     /// it has anything to say beyond the day length.
     pub fn is_baseline(&self) -> bool {
-        self.day_minutes == 1
+        // A held sky is emphatically not baseline, and it is the one knob
+        // here whose effect a glance at the screen cannot attribute: a world
+        // stuck at midnight looks exactly like a world that happens to be at
+        // midnight. Said out loud in the status line, per this module's own
+        // "a knob whose value you cannot see is a knob you cannot tell is
+        // disconnected".
+        self.sky_hold.is_none()
+            && self.day_minutes == 1
             && self.weather_slowdown == 1
             && self.growth_slowdown == 1
             && self.creature_slowdown == 1
             && self.gnome_slowdown == 1
+    }
+}
+
+/// **A named time of day the sky can be pinned to** — the player-facing half
+/// of [`Clock::sky_hold`].
+///
+/// The hold itself is a bare sky frame, which is the right thing for the
+/// engine and the wrong thing for a menu: "2700" is not an answer to "what
+/// time is it". This is the small closed set of answers that are, in the
+/// order a day runs so that stepping through the list walks the sun round
+/// rather than jumping about.
+///
+/// **Every value is derived from `DAY_NIGHT_PERIOD_FRAMES`**, never written
+/// out, so the four stay at the cardinal points if the period ever moves.
+/// Dawn and dusk sit exactly on the horizon crossing (`sun_elevation == 0`),
+/// which is the middle of `sky.rs`'s twilight band and therefore the most
+/// strongly coloured sky the renderer draws — and, by
+/// `sky_light_amplitude`'s own clipping, still ground light at the night
+/// floor. That pairing is deliberate and was checked in a render rather than
+/// argued: a lit twilight would need a positive elevation, which is a
+/// prettier picture of a time that is not actually sunset.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum SkyPin {
+    /// Not held — the sun runs at whatever [`Clock::day_minutes`] says.
+    #[default]
+    Live,
+    Dawn,
+    Noon,
+    Dusk,
+    Midnight,
+}
+
+impl SkyPin {
+    /// Listed in the order a menu shows them: the running state first, then
+    /// the day in order. Not the declaration order, which puts `Live` first
+    /// for `Default`'s sake and would otherwise read dawn-noon-dusk-midnight
+    /// anyway -- they agree today, and `ALL` is what the panel iterates so
+    /// that they may stop agreeing without the menu reordering itself.
+    pub const ALL: [SkyPin; 5] = [SkyPin::Live, SkyPin::Dawn, SkyPin::Noon, SkyPin::Dusk, SkyPin::Midnight];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SkyPin::Live => "LIVE",
+            SkyPin::Dawn => "DAWN",
+            SkyPin::Noon => "NOON",
+            SkyPin::Dusk => "DUSK",
+            SkyPin::Midnight => "MIDNIGHT",
+        }
+    }
+
+    /// What [`Clock::sky_hold`] must be set to for this pin. `None` is the
+    /// running sky, which is what makes `Live` a member of the same set
+    /// rather than a separate "is it held" flag the menu would have to
+    /// combine by hand.
+    pub fn hold(self) -> Option<u64> {
+        let p = DAY_NIGHT_PERIOD_FRAMES;
+        match self {
+            SkyPin::Live => None,
+            // Noon is frame 0 by `field.rs`'s own convention: `cos(0) == 1`.
+            SkyPin::Noon => Some(0),
+            SkyPin::Dusk => Some(p / 4),
+            SkyPin::Midnight => Some(p / 2),
+            SkyPin::Dawn => Some(p / 4 * 3),
+        }
+    }
+
+    /// Which pin a live hold corresponds to, or `None` for a hold that is
+    /// not one of these.
+    ///
+    /// **`None` is a real answer and must not collapse to `Live`.** The hold
+    /// is `pub` and lands in a `.ron` file, so "held at some other frame" is
+    /// reachable — and a menu that renders it as LIVE would be showing a
+    /// running sky over a stopped one, which is precisely the readout
+    /// `CLAUDE.md` calls a knob you cannot tell is disconnected. The panel
+    /// spells this case `HELD`.
+    pub fn of(hold: Option<u64>) -> Option<SkyPin> {
+        SkyPin::ALL.into_iter().find(|p| p.hold() == hold)
     }
 }
 
@@ -542,6 +666,7 @@ mod tests {
             growth_slowdown: _,
             creature_slowdown: _,
             gnome_slowdown: _,
+            sky_hold: _,
             anchor_frame: _,
             anchor_sky: _,
             anchor_weather: _,
@@ -555,6 +680,84 @@ mod tests {
             assert!(listed.iter().any(|n| n == knob), "{knob} is settable but the panel never lists it");
         }
         assert_eq!(listed.len(), 5, "the panel lists something that is not a knob: {listed:?}");
+
+        // `sky_hold` is the one settable field that is *not* a rate, so it
+        // reaches the panel through `from_pins` rather than `from_clock` --
+        // as a named choice, because a bare frame number is not an answer to
+        // "what time is it". Checked by name here so that the destructure
+        // above stays the single place a new `Clock` field is noticed.
+        let pins: Vec<String> =
+            crate::tunables::from_pins(&Clock::default(), None).into_iter().map(|t| t.name).collect();
+        assert!(
+            pins.iter().any(|n| n == "time_of_day"),
+            "sky_hold is settable but the panel never lists it: {pins:?}"
+        );
+    }
+
+    /// **Every named time of day must be a distinct sky**, which is the whole
+    /// claim the menu makes. Two entries landing on the same phase would be a
+    /// list that looks like four choices and behaves like three -- and it is
+    /// the kind of thing a change to `DAY_NIGHT_PERIOD_FRAMES` could do
+    /// silently, since every value is derived from it.
+    #[test]
+    fn the_named_times_of_day_are_four_distinct_skies() {
+        use crate::sim::field::{sun_elevation, sun_rising};
+        let held: Vec<u64> = SkyPin::ALL.iter().filter_map(|p| p.hold()).collect();
+        assert_eq!(held.len(), 4, "one running state and four held ones");
+        for (i, a) in held.iter().enumerate() {
+            for b in held.iter().skip(i + 1) {
+                assert_ne!(a, b, "two named times of day are the same frame");
+            }
+        }
+        // Named for what they are, not merely distinct: noon is the top of
+        // the cosine, midnight the bottom, and the two horizon crossings are
+        // told apart by which way the sun is going -- which is exactly what
+        // `sky.rs` paints sunrise pink and sunset orange from.
+        assert_eq!(sun_elevation(SkyPin::Noon.hold().unwrap()), 1.0);
+        assert_eq!(sun_elevation(SkyPin::Midnight.hold().unwrap()), -1.0);
+        for (pin, rising) in [(SkyPin::Dawn, true), (SkyPin::Dusk, false)] {
+            let f = pin.hold().unwrap();
+            assert!(sun_elevation(f).abs() < 1e-6, "{} should sit on the horizon", pin.label());
+            assert_eq!(sun_rising(f), rising, "{} is on the wrong half of the cycle", pin.label());
+        }
+    }
+
+    /// **A hold stops the sun, and releasing it resumes from where it
+    /// stopped** rather than from where an unstopped clock would have
+    /// reached. Both halves matter: the first is the feature, the second is
+    /// what stops "stop and start" from teleporting the sky on release,
+    /// which is the failure `set_rates`' anchors exist to prevent and which
+    /// a hold reintroduces by another route if it bypasses them.
+    #[test]
+    fn a_held_sky_stands_still_and_resumes_where_it_stopped() {
+        let mut c = Clock::default();
+        c.set_rates(0, |c| c.sky_hold = SkyPin::Midnight.hold());
+        let midnight = DAY_NIGHT_PERIOD_FRAMES / 2;
+        for f in [0, 1, 900, 5_000, 1_000_000] {
+            assert_eq!(c.sky_frame(f), midnight, "a held sky must not move at frame {f}");
+        }
+        // "Has the sky moved" must answer no, or a held world re-solves its
+        // field every frame for a sun that is not going anywhere.
+        assert_eq!(c.prev_sky_frame(5_000), c.sky_frame(5_000));
+
+        c.set_rates(5_000, |c| c.sky_hold = None);
+        assert_eq!(c.sky_frame(5_000), midnight, "release must not jump the sun");
+        assert_eq!(c.sky_frame(5_060), midnight + 60, "and it must run again from there");
+    }
+
+    /// A hold is a phase, so an out-of-period value is normalised rather than
+    /// rejected — otherwise a hand-edited asset holding at 5,400 would be the
+    /// same midnight the menu offers and would still read back as `HELD`.
+    #[test]
+    fn a_hold_past_one_period_normalises_onto_a_named_time() {
+        let mut c = Clock::default();
+        c.set_rates(0, |c| c.sky_hold = Some(DAY_NIGHT_PERIOD_FRAMES + DAY_NIGHT_PERIOD_FRAMES / 2));
+        assert_eq!(c.sky_hold, SkyPin::Midnight.hold());
+        assert_eq!(SkyPin::of(c.sky_hold), Some(SkyPin::Midnight));
+        // ...and an unnamed hold still reads as unnamed, which is the half
+        // that must not be normalised away.
+        c.set_rates(0, |c| c.sky_hold = Some(137));
+        assert_eq!(SkyPin::of(c.sky_hold), None, "an unnamed hold must not read as one of the presets");
     }
 
     /// **The shipped asset must parse, and this test says what it contains.**

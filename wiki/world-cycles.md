@@ -1,12 +1,15 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-27. New since the last pass: rotting leaf litter
-mostly disappears now instead of all becoming soil, so a wood no longer
-buries itself; and how long a day lasts is a setting, as are the paces of
-growth, weather, creatures and the gnome — five separate knobs, none of
-which changes how fast things fall; and daylight now reaches into what you
-dig, so an overhang no longer hangs a dark rectangle in the sky beneath
-it.*
+*Current as of: 2026-08-29. New since the last pass: you can now stop the
+sun at a chosen time of day and leave it there, and the options menu that
+holds that setting has been rebuilt.*
+
+*Before that pass: rotting leaf litter mostly disappears now instead of all
+becoming soil, so a wood no longer buries itself; and how long a day lasts
+is a setting, as are the paces of growth, weather, creatures and the gnome —
+five separate knobs, none of which changes how fast things fall; and
+daylight now reaches into what you dig, so an overhang no longer hangs a
+dark rectangle in the sky beneath it.*
 
 ## How fast the world runs
 
@@ -30,6 +33,32 @@ flat, unchanging dark — so a longer day is a proportionally longer night
 too, and eight minutes means four minutes of it. That is the trade the
 setting makes; if what you want is for dawn and dusk to *linger* rather than
 for the cycle to come round less often, this is not the knob for it.
+
+## Stopping the sun
+
+Slowing the day is not the same as picking an hour, and no setting of the
+speed knob will ever hold one: at its slowest a day still takes half an hour
+and still goes round. **Time of day** is a separate control, the first row of
+the same menu, and it holds the sun where you put it — dawn, noon, dusk or
+midnight, or LIVE to let it run again. Let it run and it carries on from
+where it stopped rather than jumping to wherever it would have got to.
+
+Held is not paused. Only the sun stops: the weather still comes and goes,
+plants still grow, the gnome still runs, sand still falls. A world pinned at
+midnight is a world that will be dark for as long as you leave it, with
+everything else going on as usual — which also means it behaves like night
+rather than merely looking like it. Standing water evaporates fastest at
+noon, slowly at dawn and dusk, and at midnight the world very slightly gains
+water back.
+
+Dawn and dusk sit exactly on the horizon, which is where the sky is most
+strongly coloured — and also where the ground is as dark as it gets, because
+daylight is measured from the sun being *up*. Expect a spectacular sky over
+a night-dark landscape rather than a golden hour.
+
+Because a world stuck at midnight looks exactly like a world that happens to
+be at midnight, anything held says so: a badge in the top right of the
+screen, and again on the title bar.
 
 One thing to know before turning the growth knob up: a plant grown slowly is
 not simply the same plant arriving later. Measured across eight worlds, a
