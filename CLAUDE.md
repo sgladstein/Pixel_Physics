@@ -136,6 +136,9 @@ bash scripts/docscheck.sh                   # documentation checks: links, map-v
 python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
 bash scripts/branchcheck.sh --brief         # ...summary only; this is what the SessionStart hook runs (`.claude/README.md`)
+bash scripts/branchcheck.sh --prs           # ...and say which unlanded branches have NO OPEN PR -- i.e. which finished work is invisible
+bash scripts/branchcheck.sh --prs-from F    # ...reading the PR listing from F, because the in-session credential gets 403 (use the MCP GitHub tools to write F)
+bash scripts/branchcheck.sh --selftest      # the six sensitivity rows over the PR annotation; row F mutates the file to prove row C is not blind
 ```
 
 **The real app can be screenshotted headlessly**, which this file previously
