@@ -924,6 +924,57 @@ pub struct World {
     /// through, so it cannot drift from the thing it counts.
     pub germinations: u64,
 
+    /// **Every birth that reached the fate-mutation gate** — the denominator
+    /// for the two counters below.
+    ///
+    /// Incremented in `plant::bear_seed_at` immediately before the
+    /// `FATE_MUTATION_CHANCE` draw, so it counts seeds that got an organism
+    /// slot and had a parent to inherit from. A birth refused at the slot
+    /// ceiling never reaches it and is counted in `organisms_refused`
+    /// instead.
+    ///
+    /// **This exists because the drift census and the mutation model
+    /// disagreed by 2.6x and nothing could say which end was wrong.**
+    /// `Reports/plant-rule-drift-observed-2026-08-29.md` §4 measured 0.88%
+    /// of a herb population carrying a drifted rule table against 2.33%
+    /// predicted from the run's own generation histogram at
+    /// `FATE_MUTATION_CHANCE = 0.01`, and could not attribute the gap: a
+    /// standing census sees genomes, not the draws that made them. These
+    /// three counters split it into segments that can each be read on their
+    /// own — `CLAUDE.md`'s "pair every *it fired* counter with an effect
+    /// counter from the far side of the call".
+    pub fate_mutation_rolls: u64,
+
+    /// **Draws where `FATE_MUTATION_CHANCE` came up** — the mutation
+    /// attempts, before any operator has run.
+    ///
+    /// Against `fate_mutation_rolls` this is the realised rate of the draw
+    /// itself, which is *not* guaranteed to be `FATE_MUTATION_CHANCE`: the
+    /// draw comes from a substream keyed on `(world seed, landing cell,
+    /// parent generation)` rather than from a per-birth roll, so every seed
+    /// landing on one cell from same-generation parents gets the **same**
+    /// answer. The rate over births is therefore a ratio whose denominator
+    /// is how births distribute over keys, and it has far more spread than a
+    /// binomial at the same n. Reading it against 1% is the only way to tell
+    /// a keying artifact from a real loss downstream.
+    pub fate_mutations_fired: u64,
+
+    /// **Mutations that actually changed the genome.**
+    ///
+    /// The effect counter on the far side of `FateGenome::mutate`.
+    /// `fate_mutations_fired - fate_mutations_applied` is the *declined*
+    /// count: an operator that drew a value it already held, a `delete` at
+    /// the one-rule floor, an `insert` at `MAX_FATES`, or the empty-genome
+    /// early return. `Reports/plant-fate-operator-gate-2026-08-29.md` §2
+    /// measured declines at about 1% of draws on `herb` in the harness;
+    /// this is the live figure.
+    ///
+    /// Note what this still does **not** say: an applied mutation changes
+    /// the genome, so it is drift by the census's definition, but it may
+    /// leave the plant identical (the gate's *silent* class) and it may be
+    /// carried by a seed that never establishes.
+    pub fate_mutations_applied: u64,
+
     /// **Leaf cells a node wanted and could not pay for** — the effect
     /// counter for `plant::LEAF_CONSTRUCTION_MULTIPLE`.
     ///
@@ -1861,6 +1912,9 @@ impl World {
             next_lineage: 1,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
+            fate_mutation_rolls: 0,
+            fate_mutations_fired: 0,
+            fate_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,

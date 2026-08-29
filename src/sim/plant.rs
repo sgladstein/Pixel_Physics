@@ -858,6 +858,47 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
     }
 }
 
+/// **How far `fate_for` may fall back when the genome has no answer.**
+///
+/// A measurement selector, not a shipped behaviour change: `Full` is the
+/// default and is what every build does unless
+/// `PIXEL_PHYSICS_FATE_LOOKUP` says otherwise. It exists because
+/// `Reports/plant-fate-operator-gate-2026-08-29.md` §4 ends on a fork the
+/// owner has not decided, and the queue cannot show a fork nobody can
+/// render — `CLAUDE.md`'s "for *does this look right*, ship a runtime
+/// selector rather than choosing".
+///
+/// **There are three positions here and the report only named two.** The
+/// gate's §3 measured that `tree delete` is 40-of-40 silent because *both*
+/// layers beneath the genome answer the vacated slot — the species table
+/// first and `builtin_fate` behind it. So dropping the species layer alone
+/// does **not** make `delete` a real operator on a woody base; it only
+/// un-shadows the slots `builtin_fate` returns `None` for, which is the
+/// organ clock. Only `GenomeOnly` makes every operator real, and it is the
+/// only one that can hand a lineage a plant that cannot grow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FateLookup {
+    /// `genome -> species -> builtin`. What ships.
+    Full,
+    /// `genome -> builtin`. Drops the layer that refills a slot with the
+    /// rule a mutation just removed, and keeps the engine floor.
+    NoSpecies,
+    /// `genome`, full stop. Every operator is real and a lineage can delete
+    /// its way to a plant with no growth rule at all.
+    GenomeOnly,
+}
+
+/// Read once per process — an env read per `fate_for` call would be a
+/// syscall in the growth path, and the mode cannot change mid-run anyway.
+fn fate_lookup() -> FateLookup {
+    static MODE: std::sync::OnceLock<FateLookup> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_FATE_LOOKUP").as_deref() {
+        Ok("nospecies") => FateLookup::NoSpecies,
+        Ok("genome") => FateLookup::GenomeOnly,
+        _ => FateLookup::Full,
+    })
+}
+
 /// The production rule in force for this species, cell type and moment:
 /// whatever the species authored, else the built-in rule above.
 ///
@@ -879,6 +920,10 @@ fn builtin_fate(cell_type: CellType, when: organism::FateWhen) -> Option<organis
 ///   worked before stops working;
 /// - **`builtin_fate`** is unchanged and is still the control every authored
 ///   table is proved against.
+///
+/// **That three-layer order is [`FateLookup::Full`], which is what ships and
+/// what every build does unless the environment overrides it.** The other two
+/// depths exist to render the fork this leaves open; see [`FateLookup`].
 fn fate_for(
     world: &World,
     organism_id: u16,
@@ -887,13 +932,42 @@ fn fate_for(
     when: organism::FateWhen,
     metamers: u8,
 ) -> Option<organism::Fate> {
-    world
+    fate_for_under(world, organism_id, species_id, cell_type, when, metamers, fate_lookup())
+}
+
+/// `fate_for` with the fallback depth passed in rather than read from the
+/// environment.
+///
+/// **Split out so a guard can prove the three modes actually differ.**
+/// `fate_lookup` caches in a `OnceLock`, so a test process is stuck with one
+/// mode for its lifetime and a test that only ever sees `Full` would pass
+/// with the other two arms deleted — `CLAUDE.md`'s blind-guard case exactly.
+fn fate_for_under(
+    world: &World,
+    organism_id: u16,
+    species_id: organism::SpeciesId,
+    cell_type: CellType,
+    when: organism::FateWhen,
+    metamers: u8,
+    mode: FateLookup,
+) -> Option<organism::Fate> {
+    // An empty genome reads as "no answer" in all three modes, which under
+    // `GenomeOnly` means the cell does nothing at all. That is the honest
+    // reading of a genome-authoritative lookup and not an oversight:
+    // `FateGenome::mutate`'s delete floor exists precisely so a lineage
+    // cannot reach it, and if that floor ever fails this is where it shows.
+    let genome = world
         .organism(organism_id)
         .map(|s| s.fates)
         .filter(|g| !g.is_empty())
-        .and_then(|g| g.fate(cell_type, when, metamers))
-        .or_else(|| world.species.get(species_id).fate(cell_type, when, metamers))
-        .or_else(|| builtin_fate(cell_type, when))
+        .and_then(|g| g.fate(cell_type, when, metamers));
+    match mode {
+        FateLookup::GenomeOnly => genome,
+        FateLookup::NoSpecies => genome.or_else(|| builtin_fate(cell_type, when)),
+        FateLookup::Full => genome
+            .or_else(|| world.species.get(species_id).fate(cell_type, when, metamers))
+            .or_else(|| builtin_fate(cell_type, when)),
+    }
 }
 
 /// **What a cell of this type is made of**, for the species that owns it.
@@ -1270,7 +1344,46 @@ const FATE_MUTATION_STREAM: u64 = 201;
 /// until turnover exists to take it on: measured, a tree reaches generation 1
 /// in 8 of 8 seeds and never more, so on the woody species this rate has
 /// almost nothing to act on yet.
-const FATE_MUTATION_CHANCE: f32 = 0.01;
+/// **`pub` so a harness reads the engine's rate instead of carrying its own
+/// copy.** `Reports/plant-fate-operator-gate-2026-08-29.md` §1 is what this
+/// guards against: `fate_viability` held a second implementation of the
+/// mutation operator and measured it for a year of report-time before anyone
+/// noticed the two had diverged. A rate is the same hazard in miniature — a
+/// harness that hardcodes 0.01 keeps reporting against 0.01 after this line
+/// moves.
+pub const FATE_MUTATION_CHANCE: f32 = 0.01;
+
+/// **The rate actually in effect**, which is `FATE_MUTATION_CHANCE` unless
+/// `PIXEL_PHYSICS_FATE_MUTATION_CHANCE` overrides it.
+///
+/// An env override rather than an asset field, deliberately. `CLAUDE.md`'s
+/// `include_str!` gotcha is that editing a `.ron` and re-running a prebuilt
+/// example produces bit-identical "runs" — three of them, once, before
+/// anyone noticed the knob was not connected. A sweep over this rate is
+/// exactly the shape that walks into that, and an env read cannot go stale
+/// against a binary.
+///
+/// Read once per process: the growth path calls this per birth, and the rate
+/// cannot change mid-run anyway. Out-of-range values fall back to the
+/// constant rather than clamping silently — a typo that produced a rate of
+/// 100 should not read as a successful sweep point.
+pub fn fate_mutation_chance() -> f32 {
+    static CHANCE: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *CHANCE.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_FATE_MUTATION_CHANCE")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|c| (0.0..=1.0).contains(c))
+            .unwrap_or(FATE_MUTATION_CHANCE)
+    })
+}
+
+/// The fallback depth in effect, for a harness that must echo its own
+/// parameters — `CLAUDE.md`: "a knob nobody can see the value of is a knob
+/// nobody can tell is disconnected".
+pub fn fate_lookup_mode() -> FateLookup {
+    fate_lookup()
+}
 
 /// **How many genome slots `set_seed` mutates before it rolls the discrete
 /// loci** — the frozen prefix of the inherited-mutation draw order.
@@ -1367,6 +1480,16 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     };
     let shades = world.materials.get(seed_material).palette.len().max(1) as u32;
     let shade = rng.below(shades) as u8;
+    // **The fate-mutation draw is captured here and counted after the
+    // borrow ends.** `world.organism_mut(child)` holds `world` mutably for
+    // the whole block below, so the counters cannot be touched at the call
+    // site; three plain flags carry the outcome out. Kept as flags rather
+    // than the `FateMutation` itself because only `applied` is read, and a
+    // reader should not have to check whether the `Option` nesting means
+    // "never drew" or "drew and declined".
+    let mut fate_rolled = false;
+    let mut fate_fired = false;
+    let mut fate_applied = false;
     if let Some(state) = world.organism_mut(child) {
         // Each trait drifts independently, so a genome is not a single
         // dial: two offspring of one parent can differ on branching and
@@ -1496,8 +1619,14 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // pre-heritability, unconditionally.
         let mut fate_rng =
             rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | FATE_MUTATION_STREAM);
-        if fate_rng.chance(FATE_MUTATION_CHANCE) {
-            state.fates.mutate(&mut fate_rng);
+        fate_rolled = true;
+        if fate_rng.chance(fate_mutation_chance()) {
+            fate_fired = true;
+            // `mutate` returns `None` only for an empty genome, which cannot
+            // happen here — `push_organism` seeds every organism from its
+            // species table. Folded in with a declined operator regardless,
+            // so the counter means "the genome changed" whatever the route.
+            fate_applied = state.fates.mutate(&mut fate_rng).is_some_and(|m| m.applied);
         }
         // The provisioning: what the parent paid rides with the child and
         // becomes its first stake at germination -- see
@@ -1506,6 +1635,15 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         state.endowment = seed_cost;
         state.inherited = true;
         state.generation = generation.saturating_add(1);
+    }
+    if fate_rolled {
+        world.fate_mutation_rolls += 1;
+        if fate_fired {
+            world.fate_mutations_fired += 1;
+            if fate_applied {
+                world.fate_mutations_applied += 1;
+            }
+        }
     }
     world.set(sx, sy, Cell::new(seed_material, shade).with_organism_id(child).with_aux(organism::pack_cell_type(CellType::Seed)));
     world.schedule_active_site(reschedule_organism(sx, sy, child, 0, 0, world.frame + SEED_TICK_INTERVAL));
@@ -9412,6 +9550,64 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             fate_for(&w, organism, id, CellType::GrowingTip, Node, 30).map(|f| f.becomes),
             Some(CellType::Leaf),
             "at and above the threshold the genome's gated rule must win"
+        );
+    }
+
+    /// **The three fallback depths give three different answers**, on the one
+    /// slot that can tell all three apart.
+    ///
+    /// This is the sensitivity control for `FateLookup`, and it is written to
+    /// the standard `CLAUDE.md` sets for a guard: it must be unable to pass if
+    /// any arm is deleted. Asserting that `Full` still says `Flower` proves
+    /// nothing on its own — that is the default and the pre-change behaviour.
+    /// The discriminating slot is `(GrowingTip, Node)` at 8 metamers on
+    /// `herb`, because all three layers answer it *differently*: the species
+    /// says `Flower`, `builtin_fate` says `DormantBud`, and a genome that has
+    /// vacated the slot says nothing. One slot, three distinct answers, so a
+    /// mode that silently collapsed into another would fail here.
+    #[test]
+    fn the_three_fallback_depths_give_three_different_answers() {
+        use organism::FateWhen::{Node, Stale};
+        let mut w = test_world();
+        let id = w.species.id_of("herb").expect("herb is compiled in");
+        let organism = w.push_organism(id).expect("an organism slot is free");
+
+        // Vacate `(GrowingTip, Node)` in this individual's genome, exactly as
+        // `delete` or `recondition` would.
+        if let Some(state) = w.organism_mut(organism) {
+            state.fates = organism::FateGenome::from_table(&[(
+                CellType::RootTip,
+                vec![organism::Fate {
+                    when: Stale,
+                    becomes: CellType::MatureBody,
+                    child: None,
+                    lateral: None,
+                    after_metamers: None,
+                }],
+            )]);
+        }
+
+        let under = |mode| fate_for_under(&w, organism, id, CellType::GrowingTip, Node, 8, mode).map(|f| f.becomes);
+
+        assert_eq!(
+            under(FateLookup::Full),
+            Some(CellType::Flower),
+            "Full must reach the species table -- this is the shipped behaviour and the reason \
+             `delete` is a near no-op"
+        );
+        assert_eq!(
+            under(FateLookup::NoSpecies),
+            Some(CellType::DormantBud),
+            "NoSpecies must skip the species table and land on `builtin_fate`. Note what this \
+             means and why it is NOT the fix for a silent `delete`: the plant still grows, it \
+             just grows indeterminately -- the built-in floor refills the slot the species used to"
+        );
+        assert_eq!(
+            under(FateLookup::GenomeOnly),
+            None,
+            "GenomeOnly must answer nothing at all. This is the position that makes every \
+             operator real, and the same line is what lets a lineage delete its way to a plant \
+             that cannot grow"
         );
     }
 
