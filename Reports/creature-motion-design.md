@@ -127,15 +127,27 @@ a guard on falls-per-move, and §7 sets one.
 
 ---
 
-## 3. The slot budget, which is hard
+## 3. The slot budget — enlarged 2026-08-29, and no longer the constraint
 
-`brain.rs` reserves growth room, and the reserve is the whole constraint.
+`brain.rs` reserves growth room. **This section was written when that reserve
+was the binding constraint on the whole design; §4c's measurement removed it,
+and the reserve was taken to 64/64/64 in the same change that records this.**
 
-| | live | reserved | free |
-|---|---|---|---|
-| outputs (verbs) | `BRAIN_OUTPUTS` 10 | `OUTPUT_SLOTS` 12 | **2** |
-| inputs (senses) | `BRAIN_INPUTS` 16 | `INPUT_SLOTS` 24 | 8 |
-| hidden units | `BRAIN_HIDDEN` 4 | `HIDDEN_SLOTS` 8 | 4 |
+| | live | reserved (was) | reserved (now) | free |
+|---|---|---|---|---|
+| outputs (verbs) | `BRAIN_OUTPUTS` 10 | 12 | **64** | **54** |
+| inputs (senses) | `BRAIN_INPUTS` 16 | 24 | **64** | 48 |
+| hidden units | `BRAIN_HIDDEN` 4 | 8 | **64** | 60 |
+
+`GENOME_LEN` 584 -> **12,352**. `live_slots()` **268, unchanged** — which is
+the whole reason this was affordable.
+
+**The argument in §4b and §4e is unchanged by that.** Slot pressure was never
+the real reason to ship one verb rather than two: five of §4's nine candidates
+need no verb at all, hover is the same verb held, and the two claimants for a
+second slot are each waiting on something else. **A bigger reserve buys room,
+not reasons** — a verb still costs live slots (below), thinking, and the risk
+of a channel nothing reads.
 
 Appending **within** the reserve is free: *"lights up storage that already
 existed and was already zero: not one existing weight moves and `GENOME_LEN`
@@ -272,6 +284,40 @@ invalidates every saved species. Today that set is approximately empty,
 because the export shipped hours ago. Every creature saved from here makes it
 dearer, and `genome_manifest` already turns a stale genome into a failing test
 rather than a silent misread.
+
+**Measured 2026-08-29, because the argument had been wrong twice and a third
+round of reasoning was not worth having.** Two `forage_probe` binaries
+differing only in the three reserve constants — 12/24/8 against **64/64/64**,
+`GENOME_LEN` 584 against 12,352 — run paired and alternating, 6 reps, 4 seeds
+x 6,000 frames, 55 ants:
+
+| | median | range | spread |
+|---|---|---|---|
+| base 12/24/8 | 49.09 s | 42.67–50.40 | 16% |
+| **64/64/64** | 45.20 s | 42.04–51.66 | 21% |
+
+**Not measurable.** The bigger genome was faster in **3 of 6** pairs — a coin
+flip — and the median says it is 7.9% *faster*, which cannot be real. The
+same-binary spread (16%) exceeds the between-binary difference, so the effect
+is below the floor. Read as *no detectable cost*, never as a speed-up.
+
+**The control that makes it a comparison at all:** both binaries produced
+**byte-identical output** — same moves, blocked, trips, depths, on every seed.
+One simulation, two memory layouts.
+
+**What it does not cover**, so it is not over-read later: one machine, ~55
+creatures, no breeding population (S6 does not exist to make one), and no test
+of memory pressure at the 4095-organism ceiling, where 64/64/64 is **202 MB**.
+That figure is the only one with weight left, and the ceiling is shared with
+plants so it is not a population this engine will reach soon.
+
+**Three predicted costs that all dissolved on contact with arithmetic**, kept
+because the pattern is more useful than the conclusion: a "31% larger search
+space" (it is 0% — `live_slots()` is 268 either way); an L1 cache penalty (the
+span `eval_brain` walks is 1.3 KB against 3.5 KB, both comfortable); and a
+"20x birth cost" (~0.5 s spread across an overnight run). Each was a
+*proportion* of a quantity nobody had converted to an absolute. **A proportion
+of a tiny number is tiny**, and that is the whole lesson.
 
 **Corrected recommendation: enlarge the reserve now.** It is close to free,
 it is cheapest at this exact moment, and the thing it was argued to cost does

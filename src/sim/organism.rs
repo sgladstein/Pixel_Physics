@@ -2947,7 +2947,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// both `CreatureDef::traits` (the authored ancestral values) and
 /// `OrganismState::traits` (what this individual actually got).
 ///
-/// **A separate block from the 584-slot brain genome, by design.** The
+/// **A separate block from the 12,352-slot brain genome, by design.** The
 /// genome is a wiring matrix laid out from reserved dimensions
 /// (`brain::GENOME_LEN`), and every one of its slots is a synapse weight;
 /// a gut is not a synapse. Keeping traits out of it means S8 can grow the
