@@ -27,26 +27,31 @@ contrast fixed and moving only the body's size, over one frame:
 
 | body size | places in the frame that look as much like the animal as the animal does |
 |---|---|
-| 1 cell | 337 |
-| **2 cells — ships today** | **126** |
-| 4 cells — the shipped beetle | 57 |
-| 9 cells | 13 |
+| 1 cell | 342 |
+| **2 cells — ships today** | **127** |
+| 4 cells — the shipped beetle | 55 |
+| 9 cells | 15 |
 | 16 cells | 0 |
+
+Measured on `main` at `f96c08d`, after merging it in. The same table on
+`ba6fc98`, before two worldgen changes that deepen the soil roughly tenfold,
+read **337 / 126 / 57 / 33 / 13 / 0** — the effect is a property of the
+world's texture grain and did not notice.
 
 **Palette has nothing left in it, measured twice.** `render.rs`'s standing
 suggestion — try a *brightness* axis rather than the hue axis that lost a blind
 A/B — was tried here and loses too. Arm E of the card is arm C's nine-cell body
-repainted pale, bit-identical run (`moves 558 / blocked 195` on both arms), and
-it scores **ink per creature 245 against C's 1,285**. A nine-cell pale animal
-puts less on screen than the shipped **two**-cell dark one (285).
+repainted pale, bit-identical run (`moves 598 / blocked 197` on both arms), and
+it scores **ink per creature 249 against C's 1,285**. A nine-cell pale animal
+puts less on screen than the shipped **two**-cell dark one (282).
 
 **Shape at constant extent does nothing, and is not free.** Two nine-cell
-bodies — a 3x3 block and a waisted 5x2 — score within 0.1% of each other on
-every appearance number and differ by **26% vs 39% blocked movement**. That is
+bodies — a 3x3 block and a waisted 5x2 — score within 0.2% of each other on
+every appearance number and differ by **25% vs 44% blocked movement**. That is
 `plant-appearance-design.md` §5 reproduced in another subsystem.
 
 **A chain is the cheapest extent there is.** `Chain(6)` gets 2.9x the shipped
-ant's ink for *less* blocked movement (3% against 6%) — a chain follows its
+ant's ink for *less* blocked movement (2% against 4%) — a chain follows its
 head, so it flows over anything. It reads as a worm, which is the cost.
 
 ## The deliverable
@@ -83,5 +88,8 @@ decision on the card.
 
 ## Gates
 
-`cargo test --lib`, `cargo clippy --all-targets -- -D warnings`,
-`bash scripts/docscheck.sh`.
+`cargo test --lib` (969 passed / 0 failed / 54 ignored), `cargo clippy
+--all-targets -- -D warnings` on both 1.94.1 and CI's 1.98.0,
+`bash scripts/docscheck.sh` clean. `main` merged in at `f96c08d`; the two
+`include_str!` conflicts resolved trunk-first, per the rule those two lists
+state themselves.

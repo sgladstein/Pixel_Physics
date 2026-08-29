@@ -15,6 +15,9 @@ levers that remain, one of them is measurably already at its best.
 
 **The measurement is `examples/creature_look.rs`.** Review card
 `20260829T045336581Z-34c3d3` is the five body plans it was built to compare.
+The card's images and its `meta` counts were rendered on `ba6fc98`; every
+number in this report is the re-measurement on `f96c08d` after merging `main`
+in (§2 says how far they moved, which is not far).
 
 ## 1. The finding, stated first
 
@@ -23,7 +26,7 @@ levers that remain, one of them is measurably already at its best.
 - **Palette has nothing left in it.** The shipped dark ant already achieves
   the best contrast of the three values tested, in the world it actually
   walks in. A pale body at **9 cells puts less luminance on screen than the
-  dark 2-cell ant does** — 245 against 285, at 4.5x the cells (§3).
+  dark 2-cell ant does** — 249 against 282, at 4.5x the cells (§3).
 - **Shape at constant extent is a small effect and it is bought expensively.**
   Two 9-cell bodies, one a compact 3x3 block and one a waisted 5x2, score
   within 0.1% of each other on every appearance number and differ by **13
@@ -56,12 +59,23 @@ one 512x320 frame of the `rolling` preset at noon:
 
 | body size | ≥40 | ≥60 | **≥80** | ≥100 |
 |---|---|---|---|---|
-| 1 cell | 3,112 | 1,068 | 337 | 99 |
-| **2 cells — ships today** | 2,049 | 536 | **126** | 53 |
-| 4 cells — the shipped beetle | 1,326 | 239 | **57** | 26 |
-| 6 cells (3x2) | 1,108 | 172 | **33** | 18 |
-| 9 cells (3x3) | 851 | 101 | **13** | 0 |
-| 16 cells (4x4) | 618 | 47 | **0** | 0 |
+| 1 cell | 3,184 | 1,165 | 342 | 97 |
+| **2 cells — ships today** | 2,075 | 566 | **127** | 56 |
+| 4 cells — the shipped beetle | 1,358 | 252 | **55** | 26 |
+| 6 cells (3x2) | 1,119 | 182 | **32** | 18 |
+| 9 cells (3x3) | 858 | 98 | **15** | 0 |
+| 16 cells (4x4) | 618 | 48 | **0** | 0 |
+
+**These figures are from `main` at `f96c08d`, and they are the second
+measurement, not the first.** Everything here was originally measured on
+`ba6fc98`, a few hours older — and `main` then landed two worldgen changes
+that deepen the soil blanket about tenfold between them, which is exactly the
+kind of drift `CLAUDE.md` warns makes a baseline "a measurement of a tree
+nobody else has". Re-run after the merge, the ≥80 column reads **342 / 127 /
+55 / 32 / 15 / 0** against the pre-merge **337 / 126 / 57 / 33 / 13 / 0**, and
+every live figure in §5 moves by under 3%. That is a robustness result worth
+having rather than a formality: the effect is a property of the world's
+*texture grain*, which a soil-depth change does not touch.
 
 Read the ≥80 column: **80 is about the contrast a dark body actually achieves
 against ordinary ground here**, so that column is the live one. At the shipped
@@ -103,16 +117,16 @@ pale value is worse than the dark one because this world is bright: sky reads
 ground than a dark body has below it.
 
 **The clean version of that result is arm E of the review card.** Same seed,
-same 9-cell body, same 600 frames — the run is bit-identical, `moves 558 /
-blocked 195` on both arms, so nothing but the paint changed:
+same 9-cell body, same 600 frames — the run is bit-identical, `moves 598 /
+blocked 197` on both arms, so nothing but the paint changed:
 
 | | `ant_block` (dark) | `chitin_pale` (pale) |
 |---|---|---|
 | cells per creature | 9.0 | 9.0 |
-| **ink per creature** | **1,285** | **245** |
+| **ink per creature** | **1,285** | **249** |
 
 A nine-cell pale animal puts **less on screen than the shipped two-cell dark
-one** (285). Rendered, they read as lichen on the rock.
+one** (282). Rendered, they read as lichen on the rock.
 
 **So the shipped ant's palette is not a thing to fix.** `ant.ron`'s own
 comment — *"Dark, and deliberately not red… the readable signal at that size
@@ -128,12 +142,12 @@ is an insect outline rather than a brick.
 | | C, 3x3 block | D, 5x2 waisted |
 |---|---|---|
 | cells per creature | 9.0 | 9.0 |
-| ink per creature | 1,285 | 1,285 |
-| |contrast| | 119.0 | 116.7 |
-| **moves blocked** | **26%** | **39%** |
+| ink per creature | 1,285 | 1,288 |
+| \|contrast\| | 119.0 | 116.7 |
+| **moves blocked** | **25%** | **44%** |
 
-**Every appearance number is the same to within noise and the mobility cost is
-half again as large.** This is `plant-appearance-design.md` §5 reproduced in a
+**Every appearance number is the same to within noise (0.2% on ink) and the
+mobility cost is three quarters again as large.** This is `plant-appearance-design.md` §5 reproduced in a
 different subsystem: rearranging which cell is where, at constant extent, does
 not move a silhouette — and here it is not even free, because a wider footprint
 has fewer legal positions on rough ground.
@@ -148,25 +162,25 @@ Measured on one seed, 40 attempted placements, 600 frames, `rolling` preset:
 
 | arm | body | cells | placed | ink/creature | **moves blocked** |
 |---|---|---|---|---|---|
-| A | `Chain(2)` — ships today | 2 | 23/40 | 285 | **6%** |
-| B | `Chain(6)` | 5.7 | 18/40 | 828 | **3%** |
-| C | `Rigid` 3x3 | 9 | 20/40 | 1,285 | **26%** |
-| D | `Rigid` 5x2 waisted | 9 | 18/40 | 1,285 | **39%** |
-| E | `Rigid` 3x3, pale | 9 | 20/40 | 245 | 26% |
+| A | `Chain(2)` — ships today | 2 | 24/40 | 282 | **4%** |
+| B | `Chain(6)` | 5.7 | 18/40 | 823 | **2%** |
+| C | `Rigid` 3x3 | 9 | 19/40 | 1,285 | **25%** |
+| D | `Rigid` 5x2 waisted | 9 | 18/40 | 1,288 | **44%** |
+| E | `Rigid` 3x3, pale | 9 | 19/40 | 249 | 25% |
 
 Three costs, in the order they matter:
 
 - **Mobility, and it is the expensive one.** `BodyPlan`'s own doc predicted
   it — *"a wide body handles rough ground badly — often no legal position at
-  all"* — and the number is 4–6x the shipped ant's blocked rate. **A chain
-  pays none of it**: `Chain(6)` is blocked *less* than `Chain(2)` (3% against
-  6%), because a chain follows its head and flows over anything.
+  all"* — and the number is 6–11x the shipped ant's blocked rate. **A chain
+  pays none of it**: `Chain(6)` is blocked *less* than `Chain(2)` (2% against
+  4%), because a chain follows its head and flows over anything.
 - **Cells per creature**, which is 4.5x at nine cells. That is the frame cost
   (creature cells are relocated explicitly from the active-site schedule, not
   swept), and it is also 4.5x the `body_energy` the ledger stamps at every
   hatch — a real change to the colony's economy, not only its picture.
 - **Placement**, which is nearly free: 23 → 18 of 40 across the whole ladder,
-  and the shipped ant already refuses 17.
+  and the shipped ant already refuses 16.
 
 **`Chain(6)` is therefore the cheapest thing on this table by a wide margin**:
 2.9x the ink for *less* blocked movement than the body that ships today, and
@@ -182,8 +196,8 @@ between the arms is the owner's and is on the card; the measurement says:
 1. **Two cells cannot be made to work by any means available today.** Not by
    hue (already lost a blind A/B), not by value (§3), not by arrangement
    (there is none at two cells). It is below the world's own texture grain.
-2. **Nine cells clears the texture** — 13 decoys against 126 — and four cells,
-   the shipped beetle, only halves it (57). The step that pays is the large
+2. **Nine cells clears the texture** — 15 decoys against 127 — and four cells,
+   the shipped beetle, only halves it (55). The step that pays is the large
    one.
 3. **The palette should not move.** It is already the best of the values
    tested, and the pale arm is a measured regression.

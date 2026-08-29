@@ -22,19 +22,23 @@ for anyone who reads only this:
   every rock edge and every leaf.
 - **The number that works is `decoys`** — how many other places in the frame
   are at least as different from their surroundings as the animal is. At fixed
-  contrast, moving only body size: **1 cell 337, 2 cells 126, 4 cells 57, 9
-  cells 13, 16 cells 0.**
+  contrast, moving only body size: **1 cell 342, 2 cells 127, 4 cells 55, 9
+  cells 15, 16 cells 0.** Those are *after* merging `main` at `f96c08d` in;
+  before it, on `ba6fc98`, the same table read 337 / 126 / 57 / 33 / 13 / 0.
+  Two worldgen changes deepening the soil roughly tenfold landed in between
+  and the effect did not notice — it is a property of the world's texture
+  grain, not of its soil.
 - **Palette has nothing left in it, and this is now measured twice.** Arm E of
-  the card is arm C's body repainted pale — bit-identical run, `moves 558 /
-  blocked 195` on both — and it scores **ink/creature 245 against C's 1,285**.
+  the card is arm C's body repainted pale — bit-identical run, `moves 598 /
+  blocked 197` on both — and it scores **ink/creature 249 against C's 1,285**.
   A nine-cell pale animal puts less on screen than the shipped **two**-cell
-  dark one (285). `render.rs`'s standing suggestion to try a *brightness* axis
+  dark one (282). `render.rs`'s standing suggestion to try a *brightness* axis
   rather than a hue axis was tried here and loses too.
 - **Shape at constant extent does nothing and is not free.** Two nine-cell
-  bodies, a 3x3 block and a waisted 5x2: identical ink, identical contrast to
-  within noise, and **26% vs 39% blocked movement**.
+  bodies, a 3x3 block and a waisted 5x2: ink within 0.2% of each other,
+  contrast within noise, and **25% vs 44% blocked movement**.
 - **A chain is the cheapest extent there is.** `Chain(6)` gets 2.9x the ink of
-  the shipped ant for *less* blocked movement (3% vs 6%) — a chain follows its
+  the shipped ant for *less* blocked movement (2% vs 4%) — a chain follows its
   head, so it flows over anything a two-cell chain does. It reads as a worm,
   which is the cost.
 
