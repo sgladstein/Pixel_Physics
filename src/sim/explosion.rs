@@ -1730,6 +1730,58 @@ impl Blast {
                 super::rigid::ShellSectors::Contained,
             );
         }
+        // **And every block the star cut out, not just the two collars.**
+        //
+        // Reported from play: *"when the cracks have fully surrounded a
+        // chunk of rock it should detach from the background and fall.
+        // Every single rock. That doesn't happen consistently."* The two
+        // collars above are *annuli* — they release the rim and the pocket
+        // wall, which is where a blast's own clearing left free faces. A
+        // block out in the near field that the fissures happened to
+        // enclose is in neither annulus, so nothing released it, and it
+        // stood there fully cracked until something else disturbed it.
+        //
+        // `rigid::calve_free_blocks` is the same call the hammer makes, and
+        // its doc carries the measurement that says why this cannot be left
+        // to the load model: a severed slab resting on rubble reports
+        // *supported*, correctly, so waiting for "unsupported" is waiting
+        // for something that should not fire.
+        //
+        // **Bounded to the calved shell**, and the wider bound was tried
+        // and measured rather than assumed. `dead-ends.md`'s no-ligament
+        // lattice is the failure of releasing every enclosed domain in the
+        // *world*, so this is bounded on principle; the question was where.
+        //
+        // Widening it to `joint_reach * radius` -- the halo `JointSeams`
+        // actually scores, which is ~3x further out and about ten times
+        // the area -- **does not move the result**. Paired over five
+        // presets x four seeds against this release switched off: the
+        // tight bound is better on 8 runs of 20, the halo on 9, and
+        // **both have a median cells-promoted ratio of exactly 1.00x**.
+        // The halo's worst frame reached 70.6 ms against an acceptance
+        // budget of 60. So the search radius was never the constraint.
+        //
+        // **What is:** how often a blast encloses a block at all. A
+        // hammer completes an outline because the *second* blow reopens
+        // the boundaries the first declined
+        // (`structural::JOINT_REPEAT_BONUS`); a blast is one event, so it
+        // gets one draw per boundary and `default_joint_density`'s
+        // deliberate one-in-ten holdout leaves most blocks a joint short.
+        // That is a calibration question in `JointSeams`, not a reach
+        // question here -- filed under `open-bugs-handoff.md` S5.
+        // **Open sectors only, and two guards caught the omission.** A
+        // fully contained blast has nowhere to put anything -- that is
+        // what containment *is* -- and releasing the blocks its own crush
+        // enclosed inside the pocket cleared 648 of 1,257 disc cells,
+        // taking `a_fully_buried_stone_blast_crushes_a_pocket_and_scores_a_
+        // crack_star` red on exactly the claim it exists to make. The two
+        // collars above already ask this question per sector
+        // (`ShellSectors::Open` / `Contained`); this asks the coarse
+        // version of it, because a block is not a sector and the release
+        // is bounded by a disc rather than by a sector fan.
+        if self.report.open_sectors > 0 {
+            cells += super::rigid::calve_free_blocks(world, (self.cx, self.cy), (self.radius + depth) as f32, force) as u32;
+        }
         cells
     }
 

@@ -327,6 +327,61 @@ measured against, and the first reading of this change fell back on a
 cluster-level statistic for exactly that reason. Verified against the
 pre-change binary on `scene=fell`: every physics line identical.
 
+**`filmstrip channel=bend` draws the plant bending stress**, and its
+quantitative pair is the `bending stress over N cells` line in the felling
+census — median, peak, **where the peak is**, and how many cells read exactly
+zero. Read them together: a ramp can only say "brighter", and whether the
+hottest cell is at a trunk's base or out on a twig is the entire claim of the
+model. **Not `channel=stress`**, which is `load::evaluate`'s rock stress and
+a different quantity.
+
+**The bend census is four lines and none of them substitutes for another.**
+`cells leaning this tick` counts what *wants* to move (`|deflection| >= 1`);
+`cells moved / refused` counts what did; `cross-sections blocked` and `would
+have torn` split the refusals by *reason*, and that split is the one that can
+be acted on. A grass stand once read **0 moved against 302 refused** — a
+mechanism inert in a real world with every guard over it green — and the two
+causes want opposite fixes. Blocked is a crowded stand doing its job; torn is
+the one-piece rule turning a swing down because no cross-section could move
+without stranding a cell. **Read them against `wind on that tissue`**, which
+names the gust and the exposure range the moments were measured under: half
+the moment now comes from the weather, so a lean count with no wind figure
+beside it is that frame's phase plus the mechanism, inseparable.
+
+**And the moment line is split per material**, because `stiffness` is a
+per-material constant and one pooled distribution cannot fit two of them.
+Trunks dominate a stand's pooled quantiles and foliage sits two orders of
+magnitude below — leaf p90 260-348 under a stand p90 of 455-636 — so a
+stiffness read off the pooled line is fitted to the wrong tissue. Each row
+prints its own material's stiffness and how many of its cells want to lean,
+which is the "did this constant connect to anything" reading.
+
+**`BEND=off` holds every plant rigid** and is the control for all of the
+above. It exists because both errors in this mechanism were found by holding
+the semantics fixed and changing nothing else. Comparing two *binaries*
+cannot do it: the counters that catch the error are added alongside the
+mechanism, so the arm being measured against does not have them. Note the two
+arms diverge — the sim differs — so a difference read thousands of frames
+apart is two different worlds, not a measurement of the mechanism.
+
+**`HINGE_PROBE=1` prints the felling hinge's own arithmetic** — the region's
+size and mass, the stump it pivots about, `broke_at` beside it, the centre of
+mass **as a vector from the pivot**, the second moment and `alpha`. Read the
+vector, not `alpha`: a hinge whose centre of mass is level with its pivot
+swings straight *down*, which on a contact sheet is indistinguishable from
+the piece simply falling. That is not hypothetical — it is what the first
+build did, for a whole render and a wrong reading, and no image could have
+told anyone.
+
+**`filmstrip`'s "foliage by steps to the nearest wood"** is a multi-source
+BFS out of every woody cell, crossing only foliage, so bucket 1 is exactly
+the set `update::on_a_branch` holds. It exists because "the leaves fall off
+the branch" and "the rule that holds them is one cell too shallow" produce
+the identical picture; the histogram separates them, and it is what set the
+clinging depth (36% at one step, 53% at two). `no path` is foliage with no
+route to wood through its own kind — already run clear, and no depth
+recovers it.
+
 **Two orientation censuses on `scene=fell`, and they answer different
 questions.** `settled log pieces` folds settled `log` into 8-connected
 clusters, so two logs that land touching are one "piece" whose orientation is

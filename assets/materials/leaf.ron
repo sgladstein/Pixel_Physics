@@ -175,6 +175,32 @@
     // there.
     severs_into: "deadleaf",
 
+    // **Foliage bends, and it is the only part of a tree that does.**
+    //
+    // Set against the foliage's own measured moments rather than the stand's
+    // pooled ones, which is a distinction that cost a wrong reading: trunks
+    // dominate a pooled distribution and foliage sits two orders of magnitude
+    // below it. Censused on `scene=grove` (`filmstrip`'s per-material line),
+    // 5,265 and 10,189 leaf cells on two frames:
+    //
+    //     p50 4.1-5.9   p90 260-348   p99 2,393-4,923   max 12,614-30,494
+    //
+    // 1000 sits between p90 and p99, so the few percent of foliage that is
+    // genuinely carrying a loaded cluster on a long lever lies over in a
+    // gust, and the quiet interior of a crown does not creep. Set in the gap
+    // rather than on a measured value, per `CLAUDE.md`.
+    //
+    // **Why foliage and not wood**, when a limb sagging before it breaks is
+    // the more wanted picture: a bend relieves its moment by shortening a
+    // *horizontal* lever, and a trunk's wind moment is a vertical one that a
+    // one-cell lean does not shorten. So a trunk given a stiffness would lean
+    // again every tick for as long as the wind blew, with nothing in the
+    // model to stop it. What stops a real trunk is that it breaks, and that
+    // is stage 3's business. A leaf cluster has no such problem: it hangs off
+    // the end of everything, its moment is nearly all wind, and swinging it
+    // downwind takes that load off directly.
+    stiffness: 1000.0,
+
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
     // by the move from eater-constant to food-property.

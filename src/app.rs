@@ -2769,6 +2769,10 @@ impl App {
     pub fn explode(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         self.blasts.trigger(&mut self.world, &mut self.particles, x, y);
+        // Named for the same reason `strike` is, and it is the worse of
+        // the pair: `X` sits under `S`, so the hand running the gnome is
+        // resting on it.
+        self.show_toast("X - SANDBOX BLAST AT CURSOR");
     }
 
     /// Strike the rock under the cursor — the destruction *verb*.
@@ -2776,12 +2780,24 @@ impl App {
     /// Scaled off the brush so the tool the player is already sizing is the
     /// tool that decides how hard they hit, rather than introducing a second
     /// invisible number to tune. See `rigid::strike`.
+    ///
+    /// **It says so, and that is not decoration.** Reported from a gnome
+    /// playtest as the hammer "sometimes randomly making a hole at the
+    /// mouse, which is not near the gnome". Nothing in `player::smash` can
+    /// do that — `face_toward` clamps the blow to `hammer_reach` of his
+    /// own centre. This key can, and it calls the identical
+    /// `rigid::strike`, so the wound is indistinguishable from a hammer
+    /// blow; `C` sits directly under `D`, which is the key running the
+    /// gnome right. A slipped finger therefore produced an unattributable
+    /// hole, and the two lines this replaces both said the count was being
+    /// thrown away because there was nowhere to put it. There is: the
+    /// toast. Naming the key is what turns a mystery into a slip you can
+    /// see, and it costs no tool.
     pub fn strike(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         let force = self.brush_radius as f32 * STRIKE_FORCE_PER_RADIUS;
-        // Count ignored: the sandbox key has no readout to put it in.
-        let _ = crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
-        // Count ignored here: the sandbox key has no readout to put it in.
+        let broken = crate::sim::rigid::strike(&mut self.world, x, y, self.brush_radius, force);
+        self.show_toast(format!("C - SANDBOX STRIKE AT CURSOR R{} ({broken} cells)", self.brush_radius));
     }
 
     /// Cut rock away precisely under the cursor — the *mining* verb, as
@@ -2796,6 +2812,10 @@ impl App {
     pub fn mine(&mut self, screen_x: i32, screen_y: i32) {
         let (x, y) = self.renderer.screen_to_world(screen_x, screen_y);
         crate::sim::rigid::mine(&mut self.world, x, y, self.brush_radius, self.player_tuning.dig_yield);
+        // The third cursor verb that removes world, named like the other
+        // two. `H` is nowhere near the movement hand, so this one is for
+        // consistency rather than from a reported slip.
+        self.show_toast(format!("H - SANDBOX CUT AT CURSOR R{}", self.brush_radius));
     }
 
     /// Plant a tree seed at a screen position — M16 debug tool. See

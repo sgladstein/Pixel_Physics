@@ -244,10 +244,49 @@ fn root_reinforced<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
 /// Four neighbours rather than eight, deliberately. A leaf touching a branch
 /// only at a corner is not sitting on it, and eight would let a spray hang
 /// diagonally off a twig's tip in open air.
+///
+/// # Two steps, not one, and the second one is measured
+///
+/// **Touching a branch was too strict to mean what it was written for.** The
+/// owner's complaint is that a felled crown's leaves come off the branch, and
+/// he has made it four times; this rule shipped, and they still did. The
+/// reason is that a crown is mostly leaf, so most leaf cells rest on *other
+/// leaves* rather than on wood, and a one-step rule lets every one of them
+/// go. Censused on the settled `scene=fell` pile (`filmstrip`'s "foliage by
+/// steps to the nearest wood"), of 1,122 foliage cells:
+///
+/// | steps to wood | 1 | 2 | 3 | 4 | 5+ | none |
+/// |---|---|---|---|---|---|---|
+/// | cells | **405** | 201 | 130 | 85 | 214 | 87 |
+///
+/// So one step holds **36%** and two holds **53%** — which is the first
+/// depth at which "most of the leaves stay on the branch" is true rather
+/// than nearly true.
+///
+/// **Two and not more**, because the cost of going deeper is the recorded
+/// dead end and not the arithmetic. `deadleaf.ron` records what happened when
+/// foliage was made a `Solid`: the crown froze in mid-air, the first pieces
+/// to land became a scaffold nothing could fail, and the tree died standing
+/// in the shape it grew in. Depth is how near that this gets — every step
+/// freezes a thicker shell of foliage around each limb, and at four or five
+/// a dense pile of mixed log and leaf is immobile wholesale. Two doubles what
+/// holds while still letting a leaf three cells out of a spray fall.
+///
+/// Foliage in open air is untouched at any depth: the chain has to terminate
+/// on *wood*, so a drift resting on nothing but itself still falls.
 fn on_a_branch<S: CellSurface>(surface: &S, x: i32, y: i32) -> bool {
-    [(0, -1), (0, 1), (-1, 0), (1, 0)]
-        .iter()
-        .any(|&(dx, dy)| surface.materials().get(surface.get(x + dx, y + dy).material).woody)
+    const NEIGHBOURS: [(i32, i32); 4] = [(0, -1), (0, 1), (-1, 0), (1, 0)];
+    let woody = |x: i32, y: i32| surface.materials().get(surface.get(x, y).material).woody;
+    if NEIGHBOURS.iter().any(|&(dx, dy)| woody(x + dx, y + dy)) {
+        return true;
+    }
+    // The second step, and it is only paid by foliage that is *not* already
+    // on a branch -- the 64% of it that the one-step rule was dropping.
+    NEIGHBOURS.iter().any(|&(dx, dy)| {
+        let (nx, ny) = (x + dx, y + dy);
+        surface.materials().get(surface.get(nx, ny).material).clings_to_wood
+            && NEIGHBOURS.iter().any(|&(ex, ey)| woody(nx + ex, ny + ey))
+    })
 }
 
 /// Infiltration and gravity drainage for one `Powder` cell.
