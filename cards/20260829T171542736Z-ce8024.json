@@ -1,0 +1,53 @@
+{
+  "id": "20260829T171542736Z-ce8024",
+  "created": "2026-08-29T17:15:42Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-revamp-plan-dot67g",
+    "commit": "077b142",
+    "agent": null,
+    "session_id": "2cb39797-d076-5699-b8bf-4494224deffe",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Lighting the rock, at the surface",
+  "question": "Same light as the underground card, applied to a normal above-ground screen. Can you tell which pane has it on at all?",
+  "context_md": "The companion to the underground card, and the one I expect to be a null.\n\nSame world, same instant, same camera, same palette; the only difference is the light. It is turned up **harder** here than underground, not softer.\n\nThe reason I think you will not see it: a light needs a surface to fall on, and at the surface only **5%** of the stone on screen is near air. The other 95% is the inside of the ground, where every direction is more ground — so a light has nothing to say about it and just dims it evenly, which is what the depth grade did and what you rejected.\n\nIf you cannot pick the lit pane here, that settles it: lighting is worth nothing until the ground has shape for the light to find, and shape is a worldgen job.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (flat)",
+      "files": [
+        "20260829T171542736Z-ce8024/000-card_surf_base.png"
+      ],
+      "caption": "the renderer as it ships",
+      "meta": {
+        "stone pixels the light changed": 0,
+        "stone near an opening": "5%"
+      },
+      "focus": null
+    },
+    {
+      "label": "lit",
+      "files": [
+        "20260829T171542736Z-ce8024/001-card_surf_lit.png"
+      ],
+      "caption": "same light as the cave card, turned up harder",
+      "meta": {
+        "stone pixels the light changed": 249427,
+        "average change (of 255)": 15,
+        "stone near an opening": "5%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
