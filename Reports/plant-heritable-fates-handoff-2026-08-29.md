@@ -37,10 +37,10 @@ reasoning that it can be narrowed later.
 
 | operator | weight | measured? |
 |---|---|---|
-| retarget a cell-type field | 60% | **yes** — 92% viable on the woody base, 97% on the determinate one |
-| change `when` or `after_metamers` | 15% | no |
-| insert a drawn rule at a drawn position | 15% | no |
-| delete a rule | 10% | no |
+| retarget a cell-type field | 60% | **yes**, and re-measured: 74% woody / 97% determinate through the *shipped* operator (the 92% on the left was a lookalike's) |
+| change `when` or `after_metamers` | 15% | yes — 2% of draws do anything on woody, 42% on determinate; all that land, live |
+| insert a drawn rule at a drawn position | 15% | yes — 8% woody, 18% determinate |
+| delete a rule | 10% | yes — **0% woody**, 48% determinate |
 
 **Insert is what the flexibility actually buys.** With retargeting alone a
 `tree` lineage could never acquire a flower: `tree.ron` has no `FateWhen::Ripe`
@@ -58,13 +58,19 @@ anywhere.
 
 ## 3. What is NOT established — in priority order
 
-**3a. Three of the four operators have no viability gate.** The harness to run
-it exists and is already parameterised: `examples/fate_viability.rs` takes
-`base=tree|herb` and mutates a production rule N ways with both controls
-printing. What it does *not* yet do is exercise insert, delete or recondition —
-its `mutate` is the retarget operator alone. Pointing it at the new operators
-is the cheapest real measurement on this board and it is a harness change, not
-a design one.
+**3a. CLOSED, 2026-08-29 — and the answer inverts the premise.** See
+`plant-fate-operator-gate-2026-08-29.md`. All four operators are now gated, and
+the three unmeasured ones are not the hazard this section assumed: 46 of 46
+effective mutants lived. They are **inert** — on the woody base `delete` is 0%
+effective in 40 draws, `recondition` 2%, `insert` 8%, because `fate_for` falls
+back *per query* and the layer beneath refills any slot a mutation vacates.
+
+Two things this section got wrong, both worth carrying forward. It was **not**
+only a harness change: the harness had been measuring a *lookalike* of the
+operator rather than `FateGenome`'s own, drawing from six replacement cell types
+on the woody base where the engine draws from eight — so the 92% below is about
+a mutation nothing in the engine performs. And it is not true that the operators
+merely lacked a number; three of them barely function.
 
 **3b. `FATE_MUTATION_CHANCE = 0.01` is a guess.** Gate 1 measured what *one*
 mutation does to a fresh table. A rate compounds over generations and nobody
