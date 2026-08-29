@@ -1,0 +1,56 @@
+{
+  "id": "20260829T080824307Z-6f335b",
+  "created": "2026-08-29T08:08:24Z",
+  "board": "world-scale",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/world-size-resolution-perf-uftzla",
+    "commit": "4f96ef6",
+    "agent": null,
+    "session_id": "8c608298-387d-5ad1-a523-aa0f9f5e9e67",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The same place at twice the cell resolution",
+  "question": "Does the right-hand pane read as the same landscape drawn finer — same bay, same headland, gnome the same size — or as a different world? And are the two thin grey slabs in it a blocker for this direction, or a detail to fix later?",
+  "context_md": "Both panes are the same window on the same seed and the same stretch of coast. **Left is today's cell size. Right is the identical world built out of four times as many cells**, viewed through a viewport twice as wide and twice as tall, so the apparent scale is unchanged — which is the reading you picked last time.\n\n**What I was testing.** The content half of the resolution step looked like 261 hand edits. It is not: for the terrain it is one function plus one line. `WorldgenParams::scaled(k)` reinterprets all 46 shape parameters — and they need **four different factors, not one**: lengths and wavelengths ×k, ratios and slopes unchanged, per-column probabilities ÷k, and counts per fixed cell region ÷k or ÷k² depending on whether the generator loops over them in one dimension or two.\n\n**One number was the whole difference between \"the same world, finer\" and \"a different world.\"** The regions a world is composed of were keyed to a fixed 512 cells — one screen at today's size — so a world with twice the cells got *twice as many regions* rather than the same regions twice as wide. Measured on this preset: the rescaled terrain sat **39.1 rows** from the original, against **42.5** for a completely unrelated seed. It was no more like itself than a stranger. With the window scaled it lands **1.27** rows out. Across five presets the residual is 0.20–1.94 rows against controls of 17–62.\n\n**What I already know is wrong in the right-hand pane**, so you don't have to spend the round finding it: the **two tall thin grey slabs** are residual landforms — tors and stacks — whose widths are hardcoded in the source rather than in the parameters, so they did not scale and came out half their proper width. That is round 6's *\"you cannot create good looking crystals or stalagmites that are only 1-2 pixels wide\"* reappearing from the other direction. The same is true of cave and speleothem widths and the ore lens shapes, which is the next piece of work either way.\n\nSo the question is whether the *terrain* half reads as correct, and how much the unscaled features spoil it.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Today's cell size",
+      "files": [
+        "20260829T080824307Z-6f335b/000-cs-1x.png"
+      ],
+      "caption": "2048x640 world, 512x320 viewport, drawn at 2x.",
+      "meta": {
+        "cells across the visible width": 512,
+        "how tall the gnome draws, in window pixels": 28,
+        "world built in": "391 ms"
+      },
+      "focus": null
+    },
+    {
+      "label": "Four times the cells",
+      "files": [
+        "20260829T080824307Z-6f335b/001-cs-2x.png"
+      ],
+      "caption": "4096x1280 world, 1024x640 viewport, drawn at 1x — same ground, same apparent size.",
+      "meta": {
+        "cells across the visible width": 1024,
+        "how tall the gnome draws, in window pixels": 28,
+        "world built in": "1386 ms",
+        "how far the rescaled ground sits from the original": "1.27 rows",
+        "...against an unrelated seed, for scale": "42.49 rows"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
