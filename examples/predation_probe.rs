@@ -55,11 +55,38 @@
 //!    reads are always equal has a gradient of exactly zero and will steer
 //!    on whatever tie-break follows, which is a constant direction.
 //!
+//! # What `differs = 0.000` does and does not prove
+//!
+//! **It is sampled, and a beetle ticks faster than the sampler.** At the
+//! default `every=200` this looks at one tick in twenty-five
+//! (`tick_interval` is 8), so a run reporting 0.000 has been *observed*
+//! never to hold a gradient, not *proved* to. The claim that matters — "a
+//! weight on this input would change nothing" — was therefore settled the
+//! other way round as well, by authoring `(PheroBAlong, Move, 2.0)` into
+//! `beetle.ron`, rebuilding (the assets are `include_str!`ed, so the
+//! rebuild is the experiment) and checking whether the run moved.
+//!
+//! **It moved on exactly the two seeds whose sampled `differs` was nonzero
+//! (0 and 3) and on none of the other six**, which are byte-identical
+//! across the whole 8-seed run. Both halves matter: the two that moved
+//! prove the `.ron` knob was really connected — an identical-everywhere
+//! result is what a *stale binary* looks like — and the six that did not
+//! prove the gradient was zero at every tick rather than merely at every
+//! sampled one, since a single differing tick would have diverged the run.
+//! The catch counters came out identical in both arms (302 carry-samples
+//! holding ant, 5 injuries, 6 deaths), so what the wiring bought on the
+//! two live seeds was a reshuffled random walk. The wiring is therefore
+//! deliberately **not** shipped.
+//!
+//! Lower `every=` if you want the sampled figure tighter — the cost is
+//! linear and the census is the expensive part.
+//!
 //! ```text
 //! cargo run --release --example predation_probe
 //! cargo run --release --example predation_probe -- mode=control
 //! cargo run --release --example predation_probe -- mode=ab frames=6000
-//! cargo run --release --example predation_probe -- seeds=4 frames=12000
+//! cargo run --release --example predation_probe -- mode=cost frames=600
+//! cargo run --release --example predation_probe -- seeds=8 every=40
 //! ```
 
 use pixel_physics::sim::brain::BrainInput as I;
