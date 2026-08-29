@@ -177,8 +177,14 @@ tried?"*.
   history instead. Its postscript records the depth grade going off by
   default on a playtest, and two framing errors in how a fix was shown.
 - [sky-light-design.md](sky-light-design.md) — **design round; shipped on
-  `F12`, /4 the default.** Measures the candidates for the open-cast-dig
-  case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
+  `F12`, /4 the default — and *extended 2026-08-29* after play found the
+  shipped model drew a broken-open hilltop black.** Its own Finding 2 table
+  holds the defect: a 64-wide pit's floor and a 1-wide shaft scored 0.023
+  against 0.010, because distance from a lit cell cannot tell a hole from a
+  hollow. Read *What play found wrong with it* at the bottom first — the
+  second term, the eight-ray fan, and what it cost.
+  Below that, the original round measures the candidates for the
+  open-cast-dig case (`examples/sky_light_probe.rs`): why `field.rs`'s light channel
   cannot drive it, why seeded propagation can, why block size 4 rather than
   `FIELD_SCALE`'s 8, and — tested later — why a stored incrementally
   maintained field is *not* worth it. Two of its own claims were wrong and
@@ -186,8 +192,10 @@ tried?"*.
 - [prior-art-underground-lighting.md](prior-art-underground-lighting.md) —
   **research.** How Terraria (a per-tile wall layer, then 0.91/0.56 light
   propagation) and Noita (a coarse blurred fog of war, no classification at
-  all) answer "is this dark", and which of the two the still-open
-  open-cast-dig case needs.
+  all) answer "is this dark", and which of the two the open-cast-dig case
+  needs. Its call — propagation, not a better boolean — was right and
+  incomplete: propagation *by distance* is what `sky-light-design.md`'s
+  2026-08-29 postscript had to add an aperture term beside.
 
 - [structural-reconvergence-design.md](structural-reconvergence-design.md) —
   **design, nothing built.** The scope for §S: converge the support field over
