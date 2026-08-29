@@ -1,0 +1,246 @@
+# The framebuffer does not have to be the cell grid
+
+Written against the owner's brief, 2026-08-29: *"it is hard to get [plants] to
+look good with our pixel graphics... I don't want to increase the simulation
+resolution but is there any way to get past this. Upsampling or a more
+aggressive filter."*
+
+The answer is yes, and the reason it is yes is smaller than it sounds: **the
+extra pixels are already on the screen and are currently spent on
+replication.** This report is the measurement, the prototype, and the two
+things the prototype got wrong on the way — both of which are the same class of
+bug and would have been shipped as features.
+
+## 1. Why plants specifically, and not everything
+
+The complaint singles out plants, and that is not taste — it is structural.
+
+Everything else in this world is a **mass**. Rock, soil, water and sand are
+drawn as large contiguous regions, and a square lattice renders a mass
+perfectly well: the per-cell shade jitter reads as *grain*, which is why
+`wood.ron` and `soil.ron` carry a spread of four tones at all.
+
+A plant is a **line**. `plant-appearance-design.md` §1 measured the stand as
+~90% `MatureBody` with foliage a one-cell skin at ~5%, and by eye a crown is
+one- to three-cell strands. A one-pixel line on a square lattice with no
+sub-pixel coverage is a staircase — no taper, no curve, no continuity — and a
+lone leaf cell is a hard square. So the same renderer that flatters rock is the
+worst possible renderer for a twig, and no amount of per-cell work fixes it,
+because **the cell has no interior to draw into**.
+
+That is also why Phase 2's three architectural levers moved nothing
+(`plant-appearance-design.md` §5): they change *which cell gets a label*. This
+is one level below that — it changes what a cell *is drawn as*.
+
+## 2. The headroom is already paid for
+
+`main.rs` opens the window at `LogicalSize::new(WIDTH * 2, HEIGHT * 2)` against
+a `Pixels::new(WIDTH, HEIGHT, ..)` framebuffer. So **every world cell already
+occupies at least a 2x2 block of physical screen pixels and all four are
+byte-identical**, and more than that on a HiDPI display. The GPU is
+nearest-neighbour-replicating a 512x320 buffer into a 1024x640 window.
+
+Rendering into a 1024x640 buffer at 2 pixels per cell shows the **same world
+region** at the **same window size** with four times the information. Nothing
+about the simulation, the play scale, or how much world is on screen changes.
+
+`Renderer` needs no new concept for this either: `zoom` already means "screen
+pixels per cell", `screen_to_world` and `sub_cell` already do the mapping, and
+`cell_colour` already takes the sub-cell offset — with exactly one thing
+reading it today (the crack strip, `CRACK_EDGE_DARKEN`). The machinery is built
+and idle at 1:1.
+
+## 3. What it costs — measured, and it is not what it looks like
+
+`examples/subpixel_cost.rs`. Same world, same camera, same visible region
+(asserted, not assumed — a supersample that quietly shows a different amount of
+world would look exactly like a result), drawn into progressively finer output
+lattices. Best-of-10, mirroring `render_cost`'s own `best_of` so the two are
+comparable.
+
+| px/cell | buffer | pixels | ms | vs 1x |
+|---|---|---|---|---|
+| 1 | 512x320 | 163,840 | 59.78 | 1.00x |
+| 2 | 1024x640 | 655,360 | 67.30 | **1.13x** |
+| 3 | 1536x960 | 1,474,560 | 78.63 | **1.32x** |
+
+**Four times the pixels costs 13% more; nine times costs 32% more.** That is a
+tidy result, which `CLAUDE.md` says to distrust — so here is the mechanism that
+makes it true rather than an artifact. `render_cost` on the same box reports a
+59.86 ms full redraw of the generated world, and separately reports that
+pushing all 163,840 pixels through one branch of `cell_colour` costs 2.3 ms
+(stone) to 6.8 ms (sky). **The per-pixel work is therefore under 10% of the
+redraw**; the rest is per-*draw* setup — the sky-light grid, the horizon
+rebuild, the glow-tile scan over every field tile — and a finer output lattice
+does not repeat any of it. The measured increment, 18.9 ms for 1.31M extra
+pixels, is 14 ns/px, which is `render_cost`'s own all-stone figure to the
+digit. The number is explained, monotone across three points, and consistent
+with an independently-measured constant.
+
+Two honest caveats. **This box is slow**: `render_cost`'s doc records 12.07 ms
+for the same full redraw on the owner's machine against 59.86 ms here, so the
+absolute numbers do not transfer and only the ratios should be quoted. And the
+fixed/variable split is what sets the ratio, so on a machine where the fixed
+part is proportionally smaller the penalty would be proportionally larger.
+
+**The dirty-rect skip is untouched.** This changes what a full redraw costs, not
+how often one happens.
+
+## 4. Why not hqx / xBR / a post-hoc filter
+
+The obvious reading of "upsample it" is a pixel-art scaler run over the
+finished frame. Those infer shape from **colour** — which neighbouring pixels
+happen to match — and this world is their worst case: the deliberate per-cell
+shade jitter means adjacent pixels of the same material rarely match, so the
+filter has nothing to latch onto. It would smear the grain, which is the one
+thing that is working, and leave the plants alone, which is the thing that is
+not. Backwards on both counts.
+
+The renderer knows something a filter cannot recover: **what each cell is**.
+Reconstructing from material and organism cell type rather than from RGB is
+what makes this work at all.
+
+## 5. The prototype: `examples/subpixel.rs`
+
+Plant tissue is resampled as a continuous scalar field — a compact SPH-style
+kernel `(1 - d²/r²)²` summed over the 5x5 neighbourhood — and thresholded with
+an antialiased edge. Colours come from the shipped `Renderer` at 1:1, so
+nothing here can invent a colour the engine would not have drawn; the
+background behind an eroded plant pixel comes from a second pass of the same
+renderer over the same world with plant cells emptied, so the sky gradient,
+skyline and ground stay exactly right rather than being inpainted.
+
+Four things came out of it, in the order they were found.
+
+### 5a. Shape and colour are separate questions
+
+The first pass weighted the colour by the same kernel that decides the shape —
+a 5x5 blur of the palette. The silhouette came out smooth and the whole plant
+came out soft-focus, and **the soft focus is what reads as "worse" even where
+the silhouette is plainly better**. Shape wants a wide smooth kernel; colour
+does not have to use it. `colour_blend` separates them.
+
+### 5b. Foliage and wood are two layers, not one field
+
+With one field over both, the nearest-colour rule renders the brown/green
+boundary as a hard square mosaic *inside* a smooth outline — visibly worse than
+the staircase it replaced. Splitting them is also the physically true reading:
+a leaf hangs in front of the twig it grows off, so the twig should pass
+**behind** the crown rather than tile with it.
+
+### 5c. The field gives a thickness and a normal for free — and this is the
+part worth more than the smoothing
+
+`cov` sits at the threshold exactly on the outline and climbs with how much
+tissue is stacked around the point, so `cov - level` is an **ambient occlusion**
+term, already computed. And `grad(cov)` is analytic for a sum of kernels and
+points into the mass, so its negation is an outward **surface normal** at
+sub-cell resolution.
+
+A crown lit uniformly across its whole area is a large part of why foliage here
+reads as confetti rather than as volume, and **no per-cell colour work can fix
+it, because a cell has no interior and a one-pixel branch has no side facing
+anywhere**. These two terms give a canopy a dark interior and a lit rim, and
+round every lobe and every branch, off numbers the reconstruction already had.
+
+### 5d. Both of those terms quilted the interior into squares, twice, for two
+different reasons
+
+This is the finding worth carrying, because both bugs are the *same* bug in
+different costumes: **an operation that is well-defined at a boundary was
+applied in an interior where its input is lattice noise.**
+
+- **Normalising the gradient.** Deep inside a mass the kernel gradients from
+  the surrounding cells cancel, so `grad` is lattice-scale residue — and
+  dividing it by its own tiny length turns that residue into a full-strength
+  unit normal. Fixed by not normalising: the raw gradient is already the right
+  shape, large at the rim where the surface genuinely faces somewhere and
+  vanishing in the interior where it genuinely does not.
+- **The raw kernel sum.** A kernel sum over a *regular* lattice ripples at the
+  lattice period unless the kernel is far wider than the spacing, so deep
+  inside a solid mass — where the answer should be a flat "completely full" —
+  the sum oscillates between cell centres and cell corners. Read as a thickness,
+  that ripple is amplified straight into a grid of squares. Fixed by dividing
+  by what the kernel sums to when every cell in range is tissue
+  (`partition_table`), which carries the same ripple so it cancels — and which
+  depends only on where the pixel sits inside its cell, so it is a
+  `scale x scale` table computed once, not per-pixel work.
+
+Both were found the same way and by nothing else: **render with the terms off,
+and the interior is smooth**. A guard over "does the reconstruction fire" would
+have been green through both.
+
+### 5e. The foliage radius reaches the one thing the appearance report said no
+lever could
+
+`plant-appearance-design.md` §2.1 is titled *"Foliage is 5% of the plant"* and
+says of it: *"No architectural lever can reach this."* That is true of every
+lever *inside the simulation* — the 5% was bought deliberately, `shade_death:
+0.03` traded crown volume for bole legibility, and §5a's `leaf_cluster` sweep
+paid 20% of the stand's mass to move foliage share from 7% to 11%.
+
+**A render-side radius reaches it directly.** `leaf_r` is how much of the
+silhouette one leaf cell paints, and raising it from 1.3 to 1.75 fills the
+crowns out visibly on the identical stand — same 7,470 leaf cells, same 7,387
+wood cells, same economy, same light field, no simulation change of any kind.
+Foliage share as a *cell count* is unchanged; foliage share as **screen area**,
+which is the quantity the complaint was ever about, is not.
+
+This is worth stating carefully, because it is a knob that can be turned too
+far: it makes foliage cover more area, it does not make there be more foliage,
+and a crown of five leaves drawn fat is still a crown of five leaves. It also
+cannot deposit canopy density — the optical cost §5a priced — so the plant's
+own self-shading is untouched by it. What it buys is that the leaves the plant
+does have stop being invisible against the twig they hang on.
+
+## 6. Terrain wants the silhouette and not the interior
+
+`arm=all` puts rock and soil through the same reconstruction. With colour
+blending on, **the soil grain is destroyed** — the bed becomes a flat brown
+field, and the grain is the entire reason soil reads as soil. With
+`colour_blend: 0` the grain returns intact while the silhouette is still
+smoothed.
+
+So the rule is class-dependent, and it is short:
+
+| | silhouette | interior colour |
+|---|---|---|
+| plants, roots, thin structures | reconstructed | blended |
+| rock, soil, sand — masses | reconstructed | **per-cell, untouched** |
+
+Roots, which are thin structures inside a mass, come out visibly better under
+the same treatment as branches — which is the rule doing its job rather than a
+coincidence.
+
+## 7. What is not established
+
+- **The reconstruction's own cost is not shippable as prototyped**: 205 ms
+  serial for a full 1536x960 frame, 139 ns/px. That is an unoptimised upper
+  bound — the loop is serial, rescans the full 5x5 for every output pixel of
+  both layers, and re-derives the partition index per pixel, where the draw it
+  would live inside is already parallel over rows and the scan collapses to
+  nothing for any cell whose neighbourhood is uniform (which is every interior
+  cell of every mass in the world). The optimisations are standard and large,
+  and **none of them is measured**. Quote the 139 ns/px, not a projection.
+- **The owner has not ruled on the look.** Card
+  `20260829T080553450Z-675375` (board `plants`) is a blind A/B of the shipped
+  1:1 render against the reconstruction, asking the question that actually
+  decides this: does it read better, or does it just read *blurry*. Some
+  players want the hard lattice. Nothing here should be landed in the shipped
+  renderer before that comes back.
+- **Nothing was changed in `src/`.** This is an instrument and a measurement.
+- The parameters (`wood_r 1.1`, `leaf_r 1.3`, `level 0.30`, `band 0.10`,
+  `blend 0.75`, `ao 0.45`, `shade 0.40`) were set **by eye on one stand**, not
+  swept, and outcomes here have enormous spread. They are a demonstration, not
+  a calibration.
+
+## 8. The adjacent lever this turned up, not pursued
+
+`TreeDepth::Weave` already assigns each tree a binary depth relative to the
+gnome, stable for its life, and `TreeDepth::Haze` already dims the layer
+behind. That is an existing, shipped, per-tree depth bit that nothing else
+reads. Applying atmospheric perspective to it — the back layer slightly paler
+and lower-contrast — would separate a stand into two planes for free, and a
+stand reading as one flat hedge is the other half of the complaint
+`plant-appearance-design.md` §5a was chasing with `leaf_cluster`. Render-only,
+no simulation cost, not built.
