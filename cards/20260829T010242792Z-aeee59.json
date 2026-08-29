@@ -1,0 +1,56 @@
+{
+  "id": "20260829T010242792Z-aeee59",
+  "created": "2026-08-29T01:02:42Z",
+  "board": "worldgen",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/worldgen-sky-soil-mw9jhb",
+    "commit": "8faa61b",
+    "agent": null,
+    "session_id": "a4edad78-5904-55be-97b2-7c59459b4de3",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Sky doubled, soil ~1.6x deeper (rolling, seed 1)",
+  "question": "Is this the amount of sky and depth of soil you wanted, or should either go further?",
+  "context_md": "Same world, same seed, same three viewport widths butted into one unbroken strip (world x 1109..2645).\n\n- **A — before**: `sky_rows` 95, `soil_depth` 26\n- **B — after**: `sky_rows` 190, `soil_depth` 42\n\nWorld size is unchanged (8192x2560); the sky is bought out of the underground, as asked.\n\n**One thing worth knowing before you judge the sky.** The viewport is only 320 rows, so you can never see all 190 rows of air at once — what doubling actually buys on screen is that the horizon sits lower and ridges stop pressing against the top of the frame. The camera centres on the gnome once he is clear of the world's top edge, so at play the sky is about half the frame rather than the ~30% it was.\n\nSoil is the brown band under the ridge line. Measured realised depth went p50 16 -> 25, p90 29 -> 48 cells.\n\nI also re-derived `DEEP_BLANKET` (30 -> 53) so the deeper soil did not silently re-cut where grass grows — the woody-preference spread is back to where it was.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — before",
+      "files": [
+        "20260829T010242792Z-aeee59/000-before_rolling.png"
+      ],
+      "caption": "sky_rows 95, soil_depth 26",
+      "meta": {
+        "sky_rows": 95,
+        "soil_depth nominal": 26,
+        "soil p50 (cells)": 16,
+        "soil p90 (cells)": 29
+      },
+      "focus": null
+    },
+    {
+      "label": "B — after",
+      "files": [
+        "20260829T010242792Z-aeee59/001-after_rolling.png"
+      ],
+      "caption": "sky_rows 190, soil_depth 42",
+      "meta": {
+        "sky_rows": 190,
+        "soil_depth nominal": 42,
+        "soil p50 (cells)": 25,
+        "soil p90 (cells)": 48
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
