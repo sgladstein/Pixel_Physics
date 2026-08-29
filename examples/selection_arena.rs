@@ -335,6 +335,73 @@ fn run_world(
     Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()) }
 }
 
+/// **Wilcoxon signed-rank against a 50% null, two-sided.**
+///
+/// Reported beside the seed count because the seed count throws away most of
+/// what each seed measured. A sign test is about **64% efficient** against a
+/// t-test where signed-rank is ~95%, so switching statistic is worth roughly
+/// 1.5x the effective sample size for no extra compute -- and compute is the
+/// binding constraint here, since one seed is two mirrored 20,000-frame runs.
+///
+/// **Legitimate here specifically because the design is paired.** The mirror
+/// makes each seed's share a within-world contrast at the identical genotype
+/// draw, so the per-seed values are exchangeable under the null in the way
+/// signed-rank needs. It would not be legitimate on unmirrored data, where
+/// the position effect is still in every value.
+///
+/// **It does not rescue the power problem, and must not be read as if it
+/// does.** Measured against this harness's own control spread (~9.3
+/// share-points per seed), 18 seeds resolves an effect of roughly 7.5 points
+/// and is blind below about 5; a selection coefficient small enough to be
+/// evolutionarily interesting needs hundreds of seeds by any statistic. The
+/// answer to that is a different design -- a frequency trajectory over many
+/// generations rather than one endpoint share -- not a better test.
+///
+/// Returns `(w_plus, z, p)`. Normal approximation with a continuity
+/// correction; exact enough from about n = 10 and this is never run below
+/// that in earnest.
+fn signed_rank(shares: &[f64]) -> (f64, f64, f64) {
+    let mut d: Vec<f64> = shares.iter().map(|s| s - 50.0).filter(|x| x.abs() > 1e-9).collect();
+    let n = d.len();
+    if n < 2 {
+        return (f64::NAN, f64::NAN, f64::NAN);
+    }
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&i, &j| d[i].abs().partial_cmp(&d[j].abs()).expect("no NaN"));
+    // Average ranks over ties, or a run of equal magnitudes biases W.
+    let mut rank = vec![0.0f64; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j + 1 < n && (d[idx[j + 1]].abs() - d[idx[i]].abs()).abs() < 1e-9 {
+            j += 1;
+        }
+        let avg = ((i + 1) + (j + 1)) as f64 / 2.0;
+        for k in i..=j {
+            rank[idx[k]] = avg;
+        }
+        i = j + 1;
+    }
+    // `+ 0.0` normalises the negative zero an empty sum can produce, which
+    // otherwise prints as `W+=-0.0` and reads as a bug.
+    let w_plus: f64 = (0..n).filter(|&i| d[i] > 0.0).map(|i| rank[i]).sum::<f64>() + 0.0;
+    let nn = n as f64;
+    let mean = nn * (nn + 1.0) / 4.0;
+    let sd = (nn * (nn + 1.0) * (2.0 * nn + 1.0) / 24.0).sqrt();
+    let z = if sd > 0.0 { ((w_plus - mean).abs() - 0.5) / sd } else { f64::NAN };
+    // Two-sided normal tail, via the same erf-free approximation the rest of
+    // this file avoids needing: Abramowitz & Stegun 7.1.26 on erfc.
+    let p = {
+        let x = z / std::f64::consts::SQRT_2;
+        let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+        let poly = t * (0.254_829_592 + t * (-0.284_496_736 + t * (1.421_413_741 + t * (-1.453_152_027 + t * 1.061_405_429))));
+        let erfc = poly * (-x * x).exp();
+        erfc.clamp(0.0, 1.0)
+    };
+    d.clear();
+    (w_plus, z, p)
+}
+
 fn median(v: &mut [f64]) -> f64 {
     v.sort_by(|p, q| p.partial_cmp(q).expect("no NaN"));
     if v.is_empty() {
@@ -475,7 +542,24 @@ fn main() {
     // difference of two means over it is not a result, and "how many seeds
     // moved the same way" is the statistic that survives it.
     println!("\n  seeds where B held LESS than half the biomass: {b_lower} of {usable}");
-    println!("  (9 of 18 is the null. 18 of 18 is a world with teeth. Read this line, not the median.)");
+    println!("  (half is the null. All of them is a world with teeth. Read this line, not the median.)");
+    let (w, z, p) = signed_rank(&share_cells);
+    println!("  Wilcoxon signed-rank on B's cell share vs 50%: W+={w:.1} z={z:.2} p={p:.4} (two-sided)");
+    // **Power, stated for the n actually run rather than for 18.** The
+    // control measured a per-seed spread of ~9.3 share-points with no true
+    // effect present; 18 seeds resolve about 7.5 points, and the detectable
+    // effect scales roughly as 1/sqrt(n) from there. An earlier version of
+    // this line printed the 18-seed figure beside whatever `n` the run
+    // actually used, which overstates a short run's reach.
+    let resolves = 7.5 * (18.0 / usable as f64).sqrt();
+    println!(
+        "  POWER: the control's own spread is ~9.3 share-points per seed with no true effect, so\n  \
+         {usable} seeds resolve an effect of roughly {resolves:.0} points and are blind well below it.\n  \
+         An evolutionarily interesting selection coefficient is ~100x smaller than that and needs a\n  \
+         different DESIGN -- a frequency trajectory over many generations, not an endpoint share --\n  \
+         rather than more seeds. Note the test SATURATES once every seed points one way: at n=18 that\n  \
+         floor is p=0.0002, so beyond it the magnitude lives in the median, not the p-value."
+    );
 
     if mirrored && handicap != Handicap::Same && exact_ties == usable && usable > 0 {
         println!(
