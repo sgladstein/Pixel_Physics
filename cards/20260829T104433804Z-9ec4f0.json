@@ -1,0 +1,46 @@
+{
+  "id": "20260829T104433804Z-9ec4f0",
+  "created": "2026-08-29T10:44:33Z",
+  "board": "gnome",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/gnome-mining-mechanic-obm7j4",
+    "commit": "1166d64",
+    "agent": null,
+    "session_id": "7e6d7527-9f19-5475-bb25-535b32238ac6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Digging: a passage his own size, or the free-hand bite",
+  "question": "Same scene, same 105 bites, same spoil setting - only the cut SHAPE differs. One is the round bite at the cursor that ships today; the other cuts a rectangle sized to the gnome, in whichever of four directions you point, and draws the box before it cuts. Which reads better as a tunnel a gnome dug? Look at the roof, the floor, and the far end.",
+  "context_md": "105 bites in both arms, same dig_yield. Dusted 3410 (free) vs 3548 (bore). He ends at y=305 in one and y=298 in the other: the free bite drifts DOWN 7 cells over the run, riding its own spoil, while the bore keeps a floor level with his feet by construction. zoom=3, cropped on the gnome (uncropped, both are a dark smear at this world size).",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "FREE - round bite at the cursor (current)",
+      "files": [
+        "20260829T104433804Z-9ec4f0/000-tunnel_free_zoom.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "BORE - a passage his size, four directions (new default)",
+      "files": [
+        "20260829T104433804Z-9ec4f0/001-tunnel_bore_zoom.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
