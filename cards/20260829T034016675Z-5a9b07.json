@@ -1,0 +1,60 @@
+{
+  "id": "20260829T034016675Z-5a9b07",
+  "created": "2026-08-29T03:40:16Z",
+  "board": "felling",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/tree-physics-destruction-l6eocs",
+    "commit": "9f6664d",
+    "agent": null,
+    "session_id": "3ce830d2-1b4d-5fed-9af2-1e59f8344f7a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Before I rebuild tree physics: which half of the fall is wrong?",
+  "question": "You said last time it turned to dust and piled up instead of breaking into branches or falling over. Both halves of that are separately fixable and they need different work -- which one is actually what you are looking at here?",
+  "context_md": "**No change on this branch yet.** This is `main` today, so the question is diagnostic, not an acceptance.\n\nThe tree is cut at the base at frame 7,150. Top-left is the standing tree; the rest is the fall and the settled pile, zoomed 3x.\n\nThere are two different complaints inside \"it turns to dust\", and the measurements say they are separate problems:\n\n- **The wood does come off as pieces.** 14 coherent log pieces holding 903 cells, the largest 327 cells at 25x49. But **8 of the 14 land standing on end**, because nothing rotates a piece on the way down -- a piece cut out of a standing tree *is* a vertical piece. The pale spike on the left of the later frames is a 33x52 log standing upright.\n- **Half the tree is leaves, and every leaf becomes a powder.** 1,569 leaf cells against 1,697 wood. Settled, the pile is `litter` 1,347 + `deadwood` 504 against `log` 908 -- so roughly two thirds of what you are looking at is loose grain by count, and the gold speckle is the leaves.\n\nSo: is the thing that reads wrong **the logs standing up instead of lying down**, or **the leaf grain burying them**? If it is both, which one would you notice first?",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "the fall, 3x",
+      "files": [
+        "20260829T034016675Z-5a9b07/000-fell_zoom.png"
+      ],
+      "caption": "frames 7,100 / 7,250 / 7,400 / 7,550 / 7,700 / 7,850 -- cut at 7,150",
+      "meta": {
+        "log pieces >= 8 cells": 14,
+        "of those, upright": 8,
+        "of those, lying": 5,
+        "log cells": 908,
+        "litter cells": 1347,
+        "deadwood cells": 504,
+        "leaf share of the living tree": "48%",
+        "quarter turns asked in the whole fall": 9,
+        "turns refused by the fit probe": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "the same at play scale",
+      "files": [
+        "20260829T034016675Z-5a9b07/001-fell_base.png"
+      ],
+      "caption": "512x320, no zoom -- what it actually looks like in the game",
+      "meta": {
+        "cells severed by the cut": 3247,
+        "left as pieces": "99%",
+        "settled pile that is loose grain": "67% of the tree's debris"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
