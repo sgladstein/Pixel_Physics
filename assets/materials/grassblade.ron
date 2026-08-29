@@ -18,6 +18,28 @@
     // still turgid tissue, and going under litter's 0.3 would make cut
     // grass float on its own litter layer.
     density: 0.3,
+    // **Grass bends, and this is the number that makes it.** The owner's ask
+    // in his own words: *"The system needs to make grass bend and not break.
+    // It is ok if the grass gets a little smaller."*
+    //
+    // A cell leans one cell sideways when its bending moment reaches this,
+    // so it is set against the measured moment distribution of a real tuft
+    // rather than against anything derived. Censused on `scene=fell
+    // species=grass` (`filmstrip`'s "bending moment" line), 43 cells:
+    //
+    //     p50 0.4   p75 1.4   p90 5.5   p99 12.5   max 19.3
+    //
+    // 2.0 sits between p75 and p90 -- above the median by five times, so a
+    // blade's quiet middle does not creep, and below the loaded end, so the
+    // part of a blade that is actually carrying something lies over. Set in
+    // the gap rather than on a measured value, per `CLAUDE.md`.
+    //
+    // **For scale, and this is why the property is opt-in:** a tree's moments
+    // over the same census run p50 10.6, p90 572.7, max 15,316. Wood at this
+    // stiffness would not bend, it would pour. Wood has no stiffness at all
+    // and is rigid by default; when it gets one it will be some thousands,
+    // and it will be fitted by the stage that breaks things.
+    stiffness: 2.0,
     // **Four bands of four tonal steps**, per `organism::PALETTE_BAND`. The
     // order runs fresh green -> mid -> yellow-green -> straw, so a species'
     // declared range is a contiguous slice of one axis (the same rule

@@ -3238,6 +3238,12 @@ fn parse() -> Args {
                 // rejected -- so a sheet rendered with a typo'd channel
                 // looks exactly like a mechanism that does nothing.
                 "gutbias" => a.organism_overlay = OrganismOverlay::GutBias,
+                // **`bend`, not `stress`** -- `channel=stress` is already
+                // taken by `load::evaluate`'s *rock* stress, and two
+                // different quantities under one name is how a reader ends
+                // up judging the wrong picture. This is the plant bending
+                // channel, `plant::stress_field`.
+                "bend" => a.organism_overlay = OrganismOverlay::Stress,
                 "light" => a.field_overlay = FieldOverlay::Light,
                 "moisture" => a.field_overlay = FieldOverlay::Moisture,
                 "temperature" => a.field_overlay = FieldOverlay::Temperature,
@@ -4350,6 +4356,190 @@ struct LogPieces {
     square: usize,
     cells_in_pieces: usize,
     sizes: Vec<(usize, i32, i32)>,
+}
+
+/// **What the bending channel actually holds**, so the picture is never
+/// judged on its own.
+///
+/// `CLAUDE.md`'s standing rule for an invisible per-cell scalar: pair the
+/// overlay with a probe that prints the values, and reach for it the moment
+/// the question turns quantitative. A ramp can only say "brighter"; whether
+/// the hottest cell is at a trunk's base or out on a twig is the whole claim
+/// of the model, and only the coordinate says it.
+fn bend_census(world: &World) {
+    let mut all: Vec<(f32, (i32, i32))> = Vec::new();
+    let mut carried_at_ground = 0.0f32;
+    for id in world.live_organism_ids() {
+        for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
+            all.push((s.stress, at));
+            if s.grounded {
+                carried_at_ground += s.carried;
+            }
+        }
+    }
+    if all.is_empty() {
+        println!("      bending stress: no living tissue");
+        return;
+    }
+    all.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // The moment distribution beside the stress, because the stiffness
+    // constant is set against *moments* -- a cell leans when `|moment|`
+    // reaches its stiffness -- and a stress quantile cannot be read for it.
+    let mut moments: Vec<f32> = Vec::new();
+    let mut want_to_lean = 0usize;
+    for id in world.live_organism_ids() {
+        for s in pixel_physics::sim::plant::stress_field(world, id).values() {
+            moments.push(s.moment.abs());
+            if s.deflection.abs() >= 1.0 {
+                want_to_lean += 1;
+            }
+        }
+    }
+    // **Split by material, because `stiffness` is a per-material constant and
+    // one pooled distribution cannot fit two of them.** A stand's moments are
+    // dominated by its trunks; foliage sits at the far end of every lever and
+    // carries almost nothing, so its own numbers are two orders of magnitude
+    // down and invisible in the pooled quantiles that a stiffness was being
+    // read off.
+    let mut by_material: std::collections::BTreeMap<String, Vec<f32>> = Default::default();
+    for id in world.live_organism_ids() {
+        for (at, s) in pixel_physics::sim::plant::stress_field(world, id) {
+            let name = world.materials.get(world.get(at.0, at.1).material).name.clone();
+            by_material.entry(name).or_default().push(s.moment.abs());
+        }
+    }
+    for (name, mut v) in by_material {
+        v.sort_by(f32::total_cmp);
+        let q = |f: f32| v.get(((v.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+        let stiffness = world.materials.id_of(&name).map_or(f32::INFINITY, |m| world.materials.get(m).stiffness);
+        let want = v.iter().filter(|&&m| m >= stiffness).count();
+        println!(
+            "        {name:<12} {:5} cells: p50 {:.2}, p90 {:.2}, p99 {:.2}, max {:.2}; stiffness {stiffness}, so {want} want to lean",
+            v.len(),
+            q(0.50),
+            q(0.90),
+            q(0.99),
+            q(1.0)
+        );
+    }
+    moments.sort_by(f32::total_cmp);
+    let q = |f: f32| moments.get(((moments.len() as f32 - 1.0) * f) as usize).copied().unwrap_or(0.0);
+    println!(
+        "      bending moment: p50 {:.1}, p75 {:.1}, p90 {:.1}, p99 {:.1}, max {:.1}; cells leaning this tick {want_to_lean}",
+        q(0.50),
+        q(0.75),
+        q(0.90),
+        q(0.99),
+        q(1.0),
+    );
+    // **What it wanted against what it did**, which is the pair rather than
+    // the number: a blade blocked at every cell wants to lean exactly as hard
+    // as one that is leaning, and only the far side of the call tells them
+    // apart.
+    let f = world.structural_failures;
+    println!(
+        "      ...of which actually leaned: {} cells moved, {} refused (cumulative; {} cross-sections blocked, {} would have torn)",
+        f.bends_applied, f.bends_refused, f.bends_blocked, f.bends_would_tear
+    );
+    // **What wind was blowing while that was measured**, because half the
+    // moment now comes from it and a bend sheet read in a calm hour is a
+    // different experiment from one read in a gale. This is the
+    // divide-the-oscillator-out rule applied to the instrument: weather is a
+    // designed cycle, so a lean count with no wind figure beside it is that
+    // frame's phase plus the mechanism, and the two are not separable.
+    let gust = pixel_physics::sim::weather::at(world.seed, world.frame).wind;
+    let mut exposures: Vec<f32> = Vec::new();
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        let Some(&(x, y)) = state.cells.keys().max_by_key(|&&(x, y)| (y, x)) else { continue };
+        exposures.push(pixel_physics::sim::weather::exposure(world, x, y, gust));
+    }
+    exposures.sort_by(f32::total_cmp);
+    match (exposures.first(), exposures.last()) {
+        (Some(&lo), Some(&hi)) => println!(
+            "      wind on that tissue: gust {gust:+.3} (stirs above {:.3}), exposure {lo:.3}..{hi:.3} over {} plants",
+            0.225,
+            exposures.len()
+        ),
+        _ => println!("      wind on that tissue: gust {gust:+.3}, no plants to blow on"),
+    }
+    let median = all[all.len() / 2].0;
+    let (peak, where_peak) = all[all.len() - 1];
+    let zero = all.iter().filter(|(v, _)| *v == 0.0).count();
+    println!(
+        "      bending stress over {} cells: median {median:.2}, peak {peak:.1} at {where_peak:?}, {} at zero ({}%); mass reaching the ground {carried_at_ground:.0}",
+        all.len(),
+        zero,
+        (zero * 100).checked_div(all.len()).unwrap_or(0),
+    );
+}
+
+/// **How far the settled foliage is from any wood**, in steps through other
+/// foliage.
+///
+/// The owner's standing complaint is that a felled crown's leaves come off
+/// the branch, and `MaterialDef::clings_to_wood` is supposed to hold them --
+/// but `update::on_a_branch` asks only the four *immediate* neighbours, so a
+/// leaf resting on another leaf that is resting on a branch still falls. This
+/// says how much of a crown that leaves out: it is the difference between the
+/// mechanism being broken and the mechanism being one cell deep.
+///
+/// A multi-source BFS out of every woody cell, crossing only foliage, so
+/// "distance 1" is exactly the set `on_a_branch` holds today. `unreachable`
+/// is foliage with no path to wood at all through its own kind -- litter that
+/// has already run clear, which no clinging rule of any depth would recover.
+fn leaf_reach(world: &World) {
+    let Some(deadleaf) = world.materials.id_of("deadleaf") else { return };
+    let mut dist: std::collections::HashMap<(i32, i32), u32> = std::collections::HashMap::new();
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+    let foliage = |x: i32, y: i32| world.get(x, y).material == deadleaf;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if world.materials.get(world.get(x, y).material).woody {
+                dist.insert((x, y), 0);
+                queue.push_back((x, y));
+            }
+        }
+    }
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[&(x, y)];
+        for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if !world.in_bounds(nx, ny) || !foliage(nx, ny) || dist.contains_key(&(nx, ny)) {
+                continue;
+            }
+            dist.insert((nx, ny), d + 1);
+            queue.push_back((nx, ny));
+        }
+    }
+    let mut buckets = [0usize; 6];
+    let mut unreachable = 0usize;
+    let mut total = 0usize;
+    for y in 0..HEIGHT {
+        for x in 0..WIDTH {
+            if !foliage(x, y) {
+                continue;
+            }
+            total += 1;
+            match dist.get(&(x, y)) {
+                Some(&d) => buckets[(d as usize).min(5)] += 1,
+                None => unreachable += 1,
+            }
+        }
+    }
+    let share = |n: usize| (n * 100).checked_div(total).unwrap_or(0);
+    println!(
+        "      foliage by steps to the nearest wood: 1 {} ({}%), 2 {} ({}%), 3 {}, 4 {}, 5+ {}, no path {} ({}%) of {total} cells",
+        buckets[1],
+        share(buckets[1]),
+        buckets[2],
+        share(buckets[2]),
+        buckets[3],
+        buckets[4],
+        buckets[5],
+        unreachable,
+        share(unreachable),
+    );
 }
 
 /// The settled `log` pieces, folded into 8-connected clusters: how many,
@@ -7616,6 +7806,8 @@ impl FellCensus {
             let total: usize = tally.values().sum();
             let listed: Vec<String> = tally.iter().rev().map(|(n, c)| format!("{n} {c}")).collect();
             println!("      unattached debris in the fall box (x 200..340): {} cells -- {}", total, listed.join(", "));
+            leaf_reach(world);
+            bend_census(world);
             println!(
                 "      of that, {loose} cells are a Powder kind ({:.0}% of the pile is loose grain by count)",
                 if total == 0 { 0.0 } else { 100.0 * loose as f64 / total as f64 }
