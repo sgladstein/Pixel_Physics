@@ -3,7 +3,8 @@
 **Status: living index. Current as of 2026-08-26.**
 
 Every measurement in this repo comes out of an `examples/` binary, there are
-**31 of them**, and their names do not say what they can answer. This file
+**36 of them** (recounted 2026-08-29; the 31 this line carried was the
+2026-08-26 census), and their names do not say what they can answer. This file
 exists because instruments were being rebuilt: a lane needs a number, does not
 know a harness for it already exists, and writes a second one. The specific
 case that prompted this — W3's `divergence` — turned out to answer at least
@@ -89,6 +90,7 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 | `forage_probe` | Does the colony actually range, and how far? | |
 | `creature_look` | **Can you find this thing in the picture?** `ink` is how much luminance a body puts on screen that the ground would not have, from a paired with/without render; `decoys` is how many *other* places in the frame are at least as different from their surroundings as the body is | **Not creature-specific — it answers "is this findable" for anything drawn into this world**, which is the question `plant-appearance-design.md` had no instrument for. `decoys` is the one that explains a picture: contrast says a body differs from its background, and this says how many things in the frame differ just as much. Pins daylight (a luminance number sampled at an arbitrary hour is a statement about the hour) and builds on a `WorldgenPresets` preset rather than `build_terrain`, whose bare skyline makes every surround reading the sky. Echoes its own parameters |
 | `gnome_depth` | Does the gnome weave *through* a formation, or get sliced *by* it? | |
+| `species_export` | **Can this individual be kept?** Writes a genome + traits out as `assets/species/<name>.ron` and reads it back through the loader | Not a measurement — the dev-tool exit for E8. `genome=rNNN` takes the same labels `creature_space` ranks, so a good row in that sweep can be saved as a species. `verify=1` (default) is the round trip |
 
 ## The ones that generalise past what they were built for
 
