@@ -1,0 +1,46 @@
+{
+  "id": "20260829T090050407Z-b3bfd3",
+  "created": "2026-08-29T09:00:50Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visual-improvements-q1mked",
+    "commit": "9dcf56c",
+    "agent": null,
+    "session_id": "a72d6728-5352-5912-9975-53b6a7accdc8",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Flat, rough-edged, exact palette — against what ships today",
+  "question": "Both notes are in: no shading at all now, and the outline wanders instead of being circular. This is the one that matters — is it better than what ships today, or not yet?",
+  "context_md": "Same stand, same frame, same 14,857 plant cells, no simulation change. One arm is the shipped 1:1 render magnified 3x; the other draws the same cells at 3 pixels each. Every fill is now a colour the engine already drew (snapped to the cells underneath, so the palette is exact), the threshold that cuts the outline wanders with position so nothing is a circular arc, and both the ambient-occlusion and the directional-light terms you called 3d-ish are off.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped 1:1, magnified 3x",
+      "files": [
+        "20260829T090050407Z-b3bfd3/000-ab-A.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "flat + rough edge + exact palette",
+      "files": [
+        "20260829T090050407Z-b3bfd3/001-v3-flat.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
