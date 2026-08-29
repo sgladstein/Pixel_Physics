@@ -132,10 +132,13 @@ def check_card(spec):
 
 UNCHECKABLE = """
   Not checked, and not checkable here -- confirm by reading:
-    * does the first line name something a player could SEE?
-    * does the message say where this sits in an arc, not where it sits in
-      your task list? ("a position in a queue is not a direction")
-    * is there a status line -- landed / needs your eye / blocked?
+    * does the opening say what the change DOES, in the world's words or the
+      work's, rather than the code's? (not every change shows on screen --
+      when it doesn't, say what it is for)
+    * does it say where this sits in an arc, not where it sits in your task
+      list? ("a position in a queue is not a direction")
+    * is it scaled to the message -- a one-line update kept to one line,
+      not padded out to four headings?
     * could the owner stop reading at any line and still be oriented?
 """.rstrip()
 

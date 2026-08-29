@@ -118,45 +118,49 @@ checker were attached to it.
 ## The rule
 
 Owner's choice, made 2026-08-29 from three rendered alternatives: **a short
-brief, with the detail kept below a fold.** Not two lines (they wanted enough
-to spot a bad call without asking) and not the current body with a summary
-bolted on top.
+brief, with the detail kept below a fold** — not two lines, and not the
+current body with a summary bolted on top. Then trimmed twice on their
+reading of the draft, and both trims are corrections worth recording:
 
-Four parts, in this order, then anything:
+- **"A player could see it" was too strong.** The first draft required every
+  message to open with a visible consequence. Not every change has one — a
+  measurement, a retune, a documentation fix, a perf win that is bit-identical
+  on screen. The clause is now *what it does, in the vocabulary of the world
+  or of the work rather than of the code*, and when nothing shows on screen,
+  say what it is **for**.
+- **"Every message" was too strong.** The first draft asked for four numbered
+  parts every time, which turns a one-line update into four headings. The rule
+  now **scales to the message**: short stays short, and only carries the
+  obligation to be less technical; a long message carries the whole shape.
+- **And it was too long.** 763 tokens in an always-loaded file the owner
+  already considers over-long; now 408. The census, the worked rewrites and
+  the reasoning live here instead, which is what a report is for.
 
-1. **What changed in the world** — one sentence naming something a player
-   could see. No code symbols, no register codes.
-2. **Why it matters** — the consequence, in the same vocabulary.
-3. **Where it sits** — the arc this belongs to, this step's place in it, and
-   what is queued behind it. This is the part that was missing entirely.
-4. **Status** — landed / needs your eye / blocked, and the next step.
-5. **Then the mechanism**, below a marked fold, as technical as it needs to
-   be. Nothing is deleted; it is *ordered*.
+What survives is two clauses and an ordering:
 
-The governing property, and the thing to check a draft against: **the message
-must be abandonable at any line.** The owner should be able to stop after line
-one and know what happened, stop after part 3 and know whether to intervene.
+1. **What it does** — in the world's words or the work's, not the code's.
+   `wiki/*.md` is the vocabulary: it describes every material and mechanic in
+   plain language, with no code and no file names, and `CLAUDE.md`'s file
+   table maps each source file to its page. Needing a word the wiki lacks is
+   itself a finding — that page is stale.
+2. **Where it sits** — the arc, and this step's place in it. The part the
+   owner ranked first and the part no message had.
+3. **Then the mechanism**, as technical as it needs to be.
 
-**The vocabulary already exists and is written down.** `wiki/*.md` describes
-every material and mechanic "in plain language — no code, no file names". That
-is exactly the register wanted, it is maintained, and `CLAUDE.md`'s file table
-maps every source file to its owning wiki page. Write to the owner in the
-words the wiki uses; when you cannot find the word, that is a signal the wiki
-page is stale, which is its own finding.
+The governing property: **the message must be abandonable at any line.**
 
 **Numbers stay.** This project judges by measurement and the rule must not
-become an excuse to stop quoting numbers. What changes is the label: a number
-in the plain part is named for what it says about the world, and is one the
-owner could in principle verify by looking. `wrong cells 35,102 → 1,337`
-becomes *ground that collapsed when it should have held: 35,102 cells →
-1,337*. Same number.
+become an excuse to stop quoting them. What changes is the label: a number in
+the plain part is named for what it says about the world. `wrong cells 35,102
+→ 1,337` becomes *ground that collapsed when it should have held: 35,102 cells
+→ 1,337*. Same number.
 
-**Chat is the subject of the rule, and mid-session narration is the worse
-half of it.** The
-owner's complaint is partly about not knowing what a session is doing *while*
-it does it. "Now checking `load::ground_footing_distance` against the oracle
-at frame 1,599" is unreadable from outside; "checking whether rock on a pile
-now reports the right support depth" is the same sentence.
+**Chat is the subject of the rule, and mid-session narration is the worse half
+of it.** The owner's complaint is partly about not knowing what a session is
+doing *while* it does it. "Now checking `load::ground_footing_distance`
+against the oracle at frame 1,599" is unreadable from outside; "checking
+whether rock on a pile now reports the right support depth" is the same
+sentence.
 
 ## Worked rewrites
 
@@ -179,8 +183,10 @@ subject:
 | `crystal Material::glow` | `how brightly crystal glows (1 = normal)` |
 | `FIELD_SCALE (cells per light value)` | `light resolution: 1 value per 8 cells` |
 
-**An end-of-turn reply**, the channel with no conventions today — this is the
-shape the owner picked, rendered from PR #86:
+**An end-of-turn reply** — the channel with no conventions today, and the
+rule's whole subject. This is a *long* message, so it carries the whole shape;
+a one-line update would be the first sentence and nothing else. Rendered from
+PR #86:
 
     Rock sitting on a pile of rubble no longer pretends it's sitting on
     bedrock — so hitting the ground near a pile stops caving in ground
