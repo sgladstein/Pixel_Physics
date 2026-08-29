@@ -1,0 +1,54 @@
+{
+  "id": "20260829T043137542Z-2c69c9",
+  "created": "2026-08-29T04:31:37Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-visuals-smoothing-vrlrmk",
+    "commit": "dbad251",
+    "agent": null,
+    "session_id": "c27dad0b-e743-590f-a990-252a904eb452",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Broadleaf stems: sampled step vs drawn heading",
+  "question": "Which stand's branches read as grown wood rather than jitter?",
+  "context_md": "The complaint this is aimed at: **no plant has a smooth straight stem.**\n\nThe cause is not a weight that needs tuning. Eight neighbours cannot hold a direction — a shoot heading dead-on vertical scores straight-up at 1.0 and *both* upward diagonals at 0.71, so it steps off its own axis **59% of the time** however hard continuation is pushed, and because every step is an independent draw those departures pile up instead of cancelling.\n\nSo the sampled direction stops being the step and becomes a **vote on the heading**; the step actually taken is that heading drawn onto the grid the way a line-drawing routine draws a slope. Same weights, same weighted sample, same single dice roll per step — a shoot leaning 17 degrees still leans 17 degrees. Only the spelling in whole cells changed.\n\n**What I already measured, so you can ignore it:** across four world seeds the same number of plants established either way (9, 8, 8, 8), and mean height moved +4%. Departure from a stem's own line, modelled on the trunk's own weights, falls from 0.88 cells to 0.41 (a perfectly drawn line is ~0.3).\n\n**What I want your eye on:** whether the straighter one now reads as *drawn* rather than grown. That is the failure mode I am worried about and cannot judge for myself.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - sampled step (current)",
+      "files": [
+        "20260829T043137542Z-2c69c9/000-ab-tree-off.png"
+      ],
+      "caption": "the step the tip sampled is the step it takes",
+      "meta": {
+        "plants that established, 4 world seeds": "9, 8, 8, 8",
+        "mean height (cells)": 124.6,
+        "how far a stem strays from its own line (cells)": 0.88
+      },
+      "focus": null
+    },
+    {
+      "label": "B - drawn heading (proposed)",
+      "files": [
+        "20260829T043137542Z-2c69c9/001-ab-tree-on.png"
+      ],
+      "caption": "the sample steers a heading; the heading is drawn onto the grid",
+      "meta": {
+        "plants that established, 4 world seeds": "9, 8, 8, 8",
+        "mean height (cells)": 130.3,
+        "how far a stem strays from its own line (cells)": 0.41
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
