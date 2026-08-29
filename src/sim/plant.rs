@@ -2027,7 +2027,11 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // at all (a root), which is right: an axis with no metamers
                 // can never satisfy a metamer count, so a root cannot flower
                 // by accident.
-                let metamers = if plastochron_interval > 0 { lineage_step / plastochron_interval } else { 0 };
+                // `checked_div` rather than a guarded divide: the two are
+                // exactly equivalent (0 is the answer either way) and CI's
+                // clippy is newer than a local one may be -- `manual_checked_ops`
+                // landed in 1.98 and took the guarded form as a finding.
+                let metamers = lineage_step.checked_div(plastochron_interval).unwrap_or(0);
                 let when = if leaf_due { organism::FateWhen::Node } else { organism::FateWhen::Grew };
                 let fate = fate_for(world, species_id, cell_type, when, metamers);
 
