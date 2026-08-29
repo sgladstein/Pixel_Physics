@@ -246,6 +246,10 @@ struct Outcome {
     /// for the same coefficient. Sampling more often does not help -- samples
     /// along one trajectory are autocorrelated; running *longer* does.
     traj: Vec<(f64, f64)>,
+    /// The population's mean generation at the last sample -- the x-value the
+    /// trajectory's slope is measured against, carried out so the two halves
+    /// of this harness can be checked against each other.
+    final_gen: f64,
 }
 
 /// **Least-squares slope of `logit(freq)` against generation** -- the
@@ -398,7 +402,8 @@ fn run_world(
         }
         last = (a, b);
     }
-    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), traj }
+    let final_gen = traj.last().map_or(0.0, |&(g, _)| g);
+    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), traj, final_gen }
 }
 
 /// **Wilcoxon signed-rank against a 50% null, two-sided.**
@@ -559,12 +564,14 @@ fn main() {
     // slopes, so position and genotype draw cancel here exactly as they do
     // for the endpoint share.
     let mut slopes: Vec<f64> = Vec::new();
+    let mut gens_final: Vec<f64> = Vec::new();
     for s in 0..seeds {
         // The mirror pair: same world, arm assignment inverted, pooled.
         let mut a = Tally::default();
         let mut b = Tally::default();
         let assignments: &[bool] = if mirrored { &[false, true] } else { &[false] };
         let mut pair_slopes: Vec<f64> = Vec::new();
+        let mut pair_gens: Vec<f64> = Vec::new();
         for &mirror in assignments {
             let o = run_world(
                 &species, founders, width, soil_depth, moisture, relief_varied, s + 1, frames, every,
@@ -579,6 +586,7 @@ fn main() {
             if let Some(sl) = logit_slope(&o.traj) {
                 pair_slopes.push(sl);
             }
+            pair_gens.push(o.final_gen);
             let _ = o.ever;
         }
         let tot_o = a.organisms + b.organisms;
@@ -597,6 +605,9 @@ fn main() {
         share_cells.push(sc);
         if !pair_slopes.is_empty() {
             slopes.push(pair_slopes.iter().sum::<f64>() / pair_slopes.len() as f64);
+        }
+        if !pair_gens.is_empty() {
+            gens_final.push(pair_gens.iter().sum::<f64>() / pair_gens.len() as f64);
         }
         usable += 1;
         if sc < 50.0 {
@@ -667,7 +678,38 @@ fn main() {
         println!("  generations and s=0.01 needs ~80 -- one long run against ~620 worlds.");
         if med.abs() > 1e-6 {
             let gens = 4.0 / med.powi(2) / 500.0;
-            println!("  (a coefficient this size is resolvable in ~{gens:.0} generations at Ne=500)");
+            if gens < 1.0 {
+                println!("  (a coefficient this size is resolvable in under one generation at Ne=500)");
+            } else {
+                println!("  (a coefficient this size is resolvable in ~{gens:.0} generations at Ne=500)");
+            }
+        }
+        // **The two halves of this harness, checked against each other.**
+        // The endpoint share and the trajectory slope are separate
+        // measurements of one thing, so `slope x generations` must reproduce
+        // the endpoint log-odds. They are not independent evidence -- they
+        // come from the same runs -- but a disagreement means one of the two
+        // is wrong, and without this line the discrepancy is invisible.
+        //
+        // It has already earned its place: the slope first read -0.35 against
+        // a -0.23 predicted by hand from the endpoint, and the gap was
+        // entirely a wrong guess at the mean generation (assumed ~2.0, really
+        // ~1.3). Printing the generation makes that checkable instead of
+        // inferred.
+        if !gens_final.is_empty() {
+            let mut g = gens_final.clone();
+            let gbar = median(&mut g);
+            let mut sc2 = share_cells.clone();
+            let endp = median(&mut sc2) / 100.0;
+            if endp > 1e-6 && endp < 1.0 - 1e-6 {
+                let implied = med * gbar;
+                let actual = (endp / (1.0 - endp)).ln();
+                println!(
+                    "  cross-check: slope {med:+.4} x mean generation {gbar:.2} = {implied:+.3}, against\n  \
+                     the endpoint share's own log-odds {actual:+.3}. These are two readings of one run and\n  \
+                     must agree; a gap means one of the two is wrong."
+                );
+            }
         }
     } else {
         println!("\nselection coefficient: only {} seeds gave a usable slope.", slopes.len());

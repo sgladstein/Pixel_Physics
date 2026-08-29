@@ -95,15 +95,46 @@ against a `nobranch` handicap on the same plant that reads 11 points. Removing
 the shoot's ability to branch costs it the bed; removing the root's costs
 nothing measurable.
 
-The straightforward reading is the bed: `PlantScene::default()` is **uniform
-soil at field capacity across the whole width**, so there is no water or
-rooting-volume scarcity for a root system to compete over, and a better root
-buys nothing. `Relief::Varied` exists precisely to vary both, and the same arm
-is running on it now — that comparison is the test of this reading and it is
-not in this report.
+### 4a. The obvious explanation was tested and is **wrong**
 
-**Read the power table before reading this as "roots do not matter".** A
-true effect of 3 points would be invisible here.
+The straightforward reading was the bed: `PlantScene::default()` is uniform
+soil at field capacity across its whole width, so there is no water or
+rooting-volume scarcity to compete over and a better root buys nothing.
+`Relief::Varied` varies moisture linearly and rooting depth on a full sine
+period, so it should switch that on.
+
+**It does not.** Both branch arms re-run on the varied bed, 18 seeds each:
+
+| arm | bed | median | seeds B lost | p |
+|---|---|---|---|---|
+| `nobranch` | flat | 38.9% | 18/18 | 0.0002 |
+| `nobranch` | **varied** | 36.9% | 17/18 | 0.0003 |
+| `norootbranch` | flat | 49.7% | 10/18 | 0.86 |
+| `norootbranch` | **varied** | **50.6%** | 7/18 | **0.28** |
+
+The shoot handicap is unmoved by the bed and the root handicap is still a
+null. **The hypothesis this section was written to test is refuted**, and the
+prediction is recorded rather than quietly replaced because it was made in
+advance and it was wrong.
+
+### 4b. What the evidence actually supports
+
+The asymmetry tracks the **binding resource**, not the bed's variability.
+`plant-throughput-herb-2026-08-29.md` measured herb's carbon binds as severe —
+*"leaf construction refuses 45–48% of wanted cells and organ clusters 31–36%"*
+— so these plants are carbon-limited, not water-limited. Selection sees what
+the binding constraint sees: shoot architecture serves light capture and
+therefore carbon, and is worth 11 points; root architecture serves water and
+nutrients, which are not scarce, and is worth nothing measurable.
+
+That reading predicts something specific and testable, which this report does
+not test: making water genuinely limiting — a bed at or below the wilting
+point, or a drought cycle — should bring the root arm to life. **Varying the
+bed is not the same as making a resource scarce**, and only the second should
+matter.
+
+**Read the power table before reading any of this as "roots do not matter".**
+A true effect of 3 points is invisible here on either bed.
 
 ## 5. Three vacuous arms, and what each cost
 
