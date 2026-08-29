@@ -5992,7 +5992,37 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             };
             let (flower, fruit, windfall) = (count("flower"), count("fruit"), count("windfall"));
             if flower + fruit + windfall + world.organs_built as usize > 0 {
-                println!("    organs standing: {flower} flower + {fruit} fruit on the plant, {windfall} windfall on the ground");
+                // **Where the windfall actually is, not where it is assumed
+                // to be.** The first version of this line called every
+                // windfall cell "on the ground" without checking, which is
+                // exactly the unverified label this repo keeps paying for --
+                // and it is a live question, because `main` added
+                // `Material::falls_through_organisms` for litter lodging in
+                // crowns and a dropped fruit takes the same path. Banded the
+                // way `litter_probe` bands litter so the two are comparable:
+                // a cell resting on plant tissue and a cell high above the
+                // ground are different failures and a total hides both.
+                let (mut lodged, mut high) = (0usize, 0usize);
+                if let Some(id) = world.materials.id_of("windfall") {
+                    let ground = common::PlantScene::default().ground_y;
+                    for x in 0..WIDTH {
+                        for y in 0..HEIGHT {
+                            if world.get(x, y).material != id {
+                                continue;
+                            }
+                            if world.get(x, y + 1).organism_id() != 0 {
+                                lodged += 1;
+                            }
+                            if y + 16 < ground {
+                                high += 1;
+                            }
+                        }
+                    }
+                }
+                println!(
+                    "    organs standing: {flower} flower + {fruit} fruit on the plant, \
+                     {windfall} windfall ({lodged} resting on plant tissue, {high} more than 16 rows up)"
+                );
                 // The event counters beside the standing census, because they
                 // are different questions and a card needs both: *built* says
                 // the mechanism fired, *terminated* says determinacy fired

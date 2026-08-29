@@ -57,6 +57,38 @@
     // **The gnome walks through a drift of them**, like litter. Fallen fruit
     // under a tree is ankle-deep at worst and should not read as quicksand.
     insubstantial: true,
+    // **And it falls past a branch rather than sitting on it** -- the 2D-slice
+    // rule `MaterialDef::falls_through_organisms` states as data. A fruit that
+    // lets go inside a crown is the same case as a shed leaf: the world is one
+    // vertical slice of a 3D plant, so a branch one cell wide is not a shelf
+    // spanning the wood's whole depth, and going past it is the common outcome.
+    //
+    // **Its effect here is unmeasured, and saying so is the point.** The
+    // census that prompted this line read "2 of 2 standing windfall cells
+    // resting on plant tissue" and looked decisive. It was a true number
+    // about the wrong question, and the flag's own doc names the trap:
+    // *resting on plant tissue* counts both a fruit lodged in a crown and a
+    // fruit sitting on a prostrate stem at ground level, and those are
+    // opposite verdicts. Neither authored fruiting species has a crown to
+    // lodge in -- one is a bare stalk, the other a knee-high thicket -- so
+    // almost every cell the metric flagged was the harmless case. With the
+    // flag on, the discriminating column (windfall more than 16 rows above
+    // the ground) reads 1 and 1 against 1 and 0 without it: nothing.
+    //
+    // Kept anyway, because it is a claim about what a fruit *is* rather than
+    // a tuning knob, and it costs one branch paid only by a windfall sitting
+    // on living tissue. It will matter the first time something tall fruits,
+    // and that is the run that should measure it.
+    //
+    // **Note the density argument runs the other way and is not the
+    // criterion.** This is 1.05 against `deadwood`'s 0.7, and deadwood
+    // deliberately *does* hang up in a crown. That flag's own doc says why
+    // geometry cannot decide it: a snapped branch is chunky and a fruit is
+    // small and round, and no number already on the material expresses that.
+    // The mechanic seconds it -- a windfall carries a live seed, so one lodged
+    // mid-canopy germinates mid-canopy, which is the rooted-above-ground
+    // failure `plant_probe` already counts.
+    falls_through_organisms: true,
     // **No `breaks_into`.** A windfall is already the broken-down form;
     // pointing it at itself would make a fragment loop, which is the same
     // call `litter.ron` makes for the same reason.
