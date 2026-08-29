@@ -1370,9 +1370,15 @@ plants established either way (9, 8, 8, 8) and mean height moved +4%. The
 default is exactly the old behaviour: `stem_stiffness` unset costs nothing and
 was verified byte-identical against the pre-change binary.
 
-**Known limitation:** grass and shrub carry the parameter on the same
-reasoning but have not been judged by eye — grass barely establishes in the
-`grove` scene, so no A/B was rendered for it. Tree and conifer were.
+**Known limitation: grass is the one species carrying this unjudged.** Tree
+and conifer were rendered as blind A/B pairs; shrub was rendered and shows no
+visible change either way, which is what its deliberately soft setting is for
+— a shrub's foliage hides its stems. Grass could not be judged at all: it
+barely establishes in the `grove` scene (9 cells of tissue at `moisture=3`),
+and a generated world's surface window holds too little of it to read, which
+is the same sparsity `Reports/instruments.md` records against `flora_census`.
+The parameter is authored on the same reasoning as the rest and is the one
+part of this not backed by a picture.
 
 ## M16 status
 
